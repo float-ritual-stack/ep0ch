@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     // Long enough to scroll, so j after e shows it moved.
     notes.hedge = await mk(null, `Trim the hedge [type::job] [area::yard] [stage::todo]\n${Array.from({ length: 80 }, (_, i) => `Row ${i + 1} of the hedge, clipped low.`).join("\n")}`);
     notes.yard = await mk(null, "Yard jobs");
@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
 
   for (const typed of ["abc", "e", "cancel"]) test(`slow read: e then ${typed} during opening`, async () => {
     window("off");
-    const note = await board.request<{ id: string }>("create", { parentId: null, text: notes.hedge.text, author: "agent" });
+    const note = await board.request("create", { parentId: null, text: notes.hedge.text, author: "agent" });
     const { desk, rd } = await deskOnHedge(note.id);
     const original = (await board.get(note.id))!.text;
     const get = board.get.bind(board);
@@ -224,7 +224,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
 
   for (const scenario of ["repeat Enter", "window keys", "mouse menu", "failed read"]) test(`held opening: ${scenario}`, async () => {
     window(scenario === "repeat Enter" ? "60000" : "off");
-    const note = await board.request<{ id: string }>("create", { parentId: null, text: "Seed tray\nWater daily", author: "agent" });
+    const note = await board.request("create", { parentId: null, text: "Seed tray\nWater daily", author: "agent" });
     const { desk, rd, rows } = await deskOnHedge(note.id);
     const get = board.get.bind(board);
     let release!: () => void, reading!: () => void;

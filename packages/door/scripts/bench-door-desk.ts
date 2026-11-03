@@ -24,9 +24,9 @@ let phase = "start-up";
 /** Every request the door made: its action, the phase it was asked in, how long its answer took (or that it failed). */
 const timed: Array<{ phase: string; action: string; ms: number; failed?: true; view?: string }> = [];
 const board = new SocketBoard(values.socket, 15_000, values.outline);
-const request = board.request.bind(board);
+const request = board.send.bind(board);
 const view = (params?: Record<string, unknown>) => (typeof params?.viewId === "string" ? { view: params.viewId } : {});
-board.request = ((action: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
+(board as any).request = ((action: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
   const at = phase, started = performance.now();
   return request(action, params, timeoutMs, signal).then(
     r => { timed.push({ phase: at, action, ms: performance.now() - started, ...view(params) }); return r; },
@@ -55,12 +55,12 @@ await act("tile.open", { kind: "query", query: values.query ?? "type=review-find
 const drawing = setInterval(() => { try { (app as unknown as { paint(): void }).paint(); } catch { /* a frame that throws is the door's to report */ } }, 50);
 
 // The person: opens a note's children every second and saves a note of their own every five, through the door's board.
-const mine = await board.request<{ id: string; revision: number }>("create", { text: "Bench person's note", author: "user" });
+const mine = await board.request("create", { text: "Bench person's note", author: "user" });
 let revision = mine.revision, n = 0;
 const person = setInterval(() => {
   n += 1;
   if (values.note) void board.children(values.note).catch(() => {});
-  if (n % 5 === 0) void board.request<{ revision: number }>("update", { blockId: mine.id, text: `Bench person's note ${n}`, expectedRevision: revision, mutation: { author: "user" } })
+  if (n % 5 === 0) void board.request("update", { blockId: mine.id, text: `Bench person's note ${n}`, expectedRevision: revision, mutation: { author: "user" } })
     .then(r => { revision = r.revision; }, () => {});
 }, 1_000);
 

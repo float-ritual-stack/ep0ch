@@ -84,7 +84,7 @@ export async function undoMove(board: WriteBoard, by: Actor, context: string): P
  */
 export async function routeNote(board: Pick<SocketBoard, "request" | "get">, id: string, actor: Actor, opts: { dryRun?: boolean } = {}): Promise<NoteRouteResult> {
   const before = (await board.get(id))?.revision;
-  const run = await board.request<NoteRouteRun>("notes.route", { ref: id, ...(opts.dryRun ? { dryRun: true } : {}), mutation: mutationFor(actor) });
+  const run = await board.request("notes.route", { ref: id, ...(opts.dryRun ? { dryRun: true } : {}), mutation: mutationFor(actor) });
   const done = run.results[0];
   if (!done) throw new ActionRefused(`nothing was routed${run.problems.length ? `: ${run.problems[0]}` : ""}`);
   if (done.outcome === "moved" && done.previousPosition !== undefined && done.revision !== undefined && before !== undefined) {

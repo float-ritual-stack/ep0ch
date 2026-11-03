@@ -11,9 +11,9 @@ import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { PropertyPlacement, PropertyRecord, PropertyScope, PropertySyntax } from "./types";
 import { isCanonicalWorkId } from "./work-ids";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
-const CANONICAL_BLOCK_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CANONICAL_BLOCK_ID_PATTERN = BLOCK_ID_PATTERN;
 
 export type PropertyInspectorTarget =
   | { readonly kind: "link"; readonly uri: string; readonly source: "value" }

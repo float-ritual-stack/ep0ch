@@ -42,7 +42,7 @@ describe.skipIf(!outliner)("the showcase screen: script examples", () => {
     expect(stamped.map(c => c.text)).toEqual(["Ship list for Beans for the swap\n- [ ] Pack\n- [ ] Label\n- [ ] Hand over"]);
     // Examples 1 and 5, in the same seeded notes: asked for as a reader's open asks.
     const under = await board.children(seeded.notes.scriptExamples.id);
-    const drawnOf = async (title: string) => JSON.stringify(await board.readResourceProjections(under.find(c => c.text.startsWith(title))!.id));
+    const drawnOf = async (title: string) => JSON.stringify(await board.request("resources.projection.read", { blockId: under.find(c => c.text.startsWith(title))!.id, materialize: true }));
     await untilAsync(async () => (await drawnOf("Bed 4")).includes("Sam sows beans in week 12."), "example 1 drawn");
     await untilAsync(async () => (await drawnOf("Cost list order")).includes("Total"), "example 5 drawn");
     // The table's total follows an edit of a child.

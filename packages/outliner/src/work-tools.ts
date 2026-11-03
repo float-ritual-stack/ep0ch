@@ -40,6 +40,7 @@ import {
   type RoadmapItemCreateReceipt,
   type RoadmapWorkStage,
 } from "./types";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /** The part of `OutlinerClient` these operations use. */
 export interface WorkToolsClient {
@@ -62,7 +63,7 @@ export class WorkToolRefusal extends Error {
   }
 }
 
-const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BLOCK_ID = BLOCK_ID_PATTERN;
 /** Identity is assigned once; changing it would orphan links, deliveries and reservations. */
 const IMMUTABLE_KEYS = new Set(["type", "work-id"]);
 /** Roadmap list relationships: setting one value would drop the others. */

@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -35,10 +36,10 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
     machine = canonicalLocalMachineName();
-    target = await board.request<{ id: string; text: string }>("create", { parentId: null, text: "Addressable seed\nReady for local tools.", author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
-    source = await board.request<{ id: string; text: string }>("create", { parentId: null, text: `Private backlink source\nSee ((${target.id}|the target)).`, author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
-    privateNote = await board.request<{ id: string; text: string }>("create", { parentId: null, text: "Private seed\nNot published, but allowed after local MCP grant.", author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
-    publishedShell = await board.request<{ id: string; text: string }>("create", { parentId: null, text: `Published shell [publish::true]\nPublishing does not grant local MCP access. See ((${privateNote.id}|private seed)).`, author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
+    target = await board.request("create", { parentId: null, text: "Addressable seed\nReady for local tools.", author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
+    source = await board.request("create", { parentId: null, text: `Private backlink source\nSee ((${target.id}|the target)).`, author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
+    privateNote = await board.request("create", { parentId: null, text: "Private seed\nNot published, but allowed after local MCP grant.", author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
+    publishedShell = await board.request("create", { parentId: null, text: `Published shell [publish::true]\nPublishing does not grant local MCP access. See ((${privateNote.id}|private seed)).`, author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
     for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
   }, 30_000);
 
@@ -49,7 +50,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
   }, 20_000);
 
   test.each(["grep", "find", "read"])("whole-outline text tools: %s", async kind => {
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     const note = await board.createBlock(null, `Orchard log [season::autumn]\nBefore the watch.\nAmber moon over the orchard.\nAfter the watch.\nSee ((${target.id})).\n${Array.from({ length: 1101 }, (_, i) => `Harvest mark ${i}`).join("\n")}`);
     const loose = await board.createBlock(null, "Amber—moon\nWords separated by punctuation.");
     const trashed = await board.createBlock(null, "Old harvest");
@@ -131,7 +132,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       client.on("close", () => { upstream.destroy(); connections.delete(client); connections.delete(upstream); lines.close(); });
     });
     await new Promise<void>(r => proxy.listen(proxyPath, r));
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     const child = Bun.spawn([process.execPath, join(repo, "packages/door/src/main.ts"), "--ws", scratch.name, "mcp"], {
       cwd: scratch.root, env: { ...process.env, ...scratch.env, EP0CH_WS: "wrong-seedlings", EP0CH_SOCKET: proxyPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
@@ -178,8 +179,8 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(JSON.stringify(stillOld)).toContain("ep0ch install --apply");
       writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = \d+;/, `export const PROTOCOL = ${hostProtocol};`));
       await Promise.all([write("After the protocol install"), write("Queued during handover")]);
-      const saved = await board.request<{ text: string; actorId: string }[]>("children", { parentId: target.id });
-      expect(saved.some(b => b.text === "After the protocol install" && b.actorId.includes("version-gardener"))).toBe(true);
+      const saved = await board.request("children", { parentId: target.id });
+      expect(saved.some(b => b.text === "After the protocol install" && b.actorId!.includes!("version-gardener"))).toBe(true);
       child.stdin.end();
       expect(await child.exited, await errors).toBe(0);
     } finally {
@@ -211,10 +212,10 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       await mcpCommand(["mcp"], { input: linesOf([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "artifact_put", arguments: { name: "mcp-garden", kind: "html", content: "<h1>Agent garden</h1>" } } })]), write: line => lines.push(line), err: line => lines.push(line) });
       return JSON.parse(lines[0]!).result;
     };
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     expect((await call()).isError).toBe(true);
     expect(existsSync(join(scratch.outlines, ".artifacts/live/mcp-garden"))).toBe(false);
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     expect((await call()).isError).not.toBe(true);
     expect(readFileSync(join(scratch.outlines, ".artifacts/live/mcp-garden/index.html"), "utf8")).toBe("<h1>Agent garden</h1>");
   }, 30_000);
@@ -231,11 +232,11 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       return JSON.parse(out.trim()).result;
     };
     for (const level of ["read", "propose"] as const) {
-      await board.configureMcpAccess(level);
+      await board.request("mcp.access.configure", { level });
       expect((await call()).isError).toBe(true);
       expect((await board.queryNotes('type=suggestion component=query', 200, "show")).notes).toHaveLength(0);
     }
-    await board.configureMcpAccess("full");
+    await board.request("mcp.access.configure", { level: "full" });
     const result = await call();
     expect(result.isError).not.toBe(true);
     const suggestion = JSON.parse(result.content[0].text);
@@ -305,11 +306,11 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
   });
 
   test("the SQL census measures live blocks by latest actor and top-level branch", async () => {
-    const root = await board.request<{ id: string }>("create", { parentId: null, text: "éé", author: "agent", provenance: { actorId: "census-gardener" } });
+    const root = await board.request("create", { parentId: null, text: "éé", author: "agent", provenance: { actorId: "census-gardener" } });
     await board.request("create", { parentId: root.id, text: "123456", author: "agent", provenance: { actorId: "census-gardener" } });
-    const gone = await board.request<{ id: string }>("create", { parentId: root.id, text: "x".repeat(100), author: "agent", provenance: { actorId: "census-gardener" } });
+    const gone = await board.request("create", { parentId: root.id, text: "x".repeat(100), author: "agent", provenance: { actorId: "census-gardener" } });
     await board.request("delete", { blockId: gone.id });
-    const result = await board.request<any>("blocks.census");
+    const result = await board.request("blocks.census");
     expect(result.actors.find((a: any) => a.key === "census-gardener")).toMatchObject({ blocks: 2, characters: 8, median: 4, p90: 6 });
     expect(result.branches.find((a: any) => a.key === root.id)).toMatchObject({ blocks: 2, characters: 8, median: 4, p90: 6 });
     expect(result.outline.blocks).toBeGreaterThanOrEqual(2);
@@ -322,7 +323,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
   }, 30_000);
 
   test("requires an explicit outline MCP grant, then reads private blocks through the same envelope until revoked", async () => {
-    const hiddenChild = await board.request<{ id: string }>("create", { parentId: target.id, text: "Private child\nVisible to local MCP after grant.", author: "agent" });
+    const hiddenChild = await board.request("create", { parentId: target.id, text: "Private child\nVisible to local MCP after grant.", author: "agent" });
     const outDenied: string[] = [];
     const deniedCode = await mcpCommand(["mcp"], { input: linesOf([
       JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "outline_read", arguments: { uri: publishedShell.uri } } }),
@@ -489,7 +490,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       const hostApiModule = "@ep0ch/outliner/host-api";
       const { hostApi } = await import(hostApiModule);
       const api = hostApi({
-        request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest),
+        request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.send(action, rest) as Promise<T>,
         requireCompatibleService: () => board.info(),
       }, { actorId: "garden-script", sessionId: "script-run" });
       const made = await api.tool.outline_create!({ parent: "root", text: "Seed ledger\nBring labels." }) as { id: string };
@@ -524,7 +525,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         expect(called(response.find(r => r.id === 2))).toMatchObject({ isError: false, json: { outcome: "applied" } });
         expect(await record()).toMatchObject({ text: "Seed ledger\nBring seeds." });
         for (const actorId of ["garden-script", "garden-mod", `mcp:claude-desktop@${machine}`]) {
-          const activity = await board.request<{ entries: { block: { id: string }; actorId?: string }[] }>("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId, limit: 100, kinds: ["text"] });
+          const activity = await board.request("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId, limit: 100, kinds: ["text"] });
           expect(activity.entries).toContainEqual(expect.objectContaining({ block: expect.objectContaining({ id: made.id }), actorId }));
         }
       } finally { await setAccess("read"); }
@@ -533,12 +534,12 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     test("scripts, the mod CLI and MCP settle proposals without a reader", async () => {
       const module = "@ep0ch/outliner/host-api";
       const { hostApi } = await import(module);
-      const api = hostApi({ request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest), requireCompatibleService: () => board.info() }, { actorId: "garden-mod" });
+      const api = hostApi({ request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.send(action, rest) as Promise<T>, requireCompatibleService: () => board.info() }, { actorId: "garden-mod" });
       const make = async (actorId: string) => {
-        const note = await board.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
-        const p = await board.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
+        const note = await board.request("create", { parentId: null, text: "Seed plan\nPlant beans." });
+        const p = await board.request("draft.patch", { blockId: note.id, revision: note.revision,
           patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true, mutation: { author: "agent", actorId } });
-        return { note, id: p.proposalId as string };
+        return { note, id: proposed(p).proposalId as string };
       };
       for (const op of ["dismiss", "apply"]) {
         const name = `outline_proposal_${op}`;

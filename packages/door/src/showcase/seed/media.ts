@@ -78,6 +78,109 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
 ].join("\n");
 
 /**
+ * The pictures section's note (PIE-1555): a ```mermaid flowchart, sequence and state diagram, a ```svg fence and an
+ * [img::…svg] line, each drawn as a picture under kitty graphics and as its source (with what it is) without.
+ */
+export const picturesText = (dir = SHOWCASE_ASSETS) => [
+  `${SEED.pictures} [season::autumn] [beds::three] [banner::yes]`,
+  "plot-banner:: [layout::hero]",
+  "",
+  "The header above is a render script's SVG (Plot banner, under this note), its line carrying [layout::hero]: the note's title and properties laid out, its two links pressed like any link ([ ] to them, ⏎ or a click). Change [season::] and it's drawn again. The board below draws the same banner on each card:",
+  "",
+  "plot-cards::",
+  "",
+  "Each fence below is drawn as its picture, the reader's width; ~ shows the note as written, the fences' text again. Without kitty graphics they stay text, their first row saying what they draw.",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  A[Sow] --> B{Frost tonight?}",
+  "  B -->|yes| C[Cover the bed]",
+  "  B -->|no| D[Water]",
+  "  C --> E[Harvest]",
+  "  D --> E",
+  "```",
+  "",
+  "Who fetches what from the shed:",
+  "",
+  "```mermaid",
+  "sequenceDiagram",
+  "  participant Gardener",
+  "  Gardener->>Shed: the fork, please",
+  "  Shed-->>Gardener: the fork",
+  "  Gardener->>Neighbour: netting?",
+  "  Neighbour-->>Gardener: a spare roll",
+  "```",
+  "",
+  "```mermaid",
+  "stateDiagram-v2",
+  "  [*] --> Seed",
+  "  Seed --> Sprout: water",
+  "  Sprout --> Plant: a month",
+  "  Plant --> Seed: saved",
+  "  Plant --> [*]",
+  "```",
+  "",
+  "An svg fence, written in the note:",
+  "",
+  "```svg",
+  `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="90" viewBox="0 0 360 90"><rect width="360" height="90" rx="8" fill="#101826"/><g fill="#4fb3c7"><circle cx="45" cy="45" r="18"/><circle cx="135" cy="45" r="18"/><circle cx="225" cy="45" r="18"/><circle cx="315" cy="45" r="18"/></g><text x="180" y="84" fill="#9aa7b8" font-family="DejaVu Sans, sans-serif" font-size="12" text-anchor="middle">four beans to a row</text></svg>`,
+  "```",
+  "",
+  "And an SVG file, as any image is:",
+  "",
+  `[img::${dir}/plot-plan.svg] [size::full] [alt::the plot plan]`,
+].join("\n");
+
+/**
+ * The pictures section's scripts (PIE-1555): a module that draws a note's banner as SVG from its title and properties,
+ * with two links laid out in it; a render script that returns it as an image primitive's `svg` (the note's header, its
+ * line carrying [layout::hero]); and one that draws the same banner on each card of a board. Made up.
+ */
+export const PLOT_ART = [
+  "Plot art [script::plot-art] [mode::module]",
+  "```js",
+  "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');",
+  "const tones = { spring: '#4f9c6b', summer: '#c9a23f', autumn: '#b8683a', winter: '#5f7fb8' };",
+  "/** A note's banner: its title and season laid out, leaves in its season's colour, two links to press. */",
+  "function banner(note) {",
+  "  const get = key => (note.properties.find(p => p.key === key)?.values ?? []).join(', ');",
+  "  const season = get('season') || 'spring', beds = get('beds') || 'some', tone = tones[season] ?? '#5f7fb8';",
+  "  const leaves = Array.from({ length: 9 }, (_, i) => `<circle cx='${40 + i * 70}' cy='${30 + (i % 3) * 14}' r='${8 + (i % 4) * 3}' fill='${tone}' opacity='0.5'/>`).join('');",
+  "  const font = \"font-family='DejaVu Sans, sans-serif'\";",
+  "  const chip = (x, href, words) => `<a href='${href}'><rect x='${x}' y='132' width='150' height='30' rx='6' fill='#1b2a3d'/><text x='${x + 14}' y='152' fill='#4fb3c7' ${font} font-size='15'>${words}</text></a>`;",
+  "  return `<svg xmlns='http://www.w3.org/2000/svg' width='640' height='180' viewBox='0 0 640 180'><rect width='640' height='180' rx='10' fill='#0d121b'/>${leaves}`",
+  "    + `<text x='32' y='92' fill='#c8d0dc' ${font} font-size='34'>${esc(note.title)}</text><text x='32' y='118' fill='${tone}' ${font} font-size='16'>${esc(season)} · ${esc(beds)} beds</text>`",
+  "    + chip(32, '[[Bike shed]]', 'the bike shed ›') + chip(200, '[[Allotment notebook]]', 'the notebook ›') + `</svg>`;",
+  "}",
+  "return { banner };",
+  "```",
+].join("\n");
+
+export const PLOT_BANNER = [
+  "Plot banner [script::plot-banner] [mode::render]",
+  "```js",
+  "import { banner } from 'plot-art';",
+  "return view.image({ alt: `banner: ${this.title}`, svg: banner(this) });",
+  "```",
+].join("\n");
+
+export const PLOT_CARDS = [
+  "Plot cards [script::plot-cards] [mode::render]",
+  "```js",
+  "import { banner } from 'plot-art';",
+  "const rows = (await q('banner=yes', { limit: 6 })).blocks;",
+  "const notes = await Promise.all(rows.map(r => read(r.id)));",
+  "return view.row({ children: notes.map(n => view.card({ title: n.title, link: n.id, children: [view.image({ svg: banner(n), alt: n.title, caption: false })] })) });",
+  "```",
+].join("\n");
+
+/** The notes the board's cards draw (made up): each drawn with the same banner as the note's header. */
+export const PLOT_CARD_NOTES = [
+  "Bean row [banner::yes] [season::summer] [beds::two]\nRunners up the canes, dwarfs along the front.",
+  "Winter cover [banner::yes] [season::winter] [beds::one]\nCardboard and leaf mould until March.",
+];
+
+/**
  * The gallery section's note (PIE-827): the outliner's gallery extension draws its child notes as cards with their
  * `[cover::]` pictures, and `pic::` one picture, each through the `image` primitive. Nothing is written for them.
  */
@@ -96,6 +199,7 @@ export const galleryCards = (dir = SHOWCASE_ASSETS) => [
   `Beetroot, Boltardy [cover::${dir}/seed-packet.webp]\nSow March to July, thin to a hand apart.`,
   `The plot at dusk [cover::${dir}/allotment-dusk.jpg]\nFrom the gate, after the watering.`,
   `Notice board [cover::${dir}/allotment-notice.png]\nPaper white: dimmed as it's drawn.`,
+  `Plot plan [cover::${dir}/plot-plan.svg]\nAn SVG file: a card's cover as any picture is.`,
 ];
 
 /** The artifacts section's files (PIE-793): fictional, made for it, a React one (Tone and Tailwind) and an HTML one (three r128). */
@@ -103,10 +207,10 @@ export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
 
 export async function placeArtifacts(board: SocketBoard): Promise<string> {
   // The showcase contacts no deployment account: its outline goes without the deploy rule, so its repo lines never clone.
-  const [rule] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
+  const [rule] = (await board.request("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
   if (rule) await board.trash(rule.id);
   await board.request("artifacts.put", { name: "showcase-orbit", files: { "index.html": readFileSync(join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html"), "utf8") } });
-  const frozen = await board.request<{ version: number }>("artifacts.snapshot", { name: "showcase-orbit" });
+  const frozen = await board.request("artifacts.snapshot", { name: "showcase-orbit" });
   return `showcase-orbit@${frozen.version}`;
 }
 

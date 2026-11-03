@@ -24,7 +24,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
-import { USER, hostRequest, type Actor, SocketBoard } from "../socket";
+import { USER, hostRequest, type Actor, type RoadmapItemInput, SocketBoard, mutationFor } from "../socket";
 import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
@@ -32,25 +32,22 @@ import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installSy
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
 
-/** The outliner's review, loaded by name: its sources are the outliner's to type-check (as mcp-write loads agent-tools). */
-interface WriteReviewModule {
-  outlineFacets(client: unknown): Promise<unknown[]>;
-  reviewWrite(input: { text: string; id: string; schemas: unknown; facets: unknown[]; jev: boolean }): Promise<{ review: unknown }>;
-}
+/** The outliner's review, loaded when the showcase is seeded; the door checks it against the outliner's own types. */
+type WriteReviewModule = typeof import("@ep0ch/outliner/write-review");
 const WRITE_REVIEW_MODULE = "@ep0ch/outliner/write-review";
 
 /** A note reviewed as an agent's write is, and the review kept (`suggestions.keep`): returns the suggestions page it made. */
 async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
   const { outlineFacets, reviewWrite } = await import(WRITE_REVIEW_MODULE) as WriteReviewModule;
-  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
-  const schemas = (await board.request<{ schemas: unknown }>("components.schemas")).schemas;
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.send(action, params) as Promise<T>; } };
+  const schemas = (await board.request("components.schemas")).schemas;
   const { review } = await reviewWrite({ text: note.text, id: note.id, schemas, facets: await outlineFacets(client), jev: false });
   await board.request("suggestions.keep", { keep: { kind: "reviewed", at: { note: note.id, revision: note.revision ?? 1, actorId: "moss/claude-code@showcase", source: "write" }, title: SEED.writeReview, review } });
-  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
+  const [page] = (await board.request("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
   // Beside the note, under the showcase's root, as every seeded note is: the page, the Records page its records went
   // under, and the rule that reads them (each made at the outline's top, which the tree lists above the showcase).
   const made = await Promise.all(["system-view=jev-suggestions", "system-records=true", "rule-name=review-records"].map(async where =>
-    (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
+    (await board.request("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
   // At the end of the root's children: first, they'd push the notes other sections reveal out of the tree's view.
   const parent = note.parentId ?? null;
   for (const id of made) if (id) await board.move(id, parent, USER, parent ? (await board.children(parent)).filter(c => c.id !== id).length : 0);
@@ -70,13 +67,13 @@ const SEARCH_EVAL_MODULE = "@ep0ch/outliner/search-eval";
  */
 async function keepSearchEval(board: SocketBoard, root: Msg, cases: { query: string; expect: Msg }[]): Promise<{ page: Msg; report: Msg }> {
   const e = await import(SEARCH_EVAL_MODULE) as SearchEvalModule;
-  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.send(action, params) as Promise<T>; } };
   for (const c of cases) await e.keepCase(client, { query: c.query, outline: "showcase", expect: [c.expect.id], source: "agent-read" });
   const scores = SEARCH_EVAL_SCORES.map(s => ({ ...s }));
   const runs = scores.map(s => ({ model: s.model, promptRev: "goto-ranking.json:000000000000", prompt: [], results: [] }));
   const note = e.reportNote(scores, { "jev-1.13.0": SEARCH_EVAL_SWEEP }, { day: "2026-10-20", outlines: ["showcase"], promptRev: "goto-ranking.json:000000000000", current: "jev-1.13.0" });
   const id = await e.keepRun(client, scores, runs, note, "2026-10-20");
-  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=search-evals" } })).blocks;
+  const [page] = (await board.request("blocks.query", { query: { where: "system-view=search-evals" } })).blocks;
   await board.move(page!.id, root.id, USER);
   return { page: (await board.get(page!.id))!, report: (await board.get(id))! };
 }
@@ -87,7 +84,7 @@ import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, FIGURE_SIZING,
 import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
 import { ASK_AGENT, COMPLETION_PLACE, SOWING_WEEKS, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
-import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
+import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, picturesText, placeArtifacts, PLOT_ART, PLOT_BANNER, PLOT_CARDS, PLOT_CARD_NOTES } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIR_LIST, FORM_REPAIRS, FORM_WATERING, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
@@ -128,7 +125,7 @@ export interface Seeded {
  */
 export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: Msg; race: Seeded["race"] }> {
   const at = note.text.indexOf(RACE_PATCH.winner.observed);
-  const patch = (actorId: string, span: { observed: string; replacement: string }, propose = false) => board.request<{ outcome: string; proposalId?: string; deduped?: boolean }>("draft.patch", {
+  const patch = (actorId: string, span: { observed: string; replacement: string }, propose = false) => board.request("draft.patch", {
     blockId: note.id, revision: note.revision, propose, mutation: { author: "agent", actorId },
     patches: [{ ...span, range: { start: at, end: at + span.observed.length }, unit: "utf16" }],
   });
@@ -142,7 +139,7 @@ export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: M
   const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
   if (lost.outcome !== "proposed" || !lost.proposalId) throw new Error(`the showcase's race: @${RACE_AGENTS.loser}'s patch was ${lost.outcome}, not proposed`);
   const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
-  return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
+  return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.outcome === "proposed" ? retry.proposalId : "", ...(retry.outcome === "proposed" && retry.deduped ? { deduped: true } : {}) } } };
 }
 
 /** The Fantasia script's code (PIE-959). */
@@ -180,7 +177,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const cards: Msg[] = [];
   for (const c of CARDS) {
     // The allocator creates in queued, doing or review; a done card is moved there afterwards, as people do.
-    const r = await board.createRoadmapItem({ title: c.title, body: c.body, priority: c.priority, workStage: c.stage === "done" ? "review" : c.stage, project: "house", arc: c.arc, tracks: c.tracks }, SEED_AGENT);
+    const r = await board.createRoadmapItem({ title: c.title, body: c.body, priority: c.priority as RoadmapItemInput["priority"], workStage: (c.stage === "done" ? "review" : c.stage) as RoadmapItemInput["workStage"], project: "house", arc: c.arc, tracks: c.tracks }, SEED_AGENT);
     let card = r.block;
     if (c.stage === "done") {
       const { revision, tokens } = await board.propertyTokens(card.id, "work-stage");
@@ -202,7 +199,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await make(landing.id, "House rules [welcome::true]\nWipe the counter. The last one up turns the heating down."),
   ];
   const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
-  await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
+  await board.request("virtual.occurrences.move", { input: { view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, mutation: mutationFor({ kind: "user" }) });
 
   notes.asks = await make(notes.root.id, `${SEED.asks}\n\nBare \`@tidy\` fixes list nesting and spacing above. \`@tidy wrap each item in a callout\` rewrites the passage as asked (Haiku by default, or tidy config.answer). It lands as one lit, attributed edit: ctrl+z undoes it. Every ask says what changed or why it could not run.\n\nPress e, go to the end, and write @planter show the seed counts on its own line. Keep typing on the next line. The answer stays folded and its running view opens beside this note. Open the fold to edit or keep the script. Or ask @planter describe the beds: its plain answer streams beside you as you keep writing.\n\n`);
   if (opts.ticketsConfig) {
@@ -390,7 +387,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
       const saved = await make(note.parent ? pasted.get(note.parent)!.id : notes.scriptExamples.id, note.text);
       pasted.set(note.label, saved);
       // A match written before its script loads becomes its baseline and never fires.
-      if (prop(saved, "script") || prop(saved, "rule-name")) await board.listExtensions(true);
+      if (prop(saved, "script") || prop(saved, "rule-name")) await board.request("extensions.list", { reload: true });
     }
   }
   notes.exampleOrder = pasted.get("ex2-order")!;
@@ -668,6 +665,8 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   const spanCopy = await make(notes.callouts.id, SPAN_COPY);
   await board.comment("showcase-span-copy", spanCopy.id, spanCopy.revision!, "Try `comment-copy`.", { quote: "Paragraph `paragraph-copy`.", start: SPAN_COPY.indexOf("Paragraph `paragraph-copy`.") }, SEED_AGENT);
   notes.images = await make(notes.root.id, imagesText());
+  notes.pictures = await make(notes.root.id, picturesText());
+  for (const text of [PLOT_ART, PLOT_BANNER, PLOT_CARDS, ...PLOT_CARD_NOTES]) await make(notes.pictures.id, text);
   notes.hero = await make(notes.root.id, heroText());
   notes.dashboard = await make(notes.root.id, dashboardText());
   notes.dashboardEmbed = await make(notes.root.id, `!((${notes.dashboard.id}))`);
@@ -745,7 +744,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.
   for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
-  const labels = await board.request<{ id: string; revision: number }>("create", { parentId: notes.root.id, text: LABELS_BEFORE, author: "agent", provenance: { actorId: "cowboy", taskId: "via:yolo" } });
+  const labels = await board.request("create", { parentId: notes.root.id, text: LABELS_BEFORE, author: "agent", provenance: { actorId: "cowboy", taskId: "via:yolo" } });
   notes.labels = await board.update(labels.id, LABELS, labels.revision!);
   {
     // Through the gateway's own write path, at propose: a patch that becomes a proposal, and a comment.
@@ -776,7 +775,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   // The outliner's example extensions, in the scratch service's own user folder, read before the note is
   // written so its @tidy line is a new request.
   const examples = !!opts.ticketsConfig && !!opts.outliner && installExamples(opts.ticketsConfig, opts.outliner).length > 0;
-  if (examples) await board.listExtensions(true);
+  if (examples) await board.request("extensions.list", { reload: true });
   notes.omens = await make(notes.root.id, OMENS);
   // The page almanac (a scheduled program, PIE-754) writes its dated notes under: somewhere other than any note it's asked about.
   notes.almanac = await make(notes.root.id, ALMANAC);
@@ -785,7 +784,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
     const end = Date.now() + 10_000;
     const settled = (s?: string) => !!s && !["queued", "running", "not-asked"].includes(s);
     while (Date.now() < end) {
-      const read = await board.readResourceProjections(notes.omens.id).catch(() => null);
+      const read = await board.request("resources.projection.read", { blockId: notes.omens.id, materialize: true }).catch(() => null);
       if (settled(read?.projections.find(p => p.kind === "agent")?.agent?.status)) break;
       await Bun.sleep(200);
     }
@@ -793,7 +792,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   // Show the default wake, then a cap-held ask in the waiting-on-you list.
   const tidyFrom = opts.outliner ?? opts.rulesFrom;
   if (examples || (opts.ticketsConfig && tidyFrom && installExamples(opts.ticketsConfig, tidyFrom, ["tidy"]).length > 0)) {
-    if (!examples) await board.listExtensions(true);
+    if (!examples) await board.request("extensions.list", { reload: true });
     await make(notes.root.id, "Showcase wake cap [invoke-from::showcase-seed] [invoke-to::tidy] [cap::1/day]");
     await make(notes.root.id, "Agents wake by default\n*  tidy  this  automatically\n@tidy", SEED_AGENT);
     await make(notes.root.id, HELD_ASK, SEED_AGENT);
@@ -805,7 +804,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES, ...VIEW_EXAMPLES, ...SOURCE_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end) {
-      const listed = await board.listExtensions(true).catch(() => null);
+      const listed = await board.request("extensions.list", { reload: true }).catch(() => null);
       if (listed?.rules?.some(r => r.key === "ext:done-stamp/stamp") && listed.extensions.some(e => e.id === "gallery" && e.state === "active") && listed.extensions.some(e => e.id === "issues" && e.state === "active")) break;
       await Bun.sleep(100);
     }
@@ -822,7 +821,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.sysop = await make(notes.root.id, `${SEED.sysop} [page::sysop] [machines::kiln, notebook] [memory-free-min::2G] [load-max::8] [disk-free-min::10%]\n\nThese machines are made up. Look and calm run through the real extension against a fake ssh.\n\n::button{label="Look now" act="ext.sysop.look"}`);
   if (opts.ticketsConfig && rulesFrom) {
     installSysopDemo(opts.ticketsConfig, rulesFrom);
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     await board.request("extensions.schedule.run", { extension: "sysop", entry: "action:look" });
     notes.sysop = (await board.get(notes.sysop.id))!;
   }
@@ -843,7 +842,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia", "intake"]).length) {
     const end = Date.now() + 10_000;
-    while (Date.now() < end && !(await board.listExtensions(true).catch(() => null))?.extensions.some(e => e.id === "marginalia" && e.state === "active")) await Bun.sleep(100);
+    while (Date.now() < end && !(await board.request("extensions.list", { reload: true }).catch(() => null))?.extensions.some(e => e.id === "marginalia" && e.state === "active")) await Bun.sleep(100);
   }
   notes.marginalia = await make(notes.root.id, MARGINALIA_PLAN());
   notes.marginaliaNotebook = await make(notes.root.id, MARGINALIA_NOTEBOOK);
@@ -867,7 +866,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
     // Their pages are written once the service reads the folders (a reload answers after it).
     const end = Date.now() + 15_000;
     while (Date.now() < end) {
-      const listed = await board.listExtensions(true).catch(() => null);
+      const listed = await board.request("extensions.list", { reload: true }).catch(() => null);
       if (DEMO_EXAMPLES.every(id => listed?.pages?.[id])) break;
       await Bun.sleep(100);
     }
@@ -882,7 +881,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
     // Seen by: a whole-note mark per node it reached, as the tosser leaves them.
     for (const node of ECHO_SEEN_BY) await board.request("annotations.batch", {
       requestId: `showcase-seen-${node}-${post.id}`, author: "agent", provenance: { actorId: ECHO_TOSSER.id },
-      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision, source: "agent", body: `also in: ${node} (${SEED.echoArea})`, properties: { kind: "echo-seen-by", "echo.node": node, via: `echonet:${node}` } } }],
+      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision!, source: "agent", body: `also in: ${node} (${SEED.echoArea})`, properties: { kind: "echo-seen-by", "echo.node": node, via: `echonet:${node}` } } }],
     });
   }
   notes.echoPosted = await make(notes.root.id, `${SEED.echoPosted} [echo::plot.chat] [by::june]\nThree bins, by the gate. Posted to Plot chat by its tag, from wherever it's written.`);
@@ -918,7 +917,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   const kept = await board.comment("showcase-attention-kept", at.id, at.revision!, "Which oil? The bike oil gums it up.", quote(at.text, "oil it in spring"));
   await board.reply("showcase-attention-kept-reply", kept.id, "Sewing machine oil: thin, and it doesn't gum.", SEED_AGENT);
   await board.setLifecycle(kept.id, "kept");
-  await board.tldr(kept.id, USER, "Sewing machine oil on the hose reel, each spring.");
+  await board.request("annotations.tldr", { annotationId: kept.id, body: "Sewing machine oil on the hose reel, each spring.", mutation: mutationFor(USER) });
   const seen = await board.comment("showcase-attention-seen", at.id, at.revision!, "Who has the spare washers?", quote(at.text, "tap washer was replaced"));
   await board.setLifecycle(seen.id, "seen");
 
@@ -938,7 +937,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
 async function demoNotes(board: SocketBoard, missing: readonly SeedName[]): Promise<Partial<Record<SeedName, Msg>>> {
   const found: Partial<Record<SeedName, Msg>> = {};
   const wanted = new Map<string, SeedName>(missing.map(name => [SEED[name], name]));
-  let level = Object.values((await board.listExtensions(false).catch(() => null))?.pages ?? {});
+  let level = Object.values((await board.request("extensions.list", {}).catch(() => null))?.pages ?? {});
   for (let depth = 0; depth < 3 && level.length && wanted.size > Object.keys(found).length; depth++) {
     const kids = (await Promise.all(level.map(page => board.children(page).catch(() => [] as Msg[])))).flat();
     for (const kid of kids) {

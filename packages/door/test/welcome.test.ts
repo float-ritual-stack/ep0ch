@@ -161,7 +161,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     idle();
     await app.act({ action: "welcome.move", args: { id: n.apple.id, to: 3 }, as: "test-agent" });
     expect(list().items!.map(m => m.id)).toEqual([n.start.id, n.rules.id, n.apple.id]);
-    expect((await board.viewOrder(list().orderView!.id)).blockIds.slice(0, 3)).toEqual([n.start.id, n.rules.id, n.apple.id]);
+    expect((await board.request("virtual.occurrences.order", { viewId: list().orderView!.id })).blockIds.slice(0, 3)).toEqual([n.start.id, n.rules.id, n.apple.id]);
     // The first in the order is 1: picked, it's the detail, with the keys.
     ch("1");
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "1: Start here, first by hand");

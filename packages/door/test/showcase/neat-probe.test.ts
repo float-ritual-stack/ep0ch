@@ -41,7 +41,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     if (via === "button") await app.dispatch.act({ action: "button.press", args: { note: script.id, label: `Probe ${n}` } }, actor);
     else if (via === "rule") {
       await board.createBlock(null, `Probe rule [rule-name::${name}] [rule-match::#${name}] [rule-on::script:${name}]`);
-      await untilAsync(async () => (await board.request<{ rules: { name: string }[] }>("extensions.list", {})).rules.some(r => r.name === name), "probe rule loaded");
+      await untilAsync(async () => (await board.request("extensions.list", {})).rules.some(r => r.name === name), "probe rule loaded");
       await board.createBlock(null, `Water the beans #${name}`);
     } else if (via === "mcp") {
       await board.request("mcp.access.configure", { level: "full" });

@@ -186,7 +186,7 @@ export function proposalsBeside(m: Msg, src: Source | null | undefined): readonl
   const at = changeClock(), c = cache;
   c.set(m.id, { list: hit?.list ?? [], at, asking: true });
   if (c.size > 200) c.delete(c.keys().next().value!);
-  Promise.resolve().then(() => src.board.proposalsBeside(m.id)).then(
+  Promise.resolve().then(() => src.board.request("draft.proposals.list", { blockId: m.id })).then(
     r => { const was = c.get(m.id)?.list ?? []; c.set(m.id, { list: r.proposals, at, asking: false }); if (r.proposals.length || was.length) src.redraw(); },
     () => { c.set(m.id, { list: hit?.list ?? [], at, asking: false, failed: true }); },
   );

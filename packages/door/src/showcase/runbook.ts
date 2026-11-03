@@ -15,7 +15,7 @@ export function runbookSections(parts: { stageDesk: typeof stageDesk; deskOf: ty
       const reader = new ReaderPane();
       const d = stageDesk({ title: "showcase · runbook", panes: [reader], layout: ([a]) => leaf(a!) });
       show(ctx => void (async () => {
-        const listed = extensionList() ?? await ctx.board.listExtensions();
+        const listed = extensionList() ?? await ctx.board.request("extensions.list", {});
         const page = listed.pages?.runbook;
         const book = page && (await ctx.board.children(page)).find(b => b.text.startsWith("Try a terminal runbook"));
         if (book) reader.show(book, d);

@@ -50,8 +50,8 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     process.env.EP0CH_STATE = `${scratch.root}/door`;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    notes.beds = await board.request<any>("create", { parentId: null, text: "Raised beds\nCompost goes in first.", author: "user" });
-    notes.view = await board.request<any>("create", { parentId: null, text: "Sowing list [type::virtual-branch] [query::type=sowing]", author: "user" });
+    notes.beds = await board.request("create", { parentId: null, text: "Raised beds\nCompost goes in first.", author: "user" });
+    notes.view = await board.request("create", { parentId: null, text: "Sowing list [type::virtual-branch] [query::type=sowing]", author: "user" });
     const term = { info, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
@@ -131,12 +131,12 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   });
 
   test("a note edited into a screen note is one, by the change feed; one that isn't JSON still keeps its name from a twin", async () => {
-    const plain = await board.request<any>("create", { parentId: null, text: "Seed trays\nJust a note for now.", author: "user" });
+    const plain = await board.request("create", { parentId: null, text: "Seed trays\nJust a note for now.", author: "user" });
     const text = screenNoteText(readSpec({ name: "trays", title: "trays", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } }));
     await board.update(plain.id, text, plain.revision, { kind: "user" });
     await until(() => screenNames().includes("trays"), "the edited note registered");
     // A second note named trays whose JSON is broken: trays is two notes' name now, so neither opens.
-    await board.request<any>("create", { parentId: null, text: "trays [type::screen] [screen::trays]\n\n```json\n{ not json\n```", author: "user" });
+    await board.request("create", { parentId: null, text: "trays [type::screen] [screen::trays]\n\n```json\n{ not json\n```", author: "user" });
     await until(() => !screenNames().includes("trays"), "trays no longer opens");
     expect(screenNoteProblems().join("\n")).toMatch(/2 screen notes are named trays/);
   });
@@ -147,9 +147,9 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
 
   test("two notes with one name open neither, and say which; a built-in's name is never taken", async () => {
     const text = screenNoteText(readSpec({ name: "twin", title: "twin", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } }));
-    await board.request<any>("create", { parentId: null, text, author: "user" });
-    await board.request<any>("create", { parentId: null, text, author: "user" });
-    await board.request<any>("create", { parentId: null, text: screenNoteText(readSpec({ name: "desk", title: "desk", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } })), author: "user" });
+    await board.request("create", { parentId: null, text, author: "user" });
+    await board.request("create", { parentId: null, text, author: "user" });
+    await board.request("create", { parentId: null, text: screenNoteText(readSpec({ name: "desk", title: "desk", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } })), author: "user" });
     await loadScreenNotes(board);
     expect(screenNames()).not.toContain("twin");
     expect(screenNoteProblems().join("\n")).toMatch(/2 screen notes are named twin/);

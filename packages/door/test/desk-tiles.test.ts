@@ -76,7 +76,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = async (text: string) => board.request<any>("create", { parentId: null, text, author: "agent" });
+    const mk = async (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     notes.shed = await mk("Mend the shed roof\nBuy tacks and felt.");
     notes.beans = await mk("Sow the beans\nTwo to a hole.");
     notes.plan = await mk(`Week plan\nFirst ((${notes.beans.id})), then ((${notes.shed.id})).`);

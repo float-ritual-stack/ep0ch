@@ -85,8 +85,8 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
     for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
     board = new SocketBoard(sock);
     await board.info();
-    await board.configureMcpAccess("full");
-    target = (await board.request<{ id: string }>("create", { parentId: null, text: "Seed shelf [rank::1]\nA note a person wrote.", author: "user" })).id;
+    await board.request("mcp.access.configure", { level: "full" });
+    target = (await board.request("create", { parentId: null, text: "Seed shelf [rank::1]\nA note a person wrote.", author: "user" })).id;
     const outlines = machineOutlines(undefined, l => logs.push(l));
     closeOutlines = outlines.close;
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
@@ -130,7 +130,7 @@ describe.skipIf(!outliner)("calls: a write records its call, call: finds it, a c
         const r = await write(a, `carries ${t.name}`);
         expect(r.json.call).toMatchObject(s);
         const id = /\/b\/([^/?#]+)$/.exec(r.json.detail?.uri ?? r.json.uri ?? "")?.[1] ?? r.json.detail?.id;
-        const made = await board.request<{ actorId?: string; sessionId?: string }>("get", { blockId: id });
+        const made = await board.request("get", { blockId: id });
         // The principal (display and access) is in the actor id, untouched; the call rides the sessionId after the subject.
         expect(made.actorId).toMatch(/^mcp:/);
         expect(made.sessionId).toMatch(new RegExp(`#${s.id}$`));

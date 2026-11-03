@@ -27,6 +27,7 @@ import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, reade
 import type { SiteAnswer, SiteLink, SiteValue } from "@ep0ch/outline-core/site";
 import type { ListRow } from "@ep0ch/outline-core/list-row";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
+import { blockIdMatcher } from "@ep0ch/outline-core/addressable-resource";
 
 export function listOpenTarget(row: Pick<ListRow, "do">): LinkTarget | null {
   if (!row.do || !("open" in row.do)) return null;
@@ -99,7 +100,7 @@ function ask<T>(by: WeakMap<object, Map<string, Cached<T>>>, src: Source | null 
   return entry;
 }
 
-const BLOCK_ID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const BLOCK_ID = blockIdMatcher();
 /**
  * The references a note's text holds, in one canonical form: every `((…))`, and each bare block id (a
  * `[related-to::<id>]` value) as `((id))`. The note's links, its body and its property panel all look
@@ -136,13 +137,13 @@ export function referencesIn(text: string, src: Source | null | undefined): Map<
   }, c => changedSince(c.at, c.value ? [...refs.ids, ...[...c.value.values()].map(r => r.blockId)] : refs.ids))?.value ?? null;
 }
 
-type CommentSubject = { kind: "block"; blockId: string } | { kind: "resource"; resourceId: string };
-type CommentTarget = { representation: { subject: CommentSubject } };
+/** What a comment is on, as the service says it: a block, a Resource, or a file a note named before Resources (`legacy-file`). */
+type CommentSubject = import("@ep0ch/outliner/wire").WireAnswer<"annotations.get">["originalTarget"]["representation"]["subject"];
 const commentSubjects = new WeakMap<object, Map<string, Cached<CommentSubject>>>();
 /** The service owns a comment's subject, including replies whose parent is another comment. */
 export function commentSubject(id: string, src: Source | null) {
   return ask(commentSubjects, src, id, async board => {
-    const r = await board.request<{ originalTarget: CommentTarget; resolvedTarget: CommentTarget | null }>("annotations.get", { annotationId: id });
+    const r = await board.request("annotations.get", { annotationId: id });
     return (r.resolvedTarget ?? r.originalTarget).representation.subject;
   }, c => anyChangeSince(c.at));
 }
@@ -230,7 +231,7 @@ export interface ResourceToken { raw: string; link: AuthoredResourceLink }
  */
 export function resourceTokensOf(m: { id: string; text: string }, src: Source | null | undefined): ResourceToken[] {
   if ((!MAY_HAVE_RESOURCE_TOKEN.test(m.text) && !mayHaveProviderToken(m.text)) || !isOutlineNote(m as never)) return [];
-  const s = ask(authoredBy, src, m.id, b => b.authoredLinks(m.id), c => changedSince(c.at, [m.id]))?.value;
+  const s = ask(authoredBy, src, m.id, b => b.request("blocks.authored-links", { ownerBlockId: m.id }), c => changedSince(c.at, [m.id]))?.value;
   if (s?.kind !== "ready") return [];
   return s.resources.entries.flatMap(link => {
     const raw = m.text.slice(link.firstSpan.start, link.firstSpan.end);

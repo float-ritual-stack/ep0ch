@@ -9,7 +9,7 @@ import { mcpRecord } from "../src/mcp";
 import type { McpOutlineAdmin } from "../src/mcp-outlines";
 import { PERSONA_TOOLS, type McpCaller } from "../src/mcp-writes";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { SocketBoard, hostRequest } from "../src/socket";
+import { SocketBoard, hostRequest, hostSend } from "../src/socket";
 import { outliner, ScratchHost } from "./scratch";
 
 const HERE = canonicalLocalMachineName();
@@ -29,7 +29,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
   const boardOn = (name: string) => { const b = Object.assign(new SocketBoard(host.sock, 30_000, name), { address: { outline: name, machine: HERE } }); boards.push(b); return b; };
   const admin = (): McpOutlineAdmin => ({
     machine: HERE, now: () => Date.parse("2026-10-09T03:00:00.000Z"),
-    host: (action, params = {}) => hostRequest(host.sock, action, params),
+    host: (action, params = {}) => hostSend(host.sock, action, params) as never,
     open: async name => boardOn(name) as any,
   });
   const call = async (caller: McpCaller, name: string, args: Record<string, unknown>) => {
@@ -46,7 +46,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     await host.start();
     await host.create("pie-like");     // an existing work outline, which must stay as it is
     outlines = machineOutlines(undefined, () => {}, async name => boardOn(name) as any, [],
-      async () => (await hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name).sort(), undefined, undefined, admin());
+      async () => (await hostRequest(host.sock, "outlines.list")).outlines.map(o => o.name).sort(), undefined, undefined, admin());
   }, 60_000);
   afterAll(async () => { setEnv({}); outlines?.close(); for (const b of boards) b.close(); await host.dispose(); });
 
@@ -87,7 +87,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     // The creator got nothing on the work outline, and the other principal got nothing new there either.
     expect(mine.find(o => o.outline === "pie-like")).toMatchObject({ access: "none" });
     expect(theirs.find(o => o.outline === "pie-like")).toMatchObject({ access: "none" });
-    expect((await boardOn("pie-like").mcpAccessStatus()).level).toBe("none");
+    expect((await boardOn("pie-like").request("mcp.access.status", {})).level).toBe("none");
     // The creator writes to it; the other principal's write is refused.
     const root = (await boardOn("gurgle").roots()).find(r => r.text.includes("[kind::scratch]"))!;
     const wrote = await call(code, "outline_create", { ref: root.id, outline: "gurgle", text: "a third burp" });
@@ -144,7 +144,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
 
   test("attribution shows in a proposal: who wrote it, the persona and the principal", async () => {
     const board = boardOn("gurgle");
-    await board.configureMcpAccess("propose");          // a person tightens the others to proposals
+    await board.request("mcp.access.configure", { level: "propose" });          // a person tightens the others to proposals
     try {
       const note = (await board.children((await board.roots()).find(r => r.text.includes("[kind::scratch]"))!.id))[0]!;
       const rec = (await board.records([note.id])).records[0]!;
@@ -157,7 +157,7 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
       // The creator is still full: its patch applies.
       const mine = await call(code, "outline_patch", { ref: note.id, outline: "gurgle", revision: (await board.records([note.id])).records[0]!.revision, patches: [{ observed: "first burp", replacement: "first burp, applied" }] });
       expect(mine.json, mine.text).toMatchObject({ outcome: "applied" });
-    } finally { setEnv({}); await board.configureMcpAccess("read"); }
+    } finally { setEnv({}); await board.request("mcp.access.configure", { level: "read" }); }
   }, 60_000);
 
   test("two outline_new at once can't both take the last place under the cap", async () => {

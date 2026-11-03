@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { hostSocketOf, resolveTarget, slugOutlineName } from "../src/discover";
 import { attachTarget, deletionPlan, formatOutlines, nameTheOutline, parseOutlineArgs, writeDotEp0ch } from "../src/outlines";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { type HostedOutline, hostRequest, SocketBoard, type OutlineEvent } from "../src/socket";
+import { type HostedOutline, hostRequest, hostSend, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
 import { everyOutline } from "../src/machine";
 
@@ -72,7 +72,7 @@ describe("SocketBoard with an outline", () => {
   test("hostRequest asks on its own connection and names no outline", async () => {
     const svc = await fakeService(join(dir, "ask.sock"), r => ({ asked: r.action }));
     try {
-      expect(await hostRequest<unknown>(join(dir, "ask.sock"), "outlines.list")).toEqual({ asked: "outlines.list" });
+      expect(await hostSend(join(dir, "ask.sock"), "outlines.list")).toEqual({ asked: "outlines.list" });
       expect(svc.lines[0]).toEqual({ id: "host", action: "outlines.list" });
     } finally { await svc.close(); }
   });
@@ -224,8 +224,8 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     try {
       expect(await bob.info()).toMatchObject({ outline: "bob" });
       expect(await fred.info()).toMatchObject({ outline: "fred" });
-      const fredNote = await fred.request<{ id: string }>("create", { text: "Fred's fictional compass" });
-      const bobNote = await bob.request<{ id: string }>("create", { text: "Bob's fictional kettle" });
+      const fredNote = await fred.request("create", { text: "Fred's fictional compass" });
+      const bobNote = await bob.request("create", { text: "Bob's fictional kettle" });
       expect((await bob.get(bobNote.id))?.text).toContain("kettle");
       expect(await bob.get(fredNote.id)).toBeNull();
       expect((await bob.search("fictional", 20)).map(m => m.id)).not.toContain(fredNote.id);
@@ -233,7 +233,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
       bob.subscribe(e => seen.push(e));
       await Bun.sleep(300);
       await fred.request("create", { text: "Fred's fictional lantern" });
-      const teapot = await bob.request<{ id: string }>("create", { text: "Bob's fictional teapot" });
+      const teapot = await bob.request("create", { text: "Bob's fictional teapot" });
       await until(() => seen.some(e => e.blockId === teapot.id), "bob's change");
       await Bun.sleep(200);
       expect(seen.filter(e => e.domain === "content").map(e => e.blockId)).toEqual([teapot.id]);
@@ -250,7 +250,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
       if (!("outline" in target)) throw new Error(JSON.stringify(target));
       expect(await attachTarget(target)).toEqual({ created: false });
       const board = new SocketBoard(target.path, 5000, target.outline);
-      try { return (await board.request<{ location: { database: string } }>("ping")).location.database; } finally { board.close(); }
+      try { return (await board.request("ping")).location.database; } finally { board.close(); }
     };
     const fromAnywhere = await database(resolveTarget(["--ws", "garden"], host.env, "/"));
     const inside = await database(resolveTarget([], host.env, deep));

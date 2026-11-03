@@ -10,7 +10,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
-import { byOf, recorded, USER, type Actor, type Change, type OutlineEvent } from "../socket";
+import { byOf, recorded, USER, type Actor, type Change, type OutlineEvent, mutationFor } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
@@ -386,7 +386,7 @@ export class Lanes implements SourceModel {
     // An open steps overlay shows the note's checklist: a change to that note reads it again.
     const S = this.steps;
     if (S && id === S.card.id && !S.busy && (c.revision === undefined || c.revision !== S.read?.revision)) {
-      this.host.ctx.board.checklist(id).then(r => {
+      this.host.ctx.board.request("checklist.query", { blockId: id, query: { limit: 200, nested: "include" } }).then(r => {
         if (this.steps !== S || S.busy || (S.read && r.revision < S.read.revision)) return;
         S.read = r; S.sel = clamp(S.sel, 0, Math.max(0, r.items.length - 1)); this.host.redraw();
       }, () => {});
@@ -681,7 +681,7 @@ export class Lanes implements SourceModel {
     if (!lane || !holds(lane)) throw refuse(`${lane ? lane.name : "no lane"} doesn't list ${card.id.slice(0, 8)}`);
     // The service reads, plans and writes the order in one step (and keeps a step within what the lane shows).
     const { by, to, before, after } = a;
-    const r = await this.host.ctx.board.moveInView({ view: lane.view, blocks: [card.id], ...(by !== undefined ? { by } : {}), ...(to !== undefined ? { to } : {}), ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) }, actor)
+    const r = await this.host.ctx.board.request("virtual.occurrences.move", { input: { view: lane.view, blocks: [card.id], ...(by !== undefined ? { by } : {}), ...(to !== undefined ? { to } : {}), ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) }, mutation: mutationFor(actor) })
       .catch((e: Error) => { throw refuse(e.message); });
     const position = r.blockIds.indexOf(card.id);
     if (!r.moved.length) return { card: card.id, lane: lane.name, position, of: r.blockIds.length, unchanged: true };
@@ -821,7 +821,7 @@ export class Lanes implements SourceModel {
 
   async listSteps(id?: string, actor?: Actor) {
     const card = this.cardFor(id, actor);
-    const r = await this.host.ctx.board.checklist(card.id);
+    const r = await this.host.ctx.board.request("checklist.query", { blockId: card.id, query: { limit: 200, nested: "include" } });
     return { card: card.id, title: titleOf(card), revision: r.revision, steps: r.items.map((it, i) => ({ n: i + 1, status: it.status, text: stepText(it.text), depth: it.depth, id: it.itemId ?? null })) };
   }
   //
@@ -968,7 +968,7 @@ export class Lanes implements SourceModel {
 
   /** Open work a new item looks like, by the service (`roadmap.items.similar`): its first twin, or none; null unanswered. */
   private async twinOf(title: string, body?: string): Promise<TwinAsked | null> {
-    const answer = await this.host.ctx.board.similarItems({ title, ...(body ? { body } : {}) }).catch(() => null);
+    const answer = await this.host.ctx.board.request("roadmap.items.similar", { input: { title, ...(body ? { body } : {}) } }, 8000).catch(() => null);
     if (!answer) return null;
     const found = answer.candidates.find(c => answer.twins.includes(c.workId));
     return { title, ...(found ? { twin: { title, workId: found.workId, said: `looks like ${found.said}` } } : {}) };
@@ -1247,7 +1247,7 @@ export class Lanes implements SourceModel {
     }), { card, read: null as ChecklistRead | null, busy: true, note: "" });
     this.steps = S; this.host.redraw();
     try {
-      S.read = await this.host.ctx.board.checklist(card.id);
+      S.read = await this.host.ctx.board.request("checklist.query", { blockId: card.id, query: { limit: 200, nested: "include" } });
       if (!S.read.items.length) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`${titleOf(card)} has no checklist steps`); }
     } catch (e) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`couldn't read the steps: ${(e as Error).message}`, undefined, errorDetails(e)); }
     finally { S.busy = false; this.host.redraw(); }
@@ -1267,7 +1267,7 @@ export class Lanes implements SourceModel {
     // The person's key names the step the overlay showed, at the revision it was read (the service's
     // evidence check refuses it if it changed since). A number or ^id from anyone else is resolved on a
     // fresh read, never on the overlay, which may be older than the note.
-    const read = shown ? { revision: shown.revision, items: [shown.item] } : await this.host.ctx.board.checklist(card.id);
+    const read = shown ? { revision: shown.revision, items: [shown.item] } : await this.host.ctx.board.request("checklist.query", { blockId: card.id, query: { limit: 200, nested: "include" } });
     const i = shown ? (typeof index === "number" ? index : 0) : typeof index === "number" ? index : read.items.findIndex(x => x.itemId === index || x.itemId === index.replace(/^\^/, ""));
     const it = shown ? shown.item : read.items[i];
     if (!it) throw new ActionRefused(typeof index === "number" ? `there's no step ${index + 1}; ${titleOf(card)} has ${read.items.length}` : `no step ^${index} in ${titleOf(card)}`);
@@ -1288,7 +1288,7 @@ export class Lanes implements SourceModel {
       throw new ActionRefused(why);
     } finally {
       if (S && this.steps === S) {
-        S.read = await this.host.ctx.board.checklist(card.id).catch(() => S.read);
+        S.read = await this.host.ctx.board.request("checklist.query", { blockId: card.id, query: { limit: 200, nested: "include" } }).catch(() => S.read);
         S.busy = false; this.host.redraw();
       }
     }

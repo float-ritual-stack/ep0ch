@@ -2,6 +2,11 @@
 // through every site that once carried its own copy, so a regex that creeps back into one of them fails here.
 import { describe, expect, test } from "bun:test";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { blockIdMatcher, isBlockId } from "@ep0ch/outline-core/addressable-resource";
+import { withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
+import { stepTitle } from "../src/steps";
+import { cellBlockId } from "@ep0ch/outline-core/figure-live";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
 import { age, ageSince } from "@ep0ch/outline-core/age";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
@@ -29,7 +34,7 @@ const ECHONET = "../../outliner/extensions/echonet/link-grammar.js";
 const echonet = await import(ECHONET) as { firstLine(text: string): string };
 const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner/extensions/structure/lists";
 const tidy = await import(TIDY) as { tidyPassage(lines: string[], fenced?: readonly number[]): { replacement: string }; tidyLine(line: string): string };
-const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[] };
+const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[]; titleOf(firstLine: string): string };
 const DEVICES = "../../outliner/src/device-cli", WEB = "../../outliner/src/web-cli";
 const devices = await import(DEVICES) as { deviceLine(device: Record<string, string>, now: number): string };
 const web = await import(WEB) as { webSessionLine(session: Record<string, string>, now: number): string };
@@ -169,5 +174,55 @@ describe("how old something is: one unit and rounding, age's", () => {
   test("a moment a few seconds back is just now; a time that isn't one is no age", () => {
     expect(age(4_000, "ago")).toBe("just now");
     expect(ageSince("not a date", now, "ago")).toBe("");
+  });
+});
+
+describe("a block id: one shape, outline-core's (PIE-1375)", () => {
+  // Its version digit is 0 and its variant 1: no id the outline mints, though it has a UUID's look. The loose copies
+  // (bookmarks, mentions, figure cells, the door's links, publish, a component's links) once took it as a block.
+  const LOOKALIKE = "3b8e6c21-5f4a-0d7b-1c02-a1e8d4f7b650";
+  const MENTIONS = "../../outliner/src/mentions";
+  test("the outline's own ids are block ids everywhere, and a lookalike nowhere", async () => {
+    const { extractMentionReferences } = await import(MENTIONS) as { extractMentionReferences(text: string): { kind: string; value: string }[] };
+    for (const [id, is] of [[ID, true], [ID.toUpperCase(), true], [LOOKALIKE, false]] as const) {
+      expect(isBlockId(id)).toBe(is);
+      expect(referencedBlock(id)?.blockId === id).toBe(is);
+      expect(cellBlockId(`((${id}))`) === id).toBe(is);
+      expect([...`see ${id} here`.matchAll(blockIdMatcher())].length).toBe(is ? 1 : 0);
+      expect(extractMentionReferences(`ping ${id}`).some(r => r.kind === "block" && r.value === id.toLowerCase())).toBe(is);
+    }
+  });
+});
+
+describe("an anchor at a line's end: one grammar, outline-core's (PIE-1375)", () => {
+  // An id is at most 64 characters: past that, `^…` is words. Structure's list titles once took any length as an anchor.
+  const LONG = `^${"s".repeat(70)}`, SHORT = "^s5";
+  test.each([[SHORT, "Plant beans"], [LONG, `Plant beans ${LONG}`]])("Plant beans %s titles as %s at every former site", (tail, title) => {
+    expect(withoutFragmentAnchor(`Plant beans ${tail}`)).toBe(title);
+    expect(lists.titleOf(`- Plant beans ${tail}`)).toBe(title);
+    expect(stepTitle({ text: `- [ ] Plant beans ${tail}` })).toBe(title);
+  });
+});
+
+describe("code lines: one fence grammar, outline-core's codeBlocks (PIE-1375)", () => {
+  // A fence the person is still typing: the Markdown parser once made the rest of the note code, so an anchor after it
+  // was no anchor to the outliner's fragments while every reader drew it as text.
+  const FRAGMENTS = "../../outliner/src/fragments";
+  test("after a half-typed fence, the next paragraph is text at every site", async () => {
+    const fragments = await import(FRAGMENTS) as { codeLineSet(text: string): Set<number>; fragmentAnchors(text: string): { id: string }[] };
+    const text = "Seed plan\n```js\nhalf typed\n\n## Later ^later\nwords";
+    const fenced = codeFenceLines(text.split("\n"));
+    expect(fenced[4]).toBe(-1);
+    expect(fragments.codeLineSet(text).has(4)).toBe(false);
+    expect(fragments.fragmentAnchors(text).map(a => a.id)).toContain("later");
+  });
+});
+
+describe("a completion's range: the one pure half, outline-core's (PIE-1375)", () => {
+  // `see ((Rough edges (x)))` with the cursor after `Roug`: a choice replaces the whole token, its title's own `(x)`
+  // and both closing `))` with it. Door and outliner once replaced up to 22 and 23; both read this target now.
+  test("the whole reference is replaced, and nothing is left over", () => {
+    const line = "see ((Rough edges (x)))";
+    expect(completionTargetAtCursor(line, line.indexOf("Roug") + 4)).toMatchObject({ kind: "block", start: 4, end: line.length, query: "Roug" });
   });
 });

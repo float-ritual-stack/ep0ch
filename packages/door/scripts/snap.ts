@@ -1,3 +1,4 @@
+import { quoteOf } from "../test/wire";
 // Drive the real door against the live outline and snapshot what a Kitty terminal would show.
 // src/mirror.ts consumes the exact bytes the door writes and composites them into a PNG.
 //   bun scripts/snap.ts [cells] → out/snap-*.png
@@ -399,7 +400,7 @@ if (scenario === "backlinks") {
   // PIE-442: a note many things link to, in the board's backlinks dock, as Detail shows it: this note and
   // resolved comments hidden, groups by kind with stage counts, open items first, one line each; then
   // everything shown, a kind and a filter. Its own scratch service, fictional notes.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   await board.request("work-ids.configure", { prefix: "HOME" });
   const swap = await mk(null, "Seed swap at the allotment [stage::queued]\nSaturday, by the water butts.");
   const ref = `((${swap.id}))`;
@@ -410,8 +411,8 @@ if (scenario === "backlinks") {
   const plot = await mk(null, "Plot 14 [page::Plot 14]");
   await mk(plot.id, `Rota for the stall\nCovers ${ref}.`);
   await mk(null, `Seed tins to bring\nLabelled for ${ref}.`);
-  const day = (await board.request<any>("pages.follow", { address: "2026-03-14", author: "agent" })).block;
-  await mk(day.id, `Market morning, then ${ref}`);
+  const day = (await board.request("pages.follow", { address: "2026-03-14", author: "agent" })).block;
+  await mk(day!.id, `Market morning, then ${ref}`);
   await mk(null, `Garden club takeaways [type::meeting]\nWe agreed ${ref} goes ahead.`);
   const notes = await mk(null, "Allotment notes\nMondays and Thursdays.");
   const c1 = await board.comment("c1", notes.id, notes.revision, `Bring labels to ${ref}`, { quote: "Mondays", start: notes.text.indexOf("Mondays") });
@@ -540,7 +541,7 @@ if (scenario === "scroll") {
   // PIE-411 on its own scratch service (fictional long notes): scroll indicators on tiled readers, a
   // float and the desk; a comment session opened by m shows in the frame and hints; an agent's edit
   // doesn't take the person's keys until they enter it.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const long = (t: string, st: string) => `${t} [stage::${st}]\n${Array.from({ length: 90 }, (_, i) => `${i % 12 === 0 ? `## Part ${i / 12 + 1}\n` : ""}${t} line ${i + 1}: the hose runs along the fence past the shed.`).join("\n")}`;
   const hub = await mk(null, "Garden board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
@@ -580,7 +581,7 @@ if (scenario === "scroll") {
 if (scenario === "complete") {
   // PIE-416 on its own scratch service (fictional notes): [[, (( and [file:: completion in the preview's
   // editor, and in a comment composer.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const { mkdirSync: md, writeFileSync: wf } = await import("node:fs");
   md(`${info.workspace}/notes/beds`, { recursive: true }); wf(`${info.workspace}/notes/plan.md`, "the plan\n"); wf(`${info.workspace}/notes/seeds.md`, "beans\n");
   await board.request("work-ids.configure", { prefix: "HOME" });
@@ -653,7 +654,7 @@ if (scenario === "select") {
   // PIE-419 on its own scratch service (a fictional planting note): a drag selects (the copy control
   // appears), the keyboard mode, an agent's selection in its own tint beside the person's, and the same
   // in cells video.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const hub = await mk(null, "Garden board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
@@ -690,7 +691,7 @@ if (scenario === "fold") {
   // PIE-410 on its own scratch service (a fictional planting note): fold a section by keys, a list item
   // by a click, and all sections at once; an edit elsewhere refreshes the reader and keeps the folds; an
   // agent unfolds through the registry; the desk's reader folds the same way.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const beds = Array.from({ length: 14 }, (_, i) => `- bed ${i + 1}: beans, then squash\n  - edge it with boards\n  - two barrows of compost\n    well rotted, from the far heap`).join("\n");
   const text = `Plan the allotment [stage::queued]\nWhat goes where this year.\n\n## Beds\n${beds}\n\n### Soil\nLoam, mostly; lime the brassica bed.\n\n## Water\nThe hose runs along the fence past the shed.\n\`\`\`\n# not a heading: code\n\`\`\`\n\n## Paths\n- woodchip between the beds\n- a wider one to the shed\n\n# Later\nMulch in autumn.`;
   const hub = await mk(null, "Garden board");
@@ -733,7 +734,7 @@ if (scenario === "steps") {
   // cycle); [ ] walks to a step inside an embed, ⏎ opens its status choice, x marks it done; a click opens
   // another's and sets it waiting; ctrl+z undoes; an agent sets a step and the header names it; a fragment
   // link is followed to the fragment.
-  const mk = (text: string) => board.request<any>("create", { parentId: null, text, author: "user" });
+  const mk = (text: string) => board.request("create", { parentId: null, text, author: "user" });
   const garden = await mk(["Allotment checklist", "## Spring ^spring", "1. [x] Turn the compost ^t-a1b2c3", "2. [ ] Sow the beans ^t-d4e5f6", "   Soak them overnight first.", "   - [~] Buy canes ^t-0a0b0c", "3. [!] Fix the water butt", "## Summer", "- [ ] Net the brassicas"].join("\n"));
   const hub = await mk("Hub of hubs");
   const plan = await mk(["Week plan", "This week:", `!((${garden.id}))`, "Just the beans:", `!((${garden.id}^t-d4e5f6))`, `!((${hub.id}))`, "- [ ] Ring the plot office", `Where it started: ((${garden.id}^spring)).`].join("\n"));
@@ -770,8 +771,8 @@ if (scenario === "elements") {
   // preview with the reading ruler under the current one, ⏎ on a figure row opens a detail, the comment
   // mark expands its thread inline with its controls (PIE-420), and an agent's focus mark in the detail is
   // tinted and named. The note ends with a literal region (PIE-422): markers hidden, its token plain.
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
-  const plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const plan = (await board.request("pages.follow", { address: "Garden plan", author: "agent" })).block;
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
   const shed = await mk(null, "Paint the shed\nTwo coats, green.");
   await mk(null, "Water the seedlings [type::garden-job]");
@@ -814,7 +815,7 @@ if (scenario === "projection") {
   const { installTickets, SHOWCASE_TICKETS, ticketSource } = await import("../src/showcase/tickets/install");
   installTickets(join(scratch!.root, "config"), SHOWCASE_TICKETS);
   await ticketSource(board);
-  const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const mk = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   await mk(null, "Depot supplier call about ACME-12 [type::call]\nWhat we agreed about switching the depot's supplier.\njira:: --comments\nThe label printer problem is ACME-14.\njira:: --compact\nEither ACME-20 or ACME-21 covers the invoices; check which.\njira::\nACME-30 came up at the end.\njira::");
   await mk(null, "Rollout ticket [jira::ACME-12] [type::call]\nOur own notes under the ticket: book the van for the 14th.");
   const hub = await mk(null, "Calls board");
@@ -884,14 +885,14 @@ if (scenario === "journey") {
   ch("e"); await Bun.sleep(500);
   for (const c of " Mine.") ch(c);
   const now = (await other.request("blocks.context", { blockId: shed.id })).selected;
-  await other.request("update", { blockId: shed.id, text: now.text.replace("Sand the door first.", "Sand the door first, then prime."), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: shed.id, text: now!.text.replace!("Sand the door first.", "Sand the door first, then prime."), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("9-changed-elsewhere", 1500); said();
   press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200);
   press({ kind: "esc" });                                                   // back to the lanes
   // Another client moves a different card: only the lanes it touches are asked again.
   const before = S.asked.length;
   const g = (await other.request("blocks.context", { blockId: gate.id })).selected;
-  await other.request("update", { blockId: gate.id, text: g.text.replace("[stage::doing]", "[stage::done]"), expectedRevision: g.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: gate.id, text: g!.text.replace!("[stage::doing]", "[stage::done]"), expectedRevision: g!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("10-other-moved", 1800);
   console.log(`  lanes asked again after the other client's move: ${[...new Set(S.asked.slice(before))].join(", ") || "(none)"}`);
   // The service restarts. The door says it's offline, reconnects and catches up.
@@ -901,7 +902,7 @@ if (scenario === "journey") {
   await scratch!.start();
   await snap("12-reconnected", 2500); said();
   const final = await new SocketBoard(board.path).request("blocks.context", { blockId: shed.id });
-  console.log(`  service: shed at revision ${final.selected.revision}, ${final.selected.properties.map((p: any) => `${p.key}=${p.value}`).join(" ")}`);
+  console.log(`  service: shed at revision ${final.selected!.revision}, ${final.selected!.properties.map((p: any) => `${p.key}=${p.value}`).join!(" ")}`);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "edit") {
@@ -922,7 +923,7 @@ if (scenario === "edit") {
   await snap("2-editing", 800);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
-  await other.update(card.id, now.text.replace("Edit me", "Someone else edited me"), now.revision);
+  await other.update(card.id, now!.text.replace!("Edit me", "Someone else edited me"), now!.revision);
   await snap("3-changed-elsewhere", 1500);
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("4-refused", 1200);
@@ -931,7 +932,7 @@ if (scenario === "edit") {
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("5-saved", 1500);
   const final = (await other.request("blocks.context", { blockId: card.id })).selected;
-  console.log(`service text now (revision ${final.revision}, actor ${final.actorId}):\n${final.text}`);
+  console.log(`service text now (revision ${final!.revision}, actor ${final!.actorId}):\n${final!.text}`);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "props") {
@@ -943,7 +944,7 @@ if (scenario === "props") {
   await mk(hub.id, "Queued [type::virtual-branch] [query::type=roadmap-item work-stage=queued]");
   await mk(hub.id, "Doing [type::virtual-branch] [query::type=roadmap-item work-stage=doing]\n[summary-properties::priority,track]");
   const plan = await mk(null, "Garden plan [page::garden]\nBeans along the fence, squash by the compost.\n\n## Beds ^beds\nTwo raised beds, one for herbs.");
-  const shed = await mk(null, "Old shed notes"); await board.request("delete", { blockId: shed.id, author: "agent" });
+  const shed = await mk(null, "Old shed notes"); await board.request("delete", { blockId: shed.id, mutation: { author: "agent", actorId: "snap-agent" } });
   const chores = await mk(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::priority]");
   await mk(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
   await mk(null, "Turn the compost [type::chore] [stage::queued] [priority::low]");
@@ -985,7 +986,7 @@ if (scenario === "props") {
   press({ kind: "enter" }); for (const c of "-2") ch(c);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
-  await other.update(card.id, now.text.replace("three-bay", "four-bay"), now.revision);
+  await other.update(card.id, now!.text.replace!("three-bay", "four-bay"), now!.revision);
   await Bun.sleep(1200);
   press({ kind: "enter" }); await snap("6-refused", 1500);
   press({ kind: "esc" }); press({ kind: "esc" });
@@ -1038,12 +1039,12 @@ if (scenario === "move") {
   // Someone else edits the card after the board drew it: the move is refused, nothing written.
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: gate.id })).selected;
-  await other.request("update", { blockId: gate.id, text: now.text.replace("It squeaks.", "It squeaks less."), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: gate.id, text: now!.text.replace!("It squeaks.", "It squeaks less."), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   ch("L"); await settle();
   await snap("8-stale-refused", 300);
   for (const id of [lamp.id, gate.id]) {
     const b = (await other.request("blocks.context", { blockId: id })).selected;
-    console.log(`${id.slice(0, 8)} revision ${b.revision} · ${b.properties.map((p: any) => `${p.key}=${p.value}`).join(" ")}\n  ${b.text.split("\n")[0]}`);
+    console.log(`${id.slice(0, 8)} revision ${b!.revision} · ${b!.properties.map((p: any) => `${p.key}=${p.value}`).join!(" ")}\n  ${b!.text.split("\n")![0]}`);
   }
   console.log(JSON.stringify(B.describe(), null, 1).split("\n").filter(l => /lastMove|result|"to"/.test(l)).join("\n"));
   other.close(); board.close(); process.exit(0);
@@ -1083,15 +1084,15 @@ if (scenario === "comment") {
   press({ kind: "enter" }); for (const c of "Friday is tight.") ch(c);
   const other = new SocketBoard();
   const now = (await other.request("blocks.context", { blockId: card.id })).selected;
-  await other.update(card.id, now.text.replace("\nShip", "\nScope moved to v2.\nShip"), now.revision);
+  await other.update(card.id, now!.text.replace!("\nShip", "\nScope moved to v2.\nShip"), now!.revision);
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("8-refused", 1500);
   press({ kind: "char", ch: "r", ctrl: true });
   await snap("9-found-again", 1200);
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("10-sent-after-move", 1500);
-  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
-  for (const t of list) console.log(`${t.lifecycle} "${t.originalTarget.anchor.exact}" @${t.originalTarget.anchor.start}: ${t.body} (${t.replies.length} repl.)`);
+  const list = await other.request("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
+  for (const t of list) console.log(`${t.lifecycle} "${quoteOf(t.originalTarget.anchor).exact}" @${quoteOf(t.originalTarget.anchor).start}: ${t.body} (${t.replies.length} repl.)`);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "agent") {
@@ -1219,7 +1220,7 @@ if (scenario === "river-write") {
   await act("edit.text", { text: (await board.get(beans.id))!.text + "\nMine, unsaved." }, beansR);
   const other = new SocketBoard(board.path);
   const now = (await other.request("blocks.context", { blockId: beans.id })).selected;
-  await other.request("update", { blockId: beans.id, text: now.text.replace("Canes", "Hazel canes"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
+  await other.request("update", { blockId: beans.id, text: now!.text.replace!("Canes", "Hazel canes"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "snap-other-writer" } });
   await snap("9-changed-elsewhere", 1500);
   // Focus away: the agent's draft doesn't take the person's h, and the column holding it resists compression.
   ch("h"); ch("h");
@@ -1227,8 +1228,8 @@ if (scenario === "river-write") {
   console.log(`  unsaved: ${R.unsaved?.()} · columns: ${JSON.stringify(((R.describe?.() ?? {}) as { panes?: { name: string; cover?: string }[] }).panes?.map(c => [c.name, c.cover ?? "full"]))}`);
   const kept = R.keepDrafts?.() ?? [];
   console.log(`  kept: ${kept.join(", ")}`);
-  const list = await other.request<any[]>("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
-  for (const t of list) console.log(`  ${t.lifecycle} "${t.originalTarget.anchor.exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
+  const list = await other.request("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
+  for (const t of list) console.log(`  ${t.lifecycle} "${quoteOf(t.originalTarget.anchor).exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
   other.close(); ctl.close(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "desk") {

@@ -136,7 +136,7 @@ describe.skipIf(!outliner)("a note at 40 columns (ep0ch show)", () => {
       "",
       "- [ ] Order the seed trays",
     ].join("\n");
-    id = (await board.request<{ id: string }>("create", { parentId: null, text, author: "agent" })).id;
+    id = (await board.request("create", { parentId: null, text, author: "agent" })).id;
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 

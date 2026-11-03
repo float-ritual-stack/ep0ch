@@ -48,6 +48,7 @@ export const SEED = {
   listFolds: "Five garden decisions",
   calloutType: "Recipe callouts",
   images: "Pictures of the plot",
+  pictures: "Diagrams of the plot",
   hero: "An evening on the plot",
   dashboard: "Plot at a glance",
   /** A note that is only the dashboard's embed (PIE-1458): no words of its own, so the seed finds it by its embed. */

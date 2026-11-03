@@ -277,7 +277,7 @@ const loadAgentTools = () => agentTools ??= import(AGENT_TOOLS_MODULE) as Promis
 
 /** The board as the agent operations' client: its requests, and its protocol check. */
 const clientOf = (board: WriteBoard) => ({
-  request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.request<T>(action, rest),
+  request: <T>({ action, ...rest }: { action: string } & Record<string, unknown>) => board.send(action, rest) as Promise<T>,
   requireCompatibleService: () => board.info(),
 });
 

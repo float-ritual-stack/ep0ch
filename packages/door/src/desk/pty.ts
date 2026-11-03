@@ -33,6 +33,7 @@ import type { Actor } from "../socket";
 import { agentIn, agentOf, claudeSessionOf, resumeCommand, sessionCommand, type SessionMark } from "./agent-sessions";
 import { modeHint } from "../surface/modes";
 import { keyCaption } from "../surface/actions";
+import { GraphicsFeed, TileGraphics, windowOpsReply, type TileGeometry } from "./tile-graphics";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -57,10 +58,13 @@ interface XTermLike {
   /** The emulator's parser: the door's own OSC and ESC handlers (program status, OSC 7501) go in ahead of its own. */
   parser: {
     registerOscHandler(ident: number, f: (data: string) => boolean): unknown;
+    registerCsiHandler(id: { prefix?: string; intermediates?: string; final: string }, f: (params: (number | number[])[]) => boolean): unknown;
     registerEscHandler(id: { intermediates?: string; final: string }, f: () => boolean): unknown;
   };
   /** What the emulator answers the program (a cursor report, the colours it asked for), to go back to it. */
   onData(f: (d: string) => void): unknown;
+  /** A marker on the cursor's line (+ offset): it follows the line as the text scrolls, and is disposed when it leaves the scrollback. */
+  registerMarker(offset?: number): { readonly line: number; readonly isDisposed: boolean; dispose(): void } | undefined;
   dispose(): void;
 }
 
@@ -247,6 +251,15 @@ export class PtyPane implements Pane {
   private modeTail = "";
   /** The Kitty keyboard protocol as the program asked for it (src/kbd.ts): how the person's keys reach it. */
   readonly kbd = new KbdModes();
+  /** Its program's kitty graphics (PIE-1555): the images it sent and where it placed them, drawn in the tile. */
+  readonly graphics = new TileGraphics();
+  /** The tile's size in pixels as its program asks it (a graphics placement's cells, XTWINOPS 14 and 16). */
+  private geometry(term: XTermLike): TileGeometry {
+    const t = this.desk?.ctx?.t;
+    return { cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, cols: term.cols, rows: term.rows, alt: term.buffer.active.type === "alternate" };
+  }
+  /** The door draws kitty graphics, so its tiles' programs may too. */
+  private get drawsGraphics(): boolean { return !!this.desk?.ctx?.graphics; }
   /** Lines scrolled back into what went by (0: the live screen). */
   private back = 0;
   /** The door's own selection of the screen's text (PIE-419), by buffer row so scrolling back moves it with the text. */
@@ -363,7 +376,20 @@ export class PtyPane implements Pane {
     // still does its own after each (false: not handled here alone).
     term.parser.registerOscHandler(7501, body => { this.status.feed(body, this.running && !replaying ? s => this.proc?.write(s) : null, this.identity ?? undefined); this.watchForeground(); this.soon(); return true; });
     term.parser.registerOscHandler(133, body => { if (body === "A" || body.startsWith("A;")) { this.status.prompt(); this.soon(); } return false; });
-    term.parser.registerEscHandler({ final: "c" }, () => { this.status.reset(); this.soon(); return false; });
+    term.parser.registerEscHandler({ final: "c" }, () => { this.status.reset(); this.graphics.reset(); this.soon(); return false; });
+    // Kitty graphics (PIE-1555): a cleared screen takes its pictures with it (ED 2 what's on it, ED 3 the scrollback too),
+    // and the tile's size in pixels is answered (XTWINOPS 14, 16), as a kitty terminal does; xterm answers neither.
+    term.parser.registerCsiHandler({ final: "J" }, params => {
+      const p = params[0], b = term.buffer.active, alt = b.type === "alternate";
+      if (p === 2) this.graphics.cleared(alt, b.baseY); else if (p === 3) this.graphics.cleared(alt, 0);
+      return false;
+    });
+    term.parser.registerCsiHandler({ final: "t" }, params => {
+      if (!this.drawsGraphics || replaying) return false;
+      const reply = windowOpsReply(Number(params[0]), this.geometry(term));
+      if (reply && this.running) this.proc?.write(reply);
+      return !!reply;
+    });
     /** The modes a program asks of its terminal, followed; `answer`: its queries answered (not in a replay). */
     const modes = (s: string, answer: boolean) => {
       // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
@@ -383,6 +409,12 @@ export class PtyPane implements Pane {
     // door's own copy (App.copy: the client with the keys, a "copied from <tile>" toast). Never in a replay: what a
     // kept program wrote before was copied then.
     const clip = new Osc52Reader();
+    // Kitty graphics commands, which the emulator would drop, come out of the stream here (PIE-1555): the text around
+    // them goes to the emulator as it came, each command to the tile's graphics, a placement anchored where the cursor
+    // is once the text before it is read. `answer`: the program is answered (not in a replay: it was then).
+    this.graphics.reset();
+    const gfx = new GraphicsFeed(term, this.graphics, { on: () => this.drawsGraphics, geometry: () => this.geometry(term) });
+    const feed = (d: Uint8Array, text: string, answer: boolean, done?: () => void) => gfx.feed(d, text, answer && this.running ? s => this.proc?.write(s) : null, done);
     const data = (d: Uint8Array) => {
       this.run.output?.(d);
       this.lastOutput = Date.now();
@@ -400,15 +432,16 @@ export class PtyPane implements Pane {
         // Its records go once the emulator has read what this read holds (a report just before the exit line included).
         if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; left = true; }
       }
-      term.write(d, () => { if (left) this.status.exited(); this.soon(); });
+      feed(d, text, true, () => { if (left) this.status.exited(); this.soon(); });
     };
     // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
     this.resync = replay => {
       replaying = true;
-      clip.reset();
+      clip.reset(); gfx.reset(); this.graphics.reset();
       (term as unknown as { reset(): void }).reset();
-      modes(Buffer.from(replay).toString("latin1"), false);
-      term.write(replay, () => { replaying = false; this.soon(); });
+      const text = Buffer.from(replay).toString("latin1");
+      modes(text, false);
+      feed(replay, text, false, () => { replaying = false; this.soon(); });
     };
     // A program no layout brings back (a ctrl+e editor, a showcase's exhibit) runs here, and ends with this process.
     const backend = this.keptAs ? ptyBackend() : localPtys;
@@ -432,7 +465,7 @@ export class PtyPane implements Pane {
       let leftBefore = false;
       if (this.wrapped && this.agentExit === null) { const all = [...replayed.matchAll(new RegExp(EXITED.source, "g"))]; if (all.length) { this.agentExit = Number(all.at(-1)![1]); leftBefore = true; } }
       const proc = kept.proc;
-      term.write(kept.replay, () => {
+      feed(kept.replay, replayed, false, () => {
         replaying = false;
         // Whatever it reported before it left (the replay holds it) is no agent's now.
         if (leftBefore) this.status.exited();
@@ -684,7 +717,9 @@ export class PtyPane implements Pane {
     }
     if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
     if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ${this.run.rerun ? "run it again from the note" : `${keyCaption("enter")} runs it again`}${this.closesBy} · ${keyCaption(ESCAPE_CHORD)} back to the door\x1b[0m`;
-    return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
+    // Its program's pictures (PIE-1555), on the screen showing, cut to the rows in view and to the tile.
+    const placements = desk?.ctx?.graphics ? this.graphics.placements(top, w, h, b.type === "alternate") : [];
+    return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined, ...(placements.length ? { placements } : {}) };
   }
 
   /** What the tile shows as text (for `peek` and tests). */

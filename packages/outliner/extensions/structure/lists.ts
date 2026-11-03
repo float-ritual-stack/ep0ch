@@ -1,6 +1,6 @@
 // The pure part of Structure: lists inside a block's text, sorting, and what an extract writes. No I/O. Code fences
 // are outline-core's (`codeFenceLines`, from the bundle).
-import { codeFenceLines } from "./link-grammar.js";
+import { codeFenceLines, FRAGMENT_ID_SOURCE, withoutFragmentAnchor } from "./link-grammar.js";
 
 export interface SortSpec { by: string; order: "asc" | "desc" }
 export interface Item { lines: string[]; marker: string }
@@ -10,7 +10,7 @@ const MARK = /^(\s*)([-*+]|\d+[.)])\s+/;
 const indentOf = (line: string) => /^\s*/.exec(line)![0].length;
 const blank = (line: string) => line.trim() === "";
 /** Only a fragment anchor (and blanks): what follows a line's words when it ends in `^s5`. */
-const ANCHOR_ONLY = /^\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
+const ANCHOR_ONLY = new RegExp(String.raw`^\s+\^${FRAGMENT_ID_SOURCE}\s*$`);
 
 /** The sort asked for: by title, ascending, unless the arguments say (the service fills in the note's own defaults). */
 export function sortSpec(args: Record<string, string> | undefined): SortSpec {
@@ -22,7 +22,7 @@ export function sortSpec(args: Record<string, string> | undefined): SortSpec {
 
 /** An item's title: its first line without its list mark, properties and anchor. */
 export function titleOf(firstLine: string): string {
-  return firstLine.replace(MARK, "").replace(/\[[A-Za-z][\w.-]*::[^\]]*\]/g, "").replace(/\s\^[A-Za-z0-9][\w-]*\s*$/, "").trim();
+  return withoutFragmentAnchor(firstLine.replace(MARK, "").replace(/\[[A-Za-z][\w.-]*::[^\]]*\]/g, "")).trim();
 }
 
 /** An item's own lines: its first, and those after it up to its first sub-item, outside code fences. */

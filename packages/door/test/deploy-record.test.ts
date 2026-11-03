@@ -51,7 +51,7 @@ test("record deploy uses the existing Deploys destination and install shape", as
     });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     expect(code, err).toBe(0);
-    const note = await board.request<{ text: string; parentId: string }>("get", { blockId: JSON.parse(out).id });
+    const note = await board.request("get", { blockId: JSON.parse(out).id });
     expect(note.parentId).toBe(root.id);
     expect(note.text).toContain("[machine::install]");
     expect(note.text).toContain("on garden-box");

@@ -1,3 +1,4 @@
+import { proposed } from "./wire";
 // PIE-426: the BBS message reader hosts the shared note surface. Under its BBS header (Date, To, From,
 // Subj, Conf, Stat) the message reads as every reader reads a note: `[ ]` and a click step to and open its
 // links (the target opens as the next reader on the screen stack), `i` opens the property panel, folds,
@@ -56,7 +57,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
   const written: string[] = [];
   const n: Record<string, any> = {};
   const AS = "test-agent-426";
-  const create = async (parentId: string | null, text: string) => (await board.get((await board.request<any>("create", { parentId, text, author: "agent" })).id))!;
+  const create = async (parentId: string | null, text: string) => (await board.get((await board.request("create", { parentId, text, author: "agent" })).id))!;
   const top = () => (app as any).stack.at(-1);
   const stack = () => (app as any).stack.length as number;
   const frame = () => top().render(app).lines as string[];
@@ -287,7 +288,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     (board as any).resolveProposal = async (id: string) => { asked.push(id); return { outcome: "asked", message: "asked the agent" }; };
     try {
       // A stale proposal beside a note: it was proposed, then the note changed under it, so [resolve] is offered.
-      const propose = async (note: any, observed: string, replacement: string) => (await board.request<any>("draft.patch", { blockId: note.id, revision: (await board.get(note.id))!.revision, propose: true, patches: [{ observed, replacement }], mutation: { author: "agent", actorId: "moss" } })).proposalId as string;
+      const propose = async (note: any, observed: string, replacement: string) => proposed((await board.request("draft.patch", { blockId: note.id, revision: (await board.get(note.id))!.revision, propose: true, patches: [{ observed, replacement }], mutation: { author: "agent", actorId: "moss" } }))).proposalId as string;
       const stale = async (note: any) => { const now = (await board.get(note.id))!; await board.update(now.id, now.text.replace("Monday", "Tuesday"), now.revision!); };
       const note = await create(n.conf.id, "Resolution plot\ngrow beans\ndelivery Monday");
       const one = await propose(note, "grow beans", "grow peas");

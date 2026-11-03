@@ -346,7 +346,7 @@ export class BacklinksPane implements Pane {
     if (this.groups.includes("children")) void this.loadChildren(m, desk);
     if (this.groups.includes("parents")) void this.loadParents(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
-    void board.authoredLinks(m.id).then(v => {
+    void board.request("blocks.authored-links", { ownerBlockId: m.id }).then(v => {
       if (n !== this.asked) return;
       const before = rowKey(this.rows()[this.sel]);
       this.keepSel(() => { this.authored = { kind: "ready", value: v }; }, !keepSel && !this.data);
@@ -747,7 +747,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       // The person's options carry over only for the note they're looking at; another note starts as Detail's.
       const base = same ? { ...L.options } : { ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: L.options.sortField, sortDirection: L.options.sortDirection };
       // Its authored links too: the counts and kinds are across all three groups, as the person's.
-      const links: Load<AuthoredLinksSnapshot> = same && L.authored.kind === "ready" ? L.authored : await board.authoredLinks(target.id).then(value => ({ kind: "ready" as const, value }), () => ({ kind: "loading" as const }));
+      const links: Load<AuthoredLinksSnapshot> = same && L.authored.kind === "ready" ? L.authored : await board.request("blocks.authored-links", { ownerBlockId: target.id }).then(value => ({ kind: "ready" as const, value }), () => ({ kind: "loading" as const }));
       const o = parse(base, data, links);
       desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target)}`);
       const all: LinkData = { links, backlinks: { kind: "ready", value: data } };

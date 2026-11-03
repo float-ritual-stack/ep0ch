@@ -12,7 +12,7 @@ beforeAll(async () => { board = new SocketBoard(await scratch.start()); await bo
 afterAll(async () => { board.close(); await scratch.dispose(); });
 
 test("writes a note, then runs past its timeout", async () => {
-  noteId = (await board.request<{ id: string }>("create", { text: "A note the host keeps" })).id;
+  noteId = (await board.request("create", { text: "A note the host keeps" })).id;
   await Bun.sleep(2000);
 }, 300);
 

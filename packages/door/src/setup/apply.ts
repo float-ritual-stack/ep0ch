@@ -294,7 +294,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       // a session started since the plan was made too, is handed over.
       const kept = new Set((step.kept ?? []).map(k => k.pid));
       for (const k of step.kept ?? []) { record(k.why); show(`    ✓ ${k.why}`); }
-      const rs = await upgradeAll({ handoff: true, only: info => !kept.has(info.pid) });
+      // The ones the plan hands over are checked by folder too: one between daemons is missing from the listing.
+      const rs = await upgradeAll({ handoff: true, only: info => !kept.has(info.pid), expected: step.handover ?? [] });
       const handed = rs.filter(r => r.ok && r.handover);
       for (const r of rs) if (r.ok) { record(r.message); if (!r.handover) show(`    ✓ ${r.message}`); }
       if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);

@@ -717,7 +717,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const template = await create("Picker template [page::picker-template] [form-field::which property]");
     const custom: any = await e.s.act("complete", { text: '::use{of=[[picker-template]] which="' }, e.h, AGENT);
     expect(custom.items[0].label).toBe("trellis");
-    await board.request("delete", { blockId: template, author: "agent" });
+    await board.request("delete", { blockId: template, mutation: { author: "agent", actorId: "test-agent" } });
   });
 
   test("component attributes keep existing values and see words after the cursor (PIE-1127 round 2)", async () => {
@@ -736,7 +736,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     later.d.col = '::use{wh'.length;
     const result: any = await later.s.act("complete", {}, later.h, AGENT);
     expect(result.items.some((i: any) => i.label === "which")).toBe(true);
-    await board.request("delete", { blockId: template, author: "agent" });
+    await board.request("delete", { blockId: template, mutation: { author: "agent", actorId: "test-agent" } });
   });
 
   test("component value replacement finds a quote escaped before the cursor (PIE-1127 round 2)", async () => {
@@ -765,7 +765,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
   ] as const)("(( completes notes outside a button body and scripts inside it: %s", async (prefix, kind) => {
     const note = await create("Ordinary note\nA note to link in prose.");
     await create('Ordinary script [script::ordinary-script]\n```js\nreturn "folded";\n```');
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing(await create(`Button body practice\n${prefix}`));
     e.type("((ordinary");
     const popup = await e.settled();
@@ -775,7 +775,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
 
   test("button of completes runnable script names (PIE-1127 round 2)", async () => {
     await create('Water script [script::water-plants]\n```js\nreturn "watered";\n```');
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing(await create("Button practice\n"));
     e.type('::button{of=water');
     expect((await e.settled()).items.some(i => i.insertion === '"water-plants"')).toBe(true);
@@ -793,7 +793,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     // Names no earlier test picked: a value picked before rises among equals (completion.picked, PIE-1366).
     await create('Far script [script::sprout-far]\n```js\nreturn "far";\n```');
     const id = await create('Local practice\n');
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing(id);
     e.s.key({ kind: 'paste', text: '```js script=sprout-near\nreturn "near";\n```\n' }, e.h);
     e.type('::button{of=sprout');
@@ -814,7 +814,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const result: any = await e.s.act("complete", { text: '::use{of=[[facet-producer]] side="' }, e.h, AGENT);
     expect(result.items.some((i: any) => i.insertion === 'north"')).toBe(true);
     expect(result.items.some((i: any) => i.label === "trellis")).toBe(false);
-    await board.request("delete", { blockId: template, author: "agent" });
+    await board.request("delete", { blockId: template, mutation: { author: "agent", actorId: "test-agent" } });
   });
 
   test("component ranking reads current standalone uses from the service while typing", async () => {
@@ -833,7 +833,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     mkdirSync(folder, { recursive: true });
     const file = join(folder, "count-pots.ts");
     writeFileSync(file, '// ep0ch-script\nreturn "Seven pots";\n');
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const e = await editing(await create("Script practice\n"));
     e.type("@count-pots");
     const p = await e.settled();
@@ -1117,7 +1117,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`!((${id}^glass))`);
     expect((await board.get(id))!.text).toContain("> Lift it with two hands. ^glass");
-    expect((await board.readFragment(id, "glass")).status).toBe("resolved");
+    expect((await board.request("fragments.read", { blockId: id, fragmentId: "glass" })).status).toBe("resolved");
     // The embed carries the whole callout, as the reader draws it.
     expect(JSON.stringify(await board.readTransclusions([{ blockId: id, fragmentId: "glass" }]))).toContain("> [!warning] Glass\\n> The cold frame lid is glass.\\n> Lift it with two hands.");
   });

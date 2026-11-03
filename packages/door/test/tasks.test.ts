@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
   let key: (k: Key) => void = () => {};
   const flashes: string[] = [], copied: string[] = [];
   const n: Record<string, any> = {};
-  const create = (text: string) => board.request<any>("create", { parentId: null, text, author: "user" });
+  const create = (text: string) => board.request("create", { parentId: null, text, author: "user" });
   const textOf = async (id: string) => (await board.get(id))!.text;
   /** A surface on its own host: navigation opens in place, as a held reader's does. */
   const reader = () => {
@@ -414,7 +414,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
   test("a ::graph-check row's marks undo one after another (PIE-864): each found again as it reads, the note having moved on; a live row's stale status is refused", async () => {
     const plan = await create(["Gate test plan", "", "::graph-check", "---", "title: You test", "---", "- [ ] lift the latch", "- [ ] oil the hinge", "::", "",
       "::graph-check", "---", "title: Gate jobs", 'query: "parent:this type=gate-job"', 'done: "status=done"', "---", "::"].join("\n"));
-    const job = await board.request<any>("create", { parentId: plan.id, text: "Paint the gate [type::gate-job] [status::todo]", author: "user" });
+    const job = await board.request("create", { parentId: plan.id, text: "Paint the gate [type::gate-job] [status::todo]", author: "user" });
     connectFigures(board, () => {});
     const { s, host, draw } = reader();
     s.show(await board.get(plan.id), host);

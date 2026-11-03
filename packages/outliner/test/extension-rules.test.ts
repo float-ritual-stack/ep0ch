@@ -94,6 +94,9 @@ test("a rule's manifest is checked: it must match something, do something, and n
     return readExtensionFolder(join(folder, "r"), "outline").then(() => "ok", (error: Error) => error.message);
   };
   expect(await load([{ id: "x", match: {}, decorate: { use: "badge" } }])).toContain("rules/0/match matches nothing");
+  // A view or a root named in capitals is the same block (the rule engine lowercases it): the extension loads (PIE-1375).
+  const UPPER = "3B8E6C21-5F4A-4D7B-9C02-A1E8D4F7B650";
+  expect(await load([{ id: "x", match: { view: UPPER, under: UPPER }, decorate: { use: "badge" } }])).toBe("ok");
   expect(await load([{ id: "x", match: { kind: "table" }, decorate: { use: "badge" } }])).toContain("rules/0/match/kind");
   expect(await load([{ id: "x", match: { text: "(" }, decorate: { use: "badge" } }])).toContain("rules/0/match/text");
   expect(await load([{ id: "x", match: { property: "type=meeting" } }])).toContain("does nothing");

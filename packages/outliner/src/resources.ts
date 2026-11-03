@@ -2,10 +2,10 @@ import type { ExtensionRecordData } from "./extension-records";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = BLOCK_ID_PATTERN;
 const WINDOWS_ABSOLUTE_PATH = /^(?:[a-z]:[\\/]|[\\/]{2})/i;
 const ENCODED_PATH_ESCAPE = /%(?:2e|2f|5c)/i;
 const MAX_NAME_LENGTH = 200;

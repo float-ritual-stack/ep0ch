@@ -44,18 +44,18 @@ export async function recordCommand(args: string[]): Promise<number> {
     if (observed) {
       const head = await run(["git", "rev-parse", "HEAD"]);
       if (head.code) throw new Error(head.err);
-      const ping = await hostRequest<{ protocolVersion: number; grammarVersion: number }>(hostSocketOf(), "ping");
+      const ping = await hostRequest(hostSocketOf(), "ping");
       const sessions = await runningSessions();
       Object.assign(props, { sha: head.out, host: hostname(), observed: "true", protocol: String(ping.protocolVersion), grammar: String(ping.grammarVersion), sessions: JSON.stringify(sessions.map(s => ({ pid: s.info.pid, place: s.info.place, code: s.info.code }))) });
     }
-    const result = await writeRecord(board, kind, props, who);
+    const result = await writeRecord({ request: <T>(action: string, params?: Record<string, unknown>) => board.send(action, params) as Promise<T> }, kind, props, who);
     console.log(JSON.stringify(result));
     if (kind === "run-end" && props.report && props.run) {
-      const start = await board.request<{ text: string }>("get", { blockId: props.run });
+      const start = await board.request("get", { blockId: props.run });
       const { parsePropertyRecords } = await import("@ep0ch/outline-core/property-parse");
       const ticket = parsePropertyRecords(start.text).find(p => p.key === "ticket")?.value;
       if (ticket && ticket !== "unknown") {
-        const answer = await board.request<{ resolved: { id?: string; error?: string }[] }>("blocks.resolve", { refs: [ticket] });
+        const answer = await board.request("blocks.resolve", { refs: [ticket] });
         const resolved = answer.resolved[0]!;
         if (!resolved.id) throw new Error(resolved.error);
         await board.request("create", { parentId: resolved.id, text: `Builder report ((${result.id}))\n\n${props.report}`, ...who });

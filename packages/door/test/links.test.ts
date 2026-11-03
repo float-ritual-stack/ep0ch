@@ -93,7 +93,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
   const n: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
   const B = () => BV.view(b);
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), `the whole note${id ? ` ${id.slice(0, 8)}` : ""}`);
   const click = (at: { x: number; y: number }) => {
@@ -130,9 +130,9 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     board = new SocketBoard(await scratch.start());
     await board.info();
     await board.request("work-ids.configure", { prefix: "HOME" });
-    n.plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
+    n.plan = (await board.request("pages.follow", { address: "Garden plan", author: "agent" })).block;
     n.hinge = await create(null, "Oil the hinges\nThe back door squeaks.");
-    workId = (await board.request<any>("work-ids.allocate", { blockId: n.hinge.id, expectedRevision: n.hinge.revision })).workId;
+    workId = (await board.request("work-ids.allocate", { blockId: n.hinge.id, expectedRevision: n.hinge.revision })).workId;
     n.beans = await create(null, "Stake the beans\nCanes along the fence.");
     n.shed = await create(null, "Paint the shed\nTwo coats, green.");
     n.jobs = await create(null, `Weekend jobs [stage::queued] [related::${workId}]\nFirst ((${n.beans.id})), then [[Garden plan]] and [[${workId}]]; [[Nowhere yet]] later.\n\n!((${n.shed.id}))`);

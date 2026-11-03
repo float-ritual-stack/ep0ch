@@ -8,6 +8,7 @@ import type { Source } from "./props";
 import { changeClock, changedSince } from "./refs";
 import type { Actor, ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./socket";
 import { boxStatus, CHECKLIST_MARKS, STEP_BOX, statusWord } from "@ep0ch/outline-core/checklist-marks";
+import { withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 
 /** The status marks, as the service writes them: outline-core's grammar (checklist-marks.ts). */
 export const STEP_MARKS = CHECKLIST_MARKS;
@@ -55,7 +56,7 @@ export function parseStatus(v: string): StepStatus | null {
 /** A step's first line without its list mark, box or anchor: how it's named in a flash, `peek` and the menu. */
 export function stepTitle(step: Pick<ChecklistStep, "text">): string {
   const first = step.text.split("\n", 1)[0] ?? "";
-  return first.replace(STEP_LEAD, "").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trim();
+  return withoutFragmentAnchor(first.replace(STEP_LEAD, "")).trim();
 }
 
 /** A step's link, as Detail's Copy step link writes it. */
@@ -95,7 +96,7 @@ export const stepsLoading = (board: object) => (askingBy.get(board) ?? 0) > 0;
  * against the step as read), so a change doesn't make the steps blink out. Null before the first answer.
  */
 export function stepsOf(m: Msg, src: Source | null | undefined): ChecklistRead | null {
-  if (!src || m.partial || typeof (src.board as { checklist?: unknown }).checklist !== "function") return null;
+  if (!src || m.partial || typeof (src.board as { request?: unknown }).request !== "function") return null;
   let cache = readsBy.get(src.board);
   if (!cache) readsBy.set(src.board, (cache = new Map()));
   const hit = cache.get(m.id), c = cache;
@@ -110,7 +111,7 @@ export function stepsOf(m: Msg, src: Source | null | undefined): ChecklistRead |
   const b = src.board;
   askingBy.set(b, (askingBy.get(b) ?? 0) + 1);
   const done = () => askingBy.set(b, Math.max(0, (askingBy.get(b) ?? 1) - 1));
-  b.checklist(m.id, 1000).then(
+  b.request("checklist.query", { blockId: m.id, query: { limit: 1000, nested: "include" } }).then(
     read => { done(); c.set(m.id, { read, at, asking: false }); src.redraw(); },
     (e: Error) => { done(); c.set(m.id, { read: hit?.read ?? null, at, asking: false, error: e.message }); src.redraw(); },
   );
@@ -134,7 +135,7 @@ export function stepChanged(board: object, blockId: string, before: ChecklistSte
  * the same but for its box (a status change) and its anchor (a first change gives it an id).
  */
 export function stepStillOn(step: ChecklistStep, text: string, line: number): boolean {
-  const plain = (l: string) => l.replace(BOX_AT, "[ ]").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trimEnd();
+  const plain = (l: string) => withoutFragmentAnchor(l.replace(BOX_AT, "[ ]")).trimEnd();
   const now = text.split("\n")[line];
   return now !== undefined && plain(now) === plain(step.text.split("\n", 1)[0] ?? "");
 }

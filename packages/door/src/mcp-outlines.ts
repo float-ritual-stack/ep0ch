@@ -15,7 +15,7 @@ import { applyWrite, actorOf, mcpSetting, principalOf, type McpCaller, type Writ
 import { hostSocketOf } from "./discover";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { boardFor } from "./notes-cli";
-import { hostRequest, OUTLINE_NAME } from "./socket";
+import { hostRequest, hostSend, OUTLINE_NAME } from "./socket";
 
 /** What the tools need of this machine's outline host. */
 export interface McpOutlineAdmin {
@@ -174,7 +174,7 @@ export function localAdmin(env: Record<string, string | undefined> = process.env
   const path = env.EP0CH_SOCKET?.trim() || hostSocketOf(env);
   return {
     machine: canonicalLocalMachineName(), env,
-    host: (action, params = {}) => hostRequest(path, action, params, 30_000),
+    host: (action, params = {}) => hostSend(path, action, params, 30_000) as never,
     open: async name => {
       const b = await boardFor(["--ws", name, "--here"]);
       return "error" in b ? b : b as WriteBoard;

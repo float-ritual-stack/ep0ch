@@ -115,7 +115,7 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
     await until(() => frame().some(l => l.includes("jev ranked · sure")), "the footer saying sure", 10_000);
     key({ kind: "enter" });
     let picks: { query: string; blockId: string; surface: string }[] = [];
-    for (let i = 0; i < 100 && !picks.length; i++) { picks = (await board.searchPicks()).picks; if (!picks.length) await Bun.sleep(50); }
+    for (let i = 0; i < 100 && !picks.length; i++) { picks = (await board.request("search.picks", {})).picks; if (!picks.length) await Bun.sleep(50); }
     expect(picks[0]).toMatchObject({ query: "when to turn the compost", blockId: compost, rank: 0, surface: "power-bar" });
   });
 });

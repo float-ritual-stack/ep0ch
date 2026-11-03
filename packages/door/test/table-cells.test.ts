@@ -61,3 +61,19 @@ test("a wrapped cell's long styled word is cut between glyphs, never inside a co
   const seps = [lines[at - 2]!, lines[at]!, lines[at + 1]!].map(l => [...l].map((c, i) => (c === "┊" ? i : -1)).filter(i => i >= 0).join());
   expect(new Set(seps).size).toBe(1);
 });
+
+// PIE-1541: Jev's findings page in a 66-column tile drew each row's problem in about 10 characters ("fix: / line 4 …"):
+// the widest columns gave way first, and the problem was the widest. The title column gives way last and wraps whole.
+test("a record table at 66 columns keeps the title column whole, wrapped; the other columns give way first", async () => {
+  const { primitiveLines } = await import("../src/components");
+  const problem = "fix: line 4 types a count a query keeps true (\"2 queued\" is stage=queued)";
+  const passage = "- Board: 2 queued and 1 in review, with more coming tomorrow.";
+  const lines = primitiveLines({ type: "table", title: 0, columns: ["title", "note", "passage", "after", "outcome", "writer"],
+    rows: [[problem, "Shed status tonight", passage, "- **Roof on** at nine; the felt was cut to size.", "followed", "moss"]] }, 65).map(strip);
+  expect(Math.max(...lines.map(l => l.length))).toBeLessThanOrEqual(65);
+  const title = lines.slice(2).map(l => l.split("  ")[0]!.trim()).join(" ");
+  expect(title.replace(/\s+/g, " ")).toBe(problem);
+  // A table with no title column keeps the widest-first rule: both columns share the room.
+  const plain = primitiveLines({ type: "table", columns: ["a", "b"], rows: [["x".repeat(40), "y".repeat(40)]] }, 41).map(strip);
+  expect(plain[1]).toBe(`${"─".repeat(19)}  ${"─".repeat(20)}`);
+});

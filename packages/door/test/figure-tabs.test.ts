@@ -53,7 +53,7 @@ describe("::graph-tabs from the outline", () => {
   beforeAll(() => {
     setLiveSource({
       // The service groups (`group: stage`): every match counted, in the property's value order, no value last.
-      request: async (_a: string, p: any) => ({
+      send(...a: any[]) { return (this as any).request(...a); }, request: async (_a: string, p: any) => ({
         produced: {
           kind: "figure", blocks: results, truncated: false,
           ...(p.produce.props.group === "stage" ? { groups: [

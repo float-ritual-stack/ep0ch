@@ -546,7 +546,7 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     const text = `Tall bean diary\nBefore the long paragraph.\n\n${"runner beans ".repeat(800)}finalpod\n\nAfter the long paragraph.`;
     await until(() => reader.msg?.id === seeded.notes.overscroll.id && !reader.msg.partial, "the initial reader");
     screen();
-    const made = await board.request<{ id: string }>("create", { author: "user", text });
+    const made = await board.request("create", { author: "user", text });
     await desk.dispatch.press("open", { id: made.id }, "reader");
     await until(() => reader.msg?.id === made.id && !reader.msg.partial, "the tall paragraph");
     screen();

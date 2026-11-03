@@ -49,7 +49,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(await app.act({ action: "section", args: { name: "workbench" }, as: "test-agent" })).toMatchObject({ key: "workbench" });
     await until(() => screen().includes("Garden collection workbench") && screen().includes("Table") && screen().includes("Cards") && screen().includes("List"), "the workbench's three presentations", 10_000);
     const note = seeded.notes.workbench!;
-    const output = async () => (await board.readResourceProjections(note.id)).projections.find(p => p.kind === "component")?.output?.component as { data: { blocks: { id: string }[] }; view: { children: { title?: string }[] } } | undefined;
+    const output = async () => (await board.request("resources.projection.read", { blockId: note.id, materialize: true })).projections.find(p => p.kind === "component")?.output?.component as { data: { blocks: { id: string }[] }; view: { children: { title?: string }[] } } | undefined;
     await untilAsync(async () => (await output())?.data.blocks.length === 5, "the five chores in the workbench");
     const before = (await output())!.data.blocks.map(row => row.id);
     const chore = (await board.children(seeded.notes.chores!.id))[0]!;
@@ -101,7 +101,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
     await until(() => screen().includes("## Installed") && screen().includes("Notifications hub") && screen().includes("Your GitHub notifications"), "the hub and notify's page", 10_000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
-    const listed = await board.listExtensions(true);
+    const listed = await board.request("extensions.list", { reload: true });
     const title = (m: { text: string }) => m.text.split("\n")[0];
     // The page's demo notes, written once as the extension; its boards are views over what the pull wrote.
     const demo = await board.children(listed.pages!.notify!);
@@ -130,7 +130,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(app.describe().messages.filter(m => m.message.startsWith("extensions:")).map(m => m.message).join("\n")).not.toMatch(/script-[0-9a-f]{6}/);
     await expect(app.act({ action: "extensions.uninstall", args: { id: "horoscope" }, as: "test-agent" })).rejects.toThrow(/demo/);
     await app.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" }, as: "test-agent" });
-    expect((await board.listExtensions(true)).pages?.horoscope).toBeUndefined();
+    expect((await board.request("extensions.list", { reload: true })).pages?.horoscope).toBeUndefined();
     const intake = await app.act({ action: "extensions.install", args: { id: "intake" }, as: "test-agent" }) as { page: string };
     await app.act({ action: "extensions.uninstall", args: { id: "intake", demo: "keep" }, as: "test-agent" });
     expect(app.describe().messages.some(m => m.message.includes("1 rule switched off"))).toBe(true);
@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(app.describe().messages.some(m => m.message.includes("1 rule switched back on"))).toBe(true);
     // A lifecycle edit must not turn a pristine demo into one cleanup claims the person changed.
     await app.act({ action: "extensions.uninstall", args: { id: "intake", demo: "remove" }, as: "test-agent" });
-    expect((await board.listExtensions(true)).pages?.intake).toBeUndefined();
+    expect((await board.request("extensions.list", { reload: true })).pages?.intake).toBeUndefined();
     expect(await board.get(intake.page)).toMatchObject({ deleted: true });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
@@ -185,7 +185,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
 
 
   test("an extension shows what it adds before you install it (PIE-1549): its README's opening, each part with its words and key, its demo notes; installed, the same words", async () => {
-    const listed = await board.listExtensions(true);
+    const listed = await board.request("extensions.list", { reload: true });
     const horoscope = listed.available!.find(a => a.id === "horoscope")!.about!, notify = listed.about!.notify!;
     expect(horoscope.readme).toBeTruthy();
     expect(horoscope.adds.length).toBeGreaterThan(0);
@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   test("structure (PIE-784): sort-blocks run by the person asks by= and order= in the power bar, chosen by keys, and lands as one order; an agent's extract is one step it undoes whole", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
-    const listed = await board.listExtensions(true);
+    const listed = await board.request("extensions.list", { reload: true });
     const title = (m: { text: string }) => m.text.split("\n")[0]!;
     const demo = await board.children(listed.pages!.structure!);
     const beds = demo.find(m => title(m).startsWith("Beds"))!, plan = demo.find(m => title(m) === "Garden plan")!;
@@ -550,7 +550,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   test("structure's extract takes a line's anchor with it (PIE-829): the diary's link points at the new child, no forwarding line, one undo puts all of it back", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-pages" }, as: "test-agent" })).toMatchObject({ key: "ext-pages" });
-    const listed = await board.listExtensions(true);
+    const listed = await board.request("extensions.list", { reload: true });
     const title = (m: { text: string }) => m.text.split("\n")[0]!;
     const demo = await board.children(listed.pages!.structure!);
     const plan = demo.find(m => title(m) === "Garden plan")!, diary = demo.find(m => title(m) === "Garden diary")!;

@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     return e && [e.author, e.actorId, e.kind];
   };
   /** Who a block was created by, as the service stored it. */
-  const createdBy = async (id: string) => { const m = await current(id); return [m.author, m.actorId]; };
+  const createdBy = async (id: string) => { const m = await current(id); return [m!.author, m!.actorId]; };
   const hints = () => b.render(B().ctx).lines.at(-1)!.replace(/\x1b\[[\d;]*m/g, "");
   const screen = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
 
@@ -120,8 +120,8 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "char", ch: "H" });                                          // stage order: Doing is left of Queued
     await settled();
     const now = await current(cards.kettle.id);
-    expect(now.text).toBe("Descale the kettle [type::roadmap-item] [project::ep0ch-door] [work-stage::doing]");
-    expect(now.revision).toBe(cards.kettle.revision + 1);
+    expect(now!.text).toBe("Descale the kettle [type::roadmap-item] [project::ep0ch-door] [work-stage::doing]");
+    expect(now!.revision).toBe(cards.kettle.revision + 1);
     expect(laneIds("Doing")).toContain(cards.kettle.id);
     expect(message()).toBe("moved to Doing · work-stage queued -> doing · still in Everything too");
   });
@@ -135,7 +135,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(plan).toEqual({ kind: "refused", reason: "Doing needs (project=pi-outliner OR project=ep0ch-door) and the note has project=garden-club; a move sets only the plain clauses beside it" });
     press({ kind: "esc" });
     await expect(act("card.move", { lane: "Doing", card: cards.club.id })).rejects.toThrow("Doing needs (project=pi-outliner OR project=ep0ch-door) and the note has project=garden-club");
-    expect((await current(cards.club.id)).revision).toBe(before.revision);
+    expect((await current(cards.club.id))!.revision).toBe(before!.revision);
   });
 
   test("n in a roadmap lane: the workboard's allocator makes the item, issues its work-id and files it in its project's queue", async () => {
@@ -165,10 +165,10 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await until(() => !B().composer, "the create");
     const made = B().lastWrite.id;
     const m = await current(made);
-    const workId = m.properties.find((p: any) => p.key === "work-id").value;
+    const workId = m!.properties.find((p: any) => p.key === "work-id")!.value;
     expect(workId).toMatch(/^HOME-\d+$/);
-    expect(m.text).toBe(`${workId} — Oil the hinges [type::roadmap-item] [priority::medium] [work-stage::queued] [project::ep0ch-door] [arc::home] [track::doors] [work-id::${workId}]\n\nThe back door squeaks.`);
-    expect(m.parentId).toBe(queue.id);                                      // ep0ch-door's work queue
+    expect(m!.text).toBe(`${workId} — Oil the hinges [type::roadmap-item] [priority::medium] [work-stage::queued] [project::ep0ch-door] [arc::home] [track::doors] [work-id::${workId}]\n\nThe back door squeaks.`);
+    expect(m!.parentId).toBe(queue.id);                                      // ep0ch-door's work queue
     expect(await createdBy(made)).toEqual(["user", undefined]);
     expect(board.sent.slice(sent)).toContain("roadmap.items.create");
     expect(board.sent.slice(sent)).not.toContain("create");                   // never a plain create
@@ -198,16 +198,16 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const r: any = await act("card.create", { lane: "Queued", text: "Tune the piano [project::pi-outliner] [priority::low] [arc::music] [track::keys]" });
     expect(r).toMatchObject({ lane: "Queued", parent: queue2.id, workId: expect.stringMatching(/^HOME-\d+$/), recordedAs: `an agent (${AS})'s` });
     const m = await current(r.id);
-    expect(m.properties.filter((p: any) => p.key === "project").map((p: any) => p.value)).toEqual(["pi-outliner"]);
+    expect(m!.properties.filter((p: any) => p.key === "project").map!((p: any) => p.value)).toEqual(["pi-outliner"]);
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     await expect(act("card.create", { lane: "Queued", text: "Mow the lawn [project::garden-club] [priority::low] [arc::a] [track::t]" }))
       .rejects.toThrow("Queued needs (project=pi-outliner OR project=ep0ch-door) and the note would have project=garden-club");
     // The same rule on an ordinary lane: the text's area wins; without one, the default applies.
     const weed: any = await act("card.create", { lane: "Chores", text: "Weed the beds [area::garden]" });
-    expect((await current(weed.id)).text).toBe("Weed the beds [area::garden] [type::chore] [stage::todo]");
+    expect((await current(weed.id))!.text).toBe("Weed the beds [area::garden] [type::chore] [stage::todo]");
     expect(weed).toMatchObject({ parent: chores.id, bornWith: ["type=chore", "stage=todo"] });
     const wipe: any = await act("card.create", { lane: "Chores", text: "Wipe the counters" });
-    expect((await current(wipe.id)).text).toBe("Wipe the counters [type::chore] [stage::todo] [area::kitchen]");
+    expect((await current(wipe.id))!.text).toBe("Wipe the counters [type::chore] [stage::todo] [area::kitchen]");
     expect(wipe.bornWith).toEqual(["type=chore", "stage=todo", "area=kitchen"]);
     await until(() => laneIds("Chores").includes(weed.id) && laneIds("Chores").includes(wipe.id), "both chores listed", 8000);
   });
@@ -227,9 +227,9 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     ctrl("s");
     await until(() => !B().composer, "the create");
     const m = await current(B().lastWrite.id);
-    expect(m.text).toMatch(/^HOME-\d+ — Replace the doormat \[type::roadmap-item\] \[priority::low\] \[work-stage::doing\] \[project::pi-outliner\]/);
-    expect(m.parentId).toBe(queue2.id);
-    await until(() => laneIds("Doing").includes(m.id), "the new item in Doing", 8000);
+    expect(m!.text).toMatch(/^HOME-\d+ — Replace the doormat \[type::roadmap-item\] \[priority::low\] \[work-stage::doing\] \[project::pi-outliner\]/);
+    expect(m!.parentId).toBe(queue2.id);
+    await until(() => laneIds("Doing").includes(m!.id), "the new item in Doing", 8000);
   });
 
   test("Review, Validate and Done lanes refuse a new roadmap item: create in Queued or Doing, then move", async () => {
@@ -360,7 +360,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(B().composer).toBeNull();
     await Bun.sleep(300);
-    expect((await current(cards.kettle.id)).revision).toBe(before.revision);
+    expect((await current(cards.kettle.id))!.revision).toBe(before!.revision);
     expect(B().trashArm).toBeNull();
   });
 
@@ -385,7 +385,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().describe().steps.items.map((i: any) => [i.status, i.text])).toEqual([["todo", "find the spirit level"], ["todo", "loosen the brackets"], ["done", "clear the books"]]);
     press({ kind: "char", ch: " " });
     await until(() => !B().steps.busy && B().steps.read.items[0].status === "done", "the step to change");
-    const t1 = (await current(cards.shelf.id)).text;
+    const t1 = (await current(cards.shelf.id))!.text;
     expect(t1).toMatch(/- \[x\] find the spirit level \^t-[0-9a-f]+\n- \[ \] loosen the brackets\n- \[x\] clear the books \^books/);
     expect(message()).toMatch(/^checked off: find the spirit level · Level the shelf · the step now has an id \(\^t-/);
     expect(await lastBy(cards.shelf.id, "user")).toEqual(["user", expect.stringMatching(/^ep0ch-door:/), "text"]);
@@ -402,11 +402,11 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await until(() => !!B().steps?.read && !B().steps.busy, "the steps");
     press({ kind: "down" });
     const now = await current(cards.shelf.id);
-    await other.request("update", { blockId: cards.shelf.id, text: now.text.replace("loosen the brackets", "loosen both brackets"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "someone-else" } });
-    const rev = (await current(cards.shelf.id)).revision;
+    await other.request("update", { blockId: cards.shelf.id, text: now!.text.replace!("loosen the brackets", "loosen both brackets"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
+    const rev = (await current(cards.shelf.id))!.revision;
     press({ kind: "char", ch: "x" });
     await until(() => message().startsWith("not changed"), "the refusal");
-    expect((await current(cards.shelf.id)).revision).toBe(rev);
+    expect((await current(cards.shelf.id))!.revision).toBe(rev);
     await until(() => !B().steps.busy, "the re-read");
     expect(B().describe().steps.items[1].text).toBe("loosen both brackets");
     // + approves the step under the cursor and - rejects one (PIE-811), each written as its mark.
@@ -416,7 +416,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     press({ kind: "up" });
     press({ kind: "char", ch: "-" });
     await until(() => !B().steps.busy && B().steps.read.items[0].status === "rejected", "the rejection");
-    expect((await current(cards.shelf.id)).text).toMatch(/- \[✗\] find the spirit level \^t-[0-9a-f]+\n- \[✓\] loosen both brackets/);
+    expect((await current(cards.shelf.id))!.text).toMatch(/- \[✗\] find the spirit level \^t-[0-9a-f]+\n- \[✓\] loosen both brackets/);
     press({ kind: "esc" });
   });
 
@@ -430,12 +430,12 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(texts()).toEqual(["buy rice", "buy beans"]);
     // Someone else puts a step first: the open overlay reads the note again from its change record.
     const now = await current(cards.pantry.id);
-    await other.request("update", { blockId: cards.pantry.id, text: now.text.replace("- [ ] buy rice", "- [ ] find the list\n- [ ] buy rice"), expectedRevision: now.revision, mutation: { author: "agent", actorId: "someone-else" } });
+    await other.request("update", { blockId: cards.pantry.id, text: now!.text.replace!("- [ ] buy rice", "- [ ] find the list\n- [ ] buy rice"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
     await until(() => texts()[0] === "find the list", "the overlay to follow the note", 8000);
     // Even with the overlay behind the note, a numbered step means the note's step as it is now.
     B().steps.read = stale;
     expect(await act("step.set", { card: cards.pantry.id, step: "1" })).toMatchObject({ step: 1, status: "done", changed: true });
-    const text = (await current(cards.pantry.id)).text;
+    const text = (await current(cards.pantry.id))!.text;
     expect(text).toMatch(/- \[x\] find the list \^t-[0-9a-f]+\n- \[ \] buy rice\n- \[ \] buy beans/);
     press({ kind: "esc" });
   });
@@ -458,7 +458,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
 
   test("a trash whose answer was lost, but which landed, is reported as trashed with its undo (B4)", async () => {
     await settled();
-    const rev = (await current(cards.pantry.id)).revision;
+    const rev = (await current(cards.pantry.id))!.revision;
     await until(() => B().lanes[laneIndex("Doing")].items.find((m: Msg) => m.id === cards.pantry.id)?.revision === rev, "the lane to catch up", 8000);
     const real = board.trash.bind(board);
     try {
@@ -506,16 +506,16 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     // Changed after the board showed it: refused, nothing trashed.
     const shown = B().lanes[laneIndex("Doing")].items.find((m: Msg) => m.id === cards.bulb.id);
     const now = await current(cards.bulb.id);
-    await other.request("update", { blockId: cards.bulb.id, text: now.text + "\nNeeds a ladder.", expectedRevision: now.revision, mutation: { author: "agent", actorId: "someone-else" } });
+    await other.request("update", { blockId: cards.bulb.id, text: now!.text + "\nNeeds a ladder.", expectedRevision: now!.revision, mutation: { author: "agent", actorId: "someone-else" } });
     await expect(act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id })).rejects.toThrow(`the card changed since the board showed it (revision ${shown.revision} -> ${shown.revision + 1})`);
-    expect((await current(cards.bulb.id)).deletedAt).toBeUndefined();
+    expect((await current(cards.bulb.id))!.deletedAt).toBeUndefined();
     await until(() => B().lanes[laneIndex("Doing")].items.find((m: Msg) => m.id === cards.bulb.id)?.revision === shown.revision + 1, "the lane to catch up", 8000);
     const r: any = await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id.slice(0, 8) });
     expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: `an agent (${AS})'s` });
-    expect((await current(cards.bulb.id)).deletedAt).toBeDefined();
+    expect((await current(cards.bulb.id))!.deletedAt).toBeDefined();
     expect(hints()).toContain(`TRASHED "Swap the porch bulb" by an agent (${AS}) · u restores`);
     expect(await act("card.restore")).toMatchObject({ restored: cards.bulb.id });
-    expect((await current(cards.bulb.id)).deletedAt).toBeUndefined();
+    expect((await current(cards.bulb.id))!.deletedAt).toBeUndefined();
     await expect(act("card.restore", { id: cards.bulb.id })).rejects.toThrow("Block is not a direct Trash root");
   });
 

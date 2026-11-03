@@ -27,8 +27,8 @@ export function registerArgKind(kind: ArgKind | (string & {}), values: KindValue
 export const argKind = (kind: string): KindValues | undefined => kinds.get(kind);
 
 registerArgKind("outline", async (typed, host) => {
-  const result = await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(host.ctx.board.path, "outlines.list");
-  return filtered(result.outlines.filter(o => !o.archived).map(o => ({ value: o.name, label: o.name })), typed, r => [r.label]);
+  const result = await hostRequest(host.ctx.board.path, "outlines.list");
+  return filtered(result.outlines.map(o => ({ value: o.name, label: o.name })), typed, r => [r.label]);
 });
 
 registerArgKind("tile", async (typed, host) => {
@@ -72,7 +72,7 @@ registerArgKind("view", async (typed, host) => {
 });
 
 registerArgKind("key", async (typed, host) => {
-  const found = await host.ctx.board.propertyCatalog(undefined, typed.trim(), 60, true);
+  const found = await host.ctx.board.request("properties.catalog", { keys: true, prefix: typed.trim(), limit: 60 });
   const uses = new Map<string, number>();
   for (const f of found) uses.set(f.key, (uses.get(f.key) ?? 0) + f.count);
   return [...uses].map(([key, n]) => ({ value: key, label: key, detail: `${n} use${n === 1 ? "" : "s"}` }));
@@ -80,7 +80,7 @@ registerArgKind("key", async (typed, host) => {
 
 registerArgKind("value", async (typed, host, { of }) => {
   if (!of) return [];
-  const found = await host.ctx.board.propertyCatalog(of, typed.trim(), 60);
+  const found = await host.ctx.board.request("properties.catalog", { ...(of ? { key: of } : {}), prefix: typed.trim(), limit: 60 });
   return found.map(f => ({ value: f.value, label: f.value, detail: `${of} · ${f.count} use${f.count === 1 ? "" : "s"}` }));
 });
 

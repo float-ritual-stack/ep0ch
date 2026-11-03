@@ -1,3 +1,4 @@
+import { requesterOf } from "../socket";
 import type { WaitingAsk } from "@ep0ch/outline-core/protocol";
 import type { WaitingAsks } from "../waiting-asks";
 import { markReveal } from "../reveal";
@@ -296,7 +297,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
       const m = await askNote(desk, ask, actor);
       if (a.op !== "apply" && a.op !== "dismiss" && a.op !== "resolve") throw new ActionRefused("op is apply, resolve or dismiss");
       if (!proposalOps(m).includes(a.op)) throw new ActionRefused("the passage is gone; dismiss this proposal");
-      return a.op === "resolve" ? PROPOSAL_ACTIONS.run("proposal.resolve", { block: m.id }, { host: { ctx: desk.ctx, redraw: () => desk.redraw() } }, actor) : a.op === "apply" ? desk.ctx.board.applyProposal(m.id, actor) : desk.ctx.board.dismissProposal(m.id, actor);
+      return a.op === "resolve" ? PROPOSAL_ACTIONS.run("proposal.resolve", { block: m.id }, { host: { ctx: desk.ctx, redraw: () => desk.redraw() } }, actor) : a.op === "apply" ? desk.ctx.board.request("draft.proposal.apply", { proposalId: m.id, mutation: requesterOf(actor) }) : desk.ctx.board.request("draft.proposal.dismiss", { proposalId: m.id, mutation: requesterOf(actor) });
     },
   }),
   "status.seen": def({

@@ -49,7 +49,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     process.env.EDITOR = "tail -f";
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const make = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+    const make = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
     await make(null, "Sow the beans [type::job] [stage::todo]");
     await make(null, "Mend the gate [type::job] [stage::done]");
     garden = await make(null, "Garden jobs");

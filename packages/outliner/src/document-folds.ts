@@ -130,7 +130,7 @@ export function foldDocument(source: MappedDocument, folds: readonly DocumentFol
       if (!underline) {
         const body = atx?.[2] ?? prefix[2]!;
         const closing = atx ? /[ \t]+#+[ \t]*$/.exec(body)?.[0] ?? '' : '';
-        const start = prefix[1]!.length + (atx?.[1].length ?? 0), end = start + body.length - closing.length;
+        const start = prefix[1]!.length + (atx?.[1]!.length ?? 0), end = start + body.length - closing.length;
         const label = sliceDocument(mapped, start, end);
         mapped = concatDocuments([sliceDocument(mapped, 0, start), controls,
           headingLabel(label, marked.Lexer.lexInline(label.text), previewRegionActionUri(heading.activation!)), sliceDocument(mapped, end)]);

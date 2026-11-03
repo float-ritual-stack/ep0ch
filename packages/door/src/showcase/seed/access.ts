@@ -20,7 +20,7 @@ export async function seedAccess(board: SocketBoard): Promise<void> {
   for (const { name, level } of ACCESS_OUTLINES) {
     try { await hostRequest(board.path, "outlines.create", { name }); } catch { /* it exists already */ }
     const b = new SocketBoard(board.path, undefined, name);
-    try { await b.configureMcpAccess(level); } finally { b.close(); }
+    try { await b.request("mcp.access.configure", { level }); } finally { b.close(); }
   }
 }
 

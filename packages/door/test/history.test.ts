@@ -304,7 +304,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
   let key: (k: Key) => void = () => {};
   const B = () => BV.view(b);
   const AS = "test-agent-453";
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, tile: reader, as });
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), `the whole note${id ? ` ${id.slice(0, 8)}` : ""}`);
   const frame = () => b.render(B().ctx).lines;

@@ -1,5 +1,5 @@
 {
-  "revision": "5c63678c121234721eed696084e308f61ac69ffe",
+  "revision": "f6c4f40ef896c8cab2464e98c86f2aa4d1d67bea",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -20,7 +20,7 @@
         "packages/door/src/bar/bar.ts:e45608fe72bae50e",
         "packages/door/src/cells.ts:a457167c22980049",
         "packages/door/src/comment.ts:b1436579e409441f",
-        "packages/door/src/components.ts:3e45a08d78e662fd",
+        "packages/door/src/components.ts:c945c9337e055906",
         "packages/door/src/components.ts:3f53ddd8095c2418",
         "packages/door/src/components.ts:3f53ddd8095c2418",
         "packages/door/src/control.ts:cb6b649e983363c2",
@@ -209,7 +209,7 @@
         "packages/door/src/surface/note.ts:abc8dcea9a076884",
         "packages/door/src/surface/note.ts:277b0335cf2462a9",
         "packages/door/src/surface/note.ts:3dc3ef9a41e21ba2",
-        "packages/door/src/surface/note.ts:ab31b402344cda5c",
+        "packages/door/src/surface/note.ts:97c6621c4a6fca9",
         "packages/door/src/surface/note.ts:b004ae5a7ffcba18",
         "packages/door/src/surface/note.ts:f883731a1a5ab600",
         "packages/door/src/surface/note.ts:2e4b0e4709ecb548",
@@ -373,17 +373,17 @@
     "packages/door/src/desk/desk.ts": 8527,
     "packages/door/src/desk/screen-layout.ts": 2347,
     "packages/door/src/screens.ts": 2239,
-    "packages/door/src/showcase/showcase.ts": 2138,
-    "packages/door/src/surface/note.ts": 12838,
+    "packages/door/src/showcase/showcase.ts": 2137,
+    "packages/door/src/surface/note.ts": 12824,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4671,
     "packages/outliner/src/detail-pi-preview.ts": 2420,
     "packages/outliner/src/detail-pi.ts": 2042,
     "packages/outliner/src/publish.ts": 3381,
-    "packages/outliner/src/resource-catalog.ts": 4937,
+    "packages/outliner/src/resource-catalog.ts": 4936,
     "packages/outliner/src/server.ts": 4441,
-    "packages/outliner/src/store.ts": 6485,
+    "packages/outliner/src/store.ts": 6483,
     "packages/outliner/src/tree-controller.ts": 3251,
     "packages/outliner/src/types.ts": 2910
   }

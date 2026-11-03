@@ -407,7 +407,7 @@ export class ArtifactStore {
     return this.info(name);
   }
 
-  async request(request: ArtifactRequest, workspace?: string, outline?: string): Promise<unknown> {
+  async request(request: ArtifactRequest, workspace?: string, outline?: string) {
     this.prepare();
     switch (request.action) {
       case "artifacts.deploy":
@@ -496,6 +496,7 @@ export class ArtifactStore {
         finally { rmSync(upload.path, { force: true }); rmSync(stage, { recursive: true, force: true }); }
       }
     }
+    throw new Error(`${(request as { action: string }).action} is answered by the outline, not the artifact store`);
   }
 }
 

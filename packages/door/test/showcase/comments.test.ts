@@ -14,7 +14,7 @@ import type { Desk } from "../../src/desk/desk";
 import { LABELS_BEFORE, MARGIN_LINES, SEED, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, SESSION_QUOTE, Showcase } from "../../src/showcase/showcase";
 import { reopen } from "../../src/session/restore";
-import { SocketBoard, USER } from "../../src/socket";
+import { SocketBoard, USER, mutationFor } from "../../src/socket";
 import { C } from "../../src/style";
 import { outliner, Scratch, until } from "../scratch";
 
@@ -739,7 +739,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // The callout embedded whole, once it has its anchor.
     const text = (await board.get(meeting))!.text;
     const at = text.split("\n").findIndex(l => l.startsWith("> They mind the draught"));
-    await board.ensureFragment(meeting, at, (await board.get(meeting))!.revision!, { kind: "agent", id: "test-agent" });
+    await board.request("fragments.ensure", { blockId: meeting, lineIndex: at, expectedRevision: (await board.get(meeting))!.revision!, mutation: mutationFor({ kind: "agent", id: "test-agent" }) });
     expect(JSON.stringify(await board.readTransclusions([{ blockId: meeting, fragmentId: "what-cy-said" }]))).toContain("> [!quote] What Cy said\\n> The seedlings don't mind the cold.\\n> They mind the draught from the door.");
   });
 

@@ -14,7 +14,7 @@ export type Watching<T> =
   | { state: "error"; value?: T; error: string };
 
 /** What a holder asks through: a connection's `request` (a SocketBoard, or a test's fake). */
-export interface WatchSource { request<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T> }
+export interface WatchSource { send(action: string, params?: Record<string, unknown>): Promise<unknown> }
 
 interface Entry {
   key: string;
@@ -115,7 +115,7 @@ export class Watched {
     const epoch = this.epoch;
     const asked = (async () => {
       try {
-        const raw = await this.source.request<Record<string, unknown>>(entry.action, { ...entry.params, watch: entry.key, ...(generation !== undefined ? { generation } : {}) });
+        const raw = (await this.source.send(entry.action, { ...entry.params, watch: entry.key, ...(generation !== undefined ? { generation } : {}) })) as Record<string, unknown>;
         // The generation is the answer's, known before deriving: a change told meanwhile is compared with it.
         // A list answer (an array: `waiting.list`) carries none: the one asked for is the one it answered.
         if (epoch === this.epoch) entry.generation = typeof raw?.generation === "number" ? raw.generation : generation ?? entry.generation;
@@ -196,6 +196,8 @@ const fallback = new WeakMap<object, Watched>();
 export function watchedOn(board: WatchSource & { watched?: Watched }): Watched {
   if (board.watched) return board.watched;
   let held = fallback.get(board);
-  if (!held) fallback.set(board, held = new Watched(board));
+  // A fake board may answer only `request` (by any name): it is asked that way.
+  const source: WatchSource = typeof board.send === "function" ? board : { send: (action, params) => (board as unknown as { request(a: string, p?: Record<string, unknown>): Promise<unknown> }).request(action, params) };
+  if (!held) fallback.set(board, held = new Watched(source));
   return held;
 }

@@ -37,6 +37,13 @@ async function withState<T>(f: () => Promise<T> | T): Promise<T> {
 }
 const P = (...kv: [string, string][]) => kv.map(([key, value]) => ({ key, value }));
 
+/** What the stand-in services answer for the lists a reader asks of every board: nothing declared, no proposals. */
+const QUIET: Record<string, unknown> = {
+  "styles.list": { sheets: [], problems: [], complete: true }, "callouts.types": { types: [], problems: [], complete: true },
+  "headings.styles": { styles: [], problems: [], complete: true }, "components.schemas": { schemas: [], problems: [], complete: true },
+  "draft.proposals.list": { proposals: [] },
+};
+
 describe("the summary line", () => {
   test("Detail's segments: stage label, repeats joined, a roadmap item's status left out, control characters dropped", () => {
     const props = P(["type", "roadmap-item"], ["status", "open"], ["work-stage", "doing"], ["priority", "high"], ["track", "soil"], ["track", "tools"], ["track", "soil"]);
@@ -101,7 +108,7 @@ function fakeSource(notes: Record<string, Msg>, redraw = () => {}): Source {
       }),
     }),
     propertyRecords: async () => null,
-    request: async () => ({ blocks: [], completeness: { kind: "complete" } }),
+    send(...a: any[]) { return (this as any).request(...a); }, request: async (action: string) => (QUIET[action] ?? { blocks: [], completeness: { kind: "complete" } }),
     toMsgs: () => [],
   };
   return { board, redraw };
@@ -211,7 +218,7 @@ describe("live figures: the query grammar", () => {
   // A stand-in service: site.answer's figure producer, with the asks it received. The query itself is the service's
   // (site-produce.test.ts), so the door's part is what it sends: the figure's props, and what it makes of the answer.
   const fake = (seen: any[], extra: Record<string, unknown> = {}): any => ({
-    request: async (_a: string, p: any) => { seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
+    send(...a: any[]) { return (this as any).request(...a); }, request: async (_a: string, p: any) => { if (QUIET[_a]) return QUIET[_a]; seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
     toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: [] })),
   });
 
@@ -259,7 +266,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await create(hub, "Doing [type::virtual-branch] [query::type=roadmap-item work-stage=doing]\n[summary-properties::priority,track]");
     ids.plan = await create(null, "Garden plan [page::garden]\nBeans along the fence.\n\n## Beds ^beds\nTwo raised beds.");
     ids.shed = await create(null, "Old shed notes");
-    await board.request("delete", { blockId: ids.shed, author: "agent" });
+    await board.request("delete", { blockId: ids.shed, mutation: { author: "agent", actorId: "test-agent" } });
     ids.chores = await create(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::title,priority]");
     await create(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
     ids.nested = await create(null, `Nested note\nIt embeds the plan: !((${ids.plan}))`);
@@ -338,26 +345,26 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
 
   test("an edit is one revision-checked properties.patch, recorded as whoever made it; a stale one is refused", async () => {
     const before = await current(ids.card);
-    const r = await act("props.edit", { key: "priority", value: "medium", revision: before.revision });
-    expect(r).toMatchObject({ saved: true, from: "high", to: "medium", revision: before.revision + 1 });
+    const r = await act("props.edit", { key: "priority", value: "medium", revision: before!.revision });
+    expect(r).toMatchObject({ saved: true, from: "high", to: "medium", revision: before!.revision + 1 });
     const now = await current(ids.card);
-    expect(now.text).toBe(before.text.replace("[priority::high]", "[priority::medium]"));
+    expect(now!.text).toBe(before!.text.replace!("[priority::high]", "[priority::medium]"));
     const log = await other.request("activity.recent", { author: "agent", limit: 20 });
     expect(log.entries.find((x: any) => x.block.id === ids.card)).toMatchObject({ author: "agent", actorId: AS });
-    await expect(act("props.edit", { key: "priority", value: "low", revision: before.revision })).rejects.toThrow(`is at revision ${now.revision}`);
+    await expect(act("props.edit", { key: "priority", value: "low", revision: before!.revision })).rejects.toThrow(`is at revision ${now!.revision}`);
     // By keys: open the field, and while it's open someone else saves the note. Enter is refused, nothing overwritten.
-    await until(() => B().preview.msg.revision === now.revision, "the reader to catch up");
+    await until(() => B().preview.msg.revision === now!.revision, "the reader to catch up");
     const P = B().preview.surface.panel;
     P.sel = 3;                                                                                // project
     key({ kind: "enter" }); for (const c of "-east") key(char(c));
     expect(B().preview.surface.editing).toBe(true);
-    await other.update(ids.card, now.text.replace("Beside the beds", "Next to the beds"), now.revision);
+    await other.update(ids.card, now!.text.replace!("Beside the beds", "Next to the beds"), now!.revision);
     await until(() => !!P.field?.changedElsewhere, "changed elsewhere", 5000);
     key({ kind: "enter" });
     await until(() => !!P.field && !P.field.saving && P.field.note.includes("not saved"), "the refusal", 5000);
     const after = await current(ids.card);
-    expect(after.text).toContain("[project::garden]");
-    expect(after.text).toContain("Next to the beds");
+    expect(after!.text).toContain("[project::garden]");
+    expect(after!.text).toContain("Next to the beds");
     key({ kind: "esc" });
     expect(P.field).toBeNull();
   });
@@ -380,7 +387,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
 
   test("requests: an unrelated change asks nothing again, a note's references resolve once, embed targets are read together", async () => {
     const counts: Record<string, number> = {};
-    const request = board.request.bind(board);
+    const request = board.send.bind(board);
     const tally = () => ({ ...counts });
     const reset = () => { for (const k of Object.keys(counts)) delete counts[k]; };
     (board as any).request = (action: string, params: any = {}) => {
@@ -399,7 +406,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       await Bun.sleep(300);
       reset();
       const b0 = await current(bystander);
-      await other.update(bystander, "A bystander note, edited", b0.revision, { kind: "agent", id: "helper" });
+      await other.update(bystander, "A bystander note, edited", b0!.revision, { kind: "agent", id: "helper" });
       await until(() => (app as any).whatChanged.list().some((r: any) => r.blockId === bystander && r.kind === "edited"), "the event");
       await settled("the redraw");
       const unrelated = tally();
@@ -430,7 +437,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       // At most once: answers are kept by target, not label, so one already asked about this target may answer it.
       expect(once["references.resolve"] ?? 0).toBeLessThanOrEqual(1);
       B().preview.surface.panel = null;
-    } finally { (board as any).request = request; }
+    } finally { delete (board as any).request; }
   }, 30_000);
 
   test("embeds refresh when their target changes", async () => {
@@ -438,7 +445,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await act("props.close");
     await until(() => shown(120).includes("Beans along the fence."), "the embed");
     const plan = await current(ids.plan);
-    await other.update(ids.plan, plan.text.replace("Beans along the fence.", "Peas along the fence."), plan.revision);
+    await other.update(ids.plan, plan!.text.replace!("Beans along the fence.", "Peas along the fence."), plan!.revision);
     await until(() => shown(120).includes("Peas along the fence."), "the refreshed embed", 8000);
     invalidateReferences();
   });

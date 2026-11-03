@@ -89,7 +89,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { board?.close(); await scratch?.dispose(); rmSync(root, { recursive: true, force: true }); });
 
-const note = async (text: string) => (await board.request<{ id: string }>("create", { parentId: null, text, author: "agent" })).id;
+const note = async (text: string) => (await board.request("create", { parentId: null, text, author: "agent" })).id;
 
 test("peek and act keep drawing marks out of agent text", async () => {
   const { env } = sandbox();
@@ -387,8 +387,8 @@ describe("offline says offline (F24, C F17)", () => {
     const own = new Scratch();
     await own.start();
     const b2 = new SocketBoard(own.sock); await b2.info();
-    const pier = (await b2.request<{ id: string }>("create", { parentId: null, text: "North pier\nberth two", author: "agent" })).id;
-    const id = (await b2.request<{ id: string }>("create", { parentId: null, text: `Ferry timetable\nsummer, from ((${pier}))`, author: "agent" })).id;
+    const pier = (await b2.request("create", { parentId: null, text: "North pier\nberth two", author: "agent" })).id;
+    const id = (await b2.request("create", { parentId: null, text: `Ferry timetable\nsummer, from ((${pier}))`, author: "agent" })).id;
     b2.close();
     const { env } = sandbox();
     const pty = new Bun.Terminal({ cols: 140, rows: 40, data: () => {} });

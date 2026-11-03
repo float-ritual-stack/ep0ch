@@ -93,6 +93,22 @@ describe("canonical bookmarks", () => {
     );
   });
 
+  test("a stored record with an odd target is read, or skipped and named: one never breaks the collection (PIE-1375)", () => {
+    const store = makeStore();
+    const kept = store.toggleBookmark(store.create("Kept").id, null);
+    const odd = store.toggleBookmark(store.create("Odd").id, null);
+    const broken = store.toggleBookmark(store.create("Broken").id, null);
+    // A UUID's shape without its version and variant digits (an id written before the outline minted v4s), and words.
+    const retarget = (record: typeof odd.record, target: string) =>
+      store.update(record.id, record.text.replace(/\[target::[^\]]*\]/, `[target::${target}]`), record.revision, { author: "user", actorId: "test" });
+    retarget(odd.record, "3b8e6c21-5f4a-0d7b-1c02-a1e8d4f7b650");
+    retarget(broken.record, "not-a-block-id");
+    const status = store.bookmarkStatus(kept.target.id);
+    expect(status.record?.id).toBe(kept.record.id);
+    expect(status.skipped).toEqual([{ id: broken.record.id, reason: expect.stringContaining("target") }]);
+    expect(store.resolveBookmark(odd.record.id).record.id).toBe(odd.record.id);
+  });
+
   test("toggles one strict record without modifying the target", () => {
     const store = makeStore();
     const target = store.create("Durable target\nNotes stay here");

@@ -100,7 +100,7 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     sock = await scratch.start();
     env = { EP0CH_SOCKET: sock, EP0CH_WS: scratch.name };
     const board = new SocketBoard(sock, undefined, scratch.name);
-    const make = async (key: string, text: string, parentId: string | null = null) => { ids[key] = (await board.request<{ id: string }>("create", { parentId, text, author: "agent" })).id; };
+    const make = async (key: string, text: string, parentId: string | null = null) => { ids[key] = (await board.request("create", { parentId, text, author: "agent" })).id; };
     await make("shed", "Bike shed\nWhere the bikes live.");
     await make("oil", "Chain oil\nThe **wax** one, not the spray. See ((" + "x" + ")).", ids.shed);
     await make("gone", "Old padlock code\nNobody needs this.", ids.shed);
@@ -126,7 +126,7 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
 
   test("wait holds a query until a new child lands, prints only that row, and times out without polling", async () => {
     const board = new SocketBoard(sock, undefined, scratch.name);
-    const parent = await board.request<{ id: string }>("create", { text: "Glasshouse log" });
+    const parent = await board.request("create", { text: "Glasshouse log" });
     await board.request("create", { parentId: parent.id, text: "Already here" });
     const child = Bun.spawn(["bun", MAIN, "wait", `parent:((${parent.id}))`, "--timeout", "5", "--json", "--ws", scratch.name],
       { env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
@@ -137,7 +137,7 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     try {
       await until(() => exited || err.includes("waiting for"), "wait registered its question");
       expect(err).toContain("waiting for");
-      const made = await board.request<{ id: string }>("create", { parentId: parent.id, text: "Vent opened" });
+      const made = await board.request("create", { parentId: parent.id, text: "Vent opened" });
       expect(await child.exited).toBe(0);
       const rows = JSON.parse(await stdout);
       expect(rows.map((r: { id: string; title: string }) => [r.id, r.title])).toEqual([[made.id, "Vent opened"]]);
@@ -196,7 +196,7 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
     const staleReport = join(scratch.root, "previous-report.md");
     writeFileSync(staleReport, "The old run never checked this hinge.");
     writeFileSync(brief, `Repair the hinge.\nReport: ${staleReport}\n`);
-    const ticket = await board.request<{ id: string }>("create", { text: "Repair the hinge", author: "agent" });
+    const ticket = await board.request("create", { text: "Repair the hinge", author: "agent" });
     const builder = join(import.meta.dir, "../../../scripts/builder");
     const spawn = (extra: Record<string, string> = {}) => Bun.spawn([builder, ticket.id, "--model", "fixture-model", "--", brief], {
       cwd: join(import.meta.dir, "../../.."), env: { ...process.env, ...scratch.env, EP0CH_SOCKET: sock, EP0CH_AGENT: "fixture-builder", PATH: `${bin}:${process.env.PATH}`, ...extra }, stdout: "pipe", stderr: "pipe",
@@ -208,7 +208,7 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       const ended = JSON.parse(out.trim());
       expect((await board.get(ended.id))!.text).toContain("[exit::7]");
       expect((await board.get(ended.id))!.text).toContain(`MCP writer: builder-${ticket.id}`);
-      const reports = await board.request<{ text: string; actorId: string }[]>("children", { parentId: ticket.id });
+      const reports = await board.request("children", { parentId: ticket.id });
       expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId === `builder-${ticket.id}`)).toBe(true);
       const fresh = spawn({ BUILDER_FIXTURE_REPORT: staleReport });
       const freshOut = new Response(fresh.stdout).text();
@@ -216,7 +216,7 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       expect(await fresh.exited, await freshErr).toBe(7);
       const freshEnd = JSON.parse((await freshOut).trim());
       expect((await board.get(freshEnd.id))!.text).toContain("The fresh report file for this run.");
-      expect((await board.request<{ actorId: string }>("get", { blockId: freshEnd.id })).actorId).toBe("fixture-builder");
+      expect((await board.request("get", { blockId: freshEnd.id })).actorId).toBe("fixture-builder");
       const pidFile = join(scratch.root, "builder-child.pid");
       const waiting = spawn({ BUILDER_FIXTURE_WAIT: pidFile });
       const output = new Response(waiting.stdout).text();
@@ -238,7 +238,7 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
     const socket = await h.start();
     const board = new SocketBoard(socket, undefined, h.name);
     try {
-      const ticket = await board.request<{ id: string }>("create", { text: "Repair the garden gate" });
+      const ticket = await board.request("create", { text: "Repair the garden gate" });
       const bin = join(h.root, "bin");
       mkdirSync(bin);
       const ready = join(h.root, "ready"), release = join(h.root, "release");
@@ -275,14 +275,14 @@ process.exit(Number(process.env.BUILDER_CODE));
         const note = await board.get(ended.id);
         expect(note!.text).toContain(`[exit::${code}]`);
         expect(note!.text).toContain("The gate swings freely.");
-        expect((await board.request<{ actorId: string }>("get", { blockId: ended.id })).actorId).toBe("gate-builder");
+        expect((await board.request("get", { blockId: ended.id })).actorId).toBe("gate-builder");
       }
     } finally { board.close(); await h.dispose(); }
   }, 30_000);
 
   test("work records append later facts and share a stampable template", async () => {
     const ticketBoard = new SocketBoard(sock, undefined, scratch.name);
-    const ticket = await ticketBoard.request<{ id: string }>("create", { text: "Oil the hinge [work-id::SHED-18]", author: "agent" });
+    const ticket = await ticketBoard.request("create", { text: "Oil the hinge [work-id::SHED-18]", author: "agent" });
     ticketBoard.close();
     const recordEnv = { ...env, EP0CH_AGENT: "fixture-builder" };
     const start = await run(["record", "run-start", "--ticket", ticket.id, "--harness", "codex", "--summary", "Oil the hinge"], recordEnv);
@@ -297,16 +297,16 @@ process.exit(Number(process.env.BUILDER_CODE));
     expect(ended.out).toContain("Hinge turns freely.");
     const board = new SocketBoard(sock, undefined, scratch.name);
     try {
-      const reports = await board.request<{ text: string; author: string }[]>("children", { parentId: ticket.id });
+      const reports = await board.request("children", { parentId: ticket.id });
       expect(reports.some(b => b.text.includes("Hinge turns freely.") && b.author === "agent")).toBe(true);
-      const templates = await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "template-for=run-start", machinery: "show" } });
-      const stamp = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, props: { ticket: "SHED-19", summary: "Check the gate" }, author: "agent" });
+      const templates = await board.request("blocks.query", { query: { where: "template-for=run-start", machinery: "show" } });
+      const stamp = await board.request("template.stamp", { of: templates.blocks[0]!.id, props: { ticket: "SHED-19", summary: "Check the gate" }, author: "agent" });
       expect((await board.get(stamp.stamped[0]!.id))!.text).toContain("Check the gate");
-      const records = await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-records=true", machinery: "show" } });
+      const records = await board.request("blocks.query", { query: { where: "system-records=true", machinery: "show" } });
       expect((await board.get(stamp.stamped[0]!.id))!.parentId).toBe(records.blocks[0]!.id);
-      const elsewhere = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, parent: ticket.id });
+      const elsewhere = await board.request("template.stamp", { of: templates.blocks[0]!.id, parent: ticket.id });
       expect((await board.get(elsewhere.stamped[0]!.id))!.parentId).toBe(ticket.id);
-      const inbox = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, parent: "inbox" });
+      const inbox = await board.request("template.stamp", { of: templates.blocks[0]!.id, parent: "inbox" });
       const inboxParent = (await board.get(inbox.stamped[0]!.id))!.parentId!;
       expect((await board.get(inboxParent))!.text).toContain("Inbox");
       const visible = await run(["find", "--query", "type=run-start", "--json"], env);
@@ -314,7 +314,7 @@ process.exit(Number(process.env.BUILDER_CODE));
       const finding = await run(["record", "finding", "--ticket", ticket.id, "--source", "person", "--failure", "Gate sticks", "--likelihood", "Every morning", "--cost", "One minute"], { ...env, EP0CH_AGENT: "", OUTLINER_ACTOR: "" }, scratch.root);
       expect(finding.code, finding.err).toBe(0);
       const findingId = JSON.parse(finding.out).id;
-      expect((await board.request<{ author: string }>("get", { blockId: findingId })).author).toBe("user");
+      expect((await board.request("get", { blockId: findingId })).author).toBe("user");
       const closed = await run(["record", "finding-closed", "--finding", findingId, "--fixed", "abc123"], env);
       expect(closed.code, closed.err).toBe(0);
       expect((await board.get(findingId))!.text).toContain("Gate sticks");
@@ -501,8 +501,8 @@ process.exit(Number(process.env.BUILDER_CODE));
   test("a Work ID of any prefix, a short id or a [[page]] names a note the way a link in a note does, with a did-you-mean (PIE-875)", async () => {
     const board = new SocketBoard(sock, undefined, scratch.name);
     await board.request("work-ids.configure", { prefix: "SHED" });
-    const latch = await board.request<{ id: string }>("create", { parentId: null, text: "Replace the latch", author: "agent" });
-    const given = await board.request<{ workId: string; block: { revision: number } }>("work-ids.allocate", { blockId: latch.id, expectedRevision: 1 });
+    const latch = await board.request("create", { parentId: null, text: "Replace the latch", author: "agent" });
+    const given = await board.request("work-ids.allocate", { blockId: latch.id, expectedRevision: 1 });
     board.close();
     const work = given.workId;
     for (const ref of [work, work.toLowerCase(), `[[${work}]]`, latch.id.slice(0, 8)]) {

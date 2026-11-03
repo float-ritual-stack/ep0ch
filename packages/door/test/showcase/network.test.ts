@@ -1,3 +1,4 @@
+import { quoteOf, blockOf } from "../wire";
 // PIE-439: the showcase screen, echonet, modes, files, links and resource comments. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
@@ -232,10 +233,10 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     // Stored in the outline against the Resource, with the block that opened it as its reference context; never in the file.
     const touch = (await board.byProp("file", plan.file, 1, "show"))[0]!;
     const resourceId = String(resTile().showing.id).slice("resource:".length);
-    const stored = await board.request<any[]>("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } });
+    const stored = await board.request("annotations.list", { query: { subject: { kind: "resource", resourceId }, includeResolved: true } });
     expect(stored).toHaveLength(2);
-    expect(stored.every(t => t.originalTarget.referenceContext?.representation.subject.blockId === touch.id)).toBe(true);
-    expect(stored.find(t => t.originalTarget.anchor.exact === quote)).toBeDefined();
+    expect(stored.every(t => (t.originalTarget.referenceContext && blockOf(t.originalTarget.referenceContext.representation.subject).blockId) === touch.id)).toBe(true);
+    expect(stored.find(t => quoteOf(t.originalTarget.anchor).exact === quote)).toBeDefined();
     expect(readFileSync(plan.file, "utf8")).toBe(before);
     // A ticket-like or unreadable Resource says why instead (the reader's refusal), and a note that is not a block still can't be edited.
     await expect(app.act({ action: "edit", tile, as: "test-agent" })).rejects.toThrow();

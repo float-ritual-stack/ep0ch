@@ -8,7 +8,7 @@
 import { BLOCK_ID_PATTERN } from "./addressable-resource";
 import { calloutBlocks } from "./callouts";
 import { codeSpanRanges, literalLines } from "./code-ranges";
-import { referencedBlock } from "./link-syntax";
+import { referencedBlock, withoutFragmentAnchor } from "./link-syntax";
 import { noteStructure } from "./component-block";
 import { BAND_ALIGNS as ALIGNS, BAND_PATTERNS, HEADING_STYLE_NAME, type BandAlign as Align, type BandPattern } from "./heading-styles";
 import { unsafePatternReason } from "./pattern-safety";
@@ -34,7 +34,6 @@ const THEMATIC = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const MARKDOWN_IMAGE = /^[ \t]*(?:[-*+][ \t]+)?!\[[^\]\n]*\]\(([^)\n]+)\)[ \t]*$/;
 const MEDIA_LINE = /^[ \t]*(?:[-*+][ \t]+)?(?:\[(?:img|image|video)::([^\]\n]+)\]|(?:img|image|video)::[ \t]*(\S[^\n]*?))(?:[ \t]*\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\n]*\])*[ \t]*$/i;
 /** A line's trailing block anchor (` ^beds`): bookkeeping, not words. */
-const ANCHOR = /[ \t]+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}[ \t]*$/;
 
 /**
  * The constructs of a note's text in reading order, each found once. A line inside a code fence, a component block
@@ -56,7 +55,7 @@ export function noteConstructs(text: string): Construct[] {
       continue;
     }
     const heading = HEADING.exec(line);
-    if (heading) { out.push({ kind: "heading", line: i, end: i + 1, level: heading[1]!.length, text: heading[2]!.replace(ANCHOR, "") }); continue; }
+    if (heading) { out.push({ kind: "heading", line: i, end: i + 1, level: heading[1]!.length, text: withoutFragmentAnchor(heading[2]!) }); continue; }
     if (THEMATIC.test(line)) { out.push({ kind: "rule", line: i, end: i + 1, level: 0, text: "" }); continue; }
     const image = MARKDOWN_IMAGE.exec(line) ?? MEDIA_LINE.exec(line);
     if (image) { out.push({ kind: "image", line: i, end: i + 1, level: 0, text: (image[1] ?? image[2] ?? "").trim() }); continue; }
@@ -72,7 +71,7 @@ export function noteConstructs(text: string): Construct[] {
         if ((nested && nested[1]!.length >= indent) || l.length - l.trimStart().length > indent || structure[j] !== -1) { last = j; continue; }
         break;
       }
-      out.push({ kind: "list", line: i, end: last + 1, level: indent, text: item[2]!.replace(ANCHOR, "") });
+      out.push({ kind: "list", line: i, end: last + 1, level: indent, text: withoutFragmentAnchor(item[2]!) });
       i = last;
     }
   }

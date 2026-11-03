@@ -171,7 +171,7 @@ export function boundOutlines(board: Board, admin?: McpOutlineAdmin, lifetime: P
       const rows: McpOutlineListing[] = [];
       const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
       for (const b of [board, ...made.values()]) {
-        const status = await b.mcpAccessStatus(), level = levelFor(status, caller, undefined, b.address), writes = writesAt(level);
+        const status = await b.request("mcp.access.status", {}), level = levelFor(status, caller, undefined, b.address), writes = writesAt(level);
         const about = abouts.get(b.address.outline);
         rows.push({ ...b.address, uri: `ep0ch://${b.address.outline}@${b.address.machine}`, ...servedLive(), access: level, ...(writes ? { writes } : {}), ...(about ? { about: aboutListing(about) } : {}) });
       }
@@ -274,7 +274,7 @@ const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined, where
 };
 
 async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
-  const status = await target.board.mcpAccessStatus();
+  const status = await target.board.request("mcp.access.status", {});
   if (!status.canRead) return { error: accessRefusal(outlines, target, status.level) };
   return status;
 }
@@ -425,7 +425,7 @@ async function suggestQuery(outlines: McpOutlines, args: Record<string, unknown>
   if ("error" in status) return toolError(status.error);
   const level = levelFor(status, caller, undefined, target.board.address);
   if (writesAt(level) !== "applied") return toolError(writeRefusal(outlines, target, level));
-  return toolText(await target.board.querySuggest({ text: stringField(args, "text")!, where: stringField(args, "where"), zone: stringField(args, "zone"), mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" } }));
+  return toolText(await target.board.request("query.suggest", { text: stringField(args, "text")!, where: stringField(args, "where"), zone: stringField(args, "zone"), mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" } }));
 }
 
 async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, scope?: ResponseScope, caller?: McpCaller): Promise<ToolResult> {
@@ -500,7 +500,7 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
 async function proposalIn(board: Board, id: string): Promise<ProposalSeen> {
   const r = await board.records([id]);
   if (r.records[0]) return proposalSeen(r.records[0].properties);
-  if (r.unavailable[0]?.status === "trashed") return proposalSeenInText((await board.request<{ text: string }>("get", { blockId: id })).text);
+  if (r.unavailable[0]?.status === "trashed") return proposalSeenInText((await board.request("get", { blockId: id })).text);
   return "missing";
 }
 
@@ -627,7 +627,7 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>, 
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
   if (grep) {
-    const result = await board.request<import("@ep0ch/outline-core/text-search").GrepResult>("blocks.grep", { pattern: args.pattern, flags: args.flags, limit: args.limit, offset: args.offset });
+    const result = await board.request("blocks.grep", { pattern: String(args.pattern), flags: args.flags as string | undefined, limit: args.limit as number | undefined, offset: args.offset as number | undefined });
     return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, ...result });
   }
   const query = stringField(args, "query")?.trim() ?? "";
@@ -701,7 +701,7 @@ const componentUri = (board: Board, id: string) => `ep0ch://${board.address.outl
 async function componentsOf(outlines: McpOutlines, target: McpBoard): Promise<ComponentSchema[] | { error: string }> {
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return status;
-  return (await target.board.componentSchemas()).schemas;
+  return (await target.board.request("components.schemas", {})).schemas;
 }
 
 async function componentsTool(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
@@ -938,15 +938,15 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   const target = await outlines.board(which, { copy: name === "outline_snapshot" });
   if ("error" in target) return toolError(target.error);
   const { board } = target;
-  const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
+  const status = withLevel(await board.request("mcp.access.status", {}), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   // A share is live and takes comments: it is the outline's own machine's. Listing and revoking an outline served from
   // its copy are the copy's own links, its snapshots' (PIE-1091).
   if (target.home && name === "share_start") return toolError(awayShareRefusal(outlines, target, args));
   try {
     if (name === "outline_snapshot") {
-      const snapshot = await board.request<OutlineSnapshot>("outline.snapshot", {
-        ...(args.ttl !== undefined ? { ttl: args.ttl } : {}),
+      const snapshot = await board.request("outline.snapshot", {
+        ...(args.ttl !== undefined ? { ttl: args.ttl as string | number } : {}),
         // A copy has no web client of its own: its link is this machine's web client's, the signed-in one unless EP0CH_WEB_URL names another.
         ...(target.home ? { webUrl: webBase() ?? DEFAULT_WEB_ORIGIN } : caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
@@ -1018,7 +1018,7 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
   const target = await outlines.board(which);
   if ("error" in target) return toolError(target.error);
   const { board } = target;
-  const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
+  const status = withLevel(await board.request("mcp.access.status", {}), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   if ((name === "artifact_put" || name === "artifact_upload_lease") && (!caller || !writesAt(status.level))) return toolError(writeRefusal(outlines, target, status.level));
   if (name === "artifact_upload_lease") return uploadLease(outlines, board, args, caller!);
@@ -1032,7 +1032,7 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
       files = { [`index.${args.kind}`]: args.content };
     }
     if (!files || typeof files !== "object" || Array.isArray(files) || Object.values(files).some(v => typeof v !== "string")) return toolError("files maps relative paths to UTF-8 text.");
-    return toolText(await board.request("artifacts.put", { name: args.name, files }, 240_000));
+    return toolText(await board.request("artifacts.put", { name: String(args.name), files: files as Record<string, string> }, 240_000));
   } catch (error) { return toolError((error as Error).message); }
 }
 
@@ -1043,7 +1043,7 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
 async function uploadLease(outlines: McpOutlines, board: Board, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
   if (args.name !== undefined && typeof args.name !== "string") return toolError("name is the artifact's name, e.g. orrery; leave it out to let the file name itself.");
   try {
-    const lease = await board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(args.name ? { name: args.name } : {}), mutation: { author: "agent", ...actorOf(caller) } });
+    const lease = await board.request("artifacts.lease", { ...(args.name ? { name: args.name } : {}), mutation: { author: "agent", ...actorOf(caller) } });
     outlines.log?.(`mcp artifact_upload_lease: ${actorOf(caller).actorId} (${caller.sub}) ${lease.id} for ${lease.outline}${lease.name ? ` as ${lease.name}` : ""} until ${lease.expiresAt}`);
     return toolText({
       id: lease.id, name: lease.name, outline: lease.outline, expiresAt: lease.expiresAt, url: lease.url, curl: lease.curl,
@@ -1151,7 +1151,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     const target = await addressedBlock(outlines, refArg(args), args.outline);
     if ("error" in target) return toolError(target.error);
     if (target.home) return toolError("Run the script on the outline's home machine");
-    const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
+    const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
     const decided = gate({ tool: "script_run", level: status.level, where: gateWhere(outlines, target) });
     if (decided.becomes === "refused") return toolError(decided.why!);
     try {
@@ -1218,7 +1218,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (resourceRef && await isResourceRef(resourceRef)) {
     const target = await resourceBoard(outlines, args);
     if ("error" in target) return toolError(target.error);
-    const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
+    const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
     if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
     try {
@@ -1229,7 +1229,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const target = await addressedBlock(outlines, refArg(args), args.outline, true, { write: true });
   if ("error" in target) return toolError(target.error);
   const { board } = target;
-  const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
+  const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
   // The gate (outliner src/write-gate.ts) says what this write becomes; applyWrite asks it again where the write lands.
   const decided = gate({ tool, level: status.level, where: gateWhere(outlines, target), top: tool === "outline_create" && target.id === "root" });
@@ -1536,9 +1536,9 @@ async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
   if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
   try {
     // `level` is what agents have now (`full` while a door has yolo on, PIE-973); `configured` is the owner's setting.
-    const was = parsed.level ? (await board.mcpAccessStatus()).level : undefined;
-    if (parsed.level) await board.configureMcpAccess(parsed.level);
-    const status = await board.mcpAccessStatus();
+    const was = parsed.level ? (await board.request("mcp.access.status", {})).level : undefined;
+    if (parsed.level) await board.request("mcp.access.configure", { level: parsed.level });
+    const status = await board.request("mcp.access.status", {});
     // Whether the gateway's write tools come or go with this change: a connected client won't see it until it reconnects.
     const toolsChanged = was !== undefined && !!writesAt(was) !== !!writesAt(status.level);
     if (parsed.json) write(JSON.stringify({ outline: board.address.outline, machine: board.address.machine, ...status, ...(toolsChanged ? { reconnect: RECONNECT_HINT } : {}) }, null, 2));

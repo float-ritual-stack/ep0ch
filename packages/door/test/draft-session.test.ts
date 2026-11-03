@@ -415,7 +415,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
   test("a hold let go before the service granted it is released before an undo asks: ctrl+z right after closing an edit isn't refused as held", async () => {
     const id = await create("Sow the beans");
     const m = (await board.get(id))!;
-    const sent: string[] = [], request = board.request.bind(board);
+    const sent: string[] = [], request = board.send.bind(board);
     let grant!: () => void;
     const granted = new Promise<void>(r => { grant = r; });
     // The grant comes back late, as it did under load: the edit closed (and ctrl+z pressed) before it landed.

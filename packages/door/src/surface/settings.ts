@@ -77,7 +77,7 @@ function sources(subject: SettingsSubject, host: SurfaceHost): SettingSources {
   return {
     facets: () => subject.collection?.facets ?? [],
     facet: key => facet(subject, host, key),
-    catalog: (key, prefix) => host.ctx.board.propertyCatalog(key, prefix, 30),
+    catalog: (key, prefix) => host.ctx.board.request("properties.catalog", { ...(key ? { key } : {}), prefix, limit: 30 }),
     actions: () => listed().flatMap(e => e.actions.filter(a => (a.on ?? "block") === "block" && !a.builtIn).map(a => ({ value: `${e.id}/${a.id}`, label: `${e.id}/${a.id} · ${a.label}`, detail: a.effects }))),
     extensions: () => listed().map(e => e.id),
     nodes: async () => {
@@ -113,7 +113,7 @@ function fieldOf(subject: SettingsSubject, key: string): SettingField {
 
 async function facet(subject: SettingsSubject, host: SurfaceHost, key: string): Promise<QuestionFacet | undefined> {
   if (!subject.collection) return undefined;
-  const answer = await host.ctx.board.request<QuestionAnswerFields>("blocks.query", { query: { ...subject.collection.question, facets: [key], facetValues: 1, limit: 1 }, fields: ["id"] });
+  const answer = await host.ctx.board.request("blocks.query", { query: { ...subject.collection.question, facets: [key], facetValues: 1, limit: 1 }, fields: ["id"] });
   return answer.facets?.find(f => f.key === key && f.count > 0);
 }
 

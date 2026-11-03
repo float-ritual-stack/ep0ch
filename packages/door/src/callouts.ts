@@ -7,10 +7,10 @@ import { C } from "./style";
 import { TONE_INDEX } from "./theme";
 
 /** What a connection can be asked (SocketBoard has it; a test double may not). */
-type CalloutBoard = { calloutTypes?: () => Promise<{ types: CalloutType[]; problems: string[] }> };
+type CalloutBoard = Partial<Pick<import("./socket").SocketBoard, "request">>;
 
 const CALLOUTS = outlineList<CalloutType, CalloutRegistry>(
-  (b: CalloutBoard) => (typeof b.calloutTypes === "function" ? () => b.calloutTypes!().then(r => ({ items: r.types, problems: r.problems })) : undefined),
+  (b: CalloutBoard) => (typeof b.request === "function" ? () => b.request!("callouts.types", {}).then(r => ({ items: r.types, problems: r.problems })) : undefined),
   calloutRegistry, BUILTIN_CALLOUT_REGISTRY,
   { action: "callouts.types", pick: (r: { types: any[]; problems: string[] }) => ({ items: r.types, problems: r.problems }) },
 );

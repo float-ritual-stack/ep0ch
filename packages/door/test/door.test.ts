@@ -215,6 +215,7 @@ describe("live figures answer from the outline", () => {
       },
       toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: b.properties })),
     };
+    fake.send = fake.request;
     fake.watched = new Watched(fake);
     let redraws = 0;
     setLiveSource(fake, () => redraws++);

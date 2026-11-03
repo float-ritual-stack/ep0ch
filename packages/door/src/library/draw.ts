@@ -21,7 +21,7 @@ import { presentLinks } from "../refs";
 
 export const PROP_PLACE_WORDS: Record<PropPlace, string> = { line: "on the line", note: "on the declaring note", yaml: "in the YAML" };
 
-type PreviewBoard = { rulePreview?: (note: string, text: string) => Promise<{ decorations: Decoration[] }> };
+type PreviewBoard = Partial<Pick<import("../socket").SocketBoard, "request">>;
 interface Kept { decorations: Decoration[] | null; answer: Promise<void> }
 const previews = new WeakMap<object, Map<string, Kept>>();
 
@@ -31,14 +31,14 @@ const previews = new WeakMap<object, Map<string, Kept>>();
  */
 function ruleDecorations(v: Variation, src: ListSource | null): { decorations: Decoration[] | null; answer?: Promise<void> } {
   const board = src?.board as (PreviewBoard & object) | undefined;
-  if (!v.note || !/\[rule-name::/i.test(v.note) || !board || typeof board.rulePreview !== "function") return { decorations: [] };
+  if (!v.note || !/\[rule-name::/i.test(v.note) || !board || typeof board.request !== "function") return { decorations: [] };
   let kept = previews.get(board);
   if (!kept) previews.set(board, (kept = new Map()));
   const key = `${v.note}\0${v.use}`;
   const hit = kept.get(key);
   if (hit) return hit;
   const entry: Kept = { decorations: null, answer: Promise.resolve() };
-  entry.answer = board.rulePreview(v.note, v.use).then(
+  entry.answer = board.request!("rules.preview", { note: v.note, text: v.use }).then(
     r => { entry.decorations = r.decorations; src!.redraw(); },
     () => { entry.decorations = []; },
   );

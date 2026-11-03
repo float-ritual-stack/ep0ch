@@ -23,7 +23,7 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
   const flashes: string[] = [];
   const settle = { quiet: 150, max: 4000 };
   const drawn = async (id: string, width = 120) => (await drawNote(board, id, width, settle))!.map(l => visible(l).trimEnd()).join("\n");
-  const create = (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
   const desk = () => ({
     ctx: { board, flash: (m: string) => flashes.push(m), redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
     openFromTile() {}, focusKind() {}, redraw() {},
@@ -111,7 +111,7 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
   test("a value follows a change to the note it was read from", async () => {
     const note = await create("Card [stage::queued]\nNow: {{this.stage}}");
     expect(await drawn(note.id)).toContain("Now: queued");
-    await board.request("update", { blockId: note.id, text: "Card [stage::done]\nNow: {{this.stage}}", expectedRevision: note.revision, author: "agent" });
+    await board.request("update", { blockId: note.id, text: "Card [stage::done]\nNow: {{this.stage}}", expectedRevision: note.revision!, mutation: { author: "agent", actorId: "test-agent" } });
     outlineChanged([note.id]);
     expect(await drawn(note.id)).toContain("Now: done");
   });

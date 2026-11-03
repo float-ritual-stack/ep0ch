@@ -237,12 +237,12 @@ describe("the service sends what an Outlink's target is", () => {
   afterAll(async () => { board?.close(); await scratch.dispose(); }, 20_000);
 
   test("authoredLinks carries each ready Outlink's kind, stage and dates, which the door's filters read", async () => {
-    const mk = (text: string) => board.request<any>("create", { parentId: null, text, author: "agent" });
+    const mk = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
     const waiting = await mk("Ask Ana about bean seed [type::outbox-item] [outbox::waiting]");
     const done = await mk("Thank the swap hosts [type::outbox-item] [outbox::done]");
     const plain = await mk("Seed shelf");
     const owner = await mk(`((${waiting.id}))\n((${done.id}))\n((${plain.id}))`);
-    const snap = await board.authoredLinks(owner.id);
+    const snap = await board.request("blocks.authored-links", { ownerBlockId: owner.id });
     if (snap.kind !== "ready") throw new Error(snap.kind);
     const data: LinkData = { links: { kind: "ready", value: snap }, backlinks: { kind: "loading" } };
     const a = linkAcross(data, { ...DEFAULT_BACKLINK_VIEW_OPTIONS, stage: "open" });
@@ -253,7 +253,7 @@ describe("the service sends what an Outlink's target is", () => {
   }, 20_000);
 
   test("a note's children come with their kind and stage from blocks.facets; comments under it don't list as children", async () => {
-    const mk = (text: string, parentId: string | null = null) => board.request<any>("create", { parentId, text, author: "agent" });
+    const mk = (text: string, parentId: string | null = null) => board.request("create", { parentId, text, author: "agent" });
     const plan = await mk("Bean bed plan [type::project]");
     await mk("Ask about netting [type::outbox-item] [outbox::waiting]", plan.id);
     await mk("Dig the trench [work-stage::done]", plan.id);
@@ -275,7 +275,7 @@ describe("a links tile with Children alone (PIE-693)", () => {
     const { BacklinksPane } = await import("../src/desk/backlinks-pane");
     let backlinksAsked = 0, redraws = 0;
     const board = {
-      children: async () => [kid], facets: async () => ({ facets: {}, missing: [] }), authoredLinks: async () => ({ kind: "ready", ownerId: "n1", ownerTextDigest: "x", outlinks: group([]), resources: group([]) }),
+      children: async () => [kid], facets: async () => ({ facets: {}, missing: [] }), request: async (action: string) => (action === "blocks.authored-links" ? { kind: "ready", ownerId: "n1", ownerTextDigest: "x", outlinks: group([]), resources: group([]) } : Promise.reject(new Error(`the fake has no ${action}`))),
       backlinks: () => { backlinksAsked++; return new Promise(() => {}); },
     };
     const desk = { ctx: { board, flash() {} }, redraw() { redraws++; }, tileShowing: () => note } as any;
@@ -300,7 +300,7 @@ describe("a links tile that opens its groups, read again on the way back (PIE-82
     const { BacklinksPane } = await import("../src/desk/backlinks-pane");
     const board = {
       children: async () => [], facets: async () => ({ facets: {}, missing: [] }),
-      authoredLinks: async (id: string) => ({ kind: "ready", ownerId: id, ownerTextDigest: "x", outlinks: group([]), resources: group([]) }),
+      request: async (action: string, p: { ownerBlockId: string }) => (action === "blocks.authored-links" ? { kind: "ready", ownerId: p.ownerBlockId, ownerTextDigest: "x", outlinks: group([]), resources: group([]) } : Promise.reject(new Error(`the fake has no ${action}`))),
       // The kettle's answer at once; the start note's never comes (still on the way when the person goes back).
       backlinks: (id: string) => (id === kettle.id
         ? Promise.resolve({ targetBlockId: id, completeness: { kind: "complete" }, sources: [source("Tea shelf", "note", "Note", undefined, "2026-03-05T00:00:00Z")] } as BacklinkCollection)

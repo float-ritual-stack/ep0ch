@@ -39,7 +39,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   let key: (k: Key) => void = () => {};
   const B = () => BV.view(b);
   const AS = "test-agent-441";
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, tile: reader, as });
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), `the whole note${id ? ` ${id.slice(0, 8)}` : ""}`);
   const frame = () => b.render(B().ctx).lines;
@@ -100,7 +100,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     process.env.OUTLINER_PROPERTY_SUMMARY_KEYS = "stage,related";
     board = new SocketBoard(await scratch.start());
     await board.info();
-    n.plan = (await board.request<any>("pages.follow", { address: "Garden plan", author: "agent" })).block;
+    n.plan = (await board.request("pages.follow", { address: "Garden plan", author: "agent" })).block;
     n.beans = await create(null, "Stake the beans\nCanes along the fence.");
     n.shed = await create(null, "Paint the shed\nTwo coats, green.");
     n.water = await create(null, "Water the seedlings [type::garden-job]");

@@ -39,14 +39,14 @@ import { insertSelection, insertSlots, insertText, mergeSourceAnswers, pickId, p
 import type { SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import type { CompletionPickedRequest, CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
-import { USER, type Actor, type SocketBoard } from "../socket";
+import { USER, type Actor, type SocketBoard, mutationFor } from "../socket";
 import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
 import type { LineField } from "./line";
 import { C, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
 import { rowLines, waitingText } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, FRAGMENT_ID_SOURCE, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import { attributeScalar, yamlScalar, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
@@ -72,7 +72,7 @@ const queryUnavailableSaid = new WeakSet<object>();
 export const COMPLETION_ROWS = 28;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked" | "createBlock" | "querySuggest">>;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "searchBlocks" | "blockContext" | "workIdPrefix" | "followPage" | "request"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked" | "createBlock" | "request">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -144,7 +144,7 @@ export interface LookupOptions { /** Asked on purpose (Tab, ctrl+space): a sourc
 export interface OwnNote { blockId: string; text: string }
 type CompletionOwner = (action?: { by: Actor; did: string }) => OwnNote | undefined;
 
-const title = (m: Msg) => subject({ ...m, text: m.text.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/m, "") }).replace(/\s{2,}/g, " ");
+const title = (m: Msg) => subject({ ...m, text: m.text.replace(new RegExp(String.raw` \^${FRAGMENT_ID_SOURCE}\s*$`, "m"), "") }).replace(/\s{2,}/g, " ");
 const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
 
 export const notConfigured = (semantic: { status: string; message?: string }) => semantic.status === "unavailable" && /not configured/i.test(semantic.message ?? "");
@@ -205,7 +205,7 @@ const DOOR_SOURCES: readonly DoorSource[] = [
   { decl: door("steps", "steps", ["button-step"], true), async rows({ board, target, own, opts }) {
     if (target.query.trimStart().startsWith("((")) {
       const q = target.query.trimStart().slice(2);
-      const listed = await board.listExtensions(false, own ? { blockId: own.blockId, draft: { text: own.text } } : {});
+      const listed = await board.request("extensions.list", { ...(own ? { blockId: own.blockId, draft: { text: own.text } } : {}) });
       const scripts = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name)
         .map(e => ({ id: e.id, title: e.name!, text: e.description ?? "" }));
       return { rows: (q ? rankTextSearchMatches(scripts, q).map(m => m.document) : scripts)
@@ -390,13 +390,13 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
     const mine = own?.blockId === item.blockId;
     // Another note's fragment: the service says it's still there, once (the draft's own was read as typed).
     if (item.fragmentId && !item.anchor && !mine) {
-      const f = await board.readFragment(item.blockId, item.fragmentId);
+      const f = await board.request("fragments.read", { blockId: item.blockId, fragmentId: item.fragmentId });
       if (!still()) return false;
       if (f.status !== "resolved") throw new Error("that fragment changed or is ambiguous; search again");
     }
     // Another note's heading gets its anchor from the service, if that note hasn't changed since it was offered.
     if (item.fragmentId && item.anchor && !mine) {
-      const written = await board.ensureFragment(item.blockId, item.anchor.lineIndex, item.anchor.revision, by)
+      const written = await board.request("fragments.ensure", { blockId: item.blockId, lineIndex: item.anchor.lineIndex, expectedRevision: item.anchor.revision, mutation: mutationFor(by) })
         .catch((e: Error) => { throw new Error(`the anchor wasn't added: ${e.message}`); });
       if (!still()) return false;
       if (written.fragmentId !== item.fragmentId) throw new Error("that heading changed; search again");
@@ -547,7 +547,7 @@ export class Completer {
   }
   private recordIgnored(): void {
     const suggestion = this.state?.items.find(i => i.querySuggestion)?.querySuggestion;
-    if (suggestion) void this.board.querySuggest?.({ text: suggestion.input, outcome: "ignored", suggestion }).catch(e => { this.d.note = String(e); });
+    if (suggestion) void this.board.request("query.suggest", { text: suggestion.input, outcome: "ignored", suggestion }).catch(e => { this.d.note = String(e); });
   }
 
   /**
@@ -612,7 +612,7 @@ export class Completer {
     if (this.acceptedQuery && this.acceptedQuery.text !== this.d.text) {
       const { suggestion } = this.acceptedQuery;
       this.acceptedQuery = undefined;
-      void this.board.querySuggest?.({ text: suggestion.input, outcome: "edited", suggestion, acceptedWhere: target.query }).catch(e => { this.d.note = String(e); });
+      void this.board.request("query.suggest", { text: suggestion.input, outcome: "edited", suggestion, acceptedWhere: target.query }).catch(e => { this.d.note = String(e); });
     }
     const picked = explicit || (same && this.state?.picked);
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
@@ -893,7 +893,7 @@ export class Completer {
       if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       if (item.querySuggestion) {
         this.acceptedQuery = { suggestion: item.querySuggestion, text: this.d.text };
-        await this.board.querySuggest?.({ text: item.querySuggestion.input, outcome: item.queryOutcome ?? "accepted", suggestion: item.querySuggestion, corrections: item.queryCorrections }).catch(e => { this.d.note = String(e); });
+        await this.board.request("query.suggest", { text: item.querySuggestion.input, outcome: item.queryOutcome ?? "accepted", suggestion: item.querySuggestion, corrections: item.queryCorrections }).catch(e => { this.d.note = String(e); });
       }
       this.dismiss();
       this.d.completed?.(item);

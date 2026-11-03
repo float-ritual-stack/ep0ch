@@ -137,7 +137,7 @@ export class LiveMachines {
     if (this.closed) return this.fail("the gateway is shutting down");
     const probe = new SocketBoard(socket, this.requestTimeoutMs);
     try {
-      const r = await probe.request<{ protocolVersion: number; grammarVersion: number }>("ping");
+      const r = await probe.request("ping");
       await meetRules(r);
       if (r.protocolVersion !== PROTOCOL) {
         const why = `its outline host speaks protocol ${r.protocolVersion} and this gateway ${PROTOCOL}`;

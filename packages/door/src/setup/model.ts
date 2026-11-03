@@ -318,4 +318,5 @@ export function staleness(s: { protocol?: number }, protocol: number | null): st
 export const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : "?");
 
 /** A door session as doctor and install see it. */
-export interface SessionFact { outline: string; machine?: string; socket?: string; pid: number; dir: string; commit: string | null; clients: number; programs: number }
+/** `dir`: the checkout its door runs from; `folder`: the session's own folder in the state dir. */
+export interface SessionFact { outline: string; machine?: string; socket?: string; pid: number; dir: string; folder?: string; commit: string | null; clients: number; programs: number }

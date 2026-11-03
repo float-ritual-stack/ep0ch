@@ -15,11 +15,11 @@ import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { external } from "../src/open";
 import { drawingPending, drawnPresses, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
-import { bindExtensions } from "../src/extensions";
+import { bindExtensions, type ExtensionList } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { SHADE } from "../src/embeds";
 import { RULER_BG } from "../src/surface/selection";
@@ -33,10 +33,12 @@ const NOTE_ID = "aaaaaaaa-1111-4222-8333-444444444444";
 const RESOURCE = "bbbbbbbb-1111-4222-8333-444444444444";
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 
-const base = (over: Partial<ResourceProjection>): ResourceProjection => ({
+/** A projection fixture: any field may be what a service of another version sends (a status this one doesn't know). */
+type Loose = { [K in keyof ResourceProjection]?: unknown };
+const base = (over: Loose): ResourceProjection => ({
   anchor: { kind: "directive", line: 2, start: 0, end: 6 }, provider: "jira", label: "Jira", propertyKey: "jira",
   options: { unknown: [] }, status: "ready", fields: [], ...over,
-});
+}) as unknown as ResourceProjection;
 const READY = base({
   key: "ACME-12", resourceId: RESOURCE, sourceId: "src-1", summary: "Rollout checklist for the vendor switch",
   fields: [{ label: "Status", value: "In progress" }, { label: "Assignee", value: "A. Person" }, { label: "Labels", value: "rollout, vendor" }],
@@ -44,7 +46,7 @@ const READY = base({
 });
 
 /** One projection per status the service sends, plus options, an older label and a status from a newer service. */
-const CASES: ResourceProjection[] = [
+const CASES = ([
   READY,
   { ...READY, options: { compact: true, unknown: [] } },
   { ...READY, options: { comments: 5, unknown: ["--wat"] }, updatedAt: undefined },
@@ -58,7 +60,7 @@ const CASES: ResourceProjection[] = [
   base({ status: "refreshing", key: "ACME-16", reason: "A status a newer service sends" }),
   { ...base({ status: "no-key" }), label: undefined },
   { ...READY, summary: "Uses *stars*, _under_ and `ticks` #tag <b> | pipe \\ slash" },
-];
+]) as unknown as ResourceProjection[];
 
 describe.skipIf(!outliner)("parity with Detail's layout (pi-herdr-outliner src/detail-embeds.ts)", () => {
   let theirs: any, refs: any;
@@ -80,9 +82,9 @@ describe.skipIf(!outliner)("parity with Detail's layout (pi-herdr-outliner src/d
 
   test("the door asks about every note the service could project, by the service's own provider keys", () => {
     // The service's providers as extensions.list lists them (Jira's, a made-up second one), in both tables.
-    const providers = [{ provider: "ext:jira", key: "jira", label: "Jira" }, { provider: "ext:kanboard", key: "kanboard", label: "Kanboard" }];
+    const providers: { provider: `ext:${string}`; key: string; label: string }[] = [{ provider: "ext:jira", key: "jira", label: "Jira" }, { provider: "ext:kanboard", key: "kanboard", label: "Kanboard" }];
     refs.useResourceDirectiveProviders("door-parity", providers);
-    bindExtensions({ generation: 1, extensions: [], tileKinds: [], resourceProviders: providers });
+    bindExtensions({ generation: 1, extensions: [], tileKinds: [], resourceProviders: providers } as unknown as ExtensionList);
     expect(projectionKeys().sort()).toEqual(refs.resourceDirectiveProviders().map((p: any) => p.propertyKey).sort());
     expect(mayHaveProjections("Board card\nkanboard:: KB-7")).toBe(true);
     const corpus = ["Vendor call ACME-12\njira::", "Page [jira::ACME-12]", "- jira:: --comments", "[type::note] jira:: ACME-1", "JIRA::", "no provider here [type::x]", "jira: not a property", "text jira::"];
@@ -101,7 +103,10 @@ function stub(read: () => ResourceProjectionRead | Promise<ResourceProjectionRea
   const b = {
     reads: 0,
     ancestors: async () => [], comments: async () => [],
-    readResourceProjections: async (id: string) => { b.reads++; expect(id).toBe(NOTE_ID); return read(); },
+    request: async (action: string, p: { blockId: string }) => {
+      if (action !== "resources.projection.read") throw new Error(`the fake has no ${action}`);
+      b.reads++; expect(p.blockId).toBe(NOTE_ID); return read();
+    },
   };
   return b;
 }
@@ -133,7 +138,7 @@ const readOf = (projections: ResourceProjection[], revision = 4): ResourceProjec
 
 describe("a projection in a reader", () => {
   // The service lists Jira's provider (the door asks about `jira::` notes only then).
-  beforeAll(() => { bindExtensions({ generation: 1, extensions: [], tileKinds: [], resourceProviders: [{ provider: "ext:jira", key: "jira", label: "Jira" }] }); });
+  beforeAll(() => { bindExtensions({ generation: 1, extensions: [], tileKinds: [], resourceProviders: [{ provider: "ext:jira", key: "jira", label: "Jira" }] } as unknown as ExtensionList); });
   afterAll(() => { bindExtensions(null); });
   test("ready: the key, summary, allowed fields, updated time and fetched time with its age, under the jira:: line, shaded", async () => {
     const p = { ...READY, fetchedAt: minutesAgo(12) };
@@ -167,21 +172,21 @@ describe("a projection in a reader", () => {
   });
 
   test("a ticket page shows it at the top of the body, and a projection keeps its line's indent", async () => {
-    const page = { ...READY, anchor: { kind: "page", line: 0, start: 0, end: 30 } };
+    const page = { ...READY, anchor: { kind: "page" as const, line: 0, start: 0, end: 30 } };
     const r = await shown(stub(() => readOf([page])), note("Rollout page [jira::ACME-12]\nLocal notes under the ticket."));
     const body = r.lines().map(plain);
     const rule = body.findIndex(l => l.trim() === "");           // the blank row that ends the header (PIE-657)
     expect(body[rule + 1]!.trim()).toStartWith("▌∙ Jira ACME-12");
     expect(body.findIndex(l => l.includes("Local notes"))).toBeGreaterThan(rule + 3);
 
-    const nested = { ...READY, anchor: { kind: "directive", line: 2, start: 0, end: 0 } };
+    const nested = { ...READY, anchor: { kind: "directive" as const, line: 2, start: 0, end: 0 } };
     const r2 = await shown(stub(() => readOf([nested])), note("Call ACME-12\n- follow up\n    jira::\n- next"));
     const row = r2.lines().map(plain).find(l => l.includes("Jira ACME-12"))!;
     expect(row).toMatch(/^ +▌ {4}∙ Jira ACME-12/);
   });
 
   test("a folded section hides the projections in it, and they come back unfolded", async () => {
-    const p = { ...READY, anchor: { kind: "directive", line: 3, start: 0, end: 0 } };
+    const p = { ...READY, anchor: { kind: "directive" as const, line: 3, start: 0, end: 0 } };
     const r = await shown(stub(() => readOf([p])), note("Call ACME-12\n## Tickets\nsome text\njira::\n## Later\nmore"));
     expect(r.lines().map(plain).some(l => l.includes("Jira ACME-12"))).toBe(true);
     r.s.key(char("("), r.host); r.s.key(char(")"), r.host); r.s.key(char("f"), r.host);
@@ -348,7 +353,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
   let key: (k: Key) => void = () => {};
   const n: Record<string, any> = {};
   const B = () => BV.view(b);
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const frame = () => b.render(B().ctx).lines.map(plain).join("\n");
 
   beforeAll(async () => {
@@ -449,12 +454,12 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
 const at = r.input.target.blockId;
 process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ length: 20 }, (_, i) => ({ op: "create", parentId: at, text: "Made-up synced row " + i })) } }));`);
     const end = Date.now() + 15_000;
-    while (!(await board.listExtensions(true))?.extensions.some(e => e.id === "syncrows" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
-    const rows = await board.request<any>("create", { parentId: null, text: "Synced rows", author: "user" });
+    while (!(await board.request("extensions.list", { reload: true }))?.extensions.some(e => e.id === "syncrows" && e.state === "active") && Date.now() < end) await Bun.sleep(100);
+    const rows = await board.request("create", { parentId: null, text: "Synced rows", author: "user" });
     const since = Date.now() - 1;
-    const mine = await board.request<any>("create", { parentId: null, text: "Sort the seed packets", author: "user" });
+    const mine = await board.request("create", { parentId: null, text: "Sort the seed packets", author: "user" });
     // Many more extension writes after it than the list's first page holds (a poll that refreshed a lot).
-    for (let i = 0; i < 6; i++) expect((await board.actExtension("syncrows", "sync", { blockId: rows.id })).written).toHaveLength(20);
+    for (let i = 0; i < 6; i++) expect((await board.request("extensions.act", { extension: "syncrows", extensionAction: "sync", blockId: rows.id, clientId: board.clientId, mutation: requesterOf(USER) })).written).toHaveLength(20);
     const first = await board.changedSince(since, 40);
     expect(first.map(m => m.id)).toContain(mine.id);
     expect(first.some(m => m.author === "ext:syncrows")).toBe(false);
@@ -467,7 +472,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ le
     const followUp = await create(null, "Depot follow-up\nACME-12 again\njira::");
     let read: ResourceProjectionRead | undefined;
     const end = Date.now() + 10_000;
-    do { read = await board.readResourceProjections(followUp.id); if (read.projections[0]?.record) break; await Bun.sleep(50); } while (Date.now() < end);
+    do { read = await board.request("resources.projection.read", { blockId: followUp.id, materialize: true }); if (read.projections[0]?.record) break; await Bun.sleep(50); } while (Date.now() < end);
     const p = read!.projections[0]!;
     expect(p.record?.blockId).toBe(ticket.id);
     expect(await board.children(followUp.id)).toEqual([]);
@@ -480,9 +485,9 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ le
 });
 
 describe("the presses a note's render scripts drew (button.press note=)", () => {
-  const line = (anchor: number, more: Partial<ResourceProjection>): ResourceProjection => ({
+  const line = (anchor: number, more: Loose): ResourceProjection => ({
     anchor: { kind: "line", line: anchor, start: 0, end: 0 }, provider: "x", options: { unknown: [] }, status: "ready", fields: [], kind: "output", ...more,
-  });
+  }) as unknown as ResourceProjection;
   const drawing = (view: unknown) => ({ ranAt: "2026-01-01T00:00:00Z", markdown: "", component: { data: null, view } });
   const read = (...projections: ResourceProjection[]): ResourceProjectionRead => ({ blockId: "b", revision: 1, projections });
 

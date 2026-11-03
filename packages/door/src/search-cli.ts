@@ -81,7 +81,7 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
   const open = async (name: string) => boardFor(["--ws", name, ...machine]);
   const boards = new Map<string, Awaited<ReturnType<typeof boardFor>>>();
   const board = async (name: string) => { if (!boards.has(name)) boards.set(name, await open(name)); const b = boards.get(name)!; if ("error" in b) throw new Error(`${name}: ${b.error}`); return b; };
-  const client = (b: Exclude<Awaited<ReturnType<typeof boardFor>>, { error: string }>): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return b.request<T>(action, params, 120_000); } });
+  const client = (b: Exclude<Awaited<ReturnType<typeof boardFor>>, { error: string }>): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return b.send(action, params, 120_000) as Promise<T>; } });
   try {
     const e = await import(EVAL) as Eval;
     const into = verb === "eval" && opts["--snapshots"] && !opts["--into"] ? undefined as unknown as Client : client(await board(opts["--into"] ?? "pie"));
@@ -107,7 +107,7 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
       if (opts["--cases"]) harvested.push(...(JSON.parse(readFileSync(opts["--cases"], "utf8")) as Case[]));
       const cases = harvested.filter(c => !have.has(e.caseKey(c.query, c.outline)));
       for (const name of EVAL_OUTLINES) {
-        const { picks } = await (await board(name)).searchPicks().catch(() => ({ picks: [] }));
+        const { picks } = await (await board(name)).request("search.picks", {}).catch(() => ({ picks: [] }));
         cases.push(...e.casesFromPicks(picks, name, new Set([...have, ...cases.map(c => e.caseKey(c.query, c.outline))])));
       }
       if (!rest.includes("--dry-run")) for (const c of cases) await e.keepCase(into, c);

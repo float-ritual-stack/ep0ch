@@ -1,3 +1,4 @@
+import { proposed } from "../wire";
 import { traceActions } from "../../src/surface/actions";
 // PIE-439: the showcase screen, the desk: esc, refusals, drawer, status, sessions, power bar, policy. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
@@ -326,14 +327,14 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const proposal = (await board.get(seeded.race.proposal))!;
     expect([proposal.parentId, prop(proposal, "type"), prop(proposal, "proposal-status")]).toEqual([guide.id, "draft-proposal", "open"]);
     expect(seeded.race.retry).toEqual({ proposalId: seeded.race.proposal, deduped: true });
-    expect((await board.proposalsBeside(guide.id)).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
+    expect((await board.request("draft.proposals.list", { blockId: guide.id })).proposals.map(p => p.id)).toEqual([seeded.race.proposal]);
 
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "proposals" }, as: "test-agent" });
     await until(() => marks.proposals!.every(m => screen().includes(m)), "the proposals section");
     // Another retry now, at the revision @moss read: the same proposal back, still one beside the guide, the guide untouched.
     const at = RACE.indexOf(RACE_PATCH.loser.observed);
-    const again = await board.request<any>("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, propose: true, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
+    const again = await board.request("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, propose: true, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
       patches: [{ ...RACE_PATCH.loser, range: { start: at, end: at + RACE_PATCH.loser.observed.length }, unit: "utf16" }] });
     expect(again).toMatchObject({ outcome: "proposed", proposalId: seeded.race.proposal, deduped: true, beside: guide.id });
     expect((await board.get(guide.id))!.revision).toBe(guide.revision);
@@ -346,12 +347,12 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
 
   test("the proposals section resolves by key, click and agent action, and waiting counts follow", async () => {
     writeFileSync(join(scratch.root, "config", "pi-herdr-outliner", "extensions", "tidy", "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(JSON.stringify({patches: [{observed: "grow beans", replacement: "grow peas"}], message: "Kept Tuesday and changed beans to peas."}));`]}}));
-    await board.listExtensions(true);
+    await board.request("extensions.list", { reload: true });
     const make = async () => {
-      const note = await board.request<any>("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
-      const proposal = await board.request<any>("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
+      const note = await board.request("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
+      const proposal = await board.request("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
       await board.update(note.id, note.text.replace("Monday", "Tuesday"), note.revision);
-      return {note, proposal: proposal.proposalId};
+      return {note, proposal: proposed(proposal).proposalId};
     };
     const finished = async (id: string) => untilAsync(async () => prop((await board.get(id))!, "proposal-status") === "resolved", "the resolution");
     const first = await make();

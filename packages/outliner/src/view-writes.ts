@@ -31,6 +31,7 @@ import type {
   RoadmapItemPriority,
 } from "./types";
 import { isVirtualBranchDefinition, parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /** Stages a roadmap item is never created in: it's created in Queued or Doing, then moved. */
 export const ROADMAP_NOT_CREATED_IN: ReadonlySet<string> = new Set(["review", "validate", "done", "superseded"]);
@@ -38,7 +39,7 @@ export const ROADMAP_NOT_CREATED_IN: ReadonlySet<string> = new Set(["review", "v
 const ALLOCATOR_KEYS = new Set(["type", "status", "priority", "work-stage", "work-batch", "project", "arc", "track", "depends-on", "related-to", "source-block", "work-id"]);
 const PRIORITIES: readonly RoadmapItemPriority[] = ["high", "medium", "low"];
 const ALLOCATOR_REQUIRED = ["project", "priority", "arc", "track"] as const;
-const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BLOCK_ID = BLOCK_ID_PATTERN;
 
 export interface ViewWriteChange { key: string; to: string; from: string | null }
 

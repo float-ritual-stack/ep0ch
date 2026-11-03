@@ -6,6 +6,7 @@ import type { RequestInput } from "./client";
 import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionCalls } from "./extension-calls";
 import type { OutlinerRequest } from "./types";
+import type { WireAnswer } from "./wire";
 
 type CompletionRequest = Extract<OutlinerRequest, { action: "completion.rows" | "completion.picked" | "completion.cancel" }>;
 
@@ -14,10 +15,10 @@ export class CompletionRequests {
   private turns = new Map<string, AbortController>();
   constructor(private store: OutlinerStore, private own: OutlinerRequester, private registry: ExtensionRegistry, private calls: ExtensionCalls, private readOnly: boolean) {}
 
-  async run(request: CompletionRequest): Promise<unknown> {
+  async run(request: CompletionRequest): Promise<WireAnswer<CompletionRequest["action"]>> {
     if (request.action === "completion.cancel") { this.turns.get(request.turn)?.abort(); return {}; }
     const picks = readPicks(this.store.readMetadata(PICKS_METADATA_KEY));
-    let result: unknown;
+    let result: WireAnswer<CompletionRequest["action"]>;
     if (request.action === "completion.picked") {
       const outcome = request.outcome ?? "accepted";
       if (typeof request.key !== "string" || !request.key || request.key.length > 80) throw new Error("completion.picked needs key: the trigger's pick key");

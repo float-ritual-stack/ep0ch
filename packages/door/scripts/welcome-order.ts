@@ -1,3 +1,4 @@
+import { mutationFor } from "../src/socket";
 // One-off: `[welcome::n]` numbers become the Welcome view's hand-set order, and every welcome value becomes `true`.
 // Welcome notes are marked by the property's presence now (any value), ordered by the Welcome view ([query::welcome],
 // #190's order). Run it by hand once per outline that has welcome notes, then delete it (git keeps it). The door has no
@@ -56,7 +57,7 @@ if (!apply) {
 if (!view && notes.some(m => number(m) !== null)) {
   view = await board.createBlock(null, WELCOME_VIEW_TEXT, actor);
   console.log(`✓ made the Welcome view ((${view.id}))`);
-  const order = await board.moveInView({ view: view.id, blocks: notes.map(m => m.id) }, actor);
+  const order = await board.request("virtual.occurrences.move", { input: { view: view.id, blocks: notes.map(m => m.id) }, mutation: mutationFor(actor) });
   console.log(`✓ the Welcome view's hand-set order: ${order.blockIds.slice(0, notes.length).map(id => subject(notes.find(m => m.id === id) ?? { text: id } as Msg)).join(" · ")}`);
 }
 let done = 0, failed = 0;

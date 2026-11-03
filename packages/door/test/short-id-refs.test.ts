@@ -32,7 +32,7 @@ describe.skipIf(!outliner)("a short id names a block for every agent entry point
     store.close();
     const sock = await scratch.start();
     const board = new SocketBoard(sock);
-    await board.configureMcpAccess("read");
+    await board.request("mcp.access.configure", { level: "read" });
     board.close();
 
     const { OutlinerClient } = await import(`${outliner}/src/client.ts`);

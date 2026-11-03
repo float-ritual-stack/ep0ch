@@ -279,7 +279,7 @@ test("a ```component:<name> fence is a code block like any other, drawn as code"
 describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard;
-  const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
+  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const term = { cols: 100, rows: 40, cellW: 9, cellH: 16, kitty: false };
   const draw = async (m: Msg) => {
     const r = new MessageReader([m], 0);

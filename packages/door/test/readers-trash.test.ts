@@ -53,7 +53,7 @@ test("reread: a burst of changes while a read is out makes one more read, not on
 describe.skipIf(!outliner)("a child shown while its parent goes to the Trash, on a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, agent: SocketBoard, app: App;
-  const make = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "user" });
+  const make = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "user" });
   const screen = () => (app as any).stack.at(-1) as any;
   const lines = () => (screen().render((screen() as any).ctx ?? app).lines as string[]).map(visible).join("\n");
   /** A parent and its child, fictional: the child is what the reader shows. */

@@ -4,6 +4,7 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
+import { heroLinkSpans, pictureRows, placePictures, scriptHero } from "./picture-rows";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
@@ -105,7 +106,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { blockRefText, embedOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
@@ -610,32 +611,6 @@ const printableBlock = (s: string) => printable(s, "", { lines: true });
 const tagged = tagInto;
 
 
-/**
- * An extension view's picture (PIE-827) as rows `width` wide, laid out as a note's image line is (doc.ts mediaRows: its
- * box kept dark while it loads, dimmed dark-first, its caption; graphics off, the caption says why). Its first row
- * carries a zero-width tag naming the picture, so wherever the view puts it (a card, a box, one side of a row)
- * placePictures finds it; its caption is a link to the file, so `[ ]` stops on it and ⏎ opens it, as on a note's image.
- */
-function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, drawn: Link[]): string[] {
-  const r = mediaRows(imagePrimitiveSpec(node), width, { ...env, image: undefined }, -1);
-  const lines = [...r.lines];
-  if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ".repeat(r.image.cols));
-  // `caption: false` (PIE-839): the picture alone, once its rows are kept for it; where it isn't drawn, the caption says what it is.
-  if (node.caption === false && r.caption > 0) return lines.slice(0, r.caption);
-  lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
-  return lines;
-}
-
-/** The pictures extension views drew in `doc` (pictureRows), each placed where its tag landed. */
-function placePictures(doc: Doc, drawn: readonly Link[]): void {
-  const seen = new Set<number>();
-  for (const r of doc.links) {
-    const picture = drawn[r.n]?.picture;
-    if (!picture || seen.has(r.n)) continue;
-    seen.add(r.n);
-    doc.images.push({ ...picture, line: r.line, col: r.from });
-  }
-}
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
 
 export { leaveSaid, propertyChange, type LeaveResult };
@@ -1297,7 +1272,7 @@ export class NoteSurface {
       if (m.resource) void this.loadComments(host);
       return true;
     }
-    if (m.partial || shellLines(m.text).some(line => line.open)) void host.ctx.board.readResourceProjections(m.id, true).catch(e => host.ctx.flash(String(e)));
+    if (m.partial || shellLines(m.text).some(line => line.open)) void host.ctx.board.request("resources.projection.read", { blockId: m.id, materialize: true, opened: true }).catch(e => host.ctx.flash(String(e)));
     if (m.partial) this.readWhole(host); else this.settleUnsent(m, host);
     void this.loadComments(host);
     this.takeReveal(m, host);
@@ -1497,6 +1472,10 @@ export class NoteSurface {
       const held = (this.heroDrag?.now || (!hero.placement && !hero.loading && !cut)) && was;
       const p = held ? { ...held, rows: Math.max(1, Math.min(h, hero.box.rows) - cut - held.row) } : hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
       if (!held && p && !cut) this.heroPlaced = { line: hero.line, p };
+      // Its SVG's links (PIE-1555): presses over the header's rows (a click), and elements ([ ], ⏎) on its first row under it.
+      this.heroHits = hero.placement ? heroLinkSpans(this.heroRef(this.msg!)?.path ?? "", { ...hero.box, col: hero.placement.col }, above, cut).filter(r => r.row < shown) : [];
+      const own = [...new Map(this.heroHits.map(r => [r.link.page ?? r.link.block ?? r.link.url, r])).values()].map((r, i): Element => ({ key: `link:hero:${i}:${r.link.page ?? r.link.block ?? r.link.url}`, kind: "link", row: 0, from: r.from, to: r.to, ruler: [0, 1], label: `header link ${r.link.label ?? ""}`.trim(), link: r.link }));
+      this.elems = [...own, ...this.elems.filter(e => !e.key.startsWith("link:hero:"))];
       v = { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), wide: v.wide?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
     }
     // A split that does not fit shares the popup path.
@@ -2326,7 +2305,7 @@ export class NoteSurface {
       // A view's Blockdown (a section a component lays out) is drawn as the body is: its links are links here.
       blockdown: (text: string, width: number) => drawIn("view", presentLinks(printableBlock(text), false, src, text, drawn), env, {}, { width }).lines,
       // A view's picture (PIE-827), laid out as the body's image lines are.
-      image: (node: ImagePrimitive, width: number) => pictureRows(node, width, env, drawn),
+      image: (node: ImagePrimitive, width: number) => node.svg !== undefined && node.svg === this.heroSvg && node.caption !== false ? [fg(C.dark) + ellipsize(`▀ header · ${node.alt ?? "svg picture"}`, width) + RESET] : pictureRows(node, width, env, drawn),
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
       row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
       // A view's `list` (PIE-747): the one ListView, its state this reader's, its rows the reader's elements.
@@ -2375,8 +2354,8 @@ export class NoteSurface {
     if (isAnnotationBlock(m)) {
       const context = commentSubject(m.id, src);
       const target = context?.value;
-      const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : { resourceRef: `resource:${target.resourceId}` },
-        target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : "Resource") : context?.error ?? "reading comment subject…";
+      const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : target.kind === "resource" ? { resourceRef: `resource:${target.resourceId}` } : { block: target.sourceBlockId },
+        target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : target.kind === "resource" ? "Resource" : target.filePath) : context?.error ?? "reading comment subject…";
       const intro = drawIn("note", `on ${on}`, env);
       const outlinks = drawIn("note", "::outlinks", env, { note: m.id, tag: linkSink(drawn).tag });
       const withContext = withRows(rendered, [
@@ -2496,7 +2475,9 @@ export class NoteSurface {
     if (d) this.refusedPress = act => { try { return d.refusedNow(actRequestOf(lineWords(act)), USER); } catch { return null; } };
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
-    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), headings: headingStylesOf(this.src), printed: this.printed };
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), headings: headingStylesOf(this.src), printed: this.printed,
+      // A picture fence's source is the note as written (PIE-1555): decor.raw shows it, and its caption names the key.
+      pictures: !this.raw, pictureSource: `${keyCaption(READER_KEYS.find(r => r.action === "decor.raw")?.key ?? "~")} shows its source` };
   }
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
@@ -2552,7 +2533,7 @@ export class NoteSurface {
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
-      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
+      ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
       ...linkSink(drawn), note: m.id,
       ...additions,
@@ -3167,7 +3148,7 @@ export class NoteSurface {
     if (actor.kind === "user" && this.editing) throw new ActionRefused("finish the draft before opening its thread");
     const previous = this.replyLinks;
     const m = this.requireNote();
-    const [replies, links, backlinks, thread] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.authoredLinks(m.id), host.ctx.board.backlinks(m.id), readThread(host.ctx.board, m, host.conference)]);
+    const [replies, links, backlinks, thread] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.request("blocks.authored-links", { ownerBlockId: m.id }), host.ctx.board.backlinks(m.id), readThread(host.ctx.board, m, host.conference)]);
     const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
     // The opening token expires once the panel opens; refresh follows the same note and mode instead.
     if (actor.kind === "agent" || this.msg?.id !== m.id || (!refresh && host.still && !host.still())) return out;
@@ -3236,7 +3217,7 @@ export class NoteSurface {
   async quoteSelection(host: SurfaceHost, actor: Actor, quote?: string): Promise<string> {
     const m = this.requireNote(), passage = this.passageFor(actor, quote).note;
     const line = m.text.slice(0, passage.start).split("\n").length - 1;
-    const { items } = await host.ctx.board.fragmentCandidates({ blockIds: [m.id], fragmentQuery: passage.quote, mode: "passage", limit: 100 });
+    const { items } = await host.ctx.board.request("fragments.candidates", { query: { blockIds: [m.id], fragmentQuery: passage.quote, mode: "passage", limit: 100 } });
     const anchor = items.find(c => c.revision === m.revision && c.lineIndex === line && c.fragmentId)?.fragmentId;
     // The excerpt is frozen even when its source changes or an anchor cannot yet be written.
     return `> [!quote]\n${passage.quote.split("\n").map(l => `> ${l}`).join("\n")}\n> — ((${m.id}${anchor ? `^${anchor}` : ""}))\n\n`;
@@ -4254,7 +4235,7 @@ export class NoteSurface {
       holdsKeys: () => !!sm() && this.modes.active(sm()!), tileKeys: () => true,
       actions: { place: "sources.place", move: "sources.move" }, closed: "S opens the Sources inspector",
       chip: () => chipOf({ col: sm()!.rect.x, row: sm()!.rect.y, cols: sm()!.rect.w, rows: sm()!.rect.h }, sm()!.place),
-      placed: () => { sm()!.reveal = true; },
+      placed: (want, host, _side, was) => { sm()!.reveal = true; if (was === "tile" && want !== "tile") this.focusSources(host, true); },
     }, {
       kind: "settings", noun: "settings", owner: card, mode: "panel", persist: "settings-place.json",
       draw: (cols, rows, row, col) => this.renderSettings(cols, rows, row, col),
@@ -4560,7 +4541,7 @@ export class NoteSurface {
         const first = sequenceStart(button), no = first ? d.refusedNow(d.requestIn(actRequestOf(lineWords(first)), press), actor) : null;
         if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = INVITES.pressed(press);
-        const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
+        const r = await host.ctx.board.request("scripts.sequence", {
           blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
         });
         if (invitation && r.undo) INVITES.bind(invitation, r.undo);
@@ -5319,7 +5300,7 @@ export class NoteSurface {
    * unread. Only the person's opening reads it; quietly, as a failure only leaves it unread.
    */
   readThread(thread: string, host: SurfaceHost) {
-    if (this.expanded.has(thread)) void host.ctx.board.readThread(thread).catch(() => {});
+    if (this.expanded.has(thread)) void host.ctx.board.request("annotations.read", { annotationId: thread }).catch(() => {});
   }
 
   /** A thread of the note shown, by id or its first 6+ characters. */
@@ -5763,8 +5744,10 @@ export class NoteSurface {
     }
     return out;
   }
-  /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), the one place that decides it. */
-  heroRef(m: Msg) { return this.imagesIn(m).find(x => x.spec.layout === "hero"); }
+  /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), else a render line's drawing with it (PIE-1555): the one place that decides it. */
+  heroRef(m: Msg) { const own = this.imagesIn(m).find(x => x.spec.layout === "hero"), drawn = own || !isOutlineNote(m) ? null : scriptHero(m, projectionsOf(m, this.src)); this.heroSvg = drawn?.svg ?? null; return own ?? drawn?.ref; }
+  /** The svg a render line draws as the header (scriptHero): its own output says only that it's the header. And where the header's links are, by row. */
+  private heroSvg: string | null = null; private heroHits: { row: number; from: number; to: number; link: Link }[] = [];
   /** The note's header image as the tune shows it (PIE-1361): its line, its file, its look as written, its rows drawn; null when it has none. */
   heroInfo(m: Msg): { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null } | null {
     const ref = this.heroRef(m);
@@ -5991,12 +5974,12 @@ export class NoteSurface {
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to anchor a line at");
     // The part of the note holding the line (a heading, a paragraph, a list item, a quote, a component), as the service
     // reads it: its anchor goes where that part's goes, and its label is the part's own.
-    const found = await board.partAt(m.id, at, next), part = found.part;
+    const found = await board.request("fragments.at", { blockId: m.id, line: at, ...(next ? { next: true } : {}) }), part = found.part;
     // The line was chosen in the text this reader read: a note saved since may hold another part there.
     if (found.revision !== m.revision) throw new ActionRefused("the note changed since it was read; it is read again, copy once more");
     if (!part) throw new ActionRefused(`line ${at + 1} is in no part of the note that takes an anchor (a heading, a paragraph, a list item, a quote, a component)`);
     let anchored: { fragmentId: string; created: boolean };
-    try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.ensureFragment(m.id, part.lineIndex, m.revision, actor); }
+    try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.request("fragments.ensure", { blockId: m.id, lineIndex: part.lineIndex, expectedRevision: m.revision, mutation: mutationFor(actor) }); }
     catch (e) {
       const said = e instanceof Error ? e.message : String(e);
       throw new ActionRefused(/changed since/.test(said) ? "not anchored: the note changed since it was read; it is read again, copy once more" : `not anchored: ${said}`);
@@ -6201,7 +6184,7 @@ export class NoteSurface {
       return true;
     }
     // A row of an inline ::links (PIE-693), as a links tile's row (PIE-794, one list model): a click selects it (the [ ]
-    // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
+    // position; its preview and a preview linked to this reader follow), a second click on it, however long after, opens it (⏎, PIE-1541),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
     // A grid's cell (a live calendar's day, an activity cell) has nothing to preview: one click lists its notes, as ⏎
@@ -6210,7 +6193,7 @@ export class NoteSurface {
     if ((lbk?.row || e.link?.inlineList) && !link.cell && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
-      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
+      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was, untimed: e.key === was && !host.focusing });
       if (lbk?.row) {
         const n = this.listViews.get(lbk.key)!.indexOf(PERSON, { id: lbk.row, group: lbk.group }) + 1;
         void this.runList(g === "open" || fresh ? "list.open" : "list.pick", { list: lbk.key, n, ...(fresh ? { where: "new" } : {}) }, host);
@@ -6250,7 +6233,7 @@ export class NoteSurface {
 
   /** A link to this artifact alone for someone outside (PIE-1266), copied for the person; an agent is given it in the answer. */
   async shareArtifact(ref: ImageRef, ttl: string | undefined, host: SurfaceHost, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
-    const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    const artifact = await host.ctx.board.request("artifacts.show", { name: ref.path });
     if (artifact.deploy) throw new ActionRefused(`${artifact.deploy.repo} is a repo: its site${artifact.url ? ` (${artifact.url})` : ""} is public already, and a share gives a stored artifact alone; artifact.open opens the site`);
     const started = await startShare(host.ctx.board, { artifact: artifact.version ? `${artifact.name}@${artifact.version}` : artifact.name, ...(ttl ? { ttl } : {}) }, actor);
     const { share } = started;
@@ -6260,7 +6243,7 @@ export class NoteSurface {
   }
 
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
-    const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    const artifact = await host.ctx.board.request("artifacts.show", { name: ref.path });
     // A repo opens its live site; one that isn't live says why and the command that deploys it (PIE-1060).
     if (artifact.deploy && !artifact.url) throw new ActionRefused(`${artifact.deploy.repo} isn't live: ${artifact.deploy.said ?? artifact.deploy.state}${artifact.deploy.command ? `; run ${artifact.deploy.command}` : ""}`);
     if (!artifact.url) throw new ActionRefused("Set EP0CH_WEB_URL on the outline host to the web client's address (https://my.ep0ch.sh): an artifact opens as its page there.");
@@ -7092,7 +7075,7 @@ export class NoteSurface {
     try {
       const was = P.answer?.sources[P.open ?? -1]?.key;
       P.answer = await host.ctx.board.siteSources(P.block);
-      const { schemas } = await host.ctx.board.componentSchemas();
+      const { schemas } = await host.ctx.board.request("components.schemas", {});
       for (const source of P.answer.sources) if (source.query.editable) {
         const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
         for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
@@ -7368,7 +7351,7 @@ export class NoteSurface {
   private async setFigureParam(s: SourceEntry, P: SourcesPanel | null, block: string, revision: number, param: string | undefined, value: string | undefined, host: SurfaceHost, actor: Actor) {
     const cur = P && itemsOf(s, P.folds)[P.item];
     const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
-    const { schemas } = await host.ctx.board.componentSchemas();
+    const { schemas } = await host.ctx.board.request("components.schemas", {});
     const prop = schemas.find(x => x.id === s.name)?.props.find(p => p.where === "yaml" && p.key === key);
     if (!prop) throw new ActionRefused(`choose a property of ${s.name} in Query`);
     const current = s.query.params.find(p => p.key === key)?.value ?? prop.default ?? "";
@@ -7410,7 +7393,7 @@ export class NoteSurface {
   }
 
   private async patchSource(block: string, revision: number, observed: string, replacement: string, start: number, host: SurfaceHost, actor: Actor) {
-    const result = await host.ctx.board.request<{ outcome: string; reason?: string }>("draft.patch", {
+    const result = await host.ctx.board.request("draft.patch", {
       blockId: block, revision, patches: [{ observed, replacement, range: { start, end: start + observed.length } }], mutation: mutationFor(actor),
     });
     if (result.outcome !== "applied") throw new ActionRefused(`text kept as a proposal · ${result.reason}`);
@@ -7423,7 +7406,7 @@ export class NoteSurface {
     return this.inTurn(async () => {
       const e = this.msg && this.sourceHistory.last(partyOf(actor), this.msg.id);
       if (e?.patch) {
-        const m = await host.ctx.board.readDraft(e.block), edit = e.edits[0]!;
+        const m = await host.ctx.board.request("drafts.read", { blockId: e.block }), edit = e.edits[0]!;
         await this.patchSource(e.block, m.revision, edit.after, edit.before, e.patch.start, host, actor);
         this.sourceHistory.drop(e);
         if (this.sourcesMode) await this.readSources(this.sourcesMode.panel, host);
@@ -7503,7 +7486,7 @@ export class NoteSurface {
     const row = drawnFields.rows[n - 1];
     if (!row) throw new ActionRefused(`::fields{key=${drawnFields.key}} has rows 1 to ${drawnFields.rows.length}`);
     let anchored: { fragmentId: string; created: boolean };
-    try { anchored = await host.ctx.board.ensureFragment(drawnFields.from, row.line, drawnFields.revision, actor); }
+    try { anchored = await host.ctx.board.request("fragments.ensure", { blockId: drawnFields.from, lineIndex: row.line, expectedRevision: drawnFields.revision, mutation: mutationFor(actor) }); }
     catch (e) {
       const said = e instanceof Error ? e.message : String(e);
       // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
@@ -7580,7 +7563,7 @@ export class NoteSurface {
       return await board.changeStep(ref.block, ref.step, ref.revision, changeOf(choice), actor);
     } catch (e) {
       if (!(e instanceof Refused) || ref.step.identity === "unique" || !/location changed/i.test(e.message)) throw e;
-      const now = await board.checklist(ref.block, 1000);
+      const now = await board.request("checklist.query", { blockId: ref.block, query: { limit: 1000, nested: "include" } });
       const same = now.items.filter(i => i.evidence === ref.step.evidence);
       if (same.length !== 1) throw e;
       return board.changeStep(ref.block, same[0]!, now.revision, changeOf(choice), actor);
@@ -7730,7 +7713,7 @@ export class NoteSurface {
     if (!m) return;
     // A scroll made while the fragment is looked up is the reader's own: it isn't undone.
     const from = this.scroll;
-    const read = await host.ctx.board.readFragment(m.id, fragment).catch((e: Error) => ({ error: e.message }));
+    const read = await host.ctx.board.request("fragments.read", { blockId: m.id, fragmentId: fragment }).catch((e: Error) => ({ error: e.message }));
     let now: Msg;
     try { now = await this.whole(); } catch { return; }
     if (now.id !== m.id) return;
@@ -7814,7 +7797,7 @@ export class NoteSurface {
   /** The part `at` names in `m` (PIE-780), read from the service: refused, with why, where there is none. */
   private async partOf(m: Msg, at: { line?: number; anchor?: string; follow?: true }, board: SocketBoard): Promise<Zoom> {
     if (at.anchor !== undefined) {
-      const r = await board.readFragment(m.id, at.anchor.replace(/^\^/, ""));
+      const r = await board.request("fragments.read", { blockId: m.id, fragmentId: at.anchor.replace(/^\^/, "") });
       if (r.status === "missing") throw new ActionRefused(`this note has no ^${at.anchor.replace(/^\^/, "")}`);
       if (r.status === "duplicate") throw new ActionRefused(`^${r.fragmentId} is in this note more than once: zoom by line= instead`);
       const f = r.fragment;
@@ -7823,7 +7806,7 @@ export class NoteSurface {
     const line = at.line ?? this.elementLine();
     if (line === undefined) throw new ActionRefused("nothing to zoom into here: put the [ ] position or the reading line on a figure, a table or a heading");
     // Where the reader is (no line= named): the part there, else the next one, as element.detach takes it.
-    const r = await board.partAt(m.id, line, at.line === undefined && !at.follow);
+    const r = await board.request("fragments.at", { blockId: m.id, line, ...((at.line === undefined && !at.follow) ? { next: true } : {}) });
     if (!r.part) throw new ActionRefused(`line ${line + 1} is in no part (a figure, a table, a heading's section, a callout, a list item or a paragraph): nothing to zoom into`);
     const p = r.part;
     // Its anchor's line as it reads (`head`): a part with no anchor is found again by it when lines move above it.
@@ -8107,6 +8090,8 @@ export class NoteSurface {
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
     // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
     const heroRows = host.attachment || !(this.drawn?.heroRows) || !this.hero ? 0 : this.hero.pinned || !this.scroll ? this.hero.picture : this.drawn.heroRows;
+    const heroLink = this.heroHits.find(r => r.row === y && x >= r.from && x < r.to);
+    if (heroLink && !this.editing && !this.floatAt(x, y, host)) { void this.followTarget(heroLink.link, host, { link: true }); return; }
     if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows && !this.floatAt(x, y, host)) {
       const spec = this.msg && this.imagesIn(this.msg).find(r => r.line === this.hero!.line)?.spec;
       this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };
@@ -9616,7 +9601,7 @@ const PROPOSAL_DEFS = {
       const p = await host.ctx.board.get(target);
       if (p && isOpenProposal(p) && !proposalApplies(p)) throw new ActionRefused(NOT_APPLICABLE);
       try {
-        const r = await host.ctx.board.applyProposal(target, actor);
+        const r = await host.ctx.board.request("draft.proposal.apply", { proposalId: target, mutation: requesterOf(actor) });
         // Its embeds and the notes it changed are drawn again now, not when the outline's event comes.
         outlineChanged([target, ...r.edits.map(x => x.blockId)]);
         host.ctx.flash(`applied the proposal · ${r.edits.map(x => x.route === "draft" ? "into the draft being written" : "saved").join(", ")}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
@@ -9638,7 +9623,7 @@ const PROPOSAL_DEFS = {
     async run({ id }, { surface, host }, actor) {
       const target = proposalTarget(id, surface);
       try {
-        const r = await host.ctx.board.dismissProposal(target, actor);
+        const r = await host.ctx.board.request("draft.proposal.dismiss", { proposalId: target, mutation: requesterOf(actor) });
         outlineChanged([target, ...(surface?.msg ? [surface.msg.id] : [])]);
         const line = r.embedRemoved === "saved" ? " · its embed line is out of the note" : r.embedRemoved === "draft" ? " · its embed line is out of the draft being written" : "";
         host.ctx.flash(`dismissed the proposal${line}${r.warning ? ` · but ${r.warning}` : ""}`, r.warning ? 8000 : undefined);
@@ -10688,7 +10673,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         // line answers a label never depends on which finished first.
         if (!matching(found).length && mayHaveProjections(m.text)) {
           for (const end = Date.now() + 10_000; ;) {
-            const read = await host.ctx.board.readResourceProjections(m.id).catch(() => null);
+            const read = await host.ctx.board.request("resources.projection.read", { blockId: m.id, materialize: true }).catch(() => null);
             if (!read) break;
             const drawn = drawnPresses(read);
             if (!drawingPending(read) || Date.now() > end) { found.push(...drawn.filter(d => !found.some(f => f.act === d.act && f.line === d.line && f.label === d.label))); break; }
@@ -11478,7 +11463,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         await surface.whole();
         const id = surface.threadId(thread), c = surface.comments?.find(x => x.id === id);
         if (!c?.tldr) throw new ActionRefused("this thread has no TL;DR to take away");
-        await host.ctx.board.tldr(id, actor, undefined, true);
+        await host.ctx.board.request("annotations.tldr", { annotationId: id, remove: true, mutation: mutationFor(actor) });
         await surface.loadComments(host);
         if (surface.session?.mode === "threads") surface.session.threads = surface.comments ?? surface.session.threads;
         asActor(host.ctx, actor).flash("took the TL;DR away");
@@ -11491,7 +11476,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       s.sel = i;
       const env = surface.env(host, actor);
       if (body) {
-        await env.board.tldr(s.threads[i]!.id, actor, body);
+        await env.board.request("annotations.tldr", { annotationId: s.threads[i]!.id, ...(body ? { body } : {}), mutation: mutationFor(actor) });
         s.threads = await env.reloadComments();
         surface.noteAgent(actor, "wrote a comment's TL;DR");
         host.redraw();
@@ -12410,7 +12395,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     ],
     async run({ run }, { host }, actor) {
       if (!run?.trim()) throw new ActionRefused("script.stop needs run=<the run's id>: the undo a script run answered with");
-      const r = await host.ctx.board.stopScript(run.trim(), actor);
+      const r = await host.ctx.board.request("scripts.stop", { run: run.trim(), mutation: requesterOf(actor) });
       asActor(host.ctx, actor).flash(r.stopped ? "stopped the script" : "that script isn't running");
       host.redraw();
       return r;

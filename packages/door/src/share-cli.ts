@@ -5,7 +5,7 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { boardFor, type Out } from "./notes-cli";
 import { resolveBoardRef } from "./mcp-writes";
-import { recorded, USER, type Actor } from "./socket";
+import { recorded, USER, type Actor, type SocketBoard } from "./socket";
 import type { ReaderEvent, ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
 
 export const SHARE_USAGE = `  ep0ch share start [<ref>] [--only <ref>] [--artifact <name>] [--ttl 1h] [--no-comments] [--via edge|cloudflare]
@@ -28,10 +28,7 @@ export const SHARE_USAGE = `  ep0ch share start [<ref>] [--only <ref>] [--artifa
                                    what your web client shows now: the page and the words selected on it`;
 
 /** The calls a share verb makes, on a board's connection to its outline. */
-export interface ShareBoard {
-  request<T = unknown>(action: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
-  info(): Promise<unknown>;
-}
+export type ShareBoard = Pick<SocketBoard, "request" | "info">;
 
 /**
  * A note as the share verbs name it: an id, ((id)), [[page]] or Work ID, as the outline's own links name one, or a page
@@ -64,12 +61,12 @@ export async function startShare(board: ShareBoard, input: { ref?: string; only?
   }, input.via === "cloudflare" ? 45_000 : undefined);
 }
 
-export const listShares = (board: ShareBoard, all = false) => board.request<{ shares: ShareSession[] }>("shares.list", all ? { all: true } : {});
+export const listShares = (board: ShareBoard, all = false) => board.request("shares.list", all ? { all: true } : {});
 
 export const revokeShares = (board: ShareBoard, which: { id: string } | { all: true }) =>
-  board.request<{ revoked: ShareSession[] }>("shares.revoke", "all" in which ? { all: true } : { shareId: which.id });
+  board.request("shares.revoke", "all" in which ? { all: true } : { shareId: which.id });
 
-export const readerView = (board: ShareBoard) => board.request<{ view: ReaderView | null; readers: ReaderView[]; journal: ReaderEvent[] }>("reader.view");
+export const readerView = (board: ShareBoard) => board.request("reader.view");
 
 /** How long until `iso`, as a person says it: `47 min`, `3 h 5 min`, `ended`, `never` for a share kept until revoked. */
 export function endsIn(iso: string, now = Date.now()): string {
