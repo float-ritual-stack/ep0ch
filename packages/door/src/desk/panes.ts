@@ -665,8 +665,8 @@ export class ReaderPane implements Pane, AttachedOwner {
       // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
       ...(desk.openLinks ? { links: (actor: Actor, standing: boolean) => desk.openLinks!(this, actor, standing) } : {}),
       ...(desk.noteGone ? { gone: (id: string) => desk.noteGone!(this, id) } : {}),
-      // A reader the person owns takes `p` (its pin) before the surface does.
-      ...(this.pinnable ? { ownKeys: "p" } : {}),
+      // The keys this pane takes before the surface does (key, below): `p` `P` on a reader the person owns, `O` where the desk previews.
+      ...(this.pinnable || desk.perform ? { ownKeys: `${this.pinnable ? "pP" : ""}${desk.perform ? "O" : ""}` } : {}),
       ...(this.beneath ? { history: this.beneath } : {}),
     };
     return h;
