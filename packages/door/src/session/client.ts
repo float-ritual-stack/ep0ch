@@ -459,9 +459,10 @@ export function handoverMessage(h: Handover): string {
 /**
  * Every session on this state dir onto the checkout's code (`session upgrade --all`, `ep0ch install`), one by one. One
  * already on this code is left as it is (its terminals aren't restarted) unless `clients` or `handoff` asks for that.
- * The listing holds only the sessions that answer, so the ones install planned (`expected`) and any whose terminal host
- * runs with no daemon answering (between daemons) are each checked too: one that never comes back is a failure, never
- * left out (Codex on #1262: install said installed with a session missing).
+ * The listing holds only the sessions that answer, so the ones install planned (`expected`) are each checked too: one
+ * between daemons that never comes back is a failure, never left out (Codex on #1262: install said installed with a
+ * session missing). A terminal host alone is no session that ran here: a machine's folder keeps one after its door has
+ * gone, and counting those said "blocked" on every deploy (PIE-1564); `session list` shows them.
  */
 export async function upgradeAll(o: { clients?: boolean; handoff?: boolean; only?: (info: SessionInfo) => boolean; expected?: readonly Place[]; wait?: number } = {}): Promise<UpgradeResult[]> {
   const out: UpgradeResult[] = [];
@@ -476,10 +477,7 @@ export async function upgradeAll(o: { clients?: boolean; handoff?: boolean; only
     else if (!o.clients && !o.handoff && here && r.info.code.commit === here) out.push({ ok: true, message: `${placeLabel(place)}: runs this code already (${here.slice(0, 9)})` });
     else out.push(await upgradeSession(place, o));
   }
-  const missing = new Map<string, Place>();
-  for (const p of o.expected ?? []) if (!listed.has(resolve(p.dir))) missing.set(resolve(p.dir), p);
-  for (const dir of await waitingHosts()) { const p = readPlace(dir); if (p && !listed.has(resolve(dir)) && !missing.has(resolve(dir))) missing.set(resolve(dir), p); }
-  for (const place of missing.values()) out.push(await upgradeSession(place, o));
+  for (const place of o.expected ?? []) if (!listed.has(resolve(place.dir))) out.push(await upgradeSession(place, o));
   return out;
 }
 

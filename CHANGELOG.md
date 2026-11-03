@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A laptop's install says installed when its own sessions came over (PIE-1564, PIE-1557)
+
+- **A deploy's `laptop:` line tells the truth.** `blocked` means one of the laptop's own sessions didn't come back on the new code. An outline it reaches on another machine, with a terminal host left and no session running, no longer counts, and install stops waiting 20 seconds on each one.
+- **No deploy-record warning on a linked install.** A link's install names no outline, so the deploying machine records it from the receipt, and its line says under which deploy note and outline.
+- **`session upgrade --all` skips those terminal hosts too;** `session list` still shows them.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### Undo brings a tile back from the glass whole (PIE-1559)
 
 - **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it.

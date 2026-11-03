@@ -734,7 +734,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     }
   };
   const beginRecord = () => record(async () => {
-    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; }, selectors);
+    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; }, selectors, args.includes("--as-client"));
+    if (!deploy) return;
     say(`    deploy record: ${deploy.id}`);
     if (json) plan.notes.push(`deploy record: ((${deploy.id}))`);
   });
@@ -830,7 +831,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
           say(`    ${machine}: install ${head.out} sent over the link`);
           await waitFor(async () => !!(receipt = linkInstallResult(facts.host.folder, machine, head.out)), 900_000);
         }
-        const line = receipt ? linkInstallSummary(machine, receipt) : `${machine}: ${connected.has(machine) ? "no install result; check ep0ch link status" : "away; install queued for its next connection"}`;
+        // The receipt is that machine's deploy record (PIE-1557): the line says where it went.
+        const line = receipt ? [linkInstallSummary(machine, receipt), ...(deploy ? [`recorded under deploy ${deploy.id} in ${deploy.linkRecord.outline}`] : [])].join("\n") : `${machine}: ${connected.has(machine) ? "no install result; check ep0ch link status" : "away; install queued for its next connection"}`;
         linked.push(line); say(`    ${line}`);
       }
     } else { linked.push("machine links: checkout is not verified on origin/main; nothing sent"); say(`    ! ${linked[0]}`); }

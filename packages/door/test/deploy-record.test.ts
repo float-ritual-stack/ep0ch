@@ -4,8 +4,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderGraph } from "../src/graphs";
 import { drawNote } from "../src/notes-cli";
 const DEPLOYS_NOTE = "Deploys [type::virtual-branch] [query::type=deploy machine=install]\n\n::graph-table\n---\nquery: type=deploy machine=install\ncolumns: [title, created]\n---\n::";
+import type { Facts } from "../src/setup/model";
+import { startDeployRecord } from "../src/setup/deploy-record";
 import { SocketBoard } from "../src/socket";
-import { outliner, Scratch } from "./scratch";
+import { outliner, Scratch, ScratchHost } from "./scratch";
 
 const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -59,4 +61,18 @@ test("record deploy uses the existing Deploys destination and install shape", as
     expect(note.text).toContain("[grammar::45]");
     expect(note.text).toContain("one session handed over");
   } finally { board?.close(); await scratch.dispose(); }
+}, 30_000);
+
+// PIE-1557: a link's install runs with no outline named. Its deploy is recorded by the machine that asked for it, from
+// the receipt, so the client writes none and says nothing; a person's install with nowhere to write still hears why.
+test("with no outline named, a client's install writes no record and a person's says what to run", async () => {
+  const scratch = new ScratchHost();
+  try {
+    await scratch.start();
+    const facts = { host: { socket: scratch.sock, folder: scratch.outlines, running: true }, repo: { root: "/nowhere", protocol: 1, checkout: { head: "abc1234" } } } as unknown as Facts;
+    const nothingNamed = { HOME: scratch.root, EP0CH_OUTLINES: scratch.outlines };
+    const start = (asClient: boolean) => startDeployRecord(facts, nothingNamed, scratch.root, new Date(), () => {}, [], asClient);
+    expect(await start(true)).toBeUndefined();
+    await expect(start(false)).rejects.toThrow("no outline named here or by the host");
+  } finally { await scratch.dispose(); }
 }, 30_000);

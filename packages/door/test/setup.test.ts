@@ -1544,7 +1544,7 @@ test("install records a deploy in the host's default outline from an unnamed fol
     const f = current();
     f.home = h.env.HOME!;
     f.host = { ...f.host, folder: h.outlines, socket: h.sock };
-    const record = await startDeployRecord(f, h.env, h.folder("unnamed"), now, () => {});
+    const record = (await startDeployRecord(f, h.env, h.folder("unnamed"), now, () => {}))!;
     const before = await hostRequest(h.sock, "get", { outline: "garden", blockId: record.id });
     await record.local("finished");
     const result = await hostRequest(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
@@ -1608,7 +1608,7 @@ test("install records to the folder's machine without a local host", async () =>
     const env = { ...local.env, EP0CH_SSH: ssh, FAKE_SSH_HOME: receiver.root, FAKE_SSH_OUTLINES: receiver.outlines };
     const f = current();
     f.host = { ...f.host, running: false, socket: local.sock, folder: local.outlines };
-    const record = await startDeployRecord(f, env, folder, now, () => {});
+    const record = (await startDeployRecord(f, env, folder, now, () => {}))!;
     await record.local("finished");
     const received = await hostRequest(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
     expect(received.blocks.some(b => b.text!.includes!("Local: finished"))).toBe(true);
