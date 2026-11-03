@@ -377,8 +377,14 @@ CHANGELOG or demo changed.
 
 - **The hub** lists what's installed (each a link to its page, its version and description), what was removed but left
   notes behind, and what the repo's `extensions/` has that isn't installed, each with its description. `extensions.list`
-  says `hub`, `pages` (extension id to its page), `disabledRules` (extension id to its kept rule count) and `available`
-  (`{ id, name, version, description, scripts? }`).
+  says `hub`, `pages` (extension id to its page), `disabledRules` (extension id to its kept rule count), `available`
+  (`{ id, name, version, description, scripts?, about }`) and `about` (installed extension id to its `about`).
+- **What an extension says about itself** (`about`, PIE-1549) is read from its folder the same way installed or not:
+  `readme` (the README's opening, before its first section heading), `adds` (the page's **What it adds** lines), `demo`
+  (its demo notes' titles) and `needs` (the host variables its manifest's `env` names). The door's power bar draws a
+  not-installed extension's preview and an installed one's from it, so what you read before installing is what you get.
+  Write the README's opening as what it does for you, and the manifest's `description` as one short sentence (the
+  row shows its first sentence; a test holds every built-in to 100 characters).
 - **A page** (`<name> [ext.page::<id>] [page::ext-<id>]`, under the hub) holds the description, the version and state,
   the README as the note's body (its first `# ` heading is the page's title, its hard-wrapped paragraphs joined), **What
   it adds** from the manifest (handlers, actions with their keys, schedules, tiles, rules, agents, bar sources,

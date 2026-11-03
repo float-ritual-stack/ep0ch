@@ -3,7 +3,7 @@
   "id": "glass",
   "version": 1,
   "name": "Glass",
-  "description": "Hover a link and its note shows in a post-it above every screen; ◇ on the status bar says the mode and cycles it (off, on, sticky). Peel, drop and shelve post-its.",
+  "description": "Hover a link and its note shows in a post-it above every screen. The ◇ on the status bar cycles it off, on and sticky; peel, drop and shelve post-its.",
   "defaultOn": true,
   "door": "glass"
 }
