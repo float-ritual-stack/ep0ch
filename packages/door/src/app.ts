@@ -146,6 +146,8 @@ export interface HostLayer {
    * a screen under this one.
    */
   goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
+  /** The person went into terminal `p` of the drawer's desk (tile.enter: its ⏎, a click on its foot): with the drawer up and their keys outside it, they go in, as host.enter takes them. */
+  enteredTab?(p: Pane): void;
   /** Open block `id` on the screen shown, where an open naming no tile lands there (a detail; `fresh`: a new one): the status bar's opens. */
   openOnScreen(id: string, fresh: boolean, actor: Actor, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
