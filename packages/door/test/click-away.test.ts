@@ -4,6 +4,7 @@
 // service refuses as unsent.
 // An agent never leaves, saves or moves the person's draft for them. Runs a desk in the App against a scratch outliner
 // service (never a real outline), with fictional notes.
+import { draftView } from "../src/draft-view";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -121,7 +122,7 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
   test("PIE-920: reopening the same note preserves a held edit viewport", async () => {
     const {id, rd} = await editing("Long inventory\n" + Array.from({length: 80}, (_, i) => `Shelf ${i}`).join("\n"));
     const rows = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, ""));
-    rows(); rd.draft!.scrollBy(20); clickElsewhere();
+    rows(); draftView(rd.draft!).scrollBy(20); clickElsewhere();
     const before = rows(), y = before.findIndex(l => /Shelf \d+/.test(l));
     const label = before[y]!.match(/Shelf \d+/)![0];
     desk.openBlock(await current(id));
@@ -193,7 +194,7 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     const pv = at("[preview]");
     key({ kind: "mouse", action: "down", button: 0, ...pv });
     key({ kind: "mouse", action: "up", button: 0, ...pv });
-    await until(() => !!d.preview, "the preview on");
+    await until(() => !!draftView(d).preview, "the preview on");
     type("!");
     expect(d.text).toBe("Plant the leeks today now!\nin the far bed");
     // Saving is the person's own step.

@@ -1,3 +1,4 @@
+import { draftView, type DraftFrame } from "../draft-view";
 import { wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { PositionRows } from "../reader-position";
@@ -68,7 +69,7 @@ export interface EditFrame {
  */
 export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): string[] {
   // The controls, where there's room for them beside the title (a narrow river column has ctrl+t and ctrl+p).
-  const pv = f.preview && w >= 40 ? (d.preview ? "[hide preview]" : "[preview]") : "";
+  const pv = f.preview && w >= 40 ? (draftView(d).preview ? "[hide preview]" : "[preview]") : "";
   const pk = f.pick && w >= 56 ? "[insert]" : "";
   // With text selected, a [copy] control: the mouse's way to the draft's copy, wherever copy on select is off.
   const cp = d.selection() && w >= 32 ? "[copy]" : "";
@@ -76,7 +77,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   const ctls = [...(cp ? [{ text: cp, action: "copy" as const }] : []), ...(pk ? [{ text: pk, action: "pick" as const }] : []), ...(pv ? [{ text: pv, action: "preview" as const }] : []), ...(pl ? [{ text: pl, action: "place" as const }] : [])];
   const cw = ctls.reduce((n, c) => n + c.text.length + 1, 0);
   const tw = Math.max(1, w - cw);
-  const controls: NonNullable<Draft["frame"]>["controls"] = [];
+  const controls: DraftFrame["controls"] = [];
   let x = tw + 1;
   for (const c of ctls) { controls.push({ row: 0, from: x, to: x + c.text.length, action: c.action }); x += c.text.length + 1; }
   // Where a new note lands, under the status: the whole row is its control.
@@ -112,24 +113,24 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   }
   const all = Math.max(1, h - top.length);
   // The preview takes the lower half, once there's room for both.
-  const ph = f.preview && !f.attachedPreview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
+  const ph = f.preview && !f.attachedPreview && draftView(d).preview && all >= 6 ? Math.floor(all / 2) : 0;
   const room = all - ph;
   // A preview tile can paint before its source reader (for example, on the left).
-  const attached = f.attachedPreview && d.preview ? { preview: d.frame?.preview, links: d.frame?.links } : {};
-  d.frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls, ...attached };
+  const attached = f.attachedPreview && draftView(d).preview ? { preview: draftView(d).frame?.preview, links: draftView(d).frame?.links } : {};
+  draftView(d).frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls, ...attached };
   const below = ph ? previewRows(d, f.preview!, w, ph, top.length + room) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
   if (f.away) {
-    const text = d.render(Math.max(1, w - 2), room).map(l => " " + fg(C.dark) + visible(l) + RESET);
+    const text = draftView(d).render(Math.max(1, w - 2), room).map(l => " " + fg(C.dark) + visible(l) + RESET);
     return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
   }
   if (!pop || !c) {
-    const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
+    const text = draftView(d).render(Math.max(1, w - 2), room).map(l => " " + l);
     return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
   }
-  const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
-  c.drawn = { row: top.length + d.cursorRow + 1, cols: w, anchor: 1 + d.cursorCol, items: [] };
+  const text = draftView(d).render(Math.max(1, w - 2), room).map(l => " " + l);
+  c.drawn = { row: top.length + draftView(d).cursorRow + 1, cols: w, anchor: 1 + draftView(d).cursorCol, items: [] };
   return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
 }
 
@@ -138,7 +139,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
  * the pointer is over the preview, its text when over the text, else null (the host's own: the note around a comment).
  */
 export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" | null {
-  const f = d.frame;
+  const f = draftView(d).frame;
   if (!f) return null;
   if (f.preview && x >= f.preview.col && x < f.preview.col + f.preview.cols && y >= f.preview.row && y < f.preview.row + f.preview.rows) return "preview";
   if (x < f.col - 1 || x > f.col + f.cols) return null;
@@ -148,8 +149,6 @@ export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" 
 /** Empty rows, so the preview under the text stays put while the text is short. */
 const pad0 = (n: number) => Array.from({ length: Math.max(0, n) }, () => "");
 
-const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; body: string[]; ranges: LinkRange[]; links: LinkTarget[]; pending: boolean; placements: Placement[]; source: number[] }>();
-
 /**
  * The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. Its links are kept on
  * the frame where they're drawn (from row `row`), so a click on one follows it (PIE-592).
@@ -157,30 +156,31 @@ const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; b
 export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: number, h: number, row: number, col = 0, aligned = false): string[] {
   // Drawn again only when the text or width changed (a cursor move, a wheel or a blink repaints it for free),
   // after a moment, for link titles that arrived since, and while an embed in it is being read (PIE-852).
-  const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
+  const text = d.text, pw = Math.max(1, w - 2), hit = d.views.preview, now = Date.now();
   let shown = hit && hit.text === text && hit.w === pw && now - hit.at < 2000 && !hit.pending ? hit : null;
   if (!shown) {
     const links: LinkTarget[] = [], doc = render(text, pw, links);
     shown = { source: doc.source, text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !!doc.pending, placements: doc.placements ?? [] };
-    previewCache.set(d, shown);
+    d.views.preview = shown;
   }
   const room = Math.max(0, h - 1);
-  const cursorRow = aligned ? Math.max(0, (d.frame?.row ?? 1) + d.cursorRow - row - 1) : 0;
+  const cursorRow = aligned ? Math.max(0, (draftView(d).frame?.row ?? 1) + draftView(d).cursorRow - row - 1) : 0;
   const sourceRow = shown.source.findIndex(line => line >= d.row);
   const lead = aligned && sourceRow >= 0 ? Math.min(Math.max(0, room - 1), Math.max(0, cursorRow - sourceRow)) : 0;
   // Beside the draft, leave room below the last source line for alignment and manual scrolling.
   const body = [...pad0(lead), ...shown.body, ...pad0(aligned ? room - 1 : 0)], source = [...Array<number>(lead).fill(-1), ...shown.source];
   const last = Math.max(0, body.length - room);
   // Where the wheel put it (PIE-846), while the text is as it was then; else the part around the cursor's line.
-  const scrolled = d.previewScroll?.text === text ? d.previewScroll : null;
-  if (scrolled === null) d.previewScroll = null;
+  const scrolled = draftView(d).previewScroll?.text === text ? draftView(d).previewScroll : null;
+  if (scrolled === null) draftView(d).previewScroll = null;
   const projected = new PositionRows({ ...d.position, view: { line: d.row + (scrolled?.lineDelta ?? 0), row: scrolled?.row ?? cursorRow } });
   projected.source = source;
   const at = Math.min(last, projected.top);
   // Its pictures (PIE-846) on the rows of the part shown, one column in as its text is.
   const placements = shown.placements.flatMap(p => { const q = inWindow({ ...p, row: p.row + lead }, at, room, row + 1); return q ? [{ ...q, col: q.col + col + 1 }] : []; });
-  if (d.frame) d.frame.preview = { row, col, cols: w, rows: h, top: at, total: body.length, source, placements };
-  if (d.frame) d.frame.links = shown.ranges.flatMap(r => {
+  const fr = draftView(d).frame;
+  if (fr) fr.preview = { row, col, cols: w, rows: h, top: at, total: body.length, source, placements };
+  if (fr) fr.links = shown.ranges.flatMap(r => {
     const target = shown.links[r.n];
     return target && r.line + lead >= at && r.line + lead < at + room ? [{ row: row + 1 + r.line + lead - at, from: col + 1 + r.from, to: col + 1 + r.to, target }] : [];
   });
@@ -194,7 +194,7 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
 export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; attach?: () => void; fileNew?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0, preview = true): boolean {
-  const f = d.frame;
+  const f = draftView(d).frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
   // Without `on` it's a press: a control is hit, and its click (the release) runs it.
@@ -207,7 +207,7 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (link) { if (on) on.follow?.(link.target); return true; }
   // An alt- or ctrl-click on a link in the text follows it too (ctrl+l's mouse way); the cursor goes there first.
   if (!extend && mods & (8 | 16) && on?.follow && y >= f.row && y < f.row + f.rows) {
-    const p = d.posAt(x - f.col, y - f.row), follow = on.follow;
+    const p = draftView(d).posAt(x - f.col, y - f.row), follow = on.follow;
     if (d.linkAt(p.row, p.col)) { void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1 }, d, actor).then(() => follow()); return true; }
   }
   if (ctl?.action === "pick") { on?.pick?.(); return true; }
@@ -219,7 +219,7 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
   // A press starts in the text (a click beside a box drawn over the note is the note's); a drag goes on wherever it is.
   if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
-  const p = d.posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
+  const p = draftView(d).posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
   void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
   return true;
 }
@@ -266,13 +266,7 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
 }
 
 /** A note draft's state, for its status line. */
-export function draftState(d: Draft): string {
-  return d.conflict ? fg(C.lred) + `! ${d.conflict}`
-    : d.saving ? fg(C.grey) + "saving…"
-    : d.previewing ? fg(C.grey) + "checking properties…"
-    : d.changedElsewhere ? fg(C.yellow) + "!! changed elsewhere · saving checks it first"
-    : d.dirty ? fg(C.yellow) + "unsaved" : fg(C.dark) + "no changes";
-}
+export function draftState(d: Draft): string { return d.status.state(d.dirty); }
 
 /**
  * The edit frame's "who typed this" line, saying what the save or send will record (null when only the
@@ -312,17 +306,17 @@ export function openInEditor(ctx: Suspender, d: Draft, held: () => boolean = () 
     if (code === 0 && text !== null && d.text === sent && held()) {
       const before = d.text;
       d.replace(text);
-      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
+      d.status.say(d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`);
       return;
     }
     const why = code !== 0 ? `${editor} exited ${code ?? "without a code (its terminal went)"}` : !held() ? "the draft was closed meanwhile" : "the draft changed while it was out";
-    if (edited) d.note = `${why}: the draft is as it is here · ${editor}'s text is at ${keepCopy(text!, `${d.blockId.slice(0, 8)}-editor`)}`;
-    else d.note = `${why}; the draft is unchanged`;
+    if (edited) d.status.say(`${why}: the draft is as it is here · ${editor}'s text is at ${keepCopy(text!, `${d.blockId.slice(0, 8)}-editor`)}`);
+    else d.status.say(`${why}; the draft is unchanged`);
   };
   const tidyUp = () => rmSync(dir, { recursive: true, force: true });
   // Where the view has tiles, the editor runs in one beside the note (PIE-417); the draft comes back when it exits.
   if (ctx.inTile?.({ cmd: [...words(editor), path], file: path, name: "edit" }, c => { try { back(c); } finally { tidyUp(); } })) {
-    d.note = `editing in ${editor} beside · the draft comes back when it exits`;
+    d.status.say(`editing in ${editor} beside · the draft comes back when it exits`);
     return Promise.resolve();
   }
   // Else in the person's terminal (the door's own, or a session client's), the door stepping aside meanwhile.

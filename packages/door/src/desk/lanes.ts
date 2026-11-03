@@ -907,12 +907,12 @@ export class Lanes implements SourceModel {
       if (pick) this.host.ctx.board.get(pick.id).then(parent => {
         if (this.composer !== C0 || C0.kind !== "card" || !C0.parent) return;
         if (parent) C0.parent.title = titleOf(parent);
-        else C0.session.draft.note = `its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`;
+        else C0.session.draft.status.say(`its parent ${pick.id.slice(0, 8)} isn't in the outline; creating will be refused`);
         this.host.redraw();
       }, () => {});
     }, (e: Error) => {
       if (this.composer !== C0 || C0.kind !== "card") return;
-      C0.planning = false; C0.session.draft.note = `not created: can't create in ${lane.name}: ${e.message}`;
+      C0.planning = false; C0.session.draft.status.say(`not created: can't create in ${lane.name}: ${e.message}`);
       if (!C0.session.dirty) { C0.session.close(); this.composer = null; }   // nothing typed yet: nothing to keep
       this.host.ctx.flash(`can't create in ${lane.name}: ${e.message}`, undefined, errorDetails(e));
       this.host.redraw();
@@ -1059,7 +1059,7 @@ export class Lanes implements SourceModel {
     if (d.busy) throw new ActionRefused("the new card is being created");
     const r = await pickInto(this.host.ctx, d, { socket: board.path, name: board.outline }, { ...(channel !== undefined ? { channel } : {}), held: () => this.composer?.session.draft === d });
     if ("kept" in r) this.host.ctx.flash(`${r.why}: ${r.kept} · copied to ${r.at}`, 12000);
-    else if ("nothing" in r) d.note = r.nothing;
+    else if ("nothing" in r) d.status.say(r.nothing);
     this.host.redraw();
     return r;
   }

@@ -527,7 +527,7 @@ export class PowerBar {
       this.scopeHits = []; this.sourceHead = [];
       const label = clipText(compact.title, Math.max(1, w - 12));
       this.fieldW = Math.max(1, w - width(label) - 2);
-      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, this.fieldW)) + "█" : this.input.render(this.fieldW, 1)[0];
+      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, this.fieldW)) + "█" : this.input.oneRow.render(this.fieldW);
       return { rect, title: "", foot: modeHint(COMPACT_KEYS(!!compact.choice), () => undefined),
         head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
     }
@@ -552,7 +552,7 @@ export class PowerBar {
     const status = below ? rows : beside;
     const field = fieldFor(status);
     this.fieldW = field;
-    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
+    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.oneRow.render(field)) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     // The row menu (alt+m, a right-click): each entry a chip with its digit (1, 2… or alt+1 while the menu is open, as a

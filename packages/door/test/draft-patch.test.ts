@@ -1,3 +1,4 @@
+import { draftView } from "../src/draft-view";
 import { changesOf, proposed } from "./wire";
 // draft.patch (pi-herdr-outliner PIE-501): an agent's compare-and-swap on a span lands in the draft the person
 // is typing in. The test line: the mark is the queue, you keep typing, the block keeps its id. The draft half
@@ -33,14 +34,13 @@ describe("a patch in a draft being typed in", () => {
   function typing() {
     const d = new Draft("note-1", 3, TEXT);
     d.row = d.lines.length - 1; d.col = 0;
-    d.render(40, 6);                                                     // laid out, as on screen
     return d;
   }
 
   test("keeps typing below while a tidy lands above: nothing jumps, and the typed text is all there", () => {
     const d = typing();
     const typed = "and then I sow the peas";
-    const screenRow = () => { d.render(40, 6); return d.cursorRow; };
+    const screenRow = () => { draftView(d).render(40, 6); return draftView(d).cursorRow; };
     for (const c of typed.slice(0, 8)) d.key(char(c));
     const before = screenRow();
     const p = span(d.text, "The beans   go along  the fence.\nwater  them ^beds", "The beans go along the fence.\nwater them ^beds");
@@ -51,7 +51,7 @@ describe("a patch in a draft being typed in", () => {
     expect(d.lines[d.row]).toBe(typed);
     expect(d.col).toBe(typed.length);
     // Who made it is lit where it landed, and the save names both of them.
-    expect(d.render(60, 8).map(visible).join("\n")).toContain("@tidy · just now");
+    expect(draftView(d).render(60, 8).map(visible).join("\n")).toContain("@tidy · just now");
     expect(recordAs(d, { kind: "user" })).toEqual({ kind: "user", with: ["tidy"] });
   });
 
@@ -72,13 +72,13 @@ describe("a patch in a draft being typed in", () => {
   test("a line the patch adds above moves the cursor's line down in the text, but not on screen", () => {
     const d = typing();
     for (const c of "peas") d.key(char(c));
-    d.render(40, 6);
-    const row = d.cursorRow, line = d.row;
+    draftView(d).render(40, 6);
+    const row = draftView(d).cursorRow, line = d.row;
     const p = span(d.text, "Morning plan", "Morning plan\n\nToday");
     expect(d.applyPatch({ patchId: "p2", patches: [p], revision: 3, mark: "@tidy tidy this" }, TIDY).applied).toBe(true);
     expect(d.row).toBe(line + 2);
-    d.render(40, 6);
-    expect(d.cursorRow).toBe(row);
+    draftView(d).render(40, 6);
+    expect(draftView(d).cursorRow).toBe(row);
   });
 
   test("refuses what would reach the mark, the cursor's passage or text the person changed, and says why", () => {
@@ -308,7 +308,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const saved = (await board.get(e.id))!;
     e.type("and I keep");
     e.s.render(50, 12, e.h);
-    const row = e.d.cursorRow;
+    const row = draftView(e.d).cursorRow;
     // Where the typing line is in the reader's frame: the frame never grows a row when the agent writes.
     const frameRow = () => e.s.render(50, 12, e.h).lines.findIndex(l => visible(l).includes("and I keep"));
     const was = frameRow();
@@ -318,7 +318,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(r).toMatchObject({ read: "draft", outcome: "applied", edits: [{ blockId: e.id, route: "draft" }] });
     expect(e.d.text).toBe(`Morning plan [page::morning plan]\nThe beans go along the fence. ^deep-link\nwater them\n\n${tidyMark}\nand I keep typing below`);
     e.s.render(50, 12, e.h);
-    expect(e.d.cursorRow).toBe(row);
+    expect(draftView(e.d).cursorRow).toBe(row);
     expect(frameRow()).toBe(was);
     // The demo's actor: `patch-demo` (pi-herdr-outliner PIE-510), `tidy` before it.
     expect(e.s.render(50, 12, e.h).lines.map(visible).join("\n")).toMatch(/an agent \((patch-demo|tidy)\) typed this/);
@@ -826,7 +826,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const gate = await streamingGardener();
     const e = await editing("Streaming garden\n\n");
     e.type("@gardener plan the beds"); e.d.newline(false); e.type("Keep writing");
-    const row = () => { e.s.render(70, 18, e.h); return e.d.cursorRow; };
+    const row = () => { e.s.render(70, 18, e.h); return draftView(e.d).cursorRow; };
     const anchor = row();
     try {
       await until(() => e.d.text.includes("Sow the peas."), "the first chunk before the process exits", 6000);

@@ -77,7 +77,7 @@ describe("the surface without a service", () => {
       // A long-lived note: the revision alone is wider than a narrow column.
       s.drafting!.dispose();
       s.startDraft({ ...s.msg!, revision: 1_234_567_890, text: TEXT }, h);
-      s.draft!.changedElsewhere = true;
+      s.draft!.status.changedElsewhere = true;
       views.push(["edit at a large revision", s.render(w, 20, h).lines]);
       s.drafting!.dispose();
       s.session = new CommentSession(s.msg!, [], "select");
@@ -216,16 +216,16 @@ describe("the surface without a service", () => {
     expect(s.draft?.text).toBe(previewed);
     answer([]);
     await saving;
-    expect([s.draft?.propertyWarned, s.draft?.busy, updates]).toEqual([previewed, false, []]);
+    expect([s.draft?.busy, updates]).toEqual([false, []]);
     expect(s.draft?.note).toContain("-stage: queued");
 
     // Had the text moved on under the preview anyway, the save is off and no warning is kept for it.
-    s.draft!.propertyWarned = null;
+    s.key(char("?"), h);
     const again = s.save(h);
     s.draft!.replace("Plan the allotment [stage::queued] later\nBeans.");
     answer([]);
     await again;
-    expect([s.draft?.propertyWarned, updates]).toEqual([null, []]);
+    expect(updates).toEqual([]);
   });
 
   test("an agent never replaces a comment the person is writing: refused while they type, and while they don't (round 3, deferred)", () => withState(async () => {

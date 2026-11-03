@@ -3618,7 +3618,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Its header (PIE-1248): the tile's own setting, or the note's, and what that comes to.
       tileHeader: (() => { const h = this.headerNow(this.tileId(id)); return h ? { own: h.own ?? "note", shown: h.shown } : undefined; })(),
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
-      editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined,
+      editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.status.changedElsewhere, conflict: p.draft.status.conflict } : undefined,
       commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined,
       threadPanel: p instanceof ReaderPane ? p.surface.replyLinks?.describe() : undefined,
     };
@@ -4777,7 +4777,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys && !this.contentCover(this.focus).fold) {
       const where = `${this.readerLabel(this.focus)} · ${rd.surface.state()}`;
       // Attached surfaces say their bindings in the tile's hint row.
-      if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || rd.surface.draft?.preview) return line(paint(`|14 ${where}`));
+      if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || !!rd.surface.draft?.views.raw.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
         : paint(`|14 ${where}|08 · ${partsHint(readerHeldParts(rd.surface.scrolls(), sessionName(rd)))} · ${partsHint([FOCUS_PART, WINDOW_PART, KEYS_PART])}`));

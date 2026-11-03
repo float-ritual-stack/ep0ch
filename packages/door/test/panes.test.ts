@@ -3,6 +3,7 @@
 // its floats are the desk's floats; its keys ({ } < > x o T B S alt+⏎), its border drags and the pane.* actions
 // change that one tree; delivery.json keeps the board's layout. An agent's pane action is said on screen and never
 // takes the person's tile or keys. Scratch services and fictional notes only.
+import { draftView } from "../src/draft-view";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -179,8 +180,8 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(preview()).toContain("Bean row 79");
     const d = B().model.composer!.session.draft;
     const position = d.row;
-    const at = d.frame!.preview!, box = B().model.composerAt!;
-    key({ kind: "mouse", action: "wheel-up", button: 0, x: box.col + d.frame!.col + 3, y: box.row + at.row + 3 });
+    const at = draftView(d).frame!.preview!, box = B().model.composerAt!;
+    key({ kind: "mouse", action: "wheel-up", button: 0, x: box.col + draftView(d).frame!.col + 3, y: box.row + at.row + 3 });
     expect(preview()).not.toContain("Bean row 79");
     expect(d.row).toBe(position);
     key({ kind: "esc" });

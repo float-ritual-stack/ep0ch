@@ -1,5 +1,6 @@
 // EPD-001: editing from a reader. The draft model and key decoding run anywhere; the save and
 // conflict tests start a throwaway outliner service (never a real outline) and skip without one.
+import { draftView } from "../src/draft-view";
 import { visible } from "../src/style";
 import { Scratch, outliner as scratchOutliner } from "./scratch";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -27,14 +28,14 @@ const until = async (ok: () => boolean, what: string, ms = 5000) => {
 describe("draft", () => {
   test("rows kept under a line (PIE-981) are drawn read-only: up and down step over them, a click on one lands at the end of its line, typing is unmoved", () => {
     const d = new Draft("b1", 1, "one\nboard::\nthree");
-    d.kept = line => (line === 1 ? ["KEPT a", "KEPT b"] : []);
-    expect(d.render(20, 8).map(l => l.replace(/\x1b\[[\d;]*m/g, "").trimEnd()).filter(Boolean)).toEqual(["one", "board::", "KEPT a", "KEPT b", "three"]);
+    draftView(d).kept = line => (line === 1 ? ["KEPT a", "KEPT b"] : []);
+    expect(draftView(d).render(20, 8).map(l => l.replace(/\x1b\[[\d;]*m/g, "").trimEnd()).filter(Boolean)).toEqual(["one", "board::", "KEPT a", "KEPT b", "three"]);
     d.place(1, 2);
     d.key({ kind: "down" });
     expect([d.row, d.col]).toEqual([2, 2]);
     d.key({ kind: "up" });
     expect([d.row]).toEqual([1]);
-    expect(d.posAt(0, 3)).toEqual({ row: 1, col: 7 });
+    expect(draftView(d).posAt(0, 3)).toEqual({ row: 1, col: 7 });
     d.place(1, 7);
     type(d, "!");
     expect(d.lines).toEqual(["one", "board::!", "three"]);
@@ -220,7 +221,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     type(pane, "kept words", d);
     if (preview) {
       pane.key(ctrl("p"), d);
-      expect(pane.draft!.preview).toBe(true);
+      expect(draftView(pane.draft!).preview).toBe(true);
       expect(visible(pane.surface.hint())).toContain("close preview");
     }
     expect(() => pane.surface.startReply(pane.host(d))).toThrow("esc twice puts it aside");
@@ -291,15 +292,15 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     await other.request("update", { blockId: b.id, text: "Race [stage::queued]\ntheirs", expectedRevision: b.revision!, mutation: { author: "agent", actorId: "test-other-writer" } });
     // The content event makes readers refresh; an open draft must not be replaced.
     pane.refresh((await board.get(b.id))!);
-    expect(pane.draft!.changedElsewhere).toBe(true);
+    expect(pane.draft!.status.changedElsewhere).toBe(true);
     expect(pane.draft!.text).toBe("Race [stage::queued]\nbody mine");
 
     pane.key(ctrl("s"), d);
-    await until(() => pane.draft?.conflict !== null, "the refusal");
+    await until(() => pane.draft?.status.conflict !== null, "the refusal");
     expect(pane.editing).toBe(true);
     expect(pane.draft!.text).toBe("Race [stage::queued]\nbody mine");
     expect((await current(b.id))!.text).toBe("Race [stage::queued]\ntheirs");
-    expect(readFileSync(pane.draft!.savedCopy!, "utf8")).toBe("Race [stage::queued]\nbody mine\n");
+    expect(readFileSync(pane.draft!.status.savedCopy!, "utf8")).toBe("Race [stage::queued]\nbody mine\n");
 
     // Saving again from the same stale base is refused again, never forced through.
     pane.key(ctrl("s"), d);
@@ -356,10 +357,10 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
 
     app.pop();                                                          // e.g. Esc/q reaching the desk
     expect((app.describe() as any).screen).toBe(desk.title);
-    expect(draft.savedCopy).toBeNull();
+    expect(draft.status.savedCopy).toBeNull();
     app.pop();                                                          // again within 3s: leave, draft copied out
     expect((app.describe() as any).screen).not.toBe(desk.title);
-    expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1!\nbody\n");
+    expect(readFileSync(draft.status.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1!\nbody\n");
     expect((await current(b.id))!.text).toBe("Guarded [stage::queued]\nbody");   // nothing was saved behind our back
     app.quit();
   });
@@ -384,8 +385,8 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     app.push(new MainMenu());                                           // the desk is no longer on top
     const kept = app.terminate();
     expect(quit).toBe(1);
-    expect(kept).toEqual([draft.savedCopy!]);
-    expect(readFileSync(draft.savedCopy!, "utf8")).toBe("Signalled [stage::queued] typed\nbody\n");
+    expect(kept).toEqual([draft.status.savedCopy!]);
+    expect(readFileSync(draft.status.savedCopy!, "utf8")).toBe("Signalled [stage::queued] typed\nbody\n");
     expect((await current(b.id))!.text).toBe("Signalled [stage::queued]\nbody");   // copied, not saved
   });
 

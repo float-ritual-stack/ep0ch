@@ -1136,7 +1136,7 @@ export class NoteSurface {
       open,
       { action: "comment.place", args: { place: cs.place } },
       ...(cs.place === "floating" && cs.float ? [{ action: "comment.move", args: { ...cs.float } }] : []),
-      ...(d.preview ? [{ action: "draft.preview", args: { on: true } }] : []),
+      ...(d.views.raw.preview ? [{ action: "draft.preview", args: { on: true } }] : []),
     ];
   }
 
@@ -1150,7 +1150,7 @@ export class NoteSurface {
   holdingHint(): string {
     const d = this.draft;
     // Plain: it goes into refusals, which an agent reads as text.
-    return visible(d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null }) : this.modes.all().find(mode => mode.editing())?.hint() ?? "");
+    return visible(d ? editHint(d, { save: "save", follow: true, reload: d.status.conflict || d.status.changedElsewhere ? "reload" : null }) : this.modes.all().find(mode => mode.editing())?.hint() ?? "");
   }
 
   /** A selected element or active mode owns the hint before a host offers its reading shortcuts. */
@@ -1874,7 +1874,7 @@ export class NoteSurface {
     this.use(host);
     this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.views.raw.frame?.preview?.placements } : {}), ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.views.raw.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -2020,7 +2020,7 @@ export class NoteSurface {
       const box = comp.inline;
       if (box) {
         const a = top + box.at, b = a + box.box.lines.length;
-        bringIn(b - a <= room || !writingIn ? [a, b] : [a + (box.box.frame?.row ?? 0) + writingIn.cursorRow, a + (box.box.frame?.row ?? 0) + writingIn.cursorRow + 1]);
+        bringIn(b - a <= room || !writingIn ? [a, b] : [a + (box.box.frame?.row ?? 0) + writingIn.views.raw.cursorRow, a + (box.box.frame?.row ?? 0) + writingIn.views.raw.cursorRow + 1]);
       } else if (comp.passage) bringIn([top + comp.passage[0], top + comp.passage[1]]);
     }
     this.revealComposer = false;
@@ -2930,7 +2930,7 @@ export class NoteSurface {
    * edited, read-only (PIE-981): `Draft.kept` for the raw edit and the rich one. The note as it was read says which line
    * drew what; a line that moved since (a line typed above it) still gets its drawing, found by its text.
    */
-  private keptDrawings(d: Draft, m: Msg): Draft["kept"] {
+  private keptDrawings(d: Draft, m: Msg): Draft["views"]["raw"]["kept"] {
     if (!isOutlineNote(m)) return null;
     const drawn = projectionsOf(m, this.src).filter(p => (p.kind === "output" || p.kind === "component") && !p.record && p.output && (p.status === "ready" || p.status === "stale"));
     if (!drawn.length) return null;
@@ -2954,10 +2954,10 @@ export class NoteSurface {
   }
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false, host?: SurfaceHost, attached = true): SurfaceView {
-    if (attached && d.preview && host && !elementEdit(d).on) return this.renderEditPreview(d, m, w, h, away, host);
+    if (attached && d.views.raw.preview && host && !elementEdit(d).on) return this.renderEditPreview(d, m, w, h, away, host);
     const kept = this.keptDrawings(d, m), help = host ? this.buttonEditing(d, host) : null;
-    d.inks = help?.inks ?? null;
-    d.kept = help ? (line, width) => [...(kept?.(line, width) ?? []), ...help.under(line, width)] : kept;
+    d.views.raw.inks = help?.inks ?? null;
+    d.views.raw.kept = help ? (line, width) => [...(kept?.(line, width) ?? []), ...help.under(line, width)] : kept;
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return { lines: elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined) };
     return { lines: renderEditor(d, {
@@ -2983,7 +2983,7 @@ export class NoteSurface {
     const lines = previewRows(d, (t, pw, links) => this.snippetDoc(t, pw, host, links, true, isOutlineNote(m) ? m.id : undefined), w, h, row, col, aligned);
     const chip = `[${p.place} ▸]`;
     lines[0] = pad(lines[0]!, Math.max(0, w - chip.length)) + fg(C.lcyan) + chip + RESET;
-    return { lines, placements: d.frame?.preview?.placements };
+    return { lines, placements: d.views.raw.frame?.preview?.placements };
   }
 
   /** The draft with its live preview attached (inline is a split under it). */
@@ -3242,7 +3242,7 @@ export class NoteSurface {
 
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const s = this.drafting!;
-    if (s.draft.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
+    if (s.draft.views.raw.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
@@ -3370,7 +3370,7 @@ export class NoteSurface {
    * reader the save's warning uses; under the line at the cursor, one row saying what it runs or why it won't. A tile= is asked
    * about once per value (`tile.info`, the resolver's words) and the draft drawn again when the answer comes.
    */
-  private buttonEditing(d: Draft, host: SurfaceHost): { inks: NonNullable<Draft["inks"]>; under: (line: number, w: number) => string[] } | null {
+  private buttonEditing(d: Draft, host: SurfaceHost): { inks: NonNullable<Draft["views"]["raw"]["inks"]>; under: (line: number, w: number) => string[] } | null {
     if (!d.text.includes("::button")) return null;
     const ask = this.buttonLookups(host, USER);
     // Asked once per value while this edit lasts: the next edit asks again (a tile closed since).
@@ -3508,7 +3508,7 @@ export class NoteSurface {
       held: () => this.draft === d || this.session?.composer === d,
     });
     if ("kept" in r) host.ctx.flash(`${r.why}: ${r.kept} · copied to ${r.at}`, 12000);
-    else if ("nothing" in r) d.note = r.nothing;
+    else if ("nothing" in r) d.status.say(r.nothing);
     host.redraw();
     return r;
   }
@@ -3656,10 +3656,10 @@ export class NoteSurface {
   private draftMode(s: DraftSession): DraftMode {
     const d = s.draft;
     return {
-      get keys() { return d.preview ? EDIT_PREVIEW_READER_KEYS : undefined; },
+      get keys() { return d.views.raw.preview ? EDIT_PREVIEW_READER_KEYS : undefined; },
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
-      changed: revision => { if (!this.replyParent && !d.saving && revision !== d.base) d.changedElsewhere = true; },
+      changed: revision => { if (!this.replyParent && !d.status.saving && revision !== d.base) d.status.changedElsewhere = true; },
       editing: () => true, covers: () => !this.replyParent,
       key: (k, host) => this.draftKey(k, host),
       click: (x, y, host) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }) : this.writeClick(d, x, y, host),
@@ -3678,7 +3678,7 @@ export class NoteSurface {
       },
       unsaved: () => s.dirty,
       keep: () => [s.keep()],
-      hint: () => d.preview && !completionOf(d) ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? replyHint(d.dirty) : (elementEdit(d).on ? hintOf(ELEMENT_KEYS.filter(r => r.action !== "edit.save")) + " · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? hintOf([rk("ctrl+v", "draft.image", "makes that path a picture")]) + " · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
+      hint: () => d.views.raw.preview && !completionOf(d) ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? replyHint(d.dirty) : (elementEdit(d).on ? hintOf(ELEMENT_KEYS.filter(r => r.action !== "edit.save")) + " · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? hintOf([rk("ctrl+v", "draft.image", "makes that path a picture")]) + " · " : "") + editHint(d, { save: "save", reload: d.status.conflict || d.status.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), previewPlace: this.editPreview.place, previewSplit: this.attachments.splits["edit-preview"], rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
@@ -4149,14 +4149,14 @@ export class NoteSurface {
   private writeClick(d: Draft, x: number, y: number, host: SurfaceHost): boolean {
     if (d.busy) return false;
     const p = this.editPreview.rect;
-    if (d === this.draft && d.preview && (this.editPreview.place !== "tile" || host.attachment === "edit-preview") && p && x >= p.col && x < p.col + p.cols && y >= p.row && y < p.row + p.rows) {
+    if (d === this.draft && d.views.raw.preview && (this.editPreview.place !== "tile" || host.attachment === "edit-preview") && p && x >= p.col && x < p.col + p.cols && y >= p.row && y < p.row + p.rows) {
       if (y === p.row) void this.runKey("placement.menu", { target: "edit-preview" }, host, true);
-      else { const link = d.frame?.links?.find(l => l.row === y && x >= l.from && x < l.to); if (link) { const ref = refOfLink(link.target); if (ref) void this.runKey("edit.follow", { ref }, host); } }
+      else { const link = d.views.raw.frame?.links?.find(l => l.row === y && x >= l.from && x < l.to); if (link) { const ref = refOfLink(link.target); if (ref) void this.runKey("edit.follow", { ref }, host); } }
       return true;
     }
     if (completerOf(d)?.click(y, x, text => host.ctx.copy?.(text, "component preview"))) return true;
     // Beside a composer's box (floating, popup, split: PIE-770) a click is nobody's: not a candidate, not the cursor.
-    const f = d.frame;
+    const f = d.views.raw.frame;
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
@@ -4220,7 +4220,7 @@ export class NoteSurface {
       holdsKeys: () => true, tileKeys: () => this.session?.startedBy.kind === "user",
       actions: { place: "comment.place", move: "comment.move" }, closed: NO_COMMENT,
       chip: () => {
-        const control = this.session?.composer?.frame?.controls.find(c => c.action === "place");
+        const control = (this.session?.composer ? this.session.composer.views.raw.frame : null)?.controls.find(c => c.action === "place");
         if (!control) throw new ActionRefused("write a comment in a reader at least 28 columns wide to show its placement chip");
         return { col: control.from, row: control.row + (this.session?.place === "tile" ? 0 : this.drawn?.heroRows ?? 0) };
       },
@@ -4255,7 +4255,7 @@ export class NoteSurface {
       actions: { place: "list.preview.place", move: "list.preview.move" }, closed: "select an item in a preview list first",
       chip: () => chipOf(this.listPreview.rect, this.listPreview.place),
     }, {
-      kind: "edit-preview", noun: "edit preview", owner: () => (this.draft?.preview ? this.editPreview : null), shown: () => false, mode: "draft",
+      kind: "edit-preview", noun: "edit preview", owner: () => (this.draft && this.draft.views.raw.preview ? this.editPreview : null), shown: () => false, mode: "draft",
       min: { cols: 30, rows: 6 }, split: { direction: "down", share: .5 }, persist: "edit-preview-place.json",
       draw: (cols, rows, row, col, host, where) => host ? this.editPreviewRows(cols, rows, row, col, host, where === "split" && col > 0) : null,
       holdsKeys: () => false, tileKeys: () => false,
@@ -4301,7 +4301,7 @@ export class NoteSurface {
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
   private writePress(d: Draft, x: number, y: number, drag: boolean, host?: SurfaceHost): boolean {
     if (completerOf(d)?.previewPress(x, y, drag)) return true;
-    const p = d === this.draft && d.preview && (this.editPreview.place !== "tile" || host?.attachment === "edit-preview") ? this.editPreview.rect : null;
+    const p = d === this.draft && d.views.raw.preview && (this.editPreview.place !== "tile" || host?.attachment === "edit-preview") ? this.editPreview.rect : null;
     if (p && x >= p.col && x < p.col + p.cols && y >= p.row && y < p.row + p.rows) return false;
     return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag, USER, undefined, 0, d !== this.draft || this.editPreview.place !== "tile");
   }
@@ -6713,7 +6713,7 @@ export class NoteSurface {
    */
   dropAt(x: number, y: number): { line: number; row: number; draft: boolean } | null {
     const own = this.drafting?.openedBy.kind === "user" ? this.drafting.draft : null;
-    if (own) { const at = own.dropAt(x, y); return at && { line: at.line, row: at.row, draft: true }; }
+    if (own) { const at = own.views.raw.dropAt(x, y); return at && { line: at.line, row: at.row, draft: true }; }
     const d = this.drawn, m = this.msg;
     const pos = d && m ? this.posAt(x, y) : null;
     if (!d || !m || !pos || pos.row < d.top) return null;
@@ -9029,7 +9029,7 @@ const controlKey = (thread: string, c: ThreadControl, value?: string) => `ctl:${
  */
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
 const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
-  d.preview ? (d.frame?.preview?.placements ?? []).flatMap(p => inWindow(p, from, to - from, from) ?? []) : [];
+  d.views.raw.preview ? (d.views.raw.frame?.preview?.placements ?? []).flatMap(p => inWindow(p, from, to - from, from) ?? []) : [];
 
 /** The byline's way in to a comment on the whole note (PIE-846). */
 const COMMENT_CHIP = "[comment]";
@@ -9530,8 +9530,8 @@ async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: Actor) 
   const before = surface.msg?.revision;
   const by = await surface.save(host, actor);
   if (surface.draft === d) {
-    if (d.propertyWarned === d.text && d.note.startsWith("this save changes properties")) return { saved: false, warning: d.note, next: "edit.save again saves it" };
-    throw new ActionRefused(d.conflict ? `${d.conflict} · ${d.note}` : d.note || "not saved");
+    if (d.note.startsWith("this save changes properties")) return { saved: false, warning: d.note, next: "edit.save again saves it" };
+    throw new ActionRefused(d.status.conflict ? `${d.status.conflict} · ${d.note}` : d.note || "not saved");
   }
   surface.noteAgent(actor, "saved this note");
   return { saved: true, revision: surface.msg?.revision, from: before, recordedAs: by ? mutationFor(by) : undefined };
@@ -9681,7 +9681,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "place or extend the shared editor's cursor in a form field", keys: "click, drag", touches: "tile", replay: "safe", person: "the person's form cursor",
     args: { field: { type: "string", about: "field name" }, col: { type: "number", about: "zero-based column" }, extend: { type: "boolean", optional: true, about: "extend selection" } },
     examples: [{ act: "form.place field=book col=0", does: "places the cursor at the start of the book answer" }],
-    run({ field, col, extend }, { surface, host }) { surface.focusForm(field, host); const d = surface.form!.draft(field); d.place(0, d.posAt(col, 0).col, extend); host.redraw(); },
+    run({ field, col, extend }, { surface, host }) { surface.focusForm(field, host); const d = surface.form!.draft(field); d.place(0, d.oneRow.posAt(col), extend); host.redraw(); },
   }),
   "form.input": def({
     summary: "type in the form with the shared editor", touches: "tile", replay: "ask", person: "the person's form editor",
@@ -10015,7 +10015,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const r = await host.ctx.board.revisionText(d.blockId, want);
       d.replace(r.text, actor, `revision ${want}'s text`, true);
       d.revisionShown = want;
-      d.note = `revision ${want} of ${list.revision}, saved ${whenPut(Date.parse(r.savedAt))}${revisionByline(r) ? ` ${revisionByline(r)}` : ""} · ctrl+s saves it as the note · ctrl+z takes it back`;
+      d.status.say(`revision ${want} of ${list.revision}, saved ${whenPut(Date.parse(r.savedAt))}${revisionByline(r) ? ` ${revisionByline(r)}` : ""} · ctrl+s saves it as the note · ctrl+z takes it back`);
       surface.noteAgent(actor, `put revision ${want}'s text into the edit`);
       host.redraw();
       return { revision: want, current: list.revision, savedAt: r.savedAt, chars: r.chars, earlier: list.revisions.filter(x => x.revision < want).map(x => x.revision) };
@@ -10205,12 +10205,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!from) from = await clipboardImage();
       // The draft may have been saved, closed or replaced while the clipboard was read.
       if (surface.writingDraft !== d || d.busy) throw new ActionRefused("the draft changed while the clipboard was read; nothing was put in");
-      if (!from) { d.note = noClipboardImage(); host.redraw(); throw new ActionRefused(d.note); }
+      if (!from) { d.status.say(noClipboardImage()); host.redraw(); throw new ActionRefused(d.note); }
       let kept: string;
       try { kept = keepImage(info.workspace, from); }
-      catch (e) { d.note = (e as Error).message; host.redraw(); throw new ActionRefused(d.note); }
+      catch (e) { d.status.say((e as Error).message); host.redraw(); throw new ActionRefused(d.note); }
       d.putLine(imageLine(kept), actor, dropped ?? undefined);
-      d.note = `put in ${kept.split("/").slice(-2).join("/")} · ctrl+z takes it out (the file stays)`;
+      d.status.say(`put in ${kept.split("/").slice(-2).join("/")} · ctrl+z takes it out (the file stays)`);
       host.redraw();
       return { path: kept, line: d.row + 1 };
     },
@@ -12748,7 +12748,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!a.applied) throw new ActionRefused(`couldn't add them: ${a.reason}`);
       const lines = linesOf(verdict, "new"), left = linesOf(verdict, "conflict");
       if (!left) { copyOf(u, of.slice(0, 8)); unshelveIf(u); }
-      s.draft.note = `added ${lines} line${lines === 1 ? "" : "s"} from your edit ${dayOf(u.at) === "today" ? "today" : `of ${dayOf(u.at)}`}, lit · ctrl+s saves · ctrl+z takes them back${left ? ` · ${left} line${left === 1 ? " was" : "s were"} changed differently since and stay${left === 1 ? "s" : ""} kept ([compare] shows both)` : ""}`;
+      s.draft.status.say(`added ${lines} line${lines === 1 ? "" : "s"} from your edit ${dayOf(u.at) === "today" ? "today" : `of ${dayOf(u.at)}`}, lit · ctrl+s saves · ctrl+z takes them back${left ? ` · ${left} line${left === 1 ? " was" : "s were"} changed differently since and stay${left === 1 ? "s" : ""} kept ([compare] shows both)` : ""}`);
       host.redraw();
       return { of, added: left ? "partly" : "all", lines, left, base: u.base, revision: s.draft.base };
     },
@@ -12804,7 +12804,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const d = (await surface.ensureDraft(host)).draft;
       if (d.text === s.u.text) {
         d.row = Math.min(s.row, d.lines.length - 1); d.col = Math.min(s.col, d.lines[d.row]!.length);
-        d.note = `brought back ${s.u.text.length - (s.u.from ?? "").length} stray character${s.u.text.length - (s.u.from ?? "").length === 1 ? "" : "s"} · esc twice drops them`;
+        d.status.say(`brought back ${s.u.text.length - (s.u.from ?? "").length} stray character${s.u.text.length - (s.u.from ?? "").length === 1 ? "" : "s"} · esc twice drops them`);
       }
       host.redraw();
       return { id: m.id, restored: d.text === s.u.text };

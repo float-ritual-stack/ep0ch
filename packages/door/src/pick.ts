@@ -160,7 +160,7 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
     if (d.busy) return { kept: text, at: keepCopy(text + "\n", "picked"), why: `the draft was being saved when ${picker} returned` };
     const put = atCursor(d, text);
     d.pasteText(put, o.by ?? USER);
-    d.note = `inserted from ${picker}`;
+    d.status.say(`inserted from ${picker}`);
     return { inserted: put };
   };
   picking.add(d); open.add(dir); sweepOnExit();
@@ -176,7 +176,7 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
         // A picker that failed keeps its tile: what it said (tv's crash, an unknown channel) stays on screen.
         return failed(code);
       });
-      if (opened) d.note = `choosing in ${picker} beside · what you choose goes in at the cursor`;
+      if (opened) d.status.say(`choosing in ${picker} beside · what you choose goes in at the cursor`);
       else resolve(null);
     } catch (e) { tidy(); reject(e); }
   });

@@ -1,5 +1,6 @@
 // PIE-1291: text width and cutting have one rule. Wide glyphs (CJK, emoji), joined emoji and a soft hyphen go through
 // a callout, a fence, a frame and the editor at a narrow width, and no row is wider than the room it was given.
+import { draftView } from "../src/draft-view";
 import { describe, expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
 import { Draft } from "../src/edit";
@@ -52,21 +53,21 @@ describe("the editor measures by glyph", () => {
   test("five joined emoji in ten cells are one row", () => {
     const d = new Draft("b1", 1, CODER.repeat(5));
     d.key({ kind: "home" } as never);
-    const rows = d.render(10, 4).filter(r => visible(r).trim());
+    const rows = draftView(d).render(10, 4).filter(r => visible(r).trim());
     expect(rows).toHaveLength(1);
     expect(widest(rows)).toBeLessThanOrEqual(10);
   });
 
   test("wide glyphs and a soft hyphen wrap where the screen ends", () => {
     const d = new Draft("b1", 1, `${CJK} soft\u00ADhyphen ${CODER}${CODER}`);
-    expect(widest(d.render(12, 10))).toBeLessThanOrEqual(12);
+    expect(widest(draftView(d).render(12, 10))).toBeLessThanOrEqual(12);
   });
 
   test("a click past a wrapped joined emoji lands beside it, never inside it", () => {
     const d = new Draft("b1", 1, `ab${CODER}界`);
     d.key({ kind: "home" } as never);
-    d.render(5, 5);
-    const p = d.posAt(4, 0);
+    draftView(d).render(5, 5);
+    const p = draftView(d).posAt(4, 0);
     d.place(p.row, p.col);
     d.key({ kind: "char", ch: "X" } as never);
     expect(d.text).toBe(`abX${CODER}界`);
@@ -74,10 +75,10 @@ describe("the editor measures by glyph", () => {
 
   test("the cursor after a wide glyph is in the cell after it", () => {
     const d = new Draft("b1", 1, "漢字x");
-    d.render(20, 2);
+    draftView(d).render(20, 2);
     d.key({ kind: "end" } as never);
-    d.render(20, 2);
-    expect(d.cursorCol).toBe(5);
+    draftView(d).render(20, 2);
+    expect(draftView(d).cursorCol).toBe(5);
   });
 });
 

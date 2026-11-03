@@ -85,9 +85,13 @@ export interface CompletionField {
   readonly busy: boolean;
   readonly text: string;
   near?: string;
-  note: string;
+  readonly note: string;
+  /** Its status line (src/draft-status.ts): what completion says goes there. */
+  readonly status: { say(text: string): string };
   /** What a line completes: a draft has none of this and completes text. */
   readonly complete?: LineCompletion;
+  /** Its views (src/draft-view.ts): the popup is kept there. */
+  readonly views: { completer: Completer | null };
   completed?(item: CompletionItem): void;
   startSnippet?(slots: SnippetSlot[], offset: number): void;
   offsetOf?(row: number, col: number): number;
@@ -424,7 +428,7 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
   const offset = d.offsetOf?.(d.row, target.start) ?? target.start;
   d.splice(target.start, target.end, item.insertion, item.anchor && own?.blockId === item.blockId ? { [item.anchor.lineIndex]: item.anchor.line } : {}, by, by.kind === "user" ? item.selection : undefined);
   if (by.kind === "user" && item.slots?.length) d.startSnippet?.(item.slots, offset);
-  if (made) d.note = made;
+  if (made) d.status.say(made);
   const host = component && by.kind === "user" ? ambient?.host?.() : undefined;
   if (component && host) void openNote(component.id, host, { alt: true, actor: by }).catch(() => {});
   return true;
@@ -547,7 +551,7 @@ export class Completer {
   }
   private recordIgnored(): void {
     const suggestion = this.state?.items.find(i => i.querySuggestion)?.querySuggestion;
-    if (suggestion) void this.board.request("query.suggest", { text: suggestion.input, outcome: "ignored", suggestion }).catch(e => { this.d.note = String(e); });
+    if (suggestion) void this.board.request("query.suggest", { text: suggestion.input, outcome: "ignored", suggestion }).catch(e => { this.d.status.say(String(e)); });
   }
 
   /**
@@ -581,7 +585,7 @@ export class Completer {
         const follow = now.moved || (!!now.items[index]?.newPage && r.sure?.verdict !== "strong");
         const at = follow ? r.items.findIndex(i => i.insertion === chosen) : 0;
         if (words && r.message) {
-          if (!queryUnavailableSaid.has(this.board)) { this.d.note = r.message; queryUnavailableSaid.add(this.board); }
+          if (!queryUnavailableSaid.has(this.board)) { this.d.status.say(r.message); queryUnavailableSaid.add(this.board); }
           else r.message = "";
         }
         if (at < 0 || !r.items.length) { now.jev = undefined; now.message = r.message; this.redraw(); return; }
@@ -612,7 +616,7 @@ export class Completer {
     if (this.acceptedQuery && this.acceptedQuery.text !== this.d.text) {
       const { suggestion } = this.acceptedQuery;
       this.acceptedQuery = undefined;
-      void this.board.request("query.suggest", { text: suggestion.input, outcome: "edited", suggestion, acceptedWhere: target.query }).catch(e => { this.d.note = String(e); });
+      void this.board.request("query.suggest", { text: suggestion.input, outcome: "edited", suggestion, acceptedWhere: target.query }).catch(e => { this.d.status.say(String(e)); });
     }
     const picked = explicit || (same && this.state?.picked);
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
@@ -658,7 +662,7 @@ export class Completer {
         const surface = new NoteSurface();
         // The docs panel reads the note, not its conversation: no margin cards in a panel 30 columns wide.
         surface.setMargin("off");
-        const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.note = s; }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {},
+        const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.status.say(s); }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {},
           header: (m, w) => [fg(C.grey) + pad([headedTitle(m), ...ctx.ancestors.map(title), m.author].filter(Boolean).join(" · "), w) + RESET],
         };
         const own = this.own();
@@ -893,7 +897,7 @@ export class Completer {
       if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       if (item.querySuggestion) {
         this.acceptedQuery = { suggestion: item.querySuggestion, text: this.d.text };
-        await this.board.request("query.suggest", { text: item.querySuggestion.input, outcome: item.queryOutcome ?? "accepted", suggestion: item.querySuggestion, corrections: item.queryCorrections }).catch(e => { this.d.note = String(e); });
+        await this.board.request("query.suggest", { text: item.querySuggestion.input, outcome: item.queryOutcome ?? "accepted", suggestion: item.querySuggestion, corrections: item.queryCorrections }).catch(e => { this.d.status.say(String(e)); });
       }
       this.dismiss();
       this.d.completed?.(item);
@@ -910,16 +914,14 @@ export class Completer {
 }
 
 
-const byDraft = new WeakMap<CompletionField, Completer>();
-
 /** The draft's (or line's) completer, made on first use; null when the board can't look anything up (a test double). */
 export function completerFor(d: CompletionField, board: unknown, redraw: () => void, own?: CompletionOwner): Completer | null {
-  const had = byDraft.get(d);
+  const had = d.views.completer;
   if (had) return had;
   const b = board as Partial<CompletionBoard> | null;
   if (!b || typeof b.completePages !== "function" || typeof b.searchBlocks !== "function") return null;
   const c = new Completer(d, b as CompletionBoard, redraw, own);
-  byDraft.set(d, c);
+  d.views.completer = c;
   return c;
 }
 
@@ -938,10 +940,10 @@ export const recordCompletionPick = (board: CompletionBoard, key: string, item: 
   board.completionPicked?.(key, pickId(item.insertion), heard(item) ? { source: item.from, outcome: "accepted", ...(query !== undefined ? { query } : {}), row: rowTold(item) } : {}).catch(() => {});
 
 /** The draft's completer, if it has one. */
-export const completerOf = (d: CompletionField): Completer | null => byDraft.get(d) ?? null;
+export const completerOf = (d: CompletionField): Completer | null => (d.views.completer) ?? null;
 
 /** The draft's popup, if one is open (for drawing). */
-export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
+export const completionOf = (d: CompletionField): CompletionState | null => (d.views.completer)?.shown ?? null;
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
 
@@ -982,7 +984,7 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
     if (c.target()) { personRuns("complete.ask", {}, c); return true; }
-    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, ::component, a [key:: property or a figure's YAML"; return true; }
+    if (k.kind !== "tab") { d.status.say("completion works inside [[, ((, [file::, a callout's > [!, ::component, a [key:: property or a figure's YAML"); return true; }
   }
   return false;
 }

@@ -1,6 +1,7 @@
 // Insert from a picker (src/pick.ts): ctrl+t in a draft hands the terminal to a picker program and puts what it
 // printed at the cursor. Here the picker is a shell line that prints (no tv): the real handover path, the output
 // file, the environment it's given, and what goes in. The reader action resolves its folder through a scratch service.
+import { draftView } from "../src/draft-view";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -223,12 +224,12 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
     const top = renderEditor(d, { title: "editing · Shed list", status: [], preview: () => ({ lines: [], links: [], source: [] }), pick: true }, 70, 10)[0]!;
     expect(top).toContain("[insert]");
     expect(top).toContain("[preview]");
-    const ctl = d.frame!.controls.find(c => c.action === "pick")!;
+    const ctl = draftView(d).frame!.controls.find(c => c.action === "pick")!;
     let picked = 0;
     expect(editorClick(d, ctl.from + 1, 0, false, USER, { pick: () => picked++ })).toBe(true);
     expect(picked).toBe(1);
     // A narrow frame keeps ctrl+t and drops the control.
     renderEditor(d, { title: "editing", status: [], preview: () => ({ lines: [], links: [], source: [] }), pick: true }, 44, 10);
-    expect(d.frame!.controls.map(c => c.action)).toEqual(["preview"]);
+    expect(draftView(d).frame!.controls.map(c => c.action)).toEqual(["preview"]);
   });
 });

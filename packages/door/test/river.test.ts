@@ -236,9 +236,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key({ kind: "enter" });                                      // the person enters the agent's edit
     key({ kind: "esc" }); key({ kind: "esc" });
     expect(surfaceOf(2).draft).toBeNull();
-    expect(d.savedCopy).toBeTruthy();
-    expect(readFileSync(d.savedCopy, "utf8")).toContain("An agent's unsaved line.");
-    expect((app as any).message).toContain(d.savedCopy);
+    expect(d.status.savedCopy).toBeTruthy();
+    expect(readFileSync(d.status.savedCopy, "utf8")).toContain("An agent's unsaved line.");
+    expect((app as any).message).toContain(d.status.savedCopy);
   });
 
   test("after the person moves away, coming back by h l puts their keys straight back in their edit (PIE-812)", async () => {
@@ -376,7 +376,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const now = await current(notes.beans.id);
     await other.request("update", { blockId: notes.beans.id, text: now!.text.replace!("Canes", "Hazel canes"), expectedRevision: now!.revision, mutation: { author: "agent", actorId: "other-writer" } });
     const s = paneOf(beansR).surface as any;
-    await until(() => s.draft?.changedElsewhere, "changed elsewhere", 8000);
+    await until(() => s.draft?.status.changedElsewhere, "changed elsewhere", 8000);
     expect(s.draft.text).toContain("Mine, unsaved.");
     expect(screen()).toContain("editing · unsaved");
     expect(river.unsaved()).toBe(true);
