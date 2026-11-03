@@ -25,18 +25,25 @@ describe.skipIf(!outliner)("the showcase screen: a long collection (PIE-1529)", 
       const at = () => list().view.indexOf(PERSON, list().view.picked());
       const seen = () => h.screen().includes(list().view.picked().label.split(":")[0]);
       const onScreen = list().view.pickable().filter((r: any) => h.screen().includes(r.label.split(":")[0])).length;
-      h.press({ kind: "pgdn" });
-      await until(() => at() > 0, "PgDn moves the pick", 4000);
-      const page = at();
+      // One page: fewer packets than were on screen, and the one picked before stays in view (the row at the edge).
+      const step = async (dir: 1 | -1, how: "key" | "act") => {
+        const before = at(), was = list().view.picked().label.split(":")[0];
+        const inView = list().view.pickable().filter((r: any) => h.screen().includes(r.label.split(":")[0])).length;
+        if (how === "key") h.press({ kind: dir > 0 ? "pgdn" : "pgup" });
+        else await act("list.step", { by: dir, page: true });
+        await until(() => at() !== before, `${how} pages ${dir > 0 ? "down" : "up"} from ${was}`, 4000);
+        const moved = Math.abs(at() - before);
+        expect(moved).toBeLessThan(inView);
+        await until(seen, `the packet ${how} picked is on screen`, 4000);
+        expect(h.screen()).toContain(was);
+        return moved;
+      };
+      const page = await step(1, "key");
       expect(page).toBeLessThan(onScreen);
       if (cols === 120) expect(page).toBeGreaterThan(4);
-      await until(seen, "the picked packet is on screen", 4000);
-      h.press({ kind: "pgdn" });
-      await until(() => at() === 2 * page, "a second PgDn, one more screen", 4000);
-      h.press({ kind: "pgup" });
-      await until(() => at() === page, "PgUp, one screen back", 4000);
-      expect(await act("list.step", { by: 1, page: true })).toMatchObject({ row: 2 * page + 1 });
-      await until(seen, "the packet act picked is on screen", 4000);
+      await step(1, "key");
+      await step(-1, "key");
+      await step(1, "act");
     } finally { (h.app as any).term.info.rows = 60; }
   }, 30_000);
 });

@@ -30,8 +30,8 @@ export interface ListHost {
   keep?(list: ListHandle, words: string): void;
   choose?(list: ListHandle, action: "list.sort" | "list.group", keys: string[]): void;
   tune?(list: ListHandle, actor: Actor, standing: boolean): Promise<unknown>;
-  /** The lines of screen this host shows `list` in, when it draws it whole and scrolls it itself (the reader: the inline window it scrolls a collection in, else its body): a page (PgUp PgDn) is what that much shows. */
-  room?(list: ListHandle): number;
+  /** The rows of `list` on screen now, when it draws the list whole and scrolls it itself (the reader): a page (PgUp PgDn) is what they make (PIE-1529). */
+  inView?(list: ListHandle): { id: string; group?: string }[] | undefined;
   redraw(): void;
 }
 
@@ -139,7 +139,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     examples: [{ act: "list.step by=1", does: "moves to the next row, as j does" }, { act: "list.step by=1 page=true", does: "moves the pick a page down, as PgDn does" }],
     async run({ list, by, axis, page }, { host, standing }, actor) {
       const l = listNamed(host, list), who = standing ? PERSON : actorKey(actor);
-      if (page) by = l.view.pageBy(by < 0 ? -1 : 1, host.room?.(l));
+      if (page) by = l.view.pageBy(by < 0 ? -1 : 1, host.inView?.(l));
       const row = l.view.step(who, by, axis as "row" | "column" | "group" | undefined);
       if (!row) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} the pick in ${l.title}`);
       if (who === PERSON) await host.picked(l, row);

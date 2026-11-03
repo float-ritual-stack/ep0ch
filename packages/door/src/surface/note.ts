@@ -4138,7 +4138,7 @@ export class NoteSurface {
       type: l => { if (this.listIn !== l.key) { this.enterList(l, true); if (l.collection) this.modes.push(listMode(this, l.key, l.title)); } l.view.startTyping(filterLine); },
       tune: (l, actor, standing) => this.run("settings", { list: l.key }, here(), actor, standing),
       choose: (l, action, keys) => here().overlay?.(listFieldPicker(l.title, action, keys, by => { void this.runList(action, { list: l.key, by }, here()); })),
-      room: l => { const i = [...this.inlineLists.values()].find(i => i.rows.some(r => r.target.listRow?.key === l.key)); return i?.windowed() ?? this.bodyRoom; }, redraw: () => host?.redraw(),
+      inView: l => { const d = this.drawn, v = this.viewport(), win = [...this.inlineLists.values()].map(i => i.shown(l.key)).find(Boolean), at = (e: Element) => `${e.link!.listRow!.row}|${e.link!.listRow!.group ?? ""}`; return d && v ? this.elems.filter(e => e.link?.listRow?.key === l.key && e.link.listRow.row && (!win || win.has(at(e))) && e.row - d.top >= v.top && e.row - d.top + (win?.get(at(e)) ?? 1) <= v.top + v.room).map(e => ({ id: e.link!.listRow!.row!, group: e.link!.listRow!.group })) : undefined; }, redraw: () => host?.redraw(),
     };
   }
 

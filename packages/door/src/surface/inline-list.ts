@@ -16,9 +16,13 @@ export class InlineList {
   before = 0;
   after = 0;
 
-  /** The lines its window shows when its rows don't all fit (a page there, PgUp PgDn: PIE-1529), else undefined. */
-  windowed(): number | undefined { return this.total > this.view.room && this.view.room > 0 ? this.view.room : undefined; }
-  private total = 0;
+  /** The rows of list `key` wholly inside this window, each with the lines it spans (a page there, PgUp PgDn: PIE-1529); null when it draws none of them. */
+  shown(key: string): Map<string, number> | null {
+    const own = this.rows.filter(r => r.target.listRow?.key === key && r.target.listRow.row);
+    if (!own.length) return null;
+    const top = this.before + Math.max(0, this.view.top), end = this.view.room > 0 ? top + this.view.room : Infinity;
+    return new Map(own.filter(r => r.first >= top && r.last < end).map(r => [`${r.target.listRow!.row}|${r.target.listRow!.group ?? ""}`, r.last - r.first + 1]));
+  }
 
   draw(key: number, lines: string[], width: number, targets: LinkTarget[], current: string | null, height?: number): string[] {
     const parsed = extractLinks(lines), byTag = new Map<number, typeof parsed.ranges>();
@@ -33,13 +37,13 @@ export class InlineList {
       return { target, label: rs.map(r => cellsOf(parsed.lines[r.line]!).slice(r.from, r.to).join("")).join(" "), first: rs[0]!.line, last: rs.at(-1)!.line, from: rs[0]!.from };
     });
     this.width = width;
-    if (!this.rows.length && height === undefined) { this.total = 0; return lines; }
+    if (!this.rows.length && height === undefined) return lines;
     const first = height === undefined ? this.rows[0]!.first : 2, last = height === undefined ? this.rows.at(-1)!.last : lines.length - 3;
     this.before = first; this.after = lines.length - last - 1;
     // Ten lines, or room for three of its rows when a row is tall (PIE-1402: a narrow table's card is a row of many lines,
     // and a window of ten showed one card at a time).
     const tallest = Math.max(...this.rows.map(r => r.last - r.first + 1));
-    const total = this.total = last - first + 1, room = height ?? Math.min(total, Math.max(10, Math.min(30, tallest * 3)));
+    const total = last - first + 1, room = height ?? Math.min(total, Math.max(10, Math.min(30, tallest * 3)));
     const index = this.rows.findIndex(r => inlineRowKey(key, r.target) === current);
     const selected = index < 0 ? undefined : this.rows[index];
     const top = this.view.place(selected ? index : null, total, room, selected ? [selected.first - first, selected.last - first] : null);

@@ -353,22 +353,30 @@ export class ListView<S = unknown> {
   draw(o: ListDrawOpts<S>): ListDrawn<S> {
     const drawn = this.drawList(o), shown = new Set(drawn.rowAt.filter(at => at !== null)).size;
     if (shown || !o.primitive?.arrange) { this.shownRows = shown; this.wholePage = 0; this.steps = shown; }   // an arrangement (table, grid, lanes) counts its own (arranged)
-    this.bounded = o.room !== undefined; this.drawnLines = drawn.lines.length;
     return drawn;
   }
   /** Rows the last draw showed: a page's step (pageBy). */
   private shownRows = 0;
-  /** The last draw: its steps (rows, or a grid's rows of cards), the lines it took, and whether a `room` bounded it. */
-  private steps = 0; private drawnLines = 0; private bounded = false;
+  /** The last draw's steps: its rows, a grid's rows of cards, a board's longest lane. */
+  private steps = 0;
   /**
    * Rows a page moves the pick (PgUp -1, PgDn 1, PIE-1293): the rows shown, less one (pageRows), at least one. A list
-   * drawn whole inside a reader that scrolls (a collection in a note, PIE-1529) shows only what the reader's `room`
-   * holds of it: its page is the steps that many lines show, never every row it drew.
+   * drawn whole inside a reader that scrolls it (a collection in a note, PIE-1529) is shown only where the reader's
+   * window is: `inView` names the rows on screen now, and its page is the steps they make (a grid's rows of cards, a
+   * lane's run), never every row it drew nor an average of their heights.
    */
-  pageBy(dir: 1 | -1, room?: number): number {
-    const shown = !this.bounded && room !== undefined && room > 0 ? stepsShown(this.steps, this.drawnLines, room) : this.shownRows;
+  pageBy(dir: 1 | -1, inView?: readonly { id: string; group?: string }[]): number {
+    const shown = inView?.length ? this.stepsIn(inView) : this.shownRows;
     const whole = shown >= this.steps ? this.wholePage : 0;
     return dir * (whole || pageRows(Math.max(2, shown)));
+  }
+  /** The steps `rows` make: one each in a list or a table, a grid's row of cards, a board's place down its lanes. */
+  private stepsIn(rows: readonly { id: string; group?: string }[]): number {
+    const all = this.pickable(PERSON), shape = this.shapes.get(PERSON);
+    const at = [...new Set(rows.map(v => all.findIndex(r => r.id === v.id && (v.group === undefined || r.group === v.group))).filter(i => i >= 0))];
+    if (shape?.arrange === "grid") return new Set(at.map(i => Math.floor(i / Math.max(1, this.columns)))).size;
+    if (shape?.arrange === "lanes" && this.lanes.length) return new Set(at.map(i => Math.max(0, ...this.lanes.map(l => l.findIndex(r => r.id === all[i]!.id))))).size;
+    return at.length;
   }
   /** An arrangement whose whole page is in view: its steps, so PgDn lands on the next page; else 0. */
   private wholePage = 0;

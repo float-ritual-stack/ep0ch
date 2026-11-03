@@ -448,22 +448,76 @@ describe("showcase: a collection record (PIE-1281)", () => {
       const at = () => lists()[0].view.indexOf(PERSON, lists()[0].view.picked());
       const seen = () => h.screen().includes(lists()[0].view.picked().label);
       const onScreen = lists()[0].view.pickable().filter((r: any) => h.screen().includes(r.label)).length;
-      h.press({ kind: "pgdn" });
-      await until(() => at() > 0, `${layout} PgDn moves the pick`, 4000);
-      const page = at();
-      // A screen of rows, less one: fewer than the collection's window showed (a few cards, in a narrow table, a gallery or a
-      // feed); a saved view's rows are the note's own body, so fewer than the reader's body holds.
-      expect(page).toBeGreaterThan(0);
+      // One page: the rows in view, less one. A table of one-line rows says exactly how many (the labels on screen); cards
+      // (a narrow table, a gallery, a feed) keep the row picked before in view, as the row at the edge stays in sight.
+      const exact = layout === "table" && cols > 44;
+      const step = async (dir: 1 | -1, how: "key" | "act") => {
+        const before = at(), was = lists()[0].view.picked().label, inView = visibleRows().length;
+        if (how === "key") h.press({ kind: dir > 0 ? "pgdn" : "pgup" });
+        else await act("list.step", { by: dir, page: true });
+        await until(() => at() !== before, `${layout} ${how} pages ${dir > 0 ? "down" : "up"} from ${was}`, 4000);
+        const moved = Math.abs(at() - before);
+        if (exact) expect(moved).toBe(Math.min(inView - 1, dir > 0 ? 39 - before : before));
+        else expect(moved).toBeLessThan(inView);
+        await until(seen, `${layout} the picked row is on screen after ${how}`, 4000);
+        if (moved < 39) expect(h.screen()).toContain(was);
+        return moved;
+      };
+      const page = await step(1, "key");
+      // A screen of rows, less one: fewer than the collection's window showed; a saved view's rows are the note's own body.
       expect(page).toBeLessThan(saved ? (stage().pane("garden").surface as any).bodyRoom : onScreen);
       if (layout === "table" && cols === 177) expect(page).toBeGreaterThan(4);
-      await until(seen, `${layout} the picked row is on screen after PgDn`, 4000);
+      await step(1, "key");
+      await step(-1, "key");
+      await step(1, "act");
+    } finally { (h.app as any).term.info.rows = 60; }
+  }, 30_000);
+
+  // PIE-1529 review: a page is the rows actually in view, never the list's average row height, and never more than the reader shows.
+  const visibleRows = () => lists()[0].view.pickable().filter((r: any) => h.screen().split("\n").some(line => line.includes(r.label.split(" · ")[0])));
+  test("PgDn over rows of mixed heights lands on the last row in view, then pages by the taller rows", async () => {
+    const tag = "bulk-mixed";
+    for (let i = 1; i <= 40; i++) await h.board.createBlock(null, i <= 20 ? `Row ${String(i).padStart(2, "0")} [collection::${tag}]` : `Row ${String(i).padStart(2, "0")} · a much longer title that wraps over two lines of the table, since it goes on and on past the edge of the column [collection::${tag}]`);
+    (h.app as any).term.info.rows = 30;
+    try {
+      await show(`Mixed rows\n::view{query="collection=${tag}" layout=table sort="title asc" lines=2}`, 100);
+      await until(() => lists()[0]?.view.pickable().length === 40, "forty rows", 8000);
+      await act("list.enter", { on: true });
+      await act("list.pick", { n: 1 });
+      const at = () => lists()[0].view.indexOf(PERSON, lists()[0].view.picked());
+      expect(visibleRows().map((r: any) => r.label).at(-1)).toBe("Row 10");
       h.press({ kind: "pgdn" });
-      await until(() => at() === Math.min(39, 2 * page), `${layout} a second PgDn moves one more page`, 4000);
+      await until(() => at() > 0, "PgDn moves the pick", 4000);
+      // Rows 01 to 10 were in view: the page is nine rows, to Row 10, whatever the wrapped rows below weigh.
+      expect(lists()[0].view.picked().label).toBe("Row 10");
       h.press({ kind: "pgup" });
-      await until(() => at() === page, `${layout} PgUp moves one page back`, 4000);
-      await act("list.step", { by: 1, page: true });
-      expect(at()).toBe(Math.min(39, 2 * page));
-      await until(seen, `${layout} the picked row is on screen after act`, 4000);
+      await until(() => at() === 0, "PgUp comes back to Row 01", 4000);
+    } finally { (h.app as any).term.info.rows = 60; }
+  }, 30_000);
+  test("a live table taller than the reader pages by what the reader shows, and again after a resize", async () => {
+    const tag = "bulk-tall";
+    for (let i = 1; i <= 40; i++) await h.board.createBlock(null, `Tall ${String(i).padStart(2, "0")} [collection::${tag}]`);
+    (h.app as any).term.info.rows = 30;
+    try {
+      await show(`Tall table\n::graph-table\n---\nquery: collection=${tag}\nsort: title asc\nheight: 40\n---\n::`, 120);
+      await until(() => lists()[0]?.view.pickable().length === 40, "forty rows", 8000);
+      await act("list.enter", { on: true });
+      await act("list.pick", { n: 1 });
+      const at = () => lists()[0].view.indexOf(PERSON, lists()[0].view.picked());
+      expect(visibleRows().length).toBe(12);
+      h.press({ kind: "pgdn" });
+      await until(() => at() > 0, "PgDn moves the pick", 4000);
+      // Its own window is forty lines, the reader's body far fewer: the twelve rows on screen make the page, to Tall 12.
+      expect(lists()[0].view.picked().label).toBe("Tall 12");
+      // Taller now: the page is the rows the bigger reader shows.
+      (h.app as any).term.info.rows = 40;
+      await act("list.pick", { n: 1 });
+      h.screen();
+      const shown = visibleRows().length;
+      expect(shown).toBeGreaterThan(12);
+      h.press({ kind: "pgdn" });
+      await until(() => at() !== 0, "PgDn after the resize", 4000);
+      expect(at()).toBe(shown - 1);
     } finally { (h.app as any).term.info.rows = 60; }
   }, 30_000);
 
