@@ -28,6 +28,7 @@ import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
+import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { readView, type ViewRead } from "../views";
 import { listMove, RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -115,7 +116,8 @@ export class TreePane implements Pane {
   // rebuild publishes new rows when content, revisions or disclosure change; a cursor move keeps that snapshot.
   private rowLayout: { rows: TreeRow[]; width: number; limit: number; starts: number[] } | null = null;
   private timer: Timer | null = null;
-  private reload: Timer | null = null;
+  /** Its reloads (PIE-1395): a burst of outline changes reads once, a pause after the last; the round's answers are kept only while its turn is the newest and the tree is up. */
+  private readonly search = new SearchSchedule(RELOAD_PAUSE_MS);
   title() { return "outline"; }
   subject() { const r = this.rows[this.sel]; return r?.kind === "block" ? r.m.id : null; }
   hint() {
@@ -259,7 +261,7 @@ export class TreePane implements Pane {
     // While the rows are due to be read again (a change just came), the row's copy may be older than the outline: the
     // note is read itself, so the reader never shows what was there before a save.
     if (r?.kind === "block") this.timer = setTimeout(() => {
-      if (!this.reload && !this.due && !this.rereading) return desk.showFrom?.(this, r.m, actor);
+      if (!this.search.waiting && !this.due && !this.rereading) return desk.showFrom?.(this, r.m, actor);
       void desk.ctx.board.get(r.m.id).catch(() => null).then(m => { if (this.rows[this.sel]?.key === r.key) desk.showFrom?.(this, m ?? r.m, actor); });
     }, 90);
     else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.showFrom?.(this, m, actor); }, () => {}), 90);
@@ -443,15 +445,14 @@ export class TreePane implements Pane {
     const lists = this.touches(e);
     if (!lists && !this.panels.size) return;
     if (lists) this.due = lists === "all" || this.due === "all" ? "all" : new Set([...(this.due ?? []), ...lists]);
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => {
-      this.reload = null;
+    this.search.pause(() => {
+      this.search.begin();
       this.targets.clear();
       for (const k of this.panels.keys()) this.load(k, desk);
       // A virtual branch's matches follow the outline: the pages shown are asked again.
       for (const [id, b] of this.branches) if (this.fold.open.has(id)) void this.loadBranch(b.def, desk, "again");
       void this.reread(desk);
-    }, 300);
+    });
   }
   /** The lists to read again (a note's id, null for the top level), or all of them; null: none. */
   private due: Set<string | null> | "all" | null = null;
@@ -483,13 +484,15 @@ export class TreePane implements Pane {
           due === "all" || due.has(null) ? b.roots().catch(() => null) : null,
           this.fold.reread(id => b.children(idOfFold(id)), due === "all" ? undefined : new Set([...due].filter((x): x is string => x !== null))),
         ]);
+        // A round read while the tree was put away is dropped; one superseded by a newer burst still lands (the loop reads that one next).
+        if (this.search.turn && !this.search.turn.alive()) return;
         if (roots) this.roots = roots;
         this.rebuild();
         desk.redraw();
       }
     } finally { this.rereading = false; }
   }
-  dispose() { if (this.reload) clearTimeout(this.reload); if (this.timer) clearTimeout(this.timer); }
+  dispose() { this.search.cancel(); if (this.timer) clearTimeout(this.timer); }
 
   /**
    * Open row `i` as ⏎ does, as `actor`: a group folds or opens; a note opens where the tree's opens go (the keys
