@@ -1,3 +1,4 @@
+import { sourceLines } from "../draft-view";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import { keyTable } from "./keymap";
 import { PositionRows } from "../reader-position";
@@ -208,7 +209,6 @@ export class ElementEdit {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
     this.on = true;
-    d.leaveRawView();
     // A raw selection can cross prose and delimiters; rich input belongs to one field.
     d.place(d.row, d.col);
     if (!this.current()) {
@@ -354,14 +354,11 @@ export class ElementEdit {
         sourceRows.push(...doc.source.map(i => lines[i] ?? -1));
         lines = []; text = [];
       };
-      for (let i = start; i < end; i++) {
-        if (hidden.has(i)) continue;
-        const line = d.lines[i]!, status = d.askStatus(line, w - width(line));
-        text.push(line + (status && width(status) <= w - width(line) ? status : "")); lines.push(i);
-        if (status && width(status) > w - width(line)) { text.push(status.trim()); lines.push(i); }
-        // What the line last drew (PIE-981), read-only under it, as the raw edit keeps it.
-        const kept = d.kept?.(i, w) ?? [];
-        if (kept.length) { flush(); body.push(...kept); sourceRows.push(...kept.map(() => i)); }
+      // The lines as the raw rows lay them out (src/draft-view.ts): only their drawing is the reader's here.
+      for (const l of sourceLines(d, start, end, w, (_, line) => w - width(line))) {
+        text.push(l.line + (l.beside ? l.status : "")); lines.push(l.i);
+        if (l.status && !l.beside) { text.push(l.status.trim()); lines.push(l.i); }
+        if (l.kept.length) { flush(); body.push(...l.kept); sourceRows.push(...l.kept.map(() => l.i)); }
       }
       flush();
     };
@@ -396,11 +393,10 @@ export class ElementEdit {
     this.total = body.length; this.room = room;
     if (d.follow) this.top = follow(cursor, this.top, room);
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
-    d.leaveRawView();
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
       fg(C.cyan) + pad(d.note || attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET,
       ...body.slice(this.top, this.top + room)];
   }
 }
-const views = new WeakMap<Draft, ElementEdit>();
-export function elementEdit(d: Draft): ElementEdit { let v = views.get(d); if (!v) { v = new ElementEdit(d); views.set(d, v); } return v; }
+/** The draft's rich cells adapter (src/draft-view.ts), made on first use and kept with its other views. */
+export function elementEdit(d: Draft): ElementEdit { return (d.views.rich ??= new ElementEdit(d)) as ElementEdit; }

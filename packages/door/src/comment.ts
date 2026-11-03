@@ -496,7 +496,7 @@ export class CommentSession {
     const w = this.writing;
     if (!w || this.target?.kind !== "edit") return;
     this.busy = waitingText("the note again"); env.redraw();
-    try { await w.target.reload?.(w); } finally { this.busy = null; }
+    try { await w.target.reload?.(w, { phase: p => { w.status.phase = p; } }); } finally { this.busy = null; }
     const t = this.target;
     if (t?.kind === "edit" && w.open) {
       const th = this.threads.find(x => x.id === t.thread.id);
@@ -510,7 +510,7 @@ export class CommentSession {
   async relocate(env: CommentEnv): Promise<void> {
     this.env = env;
     const t = this.target;
-    if (!t || t.kind !== "quote" || !this.stale) { if (this.composer) this.composer.note = "nothing to reload"; return; }
+    if (!t || t.kind !== "quote" || !this.stale) { if (this.composer) this.composer.status.say("nothing to reload"); return; }
     this.busy = waitingText("the note"); env.redraw();
     const fresh = await env.fetch(t.blockId).catch(() => null);
     this.busy = null;
@@ -523,14 +523,14 @@ export class CommentSession {
       this.target = { ...t, revision: fresh.revision, passage: { quote: q, start } };
       this.stale = false; this.error = null;
       // Found again: the draft's own "refused, copied to …" line goes, so this one shows.
-      if (this.writing) { this.writing.settled(); this.writing.draft.note = ""; }
+      if (this.writing) { this.writing.settled(); this.writing.draft.status.say(""); }
       this.note = `found the quote again at revision ${fresh.revision}${hits.length > 1 ? ` (nearest of ${hits.length})` : ""} · ctrl+s sends`;
     } else {
       // The words are gone: pick again. The comment text rides along and comes back on Enter.
       this.passage = new Passage(fresh.text);
       this.passage.note = "the quote is gone from the current text · pick the passage again · Enter returns to your comment";
       this.stale = false; this.error = null; this.mode = "select";
-      if (this.writing) { this.writing.settled(); this.writing.draft.note = ""; }
+      if (this.writing) { this.writing.settled(); this.writing.draft.status.say(""); }
     }
     env.redraw();
   }

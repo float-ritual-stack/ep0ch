@@ -3,6 +3,7 @@
 // so a wide (CJK, emoji) title can't push the hint row's chips off the screen; a frame's hint is cut between its
 // parts, never mid-word; under kitty+crt the bytes carry CP437 lookalikes, not glyphs its font draws as ?; and a
 // tile opened is said as the kind's word, to agents' credit only. Scratch services and fictional notes only.
+import { draftView } from "../src/draft-view";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -153,7 +154,7 @@ describe("terminal cells, not code points", () => {
     expect(wrapRows([..."abcdefghij"], 4, 0).map(r => r.end)).toEqual([4, 8, 10]);
     expect(wrapRows([..."ab 会議メモ"], 6, 0).map(r => r.end)).toEqual([3, 6, 7]);
     const d = new Draft("b-1", 1, "会議メモ：来週の発表の準備と資料のまとめ方について");
-    for (const l of d.render(12, 10)) expect(cells(l)).toBeLessThanOrEqual(12);
+    for (const l of draftView(d).render(12, 10)) expect(cells(l)).toBeLessThanOrEqual(12);
   });
 
   test("the reference popup draws a title with escapes as its words, cut by cells", () => {

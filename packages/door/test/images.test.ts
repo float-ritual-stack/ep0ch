@@ -1,6 +1,7 @@
 // Images (PIE-532, PIE-494): the media line's grammar and its rewrite, the layout of a sized, placed or header
 // image, the scaling that turns PNG, JPEG, WebP and GIF into PNGs no bigger than the box they're drawn in (with no
 // system tool), and the dimming that keeps a bright image dark-first. Fictional images, drawn here; no outline is written.
+import { draftView } from "../src/draft-view";
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -521,11 +522,11 @@ describe("pictures in a comment", () => {
     expect(await s.commentOnNote(h)).toBeUndefined();
     const cs = s.session!;
     cs.writing!.replace(`Like this one:\n[img::${file("small.png")}]`, { kind: "user" } as any);
-    cs.composer!.preview = true;
+    draftView(cs.composer!).preview = true;
     for (const place of ["inline", "floating", "popup"] as const) {
       cs.place = place;
       await until(() => !!s.render(100, 40, h).placements?.length, `the preview's picture (${place})`, 10_000);
-      const v = s.render(100, 40, h), p = v.placements![0]!, at = cs.composer!.frame!.preview!;
+      const v = s.render(100, 40, h), p = v.placements![0]!, at = draftView(cs.composer!).frame!.preview!;
       // On the preview's rows, under its rule.
       expect(p.row).toBeGreaterThan(at.row);
       expect(p.row).toBeLessThan(at.row + at.rows);

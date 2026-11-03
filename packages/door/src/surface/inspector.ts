@@ -1,3 +1,4 @@
+import { draftView } from "../draft-view";
 import { RowView } from "../scroll";
 import { paintRange, rowsOf, SELECT_BG, Selection, type Pos } from "./selection";
 import { DraftSession, type SessionEnv } from "../draft-session";
@@ -96,7 +97,7 @@ export class Inspector extends RowView {
     const f = this.field!, d = f.session.draft;
     // Every line of the value (a paste keeps its line breaks), each wrapped to the field.
     const room = Math.max(1, d.lines.reduce((n, l) => n + rowLines(l, Math.max(4, w - 4)).length, 0));
-    const head = rowLines(`    ${f.key}:`, w), input = d.render(Math.max(4, w - 4), room);
+    const head = rowLines(`    ${f.key}:`, w), input = draftView(d).render(Math.max(4, w - 4), room);
     this.editorRect = { x: 4, y: at + head.length, w: Math.max(4, w - 4), h: input.length };
     const lines = [...head, ...input.map(l => `    ${l}`)];
     const hits: { row: number; from: number; to: number; args: { op: string; n?: number } }[] = [];
@@ -119,7 +120,7 @@ export class Inspector extends RowView {
 
   private placeField(at: Pos, extend: boolean) {
     const d = this.field!.session.draft, r = this.editorRect;
-    const p = d.posAt(at.col - r.x, Math.max(0, Math.min(r.h - 1, at.row - r.y)));
+    const p = draftView(d).posAt(at.col - r.x, Math.max(0, Math.min(r.h - 1, at.row - r.y)));
     void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, USER);
   }
   begin(at: Pos) {

@@ -2,6 +2,7 @@
 // it, long lines wrap at words under the item's text, the wheel scrolls without moving the cursor, and a click
 // places it (no way out of a draft loses the text: test/draft-session.test.ts). Pure model tests: no service, no terminal; the
 // state dir is a temp dir (test/preload.ts and EP0CH_STATE below).
+import { draftView } from "../src/draft-view";
 import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -166,7 +167,7 @@ describe("soft wrap at words, hung under the item's text", () => {
   test("rows break after spaces, never mid-word, and continuations hang under the text", () => {
     const line = "  - like first thought is simply when writing out a list and nested";
     const d = new Draft("n1", 1, line);
-    const rows = plain(d.render(30, 10));
+    const rows = plain(draftView(d).render(30, 10));
     expect(rows.length).toBeGreaterThan(2);
     expect(rows[0]).toBe("  - like first thought is");
     for (const r of rows.slice(1)) expect(r.startsWith("    ") && r[4] !== " ").toBe(true);
@@ -177,11 +178,11 @@ describe("soft wrap at words, hung under the item's text", () => {
   test("a word longer than a row is cut; a plain line wraps to its own indent", () => {
     expect(wrapRows([..."abcdefghij"], 4, 0).map(r => r.end)).toEqual([4, 8, 10]);
     const d = at_end("    four spaces then some words that wrap");
-    expect(plain(d.render(20, 10)).slice(1).every(r => r.startsWith("    "))).toBe(true);
+    expect(plain(draftView(d).render(20, 10)).slice(1).every(r => r.startsWith("    "))).toBe(true);
   });
   test("up and down move by drawn rows, keeping the column", () => {
     const d = at_end("- aaaa bbbb cccc dddd\n- e");
-    d.render(12, 10);
+    draftView(d).render(12, 10);
     d.place(0, 3);
     d.key({ kind: "down" });
     expect(d.row).toBe(0);                                      // the next drawn row of the same line
@@ -196,25 +197,25 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
   test("the wheel scrolls the view and the cursor stays; typing brings it back", () => {
     const d = new Draft("n1", 1, long);                          // the cursor starts on line 1
     d.place(39, 5);
-    let rows = plain(d.render(30, 10));
+    let rows = plain(draftView(d).render(30, 10));
     // On the last line the view keeps scrollOff rows (2 of 10) blank under it (PIE-622): items 33 to 40 show.
     expect(rows.at(-1)).toContain("item 40");
     expect(rows[0]).toBe("- item 33");
     void DRAFT_ACTIONS.run("draft.scroll", { by: -20 }, d, USER);
-    rows = plain(d.render(30, 10));
+    rows = plain(draftView(d).render(30, 10));
     expect(rows[0]).toBe("- item 13");
     expect([d.row, d.col]).toEqual([39, 5]);                    // the cursor didn't move
     type(d, "!");
-    rows = plain(d.render(30, 10));
+    rows = plain(draftView(d).render(30, 10));
     expect(rows.some(r => r.includes("- ite!m 40"))).toBe(true);
   });
   test("a click places the cursor on the text under it, a hung row included", () => {
     const d = at_end("- one two three four five six");
-    d.render(14, 10);                                           // "- one two", "  three four", …
-    const p = d.posAt(4, 1);
+    draftView(d).render(14, 10);                                           // "- one two", "  three four", …
+    const p = draftView(d).posAt(4, 1);
     d.place(p.row, p.col);
     expect(d.lines[0]!.slice(d.col)).toStartWith("ree four");
-    const past = d.posAt(40, 0);                                // past a row's end: the end of that row
+    const past = draftView(d).posAt(40, 0);                                // past a row's end: the end of that row
     expect(d.lines[0]!.slice(0, past.col)).toBe("- one two");
   });
   test("a twin offer at 40 columns keeps its Work ID and both controls whole, each a click where it's drawn (PIE-1439)", () => {
@@ -225,7 +226,7 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
       const all = lines.join("\n");
       expect(all, `at ${w}`).toContain("HOME-12");
       for (const [action, text] of [["attach", "[attach here]"], ["file-new", "[file new]"]] as const) {
-        const c = d.frame!.controls.find(x => x.action === action)!;
+        const c = draftView(d).frame!.controls.find(x => x.action === action)!;
         expect(lines[c.row]!.slice(c.from, c.to), `${action} at ${w}`).toBe(text);
       }
       expect(Math.max(...lines.map(l => l.trimEnd().length)), `fits ${w}`).toBeLessThanOrEqual(w);
@@ -234,8 +235,8 @@ describe("the mouse: the wheel scrolls, a click places the cursor", () => {
   test("the edit frame says where the text is and where its preview control is", () => {
     const d = at_end("- a");
     const lines = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => ({ lines: [`preview of ${t}`], links: [], source: [0] }) }, 60, 12);
-    expect(d.frame?.row).toBe(3);
-    const ctl = d.frame!.controls[0]!;
+    expect(draftView(d).frame?.row).toBe(3);
+    const ctl = draftView(d).frame!.controls[0]!;
     expect(cellsOf(lines[ctl.row]!).slice(ctl.from, ctl.to).join("")).toContain("preview");
     void DRAFT_ACTIONS.run("draft.preview", {}, d, USER);
     const shown = renderEditor(d, { title: "comment · Lantern", status: ["ok"], preview: t => ({ lines: [`preview of ${t}`], links: [], source: [0] }) }, 60, 12).map(l => cellsOf(l).join(""));
@@ -286,7 +287,7 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
     expect(shown.some(l => l.includes("step 30"))).toBe(false);
     expect([s.draft!.row, s.draft!.col]).toEqual(at);
     // A click on a row of the text puts the cursor there.
-    const f = s.draft!.frame!;
+    const f = draftView(s.draft!).frame!;
     const row = shown.findIndex((l, i) => i >= f.row && l.includes("- step 20"));
     expect(s.click(f.col + 4, row, h)).toBe(true);
     expect(s.draft!.row).toBe(19);
@@ -335,6 +336,6 @@ describe("review: an agent never moves the person's draft", () => {
     expect(() => s.act("draft.place", { line: 1, col: 1 }, h, AGENT)).toThrow();
     expect(() => s.act("draft.preview", {}, h, AGENT)).toThrow();
     expect([s.draft!.row, s.draft!.col]).toEqual(at);
-    expect(s.draft!.preview).toBe(false);
+    expect(draftView(s.draft!).preview).toBe(false);
   });
 });

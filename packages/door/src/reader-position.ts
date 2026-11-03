@@ -3,6 +3,11 @@ export class ReaderPosition {
   reading = 0;
   view: { line: number; row: number } | null = null;
   cursor = { row: 0, col: 0 };
+  /**
+   * Where the cursor's line was last drawn, in the same terms as `view` (its first row at screen row `row`), or null when
+   * it wasn't in view (PIE-1560). A view of a draft writes it; an agent's patch reads it to keep the cursor's row.
+   */
+  caret?: { line: number; row: number } | null;
 }
 
 /** Each renderer supplies its source map and the screen row where its body starts. */
@@ -30,6 +35,8 @@ export class PositionRows {
     this.waiting = null;
     if (!this.position.view) this.top = top;         // a place restored meanwhile (back, an edit closing) is newer than a row count
   }
+  /** Source line `line`'s first row is drawn at screen row `screen` (from the body's top), in `view`'s terms. */
+  at(line: number, screen: number) { return { line, row: this.origin + screen }; }
   get top(): number {
     const v = this.position.view;
     if (!v) return this.waiting ?? 0;

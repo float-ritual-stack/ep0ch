@@ -2,6 +2,7 @@
 // instead of stopping with it on the bottom edge; End (or G, or to=end) goes to the last line first and, pressed
 // again, past it; a draft keeps a few rows round its cursor; `reader.overscroll half|none|<rows>` sets how far.
 // Fictional notes, no service.
+import { draftView } from "../src/draft-view";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Draft } from "../src/edit";
 import { endTop, lastTop, overscroll, overscrollOf, overscrollRows, scrollOff, useOverscroll } from "../src/scroll";
@@ -134,7 +135,7 @@ describe("a reader (NoteSurface): the wheel, the keys and act at the end", () =>
 describe("a draft: scrolloff round the cursor, and the wheel past the end", () => {
   const text = Array.from({ length: 30 }, (_, i) => `Line ${i + 1} of the sowing plan.`).join("\n");
   const H = 12;
-  const shown = (d: Draft) => d.render(60, H).map(plain);
+  const shown = (d: Draft) => draftView(d).render(60, H).map(plain);
 
   test("typing on the last line keeps a few blank rows under it", () => {
     const d = new Draft("note-622", 1, text);
@@ -159,11 +160,11 @@ describe("a draft: scrolloff round the cursor, and the wheel past the end", () =
   test("the wheel goes past the end to the middle; none keeps the last line on the edge", () => {
     const d = new Draft("note-622", 1, text);
     shown(d);
-    for (let i = 0; i < 100; i++) d.scrollBy(1);
+    for (let i = 0; i < 100; i++) draftView(d).scrollBy(1);
     let rows = shown(d);
     expect(rows.findIndex(r => r.includes("Line 30"))).toBe(H - 1 - Math.floor(H / 2));
     useOverscroll("none");
-    for (let i = 0; i < 100; i++) d.scrollBy(1);
+    for (let i = 0; i < 100; i++) draftView(d).scrollBy(1);
     rows = shown(d);
     expect(rows.findIndex(r => r.includes("Line 30"))).toBe(H - 1);
   });
@@ -172,7 +173,7 @@ describe("a draft: scrolloff round the cursor, and the wheel past the end", () =
     const d = new Draft("note-622", 1, "Seed order\nBeans\nPeas");
     d.place(2, Infinity);
     expect(shown(d)[0]).toContain("Seed order");
-    d.scrollBy(5);
+    draftView(d).scrollBy(5);
     expect(shown(d)[0]).toContain("Seed order");
   });
 });

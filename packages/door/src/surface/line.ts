@@ -5,6 +5,7 @@
 // ctrl+y (undo, redo), cmd+c (copy), and the mouse: a click places the cursor, a drag selects, a double click a word,
 // a triple the line. Enter, esc, tab, ↑ ↓ and the rest stay the caller's (`take` answers false for them).
 import { Draft, DRAFT_KEYS } from "../edit";
+import { LineRow } from "../draft-view";
 import { keyName } from "./actions";
 import { movedInTable } from "./keymap";
 import { modeBinding } from "./modes";
@@ -87,7 +88,7 @@ export class LineField extends Draft {
     if (k.kind === "char" && k.ctrl) {
       if (!LINE_MOTIONS.has(k.ch)) {
         const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");
-        if (moved) { this.note = moved; return true; }
+        if (moved) { this.status.say(moved); return true; }
         return false;
       }
       this.fresh = false;
@@ -105,7 +106,7 @@ export class LineField extends Draft {
   /** ctrl+z, ctrl+y: the line's own history (`Draft.undo`), and nothing to take back is said, never thrown. */
   history(op: "undo" | "redo", by: Actor = USER): string {
     try { return op === "undo" ? this.undo(by) : this.redo(by); }
-    catch (e) { return this.note = e instanceof Error ? e.message : String(e); }
+    catch (e) { return this.status.say(e instanceof Error ? e.message : String(e)); }
   }
 
   /** Where `show` was just drawn on the screen (`x`, `y`: its first cell), so the mouse reaches it. */
@@ -122,7 +123,7 @@ export class LineField extends Draft {
     if (k.action === "down" && k.button !== 2 && inside) {
       this.fresh = false;
       // Snapped to a grapheme's start: a click on an accent or an emoji's joiner never lands inside the character.
-      const n = this.gesture.press(k.x, k.y), col = clampToGraphemeStart(this.text, this.posAt(x, 0).col);
+      const n = this.gesture.press(k.x, k.y), col = clampToGraphemeStart(this.text, this.oneRow.posAt(x));
       this.place(0, col);
       if (n > 1) {
         const word = n === 3 ? { start: 0, end: this.text.length } : wordIn(this.text, this.col);
@@ -132,41 +133,15 @@ export class LineField extends Draft {
       return true;
     }
     if (!this.gesture.pressed) return false;
-    if (k.action === "drag") { if (this.gesture.drag(k.x, k.y)) this.place(0, clampToGraphemeStart(this.text, this.posAt(x, 0).col), true); return true; }
+    if (k.action === "drag") { if (this.gesture.drag(k.x, k.y)) this.place(0, clampToGraphemeStart(this.text, this.oneRow.posAt(x)), true); return true; }
     if (k.action === "up") { if (this.gesture.release(k.x, k.y).copy) { const t = this.selectedText(); if (t) this.copy(t); } return true; }
     return false;
   }
 
-  /** The first cell of the line drawn, when it's wider than its field: the line scrolls sideways, never wraps. */
-  private scrollX = 0;
-
-  /**
-   * One row (PIE-1405, PIE-1418): the line laid out whole, then the `w` cells around the cursor, reading as scrolled: a `«`
-   * in the first cell where words are off to the left, a `»` in the last where they go on past the right (CP437's, in the
-   * VGA font). The start stays
-   * in view while the cursor allows, and a click lands on the character under it. Wrapped, a long query at 40 columns drew
-   * only its last wrapped piece ("› swap"). More rows: the draft's own wrapping.
-   */
-  override render(w: number, h: number): string[] {
-    if (h !== 1) { this.scrollX = 0; return super.render(w, h); }
-    const tw = width(this.text), room = Math.max(1, w);
-    const line = super.render(Math.max(4, w, tw + 2), 1)[0] ?? "";
-    if (tw + 1 <= room || room < 3) { this.scrollX = 0; return [room < 3 ? headOf(line, room) + RESET : line]; }
-    const cursor = this.cursorCol, last = tw + 1 - room;
-    // The cursor in a cell no mark covers: the start while it fits before the » cell, else just inside the marks.
-    if (cursor <= room - 2) this.scrollX = 0;
-    else if (cursor < this.scrollX + 1) this.scrollX = cursor - 1;
-    else if (cursor > this.scrollX + room - 2) this.scrollX = cursor - room + 2;
-    this.scrollX = Math.max(0, Math.min(this.scrollX, last));
-    this.cursorCol = cursor - this.scrollX;
-    const cells = headOf(tailFrom(line, this.scrollX), room) + RESET;
-    const left = this.scrollX > 0, right = this.scrollX < last, mark = (m: string) => fg(C.dark) + m + RESET;
-    const body = headOf(left ? tailFrom(cells, 1) : cells, room - (left ? 1 : 0) - (right ? 1 : 0)) + RESET;
-    return [(left ? mark("«") : "") + body + (right ? mark("»") : "")];
-  }
-
-  /** The source place under a cell as last drawn: on one row, counted from the first cell shown (every caller's click). */
-  override posAt(x: number, y: number): { row: number; col: number } { return super.posAt(x + this.scrollX, y); }
+  /** Its one row (the draft view's line adapter, src/draft-view.ts): scrolled sideways, never wrapped. */
+  get oneRow(): LineRow { return (this.views.line ??= new LineRow(this)); }
+  /** The cursor's cell in the line as last drawn (a status line puts the terminal's cursor there). */
+  get cursorCol(): number { return this.oneRow.cursorCol; }
 
   /** The text with ▌ where the cursor is, uncoloured (a status line's part). */
   plain(): string { return this.text.slice(0, this.col) + INPUT_CURSOR + this.text.slice(this.col); }
@@ -178,7 +153,7 @@ export class LineField extends Draft {
   show(w: number): string {
     if (this.fresh) return `${bg(C.blue)}${fg(C.white)}${this.text}${RESET}${paint(`|07${INPUT_CURSOR} |08⏎ keeps it, typing replaces it`)}`;
     // One cell kept for the cursor after the last character (the draft draws it there).
-    return this.render(Math.max(1, w - 1), 1)[0] ?? "";
+    return this.oneRow.render(Math.max(1, w - 1));
   }
 }
 

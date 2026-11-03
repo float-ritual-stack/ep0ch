@@ -125,7 +125,7 @@ describe("the reader's four modes, with no service", () => {
     expect(s.render(60, 12, h).lines.join("\n")).toContain("editing · Seed potatoes");
     expect(s.show({ ...note("Another note"), id: "9a8b7c6d-1111-4222-8333-444455556666" }, h)).toBe(false);                     // held on its note
     s.refresh(note(TEXT, 4));
-    expect(s.draft!.changedElsewhere).toBe(true);
+    expect(s.draft!.status.changedElsewhere).toBe(true);
     expect(await s.travel(-1, h)).toBe("nothing to go back to: this reader hasn't followed a link here");
     s.drafting!.dispose();
     s.session = new CommentSession(s.msg!, [], "threads");

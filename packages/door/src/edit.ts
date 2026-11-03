@@ -1,7 +1,7 @@
-import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import { ReaderPosition, PositionRows } from "./reader-position";
-import { Again } from "./arm";
+import { DraftViews, draftView } from "./draft-view";
+import { DraftStatus } from "./draft-status";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
@@ -13,15 +13,12 @@ import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-s
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
-import type { Placement } from "./kitty";
-import type { LinkTarget } from "./refs";
 import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, keyName, type ArgsOfSet } from "./surface/actions";
-import { Gesture, SELECT_BG } from "./surface/selection";
+import { Gesture } from "./surface/selection";
 import { stateDir } from "./state";
-import { bg, C, chip, codePointCells, drawEllipsized, fg, RESET, width } from "./style";
-import { wrap } from "./text";
-import { lastTop, pageRows, scrolled, scrollOff } from "./scroll";
+import { width } from "./style";
+import { pageRows } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
@@ -94,46 +91,29 @@ const HOST_PART: Record<string, DraftAction> = { "edit.save": "save", "draft.pic
 export class Draft {
   lines: string[];
   position = new ReaderPosition();
-  private positionRows = new PositionRows(this.position);
+  /** Every view of this draft (src/draft-view.ts): its raw rows, a line field's one row, rich cells, the popup. */
+  readonly views: DraftViews = new DraftViews(this);
   get row() { return this.position.cursor.row; }
   set row(value: number) { this.position.cursor.row = value; }
   get col() { return this.position.cursor.col; }
   set col(value: number) { this.position.cursor.col = value; }
   usePosition(position: ReaderPosition) {
     this.position = position;
-    this.positionRows.position = position;
     this.follow = false;
   }
-  /** Rich editing owns the rows now; patches must not compensate through a stale raw layout too. */
-  leaveRawView() {
-    this.shown = { w: 0, h: 15, rows: [] };
-    this.frame = null;
-    this.anchoredRow = null;
-  }
-  get scrollFigure() { return { top: this.top, room: this.shown.h, total: this.shown.rows.length }; }
-  /** The screen row of the cursor in the last render (the completion popup opens under it). */
-  cursorRow = 0;
-  cursorCol = 0;
   readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
   onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
   private openedFolds = new Set<string>();
-  private anchoredRow: number | null = null;
   /** The text the draft started from, to tell whether anything changed. */
   private original: string;
-  /** Another writer changed the block after the draft opened (seen through an outline event). */
-  changedElsewhere = false;
-  /** The service refused the last save; the draft is kept as typed. */
-  conflict: string | null = null;
-  /** Where the draft was copied when the service refused it. */
-  savedCopy: string | null = null;
-  saving = false;
-  /** A save is asking the service how it will read the draft's properties; the draft holds still meanwhile. */
-  previewing = false;
-  /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
-  propertyWarned: string | null = null;
-  /** Esc once on unsaved text: esc again (Again) lets it go. */
-  private readonly discard = new Again();
+  /**
+   * Its one status line (src/draft-status.ts): a write under way, a conflict, the copy on disk, the esc ladder's arm and
+   * the last thing said. Its session owns it; the draft only says what its own keys did (undo, a paste, esc).
+   */
+  readonly status: DraftStatus = new DraftStatus();
+  /** The last thing said on its status line. */
+  get note(): string { return this.status.note; }
   /** When ctrl+z last stopped at a save and asked (0: it isn't asking): a ctrl+z after a pause goes past it (PIE-1414). */
   private undoArmed = 0;
   /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
@@ -144,7 +124,6 @@ export class Draft {
   enterSaves = false;
   /** The mouse's presses on its text, counted (a double click its word, a triple its line: `selectClicks`). */
   readonly clicks = new Gesture();
-  note = "";
 
   /**
    * Who changed the text since the draft opened (each once, in the order they first did), and who changed
@@ -249,7 +228,7 @@ export class Draft {
     return strayKeys(this.original, this.text, now - this.openedAt);
   }
   /** A save is under way (checking properties, or writing): nothing may change or close the draft. */
-  get busy() { return this.saving || this.previewing; }
+  get busy() { return this.status.busy; }
 
   /**
    * The person changed the text (never an agent's patch): the reader holding this draft tells the service, so a
@@ -315,7 +294,7 @@ export class Draft {
     const c = changeOf(before, this.text), text = this.text.slice(c.at, c.at + c.added);
     const lines = text ? text.split("\n").length : 0;
     this.record(by, lines > 1 ? `the paste (${lines} lines)` : "the paste");
-    if (lines > BIG_PASTE_LINES || Buffer.byteLength(text) > BIG_PASTE_BYTES) this.note = `pasted ${lines} line${lines === 1 ? "" : "s"} · ctrl+z undoes`;
+    if (lines > BIG_PASTE_LINES || Buffer.byteLength(text) > BIG_PASTE_BYTES) this.status.say(`pasted ${lines} line${lines === 1 ? "" : "s"} · ctrl+z undoes`);
   }
 
   /**
@@ -333,7 +312,7 @@ export class Draft {
     }
     this.seen = to;
     this.flashes = [];
-    this.discard.clear(); this.undoArmed = 0;
+    this.status.discard.clear(); this.undoArmed = 0;
     this.markWriter(by);
   }
 
@@ -356,14 +335,14 @@ export class Draft {
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
       this.undoArmed = Date.now();
-      return { asked: true, said: this.note = `saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history` };
+      return { asked: true, said: this.status.say(`saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history`) };
     }
     this.undos.pop();
     s.open = false;
     this.jump(s.before, by, editsOf(s, true));
     if (s.unit) this.patches = s.removes ? [...this.patches, s.unit] : this.patches.filter(u => u !== s.unit && !s.unit?.patchIds?.includes(u.patchId));
     this.redos.push(s);
-    return { asked: false, said: this.note = `undid ${s.what === "typing" ? "typing" : s.what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes` };
+    return { asked: false, said: this.status.say(`undid ${s.what === "typing" ? "typing" : s.what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes`) };
   }
 
   /** ctrl+y (ctrl+shift+z): the last step undo took back, put back. An agent puts back only its own. */
@@ -377,7 +356,7 @@ export class Draft {
     this.jump(s.after, by, editsOf(s, false));
     if (s.unit) this.patches = s.removes ? this.patches.filter(u => u !== s.unit && !s.unit?.patchIds?.includes(u.patchId)) : [...this.patches, s.unit];
     this.undos.push(s);
-    return this.note = `redid ${s.what}`;
+    return this.status.say(`redid ${s.what}`);
   }
 
   /** What ctrl+z would take back now, for the keys line: `typing`, `the paste (340 lines)`, `tidy's edit`. */
@@ -404,10 +383,9 @@ export class Draft {
     this.record(USER, "the reload");
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);
-    this.changedElsewhere = false;
-    this.conflict = null;
+    this.status.settled();
     this.writers = []; this.lastWriter = null;
-    this.note = "reloaded the current text";
+    this.status.say("reloaded the current text");
   }
 
   /**
@@ -474,8 +452,8 @@ export class Draft {
     const cursor = position(selection?.end ?? text.length);
     this.row = cursor.row; this.col = cursor.col;
     this.anchor = selection ? position(selection.start) : null; this.goal = null;
-    this.discard.clear(); this.undoArmed = 0;
-    this.note = "";
+    this.status.discard.clear(); this.undoArmed = 0;
+    this.status.say("");
     if (this.text !== before) this.wrote(by, "the insert");
   }
 
@@ -497,7 +475,7 @@ export class Draft {
 
   /** Write the draft next to the door's state so a refused save can't lose it. */
   copyOut(label = this.blockId.slice(0, 8)): string {
-    return (this.savedCopy = keepCopy(this.text + "\n", label));
+    return (this.status.savedCopy = keepCopy(this.text + "\n", label));
   }
 
   key(k: Key): DraftAction {
@@ -507,7 +485,6 @@ export class Draft {
     if (k.kind === "mouse") return "keep";
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
-    if (k.kind !== "char" && k.kind !== "paste" && k.kind !== "backspace") this.anchoredRow = null;
     if (k.kind === "paste") { this.pasteText(k.text); return "keep"; }
     // A paste typed out key by key (the App's) is one step: recorded once the last of its keys is in, or as soon as
     // another key comes.
@@ -522,20 +499,20 @@ export class Draft {
     if (bound?.action === "draft.copy") return "copy";
     // A cmd (super) key nothing binds never types; one the table binds (a rebind to cmd+z) runs below.
     if (k.kind === "super" && !bound) return "keep";
-    const was = this.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
-    this.discard.clear(); this.undoArmed = 0;
+    const was = this.status.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
+    this.status.discard.clear(); this.undoArmed = 0;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (chord && k.kind === "char" && k.ctrl && k.ch === "e") return "editor";
     if (bound) return this.run(bound.action, k, armed);
     if (k.kind === "char" && k.ctrl) {
       // ctrl+x ctrl+e: $EDITOR (bash's chord). ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
-      if (k.ch === "x") { this.ctrlX = true; this.note = `ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`; return "keep"; }
+      if (k.ch === "x") { this.ctrlX = true; this.status.say(`ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); return "keep"; }
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
       // A key the person's keymap took from a draft action (ctrl+z after draft.undo went to alt+u) says where it went.
       const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");
-      if (moved) this.note = moved;
+      if (moved) this.status.say(moved);
       return "keep";
     }
     if (k.kind === "esc") {
@@ -545,17 +522,17 @@ export class Draft {
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
       if (!was) {
-        this.discard.arm(true);
-        this.note = this.restored === this.text
+        this.status.discard.arm(true);
+        this.status.say(this.restored === this.text
           ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves" // says, not a hint row
-          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"; // says, not a hint row
+          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"); // says, not a hint row
         return "keep";
       }
       return "discard";
     }
     // A field whose host says ⏎ saves (an inspector's value): a typed ⏎ saves; shift+⏎ and a pasted line break are text.
     if (k.kind === "enter" && this.enterSaves && !("pasted" in k && k.pasted) && !("shift" in k && k.shift)) return "save";
-    this.note = "";
+    this.status.say("");
     const L = this.lines, len = L.length, r0 = this.row, cur = this.line;
     const typing = k.kind === "char" || k.kind === "enter" || k.kind === "alt-enter" || k.kind === "backspace" || k.kind === "delete";
     // Typing over a selection replaces it; backspace and delete take it away.
@@ -578,10 +555,10 @@ export class Draft {
         else if (this.row < L.length - 1) { this.row++; this.col = 0; }
         break;
       // Up and down move by the rows drawn (a wrapped line is several), keeping the column they started at.
-      case "up": this.moveVisual(-1); break;
-      case "down": this.moveVisual(1); break;
-      case "pgup": this.moveVisual(-this.pageRows()); break;
-      case "pgdn": this.moveVisual(this.pageRows()); break;
+      case "up": this.views.raw.moveBy(-1); break;
+      case "down": this.views.raw.moveBy(1); break;
+      case "pgup": this.views.raw.moveBy(-this.views.raw.pageRows()); break;
+      case "pgdn": this.views.raw.moveBy(this.views.raw.pageRows()); break;
       case "home": this.col = 0; break;
       case "end": this.col = this.line.length; break;
       // Enter keeps the list going (draft.newline); alt+enter, shift+enter and a pasted line break are plain line breaks.
@@ -633,12 +610,12 @@ export class Draft {
   private run(action: string, k: Key, armed: boolean): DraftAction {
     const host = HOST_PART[action];
     if (host === "follow" && !this.linkAtCursor()) {
-      this.note = "no link here · ctrl+l on a [[page]], ((reference)) or [text](url) opens it beside the edit";
+      this.status.say("no link here · ctrl+l on a [[page]], ((reference)) or [text](url) opens it beside the edit");
       return "keep";
     }
     if (host) return host;
     const name = action === "draft.undo" && "shift" in k && k.shift ? "draft.redo" : action;
-    void DRAFT_ACTIONS.run(name as DraftActionName, name === "draft.undo" && armed ? { past: true } : {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); });
+    void DRAFT_ACTIONS.run(name as DraftActionName, name === "draft.undo" && armed ? { past: true } : {}, this, USER).catch(e => { this.status.say(e instanceof Error ? e.message : String(e)); });
     return "keep";
   }
 
@@ -945,7 +922,7 @@ export class Draft {
     }
     if (!u) throw new ActionRefused(by.kind === "user" ? "no agent edit to undo in this draft" : "this agent has no edit to undo in this draft");
     if (!this.revertPatch(u.patchId, by)) throw new ActionRefused(`couldn't undo ${patchLabel(u.by)}'s edit: the text changed around it since`);
-    return this.note = `undid ${patchLabel(u.by)}'s edit`;
+    return this.status.say(`undid ${patchLabel(u.by)}'s edit`);
   }
 
   /** Replace `spans` of the text; the cursor, selection, view and lit patches move with it. */
@@ -954,15 +931,11 @@ export class Draft {
     this.settle();
     this.record(USER, "a change");
     const before = this.text, after = applyLocated(before, spans);
+    // What stays put on screen is the place, in source coordinates (a view of the draft keeps it at each render, never
+    // read here): the cursor's line on the row it was drawn on while it's in view, else the top row's line. Mapped through
+    // the patch, the next render draws it where it was, whatever view draws it and whether or not one drew it yet.
     const view = this.position.view, viewOffset = view ? this.offsetOf(view.line, 0) : null;
-    // What stays put on screen: the cursor's row while it's in view, else the top row's text.
-    const w = this.shown.w;
-    let keep: { offset: number; screen: number } | null = null;
-    if (w) {
-      const rows = this.layout(w), at = this.cursorIn(rows);
-      if (at.vi >= this.top && at.vi < this.top + this.shown.h) keep = { offset: this.offsetOf(this.row, this.col), screen: at.vi - this.top };
-      else { const r = rows[this.top]; if (r) keep = { offset: this.offsetOf(r.line, [...this.lines[r.line]!].slice(0, r.start).join("").length), screen: 0 }; }
-    }
+    const caret = this.position.caret?.line === this.row ? this.position.caret : null;
     const cursor = map(this.offsetOf(this.row, this.col));
     const anchor = this.anchor ? map(this.offsetOf(this.anchor.row, this.anchor.col)) : null;
     const flashes = this.flashes.map(f => ({ ...f, start: map(f.start), end: map(f.end) }));
@@ -970,13 +943,8 @@ export class Draft {
     if (view && viewOffset !== null) view.line = this.placeOf(map(viewOffset)).row;
     const c = this.placeOf(cursor);
     this.row = c.row; this.col = c.col;
+    if (caret) { this.position.view = { line: c.row, row: caret.row }; this.position.caret = { line: c.row, row: caret.row }; }
     this.anchor = anchor === null ? null : this.placeOf(anchor);
-    if (keep && w) {
-      const p = this.placeOf(map(keep.offset)), rows = this.layout(w);
-      this.positionRows.source = rows.map(r => r.line);
-      this.top = Math.max(0, this.viOf(rows, p.row, p.col) - keep.screen);
-      this.anchoredRow = keep.screen;
-    }
     this.flashes = flashes;
     if (patchId !== null) {
       let delta = 0;
@@ -990,21 +958,12 @@ export class Draft {
       }
       this.patches.push(unit);
       if (this.patches.length > PATCH_UNDO_KEEP) this.patches.shift();
-      this.discard.clear(); this.undoArmed = 0;
+      this.status.discard.clear(); this.undoArmed = 0;
       if (this.text !== before) { this.markWriter(by); this.record(by, `${patchLabel(by)}'s edit`, unit); }
       return;
     }
-    this.discard.clear(); this.undoArmed = 0;
+    this.status.discard.clear(); this.undoArmed = 0;
     if (this.text !== before) { this.markWriter(by); this.record(by, "taking back an edit", removed, !!removed); }
-  }
-
-  /** The visual row a place is drawn on. */
-  private viOf(rows: VRow[], row: number, col: number): number {
-    const cp = [...(this.lines[row] ?? "").slice(0, col)].length;
-    let vi = rows.findIndex(r => r.line === row);
-    if (vi < 0) return 0;
-    while (vi + 1 < rows.length && rows[vi + 1]!.line === row && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
-    return vi;
   }
 
   // ── the selection (a drag in the draft) ────────────────────────────────────
@@ -1041,7 +1000,6 @@ export class Draft {
   /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
   place(row: number, col: number, extend = false) {
     this.follow = true;
-    this.anchoredRow = null;
     const r = Math.max(0, Math.min(this.lines.length - 1, row));
     if (extend) this.anchor ??= { row: this.row, col: this.col };
     else this.anchor = null;
@@ -1049,7 +1007,7 @@ export class Draft {
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
     this.selectAsk();
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
-    this.goal = null; this.discard.clear(); this.undoArmed = 0;
+    this.goal = null; this.status.discard.clear(); this.undoArmed = 0;
     // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
     this.letChordGo();
   }
@@ -1057,55 +1015,16 @@ export class Draft {
   /** Let a pending ctrl+x go (its note too); true when one was pending. */
   private letChordGo(): boolean {
     if (!this.ctrlX) return false;
-    this.ctrlX = false; this.note = "";
+    this.ctrlX = false; this.status.say("");
     return true;
   }
 
   // ── the view: soft-wrapped rows, the wheel, the mouse ──────────────────────
 
-  private get top() { return this.positionRows.top; }
-  private set top(value: number) { this.positionRows.top = value; }
   /** The view follows the cursor; false after the wheel scrolled it, until the next key. */
   follow = true;
   /** The column up and down keep to (cells from the row's left), while they repeat. */
-  private goal: number | null = null;
-  /** The last render: its width, height and rows, for the wheel, clicks and up/down. */
-  private shown: { w: number; h: number; rows: VRow[] } = { w: 0, h: 15, rows: [] };
-  /** Rows PgUp PgDn move the cursor (and scroll): the rows shown, less one (pageRows, PIE-1293). */
-  pageRows(): number { return pageRows(this.shown.h); }
-  /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
-  preview = false;
-  /**
-   * The preview scrolled by the wheel (PIE-846): its source offset from the cursor, for the text it was scrolled on. Typing (the text changing)
-   * lets it go, and the preview follows the cursor's line again.
-   */
-  previewScroll: { lineDelta: number; row: number; text: string } | null = null;
-  /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
-  frame: {
-    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" | "attach" | "file-new" | "snippet.next" | "snippet.previous" | "snippet.end" }[];
-    /**
-     * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
-     * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.
-     */
-    preview?: { row: number; col: number; cols: number; rows: number; top: number; total: number; source: number[]; placements?: Placement[] };
-    /** The preview's links, where they're drawn (PIE-592): a click on one follows it. */
-    links?: { row: number; from: number; to: number; target: LinkTarget }[];
-  } | null = null;
-
-  /**
-   * Rows drawn under a line, read-only (PIE-981): what a handler line last drew, kept in view while the lines around it are
-   * edited. Already coloured, `w` wide at most; the host sets it before each paint (a draft that has none draws none). The
-   * cursor never stops on one, and a click on one lands at the end of its line.
-   */
-  kept: ((line: number, w: number) => string[]) | null = null;
-
-  /**
-   * A line's ink while it is typed (PIE-1312): spans of code points [from, to) drawn in colour `fg`, `under` underlined (what
-   * won't run). The host sets it (a `::button` line's parts and marks); the cursor, a selection and an agent's glow draw over it.
-   */
-  inks: ((line: number, text: string) => readonly { from: number; to: number; fg: number; under?: boolean }[] | null) | null = null;
-
-  /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
+  goal: number | null = null;
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
     if (!answer && !this.asks.has(this.line)) return;
@@ -1148,179 +1067,12 @@ export class Draft {
     }
     return hidden;
   }
-
-  layout(w: number): VRow[] {
-    const out: VRow[] = [];
-    const hidden = this.hiddenAnswerLines();
-    this.lines.forEach((line, i) => {
-      if (hidden.has(i)) return;
-      const chars = [...line];
-      const rows = wrapRows(chars, Math.max(4, w), hangOf(line, Math.max(4, w)));
-      for (const r of rows) out.push({ line: i, ...r });
-      const last = rows.at(-1)!;
-      const room = w - last.indent - width(chars.slice(last.start, last.end).join("")) - (i === this.row ? 1 : 0);
-      const status = this.askStatus(line, room);
-      if (status && width(status) > room) {
-        for (const text of wrap(status.trim(), Math.max(4, w))) out.push({ line: i, start: chars.length, end: chars.length, indent: 0, status: text });
-      }
-      for (const text of this.kept?.(i, Math.max(4, w)) ?? []) out.push({ line: i, start: chars.length, end: chars.length, indent: 0, status: text, drawn: true });
-    });
-    return out;
-  }
-
-  /** The visual row the cursor is on, its cell (`x`, in cells) and its code point in the line (`cp`). */
-  private cursorIn(rows: VRow[]): { vi: number; x: number; cp: number } {
-    const cp = [...this.line.slice(0, this.col)].length;
-    let vi = rows.findIndex(r => r.line === this.row);
-    if (vi < 0) return { vi: 0, x: 0, cp };
-    while (vi + 1 < rows.length && rows[vi + 1]!.line === this.row && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
-    const r = rows[vi]!, cw = codePointCells([...this.line]);
-    let x = r.indent; for (let k = r.start; k < cp; k++) x += cw[k] ?? 1;
-    return { vi, x, cp };
-  }
-
-  /** The source place at a visual row's cell `x`. */
-  private posIn(rows: VRow[], vi: number, x: number): { row: number; col: number } {
-    if (!rows.length) return { row: 0, col: 0 };
-    vi = Math.max(0, Math.min(rows.length - 1, vi));
-    const r = rows[vi]!, last = rows[vi + 1]?.line !== r.line || !!rows[vi + 1]?.status;
-    if (r.status) return { row: r.line, col: this.lines[r.line]!.length };
-    // The code point at cell `x`: past the glyphs that end at or before it, never inside one (a wrapped row's
-    // last glyph is where its end lands, so a click past it never splits a joined emoji).
-    const line = this.lines[r.line]!, cw = codePointCells([...line]);
-    let end = last ? r.end : Math.max(r.start, r.end - 1);
-    while (!last && end > r.start && cw[end] === 0) end--;
-    let cp = r.start;
-    for (let at = r.indent; cp < end && at + (cw[cp] ?? 1) <= x; ) { at += cw[cp] ?? 1; cp++; while (cp < end && cw[cp] === 0) cp++; }
-    return { row: r.line, col: [...line].slice(0, cp).join("").length };
-  }
-
-  private moveVisual(d: number) {
-    if (!this.shown.w) {
-      this.row = Math.max(0, Math.min(this.lines.length - 1, this.row + d));
-      this.col = Math.min(this.col, this.line.length);
-      return;
-    }
-    const rows = this.layout(this.shown.w).filter(r => !r.status), at = this.cursorIn(rows);
-    this.goal ??= at.x;
-    const p = this.posIn(rows, at.vi + d, this.goal);
-    this.row = p.row; this.col = p.col;
-  }
-
-  /** The wheel: the view moves `by` rows, past the end as a reader does (PIE-622); the cursor stays where it is (typing brings it back). */
-  scrollBy(by: number) {
-    this.top = scrolled(this.top, by, lastTop(this.shown.rows.length, this.shown.h));
-    this.follow = false;
-  }
-
-  /** The source place under a cell of the text as last drawn (`x`, `y` from the text's top left). */
-  posAt(x: number, y: number): { row: number; col: number } {
-    return this.posIn(this.shown.rows, this.top + Math.max(0, y), Math.max(0, x));
-  }
-  /**
-   * Where a part dropped at host cell `x`, `y` lands (PIE-1357): after the block of lines under it (down to the line
-   * before a blank one), and the host row its drop line is drawn on, under that block. Null off the text.
-   */
-  dropAt(x: number, y: number): { line: number; row: number } | null {
-    const f = this.frame, rows = this.shown.rows;
-    // Rich edit draws no source rows (PIE-1357): the part lands after the block the cursor is in, with no line drawn.
-    if (!f || !rows.length) return { line: landingLine(this.lines, this.row), row: -1 };
-    if (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols) return null;
-    const line = landingLine(this.lines, rows[Math.min(rows.length - 1, this.top + (y - f.row))]!.line);
-    // Its drop line: under the last row the landing line is drawn on, when that row is in view.
-    let k = rows.length - 1;
-    while (k > 0 && rows[k]!.line > line) k--;
-    const row = f.row + (k - this.top) + 1;
-    return { line, row: row > f.row && row < f.row + f.rows ? row : -1 };
-  }
-
-
-
-  /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */
-  render(w: number, h: number): string[] {
-    const w1 = Math.max(4, w);
-    const rows = this.layout(w1);
-    this.positionRows.source = rows.map(r => r.line);
-    this.positionRows.origin = this.frame?.row ?? 0;
-    this.shown = { w: w1, h: Math.max(1, h), rows };
-    const at = this.cursorIn(rows), sel = this.selection();
-    // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where
-    // the rows under it are the blank ones past the end (reader.overscroll; none keeps the last line on the edge).
-    if (this.follow && this.anchoredRow !== null) this.top = at.vi - this.anchoredRow;
-    else if (this.follow) {
-      const off = scrollOff(h);
-      if (at.vi - off < this.top) this.top = at.vi - off;
-      if (at.vi + off >= this.top + h) this.top = at.vi + off - h + 1;
-    }
-    // An incoming answer can require more blank room below than the usual overscroll limit.
-    this.top = Math.max(0, Math.min(this.top, this.follow && this.anchoredRow !== null ? Math.max(0, at.vi) : lastTop(rows.length, h)));
-    this.cursorCol = at.x;
-    this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - this.top));
-    const out: string[] = [];
-    // Agents' patches just landed: their text lit, and who made it at the end of their last row.
-    const now = Date.now();
-    this.flashes = this.flashes.filter(f => f.until > now);
-    const lit = this.flashes.map(f => {
-      const a = this.placeOf(f.start), b = this.placeOf(f.end);
-      const cp = (p: { row: number; col: number }) => [...this.lines[p.row]!.slice(0, p.col)].length;
-      return { a: { row: a.row, cp: cp(a) }, b: { row: b.row, cp: cp(b) }, label: f.label };
-    });
-    for (let vi = this.top; vi < Math.min(rows.length, this.top + h); vi++) {
-      const r = rows[vi]!, chars = [...this.lines[r.line]!];
-      if (r.status) { out.push(r.drawn ? r.status : fg(C.lmagenta) + r.status + RESET); continue; }
-      const cells = chars.slice(r.start, r.end).map(c => (c === "\t" || c < " " ? " " : c));
-      // Selected cells, in this row's own cells.
-      let s0 = -1, s1 = -1;
-      if (sel) {
-        const cpOf = (p: { row: number; col: number }) => [...this.lines[p.row]!.slice(0, p.col)].length;
-        const a = sel[0].row < r.line ? 0 : sel[0].row === r.line ? cpOf(sel[0]) : Infinity;
-        const b = sel[1].row > r.line ? Infinity : sel[1].row === r.line ? cpOf(sel[1]) : -1;
-        s0 = Math.max(r.start, a) - r.start; s1 = Math.min(r.end, b) - r.start;
-      }
-      const cx = vi === at.vi ? at.cp - r.start : -1;
-      if (cx >= cells.length) cells.push(" ");
-      const glow = lit.map(f => ({
-        from: (f.a.row < r.line ? 0 : f.a.row === r.line ? f.a.cp : Infinity) - r.start,
-        to: (f.b.row > r.line ? Infinity : f.b.row === r.line ? f.b.cp : -1) - r.start,
-        last: f.b.row === r.line && f.b.cp >= r.start && (f.b.cp <= r.end || r.end === chars.length), label: f.label,
-      }));
-      let line = " ".repeat(r.indent) + fg(C.white), style = "";
-      const inks = this.inks?.(r.line, this.lines[r.line]!) ?? null;
-      const ink = (j: number) => {
-        if (!inks) return "";
-        const at = r.start + j, hit = inks.filter(k => at >= k.from && at < k.to);
-        if (!hit.length) return "";
-        const colour = hit.findLast(k => !k.under) ?? hit.at(-1)!;
-        return fg(colour.fg) + (hit.some(k => k.under) ? "\x1b[4m" : "");
-      };
-      // A style changes only at a glyph's first code point, never between the parts of a joined one.
-      const cw = codePointCells(chars);
-      cells.forEach((c, j) => {
-        if (cw[r.start + j] === 0 && j > 0) { line += c; return; }
-        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? chip(C.magenta) : ink(j);
-        if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
-        line += c;
-      });
-      const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? this.askStatus(this.lines[r.line]!) : "";
-      const roomForStatus = Math.max(0, w1 - r.indent - width(cells.join("")));
-      if (progress) line += RESET + fg(C.lmagenta) + this.askStatus(this.lines[r.line]!, roomForStatus);
-      const said = glow.find(g => g.last)?.label;
-      const room = w1 - r.indent - width(cells.join("")) - width(progress ? this.askStatus(this.lines[r.line]!, roomForStatus) : "") - 2;
-      out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + drawEllipsized("@" + said, room) + RESET : ""));
-    }
-    return out;
-  }
-}
-
-/** One drawn row of a draft: line `line`, code points [start, end), drawn `indent` cells in. */
-export interface VRow {
-  line: number; start: number; end: number; indent: number;
-  /** A row that is no text of the line: its progress words, or (`drawn`) a read-only drawing `kept` put under it, already coloured. */
-  status?: string; drawn?: true;
 }
 
 /** The keys that select with shift held (`Draft.key`). */
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
+
+export { hangOf, wrapRows, type VRow } from "./draft-view";
 
 /** A list item's lead: its indent, marker (`-`, `*`, `+`, `1.`, `1)`), the space after it and a `[ ]` box. */
 export interface ListLead { indent: string; marker: string; gap: string; box: string; length: number }
@@ -1339,41 +1091,6 @@ const TYPED_MARKER = new RegExp(`^([ \\t]*)(?:[-*+]|\\d{1,9}[.)])[ \\t]+(?:${STE
 export const nextMarker = (m: string) => (/^\d/.test(m) ? `${Number.parseInt(m, 10) + 1}${m.at(-1)}` : m);
 /** An indent one level less: a tab, or two spaces. */
 const outdentBy = (ind: string) => (ind.endsWith("\t") ? ind.slice(0, -1) : ind.slice(0, Math.max(0, ind.length - 2)));
-
-/** How far a line's continuation rows are hung: under the item's text, or the line's own indent; at most half the width. */
-export function hangOf(line: string, w: number): number {
-  const lead = listLead(line);
-  const n = lead ? [...line.slice(0, lead.length)].length : /^[ \t]*/.exec(line)![0].length;
-  return Math.min(n, Math.floor(w / 2));
-}
-
-/**
- * A line's rows at width `w`: broken after a space where one fits (a word longer than a row is cut), the
- * first row from the left edge and the rest `hang` in. A space a row ends on may sit in the cell past it.
- */
-export function wrapRows(chars: readonly string[], w: number, hang: number): { start: number; end: number; indent: number }[] {
-  const out: { start: number; end: number; indent: number }[] = [];
-  const n = chars.length;
-  // Each code point's cells as the row draws it, by glyph (a tab or control as one space; CJK and wide emoji two,
-  // a joined emoji's or a combining mark's later code points none), so a row wraps where the screen ends (PIE-510, PIE-1291).
-  const cw = codePointCells(chars);
-  let s = 0;
-  for (;;) {
-    const indent = out.length ? hang : 0, room = Math.max(1, w - indent);
-    // `e`: the first character past the row's room.
-    let e = s, used = 0;
-    while (e < n && used + cw[e]! <= room) used += cw[e++]!;
-    if (e >= n) { out.push({ start: s, end: n, indent }); return out; }
-    // The space just past a full row ends it (drawn in the spare cell); else the last space inside it.
-    let b = -1;
-    if (chars[e] === " ") b = e + 1;
-    else for (let i = e; i > s; i--) if (chars[i - 1] === " ") { b = i; break; }
-    // Never a first row of only the item's marker and indent; a word longer than a row is cut (at least one character a row).
-    if (b < s + (out.length ? 1 : hang + 1)) b = Math.max(e, s + 1);
-    out.push({ start: s, end: b, indent });
-    s = b;
-  }
-}
 
 /** A path as the person would type it: their home as `~`. */
 export const tidy = (p: string) => { const h = process.env.HOME; return h && p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
@@ -1450,16 +1167,17 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       { act: "draft.scroll by=-5 preview=true", does: "scrolls the preview up five rows" },
     ],
     run({ by, preview, page }, d, actor) {
-      if (!preview) { d.scrollBy(page ? Math.sign(by) * d.pageRows() : by); return { following: d.follow }; }
-      const p = d.frame?.preview;
-      if (!d.preview || !p) throw new ActionRefused("the preview isn't shown · ctrl+p (draft.preview) shows it");
+      const v = draftView(d);
+      if (!preview) { v.scrollBy(page ? Math.sign(by) * v.pageRows() : by); return { following: d.follow }; }
+      const p = v.frame?.preview;
+      if (!v.preview || !p) throw new ActionRefused("the preview isn't shown · ctrl+p (draft.preview) shows it");
       if (page) by = Math.sign(by) * pageRows(p.rows);
       const top = Math.max(0, Math.min(Math.max(0, p.total - (p.rows - 1)), p.top + by));
       const projected = new PositionRows(new ReaderPosition());
       projected.source = p.source;
       projected.top = top;
       const view = projected.position.view;
-      d.previewScroll = view ? { lineDelta: view.line - d.row, row: view.row, text: d.text } : null;
+      v.previewScroll = view ? { lineDelta: view.line - d.row, row: view.row, text: d.text } : null;
       return { previewTop: top };
     },
   }),
@@ -1501,7 +1219,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       { act: "draft.preview on=true", does: "shows the Markdown preview under the draft" },
       { act: "draft.preview", does: "shows the preview if hidden, hides it if shown" },
     ],
-    run({ on }, d, actor) { d.preview =on ?? !d.preview; return { preview: d.preview }; },
+    run({ on }, d) { const v = draftView(d); v.preview = on ?? !v.preview; return { preview: v.preview }; },
   }),
   "draft.copy": def({
     summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy", says: "copy the selected text of the draft" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],

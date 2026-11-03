@@ -1,6 +1,7 @@
 // PIE-956: the showcase's "Regions in prose" section. A render script's table, a ::= sentence and a written output region read
 // like the page around them, each behind one dim mark in the margin that shows its name, when it ran and its controls
 // while the cursor is on it. One of the showcase's test files; the harness (harness.ts) seeds a scratch outline and opens the screen.
+import { draftView } from "../../src/draft-view";
 import { visible } from "../../src/style";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -147,7 +148,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       for (const key of hintKeys(pane.surface.attachmentHint("edit-preview"))) expect(EDIT_PREVIEW_KEYS.some(row => row.key === key)).toBe(true);
       if (side === "reader") pane.key({ kind: "esc" }, stage);
       else pane.surface.editPreviewKey({ kind: "esc" }, pane.host(stage));
-      await until(() => !draft.preview, "Esc closes the preview from either side");
+      await until(() => !draftView(draft).preview, "Esc closes the preview from either side");
       expect(pane.draft).toBe(draft);
     }
     await act("edit.close", { discard: true });
@@ -325,9 +326,9 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       mouse("drag", left.col + 4 + dx, left.row);
       mouse("up", left.col + 4 + dx, left.row);
       await until(() => { screen(); return pane.surface.editPreview.frame!.col === left.col + dx; }, "preview dragged into the right margin");
-      const r = pane.surface.editPreview.rect!, top = d.frame!.preview!.top;
+      const r = pane.surface.editPreview.rect!, top = draftView(d).frame!.preview!.top;
       stage.key({ kind: "mouse", action: "wheel-down", button: 0, x: origin.x + r.col + 2, y: origin.y + r.row + 3 }, stage.ctx!);
-      await until(() => { screen(); return d.frame!.preview!.top > top; }, "wheel scrolls the margin preview");
+      await until(() => { screen(); return draftView(d).frame!.preview!.top > top; }, "wheel scrolls the margin preview");
       mouse("down", r.col + r.cols - 4, r.row);
       mouse("up", r.col + r.cols - 4, r.row);
       await until(() => screen().includes("Placement"), "preview placement chip opens in the margin");
@@ -421,9 +422,9 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       await act("comment.place", { place: "floating" });
       screen();
       await act("comment.move", { col: 2, row: pane.innerFrame!.row - 16, cols: 60, rows: 12 });
-      await until(() => { screen(); return !!pane.surface.session!.composer!.frame?.preview?.placements?.length; }, "preview picture loaded");
+      await until(() => { screen(); return !!draftView(pane.surface.session!.composer!).frame?.preview?.placements?.length; }, "preview picture loaded");
       const view = h.sc.render(app);
-      const picture = pane.surface.session!.composer!.frame!.preview!.placements![0]!;
+      const picture = draftView(pane.surface.session!.composer!).frame!.preview!.placements![0]!;
       expect(view.placements?.some(p => p.key.endsWith(picture.key))).toBe(true);
     } finally {
       await act("comment.write", { body: "" });

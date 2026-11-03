@@ -267,7 +267,7 @@ describe("the lifecycle, on a fake target", () => {
   test("a stale refusal keeps the draft as typed, copies it and says so; any other keeps it with the reason; a write in flight holds it", async () => {
     let release: (o: Outcome) => void = () => {};
     // The adapter marks its write in flight (Draft.saving) until the service answers.
-    const { t } = fake({ async submit(s) { s.draft.saving = true; const o = await new Promise<Outcome>(r => { release = r; }); s.draft.saving = false; return o; } });
+    const { t } = fake({ async submit(s) { s.draft.status.phase = "saving"; const o = await new Promise<Outcome>(r => { release = r; }); s.draft.status.phase = null; return o; } });
     const s = DraftSession.open(t, { text: "Fern", base: 1 });
     keys(s, ["s"]);
     const writing = s.submit(USER);
@@ -276,8 +276,8 @@ describe("the lifecycle, on a fake target", () => {
     expect(await s.leave()).toEqual({ left: "saving" });
     release({ ok: false, stale: true, why: "changed elsewhere since you started · not saved" });
     expect(await writing).toMatchObject({ ok: false, stale: true });
-    expect([s.open, s.draft.text, s.draft.conflict]).toEqual([true, "Ferns", "changed elsewhere since you started · not saved"]);
-    expect(readFileSync(s.draft.savedCopy!, "utf8")).toBe("Ferns\n");
+    expect([s.open, s.draft.text, s.draft.status.conflict]).toEqual([true, "Ferns", "changed elsewhere since you started · not saved"]);
+    expect(readFileSync(s.draft.status.savedCopy!, "utf8")).toBe("Ferns\n");
     expect(s.draft.note).toContain("your draft is kept and copied to");
     s.dispose();
   });
@@ -454,7 +454,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     await other.update(id, "Prune the apple tree\nin late winter", n.revision!, OTHER);
     const r = await t.submit(USER);
     expect(r).toMatchObject({ ok: false, stale: true });
-    expect([t.open, t.draft.text, t.draft.conflict]).toEqual([true, "Prune the apple trees\nin winter", "changed elsewhere since you started · not saved"]);
+    expect([t.open, t.draft.text, t.draft.status.conflict]).toEqual([true, "Prune the apple trees\nin winter", "changed elsewhere since you started · not saved"]);
     expect((await board.get(id))!.text).toBe("Prune the apple tree\nin late winter");     // theirs stands
     await t.reload();
     expect(t.draft.text).toBe("Prune the apple tree\nin late winter");
@@ -515,7 +515,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     const out = new Outgoing();
     const s = DraftSession.open(commentTarget({ where: () => where, note: m, board: () => board, out, landed: async r => { landed.push(r.id); } }), {});
     expect(s.target.place).toBe(`comment:${id}`);
-    expect(await s.submit(USER)).toEqual({ ok: false, why: "write the comment first" });
+    expect(await s.submit(USER)).toEqual({ ok: false, why: "write the comment first", said: "write the comment first" });
     keys(s, ["How much bark?"]);
     s.replace("How much bark? A barrow.", AGENT);
     const sent = await s.submit(USER);
@@ -537,7 +537,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     const late = DraftSession.open(commentTarget({ where: () => where, note: n, board: () => board, out: new Outgoing(), landed: async () => {} }), {});
     keys(late, ["And the tulips?"]);
     expect(await late.submit(USER)).toMatchObject({ ok: false, stale: true, why: expect.stringContaining("the note changed since you picked the passage") });
-    expect([late.open, late.draft.text, existsSync(late.draft.savedCopy!)]).toEqual([true, "And the tulips?", true]);
+    expect([late.open, late.draft.text, existsSync(late.draft.status.savedCopy!)]).toEqual([true, "And the tulips?", true]);
     late.dispose();
   }, 30_000);
 
@@ -555,7 +555,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(r).toMatchObject({ ok: false, why: expect.stringContaining("refused, not sent: Block is not an annotation") });
     expect(refusedWhy[0]).toContain("your text is kept here and copied to");
     expect(refusedWhy[0]).toContain("ctrl+s tries again, esc esc puts it aside (C brings it back, on selected words or the whole note)");
-    expect([s.open, s.draft.text, readFileSync(s.draft.savedCopy!, "utf8")]).toEqual([true, body, `${body}\n`]);
+    expect([s.open, s.draft.text, readFileSync(s.draft.status.savedCopy!, "utf8")]).toEqual([true, body, `${body}\n`]);
     // esc esc then puts it aside where C brings it back.
     expect(await s.leave()).toMatchObject({ left: "kept" });
     expect(unsent("comment:note-kitty")?.text).toBe(body);
@@ -574,7 +574,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
 
     const card = DraftSession.open(cardTarget({ kind: "card", lane: "Doing", view: "view-allotment-doing", create: async () => { throw new Error("Doing makes roadmap items through the allocator"); } }), {});
     keys(card, ["Fix the shed door"]);
-    expect(await card.submit(USER)).toEqual({ ok: false, why: "not created: Doing makes roadmap items through the allocator" });
+    expect(await card.submit(USER)).toMatchObject({ ok: false, why: "not created: Doing makes roadmap items through the allocator" });
     expect([card.open, card.draft.note]).toEqual([true, expect.stringContaining("your text is kept (and copied to")]);
     expect(await card.leave()).toMatchObject({ left: "kept", said: "the new card in Doing is kept here, not created · n in Doing brings it back" });
     expect(unsent("card:view-allotment-doing")?.text).toBe("Fix the shed door");

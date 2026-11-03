@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One draft view and one status line for every field (PIE-1560)
+
+- **An agent's patch never moves your place, in any field.** The reader's edit, a comment, rich cells and a line field keep the cursor on its row and a scrolled view on its top line while an agent's edit lands, before or after the field was first drawn.
+- **One status line, one writer.** Saving, checking properties, creating, a conflict and "changed elsewhere" are said by the draft session from what its target reports; the targets no longer write the draft's fields.
+- **The draft keeps only its text.** Its view lives in `src/draft-view.ts` (raw rows, a line field's one row, rich cells), its status in `src/draft-status.ts`; the side maps keyed by a draft are gone.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### Pictures in door tiles: mermaid, SVG, and kitty images from programs (PIE-1555)
 
 - **Diagrams and SVG in notes:** a ```mermaid fence (drawn by pele), a ```svg fence and an `[img::*.svg]` draw as pictures sized to the tile, on a terminal with kitty graphics; elsewhere they stay text with a caption.

@@ -3,6 +3,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
+import { draftView } from "../../src/draft-view";
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -455,10 +456,10 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
             const ends = lines.flatMap((l, i) => l.includes("End marker") ? [i] : []);
             expect(ends).toHaveLength(1);
             expect(lines[ends[0]!]!.match(/End marker/g)).toHaveLength(2);
-            const p = d.frame!.preview!, top = p.top;
+            const p = draftView(d).frame!.preview!, top = p.top;
             reader.surface.wheel(-1, reader.host(desk), { x: p.col + 2, y: p.row + 2 });
             reader.render(130, 28, true, desk);
-            expect(d.frame!.preview!.top).toBe(top + wheelRows(-1));
+            expect(draftView(d).frame!.preview!.top).toBe(top + wheelRows(-1));
           } else if (symptom === "images") {
             app.video = "kitty";
             d.replace(`Draft\n[img::${SHOWCASE_ASSETS}/seed-packet.webp] [height::4]`);
@@ -478,12 +479,12 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
             press({ kind: "down" });
             reader.render(130, 28, true, desk);
             const pop = completionOf(d)!, selected = pop.index;
-            const p = d.frame!.preview!;
+            const p = draftView(d).frame!.preview!;
             const before = p.top;
             reader.surface.wheel(-1, reader.host(desk), { x: p.col + 2, y: p.row + 2 });
             reader.render(130, 28, true, desk);
             expect(completionOf(d)!.index).toBe(selected);
-            expect(d.frame!.preview!.top).toBeLessThan(before);
+            expect(draftView(d).frame!.preview!.top).toBeLessThan(before);
           }
         } finally {
           app.video = video;
