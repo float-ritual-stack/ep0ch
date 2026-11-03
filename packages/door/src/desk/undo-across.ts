@@ -2,12 +2,31 @@
 // drawer), a gather into a group and a spill out of one are each one transaction on every desk they touched; undoing it
 // rebuilds each desk's shape from before, and a tile those shapes name by its id (`t-…`) is the same instance put back,
 // never a second one made by name. Desk applies it; the choices here are plain.
+import { keyCaption } from "../surface/actions";
+import { hintKey } from "../surface/modes";
 import { tileRegistry } from "./tile-registry";
 import { specTileIds, type LayoutEntry } from "./layout-history";
 import { savedNodes } from "./screen-spec";
 import { ScreenTile } from "./screen-tile";
 import type { Pane } from "./panes";
 import type { TileSpec } from "./tiles";
+
+/** Whose layout a ctrl+z on `desk` takes back (PIE-1569): it or a desk holding it, whichever changed last (a group's gather is its holder's). */
+export function undoDesk<D extends { history: { newest(): { seq: number } | null }; holder?: { desk(): unknown } | null }>(desk: D): D {
+  let best = desk;
+  for (let d = desk.holder?.desk() as D | undefined; d; d = d.holder?.desk() as D | undefined) if ((d.history.newest()?.seq ?? -1) > (best.history.newest()?.seq ?? -1)) best = d;
+  return best;
+}
+/** The desk holding the newest change among `desks` (a person's, or `party`'s own): where `layout.undo anywhere=true` acts (PIE-1559). */
+export function newestDesk<D extends { history: { newest(): { seq: number } | null; last(party: string): { seq: number } | null } }>(desks: D[], fallback: D, party: string | null): D {
+  const at = (d: D) => (party ? d.history.last(party) : d.history.newest())?.seq ?? -1;
+  return desks.reduce((best, d) => (at(d) > at(best) ? d : best), fallback);
+}
+/**
+ * A refusal said from another layout (PIE-1559): what changed there, and the key that takes it back from here. Not ctrl+z,
+ * which goes to the tile the person would step to (its own undo, a program): the explicit undo, keys left where they are.
+ */
+export const stepThere = (name: string, change: string): string => `${name} changed since (${change}); ${keyCaption(hintKey({ action: "layout.undo", args: { anywhere: true }, key: "ctrl+w B", label: "" }) ?? "ctrl+w B")} undoes it`;
 
 /** What gives a claimed tile up: a desk being put back (`releaseTile`). */
 export interface Releases { releaseTile(rid: string): Pane | undefined }

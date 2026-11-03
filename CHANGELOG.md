@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+z takes a gather back from inside the group, and a refusal says what to press (PIE-1559, PIE-1569)
+
+- **Gather, then ctrl+z:** the keys are on the group after `^W G`, and ctrl+z undoes the gather, from the group or stepped into it, the same tiles back.
+- **`^W B` undoes the newest layout change on any layout,** the screen's, the drawer's or a group's, with your keys where they are: never a tile's own undo, never a key to a program.
+- **A change on the other side is named, with what takes it back:** `your drawer changed since (you rename); ^W B undoes it`.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### Undo brings a tile back from the glass whole (PIE-1559)
 
 - **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it.

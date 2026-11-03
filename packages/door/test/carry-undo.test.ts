@@ -89,7 +89,7 @@ describe.skipIf(!outliner)("one undo brings a carried tile back whole (PIE-1559)
       await d.act(d.desk, "tile.drawer", { on: true }, "replies");
       await d.act(d.drawer(), "tile.open", { kind: "reader", name: "late", where: "right" }, "replies");
       const here = d.shape(d.desk), there = d.shape(d.drawer());
-      await expect(d.act(d.desk, "layout.undo")).rejects.toThrow(/changed since \(you open\); undo that first/);
+      await expect(d.act(d.desk, "layout.undo")).rejects.toThrow(/your drawer changed since \(you open\); \^W B undoes it/);
       expect(d.shape(d.desk)).toEqual(here);
       expect(d.shape(d.drawer())).toEqual(there);
     } finally { d.quit(); }

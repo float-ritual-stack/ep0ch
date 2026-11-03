@@ -100,6 +100,7 @@ const W_TABLE = [
   { key: "e", group: "mounts & groups", action: "mount.enter", how: run("mount.enter"), label: "go into a mount: every key is its own" },
   { key: "u", group: "mounts & groups", action: "mount.out", how: run("mount.out"), label: "pop a mount out to its full screen" },
   { key: "M", group: "mounts & groups", action: "screen.mount", how: run("screen.mount", {}, "-"), label: "put this screen on the desk" },
+  { key: "B", group: "layouts & more", action: "layout.undo", how: run("layout.undo", { anywhere: true }, "-"), label: "undo the newest layout change, on any layout" },
   { key: "I", group: "mounts & groups", action: "screen.part", how: run("screen.part"), label: "put the part around this tile on the desk" },
 
   { key: "a", group: "drawer", action: "tile.drawer", how: run("tile.drawer"), label: "put in your drawer, or take out" },
