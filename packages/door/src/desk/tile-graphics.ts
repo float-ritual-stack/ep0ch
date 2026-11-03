@@ -118,7 +118,8 @@ export function decodeImage(kv: Record<string, string>, raw: Buffer): Img {
   const width = Number(kv.s), height = Number(kv.v);
   if (!(width > 0 && height > 0)) throw new Error("EINVAL:no width and height (s, v)");
   const bpp = f === "24" ? 3 : 4;
-  if (bytes.length < width * height * bpp) throw new Error("ENODATA:fewer pixels than its size");
+  const need = width * height * bpp;
+  if (bytes.byteLength < need) throw new Error("ENODATA:fewer pixels than its size");
   let data: Uint8Array;
   if (bpp === 4) data = new Uint8Array(bytes.subarray(0, width * height * 4));
   else {

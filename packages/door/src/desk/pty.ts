@@ -255,11 +255,11 @@ export class PtyPane implements Pane {
   readonly graphics = new TileGraphics();
   /** The tile's size in pixels as its program asks it (a graphics placement's cells, XTWINOPS 14 and 16). */
   private geometry(term: XTermLike): TileGeometry {
-    const t = this.desk?.ctx.t;
+    const t = this.desk?.ctx?.t;
     return { cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, cols: term.cols, rows: term.rows, alt: term.buffer.active.type === "alternate" };
   }
   /** The door draws kitty graphics, so its tiles' programs may too. */
-  private get drawsGraphics(): boolean { return !!this.desk?.ctx.graphics; }
+  private get drawsGraphics(): boolean { return !!this.desk?.ctx?.graphics; }
   /** Lines scrolled back into what went by (0: the live screen). */
   private back = 0;
   /** The door's own selection of the screen's text (PIE-419), by buffer row so scrolling back moves it with the text. */
@@ -736,7 +736,7 @@ export class PtyPane implements Pane {
     if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
     if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ${this.run.rerun ? "run it again from the note" : `${keyCaption("enter")} runs it again`}${this.closesBy} · ${keyCaption(ESCAPE_CHORD)} back to the door\x1b[0m`;
     // Its program's pictures (PIE-1555), on the screen showing, cut to the rows in view and to the tile.
-    const placements = desk.ctx.graphics ? this.graphics.placements(top, w, h, b.type === "alternate") : [];
+    const placements = desk.ctx?.graphics ? this.graphics.placements(top, w, h, b.type === "alternate") : [];
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined, ...(placements.length ? { placements } : {}) };
   }
 

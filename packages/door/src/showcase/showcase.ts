@@ -1,6 +1,7 @@
 import { namedAgentSection } from "./named-agent";
 import { completionPlaceSection, completionSection, snippetSection } from "./completion";
 import { STRIP_SECTION } from "./strip";
+import { picturesSection } from "./pictures";
 import { spacingSection } from "./spacing";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
@@ -1175,19 +1176,9 @@ export const SECTIONS: Section[] = [
   {
     key: "images", need: "draw an image or video in a note; size it, place it, make it the note's header", part: "the media line (PIE-532): [img::path] and the layout properties beside it ([size::] [height::] [align::] [layout::hero] [alt::]), parsed once (parseMediaLine), laid out by renderDoc into Kitty placements (scaled by sharp to the box, never up), the header drawn by NoteSurface above the title; image.size, image.align and image.hero write the line through the note's save", files: "src/media.ts, src/doc.ts, src/surface/note.ts, src/kitty.ts",
     aside: "[ ] to an image, then + - size it, ← → move it, H makes it the header (or click its caption's [−][+] [◂][▸] [▀]) · ctrl+z undoes · an agent: images, then image.size n=2 to=50%, image.align, image.hero · images draw under Kitty graphics; elsewhere each line says what it is",
-    stage(n, show) {
-      const r = new ReaderPane();
-      return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]);
-      },
-    },
-  {
-    key: "pictures", need: "draw a diagram or a picture from a note's text, or from a program in a terminal tile", part: "picture fences (PIE-1555, src/diagrams.ts): a ```mermaid fence (pele, laid out for the body's width) or a ```svg fence becomes an SVG file in the media cache, then an image like any [img::] line (media.ts, the kitty layer), its caption saying what it is for text readers; and a terminal tile's kitty graphics (src/desk/tile-graphics.ts): the pty reader takes a program's _G commands out of the stream before xterm, answers them as kitty would, keeps its images under its own ids and places them at the line they were drawn on, through the tile's view placements", files: "src/diagrams.ts, src/doc.ts (the fence), src/desk/tile-graphics.ts, src/desk/pty.ts, src/kitty.ts, src/media.ts",
-    aside: "the reader draws three mermaid diagrams, an svg fence and an [img::…svg] line as pictures · ~ shows the note as written, the fences' text, and again draws them · without kitty graphics (alt+v to cells) they stay text, each fence's first row saying what it draws · the terminal on the right runs a made-up icat: it asks whether the terminal draws kitty images, is answered, and sends one; the picture is the tile's, cut at its edge, and goes when it scrolls away or the tile closes · a real chafa -f kitty, timg or yazi works the same in any terminal tile",
-    stage(n, show) {
-      const r = new ReaderPane(), icat = new PtyPane({ cmd: [process.execPath, joinPath(import.meta.dir, "icat.ts")], label: "icat", shows: "icat", temp: true });
-      return deskOf({ title: "showcase · pictures", panes: [r, icat], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.pictures]]);
-    },
+    stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]); },
   },
+  picturesSection({ deskOf, row }),
   {
     key: "hero", need: "tune a hero picture, its fade, title and scrolling", part: "the header's backdrop (PIE-598, src/surface/hero-header.ts): NoteSurface finds the hero (the header image, a [layout::hero] image, or an image that is the note's first block) and how far it has gone under its sticky header; the media pipeline makes the muted, dimmed variant (src/media.ts Look mute, a PNG under Kitty graphics, one colour per cell otherwise); reader.hero turns it off, kept like the theme", files: "src/surface/hero-header.ts, src/media.ts, src/doc.ts (coverCrop), src/surface/note.ts, src/screens.ts (reader.hero)",
     aside: "the hero line is the header picture's only setting (PIE-1361): alt+y opens the tune, whose Hero rows (j k, + −, the wheel, ×, or act tune.nudge row=hero.tint by=1) write blur, bleed, height, fit, dim, tint, fade, title and scroll on that line at once, and ctrl+z here puts it back; drag the header's bottom row to size it and the picture to move its focus (image.size height=, image.look focus=x,y). This demo uses blur=4, full bleed, height=33%, cover, dim=0.4, tint=0.5, fade=0.75, title=over and scroll=pinned. In cells, j, the wheel or space scrolls the picture up under the header: the header takes it, dimmed, by steps · [hero-focus::x,y] on the picture's line says what the crop keeps · `act reader.hero on=false` turns it off everywhere, `mode=follow` makes the header follow each picture down the note (kept for the next start) · Kitty draws the picture under the text; cells colour each cell from it · the river column on the right keeps the same header above its scroll, drawn once by the reader (PIE-1543): its [comment], comment count, crumbs and [+] press as the reader's do, and Y on text selected there copies its source",

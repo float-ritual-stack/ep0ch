@@ -523,7 +523,7 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
     case "image": {
       only(node, PRIMITIVE_FIELDS.image, path);
       // Its markup (a script's drawing), or a file the outline names as a note's image line does: never a page on the web or a stored Resource.
-      const svg = node.svg !== undefined ? text(node.svg, `${path}.svg`)! : undefined;
+      const svg = node.svg !== undefined ? text(node.svg, `${path}.svg`, false, Infinity)! : undefined;
       if (svg !== undefined && (node.src !== undefined || !/^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg\b/i.test(svg) || svg.length > MAX_SVG_CHARS))
         fail(`${path}.svg`, node.src !== undefined ? "takes src or svg, not both" : svg.length > MAX_SVG_CHARS ? `must be at most ${MAX_SVG_CHARS} characters` : "must be an <svg …> element");
       const src = svg === undefined ? text(node.src, `${path}.src`)! : undefined;
