@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { blockIdMatcher, isBlockId } from "@ep0ch/outline-core/addressable-resource";
 import { withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { stepTitle } from "../src/steps";
 import { cellBlockId } from "@ep0ch/outline-core/figure-live";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
@@ -200,5 +201,28 @@ describe("an anchor at a line's end: one grammar, outline-core's (PIE-1375)", ()
     expect(withoutFragmentAnchor(`Plant beans ${tail}`)).toBe(title);
     expect(lists.titleOf(`- Plant beans ${tail}`)).toBe(title);
     expect(stepTitle({ text: `- [ ] Plant beans ${tail}` })).toBe(title);
+  });
+});
+
+describe("code lines: one fence grammar, outline-core's codeBlocks (PIE-1375)", () => {
+  // A fence the person is still typing: the Markdown parser once made the rest of the note code, so an anchor after it
+  // was no anchor to the outliner's fragments while every reader drew it as text.
+  const FRAGMENTS = "../../outliner/src/fragments";
+  test("after a half-typed fence, the next paragraph is text at every site", async () => {
+    const fragments = await import(FRAGMENTS) as { codeLineSet(text: string): Set<number>; fragmentAnchors(text: string): { id: string }[] };
+    const text = "Seed plan\n```js\nhalf typed\n\n## Later ^later\nwords";
+    const fenced = codeFenceLines(text.split("\n"));
+    expect(fenced[4]).toBe(-1);
+    expect(fragments.codeLineSet(text).has(4)).toBe(false);
+    expect(fragments.fragmentAnchors(text).map(a => a.id)).toContain("later");
+  });
+});
+
+describe("a completion's range: the one pure half, outline-core's (PIE-1375)", () => {
+  // `see ((Rough edges (x)))` with the cursor after `Roug`: a choice replaces the whole token, its title's own `(x)`
+  // and both closing `))` with it. Door and outliner once replaced up to 22 and 23; both read this target now.
+  test("the whole reference is replaced, and nothing is left over", () => {
+    const line = "see ((Rough edges (x)))";
+    expect(completionTargetAtCursor(line, line.indexOf("Roug") + 4)).toMatchObject({ kind: "block", start: 4, end: line.length, query: "Roug" });
   });
 });
