@@ -6437,9 +6437,10 @@ export class NoteSurface {
    */
   private keepCurrent(host?: SurfaceHost) {
     const drawn = (key: string) => this.elems.some(e => e.key === key);
-    const unlaid = this.cur === null ? this.pendingLink : null;
-    if (unlaid) this.cur = this.elementOfLink(unlaid)?.key ?? null;
-    if (this.elems.length) this.pendingLink = null;
+    // A link selected before its element is drawn (not laid out yet, or folded away) waits until it is drawn, the position
+    // moves (setElem) or the note changes (letGo): a repaint that still doesn't draw it keeps it.
+    const unlaid = this.cur === null ? this.pendingLink : null, e = unlaid && this.elementOfLink(unlaid);
+    if (e) { this.cur = e.key; this.pendingLink = null; }
     const loading = !!this.src && (stepsLoading(this.src.board) || embedsLoading(this.src.board));
     if (this.cur && !this.foldSel && !drawn(this.cur)) {
       const a = this.stepRenamed, cur = this.cur;
