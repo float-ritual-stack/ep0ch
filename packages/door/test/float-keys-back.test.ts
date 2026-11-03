@@ -186,4 +186,23 @@ describe.skipIf(!outliner)("closing a float gives the keys back to the terminal 
       expect(inner()!.focusedName()).toBe("reader");
     } finally { d.quit(); }
   });
+  test("a group carried into the drawer: the keys window opens among its tiles and Esc closes it, the drawer kept (PIE-1552)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "kettle" }, tile: "reader" }, USER);
+      await until(() => !!d.desk.pane("group"), "the group");
+      await d.desk.dispatch.press("tile.focus", {}, "group");
+      await d.desk.dispatch.press("tile.drawer", { on: true }, "group");
+      const drawer = d.app.drawer.desk!;
+      const inner = () => (drawer.pane("group") as any)?.inner as Desk | undefined;
+      await until(() => d.app.drawer.entered && !!inner()?.pane("reader"), "the group in the drawer, the keys with it");
+      await inner()!.dispatch.press("tile.focus", {}, "reader");
+      await d.feed("?");
+      await until(() => inner()!.focusedName() === "keys", "the keys window has the keys, in the group in the drawer");
+      await d.feed("\x1b");
+      await until(() => !inner()!.pane("keys"), "the keys window closes");
+      expect(d.app.drawer.entered).toBe(true);
+      expect(inner()!.focusedName()).toBe("reader");
+    } finally { d.quit(); }
+  });
 });

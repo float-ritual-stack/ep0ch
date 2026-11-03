@@ -267,6 +267,22 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect((await current(notes.squash.id)).text).toContain("in June.");
   });
 
+  test("a reply added under a note open in place leaves the selection on the card it was on (PIE-1551)", async () => {
+    await act("column.replies", { id: notes.peas.id, open: true }, lib());
+    await until(() => column(1).flat().some((r: any) => r.m.id === notes.thin.id), "the peas' replies in place");
+    // The last card, past the top-level count once replies show in place.
+    const last = column(1).flat().at(-1)!.m.id;
+    expect(column(1).flat().length).toBeGreaterThan(column(1).items!.length);
+    await act("column.select", { id: last }, lib());
+    expect(column(1).flat()[column(1).sel]?.m.id).toBe(last);
+    const late = await create(notes.peas.id, "Net them\nThe pigeons found them.");
+    await until(() => column(1).flat().some((r: any) => r.m.id === late.id), "the new reply in place");
+    expect(column(1).flat()[column(1).sel]?.m.id).toBe(last);
+    await board.request("delete", { blockId: late.id });
+    await until(() => !column(1).flat().some((r: any) => r.m.id === late.id), "the new reply gone again");
+    await act("column.replies", { id: notes.peas.id, open: false }, lib());
+  });
+
   test("a column keeps its name as columns open around it; an agent's edit carries on only in the column that holds it", async () => {
     const was = focused();
     const text = (await current(notes.beans.id)).text + "\nPositional.";

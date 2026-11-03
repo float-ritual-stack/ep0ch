@@ -275,10 +275,12 @@ export class RiverColumn extends ReaderPane {
     indexOf(b).refresh(b, () => desk.redraw());
     // The replies shown under a note are read again with it, so a reply edited elsewhere never reads as it was.
     const ask = ++this.loads;
-    const done = (items: Msg[]) => void this.fold.reread(id => b.children(id)).then(() => took(items));
-    const took = (items: Msg[]) => { if (this.loads !== ask) return; this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1));
-      // A card the person just moved keeps the selection, wherever it is now.
-      if (this.followMoved) { const at = this.flat().findIndex(r => r.m.id === this.followMoved); if (at >= 0) this.sel = at; this.followMoved = null; } this.showSelected(desk); void this.match(desk); desk.redraw(); };
+    // The selected card keeps the selection wherever it is now (a reply added above it in place, PIE-1551), as a card
+    // the person just moved does; else the same row, within what's listed (sel counts replies shown in place).
+    const done = (items: Msg[]) => { const was = this.flat()[this.sel]?.m.id; void this.fold.reread(id => b.children(id)).then(() => took(items, was)); };
+    const took = (items: Msg[], selected?: string) => { if (this.loads !== ask) return; const was = this.followMoved ?? selected; this.followMoved = null;
+      this.items = items; this.error = undefined; const rows = this.flat(), at = was ? rows.findIndex(r => r.m.id === was) : -1;
+      this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, rows.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
     const fail = (e: Error) => { this.error = e.message; desk.redraw(); };
     if (this.source.kind === "roots") b.roots().then(done, fail);
     else if (this.source.kind === "tag") b.byProp(this.source.key, this.source.value).then(done, fail);
