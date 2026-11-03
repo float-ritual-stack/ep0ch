@@ -342,7 +342,7 @@ export class DraftSession {
     let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
     // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
     try { r = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
-    catch (e) { this.status.say(`couldn't read ${this.target.what} now (${e instanceof Error ? e.message : String(e)}) · your text is kept · ctrl+r tries again`); return; }
+    catch (e) { this.status.say(`couldn't read it now · your text is kept · ctrl+r tries again (${e instanceof Error ? e.message : String(e)})`); return; }
     finally { this.status.phase = null; }
     if (typeof r === "string") this.status.say(r);
     else if (r) { this.status.say(r.said); return; }
@@ -899,7 +899,7 @@ export function commentEditTarget(o: {
   reread(): Promise<EditedMark | null>;
 }): DraftTarget {
   let mark = o.mark;
-  const what = mark.reply ? "reply" : "comment", label = `${mark.id.slice(0, 8)}-${what}-edit`;
+  const what = mark.reply ? "reply" : "comment", label = `${mark.id.slice(0, 8)}-${what}`;
   const no = (why: string, stale = false): Outcome => { o.refused?.(why, stale); return { ok: false, why, ...(stale ? { stale } : {}) }; };
   return {
     place: `remark:${mark.id}`, near: o.note.id, label,

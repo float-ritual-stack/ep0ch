@@ -886,7 +886,7 @@ export class NoteSurface {
   /** A press landed in the draft's text: a drag from it selects there. */
   private editPress = false;
   /** Bring the comment being written into view at the next paint (it opened, the person typed, it moved: PIE-770). */
-  private revealComposer = false;
+  private revealComposer = false; private composerDrawn = 0;
   /** The rows of the comment's passage in the last paint, in the reader's cells (a floating box goes beside them). */
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
@@ -2369,7 +2369,7 @@ export class NoteSurface {
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
     const inlineRect = attachedRect("inline", bw, h - top, { min: { cols: 24, rows: 8 } });
-    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), inlineRect.rows) : null;
+    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), Math.max(5, Math.min(inlineRect.rows, h - top + 2))) : null; if (inlineBox && inlineBox.lines.length !== this.composerDrawn) { this.composerDrawn = inlineBox.lines.length; this.revealComposer = true; /* what the draft said grew its box: the text stays in view (PIE-1560) */ }
     const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host, drawn);
     const sm = this.sourcesMode;
     const sourceRect = attachedRect("inline", bw, Math.min(20, h - top - 2));

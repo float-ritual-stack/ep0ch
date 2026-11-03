@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A comment's ctrl+r tells a failed read from a reload, and a tiny box still names the copy (PIE-1560)
+
+- **Offline, ctrl+r says so.** With the outline unreachable, reloading a posted comment's edit says `couldn't read it now · your text is kept · ctrl+r tries again`, and the conflict and your words stay. It no longer takes comments the door already holds for a reload.
+- **In a box a few rows tall** your typed text stays in view, with what ctrl+s said above it: not saved, the copy's file name (its two ends when a row can't hold it all) and `^R`. After ctrl+r it says the revision it loaded and names the copy.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### Undo brings a tile back from the glass whole (PIE-1559)
 
 - **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it.

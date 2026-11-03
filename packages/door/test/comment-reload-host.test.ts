@@ -41,6 +41,8 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     for (const c of " now") s.key(char(c), h);
     const now = (await other.comments(id))[0]!;
     await other.updateComment(posted.id, now.revision!, "How deep should the bed be?");
+    // Drawn as it's typed, in a small tile: what ctrl+s says comes after this, and must not push the text out of view.
+    s.render(28, 8, h);
     s.key(ctrl("s"), h);
     await until(() => d.status.conflict !== null, "the stale refusal");
     return { s, h, d };
@@ -49,17 +51,22 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
   test("a short box keeps the typed text, the copy's file name and the reload key", async () => {
     const { s, h, d } = await refused("Short box");
     const file = d.status.savedCopy!.split("/").at(-1)!;
-    const shown = s.render(30, 12, h).lines.map(visible);
+    const shown = s.render(28, 8, h).lines.map(visible);
     const flat = shown.join("").replace(/[\s│]+/g, "");
-    expect(flat).toContain("How deep is the bed? now".replace(/\s+/g, ""));
-    expect(flat).toContain(file);
+    expect(flat).toContain("now");
+    expect(flat).toContain("notsaved");
+    // One row is what's left for the copy and its key: the name's two ends, which tell one copy from another.
+    expect(flat).toContain(file.slice(0, 8));
+    expect(flat).toContain(file.slice(-6));
     expect(flat).toContain("^R");
     // Reloaded, it says the revision and names the copy, in the same box.
     await s.act("comment.reload", {}, h, USER);
-    const after = s.render(30, 12, h).lines.map(visible).join("").replace(/[\s│]+/g, "");
+    const after = s.render(28, 8, h).lines.map(visible).join("").replace(/[\s│]+/g, "");
     expect(d.text).toBe("How deep should the bed be?");
     expect(after).toMatch(/revision\d/);
-    expect(after).toContain(d.status.savedCopy!.split("/").at(-1)!);
+    const copy = d.status.savedCopy!.split("/").at(-1)!;
+    expect(after).toContain(copy.slice(0, 8));
+    expect(after).toContain(copy.slice(-6));
   }, 30_000);
 
   // Last: it stops the host.
