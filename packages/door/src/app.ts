@@ -146,8 +146,8 @@ export interface HostLayer {
    * a screen under this one.
    */
   goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
-  /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own; `from`: that tile, whose link to a tile of the screen (alt+l) takes it first. */
-  openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
+  /** Open block `id` on the screen shown, where an open naming no tile lands there (a detail; `fresh`: a new one): the status bar's opens. */
+  openOnScreen(id: string, fresh: boolean, actor: Actor, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
   /** Fold the drawer to a strip at its edge (a tile in it with nothing beside it, folded: `tile.collapse`); on=false opens it as it was. */
@@ -1228,7 +1228,7 @@ export class App implements Ctx {
       on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
-      open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, undefined, reveal),
+      open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, reveal),
       flash: (text: string) => this.flash(text, 12_000),
       // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
       // its rows run on this dispatcher (they are the bar's own clicks).

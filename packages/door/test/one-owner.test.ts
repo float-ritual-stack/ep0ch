@@ -135,6 +135,19 @@ const FAMILIES: Family[] = [
       "term.ts": { n: 9, why: "the terminal's own capability probe at start (Kitty, size, colours), another thing named probing" },
     },
   },
+  {
+    question: "where an open lands (PIE-1522: placement() answers one request; the desk applies its destination)",
+    // Asking placement, or deciding ahead of it: the drawer's hand-off to the screen shown (`openOnScreen`, a kind that
+    // opens out), what an open naming no tile asks for. Before, openNote, openFromTile, openFrom, openOnLink, openFresh,
+    // openLanding and the drawer's openOnScreen each routed first (#1215: an open landed on a screen behind).
+    pattern: /(?:[=(:]|return|\.\.\.)\s*placement\(|\.openOnScreen\(|\.opensOnScreen\b|\bopensInto!/g,
+    allowed: {
+      "desk/screen-layout.ts": { n: 9, why: "the owner: placement() and its own recursion (a container's, a pinned reader's, a busy one's), and apply()'s open" },
+      "desk/desk.ts": { n: 7, why: "applies it (placeOpen); asks it to inspect (placeFrom, openLandingReader, a hover's route, a mount's inside()); the request builders (landingRequest, openBy) name the screen's container; facts() says a kind opens out" },
+      // drawer.ts has none: its openOnScreen is the screen shown's openBy, and its lists' opens are placement's hand-off.
+      "app.ts": { n: 1, why: "the status bar's open: the screen shown's open naming no tile (Desk.openBy), deciding nothing" },
+    },
+  },
 ];
 
 describe("one owner for each decision about the person (PIE-1294)", () => {
