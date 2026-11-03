@@ -5,7 +5,7 @@ import "../src/desk/desk";
 import { registerBuiltinTiles } from "../src/desk/builtin-tiles";
 import { ReaderPane } from "../src/desk/panes";
 import { PtyPane } from "../src/desk/pty";
-import { declaredFacts, factsOf, registerTileKind, tileKind, tileKinds, type TileKind } from "../src/desk/tile-kinds";
+import { declaredFacts, factsOf, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "../src/desk/tile-kinds";
 import { briefKind } from "../src/brief/brief";
 import { echoKinds } from "../src/echonet/screen";
 import { pinnedKind } from "../src/hub/pinned";
@@ -32,6 +32,18 @@ describe("tile kinds state their own facts (PIE-1523)", () => {
     expect(factsOf(t)).toEqual({ running: "nvim" });
     t.exited = 0;
     expect(factsOf(t)).toEqual({});
+  });
+
+  test("an extension's program still running after its extension is removed keeps saying so: an agent can't end it by closing its tile", () => {
+    const k = serviceKind({ kind: "lantern.glow", about: "a made-up program tile", program: { command: ["lantern"], cwd: "/", env: {}, args: {}, label: "Lantern" }, holds: { keys: true } });
+    registerTileKind(k);
+    const t = k.make({ kind: "lantern.glow" }) as PtyPane;
+    (t as unknown as { proc: object }).proc = {};
+    expect(factsOf(t)).toMatchObject({ running: "lantern" });
+    // The extension goes: the tile is kept alive with its program (the desk's kindsChanged reads lastKindOf), and so are its facts.
+    unregisterTileKind("lantern.glow", "its extension was removed");
+    expect(tileKind("lantern.glow")).toBeUndefined();
+    expect(factsOf(t)).toMatchObject({ running: "lantern" });
   });
 
   test("a declared hold (an extension's tiles[].holds) holds the keys only while they're on the tile, and names its edit to an agent alone", () => {

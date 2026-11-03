@@ -315,8 +315,7 @@ export interface AimedList extends Pane { source: string; show(m: Msg, desk: Des
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */
 export const kindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) : undefined);
-/** What tile `p`'s kind says it is now (`TileKind.facts`); nothing for a kind that says nothing. */
-export const factsOf = (p: Pane | undefined, ask: KindFactsAsk = { keys: false }): KindFacts => (p ? kindOf(p)?.facts?.(p, ask) ?? {} : {});
+
 /** A note sent by a wire or a preview doesn't land in it now: it holds an edit, or the person's keys. */
 export const busyFor = (f: KindFacts): boolean => !!(f.editing || f.holdsKeys);
 /** A terminal tile's facts (the built-in terminal kind's, and an extension's program tile's): the program running in it. */
@@ -332,6 +331,11 @@ export const declaredFacts = (holds: ServiceHolds | undefined) => (_p: Pane, ask
 export interface ServiceHolds { keys?: boolean; edit?: string }
 /** A pane's entry, or the one its kind had before it went away (its tile still runs what that kind made). */
 export const lastKindOf = (p: Pane | undefined): TileKind | undefined => (p ? registry.get(p.kind) ?? wentAway.get(p.kind) : undefined);
+/**
+ * What tile `p`'s kind says it is now (`TileKind.facts`); nothing for a kind that says nothing. A kind taken out while
+ * its tile lives on (an extension removed with its program running) still answers, as `lastKindOf` does for the desk.
+ */
+export const factsOf = (p: Pane | undefined, ask: KindFactsAsk = { keys: false }): KindFacts => lastKindOf(p)?.facts?.(p!, ask) ?? {};
 /** A kind's action sets: its own, then the ones it shares. */
 export const kindActions = (k: TileKind | undefined): ActionSet<any, KindHost>[] => (k ? [...(k.actions ? [k.actions] : []), ...(k.inherits ?? [])] : []);
 /** Every kind's action sets, each once (a shared one is listed once). */
