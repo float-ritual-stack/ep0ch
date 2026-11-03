@@ -718,7 +718,7 @@ export class PtyPane implements Pane {
     if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
     if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ${this.run.rerun ? "run it again from the note" : `${keyCaption("enter")} runs it again`}${this.closesBy} · ${keyCaption(ESCAPE_CHORD)} back to the door\x1b[0m`;
     // Its program's pictures (PIE-1555), on the screen showing, cut to the rows in view and to the tile.
-    const placements = desk.ctx?.graphics ? this.graphics.placements(top, w, h, b.type === "alternate") : [];
+    const placements = desk?.ctx?.graphics ? this.graphics.placements(top, w, h, b.type === "alternate") : [];
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined, ...(placements.length ? { placements } : {}) };
   }
 
