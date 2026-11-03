@@ -205,7 +205,7 @@ describe("scripts/box-test limits", () => {
     quick.go();
     expect(await quick.p.exited).toBe(0);
     expect(quick.text.out).toContain("test-budget: within test budget");
-    expect(quick.text.out).toContain("outline-core        0.7 s of 10.0 s (7%)");
+    expect(quick.text.out).toMatch(/outline-core +0\.7 s of 10\.0 s \(7%\)/);
   }, 360_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {
