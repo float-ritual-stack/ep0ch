@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentCommand, agentStatus, healthRows, herdrPanes, newestMessages, prTicket, runnable, type AgentRow } from "../ext/television/lib/rows";
+import { agentCommand, agentStatus, healthRows, herdrPanes, newestMessages, prMarkdown, prTicket, runnable, type AgentRow } from "../ext/television/lib/rows";
 import { machineChecks, type MachineHealth } from "../src/setup/machine-health";
 
 const EXT = join(import.meta.dir, "../ext/television");
@@ -172,5 +172,14 @@ describe("herdr and the board", () => {
   test("a PR opens the ticket it names", () => {
     expect(prTicket({ title: "Seeds: sort by sow date", headRefName: "feat/pie-77-sow" })).toBe("PIE-77");
     expect(prTicket({ title: "tidy" })).toBeNull();
+  });
+});
+
+describe("a PR's preview", () => {
+  test("reads as Markdown: its title a heading, the facts a reviewer looks at, then its body", () => {
+    const md = prMarkdown({ number: 7, title: "Lanterns light the path", state: "OPEN", isDraft: false, author: { login: "wren" }, headRefName: "feat/lanterns", additions: 12, deletions: 3, reviewDecision: "CHANGES_REQUESTED", url: "https://example.org/pull/7", body: "## Why\n- the path was dark\n" });
+    expect(md.split("\n").slice(0, 3)).toEqual(["# #7 Lanterns light the path", "", "open · `feat/lanterns` · +12 −3 · changes requested · by wren  "]);
+    expect(md).toContain("## Why\n- the path was dark");
+    expect(prMarkdown({ number: 8, title: "t", state: "OPEN", isDraft: true, headRefName: "b", additions: 0, deletions: 0, url: "u", body: "" })).toContain("draft · `b`");
   });
 });

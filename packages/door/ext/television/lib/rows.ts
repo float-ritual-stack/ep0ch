@@ -305,7 +305,7 @@ async function main(argv: string[]) {
       let target = arg;
       if (arg.startsWith("pr-")) {
         const n = arg.slice(3);
-        if (verb === "board-preview") { const r = await realExec(["gh", "pr", "view", n], { cwd: repo }); say(r.out || r.err); return; }
+        if (verb === "board-preview") { say(await prPreview(n, repo, panelWidth())); return; }
         const pr = json<{ title: string; headRefName: string; body: string }>(await realExec(["gh", "pr", "view", n, "--json", "title,headRefName,body"], { cwd: repo }));
         const t = pr && prTicket(pr);
         if (!t) { console.error(`PR #${n} names no PIE-n ticket to open`); return pause(); }
@@ -343,6 +343,31 @@ async function main(argv: string[]) {
 
 /** A pane's screen as tv's preview draws it: no carriage returns (tv's preview drops a line holding one), no blank tail. */
 export const paneScreen = (ansi: string) => ansi.replaceAll("\r", "").replace(/(\s|\x1b\[0m)+$/, "") + "\n";
+
+/** A PR as Markdown (its title, the facts a reviewer looks at, its body), drawn by glow, else bat, else as text. */
+export function prMarkdown(pr: { number: number; title: string; state: string; isDraft?: boolean; author?: { login: string }; headRefName: string; additions: number; deletions: number; reviewDecision?: string; url: string; body: string }): string {
+  const facts = [pr.isDraft ? "draft" : pr.state.toLowerCase(), `\`${pr.headRefName}\``, `+${pr.additions} −${pr.deletions}`, pr.reviewDecision ? pr.reviewDecision.toLowerCase().replaceAll("_", " ") : "", pr.author?.login ? `by ${pr.author.login}` : ""].filter(Boolean);
+  return `# #${pr.number} ${pr.title}\n\n${facts.join(" · ")}  \n${pr.url}\n\n${pr.body.trim()}\n`;
+}
+
+async function prPreview(n: string, repo: string, width: number): Promise<string> {
+  const r = await realExec(["gh", "pr", "view", n, "--json", "number,title,state,isDraft,author,headRefName,additions,deletions,reviewDecision,url,body"], { cwd: repo });
+  const pr = json<Parameters<typeof prMarkdown>[0]>(r);
+  if (!pr) return r.err || r.out;
+  const md = prMarkdown(pr);
+  // Fed on stdin: a snap-packaged glow can't see /tmp.
+  const glow = Bun.which("glow"), bat = Bun.which("bat") ?? Bun.which("batcat");
+  const argv = glow ? [glow, "-s", "dark", "-w", String(width), "-"]
+    : bat ? [bat, "-l", "md", "--color=always", "--style=plain", "--paging=never", "--wrap=character", `--terminal-width=${width}`]
+    : null;
+  if (!argv) return md;
+  // tv pipes the preview, so glow sees no terminal: colours are asked for.
+  const p = Bun.spawn(argv, { stdin: new Blob([md]), stdout: "pipe", stderr: "ignore", env: { ...process.env, CLICOLOR_FORCE: "1", COLORTERM: process.env.COLORTERM || "truecolor" } });
+  const timer = setTimeout(() => p.kill("SIGKILL"), 10_000);
+  const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+  clearTimeout(timer);
+  return code === 0 && out.trim() ? out : md;
+}
 
 /** tv's preview panel in columns (ep0ch-tv's `panel`): its share of the terminal, less its border. */
 function panelWidth(): number {
