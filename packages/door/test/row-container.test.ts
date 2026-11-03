@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { InlineList, inlineRowKey } from "../src/surface/inline-list";
 import { ListView, PERSON, type ListHandle } from "../src/surface/list-view";
 import { listBinding } from "../src/surface/list-keys";
-import { collectionAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowElement, type RowWorld } from "../src/surface/row-container";
+import { collectionAtCursor, listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowElement, type RowWorld } from "../src/surface/row-container";
 import { LINK_END, linkTag } from "../src/style";
 import type { LinkTarget } from "../src/refs";
 
@@ -106,6 +106,17 @@ describe("row containers", () => {
     // A ::links list is a ListView too, but its rows are an inline list: that one lands.
     expect(rowContainerOn(world(), 3, 1)!.land("first")).toBe(true);
     expect(d.at.at(-1)).toBe("Letter 1");
+  });
+
+  test("the list a row belongs to takes its keys, a collection or not; a control or a figure's row is no list's (PIE-1534)", () => {
+    const d = drawn(), w = d.world();
+    const letters = new ListView("#1"), tools = new ListView("#2");
+    const lists: ListHandle<any>[] = [...w.lists, { n: 2, key: "#1", title: "Letters", view: letters, entered: false }, { n: 3, key: "#2", title: "list 3", view: tools, entered: false }];
+    const elems = [...w.elems, { key: "in", kind: "control", row: 7, link: { listRow: { key: "#2" } } }, { key: "Spade", kind: "row", row: 7, link: { listRow: { key: "#2", row: "Spade" } } }];
+    const on = (key: string) => listAtCursor({ ...w, elems, lists, cursor: elems.find(e => e.key === key) })?.title ?? null;
+    expect([on("Seed 2"), on("letter"), on("Spade"), on("in"), on("crate"), on("nowhere")]).toEqual(["Seeds", "Letters", "list 3", null, null, null]);
+    // A collection's row picked before its element is drawn is that collection's too.
+    expect(listAtCursor({ ...w, lists, cursor: undefined, wanted: { key: "^seeds", row: "Seed 3" } })?.title).toBe("Seeds");
   });
 
   test("off every container there is none; a figure drawing no rows keeps its control", () => {

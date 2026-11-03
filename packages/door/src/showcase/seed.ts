@@ -491,6 +491,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     SEED.collectionLong, "Forty packets on the shelf, more than a screen holds. Step into the table and press PgDn: the pick moves one screen of rows, the reader following it; PgUp moves back one.",
     "",
     '::view{query="collection=packets" layout="table, gallery, feed" summary-properties="title, bed, sow" sort="title asc"} ^packets', "::",
+    "", "The same packets as a plain links list (PIE-1534): j onto its first row, then PgDn and PgUp page it the same way.", "",
+    '::links{query="collection=packets" title="Packet shelf"}', "::",
   ].join("\n"));
   const crops = ["Bean", "Beet", "Carrot", "Chard", "Kale", "Leek", "Pea", "Radish"];
   for (let i = 1; i <= 40; i++) await make(notes.collectionLong.id, `Packet ${String(i).padStart(2, "0")}: ${crops[(i - 1) % crops.length]} [collection::packets] [bed::${"ABCD"[(i - 1) % 4]}] [sow::${["March", "April", "May"][(i - 1) % 3]}]`);

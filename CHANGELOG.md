@@ -16,6 +16,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Settling stamps the finding** with `outcome`, `after` and `settled-at`, so one table joins what was said and what happened. Findings settled before this get their outcome, with `after: not kept`.
 - **One table replaces two:** "Each finding" and "What the writer did" become "What Jev said, and what happened"; pie's page upgrades itself on the next finding.
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+### tv shows the system: agents, health, the board and Herdr's panes (PIE-1535)
+
+- **`tv ep0ch-agents`:** every Claude session here, working, done or blocked and why; its newest messages as the preview. ctrl-g opens one in a door tile, alt-r restarts it, alt-k stops it.
+- **`tv ep0ch-health`:** doctor's checks, the links and each door session against main, worst first; enter runs the fix shown.
+- **`tv ep0ch-board`:** doing, review, validate, needs-you and open PRs (ctrl-s); ctrl-g opens one in the door.
+- **`tv herdr`:** every Herdr pane, the agent in it and its screen; enter focuses its tab.
+- **`ep0ch doctor`** gains a machine group: failed user units, the nightly run, box-test and the load. `ep0ch agent ls` says why a session waits.
+- **Run:** `ep0ch install --apply` (links the four new cable files). No protocol, grammar or schema change.
 
 ### The reader's keys come from one table (PIE-1527)
 
@@ -24,6 +32,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Frame controls:** every click on a tile's frame goes through one press map, so x-ray and hints name the same action the click runs (PIE-1530).
 - **Fix:** PgDn in a table collection pages one screen, not to the last row (PIE-1529).
+- **Fix:** PgDn and PgUp page a `::links` list, `::backlinks` or an extension's list inside a note once a row is picked (j), keeping the pick, as a collection does; with nothing picked they still scroll the note (PIE-1534).
 
 ### Waiting is an extension, and any screen can have a menu row (PIE-1525)
 

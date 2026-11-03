@@ -38,8 +38,8 @@ export const COLLECTION_SECTIONS: Section[] = [
   {
     key: "long-collection", need: "page through a collection longer than the screen, one screen of rows at a time",
     part: "ListView.pageBy over the reader's room (ListHost.room): a list drawn whole in a note pages by what the reader shows, in every layout",
-    files: "src/surface/list-view.ts, src/surface/list-actions.ts, src/surface/note.ts (listHost)",
-    aside: "forty seed packets as a table · j steps onto Packet 01 · PgDn moves the pick one screen of rows and the reader follows, PgUp moves back one · the same in gallery and feed (bigger cards, fewer per screen) · act list.step by=1 page=true does what PgDn does · try at 44 columns: the table becomes cards and a page is the cards on screen",
+    files: "src/surface/list-view.ts, src/surface/list-actions.ts, src/surface/note.ts (listHost), src/surface/list-mode.ts (collectionBinding)",
+    aside: "forty seed packets as a table · j steps onto Packet 01 · PgDn moves the pick one screen of rows and the reader follows, PgUp moves back one · the same in gallery and feed (bigger cards, fewer per screen) · act list.step by=1 page=true does what PgDn does · below it the same packets as a plain ::links list page the same way once j picks a row (PIE-1534) · try at 44 columns: the table becomes cards and a page is the cards on screen",
     stage(n, show) { const r = new ReaderPane(true); return deskOf({ title: "showcase · long collection", panes: [r], names: ["packets"] }, show, [[r, n.collectionLong]]); },
   },
   {
