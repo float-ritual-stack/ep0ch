@@ -6384,6 +6384,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!p.running && p.exited !== null) { p.restart(); return { ...this.tileAnswer(this.tile(name).id), restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
     this.ptyIn = p; this.chord = null;
+    // In the drawer, going in is the drawer's (host.enter): its tab's ⏎ types here, clicked on its foot, takes the keys
+    // into the drawer, not only into its desk (PIE-1526: the foot's segment became a click and stopped short).
+    const layer = this.ctx.hostLayer;
+    if (layer?.isDrawer(this)) layer.goTo(p, USER);
     // Said by what its header calls it (the drawer's own tile: what runs in it, never its tile name).
     const said = (p as Pane).headName?.() ?? name;
     if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${said}`); }
