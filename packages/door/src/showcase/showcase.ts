@@ -982,8 +982,8 @@ export const SECTIONS: Section[] = [
         render: async req => {
           const l = extensionList();
           const rows = !l ? [`${fg(C.yellow)}this service lists no extensions (it lacks extensions.list, or none are installed)${RESET}`]
-            : l.extensions.flatMap(e => e.id.startsWith("script-")
-            // A script is one line (its notes are in the sections that use them; four lines each would push the programs off a screen).
+            : [...l.extensions].sort((a, b) => Number(a.id.startsWith("script-")) - Number(b.id.startsWith("script-"))).flatMap(e => e.id.startsWith("script-")
+            // The programs first, then each script on one line (its notes are in the sections that use them): more scripts never push the programs off a screen.
             ? [`${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}script · ${e.state}${RESET}`]
             : [
               `${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}${e.id} · ${e.state}${RESET}`,

@@ -33,7 +33,7 @@ import type { Actor } from "../socket";
 import { agentIn, agentOf, claudeSessionOf, resumeCommand, sessionCommand, type SessionMark } from "./agent-sessions";
 import { modeHint } from "../surface/modes";
 import { keyCaption } from "../surface/actions";
-import { KittyApcReader, TileGraphics, windowOpsReply, type TileGeometry } from "./tile-graphics";
+import { GraphicsFeed, TileGraphics, windowOpsReply, type TileGeometry } from "./tile-graphics";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -412,27 +412,9 @@ export class PtyPane implements Pane {
     // Kitty graphics commands, which the emulator would drop, come out of the stream here (PIE-1555): the text around
     // them goes to the emulator as it came, each command to the tile's graphics, a placement anchored where the cursor
     // is once the text before it is read. `answer`: the program is answered (not in a replay: it was then).
-    const apc = new KittyApcReader();
     this.graphics.reset();
-    const feed = (d: Uint8Array, text: string, answer: boolean, done?: () => void) => {
-      const pieces = apc.feed(text);
-      if (pieces.length === 1 && "text" in pieces[0]! && pieces[0].text.length === text.length) { term.write(d, done); return; }
-      for (const piece of pieces) {
-        if ("text" in piece) { term.write(Buffer.from(piece.text, "latin1")); continue; }
-        // Without graphics the command is dropped unanswered, as the emulator dropped it: the program falls back to text.
-        if (!this.drawsGraphics) continue;
-        const r = this.graphics.command(piece.apc, this.geometry(term), answer && this.running ? s => this.proc?.write(s) : null);
-        if (r.place) {
-          const place = r.place;
-          term.write("", () => {
-            const m = term.registerMarker(0);
-            if (m) place({ col: term.buffer.active.cursorX, line: () => m.line, alive: () => !m.isDisposed && m.line >= 0, dispose: () => m.dispose() }, term.buffer.active.type === "alternate");
-          });
-        }
-        if (r.move) term.write(r.move);
-      }
-      term.write("", done);
-    };
+    const gfx = new GraphicsFeed(term, this.graphics, { on: () => this.drawsGraphics, geometry: () => this.geometry(term) });
+    const feed = (d: Uint8Array, text: string, answer: boolean, done?: () => void) => gfx.feed(d, text, answer && this.running ? s => this.proc?.write(s) : null, done);
     const data = (d: Uint8Array) => {
       this.run.output?.(d);
       this.lastOutput = Date.now();
@@ -455,7 +437,7 @@ export class PtyPane implements Pane {
     // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
     this.resync = replay => {
       replaying = true;
-      clip.reset(); apc.reset(); this.graphics.reset();
+      clip.reset(); gfx.reset(); this.graphics.reset();
       (term as unknown as { reset(): void }).reset();
       const text = Buffer.from(replay).toString("latin1");
       modes(text, false);

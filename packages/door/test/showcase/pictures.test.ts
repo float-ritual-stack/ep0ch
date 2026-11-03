@@ -18,39 +18,52 @@ describe("showcase: pictures", () => {
   const reader = () => panes().find(p => p instanceof ReaderPane) as ReaderPane;
   const icat = () => panes().find(p => p instanceof PtyPane) as PtyPane;
 
-  test("the note's five pictures draw in the reader, ~ shows their source, and icat's picture is its tile's", async () => {
+  test("the script's banner is the note's header with its links, the board draws it on cards, the fences draw, ~ shows their source", async () => {
     h.app.video = "kitty";
     await act("section.try", { name: "pictures" });
     const d = stage();
     await until(() => !!reader()?.msg, "the pictures note in the reader");
     // Tall enough for the whole note: every picture in view.
     const draw = (w = 96) => reader().render(w, 300, false, d);
-    await until(() => (draw().placements ?? []).length >= 6, "six pictures placed", 20_000);
+    const keys = () => (draw().placements ?? []).map(p => p.key);
+    // The header (the render line's svg, [layout::hero]), three cards, three mermaid diagrams, the svg fence, the svg file.
+    try { await until(() => keys().some(k => k.startsWith("hero")) && keys().length >= 9, "the header and eight pictures placed", 20_000); }
+    catch (e) { console.log(keys()); throw e; }
     const text = draw().lines.map(visible);
-    for (const said of ["mermaid diagram: flowchart, 5 nodes", "mermaid diagram: sequence, 3 participants", "mermaid diagram: state, 3 states", "svg picture: 360×90"]) {
-      expect(text.some(l => l.includes(`▣ ${said}`)), `${said}\n${text.join("\n")}`).toBe(true);
+    for (const said of ["▀ header · banner: Diagrams of the plot", "▣ mermaid diagram: flowchart, 5 nodes", "▣ mermaid diagram: sequence, 3 participants", "▣ mermaid diagram: state, 3 states", "▣ svg picture: 360×90", "Bean row", "Winter cover"]) {
+      expect(text.some(l => l.includes(said)), `${said}\n${text.join("\n")}`).toBe(true);
     }
-    // At 44 columns every picture is laid out again for the narrower body, none past it.
-    await until(() => { const ps = draw(44).placements ?? []; return ps.length >= 5 && ps.every(p => p.col + p.cols <= 44); }, "the pictures at 44 columns", 20_000);
+    // At 44 columns every body picture is laid out again for the narrower body, none past it (the header's width is the tile's own).
+    await until(() => { const ps = (draw(44).placements ?? []).filter(p => !p.key.startsWith("hero")); return ps.length >= 5 && ps.every(p => p.col + p.cols <= 44); }, "the pictures at 44 columns", 20_000);
 
-    // ~: the note as written, the fences' text; again, the pictures.
+    // The header's two links are elements ([ ]), ⏎ on one opens its page; a click on the other opens it too.
+    draw();
+    const els = (await act("elements", {}, "reader")).elements as { n: number; label: string; target?: string }[];
+    const shed = els.find(e => e.target === "Bike shed" && e.label.startsWith("header link"));
+    expect(shed, JSON.stringify(els)).toBeDefined();
+    expect(els.some(e => e.target === "Allotment notebook" && e.label.startsWith("header link")), JSON.stringify(els)).toBe(true);
+    await act("element.select", { n: shed!.n }, "reader");
+    expect(await act("element.open", {}, "reader")).toMatchObject({ kind: "link", title: "Bike shed" });
+    await act("back", {}, "reader").catch(() => {});
+    await act("open", { id: h.seeded.notes.pictures.id }, "reader");
+    await until(() => keys().some(k => k.startsWith("hero")), "the pictures note again, its header drawn");
+    const hits = (reader().surface as any).heroHits as { row: number; from: number; link: { page?: string } }[];
+    const book = hits.find(r => r.link.page === "Allotment notebook")!;
+    expect(book, JSON.stringify(hits)).toBeDefined();
+    const host = reader().host(d);
+    reader().surface.press(book.from, book.row, host);
+    const showing = async () => JSON.stringify(await act("layout.get"));
+    for (let i = 0; i < 100 && !(await showing()).includes('"title":"Allotment notebook"'); i++) await Bun.sleep(50);
+    expect(await showing()).toContain('"title":"Allotment notebook"');
+    await act("open", { id: h.seeded.notes.pictures.id }, "reader");
+    await until(() => keys().some(k => k.startsWith("hero")), "back on the pictures note");
+
+    // ~: the note as written, the fences' text; the [img::] line, the header and the cards stay pictures (not fences).
     await act("decor.raw", { on: true }, "reader");
     const raw = draw();
     expect(raw.lines.map(visible).some(l => l.includes("Frost tonight?"))).toBe(true);
-    // What stays a picture as written: the [img::] line and the script's banner (a line's output, not a fence).
-    expect((raw.placements ?? []).filter(p => !p.key.startsWith("hero"))).toHaveLength(2);
+    expect((raw.placements ?? []).filter(p => !p.key.startsWith("hero")).length).toBeLessThan(keys().length);
     await act("decor.raw", { on: false }, "reader");
-    expect((draw().placements ?? []).length).toBeGreaterThanOrEqual(5);
-
-    // The banner a render script drew as SVG: its two links are elements, and ⏎ on one opens its page.
-    await until(() => draw().lines.some(l => visible(l).includes("Bike shed")) || (draw().placements ?? []).length >= 6, "the banner drawn", 20_000);
-    const els = (await act("elements", {}, "reader")).elements as { n: number; target?: string }[];
-    const shed = els.find(e => e.target === "Bike shed"), book = els.find(e => e.target === "Allotment notebook");
-    expect(shed, JSON.stringify(els)).toBeDefined();
-    expect(book, JSON.stringify(els)).toBeDefined();
-    await act("element.select", { n: shed!.n }, "reader");
-    const opened = await act("element.open", {}, "reader");
-    expect(opened).toMatchObject({ kind: "link", title: "Bike shed" });
 
     // The made-up icat asked, was answered, and drew: one placement in its tile, under its own key.
     const t = icat();

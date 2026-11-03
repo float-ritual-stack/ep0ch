@@ -4,7 +4,7 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
-import { pictureRows, placePictures } from "./picture-rows";
+import { heroLinkSpans, pictureRows, placePictures, scriptHero } from "./picture-rows";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
@@ -1473,6 +1473,10 @@ export class NoteSurface {
       const held = (this.heroDrag?.now || (!hero.placement && !hero.loading && !cut)) && was;
       const p = held ? { ...held, rows: Math.max(1, Math.min(h, hero.box.rows) - cut - held.row) } : hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
       if (!held && p && !cut) this.heroPlaced = { line: hero.line, p };
+      // Its SVG's links (PIE-1555): presses over the header's rows (a click), and elements ([ ], ⏎) on its first row under it.
+      this.heroHits = hero.placement ? heroLinkSpans(this.heroRef(this.msg!)?.path ?? "", { ...hero.box, col: hero.placement.col }, above, cut).filter(r => r.row < shown) : [];
+      const own = [...new Map(this.heroHits.map(r => [r.link.page ?? r.link.block ?? r.link.url, r])).values()].map((r, i): Element => ({ key: `link:hero:${i}:${r.link.page ?? r.link.block ?? r.link.url}`, kind: "link", row: 0, from: r.from, to: r.to, ruler: [0, 1], label: `header link ${r.link.label ?? ""}`.trim(), link: r.link }));
+      this.elems = [...own, ...this.elems.filter(e => !e.key.startsWith("link:hero:"))];
       v = { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), wide: v.wide?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
     }
     // A split that does not fit shares the popup path.
@@ -2302,7 +2306,7 @@ export class NoteSurface {
       // A view's Blockdown (a section a component lays out) is drawn as the body is: its links are links here.
       blockdown: (text: string, width: number) => drawIn("view", presentLinks(printableBlock(text), false, src, text, drawn), env, {}, { width }).lines,
       // A view's picture (PIE-827), laid out as the body's image lines are.
-      image: (node: ImagePrimitive, width: number) => pictureRows(node, width, env, drawn),
+      image: (node: ImagePrimitive, width: number) => node.svg !== undefined && node.svg === this.heroSvg && node.caption !== false ? [fg(C.dark) + ellipsize(`▀ header · ${node.alt ?? "svg picture"}`, width) + RESET] : pictureRows(node, width, env, drawn),
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
       row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
       // A view's `list` (PIE-747): the one ListView, its state this reader's, its rows the reader's elements.
@@ -5736,8 +5740,10 @@ export class NoteSurface {
     }
     return out;
   }
-  /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), the one place that decides it. */
-  heroRef(m: Msg) { return this.imagesIn(m).find(x => x.spec.layout === "hero"); }
+  /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), else a render line's drawing with it (PIE-1555): the one place that decides it. */
+  heroRef(m: Msg) { const own = this.imagesIn(m).find(x => x.spec.layout === "hero"), drawn = own || !isOutlineNote(m) ? null : scriptHero(m, projectionsOf(m, this.src)); this.heroSvg = drawn?.svg ?? null; return own ?? drawn?.ref; }
+  /** The svg a render line draws as the header (scriptHero): its own output says only that it's the header. And where the header's links are, by row. */
+  private heroSvg: string | null = null; private heroHits: { row: number; from: number; to: number; link: Link }[] = [];
   /** The note's header image as the tune shows it (PIE-1361): its line, its file, its look as written, its rows drawn; null when it has none. */
   heroInfo(m: Msg): { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null } | null {
     const ref = this.heroRef(m);
@@ -8130,6 +8136,8 @@ export class NoteSurface {
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
     // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
     const heroRows = host.attachment || !(this.drawn?.heroRows) || !this.hero ? 0 : this.hero.pinned || !this.scroll ? this.hero.picture : this.drawn.heroRows;
+    const heroLink = this.heroHits.find(r => r.row === y && x >= r.from && x < r.to);
+    if (heroLink && !this.editing && !this.floatAt(x, y, host)) { void this.followTarget(heroLink.link, host, { link: true }); return; }
     if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows && !this.floatAt(x, y, host)) {
       const spec = this.msg && this.imagesIn(this.msg).find(r => r.line === this.hero!.line)?.spec;
       this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };

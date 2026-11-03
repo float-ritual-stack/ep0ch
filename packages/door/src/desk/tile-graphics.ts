@@ -31,6 +31,10 @@ export class KittyApcReader {
   private tail = "";
 
   reset() { this.open = null; this.tail = ""; }
+  /** Bytes are held back: a command open, or the start of one at the end of the last read. */
+  holding(): boolean { return this.open !== null || this.tail !== ""; }
+  /** What's held back, as text, given up (graphics turned off midway: the emulator gets it as it came). */
+  flush(): string { const held = this.open ? START + this.open.join("") + this.tail : this.tail; this.reset(); return held; }
 
   feed(chunk: string): Piece[] {
     const out: Piece[] = [];
@@ -259,4 +263,56 @@ export function windowOpsReply(op: number, geo: TileGeometry): string | null {
   if (op === 14) return `\x1b[4;${geo.rows * geo.cellH};${geo.cols * geo.cellW}t`;
   if (op === 16) return `\x1b[6;${geo.cellH};${geo.cellW}t`;
   return null;
+}
+
+/** What a GraphicsFeed writes to: the tile's emulator (xterm's write queue, its cursor and buffer, its markers). */
+export interface FeedTerm {
+  write(d: string | Uint8Array, cb?: () => void): void;
+  buffer: { active: { cursorX: number; type: string } };
+  registerMarker(offset?: number): { readonly line: number; readonly isDisposed: boolean; dispose(): void } | undefined;
+}
+
+/**
+ * A program's output into its tile's emulator with its kitty graphics taken out (PIE-1555), everything in stream order:
+ * each graphics command runs once the emulator has read the text before it (a placement anchored at the cursor then, a
+ * deletion or a reset after the placements before it), and the text after it waits until it has (its cursor move goes
+ * in between). Without graphics (`on` false) the bytes go to the emulator as they came, as before graphics existed.
+ */
+export class GraphicsFeed {
+  private apc = new KittyApcReader();
+  private queue: (() => void)[] = [];
+  private waiting = false;
+
+  constructor(private readonly term: FeedTerm, private readonly graphics: TileGraphics, private readonly opts: { on: () => boolean; geometry: () => TileGeometry }) {}
+
+  /** Start over (a resync, a new start). */
+  reset() { this.apc.reset(); this.queue = []; this.waiting = false; }
+
+  private step(f: () => void) { this.queue.push(f); this.pump(); }
+  private pump() { while (!this.waiting && this.queue.length) this.queue.shift()!(); }
+
+  /** Bytes `d` (`text` the same as latin1); `reply` answers the program (null: a replay); `done` once the emulator has read them. */
+  feed(d: Uint8Array, text: string, reply: ((s: string) => void) | null, done?: () => void) {
+    // Graphics off, nothing held: the bytes as they came, untouched.
+    if (!this.opts.on() && !this.apc.holding() && !this.queue.length && !this.waiting) { this.term.write(d, done); return; }
+    if (!this.opts.on()) { const held = Buffer.from(this.apc.flush(), "latin1"); this.step(() => this.term.write(held.length ? Buffer.concat([held, Buffer.from(d)]) : d, done)); return; }
+    for (const piece of this.apc.feed(text)) {
+      if ("text" in piece) { const bytes = Buffer.from(piece.text, "latin1"); this.step(() => this.term.write(bytes)); continue; }
+      const body = piece.apc;
+      this.step(() => {
+        this.waiting = true;
+        this.term.write("", () => {
+          const r = this.graphics.command(body, this.opts.geometry(), reply);
+          if (r.place) {
+            const m = this.term.registerMarker(0);
+            if (m) r.place({ col: this.term.buffer.active.cursorX, line: () => m.line, alive: () => !m.isDisposed && m.line >= 0, dispose: () => m.dispose() }, this.term.buffer.active.type === "alternate");
+          }
+          if (r.move) this.term.write(r.move);
+          this.waiting = false;
+          this.pump();
+        });
+      });
+    }
+    this.step(() => this.term.write("", done));
+  }
 }

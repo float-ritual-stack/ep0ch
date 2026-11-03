@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { KittyApcReader, TileGraphics, windowOpsReply, type Anchor } from "../src/desk/tile-graphics";
+import xterm from "@xterm/headless";
+import { GraphicsFeed, KittyApcReader, TileGraphics, windowOpsReply, type Anchor } from "../src/desk/tile-graphics";
 import { PtyPane } from "../src/desk/pty";
 import { until } from "./scratch";
 
@@ -100,6 +101,35 @@ describe("a tile's graphics", () => {
     expect(windowOpsReply(14, geo)).toBe("\x1b[4;200;400t");
     expect(windowOpsReply(16, geo)).toBe("\x1b[6;20;10t");
     expect(windowOpsReply(18, geo)).toBeNull();
+  });
+});
+
+describe("feeding the emulator in stream order (Codex on #1260)", () => {
+  const { Terminal } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => any };
+  /** A headless xterm, a tile's graphics and the feed between them; RIS resets the graphics, as the tile's handler does. */
+  const rig = (on: boolean) => {
+    const term = new Terminal({ cols: 40, rows: 10, scrollback: 100, allowProposedApi: true }), graphics = new TileGraphics();
+    term.parser.registerEscHandler({ final: "c" }, () => { graphics.reset(); return false; });
+    const feed = new GraphicsFeed(term, graphics, { on: () => on, geometry: () => ({ ...geo, alt: false }) });
+    const send = (...reads: string[]) => new Promise<void>(done => reads.forEach((r, i) => feed.feed(Buffer.from(r, "latin1"), r, null, i === reads.length - 1 ? done : undefined)));
+    const line = (y: number) => term.buffer.active.getLine(y)?.translateToString(true) ?? "";
+    return { term, graphics, send, line };
+  };
+
+  for (const on of [false, true]) test(`an escape cut across reads reaches the emulator whole (graphics ${on ? "on" : "off"})`, async () => {
+    const r = rig(on);
+    await r.send("\x1b", "[31mRED\x1b", "[0m plain");
+    expect(r.line(0)).toBe("RED plain");
+  });
+
+  test("a=T then a=d in one read: the picture is gone; RIS then a picture: the picture stays", async () => {
+    const a = rig(true);
+    await a.send(`\x1b_Ga=T,f=32,s=2,v=1,i=4,c=2,r=1;${RGBA}\x1b\\\x1b_Ga=d,d=a\x1b\\`);
+    expect(a.graphics.placements(0, 40, 10, false)).toEqual([]);
+    const b = rig(true);
+    await b.send(`\x1bc\x1b_Ga=T,f=32,s=2,v=1,i=4,c=2,r=1;${RGBA}\x1b\\after`);
+    expect(b.graphics.placements(0, 40, 10, false)).toHaveLength(1);
+    expect(b.line(0)).toBe("  after");
   });
 });
 

@@ -1,11 +1,11 @@
 // A view's pictures in a reader (PIE-827): an `image` primitive laid out as a note's image line is, and placed where the
 // view put it; a script's own SVG drawing (PIE-1555) made into a file first, its links the reader's elements.
-import { fencePicture, PICTURE_SCALE, pictureRoom } from "../diagrams";
+import { fencePicture, PICTURE_SCALE, pictureLinks, pictureLinkTarget, pictureRoom } from "../diagrams";
 import { mediaRows, type Doc, type DocEnv } from "../doc";
-import { imagePrimitiveSpec, media, type ImagePrimitive } from "../media";
+import { imagePrimitiveSpec, media, parseMediaLine, type ImagePrimitive, type MediaSpec } from "../media";
 import { C, ellipsize, fg, RESET } from "../style";
 import { tagInto as tagged } from "./blockdown-context";
-import type { LinkTarget as Link } from "../refs";
+import type { ImageRef, LinkTarget as Link } from "../refs";
 
 /**
  * An extension view's picture (PIE-827) as rows `width` wide, laid out as a note's image line is (doc.ts mediaRows: its
@@ -49,4 +49,61 @@ export function placePictures(doc: Doc, drawn: readonly Link[]): void {
     seen.add(r.n);
     doc.images.push({ ...picture, line: r.line, col: r.from });
   }
+}
+
+// ── a header drawn by a script (PIE-1555) ─────────────────────────────────────
+
+/** The room a script's header picture is laid out in: a wide reader's (an svg ignores it; it names the cache file). */
+const HERO_ROOM = pictureRoom(160, 9, 18);
+
+/** The first `svg` image primitive in a view, depth first: a script's drawing. */
+export function viewSvg(view: unknown): { svg: string; alt?: string } | null {
+  if (!view || typeof view !== "object") return null;
+  const n = view as { type?: unknown; svg?: unknown; alt?: unknown; children?: unknown };
+  if (n.type === "image" && typeof n.svg === "string") return { svg: n.svg, ...(typeof n.alt === "string" ? { alt: n.alt } : {}) };
+  for (const c of Array.isArray(n.children) ? n.children : []) { const found = viewSvg(c); if (found) return found; }
+  return null;
+}
+
+/**
+ * The header a render line draws (PIE-1555): a `name::` line that carries `[layout::hero]` (and the hero line's other
+ * properties, `[height::…]`, `[fit::…]`, `[dim::…]`) and whose script returns an svg image is the note's header picture,
+ * as a `[img::…] [layout::hero]` line is: its SVG made into a cached file, its spec read from the line's properties.
+ * Null while the line has no answer yet, or its picture isn't made yet (a redraw follows).
+ */
+export function scriptHero(m: { id: string; text: string }, projections: readonly { kind?: string; anchor: { line: number }; output?: { component?: { view?: unknown } | null } | null }[]): { ref: ImageRef & { spec: MediaSpec }; svg: string } | null {
+  const lines = m.text.split("\n");
+  for (const p of projections) {
+    const source = lines[p.anchor.line] ?? "";
+    if (!/\[layout::hero\]/i.test(source)) continue;
+    const drawn = viewSvg(p.output?.component?.view);
+    if (!drawn) continue;
+    const made = fencePicture("svg", drawn.svg, HERO_ROOM);
+    if (made?.state !== "ready") return null;
+    // The hero properties written on the render line, read by the media line's own grammar.
+    const tokens = source.match(/\[[A-Za-z-]+::[^\]]*\]/g) ?? [];
+    const spec = parseMediaLine(`[img::${made.path}] ${tokens.join(" ")}`) ?? { kind: "img" as const, path: made.path, problems: [], layout: "hero" as const };
+    return { ref: { block: m.id, line: p.anchor.line, source, path: made.path, spec: { ...spec, path: made.path, ...(drawn.alt ? { alt: drawn.alt } : {}) } }, svg: drawn.svg };
+  }
+  return null;
+}
+
+/**
+ * Where a header picture's links are, in its rows (PIE-1555): each SVG link's box in the cells the picture is drawn
+ * in (`box`, `crop` the part of the picture shown), as press spans by row from the top of the header.
+ */
+export function heroLinkSpans(path: string, box: { col: number; cols: number; rows: number; crop?: { x: number; y: number; w: number; h: number } }, at: number, cut: number): { row: number; from: number; to: number; link: Link }[] {
+  const out: { row: number; from: number; to: number; link: Link }[] = [];
+  const crop = box.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+  for (const l of pictureLinks(path) ?? []) {
+    const to = pictureLinkTarget(l.href, l.label);
+    if (!to) continue;
+    // The link's box in the part shown, then in cells.
+    const x0 = (l.box.x - crop.x) / crop.w, x1 = (l.box.x + l.box.w - crop.x) / crop.w, y0 = (l.box.y - crop.y) / crop.h, y1 = (l.box.y + l.box.h - crop.y) / crop.h;
+    if (x1 <= 0 || x0 >= 1 || y1 <= 0 || y0 >= 1) continue;
+    const from = box.col + Math.max(0, Math.round(x0 * box.cols)), toCol = box.col + Math.min(box.cols, Math.max(Math.round(x0 * box.cols) + 1, Math.round(x1 * box.cols)));
+    const r0 = Math.max(0, Math.round(y0 * box.rows)), r1 = Math.min(box.rows, Math.max(r0 + 1, Math.round(y1 * box.rows)));
+    for (let r = r0; r < r1; r++) if (r - cut >= 0) out.push({ row: at + r - cut, from, to: toCol, link: to });
+  }
+  return out;
 }
