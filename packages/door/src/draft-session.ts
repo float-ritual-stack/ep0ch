@@ -937,7 +937,7 @@ export function commentEditTarget(o: {
       mark = now;
       s.settled();
       d.rebase({ id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
-      return `loaded its words at revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
+      return `loaded revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
     },
   };
 }

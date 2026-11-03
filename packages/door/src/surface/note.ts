@@ -3515,7 +3515,7 @@ export class NoteSurface {
 
   // ── comments ───────────────────────────────────────────────────────────────
 
-  async loadComments(host: SurfaceHost, retry = false): Promise<void> {
+  async loadComments(host: SurfaceHost, retry = false, strict = false): Promise<void> {
     const id = this.msg?.id;
     if (!id) return;
     try {
@@ -3524,7 +3524,7 @@ export class NoteSurface {
       // A Resource whose file changed since it was drawn: read again (the quotes were placed in the new text), once.
       if (stale && this.msg?.id === id && !retry) {
         const now = await host.ctx.board.get(id);
-        if (now && this.msg?.id === id) { this.refresh(rereadResource(now, this.msg)); return this.loadComments(host, true); }
+        if (now && this.msg?.id === id) { this.refresh(rereadResource(now, this.msg)); return this.loadComments(host, true, strict); }
       }
       if (this.msg?.id !== id) return;
       this.comments = c; this.commentsFor = id;
@@ -3532,7 +3532,7 @@ export class NoteSurface {
       for (const t of this.expanded) if (!c.some(x => x.id === t)) this.expanded.delete(t);
       if (this.session?.mode === "threads" && !this.session.busy) this.session.threads = c; this.session?.commentsChanged(c);
       host.redraw();
-    } catch { /* comments are extra; the note still reads */ }
+    } catch (e) { if (strict) throw e; /* comments are extra; the note still reads */ }
   }
 
   /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
@@ -3548,7 +3548,7 @@ export class NoteSurface {
       board: host.ctx.board,
       fetch: id => host.ctx.board.get(id).then(n => n && this.msg ? rereadResource(n, this.msg) : n),
       setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...this.rereadNote(m), childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
-      reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
+      reloadComments: async (strict = false) => { await this.loadComments(host, false, strict); return this.comments ?? []; },
       external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
       follow: () => void this.runKey("edit.follow", {}, host),

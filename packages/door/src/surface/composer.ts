@@ -45,12 +45,17 @@ export function composerBody(d: Draft, frame0: EditFrame, W: number, rows: numbe
   // The draft's own status rows count too (PIE-1560), drawn at the box's inner width as renderEditor draws them.
   const own = (x: EditFrame) => draftStatusHeight(d, x, iw);
   const topOf = (x: EditFrame) => own(x) + 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
-  // A short reader keeps a row of the text: the quote goes first, then the status line, then what the draft said, then its state.
+  // A short reader keeps a row of the text first: the quote goes, then the status line. What the draft says gets the rows
+  // left (its copy's file name and the reload key before its other words, saidRows); then who typed it, then its state go.
   let f = frame0;
   if (topOf(f) + 1 > avail) f = { ...f, context: [] };
   if (topOf(f) + 1 > avail) f = { ...f, status: [] };
-  if (topOf(f) + 1 > avail && f.draftStatus) f = { ...f, draftStatus: { ...f.draftStatus, said: null } };
-  if (topOf(f) + 1 > avail && f.draftStatus) f = { ...f, draftStatus: { ...f.draftStatus, state: false } };
+  const left = (x: EditFrame) => avail - topOf({ ...x, draftStatus: undefined }) - 1;
+  if (f.draftStatus && own(f) > left(f)) {
+    if (f.by && left(f) < 2) f = { ...f, by: null };
+    const ds = f.draftStatus!, rows = Math.max(0, left(f)), state = ds.state && rows >= (ds.said ? 2 : 1), limit = rows - (state ? 1 : 0);
+    f = { ...f, draftStatus: { ...ds, state, said: limit > 0 ? ds.said : null, limit } };
+  }
   const top = topOf(f);
   const textRows = Math.max(1, draftView(d).layout(Math.max(4, iw - 2)).length);
   // Room for every row of text with the cursor's scroll-off below the last, so the view never scrolls while it fits.

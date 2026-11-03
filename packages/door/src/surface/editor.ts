@@ -29,7 +29,7 @@ export interface EditFrame {
   /** Status lines under the title (already coloured): revision and state, the last thing that happened. */
   status: string[];
   /** The draft's own status line first, drawn to the frame's width (PIE-1560): its state, and what it said (up to four rows). */
-  draftStatus?: { state: boolean; said: string | null; tone?: number };
+  draftStatus?: { state: boolean; said: string | null; tone?: number; limit?: number };
   /** Context between the status and the text, such as the quoted passage. */
   context?: string[];
   /** Who else typed into this draft (an agent), shown so it is never silent. */
@@ -142,6 +142,12 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
  * What the wheel at `x`, `y` (the host's cells) over a draft drawn by renderEditor scrolls (PIE-846): its preview when
  * the pointer is over the preview, its text when over the text, else null (the host's own: the note around a comment).
  */
+/** `s` in `cells`, its middle given up: its two ends are what tell one copy from another. */
+const middleCut = (s: string, cells: number) => {
+  const chars = [...s], keep = Math.max(1, cells - 1), head = Math.ceil(keep / 2);
+  return chars.slice(0, head).join("") + "…" + chars.slice(head - keep).join("");
+};
+
 /** How many of `n` are left once `taken` has its own. */
 const left = (n: number, taken: readonly unknown[]) => Math.max(0, n - taken.length);
 
@@ -150,7 +156,12 @@ export function draftStatusHeight(d: Draft, f: EditFrame, w: number): number { r
 
 /** The draft's own status rows in a frame (its state, what it said), as renderEditor draws them and a host counts them. */
 export function draftStatusRows(d: Draft, f: EditFrame, w: number): string[] {
-  return [...(f.draftStatus?.state ? editState(d, w, "") : []), ...(f.draftStatus?.said ? saidRows(f.draftStatus.said, w, 4, f.draftStatus.tone ?? C.yellow) : [])];
+  const s = f.draftStatus;
+  if (!s) return [];
+  // A box short of rows says the conflict and its reload key together, leaving the rest of its rows to the copy's name.
+  const together = s.limit !== undefined && s.state && !!d.status.conflict && !!s.said?.includes("ctrl+r");
+  const state = together ? [fg(C.lred) + pad(drawEllipsized("! not saved · ^R reload", w), w) + RESET] : s.state ? editState(d, w, "") : [];
+  return [...state, ...(s.said ? saidRows(s.said, w, s.limit ?? 4, s.tone ?? C.yellow, !together) : [])];
 }
 
 /**
@@ -158,14 +169,18 @@ export function draftStatusRows(d: Draft, f: EditFrame, w: number): string[] {
  * the rows can't hold it all, the words before a copy's file name give way first; the last row keeps the whole text for
  * the overflow reveal.
  */
-export function saidRows(said: string, w: number, rows: number, colour: number): string[] {
+export function saidRows(said: string, w: number, rows: number, colour: number, sayKey = true): string[] {
   const room = Math.max(4, w), long = said.split(" ").some(word => width(word) > room), fitted = fitPaths(said, long ? 0 : room * rows, room);
   // A word wider than a row (a copy's file name in a narrow tile) goes on across rows rather than being cut.
   const chunk = (word: string) => width(word) > room ? (word.match(new RegExp(`.{1,${room}}`, "gu")) ?? [word]).join(" ") : word;
   const words = fitted.split(" "), path = words.find(word => word.includes("/") && /\.\w+$/.test(word));
   let out = rowLines(words.map(chunk).join(" "), w, rows);
-  if (path && !out.map(visible).join("").replace(/\s+/g, "").includes(path)) {
-    const named = rowLines(chunk(path), w, rows), lead = left(rows, named), before = fitted.slice(0, fitted.indexOf(path)).trim();
+  const flat = out.map(visible).join(""), key = sayKey && said.includes("ctrl+r") ? " · ^R" : "";
+  if (path && (!flat.replace(/\s+/g, "").includes(path) || (key && !flat.includes("ctrl+r")))) {
+    // The file and the key that reloads, on what's left: its folder goes first; a name that still can't fit keeps its
+    // two ends (its id, its time).
+    const cells = room * rows - width(key), file = path.replace(/^.*\//, ""), shown = width(path) <= cells ? path : width(file) <= cells ? file : middleCut(file, cells);
+    const named = rowLines(chunk(shown) + key, w, rows), lead = left(rows, named), before = fitted.slice(0, fitted.indexOf(path)).trim();
     out = [...(lead && before ? rowLines(before, w, lead) : []), ...named].slice(0, rows);
   }
   const last = out.length - 1;
