@@ -13,7 +13,8 @@ import { artNamed } from "../src/packs";
 import { VGA_RGB } from "../src/ansi";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { chip, CHIP_MAX_LUMINANCE, fgRgb, stripMarks } from "../src/style";
+import { codeSpans } from "../src/doc";
+import { C, chip, CHIP_MAX_LUMINANCE, fg, fgRgb, stripMarks } from "../src/style";
 import { colourBody } from "../src/text";
 import { presentLinks } from "../src/refs";
 import { MainMenu, MENU_SCREENS } from "../src/screens";
@@ -200,6 +201,16 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
     // classic keeps the VGA palette exactly.
     expect(THEMES.classic.palette.map(c => c.join(","))).toContain("85,85,85");
   });
+});
+
+// PIE-1570: its colours were taken as the module loaded: after alt+t a code span wasn't one, and a click on it copied nothing.
+test("a code span is found in every theme", () => {
+  try {
+    for (const name of THEME_NAMES) {
+      setTheme(name);
+      expect([name, codeSpans([`an alias ${fg(C.lmagenta)}dish${fg(C.grey)} of the recipe`], [0]).map(b => b.text)]).toEqual([name, ["dish"]]);
+    }
+  } finally { setTheme("calm"); }
 });
 
 describe("the palettes themselves (every background, not only the ones these screens drew)", () => {

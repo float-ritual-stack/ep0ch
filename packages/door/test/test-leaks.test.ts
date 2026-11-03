@@ -66,3 +66,9 @@ test("a desk a file left kept isn't the next file's", () => {
   expect(r.out).toMatch(/ 2 pass/);
   expect(r.code).toBe(0);
 }, 60_000);
+
+test("a theme a file left on isn't the next file's", () => {
+  const r = run("turns-theme.ts", "reads-theme.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
