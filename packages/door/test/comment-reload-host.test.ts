@@ -69,6 +69,18 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(after).toContain(copy.slice(-6));
   }, 30_000);
 
+  test("in the zoomed 30×12 reader the refusal's why and its key stay beside the typed row", async () => {
+    const { s, h, d } = await refused("Zoomed");
+    const shown = s.render(28, 7, h).lines.map(visible).join("").replace(/[\s│]+/g, "");
+    expect(shown).toContain("now");
+    expect(shown).toContain("!notsaved");
+    expect(shown).toContain("^R");
+    // The copy's name, on the row that's left: its two ends.
+    const file = d.status.savedCopy!.split("/").at(-1)!;
+    expect(shown).toContain(file.slice(0, 8));
+    expect(shown).toContain(file.slice(-6));
+  }, 30_000);
+
   // Last: it stops the host.
   test("with the host stopped ctrl+r says it couldn't read, keeps the text and the conflict", async () => {
     const { s, h, d } = await refused("Stopped host");
@@ -80,5 +92,11 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(d.note).not.toContain("loaded");
     expect(d.text).toBe(typed);
     expect(d.status.conflict).toBe(conflict);
+    // In the zoomed 30×12 reader too: why it wasn't saved, what to press, and that the read failed, over the typed row.
+    const shown = s.render(28, 7, h).lines.map(visible).join("").replace(/[\s│]+/g, "");
+    expect(shown).toContain("!notsaved");
+    expect(shown).toContain("^R");
+    expect(shown).toContain("couldn't");
+    expect(shown).toContain("now");
   }, 40_000);
 });

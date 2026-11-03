@@ -28,7 +28,7 @@ export interface EditFrame {
   title: string;
   /** Status lines under the title (already coloured): revision and state, the last thing that happened. */
   status: string[];
-  /** A box too short for its title gives that row to what the draft says (PIE-1560). */
+  /** A box too short for its title and rule gives those rows to what the draft says (PIE-1560). */
   bare?: boolean;
   /** The draft's own status line first, drawn to the frame's width (PIE-1560): its state, and what it said (up to four rows). */
   draftStatus?: { state: boolean; said: string | null; tone?: number; limit?: number };
@@ -107,7 +107,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
     ...twin,
     ...(f.by ? [fg(C.lmagenta) + pad(f.by, w) + RESET] : []),
     ...(f.context ?? []),
-    rule(w),
+    ...(f.bare ? [] : [rule(w)]),
   ];
   if (d.snippet) {
     let text = `slot ${d.snippet.index + 1}/${d.snippet.slots.length} `;
@@ -161,7 +161,13 @@ export function draftStatusHeight(d: Draft, f: EditFrame, w: number): number { r
 export function draftStatusRows(d: Draft, f: EditFrame, w: number): string[] {
   const s = f.draftStatus;
   if (!s) return [];
-  return [...(s.state ? editState(d, w, "") : []), ...(s.said ? saidRows(s.said, w, s.limit ?? 4, s.tone ?? C.yellow) : [])];
+  // A box short of rows (`limit`) keeps its last row, next to the text, for the refusal and its key; a view too short for
+  // the whole box shows the rows nearest the text, so what's said goes above it.
+  const short = s.limit !== undefined, refused = short && s.state && !!d.status.conflict;
+  const why = width("! not saved · ^R reload") <= w ? "! not saved · ^R reload" : "! not saved · ^R";
+  const state = refused ? [fg(C.lred) + pad(drawEllipsized(why, w), w) + RESET] : s.state ? editState(d, w, "") : [];
+  const said = s.said ? saidRows(s.said, w, s.limit ?? 4, s.tone ?? C.yellow, !refused) : [];
+  return short ? [...said, ...state] : [...state, ...said];
 }
 
 /**
@@ -169,13 +175,13 @@ export function draftStatusRows(d: Draft, f: EditFrame, w: number): string[] {
  * the rows can't hold it all, the words before a copy's file name give way first; the last row keeps the whole text for
  * the overflow reveal.
  */
-export function saidRows(said: string, w: number, rows: number, colour: number): string[] {
+export function saidRows(said: string, w: number, rows: number, colour: number, sayKey = true): string[] {
   const room = Math.max(4, w), long = said.split(" ").some(word => width(word) > room), fitted = fitPaths(said, long ? 0 : room * rows, room);
   // A word wider than a row (a copy's file name in a narrow tile) goes on across rows rather than being cut.
   const chunk = (word: string) => width(word) > room ? (word.match(new RegExp(`.{1,${room}}`, "gu")) ?? [word]).join(" ") : word;
   const words = fitted.split(" "), path = words.find(word => word.includes("/") && /\.\w+$/.test(word));
   let out = rowLines(words.map(chunk).join(" "), w, rows);
-  const flat = out.map(visible).join(""), key = said.includes("ctrl+r") ? " ^R" : "";
+  const flat = out.map(visible).join(""), key = sayKey && said.includes("ctrl+r") ? " ^R" : "";
   if (path && (!flat.replace(/\s+/g, "").includes(path) || (key && !flat.includes("ctrl+r")))) {
     // The file and the key that reloads, on what's left: its folder goes first; a name that still can't fit keeps its
     // two ends (its id, its time).
