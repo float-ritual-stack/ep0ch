@@ -10,6 +10,30 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One gate decides what an agent's write becomes (PIE-1544)
+
+- **Every surface asks it:** MCP, the gateway, scripts, the Claude mod (file touches too) and the plain CLI with `--author agent`. At `ep0ch mcp access propose` each write becomes a proposal, at `read` each is refused in the same words, at `full` each applies. `--author user` (your own console) stays ungated.
+- **The dispatcher owns every answer** and retries a busy database once for all of them.
+- **Run:** `ep0ch install --apply` on every machine, laptop included: PROTOCOL 308.
+
+### pie's host answers while tools write (PIE-1546)
+
+- **Bookkeeping writes skip the live views that hide them**, so a Jev record or a tool's note no longer re-runs every door's watches; door requests queued 1 s at the median instead of 3 to 6 s.
+- **Jev's quiet asks go to a file** in the outline's folder (`jev/<day>.jsonl`), its daily tally at most every 15 minutes; findings stay notes.
+
+### A note draws once for the reader and the river (PIE-1543)
+
+- One drawing of a note and its press targets; the river column's header chips ([comment], [sources], the crumbs, the whole-note [+]) work, a callout's ⧉ copies, `Y` keeps a closing code block.
+
+### A tile moves whole between layouts (PIE-1547)
+
+- Into the drawer, onto the glass, into or out of a group and back: its fold, agent level and in-place wire come with it, and a close sends your keys back where the layout says.
+
+### Extensions say what they add before you install them (PIE-1549, PIE-1548)
+
+- A not-installed extension's preview shows its README, every action, tile, script and component it adds, its demos and what it needs.
+- `ep0ch ext remove` and `ext update` find an outline's own extension from the folder you're in.
+
 ### pie's host answers again while tools write (PIE-1546)
 
 - **Bookkeeping writes stop re-running watches:** a write to a note stamped `[machine::…]` (Jev's records, sysop's health samples, install stamps) no longer evaluates a watched `blocks.query` or view that leaves machinery out, unless it lists that note or its parent. On a copy of pie, 20 record writes went from 500 watch evaluations (877 ms of the loop a write) to 80 (204 ms).
