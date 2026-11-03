@@ -13,7 +13,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
@@ -27,6 +27,7 @@ import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-cor
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
+import { fencePicture, fencePictureOf, PICTURE_SCALE, pictureLinks, pictureLinkTarget, pictureRoom, type PictureLink } from "./diagrams";
 import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
@@ -45,6 +46,13 @@ export interface DocEnv {
   fields?: FieldsDrawing;
   fieldsAnswer?: Extract<import("@ep0ch/outline-core/protocol").SiteProduced, { kind: "fields" }>;
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
+  /**
+   * A ```mermaid or ```svg fence draws as its picture (PIE-1555, src/diagrams.ts) when graphics are on; false draws its
+   * source (the reader's decor.raw, R: the note as written).
+   */
+  pictures?: boolean;
+  /** What a picture's caption says brings its source back ("~ shows its source"): the reader's own key for it. */
+  pictureSource?: string;
   /**
    * The look (PIE-673): its list rows (gap, divider, zebra) and heading spacing, and the layers it came from, which a
    * heading's style and a `::box{…}` add theirs to. Without it the body is drawn as it always was.
@@ -767,6 +775,29 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (fence) {
       const code = src.slice(i + 1, fence.closed ? fence.end : fence.end + 1);
       i = fence.end;
+      // A fence that draws as a picture (PIE-1555): its SVG made off the draw path into the media cache, then drawn as
+      // any image is (media.ts, the kitty layer), sized to the body's width; its caption says what it is, for a text
+      // reader too. A render error falls through to its source, the error under it.
+      const language = fence.fence.info ? codeFenceInfo(fence.fence.info).language : "";
+      const kind = fence.closed && fencePictureOf(language);
+      const picture = kind && env.graphics && env.pictures !== false && !env.printed ? fencePicture(language, code.join("\n"), pictureRoom(W, env.cellW, env.cellH)) : null;
+      let failed: string | null = picture?.state === "error" ? picture.reason : null;
+      const snippet = picture?.state === "error" ? picture.snippet : undefined;
+      // Its caption: what it is first, kept whole; what follows it only where it fits (a 44-column reader).
+      const said = (head: string, ...more: string[]) => fg(C.dark) + pad(ellipsize(more.reduce((t, m) => (vwidth(`${t} · ${m}`) <= W ? `${t} · ${m}` : t), head), W), W) + RESET;
+      if (picture && picture.state === "drawing") { out.push(said(`◌ ${picture.label}`, "drawing")); continue; }
+      if (picture && picture.state === "ready") {
+        // Its own width in cells (laid out for the body, its words the terminal's size), never past the body.
+        const entry = media(picture.path, "img"), own = entry.state !== "error" && entry.width ? Math.ceil(entry.width / PICTURE_SCALE / env.cellW) : W;
+        const drawn = mediaRows({ kind: "img", path: picture.path, size: { cells: Math.max(1, Math.min(W, own)) }, problems: [] }, W, env, fence.start, entry);
+        if (drawn.entry.state === "error") failed = drawn.entry.reason;
+        else {
+          if (drawn.image) images.push({ ...drawn.image, line: out.length + drawn.image.line });
+          for (const l of drawn.lines.slice(0, drawn.caption)) { edge(out.length); out.push(l); }
+          out.push(said(`▣ ${picture.label}`, ...(drawn.entry.state === "loading" ? [waitingText()] : []), ...(env.pictureSource ? [env.pictureSource] : [])));
+          continue;
+        }
+      }
       const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
       const first = out.length;
@@ -774,7 +805,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const { language, attrs } = codeFenceInfo(fence.fence.info);
         const name = SCRIPT_FENCE.languages.includes(language) && fence.closed ? attrs.script : undefined;
         const run = name ? env.button?.({ line: fence.start, endLine: fence.start, steps: [{ kind: "script", source: name }], sequence: false, props: {}, slots: [], empty: [], look: {}, label: `Run ${name}`, act: name }, fence.start, W)?.join(" ") : undefined;
-        out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET + (run ? ` ${run}` : ""));
+        // A picture fence drawn as text (no graphics, ep0ch show, R) says what it would draw (PIE-1555).
+        const said = kind ? ` · ${kind.describe(code.join("\n"))}` : "";
+        out.push(fg(C.dark) + `╭ ${fence.fence.info}${said}` + RESET + (run ? ` ${run}` : ""));
         edge(first);
         if (name) for (const button of buttonCallsOf(src.join("\n")).filter(b => b.act?.split(/\s/)[0] === name)) {
           out.push(fg(C.dark) + `│ used by ::button ${button.label}` + RESET);
@@ -786,6 +819,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const f = stringFrame(W, { glyphs: BORDER_BOXES.round, ink: fg(C.blue), open: true });
       for (const c of code) for (const piece of chunk(c, f.inner)) { cut(out.length, [0, 2]); out.push(f.row(fg(ink(c)) + piece)); }
       blocks.push({ kind: "code", row: first, rows: out.length - first, line: fence.start, end: fence.end + 1, inner: [fence.start + 1, fence.start + 1 + code.length], strip: 0, text: code.join("\n"), col: W - 1 });
+      if (failed) {
+        for (const l of chunk(`✗ ${language} didn't draw: ${failed}`, W)) { edge(out.length); out.push(fg(C.lred) + pad(l, W) + RESET); }
+        if (snippet) for (const l of chunk(snippet, W)) { edge(out.length); out.push(fg(C.dark) + pad(l, W) + RESET); }
+      }
       continue;
     }
 
@@ -1054,9 +1091,38 @@ export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number,
     const box = isHero ? heroBox(size, hero!, W, Math.min(hero!.height ?? env.maxImageRows, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
     if (entry.state === "ready") image = { line: 0, media: entry, ...(hero ? { look: hero.pixels } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
     for (let r = 0; r < box.rows; r++) lines.push("");
+    // An SVG's links (PIE-1555): each <a href> a press over the cells it covers, under the picture, as a link in the text is.
+    if (entry.state === "ready" && env.tag && !isHero) linkCells(lines, 0, box, pictureLinks(entry.path) ?? [], env.tag);
   }
   lines.push(caption(entry, spec, W, env, line, isHero));
   return { lines, caption: lines.length - 1, entry, ...(image ? { image } : {}) };
+}
+
+/**
+ * `links` (fractions of a picture drawn at `box`, from row `at` of `lines`) as tagged blank cells over the parts they
+ * cover: the reader steps to them and a click or ⏎ opens them, as it does a link in the text.
+ */
+export function linkCells(lines: string[], at: number, box: { col: number; cols: number; rows: number }, links: readonly PictureLink[], tag: (to: LinkTarget, text: string) => string): void {
+  const spans = new Map<number, { c0: number; c1: number; head: string }[]>();
+  for (const l of links) {
+    const to = pictureLinkTarget(l.href, l.label);
+    if (!to) continue;
+    // One tag for the link, on every row it covers: one element to step to, not one a row.
+    const head = [...tag(to, " ")][0]!;
+    // To the nearest cell edge (an antialiased edge is a pixel short), at least one cell.
+    const c0 = box.col + Math.round(l.box.x * box.cols), c1 = Math.min(box.col + box.cols, Math.max(c0 + 1, box.col + Math.round((l.box.x + l.box.w) * box.cols)));
+    const r0 = Math.min(box.rows - 1, Math.round(l.box.y * box.rows)), r1 = Math.min(box.rows, Math.max(r0 + 1, Math.round((l.box.y + l.box.h) * box.rows)));
+    for (let r = r0; r < r1; r++) spans.set(r, [...(spans.get(r) ?? []), { c0, c1, head }]);
+  }
+  for (const [r, row] of spans) {
+    let line = "", col = 0;
+    for (const s of row.sort((a, b) => a.c0 - b.c0)) {
+      if (s.c0 < col) continue;
+      line += " ".repeat(s.c0 - col) + s.head + " ".repeat(s.c1 - s.c0) + LINK_END;
+      col = s.c1;
+    }
+    lines[at + r] = line;
+  }
 }
 
 export function imageBox(m: { width: number; height: number }, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {

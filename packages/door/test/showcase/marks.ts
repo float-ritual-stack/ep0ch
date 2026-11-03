@@ -171,6 +171,7 @@ export const marks: Record<string, string[]> = {
   // This test's terminal has no Kitty graphics: each image's line says what it is, with its controls.
   "list-folds": ["Five garden decisions", "Keep the beans", "Save seeds from the strongest plants."],
   images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
+  pictures: ["Diagrams of the plot", "mermaid diagram: flowchart, 5 nodes"],
   // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
   hero: ["An evening on the plot", "▀ header evening-beds.jpg", "hero-focus"],
   // A dashboard with [header::none] (PIE-1319): the border names it, its first figure starts on the first row.

@@ -46,7 +46,7 @@ export const PRIMITIVE_FIELDS = {
   row: ["children", "minWidth"],
   band: ["text", "level", "style", "pattern", "align", "row", "tone"],
   track: ["style", "pattern", "tone"],
-  image: ["src", "alt", "size", "fit", "height", "caption"],
+  image: ["src", "svg", "alt", "size", "fit", "height", "caption"],
   list: ["rows", "groups", "preview", "filter", "enter", "empty", "arrange", "size", "columns", "headers", "page", "title"],
 } as const satisfies Record<typeof PRIMITIVE_TYPES[number], readonly string[]>;
 
@@ -108,8 +108,10 @@ export type Primitive =
    * door's graphics, dimmed dark-first; a page's served image, when the publish roots allow the file; elsewhere its alt
    * text and file. `src`: a path or a `file:` Resource ref; `size` as `[size::]` (cells, `N%`, `full`); `height` in rows;
    * `caption: false` (PIE-839): the picture alone where it's drawn (a card's cover), its caption only where it isn't.
+   * `svg` in place of `src` (PIE-1555): the picture's own markup, a render script's drawing (its text laid out, its
+   * `<a href>` links), drawn by the door as an SVG file is; a text or a page target says it with its alt text.
    */
-  | { type: "image"; src: string; alt?: string; size?: string; fit?: "cover" | "contain"; height?: number; caption?: boolean }
+  | { type: "image"; src?: string; svg?: string; alt?: string; size?: string; fit?: "cover" | "contain"; height?: number; caption?: boolean }
   /**
    * A selectable, filterable list with a preview (PIE-747, ADR 0004 contract 3): rows with one activation each, drawn
    * by every client (the door's one ListView, Detail as text, a page as `<ul>`). The viewer's selection, filter and
@@ -147,6 +149,8 @@ const MAX_VALUES = 200;
 const MAX_DATA_BYTES = 256 * 1024;
 /** The tallest an image primitive is drawn, in rows. */
 const MAX_IMAGE_ROWS = 60;
+/** The longest markup an svg image primitive carries (a script's drawing, not a photograph). */
+const MAX_SVG_CHARS = 256 * 1024;
 const BLOCK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** What a link in a view may name: a block, or a Resource (PIE-754) the client opens the way the links tile does. */
 const linkable = (link: string) => BLOCK_ID.test(link) || (isResourceRef(link) && !("problem" in parseResourceRef(link)));
@@ -518,15 +522,18 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
     }
     case "image": {
       only(node, PRIMITIVE_FIELDS.image, path);
-      const src = text(node.src, `${path}.src`)!;
-      // A file the outline names, as a note's image line does: never a page on the web or a stored Resource.
-      if (!src.trim() || src.includes("\0") || (isResourceRef(src) && !src.startsWith("file:")) || (src.startsWith("file:") && "problem" in parseResourceRef(src)))
+      // Its markup (a script's drawing), or a file the outline names as a note's image line does: never a page on the web or a stored Resource.
+      const svg = node.svg !== undefined ? text(node.svg, `${path}.svg`, false, Infinity)! : undefined;
+      if (svg !== undefined && (node.src !== undefined || !/^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg\b/i.test(svg) || svg.length > MAX_SVG_CHARS))
+        fail(`${path}.svg`, node.src !== undefined ? "takes src or svg, not both" : svg.length > MAX_SVG_CHARS ? `must be at most ${MAX_SVG_CHARS} characters` : "must be an <svg …> element");
+      const src = svg === undefined ? text(node.src, `${path}.src`)! : undefined;
+      if (src !== undefined && (!src.trim() || src.includes("\0") || (isResourceRef(src) && !src.startsWith("file:")) || (src.startsWith("file:") && "problem" in parseResourceRef(src))))
         fail(`${path}.src`, "must be a file's path or a file: Resource ref (file:/path)");
       if (node.size !== undefined && (typeof node.size !== "string" || !parseSize(node.size))) fail(`${path}.size`, "must be a size as [size::] writes it: cells (24), N% (50%) or full");
       if (node.fit !== undefined && node.fit !== "cover" && node.fit !== "contain") fail(`${path}.fit`, "must be cover or contain");
       if (node.caption !== undefined && typeof node.caption !== "boolean") fail(`${path}.caption`, "must be true or false");
       if (node.height !== undefined && (!Number.isInteger(node.height) || (node.height as number) < 1 || (node.height as number) > MAX_IMAGE_ROWS)) fail(`${path}.height`, `must be a whole number of rows from 1 to ${MAX_IMAGE_ROWS}`);
-      return { type: "image", src: src.trim(), ...(node.alt !== undefined ? { alt: text(node.alt, `${path}.alt`)! } : {}),
+      return { type: "image", ...(src !== undefined ? { src: src.trim() } : { svg: svg! }), ...(node.alt !== undefined ? { alt: text(node.alt, `${path}.alt`)! } : {}),
         ...(node.size !== undefined ? { size: node.size as string } : {}), ...(node.fit !== undefined ? { fit: node.fit as "cover" | "contain" } : {}),
         ...(node.height !== undefined ? { height: node.height as number } : {}), ...(node.caption !== undefined ? { caption: node.caption as boolean } : {}) };
     }
@@ -625,7 +632,7 @@ function terminalLines(node: Primitive): string[] {
       return [0, 1, 2].map((r) => (r === at && words ? placed.trimEnd() : trackText(node.pattern, width)));
     }
     case "track": return [trackText(node.pattern)];
-    case "image": return [`[image${node.alt ? `: ${oneLine(node.alt)}` : ""}] ${oneLine(imageSource(node.src))}`];
+    case "image": return [`[image${node.alt ? `: ${oneLine(node.alt)}` : ""}] ${node.src ? oneLine(imageSource(node.src)) : "svg picture"}`];
     case "row": {
       const columns = node.children.map(terminalLines);
       const widths = columns.map((lines) => Math.max(0, ...lines.map((line) => line.length)));
@@ -727,7 +734,7 @@ function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
     case "band": return node.text ? [`${"#".repeat(node.level ?? 2)} ${mdInline(node.text)}`, ""] : ["---", ""];
     case "track": return ["---", ""];
     // Its words and its file's name: a Markdown reader can't reach the outline's files, and a page never shows a path.
-    case "image": return [`*image${node.alt ? `: ${mdInline(node.alt)}` : ""}* \`${fileName(imageSource(node.src)).replace(/`/g, "'")}\``, ""];
+    case "image": return [`*image${node.alt ? `: ${mdInline(node.alt)}` : ""}* \`${node.src ? fileName(imageSource(node.src)).replace(/`/g, "'") : "svg picture"}\``, ""];
   }
 }
 
@@ -804,7 +811,7 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
     // A place the publisher fills with the image it serves (src/publish-components.ts readImages), by its order in the
     // view; any other reader shows what a page shows for an image it can't serve: its words and its file's name.
     case "image": return `<figure class="media media-missing ext-image" data-ext-image="${count.images++}"><span class="media-what">image</span> ${
-      node.alt ? `${html(node.alt)} ` : ""}<code>${html(fileName(imageSource(node.src)))}</code></figure>`;
+      node.alt ? `${html(node.alt)} ` : ""}<code>${html(node.src ? fileName(imageSource(node.src)) : "svg picture")}</code></figure>`;
     case "track": return `<hr class="ext-track ext-${node.pattern ?? "rule"}${toneClass(node.tone)}">`;
   }
 }

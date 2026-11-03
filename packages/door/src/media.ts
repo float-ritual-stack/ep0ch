@@ -116,6 +116,8 @@ let onChange: () => void = () => {};
 /** The work the cache has done since the door started, counted for the resize bench (scripts/bench-resize.ts): PNGs scaled (made, not found in the disk cache), cell grids made, light measured. */
 export const mediaWork = { scaled: 0, grids: 0, lights: 0 };
 export function onMediaChange(fn: () => void) { onChange = fn; }
+/** Something an image is drawn from settled off the draw path (a fence's picture, src/diagrams.ts): a redraw follows. */
+export function mediaChanged() { onChange(); }
 /** A new frame is being drawn: what the last one drew stays in memory (never evicted while it's on screen). */
 export function nextFrame() { frame++; }
 /**
