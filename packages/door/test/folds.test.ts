@@ -277,7 +277,7 @@ describe("a reader's folds, without a service", () => {
     const keys = (name: string) => [...declaredKeys(NOTE_ACTIONS.list().find(a => a.name === name)!.keys)].sort();
     expect(keys("fold")).toEqual(["F", "click"]);
     expect(keys("unfold")).toEqual(["F", "click"]);
-    expect(keys("fold.toggle")).toEqual(["click", "enter", "f"]);
+    expect(keys("fold.toggle")).toEqual(["click", "ctrl+enter", "enter", "f", "shift+enter"]);
     expect(NOTE_ACTIONS.list().map(a => a.name)).toContain("folds");
   });
 });

@@ -75,6 +75,7 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   // A list's preview of a row's children (the board's): ↑ ↓ scroll it, e edits them.
   r("up", "list.preview.scroll", { args: { by: -1 }, when: ["preview"] }), r("k", "list.preview.scroll", { args: { by: -1 }, when: ["preview"] }),
   r("down", "list.preview.scroll", { args: { by: 1 }, when: ["preview"] }), r("j", "list.preview.scroll", { args: { by: 1 }, when: ["preview"] }),
+  r("shift+up", "list.preview.scroll", { args: { by: -1 }, when: ["preview"] }), r("shift+down", "list.preview.scroll", { args: { by: 1 }, when: ["preview"] }),
   r("e", "list.preview.edit", { when: ["preview"] }),
   r('"', "note.quote", { when: ["note"] }),
   // A session as the person (SESSION_ACTIONS): e and ctrl+e arm the edit first (edit.arm), the rest start at once.
@@ -95,6 +96,8 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r("esc", "block.untint", { label: "lets go of the mark", when: ["tinted"] }),
   ...ZOOM_KEYS,
   r("up", "reading.step", { args: { by: -1 }, label: "blocks/rows", says: UP }), r("down", "reading.step", { args: { by: 1 }, label: "blocks/rows", says: DOWN }),
+  // shift+↑ ↓ too: a terminal sends them where a selection isn't held (the if-chain matched ↑ ↓ by kind).
+  r("shift+up", "reading.step", { args: { by: -1 }, label: "blocks/rows", says: UP }), r("shift+down", "reading.step", { args: { by: 1 }, label: "blocks/rows", says: DOWN }),
   r("j", "reading.step", { args: { by: 1 }, label: "blocks/rows", says: DOWN }), r("k", "reading.step", { args: { by: -1 }, label: "blocks/rows", says: UP }),
   r("space", "task.status", { pick: "task", label: "done/to do", when: ["task"], quiet: true }),
   r("ctrl+z", "task.undo", { pick: "undo", runs: UNDONE, label: "undo", says: "undo the newest change made here: a step's status, a callout, an image, a fill, a source, an extension's line, a move, a setting", quiet: true }),
@@ -107,6 +110,8 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r("z", "callouts", { label: "callouts", says: "open every callout, or put them back as written" }),
   r(",", "settings", { label: "settings", when: [...OUTLINE, "settings"] }),
   r("enter", "element.open", { pick: "enter", runs: ["fold.toggle", "button.press", "link.follow"], label: "open", says: "act on the current element: open it, follow its link, toggle its fold or press its button" }),
+  // shift+⏎ and ctrl+⏎ are ⏎ here (some terminals send them for ⏎ held with a modifier).
+  ...["shift+enter", "ctrl+enter"].map(key => r(key, "element.open", { pick: "enter", runs: ["fold.toggle", "button.press", "link.follow"], label: "open", says: "act on the current element: open it, follow its link, toggle its fold or press its button" })),
   r("alt+enter", "element.open", { pick: "enter", args: { fresh: true }, runs: ["button.press", "link.follow"], label: "new", says: "open the current element in a new reader, or run a control's alt action" }),
   r("(", "fold.select", { args: { by: -1 }, label: "sections", says: "select the previous heading, list item or callout", when: WHOLE }), r(")", "fold.select", { args: { by: 1 }, label: "sections", says: "select the next heading, list item or callout", when: WHOLE }),
   r("f", "fold.toggle", { label: "fold", when: WHOLE }),
@@ -134,7 +139,16 @@ const GESTURE = new Set(["click", "drag", "wheel", "hover", "sideways"]);
 export function readerBinding(k: Key, holds: (g: ReaderGuard) => boolean): ReaderKey | undefined {
   const name = keyName(k);
   if (name === null || GESTURE.has(name)) return undefined;
-  return effective(READER_KEYS).find(row => row.key === name && (row.when ?? []).every(holds));
+  return readerRows().find(row => row.key === name && (row.when ?? []).every(holds));
+}
+
+/**
+ * The table with the person's keymap applied (`effective`): a key moved is found at its new key, and a binding of one of
+ * the table's actions with arguments it has no row for (`"scroll by=3": ["alt+j"]`) is a row of its own, since a table
+ * holding the action keeps the App's keymap layer from pressing it (layerEntry).
+ */
+function readerRows(): readonly ReaderKey[] {
+  return effective(READER_KEYS, "", (e, key) => (READER_KEYS.some(row => row.action === e.action) ? { key, action: e.action, args: e.args } : null));
 }
 
 /** The session a reader's key starts as the person (an edit, a comment, the panel): the table's `start` rows. */
@@ -159,15 +173,13 @@ export function readerKeys(action: string, ...more: KeyRow[]): KeyRow[] {
 
 /**
  * The keys a reader keeps while one of its elements is current: an extension's key never shadows them (it still runs by
- * a click on its control and by `act`). The table's one-character keys, what the reader says (READER_SAYS), and the
+ * a click on its control and by `act`). The table's one-character keys, with the person's keymap applied, what the reader says (READER_SAYS), and the
  * selection's (v V y Y, and h l moving its end: src/surface/selection.ts, asked before this table). Keys a layer over the
  * tile takes (q ? / g, a screen's digits) never reach a reader; a host's own it names itself (SurfaceHost.ownKeys).
  */
-export const READER_OWN_KEYS: ReadonlySet<string> = new Set([
-  ...READER_KEYS.map(row => row.key === "space" ? " " : row.key).filter(key => [...key].length === 1),
-  ...Object.keys(READER_SAYS),
-  ..."vVyYhl",
-]);
+export const READER_OWN_KEYS: { has(key: string): boolean } = {
+  has: key => readerRows().some(row => row.key === (key === " " ? "space" : key)) || key in READER_SAYS || "vVyYhl".includes(key),
+};
 
 // ── the reader's hint rows (PIE-1293): rows of the table, as the hint row names them ──
 const rowsOf = (action: string, keys: readonly string[]) => keys.map(key => READER_KEYS.find(row => row.key === key && row.action === action)!);

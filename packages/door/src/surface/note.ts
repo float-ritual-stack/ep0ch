@@ -4577,8 +4577,7 @@ export class NoteSurface {
     if (collectionKey(this, k, host)) return true;
     const ek = this.figureKey(k) ?? this.imageKey(k);
     if (ek) { void this.runKey(ek.name, ek.args as never, host); return true; }
-    // Then the reader's own (READER_KEYS): the first row on the key whose guards hold.
-    const row = readerBinding(k, g => this.holds(g, host));
+    const row = readerBinding(k, g => this.holds(g, host)); // then the reader's own (READER_KEYS): the first row whose guards hold
     if (!row) { if (READER_SAYS[c]) { host.ctx.flash(READER_SAYS[c]!); return true; } return false; }
     if (row.start) {
       // e and ctrl+e arm the edit first (edit.arm): ⏎ or the key again opens it.
@@ -4589,7 +4588,8 @@ export class NoteSurface {
       return true;
     }
     if (row.pick) return this.pickKey(row, k, host);
-    void this.runKey(row.action as keyof NoteActionArgs & string, (row.args ?? {}) as never, host, !!row.quiet);
+    // A row of the person's keymap carries its arguments as words, as `act` does: typed as the wire's are (a refusal is said).
+    try { void this.runKey(row.action as keyof NoteActionArgs & string, (READER_KEYS.includes(row) ? row.args ?? {} : coerceActionArgs(row.action, NOTE_ACTIONS.argsOf(row.action) ?? {}, row.args ?? {})) as never, host, !!row.quiet); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); }
     return true;
   }
 
@@ -4621,7 +4621,7 @@ export class NoteSurface {
       case "task": { const e = this.inView()!; void this.runKey("task.status", { to: stepClosed(e.task!.step.status) ? "todo" : "done" }, host, true); return true; }
       case "detach": host.detach!(); return true;
       case "undo": return this.undoKey(host);
-      case "enter": return this.enterKey(k.kind === "alt-enter", host);
+      case "enter": return this.enterKey(!!row.args?.fresh, host);
     }
   }
 
