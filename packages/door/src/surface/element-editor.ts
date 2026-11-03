@@ -1,4 +1,5 @@
-import { modeHint, type ModeKey } from "./modes";
+import { modeBinding, modeHint, type ModeKey } from "./modes";
+import { keyTable } from "./keymap";
 import { PositionRows } from "../reader-position";
 // A rendered view of a Draft, never another text buffer. Adapters own source spans and structural
 // operations; Draft owns typing, selection, undo, revisions and incoming patches.
@@ -158,13 +159,18 @@ registerElementEditor({
   },
 });
 
-/** A table or figure being edited as cells: the keys `key()` below handles, each on the action it runs. */
-export const ELEMENT_KEYS: readonly ModeKey[] = [
-  { key: "tab", action: "rich.move", args: { direction: "next" }, label: "cells" }, { key: "up", action: "rich.move", args: { direction: "up" }, label: "cells" }, { key: "down", action: "rich.move", args: { direction: "down" }, label: "cells" },
-  { key: "alt+r", action: "rich.change", args: { op: "row.add" }, label: "row" }, { key: "alt+d", action: "rich.change", args: { op: "row.remove" }, label: "row" },
-  { key: "alt+v", action: "rich.change", args: { op: "column.add" }, label: "column" }, { key: "alt+x", action: "rich.change", args: { op: "column.remove" }, label: "column" },
-  { key: "ctrl+s", action: "edit.save", label: "save" }, { key: "ctrl+o", action: "rich.toggle", label: "raw" },
-];
+/**
+ * A table or figure being edited as cells: its keys, one table `key()` matches and the hint draws, the person's keymap
+ * applied (PIE-1542). Typing in a cell is the edit control's.
+ */
+export const ELEMENT_KEYS: readonly ModeKey[] = keyTable("rich", "a table or figure being edited as cells", [
+  { key: "tab", action: "rich.move", args: { direction: "next" }, label: "cells", says: "move to the next cell" }, { key: "enter", action: "rich.move", args: { direction: "next" }, label: "cells", says: "move to the next cell" },
+  { key: "shift+tab", action: "rich.move", args: { direction: "previous" }, label: "cells", says: "move to the previous cell" },
+  { key: "up", action: "rich.move", args: { direction: "up" }, label: "cells", says: "move to the cell above" }, { key: "down", action: "rich.move", args: { direction: "down" }, label: "cells", says: "move to the cell below" },
+  { key: "alt+r", action: "rich.change", args: { op: "row.add" }, label: "row", says: "add a row under the cell" }, { key: "alt+d", action: "rich.change", args: { op: "row.remove" }, label: "row", says: "remove the cell's row" },
+  { key: "alt+v", action: "rich.change", args: { op: "column.add" }, label: "column", says: "add a column after the cell" }, { key: "alt+x", action: "rich.change", args: { op: "column.remove" }, label: "column", says: "remove the cell's column" },
+  { key: "ctrl+s", action: "edit.save", label: "save", says: "save the note" }, { key: "ctrl+o", action: "rich.toggle", label: "raw", says: "edit the table or figure as its raw text again" },
+]);
 
 export class ElementEdit {
   on = false;
@@ -279,13 +285,16 @@ export class ElementEdit {
   }
   /** Only the draft's existing key handler types. Clamp it to the source field, keeping the delimiters. */
   key(k: Key, run: (action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place", args?: Record<string, unknown>) => void): boolean {
-    if (k.kind === "char" && k.ctrl && k.ch === "o") { run("rich.toggle"); return true; }
+    // shift with ↑ ↓ ⏎ is the key itself in a cell: it moves between cells, never selects out of one (PIE-1542 review).
+    const plain = (k.kind === "up" || k.kind === "down" || k.kind === "enter") && "shift" in k && k.shift && !("pasted" in k && k.pasted) ? ({ kind: k.kind } as Key) : k;
+    const bound = modeBinding(ELEMENT_KEYS, plain);
+    if (bound?.action === "rich.toggle") { run("rich.toggle"); return true; }
     if (!this.on) return false;
     if (this.draft.busy) return true;
     if (k.kind === "pgup" || k.kind === "pgdn") { run("rich.scroll", { by: (k.kind === "pgup" ? -1 : 1) * pageRows(this.room) }); return true; }
     this.draft.follow = true;
     if (k.kind === "esc") { run("rich.toggle", { on: false }); return true; }
-    if (!("pasted" in k) && ["tab", "backtab", "up", "down", "enter"].includes(k.kind)) { run("rich.move", { direction: k.kind === "backtab" ? "previous" : k.kind === "tab" || k.kind === "enter" ? "next" : k.kind }); return true; }
+    if (bound?.action === "rich.move" || bound?.action === "rich.change") { run(bound.action, bound.args); return true; }
     const c = this.current(); if (!c) { this.on = false; return false; }
     if (k.kind === "paste" || (k.kind === "char" && !k.ctrl && (c.field.encode || c.element.encode(k.ch) !== k.ch)) || k.kind === "alt-enter" || (k.kind === "enter" && "pasted" in k)) {
       run("rich.input", { text: k.kind === "paste" ? k.text : k.kind === "char" ? k.ch : "\n" }); return true;
@@ -303,7 +312,6 @@ export class ElementEdit {
         if (!this.draft.anchor) { run("rich.erase", { backward }); return true; }
       }
     }
-    if (k.kind === "alt" && ["r", "v", "d", "x"].includes(k.ch)) { run("rich.change", { op: ({ r: "row.add", v: "column.add", d: "row.remove", x: "column.remove" } as Record<string, string>)[k.ch] }); return true; }
     if (k.kind === "char" && k.ctrl && ["a", "e", "k"].includes(k.ch)) {
       if (k.ch === "k") run("rich.input", { text: "", cut: true });
       else run("draft.place", { line: c.field.line + 1, col: (k.ch === "a" ? c.field.start : c.field.end) + 1 });

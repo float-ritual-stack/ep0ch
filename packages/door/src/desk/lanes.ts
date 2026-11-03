@@ -25,7 +25,7 @@ import { renamedPagesNote, type PageRename } from "@ep0ch/outline-core/protocol"
 import { clamp, sideways, SidewaysWheel, wheelRows, type RowPress } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
-import { editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy } from "../surface/editor";
+import { editHint, editorClick, openInEditor, renderEditor, selectClicks, wheelTarget, writtenBy } from "../surface/editor";
 import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
 import { copyOnSelect } from "../surface/selection";
@@ -94,6 +94,8 @@ export class Lanes implements SourceModel {
   composerAt: Rect | null = null;
   /** A drag or shift+click is selecting in the composer's draft: the release copies it. */
   private composerDrag = false;
+  /** A double or triple click's word or line being selected in the composer: its release copies it after. */
+  private composerSelecting: Promise<void> | null = null;
   /** The selected card's checklist steps (`s`): pick one and set its status. */
   get steps(): Steps | null { return this.overlays.get("steps") as Steps | null; }
   set steps(p: Steps | null) { this.overlay("steps", p); }
@@ -264,10 +266,14 @@ export class Lanes implements SourceModel {
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
       // A drag (or a shift+click) selects; the button coming up copies what it selected (copy on select, as in a reader).
-      if (k.action === "up" && this.composerDrag) { this.composerDrag = false; if (d.selectedText()?.trim() && copyOnSelect()) this.composerCommand("copy"); return true; }
+      if (k.action === "up" && this.composerDrag) { this.composerDrag = false; void (this.composerSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim() && copyOnSelect()) this.composerCommand("copy"); }); return true; }
       const shift = k.action === "down" && !!((k.mods ?? 0) & 4);
+      // A double click selects a word, a triple the line: the edit control's (selectClicks), as in every field.
+      const n = r && k.action === "down" && inText && !shift ? d.clicks.press(k.x, k.y) : 1;
       if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag" || shift, USER, { pick: () => void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {}), copy: () => this.composerCommand("copy"), attach: () => void this.host.pressAction(BOARD_ACTIONS, "card.attach", {}), fileNew: () => void this.submitComposer() })) {
         if (k.action === "drag" || shift) this.composerDrag = true;
+        this.composerSelecting = n > 1 ? selectClicks(d, n).then(() => this.host.redraw()) : null;
+        if (n > 1) this.composerDrag = true;
         this.host.redraw(); return true;
       }
       if (k.action !== "down" || inside) return true;
