@@ -1,5 +1,5 @@
 {
-  "revision": "894ae71015eb44e7dc5a303521353edd1797f033",
+  "revision": "477168539d370c8dcaff2df329017fa0402ade4f",
   "patterns": {
     "width-length": {
       "count": 243,
@@ -188,7 +188,7 @@
         "packages/door/src/surface/editor.ts:1746cff03332e3fa",
         "packages/door/src/surface/element-editor.ts:ad73c971150dbbfc",
         "packages/door/src/surface/element-editor.ts:d92cf1ea02e539e",
-        "packages/door/src/surface/inspector.ts:c388a1c5506860a0",
+        "packages/door/src/surface/inspector.ts:12d9796441aeaf70",
         "packages/door/src/surface/list-view.ts:ee86ad0dec7295bc",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
         "packages/door/src/surface/list-view.ts:ee956f7bd060eb10",
