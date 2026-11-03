@@ -13,7 +13,6 @@
  */
 
 import { referencedBlock } from "./link-syntax";
-import { BLOCK_ID_SOURCE, isBlockId } from "./addressable-resource";
 
 // --- tool-args shared code below this line ---
 
@@ -251,9 +250,9 @@ function refKey(value: unknown): { id: string; where?: string } {
   let text = value.trim();
   const block = referencedBlock(text);
   if (block) text = block.outline ? `${block.outline}:${block.blockId}` : block.blockId;
-  const uri = new RegExp(`^ep0ch://([^/]+)/b/(${BLOCK_ID_SOURCE})$`, "i").exec(text);
+  const uri = /^ep0ch:\/\/([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(text);
   if (uri) return { id: uri[2]!.toLowerCase(), where: uri[1]!.toLowerCase() };
-  return { id: isBlockId(text) ? text.toLowerCase() : text };
+  return { id: /^[0-9a-f-]{36}$/i.test(text) ? text.toLowerCase() : text };
 }
 
 /**

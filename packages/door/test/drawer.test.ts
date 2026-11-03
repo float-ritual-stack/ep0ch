@@ -303,7 +303,7 @@ describe("the drawer", () => {
       // A reconnect asks the service; the answer that says yes was read before another door's no arrived.
       let answer = (_: boolean) => {};
       // The access status asked of the service, answered by the test (the board's other asks go to the host).
-      const asks = (status: () => Promise<unknown>) => { const real = d.A.board.send.bind(d.A.board); (d.A.board as any).request = (action: string, ...rest: [Record<string, unknown>?, number?, AbortSignal?]) => (action === "mcp.access.status" ? status() : real(action, ...rest)); };
+      const asks = (status: () => Promise<unknown>) => { const board = d.A.board as unknown as { send?: (...a: unknown[]) => Promise<unknown>; request: (...a: unknown[]) => Promise<unknown> }, real = (board.send ?? board.request)?.bind(board) ?? (async (action: unknown) => { throw new Error(`the fake has no ${String(action)}`); }); (d.A.board as any).request = (action: string, ...rest: [Record<string, unknown>?, number?, AbortSignal?]) => (action === "mcp.access.status" ? status() : real(action, ...rest)); };
       asks(() => new Promise(resolve => { answer = () => resolve({ yolo: true }); }));
       const synced = d.A.syncYolo();
       d.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 3 });
