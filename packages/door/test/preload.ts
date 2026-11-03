@@ -18,7 +18,8 @@ process.env.OUTLINER_FIGURE_FIT = "off";
 // --parallel=16) a test whose waits all held still ran past 5 s and was timed out. A timeout costs more than that test:
 // Bun ends every process the file started when a test times out ("killed N dangling processes"), the file's scratch
 // host among them, so each test after it in the file failed too, with "connect ENOENT …/host.sock" (test/scratch.ts `revive` starts it again, below).
-setDefaultTimeout(30_000);
+const TEST_BUDGET_MS = 30_000;
+setDefaultTimeout(TEST_BUDGET_MS);
 // The scratch services a file holds register here (test/scratch.ts), and each test starts by having any that Bun ended
 // started again on the same folder, so one test's timeout is that test's alone.
 // Only the running file's own: one a file left undisposed is no business of the next file's tests.
@@ -109,7 +110,7 @@ plugin({
   setup(build) {
     build.onLoad({ filter: /\/test\/(?:.*\.test|fixtures\/.*)\.ts$/ }, async a => {
       // This package's files only: another package's (a run from the repository's root) has its own preload.
-      if (a.path === Bun.main && last !== a.path && a.path.startsWith(import.meta.dir)) { if (last) await between(last); last = a.path; env0 = { ...process.env }; }
+      if (a.path === Bun.main && last !== a.path && a.path.startsWith(import.meta.dir)) { if (last) await between(last); last = a.path; env0 = { ...process.env }; setDefaultTimeout(TEST_BUDGET_MS); }
       return { contents: readFileSync(a.path, "utf8"), loader: "ts" };
     });
   },

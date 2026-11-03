@@ -49,3 +49,12 @@ test("the last file of a run is checked too", () => {
   expect(r.out).toContain("test/fixtures/leaks/binds.ts left behind: extensions bound (tarot)");
   expect(r.code).not.toBe(0);
 }, 60_000);
+
+// PIE-1562: a file after another timed out at Bun's 5 s, so what took longer failed only in a shared run: 5 s in the
+// middle of a wait of 15, "killed N dangling processes", the file's scratch host with them, and the tests after it.
+test("every file of a run has the preload's budget, not only the first", () => {
+  const r = run("uses-theme.ts", "slow.ts");
+  expect(r.out).not.toContain("timed out after");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
