@@ -153,8 +153,7 @@ export interface Person<I = number> {
    * busy, away, or at the keys in the last 2s), given what the step would do, or null. Left out, being busy is the rule.
    */
   held?: (what: string) => string | null;
-  /** Agents are in yolo (Whereabouts.yolo): an agent acts here as the person would. */
-  yolo?: boolean;
+  /** Agents are in yolo (Whereabouts.yolo): an agent acts here as the person would. */ yolo?: boolean;
 }
 
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
@@ -493,6 +492,7 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, othe
 export interface PlacementRequest<I = number> {
   where?: ListOpenWhere; verb?: "hover";
   /** How it was opened, for the one door.open it emits: left out, the action's own (`openMethod`). */ method?: "link" | "alt";
+  /** An act's `from=` (a program naming its tile): the tile's wires and the screen's rule, never its kind's hand-off or the screen's fresh action. */ act?: true;
   from: I;
   to?: I;
   fresh?: boolean;
@@ -567,7 +567,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   const keys = ctx.keys ?? ctx.standing;
   // The welcome's fresh open from its tiles is its own action; the drawer's lists hand what nothing routes (fresh: its plain open) to the screen.
-  const fromTile = to === undefined && !request.default && !request.container && !request.at && !request.newNote && !request.history && verb !== "hover";
+  const fromTile = to === undefined && !request.act && !request.default && !request.container && !request.at && !request.newNote && !request.history && verb !== "hover";
   if (fromTile && fresh && ctx.freshAction) return { destination: { kind: "action", action: ctx.freshAction }, reveal: false, route, giveNewKeys: false };
   const routed = fresh ? !!wire || !!openWire || s.wires.some(w => w.from === from && (w.verb === "alt" || w.verb === "open")) || !!landing(s, from, "open", ctx.tile(from), ctx.tile) : !!route;
   if (fromTile && !routed && ctx.screen !== undefined && ctx.tile(from).opensOut) return { destination: handOut(ctx.screen), reveal: false, route, giveNewKeys: false };

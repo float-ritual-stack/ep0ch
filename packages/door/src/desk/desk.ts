@@ -1942,7 +1942,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.idOf(opts.from) ?? this.focus;
     if (!(opts.link || opts.reveal || opts.fresh)) { this.follow(at, m, by); return this.redraw(); }
     // Placement says where (PIE-1522): a wire, the screen's own fresh action (the welcome's), the drawer's hand-off to the screen shown, a reader.
-    if (this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, where: opts.where, ...(opts.fresh ? { method: "alt" as const } : opts.link ? { method: "link" as const } : {}) }, by)) return this.redraw();
+    const landed = this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, where: opts.where, ...(opts.fresh ? { method: "alt" as const } : opts.link ? { method: "link" as const } : {}) }, by);
+    if (landed) { landed.performed?.catch(e => this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e))); return this.redraw(); }
     // Nothing here takes it (no wire, no reader that isn't pinned): said, with how to give it somewhere to land.
     if (this.dispatch.standing(by)) this.ctx.flash(`no tile here takes ${subject(m)} · alt+l, then click a reader: ⏎ and double-click open there`);
     this.redraw();
@@ -2184,7 +2185,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return d.placeNote(m, { ...(dest.source ? d.landingRequest(id, m.id) : { from: id, to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
     }
     // The screen's own fresh action (the welcome's welcome.read): it opens through placement itself, so that open emits the one door.open.
-    if (dest.kind === "action") return { desk: this, id: request.from, performed: this.perform(dest.action, { id: m.id }, by) };
+    if (dest.kind === "action") return { desk: this, id: request.from, performed: this.dispatch.as(by, { action: dest.action, args: { id: m.id } }) };
     if (dest.kind === "into") return null;
     const id = this.nextId;
     const target = dest.kind === "swap" ? this.panes.get(dest.tile) : undefined;
@@ -3275,7 +3276,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!m) throw new ActionRefused(`no block ${id}`);
     if (r && (!d.all().includes(r.id) || d.panes.get(r.id) !== r.pane)) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);
     if (r) d.mayOpen(r.pane, actor);
-    const request: import("./screen-layout").PlacementRequest<number> = t ? { from: d.idNamed(t.tile.id!)!, fresh: !!o.fresh, note: m.id }
+    const request: import("./screen-layout").PlacementRequest<number> = t ? { from: d.idNamed(t.tile.id!)!, fresh: !!o.fresh, note: m.id, act: true }
       : place ? { from: d.focus, note: m.id, container: place, ...(o.tile === "float" ? { at: { kind: "float" as const, near: d.focus } } : o.tile === "new-detail" ? { at: { kind: "in" as const, key: place } } : {}) }
       : r ? { from: d.focus, to: r.id, note: m.id }
       : o.fresh ? d.landingRequest(d.focus, m.id, true)
@@ -3285,7 +3286,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!landed) throw new ActionRefused(place ? `no reader in ${place} takes this open` : "no reader takes this open; tile.open kind=reader gives it a destination");
     if (place) d.openedIn(place).active = landed.id;
     // The screen's own action placed it itself (the welcome's detail): the answer names the tile showing it now.
-    const shown = landed.performed ? (await landed.performed, d.all().find(i => d.showing(d.panes.get(i))?.id === m.id && i !== landed.id) ?? d.all().find(i => d.showing(d.panes.get(i))?.id === m.id)) : landed.id;
+    const on = landed.desk, showing = (i: number) => on.showing(on.panes.get(i))?.id === m.id;
+    const shown = landed.performed ? (await landed.performed, on.all().find(i => showing(i) && i !== landed.id) ?? on.all().find(showing)) : landed.id;
     this.redraw(); d.redraw(); landed.desk.redraw();
     return { ...(shown === undefined ? { tile: null } : landed.desk.tileAnswer(shown)), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
   }
