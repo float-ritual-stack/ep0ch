@@ -195,3 +195,23 @@ test("a recorded user unit restart runs through the CLI, and clean removal trash
   expect((await r<Block>({ action: "get", blockId: page.id })).effectiveDeletedRootId).toBeTruthy();
   expect(await q("machine=health")).toHaveLength(0);
 }, 30_000);
+
+test("a healthy machine's readings are written at most every 15 minutes, though it is sampled each minute", async () => {
+  await request({ action: "extensions.install", extension: "sysop", where: "outline" }).catch(() => {});
+  machines.free = 8 * 1024 ** 3; machines.failed = false; machines.asleep = false; save();
+  const page = (await query("page=sysop"))[0]!;
+  await edit(page, page.text.replace(/\[machines::[^\]]+\]/, "[machines::kiln]"));
+  expect((await look()).ok).toBe(true);
+  const day = (await request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "machine=health sysop-machine=kiln", machinery: "show", sort: "created desc", limit: 1 } })).blocks[0]!;
+  expect(valueOf(day, "memory-free")).toBeTruthy();
+  const pageNow = await get(page.id);
+  machines.free = 7 * 1024 ** 3; save();
+  expect((await look()).ok).toBe(true);
+  // Nothing crossed and the readings were written moments ago: no write, so no door re-runs its watches (PIE-1546).
+  expect((await get(day.id)).revision).toBe(day.revision);
+  expect((await get(page.id)).revision).toBe(pageNow.revision);
+  // A crossing writes at once.
+  machines.free = 1024 ** 3; machines.failed = true; save();
+  expect((await look()).ok).toBe(true);
+  expect((await get(day.id)).revision).toBeGreaterThan(day.revision);
+});
