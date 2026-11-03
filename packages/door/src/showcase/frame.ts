@@ -29,6 +29,7 @@ export class FramedScreen {
   get first(): Screen { return this.stack[0]!; }
   get outerCtx(): Ctx { return this.outer(); }
   get depth() { return this.stack.length; }
+  get screens(): readonly Screen[] { return this.stack; }
 
   /** The first screen has been entered (open). */
   get isOpen(): boolean { return this.entered; }
@@ -118,6 +119,7 @@ function frameCtx(f: FramedScreen): Ctx {
     ...(f.undo ? { layoutUndoSeq: () => f.undo!().layoutUndoSeq?.(), untrash: (b: object) => f.undo!().untrash?.(b) ?? false } : {}),
     push: s => f.push(s),
     pop: () => f.pop(),
+    screens: () => f.screens,
     replace: s => f.replace(s),
     quit: () => o().quit(),
     redraw: () => o().redraw(),

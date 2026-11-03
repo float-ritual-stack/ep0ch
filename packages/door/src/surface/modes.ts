@@ -36,6 +36,12 @@ export function modeBinding(keys: readonly ModeKey[], key: Key): ModeKey | undef
   return effective(keys).find(row => row.key === name);
 }
 
+/**
+ * How a hint draws: one row, as wide as where it is drawn, and `direct`, so a click on a segment runs its action
+ * wherever the hint sits (a tile's frame foot, the BBS reader's row), through strip.pick (PIE-1293).
+ */
+const HINT_STRIP = () => ({ width: stripWidth(), direct: true, style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } });
+
 export function modeHint(keys: readonly ModeKey[], describe: (action: string) => { summary: string } | undefined): string {
   const groups = new Map<string, string[]>();
   for (const row of effective(keys)) {
@@ -48,7 +54,7 @@ export function modeHint(keys: readonly ModeKey[], describe: (action: string) =>
     const row = effective(keys).find(r => (r.label ?? describe(r.action)?.summary) === label)!;
     // A click runs the row's binding only when it carries what the action needs; else the segment is words, never a refusal.
     return { label, key: caps.join("/"), ...(row.click !== false && executable(row.action, row.args) ? { hit: { action: row.action, args: row.args } } : {}) };
-  }), { width: stripWidth(), style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } })[0]!.text;
+  }), HINT_STRIP())[0]!.text;
 }
 
 export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: string): string | undefined {
@@ -210,5 +216,5 @@ export function partsHint(parts: readonly HintPart[]): string {
     if (k === null) return [];
     const cap = k === "tab" ? "Tab" : keyCaption(k);
     return [{ label: p.label, key: cap + (k === p.key && p.also ? `/${p.also}` : ""), ...(executable(p.action, p.args) ? { hit: { action: p.action, args: p.args } } : {}) }];
-  }), { width: stripWidth(), style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } })[0]!.text;
+  }), HINT_STRIP())[0]!.text;
 }
