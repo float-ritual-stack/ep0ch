@@ -5,12 +5,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { PowerBar } from "../src/bar/bar";
 import type { BarHost } from "../src/bar/source";
 import { QueryPane } from "../src/desk/query";
-import { BacklinksPane } from "../src/desk/backlinks-pane";
-import { FacetsPane } from "../src/desk/facets";
-import { Lanes } from "../src/desk/lanes";
-import { ReaderPane } from "../src/desk/panes";
-import { TreePane } from "../src/desk/tree";
-import { HeldAsks } from "../src/held-asks";
 import type { DeskApi } from "../src/desk/panes";
 import { Draft } from "../src/edit";
 import { completerFor, completionKey } from "../src/surface/completer";
@@ -220,116 +214,6 @@ describe("a query tile reads what changed without piling reads on the host (PIE-
     await until(() => reads === 3, "the read when it was drawn");
     await Bun.sleep(50);
     expect(reads).toBe(3);
-  });
-});
-
-describe("every reload in the door goes through a SearchSchedule (PIE-1395)", () => {
-  // Each path that reads again after an outline change: a burst of changes reads once, a pause after the last, on the
-  // door's one clock (so parity's fake clock reaches it), and a path put away while a pause waits reads nothing.
-  const desk = { ctx: { board: {}, flash() {} }, redraw() {} } as unknown as DeskApi;
-  const content = { domain: "content", action: "update", change: { kind: "edit", blockId: "b1" } } as never;
-  function burst(poke: () => void, pause: number, reads: () => number, put: () => void) {
-    for (let i = 0; i < 5; i++) { poke(); clock.advance(pause - 1); }
-    expect(reads()).toBe(0);
-    clock.advance(1);
-    expect(reads()).toBe(1);
-    poke();
-    put();
-    clock.runOut();
-    expect(reads()).toBe(1);
-  }
-
-  test("the facets tile", () => {
-    const pane = new FacetsPane();
-    let reads = 0;
-    pane.refresh = async () => { reads++; return true; };
-    burst(() => pane.onEvent(desk), 400, () => reads, () => pane.dispose());
-  });
-
-  test("the links tile", () => {
-    const pane = new BacklinksPane("links");
-    let reads = 0;
-    (pane as any).target = { id: "b1", text: "Runner beans" };
-    pane.load = async () => { reads++; };
-    burst(() => pane.onEvent(desk, content), 500, () => reads, () => pane.dispose());
-  });
-
-  test("the tree", () => {
-    const pane = new TreePane();
-    let reads = 0;
-    (pane as any).reread = async () => { reads++; };
-    burst(() => pane.onEvent(desk), 300, () => reads, () => pane.dispose());
-  });
-
-  test("a reader pinned to a page", () => {
-    const pane = new ReaderPane(true);
-    let reads = 0;
-    pane.pinTo("Today");
-    (pane as any).surface.onEvent = () => {};
-    pane.host = () => ({}) as never;
-    pane.resolvePin = async () => { reads++; };
-    burst(() => pane.onEvent(desk), 400, () => reads, () => pane.dispose());
-  });
-
-  test("the board's lanes", async () => {
-    const lane = new QueryPane("v1", "#garden");
-    const host = { ctx: { board: { get: async () => null }, workspace: "w", flash() {} }, supplied: () => [lane], focusedPane: () => null, redraw() {}, save() {} };
-    const lanes = new Lanes(host as never, "c", null);
-    await Bun.sleep(0);
-    let reads = 0;
-    lanes.loadLanes = async () => { reads++; };
-    burst(() => (lanes as any).markLanes([lane]), 150, () => reads, () => lanes.dispose());
-  });
-
-  test("a lane plan a newer burst replaced is planned again with it, whether it answered or failed", async () => {
-    const lane = new QueryPane("v1", "#garden");
-    lane.read = { status: "ready", items: [], limit: 200, truncated: false, errors: [] } as never;
-    lane.items = [];
-    const plans: { id: string; settle: (ok: boolean) => void }[] = [];
-    const board = { get: async () => null, planMoves: (_v: string[], id: string) => new Promise((res, rej) => plans.push({ id, settle: ok => ok ? res({ revision: 1, plans: new Map() }) : rej(new Error("socket dropped")) })) };
-    const host = { ctx: { board, workspace: "w", flash() {} }, supplied: () => [lane], focusedPane: () => null, redraw() {}, save() {} };
-    const lanes = new Lanes(host as never, "c", null);
-    await Bun.sleep(0);
-    lanes.loadLanes = async () => {};
-    for (const ok of [true, false]) {
-      plans.length = 0;
-      (lanes as any).planning.add("b1"); (lanes as any).armReload(); clock.advance(150);
-      (lanes as any).planning.add("b2"); (lanes as any).armReload(); clock.advance(150);
-      expect(plans.map(p => p.id)).toEqual(["b1", "b2"]);
-      plans[0]!.settle(ok);
-      await Bun.sleep(0);
-      clock.advance(150);
-      expect({ ok, asked: plans.map(p => p.id) }).toEqual({ ok, asked: ["b1", "b2", "b1"] });
-    }
-    lanes.dispose();
-  });
-
-  test("a list the service answers (the held asks)", async () => {
-    let reads = 0;
-    const list = new HeldAsks();
-    await list.seed({ heldAsks: async () => { reads++; return []; } } as never);
-    expect(reads).toBe(1);
-    burst(() => list.heard(content), 400, () => reads - 1, () => list.stop());
-  });
-
-  test("a held-asks read the next one replaces keeps nothing, and stop drops one still out", async () => {
-    const answers: ((rows: { blockId: string }[]) => void)[] = [];
-    const list = new HeldAsks();
-    const board = { heldAsks: () => new Promise<never[]>(r => answers.push(r as never)) };
-    const seeded = list.seed(board as never);
-    answers[0]!([{ blockId: "a1" }]);
-    await seeded;
-    list.heard(content); clock.advance(400);
-    list.heard(content); clock.advance(400);
-    answers[2]!([{ blockId: "a3" }]);
-    answers[1]!([{ blockId: "a2-old" }]);
-    await Bun.sleep(0);
-    expect(list.list().map(r => r.blockId)).toEqual(["a3"]);
-    list.heard(content); clock.advance(400);
-    list.stop();
-    answers[3]!([{ blockId: "after-stop" }]);
-    await Bun.sleep(0);
-    expect(list.list().map(r => r.blockId)).toEqual(["a3"]);
   });
 });
 

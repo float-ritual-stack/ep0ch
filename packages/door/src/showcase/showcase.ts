@@ -524,7 +524,7 @@ export const SECTIONS: Section[] = [
         layout: ids => ({ t: "split", dir: "row", key: "spread", kids: ids.map(leaf), weights: ids.map(() => 1), policy: { spines: "book", "min-width": 40 } }),
       }, show, readers.map((r, i) => [r, notes[i]]), d => {
         for (const name of names.filter(name => name !== "cedar" && name !== "fir")) d.collapseTile(name, true, USER);
-        d.gatherSpines("cedar", "centre", USER);
+        d.step("cedar", t => ({ op: "gather", tile: t.id, side: "centre" }), USER, r => r.answer);
       });
     },
   },
@@ -1317,7 +1317,7 @@ export const SECTIONS: Section[] = [
     aside: "go in (⏎): the keys are on the shed note, folded to a spine, on a locked screen · press x: the spine has no edge to say it on, so the hint row under it says why, in amber (the status bar too) · Tab to the notebook and press ^W x: the screen is locked, and the reader's own bottom edge says so · ^W x again: it stays up, bold on a dim amber band, the frame amber, until you press a different key · a click on the dimmed close row of its ⋯ card says why the same way · on a desk holding only a group, q leaves the screen as on any desk (it used to be refused, on the status bar alone)",
     stage(n, show) {
       const shed = detailPane(), a = new ReaderPane(true);
-      return deskOf({ title: "showcase · refusals", panes: [shed, a], names: ["shed", "reader"], layout: ([x, y]) => row(0.35, x!, y!) }, show, [[shed, n.shed], [a, n.notebook]], d => { d.collapseTile("shed", true, USER); d.lockScreen(true, USER); });
+      return deskOf({ title: "showcase · refusals", panes: [shed, a], names: ["shed", "reader"], layout: ([x, y]) => row(0.35, x!, y!) }, show, [[shed, n.shed], [a, n.notebook]], d => { d.collapseTile("shed", true, USER); d.step(null, () => ({ op: "lock", on: true }), USER, () => null); });
     },
   },
   {

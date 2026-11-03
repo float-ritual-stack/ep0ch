@@ -105,23 +105,6 @@ describe("the surface without a service", () => {
     expect(visible(s.hint())).toStartWith("[ ] 2/2");
   });
 
-  test("a link selected inside a folded section stays selected through repaints until it's drawn or let go (link.select, then link.follow)", async () => {
-    const s = new NoteSurface(), h = host();
-    s.show(note("Seed swap\nFirst [[Trays and labels]].\n\n## Later\nThen [[Seed swap ledger]]."), h);
-    s.render(60, 12, h);
-    await s.runKey("fold", { all: true }, h);
-    s.render(60, 12, h);
-    const n = s.describe().links.findIndex((l: any) => l.page === "Seed swap ledger");
-    expect(n).toBeGreaterThanOrEqual(0);
-    s.selectLink(n);
-    s.render(60, 12, h); s.render(60, 12, h);
-    expect(s.describe().links.filter((l: any) => l.selected).map((l: any) => l.page)).toEqual(["Seed swap ledger"]);
-    // Unfolded, its element is drawn and becomes the position.
-    await s.runKey("unfold", { all: true }, h);
-    s.render(60, 12, h);
-    expect(s.describeElements().find(e => e.current)?.label).toContain("Seed swap ledger");
-  });
-
   test("one edit control: a note edit and a comment say the same keys the same way", () => {
     const s = new NoteSurface();
     s.show(note("A\nb"), host());

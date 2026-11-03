@@ -19,7 +19,6 @@ import { COMPLETION_ACTIONS, lineCompleter } from "../surface/completer";
 import { askInBar } from "../bar/ask";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { findBoards } from "./query";
-import { SearchSchedule } from "../search-schedule";
 import { prop, propValues } from "../props";
 import { ListView, PERSON, actorKey, type ListViewRow } from "../surface/list-view";
 import type { ListHost } from "../surface/list-actions";
@@ -146,8 +145,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   private dragging = false;
   private lineRows: number[] = [];
   private width = 0;
-  /** Its reads (PIE-1395): a burst of outline changes reads once, a pause after the last; each read is a turn, and an answer is kept only while its turn is the newest. */
-  private readonly search = new SearchSchedule(400);
+  private asked = 0;
+  private reload: Timer | null = null;
   private stopSource?: () => void;
   private stopSources?: () => void;
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
@@ -259,16 +258,17 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (!this.answer) void this.refresh(desk);
   }
   onEvent(desk: DeskApi) {
-    this.search.pause(() => void this.refresh(desk));
+    if (this.reload) clearTimeout(this.reload);
+    this.reload = setTimeout(() => { this.reload = null; void this.refresh(desk); }, 400);
   }
-  dispose() { this.stopSources?.(); this.stopSource?.(); this.search.cancel(); }
+  dispose() { this.stopSources?.(); this.stopSource?.(); if (this.reload) clearTimeout(this.reload); }
 
   /** Ask the service for the selection's facets and notes (and, to dim the ones it leaves at 0, every note's facets). */
   /** A refresh (an outline change, `r`, `z`): in turn with the selection's own reads, so none supersedes another. */
   refresh(desk: DeskApi): Promise<boolean> { return this.serial(() => this.load(desk)); }
   /** One read of the selection's facets and notes; a selection change calls it inside `serial`, anything else through `refresh`. */
   async load(desk: DeskApi): Promise<boolean> {
-    const turn = this.search.begin(), board = desk.ctx.board, q = this.query();
+    const n = ++this.asked, board = desk.ctx.board, q = this.query();
     try {
       this.stopSource?.();
       this.stopSource = facetSource(this.sourceId).subscribe?.(desk, () => this.onEvent(desk));
@@ -288,7 +288,7 @@ export class FacetsPane implements Pane, AttachedOwner {
         this.open.has("views") || !this.views.length ? board.facetList(`type=${facetSource(this.sourceId).notes ? "virtual-branch" : "facet-view"} query${facetSource(this.sourceId).notes ? "" : ` facet-source=${this.sourceId}`}`, 200, { facets: false, sort: "updated desc" }).catch(() => null) : null,
         this.calendar ? this.readSource(desk, monthQ, 1, { facets: false, group: "updated:day" }).catch(() => null) : null,
       ]);
-      if (!turn.alive()) return true;
+      if (n !== this.asked) return true;
       const was = this.rowKey(this.current());
       this.answer = now; this.all = all ?? now; this.error = null;
       this.pinned = pinned?.notes ?? [];
@@ -305,18 +305,18 @@ export class FacetsPane implements Pane, AttachedOwner {
           const r = await this.readSource(desk, [q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" "), 1000, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null);
           return r ? [label, r] as const : null;
         }));
-        if (!turn.alive()) return true;
+        if (n !== this.asked) return true;
         for (const page of pages) if (page) { this.extra.set(page[0], page[1].notes); this.extraMore.set(page[0], page[1].truncated); }
       }
       // Where each row lives is read after the rows are drawn: it fills in, it never holds them back.
-      void this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]).then(() => { if (turn.alive()) { this.setRows(); desk.redraw(); } });
+      void this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]).then(() => { if (n === this.asked) { this.setRows(); desk.redraw(); } });
       this.dayCounts = new Map((days?.groups ?? []).flatMap(g => (g.value ? [[g.value, g.count] as [string, number]] : [])));
       this.setRows();
       // The cursor stays on the row it was on (by what it is), not its place.
       const at = was ? this.rows().findIndex(r => this.rowKey(r) === was) : -1;
       if (at >= 0) this.at = at;
     } catch (e) {
-      if (!turn.alive()) return true;
+      if (n !== this.asked) return true;
       this.error = (e as Error).message;
       this.answer = this.answer ?? { facets: [], notes: [], truncated: false, matched: 0 };
       desk.redraw();
@@ -389,12 +389,12 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (!clause) throw new ActionRefused(`${label} can't be asked for by itself`);
     // A page at a time, older than the last one read (a group past 1,000 notes keeps its more row); an answer that lands
     // after the selection changed is dropped, never put under the new selection's group.
-    const asked = this.search.turn, q = this.query(), had = this.extra.get(label), was = new Set(g.notes.map(m => m.id));
+    const asked = this.asked, q = this.query(), had = this.extra.get(label), was = new Set(g.notes.map(m => m.id));
     // `<=` the last one read: notes sharing its time (a batch written at once) aren't skipped; those already read drop out.
     const older = had?.length ? ` updated <= ${new Date(had[had.length - 1]!.updatedAt).toISOString()}` : "";
     const got = await this.readSource(desk, [q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" ") + older, 1000, { facets: false, sort: "updated desc", excerpt: true });
     await this.readHomes(desk, got.notes);
-    if (asked !== this.search.turn) return { group: label, notes: 0 };
+    if (asked !== this.asked) return { group: label, notes: 0 };
     const seen = new Set((had ?? []).map(m => m.id)), all = [...(had ?? []), ...got.notes.filter(m => !seen.has(m.id))];
     this.extra.set(label, all);
     this.extraMore.set(label, got.truncated);
