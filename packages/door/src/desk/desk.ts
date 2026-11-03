@@ -1039,7 +1039,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor); if (why) throw new ActionRefused(why); }
     const { plan, adopt } = undoOrder(asked, d => [...d.panes.keys()].map(i => d.tileId(i)));
     let steps = 0;
-    for (const [d, es] of plan) { const r = d.undoEntries(es, actor, keepFocus || actor.kind === "agent", adopt); if (r.blocked) throw new ActionRefused(r.blocked); steps += r.done.reduce((n, e) => n + e.steps, 0); }
+    for (const [d, es] of plan) steps += d.undoEntries(es, actor, keepFocus || actor.kind === "agent", adopt);
     for (const p of adopt.pool.values()) { p.dispose?.(); tileRegistry.release(p); }   // claimed and never placed: ended, as a rebuild ends it
     for (const [d] of plan) { d.save(); d.redraw(); }
     return steps;
@@ -1055,31 +1055,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (actor.kind === "agent" && this.keysHere() && on && last && !specTileIds(last.before).includes(on)) return `the person is on ${this.nameOf(this.focus)}, which this undo would close: an agent leaves their tile alone`;
     return refusal(this.layout, { op: "load", name: "the layout before" }, this.layoutCtx(actor));
   }
-  /**
-   * Take back `entries` (newest first), one at a time: each must be the end of the history as far as other actors go
-   * (nobody undoes over someone else), and the module's `load` check must allow it (a lock, the tile the person types in).
-   * Stops at the first that doesn't, with why; what was undone is done.
-   */
-  private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false, adopt?: Adopt): { done: LayoutEntry[]; blocked?: string } {
-    const done: LayoutEntry[] = [];
+  /** Take back `entries` here (newest first), checked already (`undoRefusal`): each through the module's `load`, then its shape rebuilt. Its steps. */
+  private undoEntries(entries: LayoutEntry[], actor: Actor, keepFocus = false, adopt?: Adopt): number {
+    let steps = 0;
     for (const entry of entries) {
-      // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
-      if (this.keysHere() && this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
-      // Another run can share this actor: undoing under its later transaction would erase its layout.
-      const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
-      if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
       this.replaying = true;
-      try { this.apply({ op: "load", name: "the layout before" }, actor); }
-      catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
-      finally { this.replaying = false; }
+      try { this.apply({ op: "load", name: "the layout before" }, actor); } finally { this.replaying = false; }
       this.rebuildTo(entry.before, keepFocus, adopt);
       this.layoutName = entry.before.name ?? null;
       this.madeBase = this.layoutName ? madeScreen(this.layoutName) ?? null : null;
       this.settled = this.snapshotShape();
-      this.history.take(entry);
-      done.push(entry);
+      this.history.take(entry); steps += entry.steps;
     }
-    return { done };
+    return steps;
   }
 
   /** Rebuild the shape `spec`, keeping the tiles it names (as `layout.load` does), and no new entry. */
