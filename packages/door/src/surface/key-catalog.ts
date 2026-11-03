@@ -9,6 +9,11 @@ import { keyAlternatives } from "../figures/keys";
 import { allActionSets, chordName, declaredKeys, keyCaption, type ActionDef, type KeyRow } from "./actions";
 import { bindingId, effective, keymapEntries, keyTables, rebindable, type KeymapEntry, type TableRow } from "./keymap";
 import { screenNames } from "../desk/screen-spec";
+import { READER_GUARDS } from "./reader-keys";
+
+/** A row bound to a key another row of its table binds too says when it takes it (its guard), so the list shows what picks. */
+const guarded = (does: string, r: TableRow & { when?: readonly string[] }, rows: readonly TableRow[]) =>
+  r.when?.length && rows.filter(x => x.key === r.key).length > 1 ? `${does}, when ${r.when.map(g => GUARD_WORDS[g] ?? g).join(" and ")}` : does;
 
 /**
  * The layers a key passes through, first first (App.route, then the desk's key, then its tile's): the hyper layer, the
@@ -30,8 +35,8 @@ const SCOPE_LAYER: Record<string, Layer> = {
   board: "screen", river: "screen", desk: "screen", home: "screen", welcome: "screen", echo: "screen", showcase: "screen", brief: "screen",
   waiting: "screen", menu: "screen", art: "screen", blank: "screen", activity: "screen", who: "screen",
 };
-/** A table's layer: the ^W keys and the hyper layer are their own; every other table is a mode's. */
-const tableLayer = (scope: string): Layer => (scope === "^W" ? "^W" : scope === "hyper" ? "hyper" : SCOPE_LAYER[scope] ?? "mode");
+/** A table's layer: the ^W keys and the hyper layer are their own, the reader's (READER_KEYS) a tile's; every other table is a mode's. */
+const tableLayer = (scope: string): Layer => (scope === "^W" ? "^W" : scope === "hyper" ? "hyper" : scope === "reader" ? "tile" : SCOPE_LAYER[scope] ?? "mode");
 
 /** One binding: a key, what it runs, where, and whether the keymap can move it. */
 export interface Binding {
@@ -61,10 +66,14 @@ export interface Binding {
   table?: number;
   /** A screen's row runs only while the focused tile is of these kinds (`only`), or not of these (`unless`). */
   only?: readonly string[]; unless?: readonly string[];
+  /** A reader row takes its key only while these hold (ReaderKey.when, in words): a later row on its key runs otherwise. */
+  when?: readonly string[];
 }
 
 /** A screen's row's kinds of focused tile (KeyBinding's `only`, `unless`). */
-const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}) });
+const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[]; when?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}), ...(r.when?.length ? { when: r.when.map(g => GUARD_WORDS[g] ?? g) } : {}) });
+/** A guard's words (READER_GUARDS), so a key bound twice says what picks. */
+const GUARD_WORDS: Readonly<Record<string, string>> = READER_GUARDS;
 const clause = (summary: string) => summary.split(/[.:;(]/)[0]!.trim();
 /** A table row's words: its `says`, else its label where it says something (`close sources`), else the action's words with it (`query` alone isn't). */
 const tableWords = (r: TableRow, about: string) => r.says ?? (!r.label ? about : r.label.trim().split(/\s+/).length > 1 ? r.label : whole(about, r.label, ""));
@@ -111,7 +120,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
       held.add(`${key} ${r.action}`);
       out.push({
         key, cap: capOf(key), action: r.action, args, id, scope: t.scope, ...(t.within ? { within: t.within } : {}), layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
-        does: tableWords(r, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
+        does: guarded(tableWords(r, summary(r.action)), r, rows), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
         ...(yours ? { yours: true as const } : {}), table,
         ...kinds(r),
@@ -213,8 +222,12 @@ export function worksIn(b: Binding, where: string): boolean {
   return b.scope.toLowerCase() === where || b.within === where || b.layer === where || (b.layer === "^W" && tiled(where));
 }
 
-/** Whether two rows of one table can be live at once: the kinds of focused tile each runs for meet. */
+/**
+ * Whether two rows of one table can be live at once: the kinds of focused tile each runs for meet. A guarded row (`when`)
+ * lets its key fall to the rows after it while its guard doesn't hold, so it shares the key with them rather than hiding them.
+ */
 const meet = (a: Binding, b: Binding) => {
+  if (a.when?.length) return false;
   if (a.only && b.only) return a.only.some(k => b.only!.includes(k));
   if (a.only || b.only) { const [o, x] = a.only ? [a, b] : [b, a]; return !x.unless || o.only!.some(k => !x.unless!.includes(k)); }
   return true;
