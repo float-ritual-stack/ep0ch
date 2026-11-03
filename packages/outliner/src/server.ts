@@ -58,7 +58,7 @@ import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
-import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
+import { stampTemplateInto, stampTemplate } from "./template-stamp";
 import { keepSuggestion, readKeep, SuggestionWrites } from "./jev-suggestions";
 import type { RecordCache } from "./records";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
@@ -105,8 +105,9 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, thisTurn, WHOLE_OUTLINE_READS, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
-import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
+import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { QueryWatches, type WatchConnection } from "./query-watches";
+import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, type NotHandledHere } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -120,24 +121,15 @@ import {
   type OutlinerRegion,
   type AnnotationBatchReceipt,
   type QuoteReceipt,
-  type AnnotationAgentProposalReceipt,
   type AttentionClientState,
   type AttentionMark,
   type AttentionMarkInput,
   type Block,
   type BrowsingContextPublication,
-  type BookmarkRemoveReceipt,
-  type BookmarkToggleReceipt,
-  type CaptureReceipt,
   type CaptureOwner,
   type CaptureOwnerClaim,
   type CaptureOwnerLocation,
-  type QuickCaptureDraft,
   type ComputedExecutionResult,
-  type ComputedInvocation,
-  type DeliveryReceipt,
-  type DeliverySyncReceipt,
-  type NavigationState,
   type OutlinerClientRegistration,
   type OutlinerClientRole,
   type OutlinerClientRuntime,
@@ -148,27 +140,18 @@ import {
   type MutationProvenance,
   type VisibleBlockCollection,
   type OutlinerNavigationDispatch,
-  type InternResourceReceipt,
   type OutlinerNavigationIntent,
   type OutlinerNavigationTarget,
   type OutlinerUiCommand,
-  type PageAddressFollowResult,
-  type NewNoteReceipt,
-  type VirtualOccurrenceMoveResult,
   type OutlinerRequest,
   type RoadmapItemCreateReceipt,
   type OutlinerResponse,
   type WorkflowRun,
-  type WorkflowPromotionReceipt,
   type WorkflowStartInput,
   type WorkflowTransitionInput,
-  type Resource,
   type ResourceDescription,
   type ResourceCapability,
   type ResourceProviderCommandResult,
-  type ResourceRetentionCollectionReceipt,
-  type ResourceRetentionPin,
-  type ResourceRetentionReference,
   type ResourceRevisionRef,
   type GotoSearchCollection,
   type PageAddressCollection,
@@ -179,34 +162,10 @@ import {
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
 import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
-import { ECHONET_MAIL_ACTIONS, putPacket, readBulletin, takePackets } from "./echonet-mail";
+import { putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
-
-function eventResultId(value: unknown, label: string): string {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("id" in value) ||
-    typeof value.id !== "string"
-  ) {
-    throw new Error(`${label} result is missing its ID`);
-  }
-  return value.id;
-}
-
-function annotationReconcileChanged(value: unknown): boolean {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("changed" in value) ||
-    typeof value.changed !== "boolean"
-  ) {
-    throw new Error("Annotation reconcile result is missing its changed flag");
-  }
-  return value.changed;
-}
 
 /**
  * Request-level meanings that replace the store's per-block kind: an annotation
@@ -303,19 +262,6 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
   };
 }
 
-/**
- * What a read-only copy of an outline answers (a mirror of an outline whose home is another machine, served by an
- * `OutlineHost` with `readOnly`): the reads the MCP server makes (a note’s comment threads among them). Every other action is refused, so nothing a client
- * sends can change the copy or start work from it.
- */
-const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
-const EXTENSION_READS: ReadonlySet<string> = new Set([
-  "children", "blocks.read", "blocks.context", "block.revisions", "proposals.outcomes", "blocks.authored-links", "changes.since", "activity.recent",
-  "annotations.get", "fragments.read", "fragments.at", "fragments.candidates", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
-  "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
-  "extensions.list", "extensions.args", "scripts.render", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
-]);
-
 /** How long `shares.start` waits for a `cloudflare` share's tunnel to come up before answering without its link. */
 const TUNNEL_WAIT_MS = 35_000;
 
@@ -366,16 +312,6 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "blocks.grep", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "blocks.census", "annotations.list", "mcp.access.status", "waiting.list", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "site.sources", "template.use", "template.props"]);
-/**
- * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
- * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
- */
-const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list",
-  // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client, listed and
-  // revoked here; and what its pages have in front of them. Starting a share stays the outline's own machine's. The copy's change log is a read too: a query brackets its pages with changes.since (SocketBoard.queryIds).
-  "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view", "changes.since"]);
-
 export class OutlinerServer {
   private completions?: CompletionRequests;
   private readonly mentions: MentionRepository;
@@ -416,7 +352,7 @@ export class OutlinerServer {
   private host: (() => OutlinerHostStatus) | undefined;
   /** This outline's side files; by default the socket's folder. */
   readonly stateDirectory: string;
-  /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_COPY_ACTIONS are answered. */
+  /** A read-only copy (an `OutlineHost` with `readOnly`): only what `copyAnswers` (actions.ts) says is answered. */
   readonly readOnly: boolean;
   /** Extension records: one-step fetch on save and open, refresh, poll (src/extension-sync.ts). */
   /** One sync per extension provider of Resources (Jira's first). */
@@ -2175,7 +2111,7 @@ export class OutlinerServer {
   ): Promise<OutlinerResponse> {
     if (request.action.startsWith("artifacts.")) {
       try {
-        if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
+        if (this.readOnly && !copyAnswers(request.action)) throw new Error("This outline is read-only.");
         const result = request.action === "artifacts.lease" ? this.uploadLease(request)
           : request.action === "artifacts.deploy" ? (request.note ? await deployNote(this.artifacts(), this.store, request.note, request.mutation) : await deployArtifact(this.artifacts(), this.store, request.repo ?? "", request.mutation, request.domain))
           // A repo an artifact line names is answered from the deploy's records (PIE-1060), never read as a file.
@@ -2858,6 +2794,8 @@ export class OutlinerServer {
     try {
       let result: unknown;
       const action = request.action;
+      if (isHostAction(action)) throw new Error(`${action} is answered by the outline host, never by one outline`);
+      if (isAsyncOnly(action)) throw new Error(`${action} requires asynchronous dispatch`);
       switch (action) {
         case "scripts.answer": {
           const waiting = this.scriptAnswers.get(request.requestId);
@@ -2879,30 +2817,6 @@ export class OutlinerServer {
             ...(this.host ? { host: this.host() } : {}),
           };
           break;
-        case "outlines.list":
-        case "outlines.create":
-        case "outlines.import":
-        case "outlines.attach":
-        case "outlines.close":
-        case "outlines.delete":
-        case "outlines.archive":
-        case "outlines.unarchive":
-        case "outlines.pane":
-        case "loki.lease.start":
-        case "loki.lease.revoke":
-        case "loki.lease.use":
-        case "uploads.take":
-        case "uploads.finish":
-        case "devices.add":
-        case "devices.list":
-        case "devices.revoke":
-        case "devices.shortcut.put":
-        case "devices.shortcut.get":
-        case "web.sessions.start":
-        case "web.sessions.resolve":
-        case "web.sessions.list":
-        case "web.sessions.revoke":
-          throw new Error(`${action} is answered by the outline host, never by one outline`);
         case "blocks.query": {
           // Machinery (PIE-867): a question that doesn't say leaves out what tools stamped `[machine::…]`.
           const question = request.query && typeof request.query === "object" ? { ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY } : request.query;
@@ -3175,41 +3089,6 @@ export class OutlinerServer {
           );
           break;
         }
-        case "scripts.sequence":
-        case "scripts.render":
-        case "scripts.stop":
-        case "scripts.run":
-        case "extensions.list":
-        case "extensions.act":
-        case "extensions.bar":
-        case "extensions.schedule.run":
-        case "extensions.install":
-        case "extensions.uninstall":
-        case "extensions.configure":
-        case "extensions.undo":
-        case "extensions.args":
-        case "echonet.bulletin":
-        case "echonet.put":
-        case "echonet.take":
-        case "notes.address":
-        case "notes.render":
-        case "outline.snapshot":
-        case "shares.snapshot.take":
-        case "shares.snapshot.finish":
-        case "shares.start":
-        case "shares.list":
-        case "shares.revoke":
-        case "shares.resolve":
-        case "shares.tunnel":
-        case "reader.report":
-        case "reader.view":
-        case "computed.execute":
-        case "resources.open":
-        case "resources.refresh":
-        case "resources.projection.refresh":
-        case "resources.follow-authored":
-        case "resources.command.execute":
-          throw new Error(`${request.action} requires asynchronous dispatch`);
         case "attention.get":
           this.attentionClient(request.targetClientId);
           result = this.attentionState(request.targetClientId);
@@ -3650,13 +3529,6 @@ export class OutlinerServer {
           if (typeof request.blockId !== "string" || !request.blockId) throw Error("draft.proposals.list needs blockId");
           result = this.draftPatches.proposalsBeside(request.blockId);
           break;
-        case "outputs.place":
-        case "draft.patch":
-        case "draft.proposal.resolve":
-        case "draft.proposal.apply":
-        case "draft.proposal.dismiss":
-        case "drafts.read":
-          throw Error(`${action} requires asynchronous dispatch`);
         case "edit-recovery.start":
           result = this.editRecovery.start(request.input);
           break;
@@ -3937,37 +3809,9 @@ export class OutlinerServer {
         case "navigation.forward":
           result = this.store.navigateHistory("forward");
           break;
-        case "artifacts.deploy":
-        case "artifacts.dns":
-        case "artifacts.backfill":
-        case "artifacts.lease":
-        case "artifacts.put":
-        case "artifacts.show":
-        case "artifacts.snapshot":
-        case "artifacts.versions":
-        case "artifacts.rm":
-        case "artifacts.list":
-        case "artifacts.import":
-        case "artifacts.upload.begin":
-        case "artifacts.upload.chunk":
-        case "artifacts.upload.finish":
-        case "artifacts.upload.abort":
-          throw new Error("Artifact requests require asynchronous dispatch.");
-        case "query.suggest":
-        case "suggestions.keep":
-          throw new Error("suggestions.keep requires asynchronous dispatch.");
-        case "roadmap.items.similar":
-        case "roadmap.items.attach":
-          throw new Error(`${request.action} requires asynchronous dispatch.`);
-        case "completion.cancel":
-        case "completion.rows":
-        case "completion.picked":
-        case "search.picked":
-        case "search.picks":
-        case "quote":
-          throw new Error(`${action} requires asynchronous dispatch.`);
         default: {
-          const unsupportedAction: never = action;
+          // What's left is declared async or the host's (actions.ts), refused above: a new sync action fails here until handled.
+          const unsupportedAction: NotHandledHere = action;
           throw new Error(`Unsupported action: ${String(unsupportedAction)}`);
         }
       }
@@ -3991,370 +3835,20 @@ export class OutlinerServer {
     response: Extract<OutlinerResponse, { ok: true }>,
     previousSequence: number,
   ): OutlinerEvent | null {
-    let domain: OutlinerEvent["domain"];
-    let blockId: string | undefined;
-    let resourceId: string | undefined;
-    let sourceId: string | undefined;
-    let contextId: string | undefined;
-    let command: OutlinerEvent["command"];
-    let attention: AttentionClientState | undefined;
-    let attentionInstruction: OutlinerEvent["attentionInstruction"];
-    switch (request.action) {
-      case "mentions.ingest": {
-        const receipt=response.result as {deduplicated:boolean;references:number};
-        if(receipt.deduplicated||!receipt.references)return null;
-        domain="mentions";break;
-      }
-      case "mentions.clear":
-        if(!(response.result as {removed:number}).removed)return null;
-        domain="mentions";break;
-      case "resource-sources.create":
-        domain = "resource-catalog";
-        sourceId = eventResultId(response.result, "Resource source");
-        break;
-      case "computed.invocations.create":
-      case "computed.invocations.revise": {
-        const invocation = response.result as ComputedInvocation;
-        domain = "resource-catalog";
-        resourceId = invocation.resourceId;
-        break;
-      }
-      case "computed.execute": {
-        const execution = response.result as ComputedExecutionResult;
-        domain = "resource-catalog";
-        resourceId = execution.receipt.resourceId;
-        break;
-      }
-      case "resources.intern": {
-        const receipt = response.result as InternResourceReceipt;
-        if (!receipt.created) return null;
-        domain = "resource-catalog";
-        resourceId = receipt.resource.id;
-        break;
-      }
-      case "resources.intern-filesystem": {
-        const receipt = response.result as InternResourceReceipt;
-        if (!receipt.created) return null;
-        domain = "resource-catalog";
-        resourceId = receipt.resource.id;
-        break;
-      }
-      case "resources.follow-authored": {
-        const receipt = response.result as InternResourceReceipt;
-        if (!receipt.created) return null;
-        domain = "resource-catalog";
-        resourceId = receipt.resource.id;
-        break;
-      }
-      case "resources.relocate":
-        domain = "resource-catalog";
-        resourceId = (response.result as Resource).id;
-        break;
-      case "resources.open":
-        return null;
-      case "resources.refresh":
-        domain = "resource-catalog";
-        resourceId = (response.result as ResourceDescription).resource.id;
-        break;
-      case "resources.write-filesystem":
-        domain = "resource-catalog";
-        resourceId = (response.result as ResourceDescription).resource.id;
-        break;
-
-      case "resources.command.execute": {
-        const commandResult = response.result as ResourceProviderCommandResult;
-        domain = "resource-catalog";
-        resourceId = commandResult.receipt.resourceId;
-        break;
-      }
-      case "resources.retention.configure":
-        domain = "resource-catalog";
-        break;
-      case "resources.retention.pin": {
-        const receipt = response.result as { pin: ResourceRetentionPin; created: boolean };
-        if (!receipt.created) return null;
-        domain = "resource-catalog";
-        resourceId = receipt.pin.resourceId;
-        break;
-      }
-      case "resources.retention.unpin":
-        if (!(response.result as { removed: boolean }).removed) return null;
-        domain = "resource-catalog";
-        break;
-      case "resources.retention.reference": {
-        const receipt = response.result as {
-          reference: ResourceRetentionReference;
-          created: boolean;
-        };
-        if (!receipt.created) return null;
-        domain = "resource-catalog";
-        resourceId = receipt.reference.resourceId;
-        break;
-      }
-      case "resources.retention.unreference":
-        if (!(response.result as { removed: boolean }).removed) return null;
-        domain = "resource-catalog";
-        break;
-      case "resources.collect": {
-        const receipt = response.result as ResourceRetentionCollectionReceipt;
-        if (receipt.evicted.length === 0 && receipt.purged.length === 0) return null;
-        domain = "resource-catalog";
-        resourceId = receipt.resourceId ?? undefined;
-        break;
-      }
-      case "create":
-        if ((response.result as Block & { deduplicated?: true }).deduplicated) return null;
-      case "edit-recovery.separate":
-        domain = "content";
-        blockId = (response.result as Block).id;
-        break;
-      case "notes.create":
-        domain = "content";
-        blockId = (response.result as NewNoteReceipt).block.id;
-        break;
-      case "template.stamp": {
-        const stamped = (response.result as TemplateStampResult).stamped;
-        if (!stamped.length) return null;
-        domain = "content";
-        blockId = stamped[0]!.id;
-        break;
-      }
-      case "edit-recovery.commit":
-        domain = "content";
-        blockId = (response.result as Block).id;
-        break;
-      case "bookmarks.toggle":
-        domain = "content";
-        blockId = (response.result as BookmarkToggleReceipt).record.id;
-        break;
-      case "bookmarks.remove":
-        domain = "content";
-        blockId = (response.result as BookmarkRemoveReceipt).record.id;
-        break;
-      case "roadmap.items.create":
-        domain = "content";
-        blockId = (response.result as RoadmapItemCreateReceipt).block.id;
-        break;
-      case "deliveries.sync": {
-        const receipt = response.result as DeliverySyncReceipt;
-        if (!receipt.changed) return null;
-        domain = "content";
-        blockId = receipt.task.id;
-        break;
-      }
-      case "deliveries.ensure": {
-        const receipt = response.result as DeliveryReceipt;
-        if (!receipt.created) return null;
-        domain = "content";
-        blockId = receipt.delivery.id;
-        break;
-      }
-      case "mentions.save":
-      case "capture.create": {
-        const receipt = response.result as CaptureReceipt;
-        if (receipt.deduplicated) return null;
-        domain = "content";
-        blockId = receipt.block.id;
-        break;
-      }
-      case "workflows.promotion.commit": {
-        const receipt = response.result as WorkflowPromotionReceipt;
-        if (receipt.deduplicated) return null;
-        domain = "content";
-        blockId = receipt.block.id;
-        break;
-      }
-      case "capture.retitle":
-        domain = "content";
-        blockId = (response.result as Block).id;
-        break;
-      case "capture.draft.save":
-        if (response.sequence === previousSequence) return null;
-        blockId = (response.result as QuickCaptureDraft).blockId;
-        if (!blockId) return null;
-        domain = "content";
-        break;
-      case "capture.draft.clear":
-        if (response.sequence === previousSequence) return null;
-        domain = "content";
-        break;
-      case "annotations.create":
-      case "annotations.reply":
-      case "annotations.batch": {
-        const receipt = response.result as AnnotationBatchReceipt;
-        if (receipt.deduplicated) return null;
-        domain = "content";
-        blockId = receipt.annotations[0]?.block.id;
-        break;
-      }
-      case "annotations.reconcile":
-        if (!annotationReconcileChanged(response.result)) return null;
-        domain = "content";
-        break;
-      case "annotations.approve-resolution":
-        domain = "content";
-        blockId = request.input.annotationId;
-        break;
-      case "annotations.propose-agent": {
-        const receipt = response.result as AnnotationAgentProposalReceipt;
-        if (receipt.deduplicated) return null;
-        domain = "content";
-        blockId = request.input.annotationId;
-        break;
-      }
-      case "annotations.review-agent":
-        domain = "content";
-        blockId = request.input.annotationId;
-        break;
-      case "annotations.lifecycle":
-      case "annotations.update":
-        domain = "content";
-        blockId = request.input.annotationId;
-        break;
-      case "quote": {
-        domain = "content";
-        const receipt = response.result as QuoteReceipt;
-        blockId = "block" in receipt ? receipt.block.id : receipt.into.blockId;
-        break;
-      }
-      case "annotations.read":
-        // Nothing in a block changed; views that ask `unread:` read again.
-        if (!(response.result as { marked: number }).marked) return null;
-        domain = "content";
-        blockId = (response.result as { thread: string }).thread;
-        break;
-      case "blocks.markRead":
-        // As a thread read: nothing in a block changed, but views that ask `unread:` read again.
-        if (!(response.result as { marked: number }).marked) return null;
-        domain = "content";
-        blockId = request.blocks[0]?.id;
-        break;
-      case "attention.mark":
-      case "attention.advance":
-        domain = "attention";
-        blockId = request.input.target.sourceBlockId;
-        attention = response.result as AttentionClientState;
-        attentionInstruction = {
-          ...(request.input.targetRegion ? {targetRegion: request.input.targetRegion} : {}),
-          markId: request.input.markId,
-          reveal: request.input.reveal ?? false,
-          focus: request.input.focus ?? false,
-        };
-        break;
-      case "attention.clear":
-      case "attention.acknowledge":
-        domain = "attention";
-        attention = response.result as AttentionClientState;
-        blockId = attention.marks.find((mark) =>
-          !request.input.markId || mark.markId === request.input.markId
-        )?.target.sourceBlockId;
-        break;
-      case "attention.get":
-        return null;
-      case "checklist.update":
-      case "fragments.ensure":
-        if (response.sequence === previousSequence) return null;
-        domain = "content";
-        blockId = request.blockId;
-        break;
-      case "update":
-      case "properties.patch":
-      case "pages.rename":
-      case "pages.alias":
-      case "pages.remove":
-      case "work-ids.allocate":
-        domain = "content";
-        blockId = request.blockId;
-        break;
-      case "move":
-      case "delete":
-      case "trash.restore":
-      case "trash.purge":
-        domain = "content";
-        blockId = request.blockId;
-        break;
-      case "work-ids.configure":
-      case "mcp.access.configure":
-        domain = "content";
-        break;
-      case "pages.follow": {
-        const followed = response.result as PageAddressFollowResult;
-        if (!followed.created) return null;
-        domain = "content";
-        blockId = followed.block?.id;
-        break;
-      }
-      case "virtual.occurrences.place":
-        domain = "view";
-        blockId = request.input.expected.viewId;
-        break;
-      case "virtual.occurrences.move": {
-        const moved = response.result as VirtualOccurrenceMoveResult;
-        if (!moved.moved.length) return null;
-        domain = "view";
-        blockId = moved.viewId;
-        break;
-      }
-      case "virtual.occurrences.reorder":
-        domain = "view";
-        blockId = request.viewId;
-        break;
-      case "selection.set":
-        domain = "selection";
-        blockId = request.blockId ?? undefined;
-        break;
-      case "navigation.back":
-      case "navigation.forward":
-        domain = "selection";
-        blockId = (response.result as NavigationState).selection.selected?.id;
-        break;
-      case "ui.command.send":
-        domain = "ui";
-        blockId = "target" in request.command && request.command.target?.kind === "block"
-          ? request.command.target.blockId
-          : request.command.command === "backlinks.select"
-            ? request.command.targetBlockId
-            : undefined;
-        resourceId = "target" in request.command && request.command.target?.kind === "resource"
-          ? request.command.target.resourceId
-          : undefined;
-        command = request.command;
-        break;
-      case "navigation.dispatch": {
-        const dispatched = response.result as OutlinerNavigationDispatch;
-        domain = "ui";
-        blockId = request.target.kind === "block" ? request.target.blockId : undefined;
-        resourceId = request.target.kind === "resource" ? request.target.resourceId : undefined;
-        command = dispatched.command;
-        break;
-      }
-      case "browsing-context.publish": {
-        const published = response.result as BrowsingContextPublication;
-        domain = "browsing-context";
-        contextId = published.contextId;
-        blockId = published.target?.kind === "block" ? published.target.blockId : undefined;
-        resourceId = published.target?.kind === "resource"
-          ? published.target.resourceId
-          : undefined;
-        command = published.preview?.command;
-        break;
-      }
-      default:
-        return null;
-    }
-
+    const fields = eventOf(request, response, previousSequence);
+    if (!fields) return null;
     return {
       id: crypto.randomUUID(),
-      domain,
+      domain: fields.domain,
       action: request.action,
       sequence: response.sequence,
-      blockId,
-      resourceId,
-      command,
-      ...(attention ? { attention } : {}),
-      sourceId,
-      ...(attentionInstruction ? { attentionInstruction } : {}),
-      contextId,
+      blockId: fields.blockId,
+      resourceId: fields.resourceId,
+      command: fields.command,
+      ...(fields.attention ? { attention: fields.attention } : {}),
+      sourceId: fields.sourceId,
+      ...(fields.attentionInstruction ? { attentionInstruction: fields.attentionInstruction } : {}),
+      contextId: fields.contextId,
     };
   }
 
@@ -4714,11 +4208,11 @@ export class OutlinerServer {
     if (grant.relayed && action === "secrets.group") throw new Error(`${actor.actorId} runs on another machine: secrets.group is for this machine's own extensions`);
     // Asking an outline's access level is what finds out what it allows.
     // EchoNet's mail is a node's, never an agent's (ADR 0005): it writes no block, and the access level doesn't hold it.
-    if (ECHONET_MAIL_ACTIONS.has(action)) return rest as OutlinerRequest;
+    const may = extensionMay(action);
+    if (may === "mail") return rest as OutlinerRequest;
     if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
-    if (rest.action === "events.subscribe") return rest;
-    if (!EXTENSION_WRITES.has(action)) {
-      if (READ_ONLY_ACTIONS.has(action) || EXTENSION_READS.has(action) || action === "secrets.group") return rest as OutlinerRequest;
+    if (may !== "write") {
+      if (may === "read") return rest as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
         (action === "extensions.act" ? " (an extension doesn't set another one off)" : ""));
     }
@@ -4778,7 +4272,7 @@ export class OutlinerServer {
     const level = this.grantedLevel(grant);
     if (level === "full") return;
     const here = this.outline!.name;
-    const writes = EXTENSION_WRITES.has(action);
+    const writes = extensionMay(action) === "write";
     const marks = action.startsWith("annotations.");
     const need = !writes ? "read" : marks ? "propose" : "full";
     const allowed = (level === "propose" && need !== "full") || (level === "read" && need === "read");
@@ -4919,7 +4413,7 @@ export class OutlinerServer {
       if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
       }
-      if (this.readOnly && !READ_ONLY_COPY_ACTIONS.has(String(request.action))) {
+      if (this.readOnly && !copyAnswers(request.action)) {
         throw new Error(`"${this.outline?.name}" here is a read-only copy: ${String(request.action)} isn't served; write to the outline on its own machine`);
       }
       // An extension's own process (PIE-754): its grant makes this request the extension's, attributed ext:<id>.
@@ -5055,7 +4549,7 @@ export class OutlinerServer {
           const key = turnKeyOf(line, socket), action = actionOf(line);
           // A connection that closed has nobody to answer: what it left queued is dropped, never run (PIE-1413).
           const answer = () => socket.destroyed ? undefined : this.respond(socket, line, received, key);
-          if (WHOLE_OUTLINE_READS.has(String(action))) {
+          if (isWholeOutlineRead(action)) {
             // A whole-outline read starts after what the connection sent before it (so it sees those writes), and nothing
             // waits for it: a door's 86 lane reads never hold its note read, its save or its draft behind them (PIE-1413).
             const after = requestQueue;
