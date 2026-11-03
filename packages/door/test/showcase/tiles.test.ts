@@ -348,9 +348,15 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     const top = () => app.screens().at(-1) as any;
     await until(() => top().name === "allotment-work", "the saved screen opened");
     expect((top().layoutGet().tiles as any[]).map(t => [t.name, t.link ?? null])).toEqual([["tree", "detail"], ["detail", null]]);
+    // On the main menu (PIE-1525): its row, written into the screen note, read by every door; its key opens it there.
+    expect(await app.act({ action: "screen.menu", args: { key: "Y", label: "Allotment" }, as: "test-agent" })).toMatchObject({ screen: "allotment-work", menu: { key: "Y", label: "Allotment" } });
+    const { menuItems } = await import("../../src/screens");
+    expect(menuItems().map(i => `${i.key} ${i.label}`)).toContain("Y Allotment");
+    expect((await board.get(saved.note))!.text).toContain('"key": "Y"');
     await app.act({ action: "screen.back", args: {}, as: "test-agent" });
     await until(() => top() === sc, "back on the showcase");
     expect(await app.act({ action: "screen.delete", args: { name: "allotment-work" }, as: "test-agent" })).toMatchObject({ trashed: true });
+    expect(menuItems().map(i => i.label)).not.toContain("Allotment");
     expect(await board.isTrashed(saved.note)).toBe(true);
   }, 20_000);
 });

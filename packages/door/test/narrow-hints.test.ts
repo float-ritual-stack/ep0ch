@@ -189,8 +189,8 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     app.pop();
   });
 
-  test("a preset (Waiting) doesn't offer alt+d, which it refuses; its keys window lists the rest", () => {
-    const w = openScreen("waiting") as Desk;
+  test("a preset (the brief) doesn't offer alt+d, which it refuses; its keys window lists the rest", () => {
+    const w = openScreen("brief") as Desk;
     app.push(w);
     key(char("?"));
     const all = lines().join("\n");
