@@ -1960,6 +1960,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private static kept: Desk | null = null;
   /** The desk to open: the one kept running in the background, else a new one. */
   static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
+  /** The kept desk's programs ended and the desk gone (between test files: test/preload.ts). */
+  static async endKept(): Promise<void> {
+    const d = Desk.kept;
+    if (!d) return;
+    for (const p of d.panes.values()) (p as { kill?(): void }).kill?.();
+    const end = Date.now() + 3000;
+    while (d.holdsPrograms() && Date.now() < end) await Bun.sleep(20);
+    d.dispose();
+    Desk.kept = null;
+  }
   private onScreen = false;
   /** Popped out of a mount (PIE-651, `mount.out`): the mount it came from; `screen.mount` and `q` go back to it. */
   poppedFrom: { tile: Pane; desk: DeskApi } | null = null;
@@ -8525,3 +8535,7 @@ export function contentRect(framed: Rect, look: Look | undefined, measured: bool
   if (measured && m > 0 && cols > m) { col += Math.floor((cols - m) / 2); cols = m; }
   return { col, row: framed.row + py, cols, rows: framed.rows - 2 * py };
 }
+
+// The test run's teardown between files, when there is one: the kept desk is that file's, not the next one's (PIE-1562).
+// Nothing outside tests sets it.
+(globalThis as { [k: symbol]: Set<() => Promise<void>> | undefined })[Symbol.for("ep0ch.test.putBack")]?.add(() => Desk.endKept());

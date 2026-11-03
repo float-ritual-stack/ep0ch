@@ -58,3 +58,11 @@ test("every file of a run has the preload's budget, not only the first", () => {
   expect(r.out).toMatch(/ 2 pass/);
   expect(r.code).toBe(0);
 }, 60_000);
+
+// PIE-1562: status.test's desk opened on extensions.test's tiles (its programs still running, its kinds gone), so a click
+// landed on what wasn't there; look.test the same. Only in a run with such a file before it.
+test("a desk a file left kept isn't the next file's", () => {
+  const r = run("keeps-desk.ts", "opens-desk.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
