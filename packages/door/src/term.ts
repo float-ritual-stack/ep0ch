@@ -300,6 +300,11 @@ export class KeyDecoder {
   /** It sent a bare ESC that nothing followed (a legacy Esc after all, as a multiplexer in between may send): a lone ESC is Esc after LONE_MS again. */
   private bareEsc = false;
   private cutWait(seq: string) { return this.reports && !(seq === "\x1b" && this.bareEsc) ? CUT_MS : LONE_MS; }
+  /** The one wait for the rest of what's pending: more bytes end it (a later wait is the pending's own, never an earlier one's). */
+  private cut: ReturnType<typeof setTimeout> | null = null;
+  private waitFor(ms: number, then: () => void) { if (this.cut) clearTimeout(this.cut); this.cut = setTimeout(() => { this.cut = null; then(); }, ms); }
+  /** A Kitty report (`CSI … u`, not a legacy-shaped `CSI 1;5D` or xterm's `CSI 27;m;c~`): evidence Esc comes as `CSI 27u`. */
+  private sawReport(seq: string) { if (seq.endsWith("u")) this.reports = true; }
   /** The bytes of the key just handed to `keyHandler` (`keys.probe` shows them: what a chord arrives as, PIE-699). */
   lastSeq = "";
   constructor(private readonly info: TermInfo) {}
@@ -318,7 +323,7 @@ export class KeyDecoder {
   kittyError: ((id: number, message: string) => void) | null = null;
 
   /** Forget a half-read sequence (the terminal was handed to another program and back). */
-  reset() { this.pending = ""; }
+  reset() { this.pending = ""; if (this.cut) { clearTimeout(this.cut); this.cut = null; } }
 
   private status() { if (this.probing) this.info.acks = true; else this.onStatus?.(); }
 
@@ -349,7 +354,7 @@ export class KeyDecoder {
       if (/^\x1b\[[<\d;:]*$/.test(rest) || (rest === "\x1b" && this.reports && !this.bareEsc)) {
         if (i) sink(p.slice(0, i));
         this.pending = rest;
-        setTimeout(() => { if (this.pending === rest) { this.pending = ""; if (rest === "\x1b") this.bareEsc = true; this.rawSink?.()?.(rest); } }, this.cutWait(rest));
+        this.waitFor(this.cutWait(rest), () => { if (this.pending === rest) { this.pending = ""; if (rest === "\x1b") this.bareEsc = true; this.rawSink?.()?.(rest); } });
         return false;
       }
       i++;
@@ -360,8 +365,8 @@ export class KeyDecoder {
     if (this.pending[0] === "\x1d") { this.pending = this.pending.slice(1); this.keyHandler({ kind: "char", ch: "]", ctrl: true }); return true; }
     const r = parseReport(this.pending);
     if (r) {
-      this.reports = true;
       const seq = this.pending.slice(0, r.length);
+      this.sawReport(seq);
       this.pending = this.pending.slice(r.length);
       const k = reportKey(this.keyEvents ? { ...r, eventType: true } : r);
       // The escape chord, and a hyper chord (PIE-699: the door's, whatever the tile is typing), stay the door's.
@@ -385,6 +390,9 @@ export class KeyDecoder {
     if (this.pending.includes(STATUS_OK)) {
       this.pending = this.pending.replaceAll(STATUS_OK, (_, at: number) => { if (at < held.length) this.answersJoined++; this.status(); return ""; });
     }
+    // Only answers arrived: what waits keeps its wait (a frame's answers never put off a lone Esc). More bytes: read again with them.
+    if (this.pending === held && this.cut) return;
+    if (this.cut) { clearTimeout(this.cut); this.cut = null; }
     while (this.pending.length) {
       const sink = this.rawSink?.();
       if (sink) { if (!this.feedRaw(sink)) return; continue; }
@@ -425,10 +433,10 @@ export class KeyDecoder {
       if (m) { if (this.probing) this.kbd = true; this.reports = true; this.keyEvents = !!(Number(m[0].slice(3, -1)) & 2); this.pending = p.slice(m[0].length); continue; }
       // A key report under that protocol: Shift+Enter, Esc (CSI 27u), ctrl and alt keys.
       const report = parseReport(p);
-      if (report) { this.reports = true; this.lastSeq = p.slice(0, report.length); this.pending = p.slice(report.length); const k = reportKey(this.keyEvents ? { ...report, eventType: true } : report); if (k) this.keyHandler(k); continue; }
+      if (report) { this.lastSeq = p.slice(0, report.length); this.sawReport(this.lastSeq); this.pending = p.slice(report.length); const k = reportKey(this.keyEvents ? { ...report, eventType: true } : report); if (k) this.keyHandler(k); continue; }
       if ((/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) || (/^\x1b\][^\x07\x1b]*\x1b?$/.test(p) && p.length < 4096)) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
-        setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") { if (this.reports) this.bareEsc = true; this.keyHandler({ kind: "esc" }); } } }, this.cutWait(p));
+        this.waitFor(this.cutWait(p), () => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") { if (this.reports) this.bareEsc = true; this.keyHandler({ kind: "esc" }); } } });
         return;
       }
       const keys: [RegExp, Key][] = [
