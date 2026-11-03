@@ -46,7 +46,7 @@ import { C, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
 import { rowLines, waitingText } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, FRAGMENT_ID_SOURCE, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import { attributeScalar, yamlScalar, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
@@ -144,7 +144,7 @@ export interface LookupOptions { /** Asked on purpose (Tab, ctrl+space): a sourc
 export interface OwnNote { blockId: string; text: string }
 type CompletionOwner = (action?: { by: Actor; did: string }) => OwnNote | undefined;
 
-const title = (m: Msg) => subject({ ...m, text: m.text.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/m, "") }).replace(/\s{2,}/g, " ");
+const title = (m: Msg) => subject({ ...m, text: m.text.replace(new RegExp(String.raw` \^${FRAGMENT_ID_SOURCE}\s*$`, "m"), "") }).replace(/\s{2,}/g, " ");
 const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
 
 export const notConfigured = (semantic: { status: string; message?: string }) => semantic.status === "unavailable" && /not configured/i.test(semantic.message ?? "");

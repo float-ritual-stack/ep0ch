@@ -959,6 +959,7 @@ var PAGE_FRAGMENT = new RegExp(String.raw`\s*\^(${FRAGMENT_ID_SOURCE})\s*$`);
 var MARKDOWN_LINK_SOURCE = String.raw`(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)`;
 var FRAGMENT_ANCHOR_PATTERN = new RegExp(String.raw`(?:^|\s)\^(${FRAGMENT_ID_SOURCE})\s*$`);
 export {
+  FRAGMENT_ID_SOURCE,
   blockReferenceOccurrences,
   codeFenceLines
 };

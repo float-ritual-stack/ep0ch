@@ -704,6 +704,10 @@ var FRAGMENT_ANCHOR_PATTERN = new RegExp(String.raw`(?:^|\s)\^(${FRAGMENT_ID_SOU
 function fragmentAnchorMatch(line) {
   return line.match(FRAGMENT_ANCHOR_PATTERN);
 }
+function withoutFragmentAnchor(line) {
+  const match = fragmentAnchorMatch(line);
+  return match ? line.slice(0, match.index).trimEnd() : line;
+}
 
 // packages/outline-core/src/property-grammar.ts
 var PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";
@@ -1348,7 +1352,7 @@ var MEDIA_KEY = /^(img|image|video|artifact)$/i;
 var MEDIA_ATTRS = ["size", "width", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
 var ATTRS = new Set(MEDIA_ATTRS);
 var LEAD = /^\s*(?:[-*]\s+)?/;
-var ANCHOR = /\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
+var ANCHOR = new RegExp(String.raw`\s+\^${FRAGMENT_ID_SOURCE}\s*$`);
 function scanTokens(rest) {
   const toks = [];
   let i = 0;
@@ -1881,7 +1885,9 @@ function firstLineWithoutPropertyTokens(text) {
   return noteTitleLine(text).text || undefined;
 }
 export {
+  FRAGMENT_ID_SOURCE,
   codeFenceLines,
   firstLineWithoutPropertyTokens,
-  fragmentAnchorMatch
+  fragmentAnchorMatch,
+  withoutFragmentAnchor
 };

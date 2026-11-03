@@ -3,6 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { blockIdMatcher, isBlockId } from "@ep0ch/outline-core/addressable-resource";
+import { withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { stepTitle } from "../src/steps";
 import { cellBlockId } from "@ep0ch/outline-core/figure-live";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
 import { age, ageSince } from "@ep0ch/outline-core/age";
@@ -31,7 +33,7 @@ const ECHONET = "../../outliner/extensions/echonet/link-grammar.js";
 const echonet = await import(ECHONET) as { firstLine(text: string): string };
 const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner/extensions/structure/lists";
 const tidy = await import(TIDY) as { tidyPassage(lines: string[], fenced?: readonly number[]): { replacement: string }; tidyLine(line: string): string };
-const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[] };
+const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[]; titleOf(firstLine: string): string };
 const DEVICES = "../../outliner/src/device-cli", WEB = "../../outliner/src/web-cli";
 const devices = await import(DEVICES) as { deviceLine(device: Record<string, string>, now: number): string };
 const web = await import(WEB) as { webSessionLine(session: Record<string, string>, now: number): string };
@@ -188,5 +190,15 @@ describe("a block id: one shape, outline-core's (PIE-1375)", () => {
       expect([...`see ${id} here`.matchAll(blockIdMatcher())].length).toBe(is ? 1 : 0);
       expect(extractMentionReferences(`ping ${id}`).some(r => r.kind === "block" && r.value === id.toLowerCase())).toBe(is);
     }
+  });
+});
+
+describe("an anchor at a line's end: one grammar, outline-core's (PIE-1375)", () => {
+  // An id is at most 64 characters: past that, `^…` is words. Structure's list titles once took any length as an anchor.
+  const LONG = `^${"s".repeat(70)}`, SHORT = "^s5";
+  test.each([[SHORT, "Plant beans"], [LONG, `Plant beans ${LONG}`]])("Plant beans %s titles as %s at every former site", (tail, title) => {
+    expect(withoutFragmentAnchor(`Plant beans ${tail}`)).toBe(title);
+    expect(lists.titleOf(`- Plant beans ${tail}`)).toBe(title);
+    expect(stepTitle({ text: `- [ ] Plant beans ${tail}` })).toBe(title);
   });
 });

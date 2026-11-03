@@ -8,6 +8,7 @@ import type { Source } from "./props";
 import { changeClock, changedSince } from "./refs";
 import type { Actor, ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./socket";
 import { boxStatus, CHECKLIST_MARKS, STEP_BOX, statusWord } from "@ep0ch/outline-core/checklist-marks";
+import { withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 
 /** The status marks, as the service writes them: outline-core's grammar (checklist-marks.ts). */
 export const STEP_MARKS = CHECKLIST_MARKS;
@@ -55,7 +56,7 @@ export function parseStatus(v: string): StepStatus | null {
 /** A step's first line without its list mark, box or anchor: how it's named in a flash, `peek` and the menu. */
 export function stepTitle(step: Pick<ChecklistStep, "text">): string {
   const first = step.text.split("\n", 1)[0] ?? "";
-  return first.replace(STEP_LEAD, "").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trim();
+  return withoutFragmentAnchor(first.replace(STEP_LEAD, "")).trim();
 }
 
 /** A step's link, as Detail's Copy step link writes it. */
@@ -134,7 +135,7 @@ export function stepChanged(board: object, blockId: string, before: ChecklistSte
  * the same but for its box (a status change) and its anchor (a first change gives it an id).
  */
 export function stepStillOn(step: ChecklistStep, text: string, line: number): boolean {
-  const plain = (l: string) => l.replace(BOX_AT, "[ ]").replace(/\s\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/, "").trimEnd();
+  const plain = (l: string) => withoutFragmentAnchor(l.replace(BOX_AT, "[ ]")).trimEnd();
   const now = text.split("\n")[line];
   return now !== undefined && plain(now) === plain(step.text.split("\n", 1)[0] ?? "");
 }

@@ -9,6 +9,7 @@ import { noteStructure } from "./component-block";
 import { frontMatterLines } from "./header-line";
 import { propertyTokensInLine } from "./property-grammar";
 import { parseResourceRef } from "./resource-ref";
+import { FRAGMENT_ID_SOURCE } from "./link-syntax";
 import type { PropSchema } from "./component-schema";
 
 export type ContentWidth = "fit" | "full";
@@ -60,7 +61,7 @@ export const MEDIA_ATTRS: readonly MediaAttr[] = ["size", "width", "height", "al
 const ATTRS = new Set<string>(MEDIA_ATTRS);
 const LEAD = /^\s*(?:[-*]\s+)?/;
 /** A block anchor ending a line (` ^beds`), kept as it is when the line is rewritten. */
-const ANCHOR = /\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
+const ANCHOR = new RegExp(String.raw`\s+\^${FRAGMENT_ID_SOURCE}\s*$`);
 
 interface Tok { key: string; value: string }
 /**
