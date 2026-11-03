@@ -11,6 +11,10 @@
 // - A watched answer may name the notes it was computed from (`deps` in its result: `site.answer`'s). It is evaluated
 //   again only when a change touched one of them (the changed note, or its parent before or after); an answer that says
 //   `anyChange` (something it looked for isn't there yet) and one with no `deps` are evaluated after every change.
+// - Machinery (PIE-1546): a question that leaves out what tools stamp `[machine::…]` (every reader's default) isn't
+//   evaluated again for a change to a stamped note, unless its answer lists that note or the note's parent, or its
+//   question names it (the service says which, `machineryBlind`). Write-review records and health samples came about
+//   once a second and each one evaluated every watch; the door's reads queued behind those passes for seconds.
 // - An answer that changes by the clock alone within the day (`clock: "minute"`, a `now.time`) is evaluated again each minute.
 // - A question can name the day (`wait-until <= today`, `due <= +3d`, PIE-769): when the machine's day turns, every
 //   watch is evaluated again with no change at all, so a view of what's waiting until today fills at midnight.
@@ -47,6 +51,8 @@ interface Watch {
   deps?: ReadonlySet<string>;
   /** The answer changes by the clock alone, each minute (`now.time`). */
   minute?: true;
+  /** The question leaves machinery out: a stamped note's change reaches it only through these notes. */
+  blind?: ReadonlySet<string>;
 }
 
 const isMinute = (response: OutlinerResponse): boolean =>
@@ -61,7 +67,11 @@ function depsOf(response: OutlinerResponse): ReadonlySet<string> | undefined {
 }
 
 /** The notes a committed change touched: the changed note, and its parent before and after. */
-export interface ChangedNotes { blockId?: string; parentId?: string | null; previousParentId?: string | null }
+export interface ChangedNotes {
+  blockId?: string; parentId?: string | null; previousParentId?: string | null;
+  /** The changed note carries `[machine::…]` after the change: a question that leaves machinery out can't see it. */
+  machinery?: boolean;
+}
 
 /** In a pass taking longer than this, what changed so far is told without waiting for the rest. */
 const TELL_EVERY_MS = 100;
@@ -101,6 +111,11 @@ export interface QueryWatchOptions {
   timed?(ms: number, watches: number): void;
   /** Wait for a turn on the loop before evaluating a watch (the host's Turns); without it a pass runs at once. */
   turn?(action: string): Promise<void>;
+  /**
+   * When a question leaves machinery out, the notes its answer could still change through: the ones it lists and the
+   * ones it names. Undefined when a stamped note may be in it (or its count of what it left out is).
+   */
+  machineryBlind?(request: Request, response: OutlinerResponse): ReadonlySet<string> | undefined;
 }
 
 export class QueryWatches {
@@ -114,6 +129,8 @@ export class QueryWatches {
   private pendingSince = 0;
   /** What changed since the last evaluation: every note named, or everything (a change that names no note). */
   private pendingIds = new Set<string>();
+  /** Whether a change since then touched a note that isn't machinery (or named none): blind questions see it too. */
+  private pendingPlain = false;
   private pendingAll = false;
   /** A pass is being evaluated in turns (or waits for one): a flush now leaves its changes to the next. */
   private passing = false;
@@ -148,7 +165,7 @@ export class QueryWatches {
     const now = Date.now();
     this.minuteTimer = setTimeout(() => {
       this.minuteTimer = null;
-      this.evaluate(w => !!w.minute, new Set(), true);
+      this.evaluate(w => !!w.minute, new Set(), true, true);
       this.armMinute();
     }, this.minuteMs === 60_000 ? 60_000 - (now % 60_000) + 500 : this.minuteMs);
     (this.minuteTimer as { unref?: () => void }).unref?.();
@@ -183,7 +200,8 @@ export class QueryWatches {
     if (!response.ok) return response;
     if (held) this.all.delete(slot);
     const deps = depsOf(response);
-    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, ...(deps ? { deps } : {}), ...(isMinute(response) ? { minute: true as const } : {}) };
+    const blind = this.options.machineryBlind?.(question as Request, response);
+    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, ...(deps ? { deps } : {}), ...(isMinute(response) ? { minute: true as const } : {}), ...(blind ? { blind } : {}) };
     this.all.set(slot, watch);
     this.bound(connection);
     this.armMinute();
@@ -224,7 +242,10 @@ export class QueryWatches {
   changed(touched?: ChangedNotes): void {
     if (this.all.size === 0) return;
     if (!touched || touched.blockId === undefined) this.pendingAll = true;
-    else for (const id of [touched.blockId, touched.parentId, touched.previousParentId]) if (id) this.pendingIds.add(id);
+    else {
+      for (const id of [touched.blockId, touched.parentId, touched.previousParentId]) if (id) this.pendingIds.add(id);
+      if (!touched.machinery) this.pendingPlain = true;
+    }
     const now = Date.now();
     if (!this.timer) this.pendingSince = now;
     else clearTimeout(this.timer);
@@ -239,19 +260,20 @@ export class QueryWatches {
     // The pass in progress flushes again when it ends, with everything noted since.
     if (this.passing) return;
     // A flush with nothing noted (a caller flushing by hand) evaluates everything, as before.
-    const all = this.pendingAll || this.pendingIds.size === 0, touched = this.pendingIds;
+    const all = this.pendingAll || this.pendingIds.size === 0, touched = this.pendingIds, plain = this.pendingPlain;
     this.pendingAll = false;
+    this.pendingPlain = false;
     this.pendingIds = new Set();
-    this.evaluate(() => true, touched, all);
+    this.evaluate(() => true, touched, all, plain);
   }
 
   /** Evaluate the selected watches: at once, or (with `turn`) a watch a turn, after any pass still going. */
-  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): void {
+  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, plain: boolean): void {
     if (!this.options.turn) {
       const started = performance.now();
       const changes = new Map<WatchConnection, QueryChange[]>();
       for (const watch of this.all.values()) {
-        const change = this.wanted(watch, select, touched, all) && this.update(watch, this.options.answer({ ...watch.request, id: "watch" } as Request));
+        const change = this.wanted(watch, select, touched, all, plain) && this.update(watch, this.options.answer({ ...watch.request, id: "watch" } as Request));
         if (!change) continue;
         const list = changes.get(watch.connection) ?? [];
         list.push(change);
@@ -264,7 +286,7 @@ export class QueryWatches {
     // One pass at a time, the clock's too: a pass never applies an answer older than one another pass gave.
     this.passing = true;
     this.passes += 1;
-    this.chain = this.chain.then(() => this.inTurns(select, touched, all)).catch(() => {}).finally(() => {
+    this.chain = this.chain.then(() => this.inTurns(select, touched, all, plain)).catch(() => {}).finally(() => {
       if (--this.passes > 0) return;
       this.passing = false;
       if (!this.pendingAll && this.pendingIds.size === 0) return;
@@ -274,7 +296,7 @@ export class QueryWatches {
     });
   }
 
-  private async inTurns(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): Promise<void> {
+  private async inTurns(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, plain: boolean): Promise<void> {
     // One answer per question a pass: the same read watched on two connections is evaluated once.
     const answered = new Map<string, OutlinerResponse>();
     // What changed, told each connection in one event: at the end of the pass, or sooner in a long one. A watch
@@ -290,7 +312,7 @@ export class QueryWatches {
     };
     const current = (slot: string, watch: Watch) => this.all.get(slot) === watch && !watch.connection.destroyed;
     for (const [slot, watch] of [...this.all]) {
-      if (!current(slot, watch) || !this.wanted(watch, select, touched, all)) continue;
+      if (!current(slot, watch) || !this.wanted(watch, select, touched, all, plain)) continue;
       let response = answered.get(watch.signature);
       if (!response) {
         await this.options.turn!(String(watch.request.action));
@@ -309,9 +331,13 @@ export class QueryWatches {
     tell();
   }
 
-  private wanted(watch: Watch, select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): boolean {
+  private wanted(watch: Watch, select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, plain: boolean): boolean {
     if (watch.connection.destroyed || !select(watch)) return false;
-    return all || !watch.deps || [...touched].some(id => watch.deps!.has(id));
+    if (all) return true;
+    if (watch.deps) return [...touched].some(id => watch.deps!.has(id));
+    // Only stamped notes changed: a question that leaves them out sees it only through a note it lists or names.
+    if (!plain && watch.blind) return [...touched].some(id => watch.blind!.has(id));
+    return true;
   }
 
   /** Keep a watch's new answer; its change when the answer is different. */
@@ -320,6 +346,8 @@ export class QueryWatches {
     const deps = depsOf(response);
     if (deps) watch.deps = deps; else delete watch.deps;
     if (isMinute(response)) watch.minute = true; else delete watch.minute;
+    const blind = this.options.machineryBlind?.(watch.request as Request, response);
+    if (blind) watch.blind = blind; else delete watch.blind;
     if (hash === watch.hash) return undefined;
     watch.generation += 1;
     watch.hash = hash;

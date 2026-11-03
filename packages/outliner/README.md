@@ -2967,6 +2967,12 @@ run-level keys the lab's runs share (`model`, `prompt-rev`, `items`, `agreed`, `
 `ignored`, `tokens-in`, `tokens-out`, plus `quiet` and `unavailable`), so one query reads lab and field: an ask where Jev
 stayed quiet is a count on it, never a note each, and its tokens come from Jev's own `usage`. The counts are recomputed
 from the day's suggestion and outcome records; the note is the one record rewritten, as a rate.
+**Every ask is a line, not a note** (PIE-1546, `src/jev-asks.ts`): `<outline folder>/jev/<day>.jsonl` holds one line per
+ask (note, revision, writer, harness, source, tokens; `told`, `quiet` or `unavailable`). The day's run is written from
+that file at most every 15 minutes, never once per write, and a quiet ask writes no block (it was a write a second on a
+busy evening, each one queuing the door's reads). `suggestions.asks` answers from the files (a backfill rerun skips by
+them); a pass's settled-finding stamps go in one `suggestions.stamp` request. Findings stay blocks: they are the
+suggestions page's rows, and its quiet table counts the day's quiet asks from the run.
 **The service makes them** (`suggestions.keep`, `keepSuggestion`): a writer that asked Jev sends one request and the
 service writes the records in its own process, finishing whether or not the writer waits (the writer's answer waits at
 most three seconds). The Claude mod's CLI exits when its answer is printed and reaches the host over ssh, and once did the

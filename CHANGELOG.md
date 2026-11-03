@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### pie's host answers again while tools write (PIE-1546)
+
+- **Bookkeeping writes stop re-running watches:** a write to a note stamped `[machine::…]` (Jev's records, sysop's health samples, install stamps) no longer evaluates a watched `blocks.query` or view that leaves machinery out, unless it lists that note or its parent. On a copy of pie, 20 record writes went from 500 watch evaluations (877 ms of the loop a write) to 80 (204 ms).
+- **Jev writes far less:** a quiet ask is a line of `<outline folder>/jev/<day>.jsonl`, not a `review-quiet` note; the day's `jev-run` is written from that file at most every 15 minutes; a pass's settled-finding stamps are one request. The suggestions page's "Reviewed, nothing to fix" table counts quiet asks a day a row (an old page's table is replaced on its next review).
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change; a backfill CLI older than the host still runs (it skips by blocks only).
+
 ### Every place you type is one text field (PIE-1542)
 
 - **One edit control:** the reader's edit, a comment, the composer, an inspector field, the power bar and line fields share one control for keys, paste, undo, the mouse and completion.

@@ -336,6 +336,8 @@ export const ACTIONS = {
   "site.sources": { read: true },
   "styles.list": { ext: "read", whole: true },
   "suggestions.keep": { async: true },
+  "suggestions.asks": { async: true },
+  "suggestions.stamp": { async: true },
   "template.props": { read: true },
   "template.stamp": { event: (_, { result }) => { const stamped = (result as TemplateStampResult).stamped; return stamped.length ? content(stamped[0]!.id) : null; } },
   "template.use": { read: true, watch: true },
