@@ -4588,8 +4588,8 @@ export class NoteSurface {
       return true;
     }
     if (row.pick) return this.pickKey(row, k, host);
-    // r with several proposals in view and none current asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
-    if (row.action === "proposal.resolve") { const t = this.resolveTarget(); if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; } }
+    // r with several proposals in view, none current and none named by the binding, asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
+    if (row.action === "proposal.resolve" && !row.args?.block && !row.args?.id) { const t = this.resolveTarget(); if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; } }
     // A row of the person's keymap carries its arguments as words, as `act` does: typed as the wire's are (a refusal is said).
     try { void this.runKey(row.action as keyof NoteActionArgs & string, (READER_KEYS.includes(row) ? row.args ?? {} : coerceActionArgs(row.action, NOTE_ACTIONS.argsOf(row.action) ?? {}, row.args ?? {})) as never, host, !!row.quiet); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); }
     return true;

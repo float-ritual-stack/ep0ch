@@ -15,6 +15,9 @@ import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { reloadKeymap, setKeys } from "../src/surface/keymap";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -304,6 +307,17 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
       await until(() => (r.surface as any).resolveTarget()?.several?.length === 2, `both proposals in view:\n${text()}`);
       // An agent with several in view and no id is told which ids there are, and nothing is resolved.
       await expect(app.act({ action: "proposal.resolve", args: {}, as: AS })).rejects.toThrow(/2 proposals in view; say which: block=/);
+      // A key the person bound to one proposal (`proposal.resolve block=<id>`) resolves that one, never asks which.
+      const keymap = process.env.EP0CH_KEYMAP;
+      process.env.EP0CH_KEYMAP = join(mkdtempSync(join(tmpdir(), "bbs-keymap-")), "keybindings.json"); reloadKeymap();
+      try {
+        setKeys(`proposal.resolve block=${two}`, ["alt+r"]);
+        expect(r.surface.key({ kind: "alt", ch: "r" }, (r as any).host(app))).toBe(true);
+        await until(() => asked.length === 2, "the bound key resolving its proposal");
+        expect(asked[1]).toBe(two);
+        expect(current(r)).toBeNull();
+        asked.pop();
+      } finally { if (keymap === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = keymap; reloadKeymap(); }
       flashes.length = 0;
       key(char("r"));
       expect(asked).toHaveLength(1);
