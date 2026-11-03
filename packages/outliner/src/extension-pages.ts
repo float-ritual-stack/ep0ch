@@ -1,6 +1,7 @@
 import { commandLine } from "@ep0ch/outline-core/component-block";
 import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
+import { noteConstructs } from "@ep0ch/outline-core/rules";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -179,8 +180,8 @@ export interface ExtensionAbout {
 export function extensionAbout(manifest: ExtensionManifest, directory: string, installed = true): ExtensionAbout {
   const readme = readText(join(directory, "README.md"));
   const body = readme?.trim() ? readmeBody(readme).split("\n") : [];
-  const fenced = codeFenceLines(body);
-  const heading = body.findIndex((line, index) => fenced[index]! < 0 && /^#{1,6}\s/.test(line));
+  // Its first section heading, outside code and components, as the outline reads one (outline-core's noteConstructs).
+  const heading = noteConstructs(body.join("\n")).find(c => c.kind === "heading")?.line ?? -1;
   const opening = (heading < 0 ? body : body.slice(0, heading)).join("\n").trim();
   const demo = readDemo(directory, manifest.demo);
   return {
@@ -316,6 +317,15 @@ export class ExtensionPages {
   /** Each installed extension's `ExtensionAbout`, by id, as of the last sync: the words its install row showed. */
   abouts(): Record<string, ExtensionAbout> {
     return this.installedAbout;
+  }
+
+  /** `extensions.list`'s page fields: the hub, each extension's page, how many demo notes each has left, and the repo's extensions not installed here. */
+  listed(): { hub?: string; pages: Record<string, string>; demos: Record<string, number>; disabledRules: Record<string, number>; available: readonly AvailableExtension[]; about: Record<string, ExtensionAbout>; pagesProblem?: string } {
+    const hub = this.hub();
+    return {
+      ...(hub ? { hub } : {}), pages: this.pages(), demos: this.demoCounts(), disabledRules: this.disabledRules(), available: this.available,
+      about: this.installedAbout, ...(this.problem ? { pagesProblem: this.problem } : {}),
+    };
   }
 
   private lastPrint = "";
