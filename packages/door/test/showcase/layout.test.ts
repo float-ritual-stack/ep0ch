@@ -259,7 +259,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     };
 
     for (const covered of ["menu", "divider", "hint"] as const) test(`lift mouse: covered ${covered} in ${place} cannot take input`, () => withLift(async (owner, mouse) => {
-      const menu = owner.menuButtons.find((b: any) => b.id === owner.tile(place === "drawer" ? "mouse-peer" : "peer").id);
+      const menu = owner.presses.kind("menu").find((b: any) => b.id === owner.tile(place === "drawer" ? "mouse-peer" : "peer").id);
       expect(menu).toBeDefined();
       const divider = owner.dividers.find((d: any) => d.node.dir === "col");
       expect(divider).toBeDefined();
@@ -870,7 +870,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const tile = (name: string) => tiles().find(x => x.name === name);
     const at = () => S().stageRect;
     const click = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
-    const glyph = (name: string) => { sc.render(app); return (stage().foldButtons as any[]).find(b => stage().nameOf(b.id) === name); };
+    const glyph = (name: string) => { sc.render(app); return (stage().presses.kind("fold") as any[]).find(b => stage().nameOf(b.id) === name); };
     const clickGlyph = (name: string, mods?: number) => { const g = glyph(name); expect(g).toBeDefined(); click(at().col + g.from, at().row + g.row, mods); sc.render(app); };
     // By mouse: the outline folds down the side (3 cells), the reader folds into one row with alt+click; each a click on its spine opens it.
     const before = { tree: tile("tree").rect, reader: tile("reader").rect };
@@ -1038,7 +1038,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(tile("board")).toMatchObject({ kind: "screen", rect: before });
     // By mouse: the ▾ on its frame folds it (stacked over the lanes: a horizontal spine named for the screen); a click on the spine opens it at its size.
     sc.render(app);
-    const g = (stage().foldButtons as any[]).find(b => stage().nameOf(b.id) === "board");
+    const g = (stage().presses.kind("fold") as any[]).find(b => stage().nameOf(b.id) === "board");
     click(at().col + g.from, at().row + g.row); sc.render(app);
     expect(tile("board")).toMatchObject({ collapsed: true, collapsedDir: "h", title: expect.stringMatching(/^board · /) });
     expect(sc.render(app).lines.map(plain).join("\n")).toMatch(/▸ board · /);

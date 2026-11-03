@@ -116,7 +116,7 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
     // The glyph on the tile's frame, as the desk last drew it: screen cells, the drawer's desk included (its root is
     // the row under its bar since the glass, #1149).
     d.paint();
-    const b = (on as any).foldButtons.find((x: any) => x.id === (on as any).idNamed(kind));
+    const b = (on as any).presses.kind("fold").find((x: any) => x.id === (on as any).idNamed(kind));
     if (!b) throw new Error(`no fold glyph on ${kind}'s frame`);
     d.press(prefix);
     d.click(b.from, b.row);

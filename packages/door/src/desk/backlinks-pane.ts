@@ -37,7 +37,7 @@ import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
 import { modeHint, type ModeKey } from "../surface/modes";
 import { C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { runOwn, type DeskApi, type Pane, type PaneView, type TileTrail } from "./panes";
+import { ownPress, runOwn, type DeskApi, type Pane, type PaneView, type TileTrail } from "./panes";
 import { HISTORY, historyKey } from "../surface/note";
 import { pressOn, type RowPress } from "../scroll";
 import { LISTVIEW_ACTIONS, type ListHost } from "../surface/list-actions";
@@ -209,7 +209,7 @@ export class BacklinksPane implements Pane {
   headControls(_room: number, desk: DeskApi) {
     if (!this.target || this.childrenOnly) return null;
     return [{ text: this.data ? `${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : "… sources", sgr: fg(C.lcyan),
-      chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
+      chip: true as const, act: ownPress(BACKLINKS_ACTIONS, "backlinks.groups", { choose: true }, { pane: this, desk }) }];
   }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   hint() {
