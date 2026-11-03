@@ -1,4 +1,4 @@
-import { proposed } from "../wire";
+import { proposed as asProposed } from "../wire";
 // PIE-439: the showcase screen, macros, asks and scripts. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
@@ -399,13 +399,13 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       blockId: target, revision: (await board.get(target))!.revision,
       patches: [{observed: "Prepare", replacement: "Sort"}], propose: true, mutation: {author: "agent", actorId: `script:draft-labels-${mode}`},
     }) : null;
-    if (mode === "dismiss") press({kind: "paste", text: `\n!((${proposed(proposed!).proposalId}))\n`});
+    if (mode === "dismiss") press({kind: "paste", text: `\n!((${asProposed(proposed!).proposalId}))\n`});
     const source = await board.request("create", { author: "agent", provenance: { actorId: "seed-writer" }, text: [
       `Draft labels [script::draft-labels-${mode}] [results::keep] [effects::write]`, "```js",
       `const note = await read('${target}');`,
-      mode === "proposal" ? `await act('proposal.apply', {id:'${proposed(proposed!).proposalId}'});` : `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'Prepare', replacement:'Sort'}]});`,
+      mode === "proposal" ? `await act('proposal.apply', {id:'${asProposed(proposed!).proposalId}'});` : `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'Prepare', replacement:'Sort'}]});`,
       `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'seed labels', replacement:'seed envelopes'}]});`,
-      ...(mode === "dismiss" ? [`await act('proposal.dismiss', {id:'${proposed(proposed!).proposalId}'});`] : []),
+      ...(mode === "dismiss" ? [`await act('proposal.dismiss', {id:'${asProposed(proposed!).proposalId}'});`] : []),
       ...(mode === "roundtrip" ? [`await tools.outline_patch({ref:note.id, revision:note.revision, patches:[{observed:'Sort the seed envelopes',replacement:'Prepare the seed labels'}]});`] : []),
       `await tools.outline_create({parent: '${target}', text: 'Extra envelopes'});`,
       `while (!(await q('signal=draft-ready')).blocks.length) {}`,
@@ -435,7 +435,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const undone = saveBeforeEnd || mode === "dismiss" ? (await board.get(target))!.text : draft.text;
     expect(undone).toContain("Prepare the seed labels");
     expect(undone).toContain(mode === "dismiss" ? "Keep typing here." : "Keep typing here. Still here.");
-    if (mode === "dismiss") expect(undone).toContain(`!((${proposed(proposed!).proposalId}))`);
+    if (mode === "dismiss") expect(undone).toContain(`!((${asProposed(proposed!).proposalId}))`);
     expect((await board.children(target)).some(n => n.text === "Extra envelopes")).toBe(false);
     expect((await board.get(source.id))!.text).toContain("script::draft-labels");
     for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });

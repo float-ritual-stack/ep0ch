@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { hostSocketOf, resolveTarget, slugOutlineName } from "../src/discover";
 import { attachTarget, deletionPlan, formatOutlines, nameTheOutline, parseOutlineArgs, writeDotEp0ch } from "../src/outlines";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { type HostedOutline, hostRequest, SocketBoard, type OutlineEvent } from "../src/socket";
+import { type HostedOutline, hostRequest, hostSend, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
 import { everyOutline } from "../src/machine";
 
@@ -72,7 +72,7 @@ describe("SocketBoard with an outline", () => {
   test("hostRequest asks on its own connection and names no outline", async () => {
     const svc = await fakeService(join(dir, "ask.sock"), r => ({ asked: r.action }));
     try {
-      expect(await hostRequest(join(dir, "ask.sock"), "outlines.list")).toEqual({ asked: "outlines.list" });
+      expect(await hostSend(join(dir, "ask.sock"), "outlines.list")).toEqual({ asked: "outlines.list" });
       expect(svc.lines[0]).toEqual({ id: "host", action: "outlines.list" });
     } finally { await svc.close(); }
   });

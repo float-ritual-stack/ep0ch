@@ -1100,12 +1100,12 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       }, "the pinned artifact selected");
       press({ kind: "enter" });
       await until(() => opened.length === 1, "Enter opened the snapshot", 5000);
-      expect(opened[0]!.at(-1)).toBe(pinned.url);
+      expect(opened[0]!.at(-1)).toBe(pinned.url!);
       const rows = sc.render(app).lines.map(plain);
       const y = rows.findIndex(l => l.includes("Orbit lamp") && !l.includes("pinned") && l.includes("[open ↗]")), x = rows[y]!.indexOf("[open ↗]") + 2;
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
-      expect(opened[1]!.at(-1)).toBe(live.url);
+      expect(opened[1]!.at(-1)).toBe(live.url!);
       // Share the live card on its own (PIE-1266): an agent's act, then the person's click on its [share].
       const shared = await app.act({ action: "artifact.share", args: { n: 1, ttl: "never" }, as: "test-agent" }) as { share: { id: string; scope: object } };
       expect(shared.share.scope).toMatchObject({ kind: "artifact", name: "showcase-orbit" });
@@ -1166,10 +1166,10 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
         await waiting;
         session.input(other, "");
         release(); await pending;
-      } finally { release(); board.request = request; session.input(pressing, ""); }
-      expect(otherBytes.join("")).not.toContain(osc52(url));
+      } finally { release(); delete (board as any).request; session.input(pressing, ""); }
+      expect(otherBytes.join("")).not.toContain(osc52(url!));
       expect(opened).toEqual([]);
-      expect(bytes.join("")).toContain(osc52(url));
+      expect(bytes.join("")).toContain(osc52(url!));
       expect((remoteApp as any).message).toContain("click to open");
       expect((remoteApp as any).message).toContain(`\x1b]8;;${url}\x1b\\`);
       (remoteApp as any).paint();
@@ -1185,7 +1185,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 3 });
       expect(opened).toEqual([]);
-      expect(bytes.join("")).toContain(osc52(file.url));
+      expect(bytes.join("")).toContain(osc52(file.url!));
       const received: string[] = [];
       let openError: "throw" | "detach" | null = null;
       link = serveLink({ outlines: process.env.EP0CH_OUTLINES!, port: 0, keys: { travel: "fictional-key", spare: "fictional-spare-key" }, log() {} });
@@ -1194,37 +1194,37 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
       expect(received).toEqual([]);
-      expect(bytes.join("")).toContain(osc52(url));
+      expect(bytes.join("")).toContain(osc52(url!));
       expect((remoteApp as any).message).toContain(`\x1b]8;;${url}\x1b\\`);
       pressing.hello.remoteAddress = "192.0.2.23";
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
       expect(received).toEqual([]);
-      expect(bytes.join("")).toContain(osc52(url));
+      expect(bytes.join("")).toContain(osc52(url!));
       expect((remoteApp as any).message).toContain(`\x1b]8;;${url}\x1b\\`);
       pressing.hello.remoteAddress = Object.values(networkInterfaces()).flat().find(a => a && !a.internal)!.address;
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
-      expect(received).toEqual([url]);
+      expect(received).toEqual([url!]);
       expect(opened).toEqual([]);
-      expect(bytes.join("")).not.toContain(osc52(url));
+      expect(bytes.join("")).not.toContain(osc52(url!));
       expect((remoteApp as any).message).toContain("on travel");
       await stage.dispatch.press("artifact.open", { n: 3 });
-      expect(received).toEqual([url, file.url]);
+      expect(received).toEqual([url!, file.url!]);
       expect(opened).toEqual([]);
 
       expect(await remoteApp.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ url, launched: false });
-      expect(received).toEqual([url, file.url]);
+      expect(received).toEqual([url!, file.url!]);
       expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional", pressing.hello.remoteAddress)).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
-      expect(received).toEqual([url, file.url]);
+      expect(received).toEqual([url!, file.url!]);
       const otherOpens: string[] = [];
       spare = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "spare", key: "fictional-spare-key", host: scratch.sock, log() {}, open: async url => { otherOpens.push(url); } });
       await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 2, "two machine links up");
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
-      expect(received).toEqual([url, file.url]);
+      expect(received).toEqual([url!, file.url!]);
       expect(otherOpens).toEqual([]);
-      expect(bytes.join("")).toContain(osc52(url));
+      expect(bytes.join("")).toContain(osc52(url!));
       expect((remoteApp as any).message).toContain("multiple machine links");
       spare.stop(); spare = undefined;
       await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 1, "one machine link left");
@@ -1233,13 +1233,13 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect((remoteApp as any).message).toContain("Browser unavailable; click the copied URL");
       expect((remoteApp as any).message).not.toContain("private connector detail");
       expect(remoteApp.messages.rows.at(-1)?.kind).toBe("error");
-      expect(bytes.join("")).toContain(osc52(url));
+      expect(bytes.join("")).toContain(osc52(url!));
       expect(opened).toEqual([]);
       openError = "detach"; bytes.length = 0; otherBytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
       expect((remoteApp as any).message).toContain("not copied");
-      expect(bytes.join("").includes(osc52(url))).toBe(false);
-      expect(otherBytes.join("").includes(osc52(url))).toBe(false);
+      expect(bytes.join("").includes(osc52(url!))).toBe(false);
+      expect(otherBytes.join("").includes(osc52(url!))).toBe(false);
     } finally {
       spare?.stop(); connector?.stop(); await link?.stop();
       if (outlines === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = outlines;

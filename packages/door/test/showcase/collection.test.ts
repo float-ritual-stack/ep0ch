@@ -523,7 +523,7 @@ describe("showcase: a collection record (PIE-1281)", () => {
 
   test("a narrow table's leading linked cell opens that note at the recorded revision", async () => {
     const notebook = await h.board.createBlock(null, "Flower notebook\n\nBefore the rain.");
-    await h.board.request("update", { blockId: notebook.id, text: "Flower notebook\n\nAfter the rain.", expectedRevision: notebook.revision, mutation: { author: "user" } });
+    await h.board.request("update", { blockId: notebook.id, text: "Flower notebook\n\nAfter the rain.", expectedRevision: notebook.revision!, mutation: { author: "user" } });
     await h.board.createBlock(null, `Notebook review [collection::leading-cell] [note::${notebook.id}] [revision::1] [rubric::clear]`);
     await show('Review table\n::graph-table{query="collection=leading-cell" columns="note, rubric"}\n::', 44);
     const cell = (await act("elements")).elements.find((e: any) => e.label.includes("note:"));

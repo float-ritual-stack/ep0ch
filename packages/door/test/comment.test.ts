@@ -1,3 +1,4 @@
+import { quoteOf } from "./wire";
 // EPD-004: comments from a reader. Passage picking and request identity run anywhere; the write tests
 // start a throwaway outliner service (never a real outline) and skip without one.
 import { Scratch, outliner as scratchOutliner } from "./scratch";
@@ -253,7 +254,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       expect(flashes.at(-1)).toContain("already saved");
       expect(pane.session!.threads).toHaveLength(1);
     } finally {
-      (board as any).request = real;
+      delete (board as any).request;
     }
   });
 
@@ -282,7 +283,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       expect(sent).toBe(2);
       expect((await threads(b.id)).map((t: any) => t.body).sort()).toEqual(["First words", "First words, changed"]);
     } finally {
-      (board as any).request = real;
+      delete (board as any).request;
     }
   });
 
@@ -306,8 +307,8 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     await until(() => pane.session?.mode === "threads", "the send");
     const list = await threads(b.id);
     const now = (await current(b.id))!.text as string;
-    expect(list[0]!.originalTarget.anchor!.start).toBe(now.indexOf("Ship the release notes"));
-    expect(list[0]!.originalTarget.anchor!.exact).toBe("Ship the release notes before Friday.");
+    expect(quoteOf(list[0]!.originalTarget.anchor).start).toBe(now.indexOf("Ship the release notes"));
+    expect(quoteOf(list[0]!.originalTarget.anchor).exact).toBe("Ship the release notes before Friday.");
   });
 
   test("when the quoted words are gone, ctrl+r goes back to picking and the comment text comes along", async () => {
@@ -326,7 +327,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(pane.session!.composer!.text).toBe("Keep me.");
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the send");
-    expect((await threads(b.id))[0]!.originalTarget.anchor!.exact).toBe("Ship it Monday.");
+    expect(quoteOf((await threads(b.id))[0]!.originalTarget.anchor).exact).toBe("Ship it Monday.");
   });
 
   test("a quote that isn't in the note is refused by the service, and nothing is written", async () => {

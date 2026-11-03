@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   const AS = "layout-agent-511";
   const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as = AS) => app.act({ action, args, tile: reader, as });
-  const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
+  const create = async (parentId: string | null, text: string) => board.toMsgs([await board.request("create", { parentId, text, author: "agent" })])[0]!;
   const message = () => (app as any).message as string;
   /** The tree as `peek` shows it: tiles by name, containers with their keys and shares. */
   const tree = () => B().describe().tree;

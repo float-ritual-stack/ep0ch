@@ -76,7 +76,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       const first = (await call("outline_read", { ref: id })).record;
       expect(first.actor).toContain("planter/");
       await agent("edit", { ref: id, expectedRevision: first.revision, text: "Pear tree\nPruned." });
-      const history = await board.request("block.revisions", { blockId: id, latest: true });
+      const history = await board.request("block.revisions", { blockId: id, latest: true }) as import("@ep0ch/outline-core/protocol").BlockRevisions;
       expect(history.revisions[0]).toMatchObject({ actorId: "pruner", revision: first.revision + 1 });
       const newest = (await call("outline_read", { ref: id })).record;
       expect(newest).toMatchObject({ revision: first.revision + 1, actor: "pruner", author: "agent" });

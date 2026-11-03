@@ -128,7 +128,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
 
     // The far box's lamp list changes before it pulls: that patch will meet a newer revision.
     const now = await textOf(far, "attic-notes", FAR, ids.lamps!);
-    await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.lamps, text: "Lamp list\nTwo oil lamps, one cracked, one new.", expectedRevision: now.revision, mutation: { author: "user" } });
+    await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.lamps!, text: "Lamp list\nTwo oil lamps, one cracked, one new.", expectedRevision: now.revision, mutation: { author: "user" } });
     expect((await pull()).ok).toBe(true);
 
     const applied = (await tool("outline_write_status", { queueId: q1.json.queueId })).json;
@@ -157,7 +157,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     // Make the next patch conflict: the note moves on the far box, then two queued patches follow.
     const trunkNow = await textOf(far, "attic-notes", FAR, ids.trunk!);
     const a = await tool("outline_patch", { uri: uriOf("trunk"), revision: boxes.json.revision, patches: [{ observed: "A brass key", replacement: "A brass key, tarnished" }] });
-    await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.trunk, text: trunkNow.text.replace("A brass key", "A brass key, found on the far box"), expectedRevision: trunkNow.revision, mutation: { author: "user" } });
+    await boardOn(far, "attic-notes", FAR).request("update", { blockId: ids.trunk!, text: trunkNow.text.replace("A brass key", "A brass key, found on the far box"), expectedRevision: trunkNow.revision, mutation: { author: "user" } });
     expect((await pull()).ok).toBe(true);
     follow("attic-notes");
     expect((await tool("outline_write_status", { queueId: a.json.queueId })).json.state).toBe("proposed");

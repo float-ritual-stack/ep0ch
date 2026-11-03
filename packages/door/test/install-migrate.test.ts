@@ -289,7 +289,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
     const repaired = await hostRequest(sock, "blocks.query", { outline: "compost", query: { where: "type=deploy machine=install" } });
-    expect(repaired.blocks.some((b: { text: string }) => b.text.includes("✓ workstation"))).toBe(true);
+    expect(repaired.blocks.some(b => "text" in b && b.text!.includes("✓ workstation"))).toBe(true);
     env.EP0CH_WS = "allotment";
     // A second install has nothing to rewrite, and leaves the host serving.
     const again = await ep0ch("install", "--apply", "--json");
@@ -297,7 +297,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(JSON.parse(again.out).steps.find((s: { id: string }) => s.id === "sweep").done).toEqual(["nothing to rewrite"]);
     const records = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" } } });
     const savedStart = await hostRequest(sock, "get", { outline: "allotment", blockId: unfinished.blocks[0]!.id });
-    expect(savedStart.text).toBe(unfinished.blocks[0]!.text);
+    expect(savedStart.text).toBe(unfinished.blocks[0]!.text!);
     const record = records.blocks[0];
     expect(record!.author).toBe("agent");
     expect(record!.text).toContain("wren");
@@ -309,9 +309,9 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(record!.text).toContain("Protocol:");
     expect(record!.text).toContain("! away");
     expect(record!.text).toContain("✓ workstation");
-    const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record!.id });
+    const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record!.id }) as import("@ep0ch/outline-core/protocol").BlockRevisions;
     expect(revisions.revisions[0]).toMatchObject({ author: "agent", actorId: "wren" });
-    const recordsPage = await hostRequest(sock, "get", { outline: "allotment", blockId: record!.parentId });
+    const recordsPage = await hostRequest(sock, "get", { outline: "allotment", blockId: record!.parentId! });
     expect(recordsPage.text).toContain("[system-view::deploys]");
     const everyday = await ep0ch("find", "--query", "type=deploy", "--json");
     expect(everyday.code).toBe(0);

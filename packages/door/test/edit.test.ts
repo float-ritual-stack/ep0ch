@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     ctx: { board, flash: (m: string) => flashes.push(m), redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
     openFromTile() {}, focusKind() {}, redraw() {},
   }) as unknown as DeskApi;
-  const create = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
+  const create = async (text: string) => board.toMsgs([await board.request("create", { parentId: null, text, author: "agent" })])[0]!;
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;
   const openReader = async (id: string) => {
     const pane = new ReaderPane(), d = desk();
@@ -264,7 +264,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     const now = await current(b.id);
     expect(now!.text).toBe("Card [stage::queued]\nold body, then more");
     expect(now!.properties).toEqual([{ key: "stage", value: "queued" }]);
-    expect(now!.revision).toBe(b.revision + 1);
+    expect(now!.revision).toBe(b.revision! + 1);
     expect(pane.msg?.revision).toBe(now!.revision);
     expect(flashes.at(-1)).toBe(`saved · revision ${now!.revision}`);
     const log = await other.request("activity.recent", { author: "user", limit: 20 });
@@ -280,7 +280,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     const saved = await current(b.id);
     expect(saved!.properties).toEqual([{ key: "stage", value: "queued" }]);
     expect(saved!.text).toBe("Card [stage::queued] (retry)\nbody");
-    expect(saved!.revision).toBe(b.revision + 1);
+    expect(saved!.revision).toBe(b.revision! + 1);
   });
 
   test("a conflicting write is refused: the other writer's text stays, the draft stays and is copied out", async () => {
@@ -288,7 +288,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     const { pane, d } = await openReader(b.id);
     pane.key({ kind: "down" }, d); pane.key({ kind: "end" }, d); type(pane, " mine", d);
     // Someone else saves first.
-    await other.request("update", { blockId: b.id, text: "Race [stage::queued]\ntheirs", expectedRevision: b.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
+    await other.request("update", { blockId: b.id, text: "Race [stage::queued]\ntheirs", expectedRevision: b.revision!, mutation: { author: "agent", actorId: "test-other-writer" } });
     // The content event makes readers refresh; an open draft must not be replaced.
     pane.refresh((await board.get(b.id))!);
     expect(pane.draft!.changedElsewhere).toBe(true);

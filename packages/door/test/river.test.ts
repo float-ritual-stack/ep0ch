@@ -1,3 +1,4 @@
+import { quoteOf } from "./wire";
 // The river's columns host the shared note surface: edit, quote a passage, comment, reply and resolve
 // from a column by keys and by agent, with the same code as the board's readers. Scratch services only.
 // PIE-515: the River is a screen spec on the desk; its columns are `river.column` tiles in a flow, named as any tile
@@ -183,7 +184,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const c: any = await act("comment", { quote: "the wind is strong there", body: "Stake on the lee side." }, beansR);
     expect(c).toMatchObject({ sent: "comment" });
     const mine_ = (await threads(notes.beans.id)).find(x => x.body === "Stake on the lee side.");
-    expect(mine_!.originalTarget.anchor!.exact).toBe("the wind is strong there");
+    expect(quoteOf(mine_!.originalTarget.anchor).exact).toBe("the wind is strong there");
     expect([mine_!.block!.author, mine_!.block!.actorId]).toEqual(["agent", AS]);
     expect(await act("reply", { thread: mine_!.block!.id, body: "Done." }, beansR)).toMatchObject({ sent: "reply" });
     // Resolving opens the thread list over the note: refused in the column the person has (round 3, C3); fine once they're elsewhere.

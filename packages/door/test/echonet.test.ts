@@ -260,7 +260,7 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     const here = areas().machine, post = (await cafe.get(ids.cafePost))!;
     await cafe.request("annotations.batch", {
       requestId: "seen-attic", author: "agent", provenance: { actorId: "echo-tosser" },
-      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision, source: "agent", body: "also in: attic@box-c (Cafe chat)", properties: { kind: "echo-seen-by", "echo.node": "attic@box-c" } } }],
+      operations: [{ operationId: "seen", type: "block-comment", input: { blockId: post.id, expectedRevision: post.revision!, source: "agent", body: "also in: attic@box-c (Cafe chat)", properties: { kind: "echo-seen-by", "echo.node": "attic@box-c" } } }],
     });
     const sub = await shack.createBlock(null, `Cafe, nearby [subscribe::cafe@${here}] [echo::cafe.near]`);
     const near = await shack.createBlock(sub.id, `cafe@${here} [echo-source::cafe@${here}]`, { kind: "agent", id: "echo-tosser" });

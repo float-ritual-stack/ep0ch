@@ -1,4 +1,4 @@
-import { changes } from "./wire";
+import { changesOf } from "./wire";
 // PIE-1462: a person's press of a script is recorded as the person, with the script as how; an agent's press of the same
 // line stays the agent's. Pressed through the door's one `button.press`, read back from the note's revisions (what
 // `ep0ch revisions` prints) and the change feed; ctrl+z (`ext.undo`, which asks the service's `extensions.undo`) takes the person's press back. Made-up notes.
@@ -53,7 +53,7 @@ describe.skipIf(!outliner)("who a pressed script's write is recorded as (PIE-146
     expect(entry).toMatchObject({ author: "user" });
     expect(entry!.actorId).toBeUndefined();
     expect(revisionByline(entry!)).toBe("by you · via script");
-    const feed = changes((await board.request("changes.since", { sequence: 0, limit: 500 }))).changes as any[];
+    const feed = changesOf((await board.request("changes.since", { sequence: 0, limit: 500 }))).changes as any[];
     const change = feed.find(c => c.blockId === job.id && c.revision === before + 1);
     expect(change).toMatchObject({ actor: { author: "user" }, requestedBy: { author: "user" } });
 

@@ -1,3 +1,4 @@
+import { quoteOf } from "./wire";
 // The note surface every reader hosts, and its named actions: keys and agents (through the control
 // socket) go through the same code, and an agent's writes say they're the agent's.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -569,7 +570,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(sent).toMatchObject({ sent: "comment" });
     let list = await threads(cards.beans.id);
     expect(list).toHaveLength(1);
-    expect(list[0]!.originalTarget.anchor!.exact).toBe("the wind is strong there");
+    expect(quoteOf(list[0]!.originalTarget.anchor).exact).toBe("the wind is strong there");
     expect([list[0]!.block!.author, list[0]!.block!.actorId, list[0]!.body]).toEqual(["agent", AS, "Use soft twine?"]);
     const id = list[0]!.block!.id;
     expect(await act("reply", { thread: id.slice(0, 8), body: "Jute is fine." }, reader)).toMatchObject({ sent: "reply" });

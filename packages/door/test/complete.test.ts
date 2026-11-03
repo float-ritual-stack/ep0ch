@@ -717,7 +717,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const template = await create("Picker template [page::picker-template] [form-field::which property]");
     const custom: any = await e.s.act("complete", { text: '::use{of=[[picker-template]] which="' }, e.h, AGENT);
     expect(custom.items[0].label).toBe("trellis");
-    await board.request("delete", { blockId: template, author: "agent" });
+    await board.request("delete", { blockId: template, mutation: { author: "agent", actorId: "test-agent" } });
   });
 
   test("component attributes keep existing values and see words after the cursor (PIE-1127 round 2)", async () => {
@@ -736,7 +736,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     later.d.col = '::use{wh'.length;
     const result: any = await later.s.act("complete", {}, later.h, AGENT);
     expect(result.items.some((i: any) => i.label === "which")).toBe(true);
-    await board.request("delete", { blockId: template, author: "agent" });
+    await board.request("delete", { blockId: template, mutation: { author: "agent", actorId: "test-agent" } });
   });
 
   test("component value replacement finds a quote escaped before the cursor (PIE-1127 round 2)", async () => {
@@ -814,7 +814,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const result: any = await e.s.act("complete", { text: '::use{of=[[facet-producer]] side="' }, e.h, AGENT);
     expect(result.items.some((i: any) => i.insertion === 'north"')).toBe(true);
     expect(result.items.some((i: any) => i.label === "trellis")).toBe(false);
-    await board.request("delete", { blockId: template, author: "agent" });
+    await board.request("delete", { blockId: template, mutation: { author: "agent", actorId: "test-agent" } });
   });
 
   test("component ranking reads current standalone uses from the service while typing", async () => {

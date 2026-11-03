@@ -144,7 +144,7 @@ describe.skipIf(!outliner)("a lane's hand-set order", () => {
     const io = { out: (s: string) => out.push(s), err: (s: string) => err.push(s) };
     process.env.EP0CH_SOCKET = board.path;
     try {
-      const window = await other.request("work-ids.allocate", { blockId: cards["Fix the window"].id, expectedRevision: (await other.get(cards["Fix the window"].id))!.revision });
+      const window = await other.request("work-ids.allocate", { blockId: cards["Fix the window"].id, expectedRevision: (await other.get(cards["Fix the window"].id))!.revision! });
       const workId = window.block.properties.find((p: any) => p.key === "work-id")!.value;
       expect(await viewCommand(["view", "order", queue.id, cards["Oil the hinges"].id, workId.toLowerCase(), "--as", "shell-agent", "--json", "--ws", "scratch"], io)).toBe(0);
       const json = JSON.parse(out.at(-1)!);

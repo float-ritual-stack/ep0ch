@@ -2376,7 +2376,6 @@ export class NoteSurface {
     if (isAnnotationBlock(m)) {
       const context = commentSubject(m.id, src);
       const target = context?.value;
-      // A comment on a file a note named before Resources (`legacy-file`) is on that note: the file's path names it.
       const on = target ? tagged(drawn, target.kind === "block" ? { block: target.blockId } : target.kind === "resource" ? { resourceRef: `resource:${target.resourceId}` } : { block: target.sourceBlockId },
         target.kind === "block" ? presentLinks(`((${target.blockId}))`, false, src) : target.kind === "resource" ? "Resource" : target.filePath) : context?.error ?? "reading comment subject…";
       const intro = drawIn("note", `on ${on}`, env);

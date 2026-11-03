@@ -1,4 +1,4 @@
-import { changes, proposed } from "./wire";
+import { changesOf, proposed } from "./wire";
 // draft.patch (pi-herdr-outliner PIE-501): an agent's compare-and-swap on a span lands in the draft the person
 // is typing in. The test line: the mark is the queue, you keep typing, the block keeps its id. The draft half
 // runs anywhere; the rest starts a scratch outliner service (never a real outline) with fictional notes.
@@ -273,7 +273,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       const result = await board.request("draft.proposal.resolve", {proposalId: proposed(pending).proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("resolved");
       expect(e.d.text).toBe(before.replace("Remove this sentence.\n", ""));
-      await board.request("extensions.undo", {undo: result.undo, mutation: {author: "user"}});
+      await board.request("extensions.undo", {undo: result.undo!, mutation: {author: "user"}});
       expect(e.d.text).toBe(before);
       expect((await board.get(e.id))!.text).toBe(saved.text);
       expect(prop((await board.get(proposed(pending).proposalId))!, "proposal-status")).toBe("open");
@@ -678,7 +678,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const since = board.lastSequence ?? 0;
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toContain("the rake and the hoe");
-    const changes = changes((await board.request("changes.since", { sequence: since, limit: 50 }))).changes as any[];
+    const changes = changesOf((await board.request("changes.since", { sequence: since, limit: 50 }))).changes as any[];
     expect(changes.find(c => c.blockId === e.id && c.kind === "edit")?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
   }, 30_000);
 
@@ -705,7 +705,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(e.d.writers).toEqual([{ kind: "user" }, { kind: "agent", id: "ext:spacer" }]);
     await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
-    const changes = changes((await board.request("changes.since", { sequence: since, limit: 50 }))).changes as any[];
+    const changes = changesOf((await board.request("changes.since", { sequence: since, limit: 50 }))).changes as any[];
     expect(changes.filter(c => c.blockId === e.id && c.kind === "edit").at(-1)?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:spacer` });
     // Only the extension wrote it this time: still saved as the person's, naming the extension.
     const only = await editing("Tool wall\nthe  saw  and the plane\n");

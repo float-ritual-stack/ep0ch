@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   test("a stale card is refused: someone else changed it after the board loaded", async () => {
     await select("Queued", cards.stale.id);
     const shown = B().lanes[B().lane].items[B().lanes[B().lane].sel] as Msg;
-    await other.request("update", { blockId: cards.stale.id, text: "Card stale [work-stage::queued]\nChanged by another writer.", expectedRevision: shown.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
+    await other.request("update", { blockId: cards.stale.id, text: "Card stale [work-stage::queued]\nChanged by another writer.", expectedRevision: shown.revision!, mutation: { author: "agent", actorId: "test-other-writer" } });
     pick("Done");
     await settled();
     expect(flashes.at(-1)).toBe(`not moved: the card changed since the board loaded (revision ${shown.revision} -> ${shown.revision! + 1})`);

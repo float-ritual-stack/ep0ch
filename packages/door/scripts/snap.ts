@@ -1,3 +1,4 @@
+import { quoteOf } from "../test/wire";
 // Drive the real door against the live outline and snapshot what a Kitty terminal would show.
 // src/mirror.ts consumes the exact bytes the door writes and composites them into a PNG.
 //   bun scripts/snap.ts [cells] → out/snap-*.png
@@ -943,7 +944,7 @@ if (scenario === "props") {
   await mk(hub.id, "Queued [type::virtual-branch] [query::type=roadmap-item work-stage=queued]");
   await mk(hub.id, "Doing [type::virtual-branch] [query::type=roadmap-item work-stage=doing]\n[summary-properties::priority,track]");
   const plan = await mk(null, "Garden plan [page::garden]\nBeans along the fence, squash by the compost.\n\n## Beds ^beds\nTwo raised beds, one for herbs.");
-  const shed = await mk(null, "Old shed notes"); await board.request("delete", { blockId: shed.id, author: "agent" });
+  const shed = await mk(null, "Old shed notes"); await board.request("delete", { blockId: shed.id, mutation: { author: "agent", actorId: "snap-agent" } });
   const chores = await mk(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::priority]");
   await mk(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
   await mk(null, "Turn the compost [type::chore] [stage::queued] [priority::low]");
@@ -1091,7 +1092,7 @@ if (scenario === "comment") {
   press({ kind: "char", ch: "s", ctrl: true });
   await snap("10-sent-after-move", 1500);
   const list = await other.request("annotations.list", { query: { subject: { kind: "block", blockId: card.id }, includeResolved: true } });
-  for (const t of list) console.log(`${t.lifecycle} "${t.originalTarget.anchor.exact}" @${t.originalTarget.anchor.start}: ${t.body} (${t.replies.length} repl.)`);
+  for (const t of list) console.log(`${t.lifecycle} "${quoteOf(t.originalTarget.anchor).exact}" @${quoteOf(t.originalTarget.anchor).start}: ${t.body} (${t.replies.length} repl.)`);
   other.close(); board.close(); process.exit(0);
 }
 if (scenario === "agent") {
@@ -1228,7 +1229,7 @@ if (scenario === "river-write") {
   const kept = R.keepDrafts?.() ?? [];
   console.log(`  kept: ${kept.join(", ")}`);
   const list = await other.request("annotations.list", { query: { subject: { kind: "block", blockId: beans.id }, includeResolved: true } });
-  for (const t of list) console.log(`  ${t.lifecycle} "${t.originalTarget.anchor.exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
+  for (const t of list) console.log(`  ${t.lifecycle} "${quoteOf(t.originalTarget.anchor).exact}": ${t.body} (${t.block.author}/${t.block.actorId})`);
   other.close(); ctl.close(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "desk") {

@@ -343,7 +343,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
         // The very next frame has it.
         expect(d.where("Turn the left").y - d.where("Net the brassicas").y).toBe(gapBefore + 1);
         expect(asked.filter(a => a !== "ping" && a !== "clients.heartbeat")).toEqual([]);
-      } finally { (board as any).request = request; (d.desk as any).ctx.flash = flash; }
+      } finally { delete (board as any).request; (d.desk as any).ctx.flash = flash; }
       // Unsaved, it says so; the door's quit says so too.
       expect(tuningOf(board).unsavedCount()).toBe(1);
       expect((d.app as any).confirmQuit()).toBe(false);
@@ -757,7 +757,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally {
       d.close();
       // This test's screen-wide look must not set the next test's baseline.
-      await b3.request("delete", { blockId: level.id, author: "agent" });
+      await b3.request("delete", { blockId: level.id, mutation: { author: "agent", actorId: "test-agent" } });
       b3.close();
     }
   }, 60_000);

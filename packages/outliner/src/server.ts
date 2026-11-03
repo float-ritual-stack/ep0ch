@@ -111,8 +111,7 @@ import { probeSocket } from "./socket-probe";
 import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
 import { machineryBlind, machineryChange } from "./watch-machinery";
-import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, replayOnce, type ActionName, type NotHandledHere } from "./actions";
-import type { WireAnswer } from "./wire";
+import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -238,9 +237,6 @@ function claimedExtensionActor(value: unknown, depth = 0): string | undefined {
  * Who asks for a run (`extensions.act`, `r` on an `@name` line), as the request declares it: absent is a person,
  * and a declared one must be a person, the system, or an agent with its actor id.
  */
-/** One sync answer, checked against its action's row in the wire contract (wire.ts): `case "x": result = wired(action, …)`. */
-const wired = <A extends ActionName>(_action: A, result: WireAnswer<A>): WireAnswer<A> => result;
-
 function declaredRequester(request: OutlinerRequest, action: string): MutationProvenance | undefined {
   const requestedBy = declaredActor(request);
   if (requestedBy && (!["user", "agent", "system"].includes(requestedBy.author) || (requestedBy.author === "agent" && !requestedBy.actorId?.trim()))) {
@@ -2099,7 +2095,6 @@ export class OutlinerServer {
   }
 
   /** Every answer's envelope: the result, at the store's sequence now. Handlers return a result or throw. */
-  /** A successful answer: checked against the action's row in the wire contract (wire.ts), so drift fails the check. */
   private answered<A extends ActionName>(request: { id: string; action: A }, result: WireAnswer<A>): OutlinerResponse {
     return { id: request.id, ok: true, result, sequence: this.store.sequence };
   }
@@ -2129,8 +2124,7 @@ export class OutlinerServer {
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (this.linkReader) {
       const answer = await this.linkReader(request);
-      // Another machine's host answered it, checked against the same contract there.
-      if (answer) return this.answered(request, answer.result as WireAnswer<typeof request.action>);
+      if (answer) return this.answered(request, answer.result as WireAnswer<typeof request.action>); // checked by the host that answered
     }
     if (request.action === "update" && request.replaceSection !== undefined) {
       const block = this.store.require(request.blockId);

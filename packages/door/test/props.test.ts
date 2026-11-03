@@ -259,7 +259,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await create(hub, "Doing [type::virtual-branch] [query::type=roadmap-item work-stage=doing]\n[summary-properties::priority,track]");
     ids.plan = await create(null, "Garden plan [page::garden]\nBeans along the fence.\n\n## Beds ^beds\nTwo raised beds.");
     ids.shed = await create(null, "Old shed notes");
-    await board.request("delete", { blockId: ids.shed, author: "agent" });
+    await board.request("delete", { blockId: ids.shed, mutation: { author: "agent", actorId: "test-agent" } });
     ids.chores = await create(null, "Queued chores\n[type::virtual-branch]\n[query::type=chore stage=queued]\n[summary-properties::title,priority]");
     await create(null, "Plant the beans [type::chore] [stage::queued] [priority::high]");
     ids.nested = await create(null, `Nested note\nIt embeds the plan: !((${ids.plan}))`);
@@ -430,7 +430,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       // At most once: answers are kept by target, not label, so one already asked about this target may answer it.
       expect(once["references.resolve"] ?? 0).toBeLessThanOrEqual(1);
       B().preview.surface.panel = null;
-    } finally { (board as any).request = request; }
+    } finally { delete (board as any).request; }
   }, 30_000);
 
   test("embeds refresh when their target changes", async () => {

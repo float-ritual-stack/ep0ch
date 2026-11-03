@@ -62,6 +62,14 @@ export interface ActionDecl<R = OutlinerRequest> {
 
 type Decls = { [A in ActionName]: ActionDecl<RequestOf<A>> };
 
+export type { WireAnswer } from "./wire";
+/**
+ * One answer, checked against its action's row in the wire contract (wire.ts): the dispatcher writes
+ * `result = wired(action, …)` in each case and `answered(request, …)` checks the rest, so an answer that drifts from the
+ * row fails the check.
+ */
+export const wired = <A extends ActionName>(_action: A, result: import("./wire").WireAnswer<A>): import("./wire").WireAnswer<A> => result;
+
 const content = (blockId?: string): EventFields => ({ domain: "content", blockId });
 const catalog = (resourceId?: string): EventFields => ({ domain: "resource-catalog", resourceId });
 const resultId = (value: unknown, label: string): string => {

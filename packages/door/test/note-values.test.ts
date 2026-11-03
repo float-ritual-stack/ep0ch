@@ -111,7 +111,7 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
   test("a value follows a change to the note it was read from", async () => {
     const note = await create("Card [stage::queued]\nNow: {{this.stage}}");
     expect(await drawn(note.id)).toContain("Now: queued");
-    await board.request("update", { blockId: note.id, text: "Card [stage::done]\nNow: {{this.stage}}", expectedRevision: note.revision, author: "agent" });
+    await board.request("update", { blockId: note.id, text: "Card [stage::done]\nNow: {{this.stage}}", expectedRevision: note.revision!, mutation: { author: "agent", actorId: "test-agent" } });
     outlineChanged([note.id]);
     expect(await drawn(note.id)).toContain("Now: done");
   });

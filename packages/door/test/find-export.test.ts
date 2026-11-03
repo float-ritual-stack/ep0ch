@@ -154,15 +154,15 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
       const before = manifest();
       const oldFile = file();
       expect(oldFile).toContain(`/pear-ledger-${child.id.slice(0, 8)}.md`);
-      await board.request("update", { blockId: child.id, text: "Pear ledger\nFresh words after the rain.", expectedRevision: child.revision, mutation: { author: "user" } });
+      await board.request("update", { blockId: child.id, text: "Pear ledger\nFresh words after the rain.", expectedRevision: child.revision!, mutation: { author: "user" } });
       await until(() => readFileSync(join(out, oldFile), "utf8").includes("Fresh words after the rain."), "mirrored edit", 1000);
-      await board.request("update", { blockId: parent.id, text: "Mirror meadow", expectedRevision: parent.revision, mutation: { author: "user" } });
+      await board.request("update", { blockId: parent.id, text: "Mirror meadow", expectedRevision: parent.revision!, mutation: { author: "user" } });
       await until(() => file() !== oldFile, "renamed ancestor");
       expect(existsSync(join(out, oldFile))).toBe(false);
       expect(readFileSync(join(out, file()), "utf8")).toContain('path: "Mirror meadow"');
       await scratch.restart();
       const fresh = await board.get(child.id);
-      await board.request("update", { blockId: child.id, text: "Pear ledger\nWords after restarting the host.", expectedRevision: fresh!.revision, mutation: { author: "user" } });
+      await board.request("update", { blockId: child.id, text: "Pear ledger\nWords after restarting the host.", expectedRevision: fresh!.revision!, mutation: { author: "user" } });
       await until(() => readFileSync(join(out, file()), "utf8").includes("Words after restarting the host."), "restart catch-up");
       expect(manifest().sequence).toBeGreaterThan(before.sequence);
       expect(manifest().asOf > before.asOf).toBe(true);
@@ -464,7 +464,7 @@ describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
       await stopForward();
       const id = [...notes.keys()].at(-1)!;
       const note = await board.get(id);
-      await board.request("update", { blockId: id, text: "Orchard packet\nFresh words after the forward died.", expectedRevision: note!.revision, mutation: { author: "user" } });
+      await board.request("update", { blockId: id, text: "Orchard packet\nFresh words after the forward died.", expectedRevision: note!.revision!, mutation: { author: "user" } });
       await until(() => existsSync(ctl), "mirror to recreate its dead ssh forward", 10_000);
       expect(Number(readFileSync(ctl, "utf8"))).not.toBe(previous);
       await until(() => copy.manifest().files.some(file => file.endsWith(`-${id.slice(0, 8)}.md`) && readFileSync(join(dir, file), "utf8").includes("Fresh words after the forward died.")), "remote mirror catch-up");
