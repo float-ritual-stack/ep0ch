@@ -3241,7 +3241,7 @@ export class NoteSurface {
   }
 
   private draftKey(k: Key, host: SurfaceHost): boolean {
-    const s = this.drafting!;
+    const s = this.drafting!; if (s.status.phase === "reloading") { s.holdKey(k, held => void this.draftKey(held, host)); host.redraw(); return true; }
     if (s.draft.views.raw.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
@@ -3252,7 +3252,7 @@ export class NoteSurface {
       if (own && !("shift" in k && k.shift)) { void this.runKey(own.action as never, (own.args ?? {}) as never, host); return true; }
       // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
       const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length, s.draft.lines, s.draft.row) : null;
-      if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
+      if (here && !s.replaying && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
     }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {

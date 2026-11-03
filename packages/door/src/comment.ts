@@ -633,7 +633,7 @@ export class CommentSession {
       // The draft's own status line, as a note's edit draws it (PIE-1560): an edit's conflict or "changed elsewhere", and
       // what the draft said, drawn by the frame to its width.
       // A refusal is said the same bounded way (an offline error names its copy at any width, PIE-1560).
-      draftStatus: { state: t.kind === "edit" && !!(d.status.conflict || d.status.changedElsewhere), said: this.busy ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
+      draftStatus: { state: t.kind === "edit" && !!(d.status.conflict || d.status.changedElsewhere), said: this.busy && d.status.phase !== "reloading" ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
       status: [...(this.busy ? [status(this.busy, C.grey)] : this.error || d.note ? [] : [status(this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.dirty ? C.yellow : C.dark)])],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };

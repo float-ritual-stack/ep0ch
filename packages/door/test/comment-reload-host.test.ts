@@ -164,6 +164,56 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(d.text).toBe("Seed list\npeasxyz");
   }, 30_000);
 
+  /** Runs `during` with the scratch host paused, the reload's read held, then lets the read answer. */
+  async function heldReload(d: { status: { phase: string | null } }, press: () => void, during: () => void, loaded: () => boolean) {
+    process.kill(scratch.pid!, "SIGSTOP");
+    try {
+      press();
+      await until(() => d.status.phase === "reloading", "the reload's read");
+      during();
+    } finally { process.kill(scratch.pid!, "SIGCONT"); }
+    await until(() => d.status.phase === null && loaded(), "the reload's answer", 10_000);
+  }
+
+  test("a hold replays only what was written: ctrl+s and esc don't run, the text after them lands, and the line says so", async () => {
+    const { s, h, d } = await refused("Commands held");
+    const id = s.msg!.id;
+    await heldReload(d, () => s.key(ctrl("r"), h), () => {
+      s.key(char("a"), h);
+      s.key(ctrl("s"), h);
+      expect(d.note).toContain("press ctrl+s again");
+      s.key(char("b"), h);
+      s.key({ kind: "esc" }, h);
+      s.key(char("c"), h);
+    }, () => d.text.includes("should"));
+    await Bun.sleep(100);
+    // Nothing was saved or closed: the words on the host are the loaded ones, the draft is open with all three.
+    expect(s.session?.composer).toBe(d);
+    expect(d.text).toBe("How deep should the bed be?abc");
+    expect((await board.comments(id))[0]!.body).toBe("How deep should the bed be?");
+    expect(d.note).toContain("press");
+    expect(d.note).toContain("ctrl+s");
+  }, 30_000);
+
+  test("in rich cells, what's typed during a held reload lands in the cell", async () => {
+    const id = (await board.request("create", { parentId: null, text: "Crops\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |", author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    const s = new NoteSurface(), h = host();
+    s.show(m, h);
+    s.startDraft(m, h);
+    const d = s.draft!;
+    d.place(d.lines.length - 1, 3);
+    await s.act("rich.toggle", { on: true }, h, USER);
+    await other.update(id, `Crops [season::spring]\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`, m.revision!, USER);
+    d.status.changedElsewhere = true;
+    await heldReload(d, () => s.key(ctrl("r"), h), () => {
+      for (const c of "ab") s.key(char(c), h);
+      s.key({ kind: "paste", text: "cd" }, h);
+    }, () => d.text.includes("season"));
+    await until(() => d.text.includes("abcd"), "the held text", 5000);
+    expect(d.lines.at(-1)).toContain("abcd");
+  }, 30_000);
+
   // Last: it stops the host.
   test("with the host stopped ctrl+r says it couldn't read, keeps the text and the conflict", async () => {
     const { s, h, d } = await refused("Stopped host");
