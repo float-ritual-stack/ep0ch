@@ -8,6 +8,11 @@ export class ReaderPosition {
    * it wasn't in view (PIE-1560). A view of a draft writes it; an agent's patch reads it to keep the cursor's row.
    */
   caret?: { line: number; row: number } | null;
+  /**
+   * Where the top row starts in the source (line, UTF-16 column), as a view of a draft last drew it: a wrapped line's
+   * later row starts mid-line. `mapped`: an agent's patch moved it, and the next render puts that row on top.
+   */
+  top?: { line: number; col: number; mapped?: true } | null;
 }
 
 /** Each renderer supplies its source map and the screen row where its body starts. */

@@ -496,7 +496,11 @@ export class CommentSession {
     const w = this.writing;
     if (!w || this.target?.kind !== "edit") return;
     this.busy = waitingText("the note again"); env.redraw();
-    try { await w.target.reload?.(w, { phase: p => { w.status.phase = p; } }); } finally { this.busy = null; }
+    try {
+      // What the reload says (the revision it loaded, where the earlier words are) goes on the draft's one status line.
+      const said = await w.target.reload?.(w, { phase: p => { w.status.phase = p; } });
+      if (typeof said === "string" && w.open) w.status.say(said);
+    } finally { this.busy = null; }
     const t = this.target;
     if (t?.kind === "edit" && w.open) {
       const th = this.threads.find(x => x.id === t.thread.id);

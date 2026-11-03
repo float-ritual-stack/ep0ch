@@ -74,6 +74,19 @@ describe("an agent's patch keeps the person's place", () => {
     expect(drawn(d)[0]).toBe(top!);
   });
 
+  test("the wheel scrolled into a long wrapped paragraph: words added earlier in it keep the top row's text", () => {
+    const para = Array.from({ length: 24 }, (_, i) => `bed ${i + 1} gets compost`).join(" ");
+    const d = new Draft("note-wrap", 4, `${para}\n\n${LONG}`);
+    d.place(d.lines.length - 1, 3);
+    drawn(d);
+    draftView(d).scrollBy(-200);
+    draftView(d).scrollBy(4);              // the top row is the paragraph's fifth wrapped row
+    const top = drawn(d)[0]!;
+    expect(top).toMatch(/bed \d+/);
+    patch(d, "bed 1 gets compost", "bed 1 gets compost and a mulch of leaves from the autumn heap");
+    expect(drawn(d)[0]).toBe(top);
+  });
+
   test("in rich cells, too: lines added above keep the cursor's row", () => {
     const text = `${Array.from({ length: 12 }, (_, i) => `row note ${i + 1}`).join("\n\n")}\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`;
     const d = new Draft("note-rich", 4, text);

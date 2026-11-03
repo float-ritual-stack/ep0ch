@@ -373,15 +373,15 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // Its preview scrolls under the wheel too, from where it follows the cursor, until the text changes.
     await stage().dispatch.press("draft.preview", { on: true }, "floating");
     sc.render(app);
-    const p = d()!.frame!.preview!;
+    const p = d()!.views.raw.frame!.preview!;
     expect(p.total).toBeGreaterThan(p.rows);
     const top = p.top;
     pane().wheel(-1, stage(), { x: r.col + 4, y: p.row + 2 });
     sc.render(app);
-    expect(d()!.frame!.preview!.top).toBeLessThan(top);
+    expect(d()!.views.raw.frame!.preview!.top).toBeLessThan(top);
     pane().key({ kind: "char", ch: "?" }, stage());
     sc.render(app);
-    expect(d()!.previewScroll).toBeNull();
+    expect(d()!.views.raw.previewScroll).toBeNull();
     await stage().dispatch.press("comment.close", { discard: true }, "floating");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);

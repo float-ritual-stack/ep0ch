@@ -936,6 +936,7 @@ export class Draft {
     // the patch, the next render draws it where it was, whatever view draws it and whether or not one drew it yet.
     const view = this.position.view, viewOffset = view ? this.offsetOf(view.line, 0) : null;
     const caret = this.position.caret?.line === this.row ? this.position.caret : null;
+    const top = !caret && view && this.position.top?.line === view.line ? this.position.top : null, topOffset = top ? this.offsetOf(top.line, top.col) : null;
     const cursor = map(this.offsetOf(this.row, this.col));
     const anchor = this.anchor ? map(this.offsetOf(this.anchor.row, this.anchor.col)) : null;
     const flashes = this.flashes.map(f => ({ ...f, start: map(f.start), end: map(f.end) }));
@@ -943,7 +944,8 @@ export class Draft {
     if (view && viewOffset !== null) view.line = this.placeOf(map(viewOffset)).row;
     const c = this.placeOf(cursor);
     this.row = c.row; this.col = c.col;
-    if (caret) { this.position.view = { line: c.row, row: caret.row }; this.position.caret = { line: c.row, row: caret.row }; }
+    if (caret) { this.position.view = { line: c.row, row: caret.row }; this.position.caret = { line: c.row, row: caret.row }; this.position.top = null; }
+    else if (top && topOffset !== null) { const p = this.placeOf(map(topOffset)); this.position.top = { line: p.row, col: p.col, mapped: true }; if (view) view.line = p.row; }
     this.anchor = anchor === null ? null : this.placeOf(anchor);
     this.flashes = flashes;
     if (patchId !== null) {

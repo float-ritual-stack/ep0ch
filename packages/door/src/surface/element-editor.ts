@@ -397,7 +397,7 @@ export class ElementEdit {
     d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: 2 + first - this.top } : null;
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
-      fg(C.cyan) + pad(d.note || attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET,
+      fg(C.cyan) + pad(d.status.doing || d.note || attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET,
       ...body.slice(this.top, this.top + room)];
   }
 }

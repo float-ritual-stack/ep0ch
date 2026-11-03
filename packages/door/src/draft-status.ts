@@ -31,12 +31,15 @@ export class DraftStatus {
   /** The block or passage was found again after a stale refusal (a reload): the line says so no longer. */
   settled() { this.conflict = null; this.changedElsewhere = false; }
 
+  /** What a write under way is doing, in words ("saving…"), or null when none is. */
+  get doing(): string | null {
+    return this.phase === "saving" ? "saving…" : this.phase === "creating" ? "creating…" : this.phase === "checking" ? "checking properties…" : null;
+  }
+
   /** The draft's state, for the edit frame's status line (`dirty`: it differs from what it started as). */
   state(dirty: boolean): string {
     return this.conflict ? fg(C.lred) + `! ${this.conflict}`
-      : this.phase === "saving" ? fg(C.grey) + "saving…"
-      : this.phase === "creating" ? fg(C.grey) + "creating…"
-      : this.phase === "checking" ? fg(C.grey) + "checking properties…"
+      : this.doing ? fg(C.grey) + this.doing
       : this.changedElsewhere ? fg(C.yellow) + "!! changed elsewhere · saving checks it first"
       : dirty ? fg(C.yellow) + "unsaved" : fg(C.dark) + "no changes";
   }

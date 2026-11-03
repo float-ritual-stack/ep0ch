@@ -148,6 +148,15 @@ export class RawRows {
     return { vi, x, cp };
   }
 
+  /** The visual row that line `line`, column `col` (UTF-16) is drawn on. */
+  private rowOf(rows: VRow[], line: number, col: number): number {
+    const cp = [...(this.d.lines[line] ?? "").slice(0, col)].length;
+    let vi = rows.findIndex(r => r.line === line);
+    if (vi < 0) return 0;
+    while (vi + 1 < rows.length && rows[vi + 1]!.line === line && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
+    return vi;
+  }
+
   /** The source place at a visual row's cell `x`. */
   private posIn(rows: VRow[], vi: number, x: number): { row: number; col: number } {
     if (!rows.length) return { row: 0, col: 0 };
@@ -182,6 +191,7 @@ export class RawRows {
   scrollBy(by: number) {
     this.top = scrolled(this.top, by, lastTop(this.shown.rows.length, this.shown.h));
     this.d.follow = false;
+    this.d.position.top = null;
   }
 
   /** The source place under a cell of the text as last drawn (`x`, `y` from the text's top left). */
@@ -213,6 +223,9 @@ export class RawRows {
     pr.source = rows.map(r => r.line);
     pr.origin = this.frame?.row ?? 0;
     this.shown = { w: w1, h: Math.max(1, h), rows };
+    // An agent's patch moved the top row's start (`Draft.commitPatch`): that row goes back on top, mid-line or not.
+    const moved = d.position.top;
+    if (moved?.mapped && d.position.view?.line === moved.line) this.top = this.rowOf(rows, moved.line, moved.col);
     const at = this.cursorIn(rows), sel = d.selection();
     // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where the rows
     // under it are the blank ones past the end (reader.overscroll; none keeps the last line on the edge). An agent's patch
@@ -229,6 +242,8 @@ export class RawRows {
     let first = at.vi;
     while (first > 0 && rows[first - 1]!.line === d.row) first--;
     d.position.caret = at.vi >= top && at.vi < top + h ? pr.at(d.row, first - top) : null;
+    const tr = rows[top];
+    d.position.top = tr ? { line: tr.line, col: utf16Col(d.lines[tr.line]!, tr.start) } : null;
     this.cursorCol = at.x;
     this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - top));
     const out: string[] = [];
@@ -320,6 +335,13 @@ export class LineRow {
 
   /** The source column under cell `x` as last drawn, counted from the first cell shown. */
   posAt(x: number): number { return this.d.views.raw.posAt(x + this.scrollX, 0).col; }
+}
+
+/** The UTF-16 column of code point `cp` in `line` (a source column, not a width). */
+function utf16Col(line: string, cp: number): number {
+  let col = 0, n = 0;
+  for (const ch of line) { if (n++ >= cp) break; col += ch.codePointAt(0)! > 0xffff ? 2 : 1; }
+  return col;
 }
 
 /** How far a line's continuation rows are hung: under the item's text, or the line's own indent; at most half the width. */

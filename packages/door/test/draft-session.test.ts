@@ -266,7 +266,7 @@ describe("the lifecycle, on a fake target", () => {
 
   test("a stale refusal keeps the draft as typed, copies it and says so; any other keeps it with the reason; a write in flight holds it", async () => {
     let release: (o: Outcome) => void = () => {};
-    // The adapter marks its write in flight (Draft.saving) until the service answers.
+    // The adapter marks its write in flight (its status phase) until the service answers.
     const { t } = fake({ async submit(s) { s.draft.status.phase = "saving"; const o = await new Promise<Outcome>(r => { release = r; }); s.draft.status.phase = null; return o; } });
     const s = DraftSession.open(t, { text: "Fern", base: 1 });
     keys(s, ["s"]);
