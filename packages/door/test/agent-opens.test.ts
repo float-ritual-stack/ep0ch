@@ -108,6 +108,21 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
     } finally { d.quit(); }
   });
 
+  // PIE-1559: a lift in a group ends when the person's keys leave the group, whoever moved them. In yolo an agent's
+  // tile.focus moves them (it stands as the person), so the lift it leaves behind ends too, as the person's own would.
+  test("in yolo, an agent's focus off a group ends the lift in it, as the person's does", async () => {
+    const d = await door(true);
+    try {
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "r2", name: "pair" }, tile: "r1" }, USER);
+      const inner = (d.desk.pane("pair") as any).inner as Desk;
+      await inner.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "r1" }, USER);
+      expect(inner.lifted).toBeTruthy();
+      await d.act("tile.focus", {}, "reader");
+      expect(d.focus()).toBe("reader");
+      expect(inner.lifted).toBeNull();
+    } finally { d.quit(); }
+  });
+
   for (const yolo of [false, true]) describe(yolo ? "in yolo" : "agents held back", () => {
   test("on the desk: the person's focus stays on their tile", async () => {
     const d = await door(yolo);
