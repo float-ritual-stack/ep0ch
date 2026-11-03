@@ -479,13 +479,35 @@ export class ReaderPane implements Pane, AttachedOwner {
     desk.redraw();
     return { pinned: this.pinned, ...(this.pinPage ? { page: this.pinPage } : {}) };
   }
+  /** Its page didn't resolve when last asked (no note has `[page::…]` yet): it says so, and asks again as the outline changes. */
+  pageMissing = false;
+  private pageAsk: Timer | null = null;
+  /**
+   * Ask for the page it's pinned to and show it (`pinnedTo`). It asks again as the outline changes (onEvent): a page that
+   * isn't there yet is waited for, and an address that moves to another note (`[page::today]` on today's) is followed.
+   */
+  async resolvePin(desk: DeskApi) {
+    const page = this.pinPage;
+    if (!page) return;
+    const res = await this.context(desk).board.resolvePage(page).catch(() => null);
+    if (this.pinPage !== page) return;
+    this.pageMissing = !(res?.status === "resolved" && res.block);
+    if (res?.block && !this.pageMissing) this.pinnedTo(res.block, desk);
+    desk.redraw();
+  }
   /** Start pinned: to `page` (shown once the page resolves, `pinnedTo`), else on the note it was saved with. */
   pinTo(page?: string) { this.pinned = this.pinnable; if (page) this.pinPage = page; }
   /** The page it's pinned to resolved to `block` (the tile joined a desk): show it, unless a note is open there already. */
-  pinnedTo(block: Msg, desk: DeskApi) { if (this.pinPage && !this.msg) { this.pageNote = block.id; this.show({ ...block, address: this.noteAddress }, desk); } else if (this.pinPage && this.msg?.id === block.id) this.pageNote = block.id; }
+  pinnedTo(block: Msg, desk: DeskApi) {
+    if (!this.pinPage) return;
+    // Empty, or still on the page's last note while its address moved to another (and not mid-edit): show the page's note now.
+    const moved = !!this.msg && this.msg.id === this.pageNote && block.id !== this.pageNote && !this.editing;
+    if (!this.msg || moved) { this.pageNote = block.id; this.show({ ...block, address: this.noteAddress }, desk); }
+    else if (this.msg.id === block.id) this.pageNote = block.id;
+  }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
-  dispose() { this.offOutlineEvents?.(); this.surface.dispose(); }
+  dispose() { if (this.pageAsk) clearTimeout(this.pageAsk); this.offOutlineEvents?.(); this.surface.dispose(); }
   /**
    * A reader the person owns is a "detail" (the glossary's word: it keeps the note opened into it), which a host may
    * label ("detail 1" in the board's readers row); one its screen owns is a "reader". The pin chip says whether it's pinned.
@@ -694,7 +716,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     const nav = this.wantNav ? this.wantNav : this.surface.saveNav();
     const note = this.msg && !this.msg.id.startsWith("file:") ? this.msg.id : this.want;
     // A pinned reader comes back on its page, not on the last note it showed: no history to keep.
-    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...this.noteAddress, ...this.marginSpec() };
+    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...(this.label ? { label: this.label } : {}), ...this.noteAddress, ...this.marginSpec() };
     if (this.pinnable) return { ...(this.pinned ? { mode: "pinned" } : {}), ...(note ? { note } : {}), ...(nav ? { nav } : {}), ...this.noteAddress, ...this.marginSpec() };
     return { ...(nav ? { nav } : {}), ...this.noteAddress, ...this.marginSpec() };
   }
@@ -710,6 +732,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   /** What an empty one says it's for: where its notes come from, and how to get one there. */
   protected emptyFor(): string {
     if (this.missing) return `the note it held (${this.missing}) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it`;
+    if (this.pinPage) return this.pageMissing ? `No [[${this.pinPage}]] page on this outline yet. It shows here once a note has [page::${this.pinPage}]; this reader waits for it` : `pinned to [[${this.pinPage}]] · asking the outline for it…`;
     if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
     return "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
@@ -724,7 +747,13 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
-  onEvent(desk: DeskApi) { this.surface.onEvent(this.host(desk)); }
+  onEvent(desk: DeskApi) {
+    this.surface.onEvent(this.host(desk));
+    // Pinned to a page: the outline changed, so ask again (it may have arrived, or moved to another note).
+    if (!this.pinPage) return;
+    if (this.pageAsk) clearTimeout(this.pageAsk);
+    this.pageAsk = setTimeout(() => { this.pageAsk = null; void this.resolvePin(desk); }, 400);
+  }
   /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
   sessionOf() { return this.surface.sessionOf(); }
   /** j k, arrows, PgUp PgDn, space, Home End scroll the note while it is shown (not under a draft or a comment; see NoteSurface.scrollKey). */

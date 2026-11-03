@@ -30,7 +30,7 @@ import { cleanExtensionText, extensionActorId } from "./extension-records";
 import type { AgentRequestRow, OutlinerStore } from "./store";
 // An EchoNet copy (`[from::<node>/<original id>]`) as EchoNet reads it: its text is its origin's, so a move never
 // rewrites it; its origin is told by netmail (ADR 0005).
-import { isCopy } from "../extensions/echonet/shapes";
+import { isCopy } from "@ep0ch/outline-core/echonet-shapes";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
 export type ExtensionWrite =

@@ -1,7 +1,6 @@
 import { visible } from "../src/style";
-// PIE-442: backlinks you can use. src/backlinks.ts mirrors Detail's backlink view (pi-herdr-outliner
-// src/backlink-view.ts) and its panel's text (src/detail-pi-preview.ts); these tests check it against the
-// outliner's own functions over fictional sources and every option, then drive the board's dock against
+// PIE-442: backlinks you can use. src/backlinks.ts draws Detail's panel text (src/detail-pi-preview.ts) over outline-core's one backlink view; these tests
+// check the text against Detail's own over fictional sources and every option, then drive the board's dock against
 // a scratch service: the defaults, filter and sort, and the toggles by key, click and act.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { linkAcross } from "../src/links";
@@ -176,41 +175,6 @@ test("an empty links tile names the tile it follows, never its id (PIE-1465)", (
     expect(body).toContain("the links of what activity shows");
     expect(body).not.toContain("t-d3c7");
   }
-});
-
-describe.skipIf(!outliner)("the view is Detail's: parity with pi-herdr-outliner's backlink-view.ts", () => {
-  let theirs: any;
-  beforeAll(async () => { theirs = await import(join(outliner!, "src/backlink-view.ts")); });
-
-  test("the constants and defaults are the same", () => {
-    expect(DEFAULT_BACKLINK_VIEW_OPTIONS).toEqual(theirs.DEFAULT_BACKLINK_VIEW_OPTIONS);
-    expect(BACKLINK_SORT_ORDER).toEqual(theirs.BACKLINK_SORT_ORDER);
-    expect(BACKLINK_STAGE_FILTERS).toEqual(theirs.BACKLINK_STAGE_FILTERS);
-  });
-
-  test("every sort, stage, kind, filter and hide toggle groups, orders and counts the same, with facets and without", () => {
-    let checked = 0;
-    for (const collection of [fixture(), unfaceted(), { targetBlockId: "t", sources: [], completeness: { kind: "complete" } } as BacklinkCollection, null]) {
-      for (const o of grid()) {
-        const mine = backlinkView(collection, o), them = theirs.backlinkView(collection, o);
-        expect(summary(mine)).toEqual(summary(them));
-        for (const g of mine.groups) for (const open of [false, true]) {
-          const tg = them.groups.find((x: any) => x.kind === g.kind);
-          expect(backlinkGroupRows(g, open).map(s => s.blockId)).toEqual(theirs.backlinkGroupRows(tg, open).map((s: any) => s.blockId));
-        }
-        checked++;
-      }
-    }
-    expect(checked).toBe(4 * 6 * 6 * 4 * 2 * 2 * 8);
-  });
-
-  test("the sort, stage and kind cycles step the same way", () => {
-    for (const [f, d] of BACKLINK_SORT_ORDER) expect(nextBacklinkSort(f, d)).toEqual(theirs.nextBacklinkSort(f, d));
-    for (const s of BACKLINK_STAGE_FILTERS) expect(nextBacklinkStageFilter(s)).toBe(theirs.nextBacklinkStageFilter(s));
-    const kinds = backlinkView(fixture(), DEFAULT_BACKLINK_VIEW_OPTIONS).kinds;
-    for (const k of [null, ...kinds.map(k => k.kind), "gone"]) expect(nextBacklinkKindFilter(k, kinds)).toBe(theirs.nextBacklinkKindFilter(k, kinds));
-    expect(nextBacklinkKindFilter("x", [])).toBe(theirs.nextBacklinkKindFilter("x", []));
-  });
 });
 
 describe.skipIf(!outliner)("the text is Detail's panel: status line, group headers and rows, parity with detail-pi-preview.ts", () => {

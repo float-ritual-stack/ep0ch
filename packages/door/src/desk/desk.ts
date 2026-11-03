@@ -2612,8 +2612,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A desk never entered (a showcase stage not opened yet) has no Ctx: its tiles read fresh when it is entered.
     if (!this.ctx) return;
     for (const p of this.panes.values()) {
-      // A plain reader hears only what concerns it; a reader of its own kind (a pinned page waiting for its page, the brief
-      // counting its days) hears everything, as any tile does.
+      // A plain reader hears only what concerns it (readerHears: a pinned one waiting for its page hears every change); a reader
+      // of its own kind (the brief counting its days) hears everything, as any tile does.
       if (skip?.(p) || (p instanceof ReaderPane && p.onEvent === ReaderPane.prototype.onEvent && !readerHears(p, e))) continue;
       (p.onEvent as ((d: DeskApi, e?: OutlineEvent) => void) | undefined)?.call(p, this, e);
     }
@@ -5290,7 +5290,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const hit = kindForKey(key);
     if (!hit) return;
     const s0 = hit.key.spec?.({ name: this.nameOf(this.focus), pane: this.panes.get(this.focus)! }) ?? {};
-    const extra: Partial<NewTile> = { ...(s0.cmd ? { cmd: s0.cmd.join(" ") } : {}), ...(s0.file ? { file: s0.file } : {}), ...(s0.source ? { source: s0.source } : {}), ...(s0.view ? { view: s0.view } : {}), ...(s0.mode ? { mode: s0.mode } : {}), ...(s0.name ? { name: this.idNamed(s0.name) === undefined ? s0.name : this.autoName(s0.name) } : {}) };
+    const extra: Partial<NewTile> = { ...(s0.cmd ? { cmd: s0.cmd.join(" ") } : {}), ...(s0.file ? { file: s0.file } : {}), ...(s0.source ? { source: s0.source } : {}), ...(s0.view ? { view: s0.view } : {}), ...(s0.mode ? { mode: s0.mode } : {}), ...(s0.screen ? { screen: s0.screen } : {}), ...(s0.args ? { args: s0.args } : {}), ...(s0.name ? { name: this.idNamed(s0.name) === undefined ? s0.name : this.autoName(s0.name) } : {}) };
     return { kind: hit.kind.kind, ...extra, where: tab ? "tabs" : "right" };
   }
 
@@ -5639,7 +5639,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.besideFocus() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...(t.args && !t.screen && t.inner === undefined ? { args: t.args } : {}), ...(t as Partial<TileSpec>).linkGroups ? { linkGroups: (t as Partial<TileSpec>).linkGroups } : {}, ...(t as Partial<TileSpec>).subject ? { subject: (t as Partial<TileSpec>).subject } : {}, ...this.mountFields(t) };
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
     if (wrong && k.choices && actor.kind !== "agent") {
@@ -8189,9 +8189,9 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
  * threads (a comment or a reply on it), or an edit of its note that can move a quoted passage (PIE-399: only what a
  * change can touch is refreshed). Without a change record (a reset), anything may have.
  */
-export function readerHears(r: Pick<ReaderPane, "msg" | "comments">, e: OutlineEvent): boolean {
+export function readerHears(r: Pick<ReaderPane, "msg" | "comments"> & Partial<Pick<ReaderPane, "pinPage">>, e: OutlineEvent): boolean {
   const c = e.change, m = r.msg;
-  if (!c) return true;
+  if (!c || r.pinPage) return true;   // pinned to a page: any change may be the page arriving, or its address moving
   if (!m) return false;
   const id = c.blockId;
   if (c.kind === "annotate") return m.id === c.parentId || (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));

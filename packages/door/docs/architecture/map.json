@@ -297,12 +297,12 @@
     },
     {
       "id": "door.mirrors", "name": "Grammar mirrors", "group": "door", "chapter": "socket", "ladder": "accidental", "dependsOn": ["door.socketboard"],
-      "does": "Inline Markdown and the backlink view, drawn the way the outliner draws them. (Literal regions and code fences are outline-core's code-ranges.ts and code-fence.ts, and reference, page-link and embed scanning its link-syntax.ts; the door imports them.)",
-      "built": "Two ports of the outliner's rules remain, parity-tested against the checkout: inline Markdown (inline.ts) and Detail's backlink view (backlinks.ts, which the links model lays out). Link scanning, code ranges and fences, the header line and the search matcher are imported from outline-core, never copied.",
+      "does": "Inline Markdown, drawn the way the outliner draws it, and the door's drawing of the backlink view (the computation is outline-core's backlink-view.ts). (Literal regions and code fences are outline-core's code-ranges.ts and code-fence.ts, and reference, page-link and embed scanning its link-syntax.ts; the door imports them.)",
+      "built": "One port of the outliner's rules remains, parity-tested against the checkout: inline Markdown (inline.ts). Detail's backlink view is outline-core's backlink-view.ts, imported by both (backlinks.ts draws its rows and status line). Link scanning, code ranges and fences, the header line and the search matcher are imported from outline-core, never copied.",
       "refs": [
         { "r": "door", "p": "../outline-core/src/code-ranges.ts", "l": 1, "m": "Where a note's text is code or literal" },
         { "r": "door", "p": "src/inline.ts", "l": 1, "m": "Inline Markdown in read mode" },
-        { "r": "door", "p": "src/backlinks.ts", "l": 242, "m": "export function backlinkView" }
+        { "r": "door", "p": "../outline-core/src/backlink-view.ts", "l": 1, "m": "export function backlinkView" }
       ],
       "questions": [ { "text": "Inline Markdown is the last pure paint-time rule still ported by hand: it belongs in outline-core, imported as the property grammar and the link grammar are. (Folder-to-outline moved to outline-core's outline-location.ts, PIE-530.)", "finding": "A-F13", "route": "service track" } ]
     },

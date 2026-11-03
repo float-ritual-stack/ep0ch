@@ -12,7 +12,6 @@ import { VIEW_LAYOUT } from "./view-fields";
 const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "yaml", type, meaning, ...extra });
 
 const TITLE = yaml("title", "text", "the title in the figure's frame", { samples: ["Plot jobs", "Moth counts"] });
-const CAPTION = yaml("caption", "text", "a quiet line under the figure", { samples: ["the last seven days"] });
 const QUERY = yaml("query", "query", "makes the figure live: the blocks this query holds for are its rows, asked of the outline", { complete: "query", samples: ["type=task", "type=roadmap-item project=house"] });
 const VIEW = yaml("view", "ref", "a saved view named by ((id)), [[page]], [[page|label]] or a bare page address, in place of `query:`");
 const LIMIT = yaml("limit", "int", "the most results a live figure asks for", { min: 1, max: 1000, default: "200" });
@@ -22,7 +21,7 @@ const MACHINERY = yaml("machinery", "enum", "what a live figure's query holds of
 export const LIVE = [QUERY, VIEW, MACHINERY];
 /** The results that count as done (check, meter) or under way (check, timeline): a filter in the query grammar over the live results. */
 export const liveFilter = (key: "done" | "now", meaning: string, samples: string[]): PropSchema => yaml(key, "query", meaning, { complete: "query", samples });
-/** A tile of `::graph-stat` / `::graph-kpi`: what it shows, and its own query or view to count live. */
+/** A tile of `::graph-stat`: what it shows, and its own query or view to count live. */
 const TILE: PropSchema[] = [
   yaml("value", "text", "the number drawn, as written (a live tile's count takes its place)", { samples: ["18", "98%"] }),
   yaml("label", "text", "the words under the number", { samples: ["outbox", "uptime"] }),
@@ -45,7 +44,7 @@ function figure(k: Kind): ComponentSchema {
   const id = `graph-${k.kind}`;
   return {
     id, group: "figures", title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
-    props: [...k.props, ...CONTENT_SIZE_PROPS.map(p => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })), ...(!k.props.some(p => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat" || k.kind === "kpi") ? [LIMIT] : []), 
+    props: [...k.props, ...CONTENT_SIZE_PROPS.map(p => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })), ...(!k.props.some(p => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat") ? [LIMIT] : []), 
       // Every live figure's question reads sort and direction (figure-live's liveAsk); a figure that doesn't say its own takes the shared ones.
       ...(k.props.includes(QUERY) ? [SORT, DIRECTION].filter(d => !k.props.some(p => p.key === d.key)) : []), yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
@@ -59,36 +58,10 @@ const FIGURES: Kind[] = [
     example: { title: "this week", items: "[{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }, { value: \"2\", label: drafts }]" }, sweep: ["items"],
   },
   {
-    kind: "kpi", title: "KPI", intro: "The same figure as `::graph-stat`, by its other name: big numbers with labels, the last (or the bold one) in the accent. Rows are `- label: value`. A live item counts the blocks its own `query:` or `view:` holds.",
-    props: [TITLE, yaml("items", "list", "the tiles, each { value, label }, or { label, query } (or view) to count live", { samples: ["[{ value: \"98%\", label: uptime }, { value: \"41\", label: notes }]"], each: TILE })],
-    example: { title: "this month", items: "[{ value: \"98%\", label: uptime }, { value: \"41\", label: notes }]" }, sweep: ["items"],
-  },
-  {
     kind: "rank", title: "Rank", intro: "Bars sized by a count, longest first as written; the accent row is bold (`accent: true`), a receding one italic (`muted: true`). Rows are `- label: 12`. Live, the results are counted by the value of the `group:` property." + LIVE_WORDS,
     props: [TITLE, yaml("items", "list", "the bars, each { label, value }, optionally accent or muted", { samples: ["[{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]", "[{ label: a, value: 3 }, { label: b, value: 1, muted: true }]"] }), ...LIVE,
       yaml("group", "property", "a live figure's property whose values are counted", { default: "status", samples: ["status", "type"] })],
     example: { title: "where the work went", items: "[{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]" }, sweep: ["items"],
-  },
-  {
-    kind: "funnel", title: "Funnel", intro: "Steps that narrow, drawn as bars: how many made it to each stage. Rows are `- label: value`; `display:` shows words instead of the number.",
-    props: [TITLE, yaml("steps", "list", "the steps in order, each { label, value } and optionally { display }", { samples: ["[{ label: seen, value: 100 }, { label: tried, value: 40 }, { label: kept, value: 12 }]", "[{ label: asked, value: 9, display: nine }, { label: done, value: 3, display: three }]"] })],
-    example: { title: "from seen to kept", steps: "[{ label: seen, value: 100 }, { label: tried, value: 40 }, { label: kept, value: 12 }]" }, sweep: ["steps"],
-  },
-  {
-    kind: "waterfall", title: "Waterfall", intro: "A running total: the first and last items are totals, the ones between are changes (negative in blue) stepped from the first.",
-    props: [TITLE, yaml("items", "list", "the bars in order, each { label, value }: the first is the start, the last the end", { samples: ["[{ label: start, value: 100 }, { label: gained, value: 30 }, { label: lost, value: -20 }, { label: end, value: 110 }]"] })],
-    example: { title: "the budget", items: "[{ label: start, value: 100 }, { label: gained, value: 30 }, { label: lost, value: -20 }, { label: end, value: 110 }]" }, sweep: ["items"],
-  },
-  {
-    kind: "plot", title: "Plot", intro: "A sparkline with `labels:` naming the first and last point: the same bars, with where the run began and ended said under them. Rows `- Mon: 2` label the points.",
-    props: [TITLE, yaml("data", "list", "the numbers, in order", { samples: ["[3, 5, 2, 8, 6, 9]", "[1, 2, 4, 8, 16]"] }), yaml("labels", "list", "a name for each number; the first and last are said", { samples: ["[Mon, Tue, Wed, Thu, Fri, Sat]", "[jan, feb, mar, apr, may]"] }), CAPTION],
-    example: { title: "Visits", data: "[3, 5, 2, 8, 6, 9]", labels: "[Mon, Tue, Wed, Thu, Fri, Sat]" }, sweep: ["data", "labels"],
-  },
-  {
-    kind: "gantt", title: "Gantt", intro: "Bars on a shared timeline: each item starts and ends as a share of the whole (0 to 1), and `complete:` fills it. An item part done is the accent; `progress:` marks now with a ▾ and `ticks:` label the axis.",
-    props: [TITLE, yaml("items", "list", "the bars, each { label, start, end, complete } with start, end and complete from 0 to 1", { samples: ["[{ label: plan, start: 0, end: 0.3, complete: 1 }, { label: build, start: 0.2, end: 0.8, complete: 0.5 }, { label: ship, start: 0.8, end: 1 }]"] }),
-      yaml("ticks", "list", "the axis labels, spread across", { samples: ["[Oct, Nov, Dec]", "[w1, w2, w3, w4]"] }), yaml("progress", "number", "where now is, 0 to 1", { samples: ["0.35", "0.7"] })],
-    example: { title: "the plot", items: "[{ label: plan, start: 0, end: 0.3, complete: 1 }, { label: build, start: 0.2, end: 0.8, complete: 0.5 }, { label: ship, start: 0.8, end: 1 }]", ticks: "[Oct, Nov, Dec]" }, sweep: ["ticks", "progress"],
   },
   {
     kind: "tree", title: "Tree", intro: "Nested labels drawn with branches, each node optionally a quiet `meta` beside it and an accent.",

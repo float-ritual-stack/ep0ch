@@ -360,7 +360,7 @@ useScreenTables(() => {
 
 /** Mounts nest this deep at most: a screen holding a mount holding a mount… (four: the top, then three below it). */
 export const MAX_MOUNT_DEPTH = 4;
-/** The screens a spec mounts, by name (a `screen` tile; the older board and river kinds are mounts of theirs). */
+/** The screens a spec mounts, by name (a `screen` tile; a saved one of the retired `board` and `river` kinds mounts that screen, as canonSpec reads it). */
 const mountsIn = (spec: ScreenSpec): string[] => savedNodes(spec.layout.root).flatMap(n => (n.t === "leaf" ? [typeof n.screen === "string" && n.screen ? n.screen : n.kind === "board" || n.kind === "river" ? n.kind : ""] : [])).filter(Boolean);
 /**
  * Why `screen` can't be mounted under `chain` (the screens held one inside the next, outermost first; "group" is a

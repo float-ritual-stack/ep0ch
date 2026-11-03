@@ -180,7 +180,15 @@ export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: 
   const { link, linkRole, ...rest } = s;
   const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), ...(!s.wires?.some(w => w.verb === "open") ? [{ verb: "open" as const, to: link }] : []), ...(!s.wires?.some(w => w.verb === "select") && (linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
   if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
-  // A retired kind an extension's kind replaces (PIE-1514) reads as that kind, and saves under it.
+  // The kinds that were a second copy of another (PIE-1528) keep what they were as that kind's own fields; the kind's
+  // `replaces` (resolveKind, below) gives the name. thread: the links tile with Children alone; tags: the facets tile
+  // opened on the tags facet, with no calendar; board and river: the screen mount; pinned: a reader pinned to its page.
+  const o = out as typeof out & { linkGroups?: string; args?: Record<string, unknown>; screen?: string; label?: string };
+  if (out.kind === "thread") o.linkGroups ??= "children";
+  else if (out.kind === "tags") o.args = { open: ["tag"], calendar: false, ...o.args };
+  else if (out.kind === "board" || out.kind === "river") o.screen ||= out.kind;
+  else if (out.kind === "pinned") { out.kind = "reader"; out.mode = "pinned"; out.page ??= nowPage().address; }
+  // A retired kind another kind replaces (PIE-1514) reads as that kind, and saves under it.
   out.kind = resolveKind(out.kind);
   // The reader modes before the pin (PIE-1207): `held` is any reader now (it names a new tile a detail, and the reader
   // ignores it); one that followed the current note (saved with its place and no note and no mode, or `mode: follows`)
@@ -236,7 +244,7 @@ export function builtin(name: string): LayoutSpec | null {
   }
   // The river's columns are a flow on the desk itself (PIE-515), a preview following whichever column the keys are in.
   if (name === "river") return { name, focus: "library", root: { t: "split", dir: "row", weights: [0.7, 0.3], kids: [{ t: "flow", key: "river", kids: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" }] }, { t: "leaf", kind: "preview", name: "card", source: "tile:river" }] } as SavedTree };
-  if (name === "board") return { name, focus: "board", root: serial(splitOf("col", [T("board", "board", { preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
+  if (name === "board") return { name, focus: "board", root: serial(splitOf("col", [T("screen", "board", { screen: "board", preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
   if (name === "desk") return { name, focus: "reader", root: serial(splitOf("row", [T("tree", "tree", { wires: [{ verb: "select", to: "reader" }] }), splitOf("row", [T("reader", "reader"), splitOf("col", [T("backlinks", "replies", { source: "tile:reader", linkGroups: "children", subject: "follows" }), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
   return null;
 }

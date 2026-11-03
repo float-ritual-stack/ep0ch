@@ -206,13 +206,14 @@ export class FacetsPane implements Pane, AttachedOwner {
   private dayCounts = new Map<string, number>();
   private groupsKept: MatchGroup[] = [];
 
-  constructor(public readonly kind: "facets" | "tags" = "facets", o: { source?: string; query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean; share?: number; place?: AttachedPlace; pin?: string; show?: readonly string[]; group?: string; calendar?: boolean; day?: string } = {}) {
+  readonly kind = "facets";
+  constructor(o: { source?: string; query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean; share?: number; place?: AttachedPlace; pin?: string; show?: readonly string[]; group?: string; calendar?: boolean; day?: string } = {}) {
     this.sourceId = o.source ?? "notes";
     this.share = o.share ?? 0.4;
     this.raw = o.query ?? ""; this.sort = o.sort ?? "uses"; this.zero = o.zero ?? false;
-    this.open = new Set(o.open ?? (kind === "tags" ? ["tag"] : []));
+    this.open = new Set(o.open ?? []);
     this.place = o.place ?? "inline"; this.pin = o.pin ?? "pinned"; this.show = o.show ? [...o.show] : SHOW; this.group = o.group ?? "updated:recent";
-    this.calendar = o.calendar ?? kind === "facets"; this.day = o.day ?? null;
+    this.calendar = o.calendar ?? true; this.day = o.day ?? null;
   }
 
   /** The selection as the query the service is asked: the picks, then the calendar's day. */
@@ -249,7 +250,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     const q = selectionQuery(this.clauses, this.raw);
     return { source: this.sourceId, ...(q ? { query: q } : {}), args: { share: this.share, sort: this.sort, ...(this.zero ? { zero: true } : {}), ...(this.open.size ? { open: [...this.open] } : {}),
       ...(this.place !== "inline" ? { place: this.place } : {}), ...(this.pin !== "pinned" ? { pin: this.pin } : {}), ...(this.show.join() !== SHOW.join() ? { show: this.show } : {}),
-      ...(this.group !== "updated:recent" ? { group: this.group } : {}), ...(this.calendar !== (this.kind === "facets") ? { calendar: this.calendar } : {}), ...(this.day ? { day: this.day } : {}) } };
+      ...(this.group !== "updated:recent" ? { group: this.group } : {}), ...(!this.calendar ? { calendar: false } : {}), ...(this.day ? { day: this.day } : {}) } };
   }
 
   init(desk: DeskApi) {
@@ -1291,11 +1292,11 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
 });
 
 const SORTS = FACET_SORTS as readonly string[];
-const makeFacets = (kind: "facets" | "tags") => (s: { source?: string; query?: string; args?: Record<string, unknown> }) => {
+const makeFacets = (s: { source?: string; query?: string; args?: Record<string, unknown> }) => {
   const a = s.args ?? {};
   if (a.share !== undefined && (typeof a.share !== "number" || !Number.isFinite(a.share) || a.share < 0.15 || a.share > 0.85)) throw new ActionRefused("facets: args.share must be a number from 0.15 to 0.85; edit the screen's tile args to share: 0.4");
   if (a.place !== undefined && !attachedPlaceOf(a.place)) throw new ActionRefused(`facets: args.place is ${ATTACHED_PLACES.join(", ")}`);
-  return new FacetsPane(kind, { source: s.source, query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, share: a.share as number | undefined, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}),
+  return new FacetsPane({ source: s.source, query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, share: a.share as number | undefined, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}),
     ...(attachedPlaceOf(a.place) ? { place: attachedPlaceOf(a.place)! } : {}), ...(typeof a.pin === "string" ? { pin: a.pin } : {}), ...(Array.isArray(a.show) ? { show: a.show.map(String) } : {}),
     ...(typeof a.group === "string" ? { group: a.group } : {}), ...(typeof a.calendar === "boolean" ? { calendar: a.calendar } : {}), ...(typeof a.day === "string" && DAY.test(a.day) ? { day: a.day } : {}) });
 };
@@ -1306,11 +1307,14 @@ for (const info of COMPLETION_ACTIONS.list()) {
     return COMPLETION_ACTIONS.runUntyped(info.name, args, completer, actor);
   } });
 }
-const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind => ({
-  kind, about, noun: kind === "tags" ? "a tags tile" : "a facets tile",
-  keys: [{ key, label: kind }],
+export const FACETS_KIND: TileKind = {
+  kind: "facets", noun: "a facets tile",
+  about: "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>; ^W o # opens it on the tags facet (args.open=[tag], no calendar)",
+  // The tags tile was this one opened on the tags facet (PIE-881): a layout saved with one opens it so (canonSpec), and saves it so.
+  replaces: ["tags"],
+  keys: [{ key: "f", label: "facets" }, { key: "#", label: "tags", spec: () => ({ args: { open: ["tag"], calendar: false } }) }],
   openArgs: ["source", "query", "args"], previews: true,
-  make: makeFacets(kind),
+  make: makeFacets,
   actions: FACETS_ACTIONS,
   save: p => (p as FacetsPane).spec(),
   check: s => (s.query !== undefined && !s.query.trim() ? "a facets tile's query is the views' grammar, or left out" : null),
@@ -1318,7 +1322,8 @@ const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind =
   // In brief (layout.get without full=true), its selection, counts and where Matches is: the lists are the facets tile's own read (facets.list).
   describe: (p, full) => { const d = (p as FacetsPane).describe(); return full ? d : { source: d.source, query: d.query, total: d.total, matched: d.matched, facets: d.facets.length, matches: d.matches.place, ...(d.day ? { day: d.day } : {}), ...(d.error ? { error: d.error } : {}) }; },
   peek: p => ({ facets: (p as FacetsPane).describe() }),
-});
+  takesQuery: takeQuery,
+};
 /**
  * A query a reader on this screen opens (a `#tag`, a figure row's, a calendar day's) becomes the facets tile's selection
  * (PIE-1448): one written as the calendar's own day clause picks that day, keeping the picks; anything else replaces them.
@@ -1330,6 +1335,3 @@ async function takeQuery(p: Pane, query: string, desk: DeskApi, actor: Actor) {
   return { query: f.query(), notes: f.notes().map(m => ({ id: m.id, title: subject(m) })) };
 }
 
-export const FACETS_KIND: TileKind = { ...kindOf("facets", "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>", "f"), takesQuery: takeQuery };
-/** The same tile opened on the tags facet (`#tag` is a facet like any property). */
-export const TAGS_KIND: TileKind = kindOf("tags", "the facets tile opened on the tags: every tag with its uses and last use, faceted so picking a tag leaves the tags that still narrow the results (PIE-881)", "#");

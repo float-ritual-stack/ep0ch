@@ -27,8 +27,8 @@ describe("the agent guide", () => {
   test("marks a component live when it takes a query, itself or on each of its items, and not otherwise", () => {
     const index = componentIndex(BUILTIN_COMPONENT_SCHEMAS);
     expect(index).toMatch(/\n- graph-tabs: [^\n]* · live\n/);
-    // A meter's `query:` and `done:`; a stat's and a kpi's tile, each counting its own `query:`.
-    for (const id of ["graph-meter", "graph-stat", "graph-kpi"]) expect(index).toMatch(new RegExp(`\\n- ${id}: [^\\n]* · live\\n`));
+    // A meter's `query:` and `done:`; a stat's tile, each counting its own `query:`.
+    for (const id of ["graph-meter", "graph-stat"]) expect(index).toMatch(new RegExp(`\\n- ${id}: [^\\n]* · live\\n`));
     expect(index).toMatch(/\n- graph-annotate: [^\n]*\n/);
     expect(index).not.toMatch(/\n- graph-annotate: [^\n]* · live\n/);
   });

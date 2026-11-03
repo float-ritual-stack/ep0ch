@@ -369,7 +369,7 @@ describe("one width rule for every kind (PIE-581)", () => {
       for (const [i, l] of out.entries()) if (i && i < lastDot && l[0] === "│" && l.length > 1) expect(l.slice(1, col).trim(), l).toBe("");
     }
   });
-  test("odd inputs are drawn, not thrown: a row named constructor, a zero flow, a negative meter, YAML of the wrong shape, kpi at its real width", () => {
+  test("odd inputs are drawn, not thrown: a row named constructor, a zero flow, a negative meter, YAML of the wrong shape, stat at its real width", () => {
     expect(body(draw("matrix", ["- constructor: c=1", "- __proto__: c=2"], 60))[4]).toMatch(/^\s+3\s*$/);
     const flow = body(draw("flow", ["- a → b: 0", "- a → c: 2"], 60));
     expect(flow[0]).toMatch(/^a\s+2 █+$/);
@@ -389,8 +389,8 @@ describe("one width rule for every kind (PIE-581)", () => {
     const full = body(draw("quadrant", ["- a: x, y", "- b: x, y", "- c: x, y", "- d: x, y", "- e: x, y"], 70));
     expect(full.join("\n")).toContain("… 3 more");
     expect(full.filter(l => /^(c|d|e) \(x, y\)$/.test(l))).toHaveLength(3);
-    // kpi is stat at the figure's width: two tiles fit on one row at 60.
-    expect(body(draw("kpi", ["- a: 1", "- b: 2"], 60))).toHaveLength(2);
+    // stat at the figure's width: two tiles fit on one row at 60.
+    expect(body(draw("stat", ["- a: 1", "- b: 2"], 60))).toHaveLength(2);
   });
 });
 

@@ -1975,11 +1975,129 @@ function noteTitleLine(text) {
 function firstLineWithoutPropertyTokens(text) {
   return noteTitleLine(text).text || undefined;
 }
+
+// packages/outline-core/src/echonet-shapes.ts
+var nodeOf = (outline, machine) => ({ outline, machine, id: `${outline}@${machine}` });
+function parseNode(text) {
+  const match = text?.trim().match(/^([a-z0-9][a-z0-9-]*)@([A-Za-z0-9][\w.-]*)$/);
+  return match ? nodeOf(match[1], match[2]) : undefined;
+}
+var sameMachine = (a, b) => a.toLowerCase().split(".")[0] === b.toLowerCase().split(".")[0];
+var FROM = /^([a-z0-9][a-z0-9-]*@[\w.-]+)\/([0-9a-f-]{36})$/i;
+function parseFrom(text) {
+  const m = FROM.exec(text?.trim() ?? "");
+  return m ? { node: m[1], id: m[2] } : null;
+}
+var OWN_TYPES = new Set(["nodelist", "toss", "echo-ledger", "echo-undeliverable"]);
+var raw = (block, key) => block.properties.filter((p) => p.key === key).flatMap((p) => p.values ?? (p.value === undefined ? [] : [p.value]));
+var prop = (block, key) => raw(block, key)[0];
+var values = (block, key) => [...new Set(raw(block, key).flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean))];
+var fromOf = (block) => raw(block, "from").map((v) => v.trim()).find((v) => FROM.test(v));
+var isCopy = (block) => fromOf(block) !== undefined;
+var trashed = (block) => !!(block.effectiveDeletedRootId || block.deletedAt);
+var isMark = (block) => ["annotation", "annotation-reply"].includes(prop(block, "type") ?? "");
+var isMarkCopy = (block) => isCopy(block) && ["annotation", "annotation-reply"].includes(prop(block, "from-type") ?? "");
+function kindOf(block) {
+  if (isCopy(block))
+    return "copy";
+  if (OWN_TYPES.has(prop(block, "type")?.trim() ?? ""))
+    return "own";
+  if (prop(block, "echo-source") !== undefined)
+    return "source";
+  if (prop(block, "subscribe") !== undefined)
+    return "subscription";
+  if (!values(block, "echo").length)
+    return "other";
+  return prop(block, "query") !== undefined ? "area" : "posting";
+}
+var isMessage = (block) => {
+  const kind = kindOf(block);
+  return (kind === "posting" || kind === "other") && prop(block, "query") === undefined && prop(block, "type")?.trim() !== "virtual-branch";
+};
+function glob(mask) {
+  return new RegExp(`^${mask.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`, "i");
+}
+var hasStar = (mask) => mask.includes("*");
+function parseMask(text) {
+  const t = text.trim();
+  if (t.startsWith("@"))
+    return t.length > 1 ? { kind: "list", page: t.slice(1), text: t } : undefined;
+  const [outline, machine = "*", extra] = t.split("@");
+  if (extra !== undefined || !outline || !/^[a-z0-9*][a-z0-9*-]*$/i.test(outline) || !/^[A-Za-z0-9*][\w.*-]*$/.test(machine))
+    return;
+  return { kind: "node", outline: outline.toLowerCase(), machine, text: t };
+}
+var masksIn = (text) => [...text.matchAll(/(?<![\w@*.-])([a-z0-9*][a-z0-9*-]*@[A-Za-z0-9*][\w*-]*(?:\.[\w*-]+)*)/gi)].map((m) => m[1]);
+function areaQuery(area) {
+  const query = prop(area, "query")?.trim();
+  return query ? `parent:((${area.id})) OR (${query})` : `parent:((${area.id}))`;
+}
+var postsTo = (block, name) => values(block, "echo").some((value) => value.toLowerCase() === name.toLowerCase());
+function areasIn(tagged) {
+  const areas = new Map;
+  const entry = (name) => {
+    const key = name.toLowerCase();
+    if (!areas.has(key))
+      areas.set(key, { name, blocks: [], postings: 0 });
+    return areas.get(key);
+  };
+  for (const block of tagged) {
+    if (trashed(block))
+      continue;
+    const kind = kindOf(block);
+    if (kind === "area")
+      for (const name of values(block, "echo"))
+        entry(name).blocks.push(block);
+    else if (kind === "posting")
+      for (const name of values(block, "echo"))
+        entry(name).postings += 1;
+  }
+  return areas;
+}
+var firstLine = (text) => firstLineWithoutPropertyTokens(text) ?? "";
+function setHeaderProperty(text, key, value) {
+  const [head, ...rest] = text.split(`
+`);
+  const pattern = new RegExp(`\\s*\\[${key.replace(/[.-]/g, "\\$&")}::[^\\]]*\\]`);
+  let next;
+  if (value === undefined)
+    next = head.replace(pattern, "");
+  else {
+    const token = `[${key}::${value}]`;
+    next = pattern.test(head) ? head.replace(pattern, ` ${token}`).replace(/^ /, "") : `${head.trimEnd()} ${token}`;
+  }
+  return [next, ...rest].join(`
+`);
+}
 export {
   BLOCK_ID_PATTERN,
+  FROM,
+  OWN_TYPES,
+  areaQuery,
+  areasIn,
   codeRangesOf,
+  firstLine,
   firstLineWithoutPropertyTokens,
+  fromOf,
+  glob,
+  hasStar,
+  isCopy,
+  isMark,
+  isMarkCopy,
+  isMessage,
+  kindOf,
   linkOccurrences,
+  masksIn,
+  nodeOf,
   pageAddressReferences,
-  pageAddressText
+  pageAddressText,
+  parseFrom,
+  parseMask,
+  parseNode,
+  postsTo,
+  prop,
+  sameMachine,
+  setHeaderProperty,
+  trashed,
+  values
 };

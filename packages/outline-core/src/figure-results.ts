@@ -177,7 +177,7 @@ function written(kind: string, props: Props, found: ResultsFound | null, ctx: Re
       });
       return { lines, shown, total, cut };
     }
-    case "rank": case "stat": case "kpi": {
+    case "rank": case "stat": {
       const items: Props[] = props.items ?? [];
       const lines = [...head(rows(items.length, false)), ...(items.length ? items.map(i => `- ${i.label ?? ""}: ${i.value ?? ""}`) : ["_no results_"])];
       return { lines, shown: items.length, total: items.length, cut: false };

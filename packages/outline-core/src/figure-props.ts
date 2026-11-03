@@ -214,8 +214,8 @@ export function figureProps(kind: string, src: FigureSource, childRows?: ChildRo
 
 /** The data each figure draws, after its written rows and YAML have become props. */
 const FIGURE_ITEMS: Record<string, string> = {
-  timeline: "events", check: "items", rank: "items", waterfall: "items", funnel: "steps", stat: "items", kpi: "items", meter: "items",
-  spark: "data", plot: "data", gantt: "items", tree: "nodes", table: "rows", tabs: "tabs", decision: "options",
+  timeline: "events", check: "items", rank: "items", stat: "items", meter: "items",
+  spark: "data", tree: "nodes", table: "rows", tabs: "tabs", decision: "options",
   chat: "messages", keys: "keys", props: "props", example: "examples", uptime: "days", activity: "counts",
   calendar: "marks", annotate: "notes", quadrant: "points", matrix: "cells", compare: "entries", flow: "flows",
 };
@@ -380,19 +380,12 @@ export const FIGURE_MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> 
   } : {}),
   // - label: 12   **the accent row**   *a receding one*
   rank: md => (md.rows.length ? { items: md.rows.map(r => ({ label: r.label ?? r.text, value: valueOf(r), accent: r.emphasis === "strong", muted: r.emphasis === "em" })) } : {}),
-  funnel: md => (md.rows.length ? { steps: md.rows.map(r => ({ label: r.label ?? r.text, value: valueOf(r) })) } : {}),
   // - outbox: 18   the bold one is the accent (else the last)
   stat: md => (md.rows.length ? { items: md.rows.map(r => ({ label: r.label ?? "", value: r.label === null ? r.text : r.value, accent: r.emphasis === "strong" })) } : {}),
-  kpi: (md, p) => FIGURE_MARKDOWN.stat!(md, p),
   // - label: 48   one bar each against the YAML's limit:; the bold one is the accent
   meter: md => (md.rows.length ? { items: md.rows.map(r => ({ label: r.label ?? "", value: valueOf(r), accent: r.emphasis === "strong" })) } : {}),
   // 2 0 5 11 3*2 (rows or paragraphs); a row each (`- Mon: 2`) labels the points
   spark: md => sparkOf(md),
-  plot: md => {
-    const s = sparkOf(md);
-    const labelled = md.rows.length > 1 && md.rows.every(r => r.label !== null && numbersOf(r).length === 1);
-    return labelled ? { ...s, labels: md.rows.map(r => r.label) } : s;
-  },
   // `- **chosen** — reason`, `- *rejected* — reason`, `- open — reason`; paragraphs after them are the text.
   decision: md => ({
     ...(md.rows.length ? { options: md.rows.map(r => ({ label: r.text, state: r.emphasis === "strong" ? "chosen" : r.emphasis === "em" ? "rejected" : "open", reason: r.note ?? undefined, block: r.block })) } : {}),

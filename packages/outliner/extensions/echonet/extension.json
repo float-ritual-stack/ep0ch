@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "echonet",
-  "version": 8,
+  "version": 9,
   "name": "EchoNet",
   "description": "Notes from your other outlines, and other people's, copied into this one by subscription.",
   "run": ["bun", "echonet.ts"],

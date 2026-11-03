@@ -1,8 +1,8 @@
 {
-  "revision": "461d3058a2f814d3ad559e6f5844923e9a3c0ac9",
+  "revision": "f032961e8d216d13c716f08c13376b39c53fb599",
   "patterns": {
     "width-length": {
-      "count": 245,
+      "count": 243,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/art-view.ts:68df40cd5e12d1a5",
@@ -123,10 +123,8 @@
         "packages/door/src/graphs.ts:78b886c07ed505e7",
         "packages/door/src/graphs.ts:78b886c07ed505e7",
         "packages/door/src/graphs.ts:f5e3f53dbf809fe8",
-        "packages/door/src/graphs.ts:fe678e71b0cf29ad",
-        "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/graphs.ts:3f549e5e075f01cb",
-        "packages/door/src/graphs.ts:a80fadbd7c90a6a1",
+        "packages/door/src/graphs.ts:a3110beb170451d3",
         "packages/door/src/graphs.ts:44b040af2cdbc86d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
         "packages/door/src/graphs.ts:e8c6c22a8a8b103d",
@@ -252,12 +250,12 @@
       ]
     },
     "pad-end": {
-      "count": 44,
+      "count": 43,
       "sites": [
-        "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
-        "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
-        "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
-        "packages/door/src/agent-fleet.ts:3e3caff4753d37d",
+        "packages/door/src/agent-fleet.ts:e739c637c39ea285",
+        "packages/door/src/agent-fleet.ts:e739c637c39ea285",
+        "packages/door/src/agent-fleet.ts:e739c637c39ea285",
+        "packages/door/src/agent-fleet.ts:e739c637c39ea285",
         "packages/door/src/control.ts:ca4144f5fe178c99",
         "packages/door/src/echonet/net.ts:c7515b2b5539c2d8",
         "packages/door/src/echonet/net.ts:5e62b0f42b15f60a",
@@ -271,7 +269,6 @@
         "packages/door/src/figures/annotate.ts:a64f57db9ae85a51",
         "packages/door/src/figures/annotate.ts:e2ccab0c740c36d6",
         "packages/door/src/figures/days.ts:8a07b2ca556642fe",
-        "packages/door/src/graphs.ts:fe678e71b0cf29ad",
         "packages/door/src/library/cli.ts:b4c310c5bd7384f",
         "packages/door/src/mcp-access-matrix.ts:9ae101c122e78a27",
         "packages/door/src/mcp-access-matrix.ts:9ae101c122e78a27",
@@ -390,6 +387,6 @@
     "packages/outliner/src/server.ts": 4568,
     "packages/outliner/src/store.ts": 6485,
     "packages/outliner/src/tree-controller.ts": 3251,
-    "packages/outliner/src/types.ts": 2974
+    "packages/outliner/src/types.ts": 2912
   }
 }

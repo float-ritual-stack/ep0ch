@@ -253,7 +253,7 @@ test("figures draw live from the service, links list the note's links, and an em
     "::",
     "::links",
     "::",
-    "::graph-waterfall",
+    "::graph-sundial",
     "---",
     "title: Budget",
     "---",
@@ -278,7 +278,7 @@ test("figures draw live from the service, links list the note's links, and an em
   // Links: the outlinks (the catalogue, and the embedded view).
   expect(html).toMatch(/<h4 class="view-group">Outlinks <span class="dim">2<\/span><\/h4><ul class="fig-list fig-links"><li><span class="g">→<\/span> <a href="[^"]+">Seed catalogue<\/a>/);
   // A kind not drawn here yet: its source and a quiet word.
-  expect(html).toContain("::graph-waterfall");
+  expect(html).toContain("::graph-sundial");
   expect(html).toContain("not drawn here yet");
   // The embedded view: its lane, not a quote, not the old placeholder.
   expect(html).not.toContain("views are not published");
@@ -310,10 +310,8 @@ test("every kind a page draws draws from its Markdown rows, never its source", a
   const sources: Record<string, string> = {
     table: "headers: [bed, crop]\nrows: [[north, beans], [south, peas]]\n---",
     stat: "---\n- chores: 3\n- **beds: 2**",
-    kpi: "---\n- chores: 3",
     check: "---\n- [x] sow the beans\n- [ ] weed",
     rank: "---\n- beans: 12\n- peas: 4",
-    funnel: "---\n- sown: 12\n- sprouted: 9",
     timeline: "---\n- 2026-03: **sow**\n- 2026-05: *harvest*",
     meter: "value: 0.4\n---",
     decision: "---\n- **raised beds** — drains\n- *grow bags* — two seasons",
@@ -321,7 +319,6 @@ test("every kind a page draws draws from its Markdown rows, never its source", a
     activity: "---\n- 2026-03-02: 0 1 4 2 0*3",
     calendar: "year: 2026\nmonth: 3\n---\n- 12: **launch**",
     spark: "---\n2 0 5 11 3",
-    plot: "---\n- Mon: 2\n- Tue: 5",
     tree: "nodes:\n  - label: garden\n    children: [{ label: north bed }]\n---",
     chat: "---\n- shypht: did the beans go in?\n- loki: yes, this morning",
     compare: "columns: [Raised, Bags]\n---\n- cost: £60 | £12",

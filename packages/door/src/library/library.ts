@@ -68,7 +68,7 @@ const VARIATION_KEYS: readonly ModeKey[] = [
 export const WIDTHS = [40, 80, 160] as const;
 /** Variations of the whole space drawn at once. */
 export const SPACE_PAGE = 8;
-/** The rail's columns: the longest built-in name (graph-waterfall) under its group, with room for a selection. */
+/** The rail's columns: the longest built-in name (graph-timeline) under its group, with room for a selection. */
 export const RAIL_W = 26;
 /** The narrowest page beside the rail (a reader's reading width); a narrower tile folds the rail into the header. */
 export const PAGE_MIN = 44;

@@ -28,7 +28,7 @@ import { TREE_ACTIONS } from "./tree";
 import { WAITING_YOU_KIND } from "./waiting-you";
 import { ACCESS_MATRIX_KIND } from "./access-matrix";
 import { AGENTS_KIND } from "./agents-panel";
-import { FACETS_KIND, TAGS_KIND } from "./facets";
+import { FACETS_KIND } from "./facets";
 import { ANSWER_TILE } from "./answer-tile";
 import { TRAIL_TILE } from "./trail-tile";
 import { COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE } from "./attached-tile";
@@ -83,10 +83,7 @@ export const readerFromSpec = (s: Parameters<TileKind["make"]>[0], r: ReaderPane
 export const startReader: NonNullable<TileKind["start"]> = async (p, env) => {
   const r = p as ReaderPane;
   try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message, undefined, errorDetails(e)); return; }
-  if (r.pinPage && !r.msg) {
-    const page = r.pinPage;
-    r.context(env.desk).board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinnedTo(res.block, env.desk); env.desk.redraw(); } }, () => {});
-  }
+  if (r.pinPage && !r.msg) void r.resolvePin(env.desk);
   if (r.want && !r.msg && !r.pinPage) {
     const want = r.want;
     // A note the outline hasn't (purged, or the screen saved on another outline): the empty tile says so.
@@ -193,12 +190,10 @@ const builtins = (): TileKind[] => [
       return t.isNvim ? `tile:${name}` : `file:${t.file}`;
     },
   },
-  // The thread tile is the links tile with Children alone (PIE-693): a layout saved with one gets that, and saves it so.
-  { kind: "thread", openArgs: ["source"], previews: true, about: "a links tile listing the children (replies) of what the reader shows: kind backlinks, linkGroups=children", make: s => new BacklinksPane(sourceTile(s.source), false, ["children"], s.subject !== "held"), actions: BACKLINKS_ACTIONS },
   { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
   { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
   { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
-  // A screen mounted in a tile (PIE-651): any screen, a part of one, a group; the board and river by their older kinds.
+  // A screen mounted in a tile (PIE-651): any screen, a part of one, a group (the board and river among them).
   ...mountKinds(),
   {
     kind: "query", openArgs: ["view", "query", "source", "mode"], previews: true, about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
@@ -233,7 +228,9 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
-    kind: "backlinks", openArgs: ["source"], about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+    kind: "backlinks", openArgs: ["source", "linkGroups", "subject"], about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+    // The thread tile was this one with Children alone (PIE-693): a layout saved with one opens it so (canonSpec), and saves it so.
+    replaces: ["thread"],
     aim: p => p as BacklinksPane, companion: "preview", previews: true,
     // A selection previews (a preview tile follows it), ⏎ opens: in its home, the reader it belongs to, or the tile linked to it as a target (PIE-646, PIE-794).
     home: p => (p as BacklinksPane).home,
@@ -257,6 +254,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, ACCESS_MATRIX_KIND, AGENTS_KIND, FACETS_KIND, TAGS_KIND, COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE, ANSWER_TILE, TRAIL_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, ACCESS_MATRIX_KIND, AGENTS_KIND, FACETS_KIND, COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE, ANSWER_TILE, TRAIL_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

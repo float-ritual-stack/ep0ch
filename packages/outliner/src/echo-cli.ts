@@ -4,7 +4,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { areasIn, type Block, firstLine, isCopy, kindOf, parseMask, parseNode, prop, trashed, values } from "../extensions/echonet/shapes";
+import { areasIn, type Block, firstLine, isCopy, kindOf, parseMask, parseNode, prop, trashed, values } from "@ep0ch/outline-core/echonet-shapes";
 import { createOutlinerClient } from "./client";
 import { resolveClientPaths } from "./paths";
 import { tossHealth } from "./echo-health";

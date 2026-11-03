@@ -293,7 +293,7 @@ const METER: ComponentSchema = {
 const SPARK: ComponentSchema = {
   id: "graph-spark", group: "figures",
   title: "Sparkline (::graph-spark)",
-  intro: "A run of numbers drawn as a line of bars one column each, the last in the accent: a trend at a glance. `::graph-plot` is the same with `labels:` naming the first and last.",
+  intro: "A run of numbers drawn as a line of bars one column each, the last in the accent: a trend at a glance.",
   where: "a `::graph-spark` block, its properties in the YAML between `---` lines",
   props: [
     { ...FIGURE_TITLE, samples: ["Visits"] },

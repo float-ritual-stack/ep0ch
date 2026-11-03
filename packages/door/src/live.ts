@@ -133,7 +133,7 @@ export interface Resolved { props: Props; status: string | null; waiting: boolea
  * reader can open it (PIE-441).
  */
 export function resolveLive(kind: string, p: Props, note?: string, site?: LiveSite): Resolved | null {
-  // stat/kpi: each item can carry its own source; the service counts them in the figure's Site.
+  // stat: each item can carry its own source; the service counts them in the figure's Site.
   if (asksPerItem(kind, p)) {
     const a = ask(kind, p, note, site);
     if (!a) return null;
