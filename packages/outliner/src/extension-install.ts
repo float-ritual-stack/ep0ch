@@ -10,7 +10,7 @@ import { parseArgs } from "node:util";
 import { readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, overrideWords, type ExtensionsListResult } from "./extension-registry";
-import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, whereWords, writeInstallRecord } from "./extension-update";
+import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, removeCommand, whereWords, writeInstallRecord } from "./extension-update";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
 
@@ -25,8 +25,8 @@ import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse
  *   outline's own `extensions/` with `--outline-folder`. A first install seeds
  *   `config.json` (from `config.example.json`, or an old
  *   `resource-extensions.json` entry: references only, never a secret).
- * - `remove <name>` deletes the folder (the user's, or with `--outline-folder`
- *   the outline's). Its records stay as blocks; its lines say no extension
+ * - `remove <name>` deletes the folder (with `--outline-folder` the outline's; without, the user folder's copy, else
+ *   the one outline's own that has it). Its records stay as blocks; its lines say no extension
  *   handles them.
  * - `ls` asks the running service (`extensions.list`): each folder's state and
  *   its error; without a service it reads the folders itself.
@@ -203,19 +203,43 @@ export async function ensureDefaultOnFor(workspaceRoot: string, readOnly = false
   } catch (error) { console.error(`default-on extensions: ${error instanceof Error ? error.message : String(error)}`); return []; }
 }
 
+/**
+ * The folder `ext remove <id>` takes it out of. With `--outline-folder`, that outline's own. Without, the user folder
+ * when it has a copy, else the one outline whose own folder has it (said by name). Several outlines with a copy and no
+ * folder named is refused with the command for each; none says every folder looked in.
+ */
+function removeRoot(id: string, outlineFolder: string | undefined): { root: string; where?: string } {
+  const has = (root: string) => existsSync(join(root, id, "extension.json"));
+  if (outlineFolder) {
+    const root = targetRoot(outlineFolder);
+    if (!has(root)) throw new Error(`No extension ${id} in ${root}`);
+    return { root };
+  }
+  const roots = copyRoots({
+    user: userExtensionsFolderInUse() ? userExtensionsDirectory() : null,
+    outlines: outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir()),
+  });
+  const found = roots.filter((root) => has(root.path));
+  const user = found.find((root) => root.where === "user");
+  if (user) return { root: user.path };
+  if (found.length === 1) return { root: found[0]!.path, where: found[0]!.where };
+  if (found.length > 1) {
+    throw new Error(`${id} is installed in ${found.length} outlines' own folders; name one:\n${
+      found.map((root) => `  ep0ch ${removeCommand({ id, where: root.where, dir: join(root.path, id) })}`).join("\n")}`);
+  }
+  throw new Error(`No extension ${id} in ${roots.map((root) => root.path).join(", ") || "any extensions folder here"}`);
+}
+
 export async function removeExtension(id: string, options: { outlineFolder?: string } = {}): Promise<string[]> {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("ext remove expects an extension name such as horoscope");
-  const root = targetRoot(options.outlineFolder);
+  const { root, where } = removeRoot(id, options.outlineFolder);
   const target = join(root, id);
-  if (!existsSync(join(target, "extension.json"))) {
-    throw new Error(`No extension ${id} in ${root}${options.outlineFolder ? "" : " (an outline's own: --outline-folder <root>)"}`);
-  }
   if (existsSync(BUILT_INS) && realpathSync(target).startsWith(`${realpathSync(BUILT_INS)}/`)) throw new Error("That is the repo's built-in source, not an install");
   await rm(target, { recursive: true, force: true });
   // A default-on built-in taken out stays out: the host won't put it back at its next start (ext add does).
   if ((await defaultOnBuiltIns()).includes(id)) { await mkdir(join(root, ".off"), { recursive: true }); await writeFile(offMark(root, id), `${new Date().toISOString()}\n`); }
   return [
-    `removed ${target}`,
+    `removed ${target}${where ? ` (${whereWords(where)})` : ""}`,
     "The service drops its handlers, actions and tiles now. --demo remove also trashes unchanged demos and marked output; lines that used it say no extension handles them.",
   ];
 }
@@ -498,7 +522,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         ? await client.request<{ disabledRules?: Record<string, number> }>({ action: "extensions.list" }) : undefined;
       // `remove <name> --demo remove` with the folder already gone takes out only what it left in the outline.
       const folderGone = operation !== "add" && !!client && values.demo === "remove" && (() => {
-        try { return !existsSync(join(targetRoot(outlineFolder), name, "extension.json")); } catch { return false; }
+        try { removeRoot(name, outlineFolder); return false; } catch (error) { return error instanceof Error && error.message.startsWith("No extension "); }
       })();
       const lines = operation === "add"
         ? await addExtension(name, { ...(values.from ? { from: values.from } : {}), ...(outlineFolder ? { outlineFolder } : {}) })
