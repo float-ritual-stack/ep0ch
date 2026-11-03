@@ -416,6 +416,8 @@ async function updateRun(client: SuggestionClient, day: string, asks: JevAsks, e
   const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${experiment} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
   let run = await find();
   if (!run) {
+    // The page that reads the runs, made with the day's first one (an outline whose reviews all pass has no finding to make it).
+    if (experiment === LIVE_EXPERIMENT) await suggestionsPage(client).catch(() => undefined);
     const zero = Object.fromEntries(["items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"].map(k => [k, "0"]));
     await writeRecord(board(client), "jev-run", { experiment, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `${experiment.replace(/-live$/, "")} ${day}` });
     run = await find();
