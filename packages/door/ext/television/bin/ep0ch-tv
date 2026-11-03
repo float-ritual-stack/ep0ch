@@ -18,6 +18,13 @@
 #   ep0ch-tv outline-preview <name> <machine> <problem>   an outline's newest notes
 #   ep0ch-tv launch <name> <machine>   the door on that outline (exec)
 #
+# The system channels (PIE-1535), from commands that answer in JSON (lib/rows.ts draws each row; a row's key is out of
+# view, and every action reads its row again by that key):
+#   ep0ch-tv agents | agent-preview|agent-open|agent-restart|agent-stop <session id>   ep0ch agent ls --json
+#   ep0ch-tv health | health-preview|health-fix <key>   ep0ch doctor --json, ep0ch link status --json, session list --json
+#   ep0ch-tv board "<query>" | prs | board-preview|board-open <id | pr-n>   ep0ch find --query --json, gh pr list --json
+#   ep0ch-tv herdr | pane-preview|pane-focus|pane-attach <session~pane>   herdr session list --json, herdr api snapshot
+#
 # Which outline: the door's rule (--ws, EP0CH_WS, EP0CH_SOCKET, the folder's .ep0ch). Run from the door's ctrl+t, the
 # door names its own outline (EP0CH_SOCKET and EP0CH_WS).
 set -eu
@@ -42,6 +49,11 @@ panel() {
   w=$((cols * ${EP0CH_TV_PREVIEW:-60} / 100 - 6))
   [ "$w" -ge 20 ] || w=20
   echo "$w"
+}
+# The system channels' rows and actions (lib/rows.ts), on the same door; COLUMNS is the terminal's, for a preview's width.
+rows() {
+  cols=$(stty size 2>/dev/null </dev/tty | cut -d' ' -f2) || cols=""
+  EP0CH_DOOR_MAIN=$door COLUMNS=${cols:-${COLUMNS:-120}} bun "$here/../lib/rows.ts" "$@"
 }
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -102,6 +114,8 @@ case "$cmd" in
     [ -n "$name" ] && set -- --ws "$name"
     [ -n "$machine" ] && set -- "$@" --machine "$machine"
     exec bun "$door" "$@" ;;
+  agents|agent-preview|agent-open|agent-restart|agent-stop|health|health-preview|health-fix|board|prs|board-preview|board-open|herdr|pane-preview|pane-focus|pane-attach)
+    rows "$cmd" "$@" ;;
   *)
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

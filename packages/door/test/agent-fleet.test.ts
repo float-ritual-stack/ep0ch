@@ -147,8 +147,8 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     paneKittyPid = Bun.spawn([join(dir, "versions/2.0.0"), "600"], { stdio: ["ignore", "ignore", "ignore"] }).pid;
     sessions = [
       { pid: paneKittyPid, cwd: "/x", kind: "interactive", sessionId: "ffff6666-0000-4000-8000-000000000006", name: "le-kitty", status: "idle" },
-      { pid: kittyPid, cwd: "/x", kind: "interactive", sessionId: "eeee5555-0000-4000-8000-000000000005", name: "kitty-sr", status: "waiting" },
-      { pid: behindPid, id: "aaaa1111", cwd: "/x", kind: "background", sessionId: "aaaa1111-0000-4000-8000-000000000001", name: "gpty-box", status: "waiting" },
+      { pid: kittyPid, cwd: "/x", kind: "interactive", sessionId: "eeee5555-0000-4000-8000-000000000005", name: "kitty-sr", status: "waiting", waitingFor: "dialog open" },
+      { pid: behindPid, id: "aaaa1111", cwd: "/x", kind: "background", sessionId: "aaaa1111-0000-4000-8000-000000000001", name: "gpty-box", status: "waiting", state: "done" },
       { pid: quotePid, id: "bbbb2222", cwd: "/x", kind: "background", sessionId: "bbbb2222-0000-4000-8000-000000000002", name: "it's (2) \"q\"", status: "busy" },
       { pid: 2_000_000_000, id: "cccc3333", cwd: "/x", kind: "background", sessionId: "cccc3333-0000-4000-8000-000000000003", name: "twin a", status: "waiting" },
       { pid: 2_000_000_001, id: "dddd4444", cwd: "/x", kind: "background", sessionId: "dddd4444-0000-4000-8000-000000000004", name: "twin b", status: "waiting" },
@@ -187,7 +187,8 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     expect(r.code).toBe(0);
     expect(r.out).toMatch(/gpty-box\s+aaaa1111\s+background\s+waiting\s+2\.0\.0\s+behind 2\.2\.0/);
     expect(r.out).toMatch(/twin a\s+cccc3333\s+background\s+waiting\s+\?/);
-    expect(r.out).toMatch(/kitty-sr\s+eeee5555\s+interactive\s+waiting\s+2\.0\.0\s+behind 2\.2\.0 · door terminal tile \(outline gurgle\)/);
+    // Why it waits is said beside the status (claude agents' waitingFor).
+    expect(r.out).toMatch(/kitty-sr\s+eeee5555\s+interactive\s+waiting \(dialog open\)\s+2\.0\.0\s+behind 2\.2\.0 · door terminal tile \(outline gurgle\)/);
     expect(r.out).toContain("ep0ch agent restart --all --if-update");
     expect(r.out).toContain("1 interactive behind outside a door tile (le-kitty)");
     expect(r.out).toContain("(1 in a door terminal tile, restarted there)");
@@ -198,7 +199,8 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     expect(rows.map(r => `${r.id} ${r.kind}`)).toEqual(["aaaa1111 background", "bbbb2222 background", "cccc3333 background", "dddd4444 background", "ffff6666 interactive", "eeee5555 interactive"]);
     expect(rows.find(r => r.id === "eeee5555")).toMatchObject({ place: "door terminal tile (outline gurgle)", door: join(dir, "state/sessions/local/gurgle") });
     expect(rows.find(r => r.id === "ffff6666")).toMatchObject({ place: null, door: null });
-    expect(rows.find(r => r.id === "aaaa1111")).toMatchObject({ running: "2.0.0", installed: "2.2.0", behind: true });
+    expect(rows.find(r => r.id === "aaaa1111")).toMatchObject({ running: "2.0.0", installed: "2.2.0", behind: true, state: "done", waitingFor: null });
+    expect(rows.find(r => r.id === "eeee5555")).toMatchObject({ status: "waiting", waitingFor: "dialog open", state: null });
   });
 
   test("ls --machine goes over ssh to that machine's ep0ch and says which machine to restart on", async () => {
