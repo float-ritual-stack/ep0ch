@@ -268,6 +268,11 @@ export const STATUS_QUERY = "\x1b[5n";
 export const acksUsable = (env: Record<string, string | undefined> = process.env): boolean =>
   env.EP0CH_ACKS === "0" ? false : env.EP0CH_ACKS === "1" ? true : !multiplexed(env);
 
+/** How long a lone ESC waits to be the start of a sequence (legacy keys: alt+x is ESC x, an arrow ESC [ A) before it is Esc. */
+const LONE_MS = 30;
+/** How long a sequence cut by the reads waits for its rest from a terminal that sends Kitty key reports (PIE-1554). */
+const CUT_MS = 500;
+
 export class KeyDecoder {
   private pending = "";
   keyHandler: (k: Key) => void = () => {};
@@ -285,6 +290,16 @@ export class KeyDecoder {
    */
   kbd = false;
   private keyEvents = false;
+  /**
+   * This terminal sends Kitty key reports (one arrived, or it answered the protocol's query): an Esc from it is `CSI 27u`,
+   * never a bare ESC, so an ESC or `ESC [ …` at the end of a read is a report cut in two by the reads (a slow ssh link,
+   * PIE-1554). It waits for the rest (CUT_MS) instead of LONE_MS: sent on early, its halves reached the program
+   * untranslated (`ESC [` then `27u`), never as an Esc.
+   */
+  private reports = false;
+  /** It sent a bare ESC that nothing followed (a legacy Esc after all, as a multiplexer in between may send): a lone ESC is Esc after LONE_MS again. */
+  private bareEsc = false;
+  private cutWait(seq: string) { return this.reports && !(seq === "\x1b" && this.bareEsc) ? CUT_MS : LONE_MS; }
   /** The bytes of the key just handed to `keyHandler` (`keys.probe` shows them: what a chord arrives as, PIE-699). */
   lastSeq = "";
   constructor(private readonly info: TermInfo) {}
@@ -327,15 +342,15 @@ export class KeyDecoder {
     let i = 0;
     while (i < p.length) {
       if (p[i] === "\x1d") break;
-      if (p.startsWith("\x1b[", i)) {
-        const rest = p.slice(i);
-        if (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(rest) || REPORT_AT.test(rest)) break;
-        if (/^\x1b\[[<\d;:]*$/.test(rest)) {
-          if (i) sink(p.slice(0, i));
-          this.pending = rest;
-          setTimeout(() => { if (this.pending === rest) { this.pending = ""; this.rawSink?.()?.(rest); } }, 30);
-          return false;
-        }
+      const rest = p.slice(i);
+      if (p.startsWith("\x1b[", i) && (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(rest) || REPORT_AT.test(rest))) break;
+      // A sequence still arriving (a report or a click cut by the reads, or, from a terminal that reports keys, a bare ESC
+      // at the end): it waits for the rest, then goes on as it came.
+      if (/^\x1b\[[<\d;:]*$/.test(rest) || (rest === "\x1b" && this.reports && !this.bareEsc)) {
+        if (i) sink(p.slice(0, i));
+        this.pending = rest;
+        setTimeout(() => { if (this.pending === rest) { this.pending = ""; if (rest === "\x1b") this.bareEsc = true; this.rawSink?.()?.(rest); } }, this.cutWait(rest));
+        return false;
       }
       i++;
     }
@@ -345,6 +360,7 @@ export class KeyDecoder {
     if (this.pending[0] === "\x1d") { this.pending = this.pending.slice(1); this.keyHandler({ kind: "char", ch: "]", ctrl: true }); return true; }
     const r = parseReport(this.pending);
     if (r) {
+      this.reports = true;
       const seq = this.pending.slice(0, r.length);
       this.pending = this.pending.slice(r.length);
       const k = reportKey(this.keyEvents ? { ...r, eventType: true } : r);
@@ -406,13 +422,13 @@ export class KeyDecoder {
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
       // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).
       m = p.match(/^\x1b\[\?\d*u/);
-      if (m) { if (this.probing) this.kbd = true; this.keyEvents = !!(Number(m[0].slice(3, -1)) & 2); this.pending = p.slice(m[0].length); continue; }
+      if (m) { if (this.probing) this.kbd = true; this.reports = true; this.keyEvents = !!(Number(m[0].slice(3, -1)) & 2); this.pending = p.slice(m[0].length); continue; }
       // A key report under that protocol: Shift+Enter, Esc (CSI 27u), ctrl and alt keys.
       const report = parseReport(p);
-      if (report) { this.lastSeq = p.slice(0, report.length); this.pending = p.slice(report.length); const k = reportKey(this.keyEvents ? { ...report, eventType: true } : report); if (k) this.keyHandler(k); continue; }
+      if (report) { this.reports = true; this.lastSeq = p.slice(0, report.length); this.pending = p.slice(report.length); const k = reportKey(this.keyEvents ? { ...report, eventType: true } : report); if (k) this.keyHandler(k); continue; }
       if ((/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) || (/^\x1b\][^\x07\x1b]*\x1b?$/.test(p) && p.length < 4096)) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
-        setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") this.keyHandler({ kind: "esc" }); } }, 30);
+        setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") { if (this.reports) this.bareEsc = true; this.keyHandler({ kind: "esc" }); } } }, this.cutWait(p));
         return;
       }
       const keys: [RegExp, Key][] = [

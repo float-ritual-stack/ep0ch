@@ -96,8 +96,13 @@ describe("the door's terminal", () => {
       { kind: "paste", text: "a\nb" }, { kind: "mouse", action: "down", button: 0, x: 2, y: 3 }, { kind: "enter" },
     ]);
     keys.length = 0;
-    feed("\x1b");                                                               // a lone ESC is still Esc, after the wait
+    feed("\x1b");                                                               // a lone ESC from a terminal that reports keys: maybe a cut report (PIE-1554)
+    await Bun.sleep(60);
     expect(keys).toEqual([]);
+    await Bun.sleep(500);
+    expect(keys).toEqual([{ kind: "esc" }]);                                   // nothing followed: Esc, after the longer wait
+    keys.length = 0;
+    feed("\x1b");                                                               // it sends bare ESCs after all: Esc after the short wait from now on
     await Bun.sleep(60);
     expect(keys).toEqual([{ kind: "esc" }]);
     keys.length = 0;
@@ -163,8 +168,10 @@ describe("the door's terminal", () => {
     feed(";2u");
     expect(sent).toEqual(["x", "\x1b[13;2u"]);
     sent.length = 0;
-    feed("\x1b[");                                                              // never finished: sent as it was
+    feed("\x1b[");                                                              // never finished: sent as it was, after the wait for a cut report
     await Bun.sleep(60);
+    expect(sent).toEqual([]);
+    await Bun.sleep(500);
     expect(sent).toEqual(["\x1b["]);
   });
 });
