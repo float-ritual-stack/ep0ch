@@ -5,7 +5,7 @@ export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
-import { collectionAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
+import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
@@ -1250,7 +1250,7 @@ export class NoteSurface {
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ${hintOf([rk("enter", "element.open", verbOf(e, false)), ...(e.kind === "resource" ? [rk("y", "block.copy", "copy")] : [])])}`;
     // A table row's label keeps its columns' gaps: one space each here, since two spaces part a hint row's keys (hintKeys).
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${this.collectionAtCursor() ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).replace(/\s{2,}/g, " ")} · ${hintOf([rk("enter", "element.open", verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))), ...(opens(e) ? [rk("alt+enter", "element.open", "new", { fresh: true })] : []), ...(e.kind === "resource" || e.kind === "block" ? [rk("y", "block.copy", "copy")] : []), ...(e.kind === "task" ? [rk("space", "task.status", "done/to do"), rk("ctrl+z", "task.undo", "undo")] : [])])}${this.listAtCursor()?.collection ? ` · ${collectionHint()}` : this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -5147,7 +5147,7 @@ export class NoteSurface {
   }
 
   /** The collection whose row the `[ ]` position is on, or null (PIE-1501): its list keys are the position's. */
-  collectionAtCursor(): ListHandle<any> | null { return collectionAtCursor(this.rowWorld()); }
+  listAtCursor(): ListHandle<any> | null { return listAtCursor(this.rowWorld()); } // the list whose row [ ] is on, a collection or not (PIE-1534)
 
   /** What the last layout drew, lent to the row containers (row-container.ts); a pick lands as a click's does when there's a host. */
   private rowWorld(host?: SurfaceHost): RowWorld<Element> {
@@ -10774,7 +10774,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ n, by, row }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
       // Letting go of a collection's row (esc) ends the peek that followed it, as leaving a list did (PIE-849, PIE-1501).
-      if (n === 0) { if (surface.collectionAtCursor()) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
+      if (n === 0) { if (surface.listAtCursor()?.collection) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
       if (by !== undefined) {
         if (!surface.step(by < 0 ? -1 : 1)) throw new ActionRefused("nothing to step to: this note has no links, folds, figure rows, embeds, resource projections or comments");
         surface.previewRow(host);

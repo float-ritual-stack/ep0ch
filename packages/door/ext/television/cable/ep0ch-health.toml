@@ -1,0 +1,31 @@
+# The system's health (packages/door/ext/television, PIE-1535): one row per check, worst first. `ep0ch doctor --json`
+# (the stack, the outline host, backups, Herdr, Claude, and the machine: failed user units, the nightly run on main,
+# box-test, the load), `ep0ch link status --json` (each machine's link) and `ep0ch session list --json` here and on
+# each machine whose link is up (each door session's code against main). The preview is the check's detail and its
+# fix; enter leaves tv and runs the fix
+# shown in the terminal, so its output stays there.
+[metadata]
+name = "ep0ch-health"
+description = "The system's health, worst first: doctor's checks, the links, each door session against main; enter runs the fix"
+requirements = ["ep0ch-tv"]
+
+[source]
+command = "ep0ch-tv health"
+ansi = true
+no_sort = true
+frecency = false
+output = "{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}"
+
+[preview]
+command = "ep0ch-tv health-preview '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+
+[ui.preview_panel]
+size = 50
+
+[keybindings]
+enter = "actions:fix"
+
+[actions.fix]
+description = "Run the fix the check shows"
+command = "ep0ch-tv health-fix '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_.:~-]+)\\x1b.*$/$1/}'"
+mode = "execute"

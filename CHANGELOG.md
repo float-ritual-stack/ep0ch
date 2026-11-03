@@ -16,6 +16,15 @@ are its record. The outliner's entries from then are kept below, under
 - **New:** a floating list-children preview drags by its top edge and sizes by its corner (`list.preview.move`). The split's side and size are kept for Sources, settings and list children, as the edit preview's already were.
 - **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
 
+### tv shows the system: agents, health, the board and Herdr's panes (PIE-1535)
+
+- **`tv ep0ch-agents`:** every Claude session here, working, done or blocked and why; its newest messages as the preview. ctrl-g opens one in a door tile, alt-r restarts it, alt-k stops it.
+- **`tv ep0ch-health`:** doctor's checks, the links and each door session against main, worst first; enter runs the fix shown.
+- **`tv ep0ch-board`:** doing, review, validate, needs-you and open PRs (ctrl-s); ctrl-g opens one in the door.
+- **`tv herdr`:** every Herdr pane, the agent in it and its screen; enter focuses its tab.
+- **`ep0ch doctor`** gains a machine group: failed user units, the nightly run, box-test and the load. `ep0ch agent ls` says why a session waits.
+- **Run:** `ep0ch install --apply` (links the four new cable files). No protocol, grammar or schema change.
+
 ### The reader's keys come from one table (PIE-1527)
 
 - Every reader key, its hint and its line in `?` come from one table. A key you rebind can't be taken by an extension, and a custom binding with arguments works. shift+↑/↓ steps reading, and shift+⏎ and ctrl+⏎ act as ⏎.
@@ -23,6 +32,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Frame controls:** every click on a tile's frame goes through one press map, so x-ray and hints name the same action the click runs (PIE-1530).
 - **Fix:** PgDn in a table collection pages one screen, not to the last row (PIE-1529).
+- **Fix:** PgDn and PgUp page a `::links` list, `::backlinks` or an extension's list inside a note once a row is picked (j), keeping the pick, as a collection does; with nothing picked they still scroll the note (PIE-1534).
 
 ### Waiting is an extension, and any screen can have a menu row (PIE-1525)
 
