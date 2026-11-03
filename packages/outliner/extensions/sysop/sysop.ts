@@ -1,7 +1,7 @@
 import { outline } from "./outline";
 import { SNIPPET, SAFE_COMMAND, parseReading, thresholdsOf, crossings, bytes, worst, statusOf, machinesOf, clock, dayOf, value, type Reading, type Crossing, type Thresholds } from "./sample";
 
-interface Block { id: string; text: string; revision: number; properties: { key: string; value: string }[] }
+interface Block { id: string; text: string; revision: number; updatedAt?: string; properties: { key: string; value: string }[] }
 const prop = (b: Block | undefined, key: string) => b?.properties.find(p => p.key === key)?.value;
 const { input } = await Bun.stdin.json() as { input: { action: string; args?: { machine?: string }; context: { now: string } } };
 const now = input.context.now;
@@ -9,6 +9,9 @@ const date = dayOf(now);
 const get = (id: string) => outline<Block>({ action: "get", blockId: id });
 const query = async (where: string, limit = 1) => (await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where, limit, machinery: "show", sort: "created desc" } })).blocks;
 const named = (s: string) => JSON.stringify(s);
+/** A healthy machine's readings are written at most this often: each write re-runs every door's watches (PIE-1546). */
+const QUIET_MS = 15 * 60_000;
+const recent = (b: Block | undefined) => !!b?.updatedAt && Date.parse(now) - Date.parse(b.updatedAt) < QUIET_MS;
 
 async function save(b: Block, text: string): Promise<Block> {
   if (text !== b.text) {
@@ -106,6 +109,7 @@ async function writeFigures(page: Block, bands: string[], items?: { label: strin
 
 async function look(page: Block, samples: Sample[], t: Thresholds, calm?: { machine: string; command: string; result: string }): Promise<string> {
   const messages: string[] = [], bands: string[] = [], items: { label: string; value: string }[] = [];
+  let quiet = true; // every machine sampled healthy, nothing to tell, its readings written within QUIET_MS
   for (const s of samples) {
     const machine = s.machine;
     const latest = (await query(`machine=health sysop-machine=${named(machine)}`))[0];
@@ -119,6 +123,7 @@ async function look(page: Block, samples: Sample[], t: Thresholds, calm?: { mach
       const since = prop(latest, "asleep-since") ?? now;
       let text = await withProps(day.text, { "asleep-since": since });
       if (calm?.machine === machine) text += `\n- ${clock(now)} · calm: ${calm.command}; ${calm.result}; reading after unavailable: ${s.error}`;
+      quiet = false;
       await save(day, text);
       items.push({ value: machine, label: `asleep since ${since}` });
       // An unanswered sample cannot establish that an open trip cleared.
@@ -147,6 +152,9 @@ async function look(page: Block, samples: Sample[], t: Thresholds, calm?: { mach
     }
     if (was && !kinds) text += `\n- ${clock(now)} · cleared; ${bytes(r.memoryFree)} free, load ${r.load}, disk ${bytes(r.diskFree)} free`;
     if (calm?.machine === machine) text += `\n- ${clock(now)} · calm: ${calm.command}; ${calm.result}; after: ${bytes(r.memoryFree)} free, load ${r.load}, disk ${bytes(r.diskFree)} free`;
+    const healthy = !crossed.length && !was && !prop(trip, "needs") && calm?.machine !== machine && prop(day, "memory-free") !== undefined;
+    if (healthy && recent(day)) { items.push({ value: machine, label: `memory ${bytes(r.memoryFree)} / ${bytes(r.memoryTotal)} free · load ${r.load} · disk ${bytes(r.diskFree)} free · failed ${r.failedUnits.join(", ") || "none"}` }); continue; } // sampled each minute, written each QUIET_MS
+    quiet = false;
     await save(day, text);
     if (crossed.length || trip) {
       const base = trip ?? await outline<Block>({ action: "create", parentId: page.id, text: `${machine} needs a look ${generated} [sysop-trip::${value(machine)}]\n\n::button{label="Calm ${value(machine)}" act="ext.sysop.calm machine=${machine}"}` });
@@ -159,7 +167,7 @@ async function look(page: Block, samples: Sample[], t: Thresholds, calm?: { mach
     items.push({ value: machine, label: `memory ${bytes(r.memoryFree)} / ${bytes(r.memoryTotal)} free · load ${r.load} · disk ${bytes(r.diskFree)} free · failed ${r.failedUnits.join(", ") || "none"}` });
   }
   const freshPage = await get(page.id);
-  await writeFigures(freshPage, bands, items, samples.map(s => s.machine));
+  if (!(quiet && recent(freshPage))) await writeFigures(freshPage, bands, items, samples.map(s => s.machine));
   return messages.length ? messages.join("\n") : `Sysop: ${samples.length} machines checked${samples.some(s => s.error) ? "; sleeping machines keep their first miss" : ""}`;
 }
 
