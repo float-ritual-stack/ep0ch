@@ -17,7 +17,7 @@ import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
-import { historyRow, type DrawnNote, type Hit, type Link } from "../surface/note";
+import { historyRow, pickTarget, type DrawnNote, type Hit, type Link } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
@@ -164,6 +164,8 @@ export class RiverColumn extends ReaderPane {
   /** Text the person selected in the column's drawn rows (PIE-419); only y copies it. */
   text: Selection | null = null;
   private shownSel?: number;
+  /** The selected card comes into view on the next draw though the selection didn't move (a thread's [+]). */
+  private revealSel = false;
   private shownElem?: string | null;
   private height = 10;
   private maxTop = 0;
@@ -453,7 +455,8 @@ export class RiverColumn extends ReaderPane {
     // The selected card comes into view only when the selection moved to it (keys, a click); a repaint or the wheel
     // leaves the scroll alone, so a note longer than the column can be read to its end (PIE-465).
     const first = all.findIndex(l => l.card === this.sel), last = all.findLastIndex(l => l.card === this.sel);
-    const moved = this.shownSel !== undefined && this.shownSel !== this.sel;
+    const moved = this.revealSel || (this.shownSel !== undefined && this.shownSel !== this.sel);
+    this.revealSel = false;
     this.shownSel = this.sel;
     this.height = rows;
     if (first >= 0 && moved) {
@@ -484,7 +487,8 @@ export class RiverColumn extends ReaderPane {
     // the thread's card is selected there.
     h.showThread = thread => {
       const n = this.flat().findIndex(r => r.m.id === thread);
-      if (n >= 0) this.run(desk, "column.select", { n: n + 1 });
+      // Brought into view even when it's already the selected card (a press that changes no selection still shows it).
+      if (n >= 0) { this.revealSel = true; this.run(desk, "column.select", { n: n + 1 }); }
       else desk.ctx.flash("that thread isn't among this column's replies · m lists the note's threads");
     };
     // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
@@ -702,7 +706,7 @@ export class RiverColumn extends ReaderPane {
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     // The note's own targets (its header's chips and crumbs, a link, a fold, a copy control, back and forward): the
     // reader's press of the same target (PIE-1543), on release; a link's on the same cell, so a drag from it selects.
-    const target = row?.targets?.filter(t => x >= t.from && x < t.to).sort((a, b) => Number("link" in b) - Number("link" in a))[0];
+    const target = pickTarget(row?.targets?.filter(t => x >= t.from && x < t.to) ?? []);
     const link = target && "link" in target ? target : undefined;
     // A card escalates as every list's row does (RowPresses): a click selects it, a double click or an alt-, ctrl- or
     // middle-click opens it in the next column (⏎); the click that gave the column the keys only selects.

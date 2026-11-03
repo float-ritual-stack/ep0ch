@@ -52,6 +52,9 @@ describe.skipIf(!outliner)("a river column draws and presses its note as a reade
     board = new SocketBoard(await scratch.start());
     notes.plot = await create(null, "Allotment plot 9\nThe beds by the gate.");
     notes.queued = await create(notes.plot.id, "Queued beds [type::virtual-branch] [query::stage=queued]");
+    notes.tips = await create(notes.plot.id, "Watering\nAt dusk.\n\n> [!tip] Water\n> Twice a week in June.\n\nSow these:\n```\nleeks\nchard\n```");
+    notes.long = await create(notes.plot.id, "Long beds\n" + Array.from({ length: 80 }, (_, i) => `Bed ${i + 1}: rows of onions.`).join("\n"));
+    await board.request("annotations.batch", { requestId: "drawn-once-long", operations: [{ operationId: "one", type: "block-comment", input: { blockId: notes.long.id, expectedRevision: notes.long.revision, body: "Too many beds?", source: "user" } }] });
     notes.beans = await create(notes.plot.id, "Stake the beans\nCanes along the fence, as ((" + notes.plot.id + ")) says.\n\n```\ntwine: 4 m\n```\n\nTie them loosely.");
     // A note on the whole of it, so the byline counts it and a [+] follows the title.
     await board.request("annotations.batch", { requestId: "drawn-once-whole", operations: [{ operationId: "one", type: "block-comment", input: { blockId: notes.beans.id, expectedRevision: notes.beans.revision, body: "Bamboo or hazel?", source: "user" } }] });
@@ -143,6 +146,61 @@ describe.skipIf(!outliner)("a river column draws and presses its note as a reade
       await until(() => !!(q.surface as any).sourcesMode, "the Sources inspector");
       await until(() => rows(80).join("\n").includes("Collection"), "the inspector drawn in the column");
     } finally { col = was; }
+  });
+
+  /** Open `id` in a column and make it the one `click` and `rows` use, for `f`; then back to the beans column. */
+  const inColumn = async (id: string, f: () => Promise<void>) => {
+    const o: any = await act("open", { id });
+    const was = col;
+    col = V().tiles.find(c => V().name(c) === o.name)!;
+    try { await until(() => !!col.root && rows(80).length > 3, "the note's column"); await f(); } finally { col = was; }
+  };
+  /** Drag across `n` cells from the first cell of `text`, then column.copy source=true. */
+  const dragCopy = async (text: string, n: number) => {
+    const at = click(80, text);
+    at.x -= 1;
+    col.mouse({ kind: "mouse", action: "down", button: 0, x: at.x, y: at.y }, at.x, at.y, river);
+    col.mouse({ kind: "mouse", action: "drag", button: 0, x: at.x + n, y: at.y }, at.x + n, at.y, river);
+    col.mouse({ kind: "mouse", action: "up", button: 0, x: at.x + n, y: at.y }, at.x + n, at.y, river);
+    return act("column.copy", { source: true }, V().name(col));
+  };
+
+  test("a callout's ⧉ in a column copies it, as the reader's does, never folds it", async () => {
+    await inColumn(notes.tips.id, async () => {
+      const asked: string[] = [], s = col.surface as any, runKey = s.runKey.bind(s);
+      s.runKey = (a: string, args: any, h: SurfaceHost) => { asked.push(a); return runKey(a, args, h); };
+      try {
+        await Bun.sleep(500);
+        const lines = rows(80), y = lines.findIndex(l => l.includes("Water") && l.includes("⧉"));
+        expect(y).toBeGreaterThanOrEqual(0);
+        const x = [...lines[y]!].indexOf("⧉");
+        col.mouse({ kind: "mouse", action: "down", button: 0, x, y }, x, y, river);
+        col.mouse({ kind: "mouse", action: "up", button: 0, x, y }, x, y, river);
+        expect(asked).toEqual(["block.copy"]);
+      } finally { s.runKey = runKey; }
+    });
+  });
+
+  test("Y on a note's last code block copies its contents, not only its opening fence", async () => {
+    await inColumn(notes.tips.id, async () => {
+      expect(await dragCopy("leeks", 5)).toMatchObject({ text: "leeks" });
+    });
+  });
+
+  test("a whole-note [+] on a long note brings its thread's card into view, even when it was already selected", async () => {
+    await inColumn(notes.long.id, async () => {
+      await until(() => rows(80).some(l => l.includes("1 comment")), "the comment counted");
+      for (let i = 0; i < 4 && !rows(80).some(l => l.includes("[+]")); i++) await act("margin", {}, V().name(col));
+      const c = col as any;
+      await until(() => c.flat().some((r: any) => r.m.text.includes("Too many beds")), "the comment among the replies");
+      const n = c.flat().findIndex((r: any) => r.m.text.includes("Too many beds"));
+      expect(c.sel).toBe(n);                                   // already the selected card
+      const seen = () => rows(80).some(l => l.includes("Too many beds?"));
+      expect(seen()).toBe(false);                              // under eighty beds
+      await Bun.sleep(500);
+      click(80, "[+]");
+      await until(seen, "the thread's card in view");
+    });
   });
 
   test("Y with text selected in a column copies the note's source, as a reader's does", async () => {

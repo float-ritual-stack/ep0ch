@@ -420,6 +420,15 @@ interface HeaderBlock {
   wholeMarks?: { row: number; from: number; to: number; thread: string }[];
 }
 
+/**
+ * Which of the targets under one cell a press presses, for every host (the reader's click, a river column's: PIE-1543):
+ * a copy control first, then a link, a thread mark or another control, then a region's mark (over a fold at the same
+ * gutter cell), then whatever is there.
+ */
+export function pickTarget(at: readonly Hit[]): Hit | undefined {
+  return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
+}
+
 /** A note drawn once (NoteSurface.digest, PIE-1543): its header and body rows, each with every press target on them. */
 export interface DrawnNote {
   header: { lines: string[]; targets: Hit[] };
@@ -1806,7 +1815,11 @@ export class NoteSurface {
     const m = this.digested?.m, at = drawn.source.slice(Math.max(0, from), to + 1).filter(l => l >= 0);
     if (!m || !at.length) return null;
     const all = m.text.split("\n"), lo = Math.min(...at), next = drawn.source.slice(to + 1).find(l => l > Math.max(...at));
-    const span = all.slice(lo, Math.max(Math.max(...at) + 1, next ?? Math.max(...at) + 1)).join("\n");
+    // A fenced block's rows map to its opening fence: its source is the whole fence, closing line included.
+    const fence = codeFenceLines(all);
+    let hi = Math.max(Math.max(...at) + 1, next ?? Math.max(...at) + 1);
+    while (hi < all.length && fence[hi - 1]! >= 0 && fence[hi] === fence[hi - 1]) hi++;
+    const span = all.slice(lo, hi).join("\n");
     const words = seen.trim();
     return words && span.includes(words) ? words : span;
   }
@@ -4402,8 +4415,7 @@ export class NoteSurface {
 
   /** What the last render put at cell `x`, `y`; a region's mark covers a fold at the same gutter cell. */
   hitAt(x: number, y: number): Hit | undefined {
-    const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "start" in h || ("follow" in h && h.follow)) ?? at.find(h => "region" in h) ?? at[0];
+    return pickTarget(this.hits.filter(h => h.row === y && x >= h.from && x < h.to));
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
