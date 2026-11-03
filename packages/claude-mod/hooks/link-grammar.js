@@ -357,6 +357,7 @@ function isMachineName(name) {
 // packages/outline-core/src/addressable-resource.ts
 var BLOCK_ID_SOURCE = String.raw`[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`;
 var BLOCK_ID_PATTERN = new RegExp(`^${BLOCK_ID_SOURCE}$`, "i");
+var BLOCK_ID_SCHEMA_PATTERN = `^${BLOCK_ID_SOURCE.replace(/a-f/g, "a-fA-F").replace("[89ab]", "[89abAB]")}$`;
 var FRAGMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 var BLOCK_REFERENCE_HEAD_PATTERN = new RegExp(String.raw`^\(\((${BLOCK_ID_SOURCE})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?=\)\)|\|)`, "i");
 function encodeField(value) {
