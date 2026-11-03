@@ -117,6 +117,46 @@ describe("machinery writes and watched questions (PIE-1546)", () => {
   });
 });
 
+describe("what a stamped note's change still reaches (PIE-1546 review)", () => {
+  async function served() {
+    const server = new OutlinerServer(store, join(root, "service.sock"));
+    await server.start();
+    const door = rawClient(join(root, "service.sock")), tool = rawClient(join(root, "service.sock"));
+    const changed = async (key: string) => {
+      const until = Date.now() + 3000;
+      while (!door.events.some(e => e.action === "queries.changed" && e.changes?.some(c => c.key === key)) && Date.now() < until) await Bun.sleep(20);
+      return door.events.some(e => e.action === "queries.changed" && e.changes?.some(c => c.key === key));
+    };
+    return { server, door, tool, changed, close: async () => { door.socket.destroy(); tool.socket.destroy(); await server.close(); } };
+  }
+
+  test("a note stamped [machine::…] leaves a count it wasn't listed in", async () => {
+    const a = store.create("Seed tray A [type::tray] [area::shed]");
+    store.create("Seed tray B [type::tray] [area::shed]");
+    const s = await served();
+    try {
+      // Grouped, one row listed: tray A counts in the group but isn't on the page.
+      const asked = await s.door.request({ action: "blocks.query", query: { where: "type=tray", group: "area", limit: 1, sort: { field: "created", direction: "desc" } }, watch: "count" });
+      expect(asked.result.groups[0].count).toBe(2);
+      expect(asked.result.blocks.map((b: { id: string }) => b.id)).not.toContain(a.id);
+      const now = store.get(a.id)!;
+      await s.tool.request({ action: "update", blockId: a.id, text: `${now.text} [machine::record]`, expectedRevision: now.revision, mutation: { author: "agent", actorId: "keeper" } });
+      expect(await s.changed("count")).toBe(true);
+      expect((await s.door.request({ action: "blocks.query", query: { where: "type=tray", group: "area", limit: 1, sort: { field: "created", direction: "desc" } }, watch: "count" })).result.groups[0].count).toBe(1);
+    } finally { await s.close(); }
+  });
+
+  test("a question that reads other notes (child:) sees a stamped child", async () => {
+    const bed = store.create("Bean bed [type::bed]");
+    const s = await served();
+    try {
+      expect((await s.door.request({ action: "blocks.query", query: { where: "type=bed AND child:status=open" }, watch: "open" })).result.blocks).toEqual([]);
+      await s.tool.request({ action: "create", text: "watering due [status::open] [machine::record]", parentId: bed.id, author: "agent" });
+      expect(await s.changed("open")).toBe(true);
+    } finally { await s.close(); }
+  });
+});
+
 describe("which watches a machinery change reaches", () => {
   const conn = () => ({ lines: [] as string[], write(line: string) { this.lines.push(line); } });
   /** A registry over a fake service: `blind` says the question leaves machinery out, listing `members`. */
