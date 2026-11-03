@@ -26,7 +26,7 @@ describe.skipIf(!outliner)("outline_query leaves machinery out of a recent-activ
     await board.configureMcpAccess("read");
     const page = await board.request("create", { parentId: null, text: "Notifications [page::notifications]", author: "user" });
     for (let i = 0; i < 200; i++) {
-      await board.request("create", { parentId: page.id, text: `Seed order ${i} shipped [notify.key::mail:${i}] [notify.source::mail] [notify.state::unread] [machine::notification]`, author: "agent", provenance: { actorId: "ext:notify" } });
+      await board.request("create", { parentId: page.id, text: `Seed order ${i} shipped [notify.key::mail:${i}] [notify.source::mail] [notify.state::unread] [machine::notification]`, author: "agent", provenance: { actorId: "notify-agent" } });
     }
     for (let i = 0; i < 10; i++) await board.request("create", { parentId: null, text: `Pruned the pear row ${i}\nThe north side first.`, author: "user" });
   }, 120_000);

@@ -166,6 +166,8 @@ const fallback = new WeakMap<object, Watched>();
 export function watchedOn(board: WatchSource & { watched?: Watched }): Watched {
   if (board.watched) return board.watched;
   let held = fallback.get(board);
-  if (!held) fallback.set(board, held = new Watched(board));
+  // A fake board may answer only `request` (by any name): it is asked that way.
+  const source: WatchSource = typeof board.send === "function" ? board : { send: (action, params) => (board as unknown as { request(a: string, p?: Record<string, unknown>): Promise<unknown> }).request(action, params) };
+  if (!held) fallback.set(board, held = new Watched(source));
   return held;
 }

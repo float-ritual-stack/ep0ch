@@ -101,7 +101,7 @@ function fakeSource(notes: Record<string, Msg>, redraw = () => {}): Source {
       }),
     }),
     propertyRecords: async () => null,
-    request: async () => ({ blocks: [], completeness: { kind: "complete" } }),
+    send(...a: any[]) { return (this as any).request(...a); }, request: async () => ({ blocks: [], completeness: { kind: "complete" } }),
     toMsgs: () => [],
   };
   return { board, redraw };
@@ -211,7 +211,7 @@ describe("live figures: the query grammar", () => {
   // A stand-in service: site.answer's figure producer, with the asks it received. The query itself is the service's
   // (site-produce.test.ts), so the door's part is what it sends: the figure's props, and what it makes of the answer.
   const fake = (seen: any[], extra: Record<string, unknown> = {}): any => ({
-    request: async (_a: string, p: any) => { seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
+    send(...a: any[]) { return (this as any).request(...a); }, request: async (_a: string, p: any) => { seen.push(p.produce); return { produced: { kind: "figure", blocks: [block("a", "Rake leaves")], truncated: false, ...extra } }; },
     toMsgs: (bs: any[]) => bs.map(b => ({ id: b.id, text: b.text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "agent", properties: [] })),
   });
 

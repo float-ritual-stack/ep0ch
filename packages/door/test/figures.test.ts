@@ -171,7 +171,7 @@ describe("a figure block's child bullets", () => {
   const kids = [{ id: "k1", text: "Apr: sow [type::row] - [n::1]", properties: [] }, { id: "k2", text: "**May: plant**", properties: [] }];
   let asked = 0, wheres: string[] = [];
   const outline = () => ({
-    request: (_a: string, p: any) => {
+    send(...a: any[]) { return (this as any).request(...a); }, request: (_a: string, p: any) => {
       if (p.produce?.kind !== "children") return new Promise(() => {});
       asked++; wheres.push(`${p.produce.kind} of ${p.blockId}`);
       return Promise.resolve({ produced: { kind: "children", blocks: p.blockId === "note" ? kids : [] } });
@@ -229,14 +229,14 @@ describe("a figure block's child bullets", () => {
   test("a ::links answer arriving tells listenLinks (drawNote's loop draws again), and an answer for an outline swapped out is dropped", async () => {
     let told = 0;
     const off = listenLinks(() => told++);
-    const links = { request: async () => ({ kind: "ready" }) } as any;
+    const links = { send(...a: any[]) { return (this as any).request(...a); }, request: async () => ({ kind: "ready" }) } as any;
     setLinksSource(links, () => {});
     linksOf("x"); await Bun.sleep(5);
     expect(told).toBeGreaterThan(0);
     // Asked of one outline, answered after another took its place: not this outline's answer (each connection
     // keeps its own reads).
     let answer!: (v: unknown) => void;
-    setLinksSource({ request: () => new Promise(r => { answer = r; }) } as any, () => {});
+    setLinksSource({ send(...a: any[]) { return (this as any).request(...a); }, request: () => new Promise(r => { answer = r; }) } as any, () => {});
     linksOf("y");
     setLinksSource(links, () => {});
     answer({ stale: true }); await Bun.sleep(5);
