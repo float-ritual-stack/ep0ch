@@ -17,6 +17,12 @@ are its record. The outliner's entries from then are kept below, under
 - **The tile keeps its name** on the glass: the blank left in its place has a name of its own.
 - **Run:** `ep0ch install --apply` (door code).
 
+### A posted comment's edit says what happened, and a narrow edit keeps "not saved" (PIE-1560)
+
+- **A comment's edit has the note edit's lifecycle.** While you edit a posted comment that changes elsewhere, it says `!! changed elsewhere`. A refused ctrl+s says `not saved` and where your words were copied, and ctrl+r (`^R reload` in its hint row) loads its words as they are now and names the copy.
+- **At 44 columns nothing important is cut.** The edit's state leads with `not saved` when it doesn't fit, and a copy's path keeps its file name, its folder shortened.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### pie's host keeps answering while the laptop sleeps (PIE-1546)
 
 - **No more 3-second queues behind the laptop's copies.** While the laptop was away, a backlinks or reference read in pie made the host snapshot every laptop copy at once (ten, two of them 50 MB) and ask each one for its whole index within a second. The big ones never made it, so none was kept, and the next read 15 seconds later did it all again, holding the loop for seconds each time.

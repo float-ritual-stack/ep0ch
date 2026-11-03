@@ -65,8 +65,11 @@ export interface DraftTarget {
    * `away`: leaving by a click, which never confirms a second save.
    */
   submit(s: DraftSession, by: Actor, how: { asked: Actor; away: boolean; confirmed: boolean; report: TargetReport }): Promise<Outcome>;
-  /** ctrl+r after a stale refusal: start over from (or find the place again in) what the service has now; what to say. */
-  reload?(s: DraftSession, report: TargetReport): Promise<string | void>;
+  /**
+   * ctrl+r after a stale refusal: start over from (or find the place again in) what the service has now; what to say.
+   * `reloaded: false`: nothing was loaded (nothing newer, or it's gone), so the conflict stands. A read that fails throws.
+   */
+  reload?(s: DraftSession, report: TargetReport): Promise<string | { said: string; reloaded: false } | void>;
 }
 
 /** What a session asks of whoever hosts it: its connection (for the hold), a redraw, and what to say. */
@@ -336,8 +339,13 @@ export class DraftSession {
   async reload(): Promise<void> {
     if (!this.open) return;
     if (!this.target.reload) { this.status.say("nothing to reload"); return; }
-    const said = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } });
-    if (typeof said === "string") this.status.say(said);
+    let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
+    // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
+    try { r = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
+    catch (e) { this.status.say(`couldn't read ${this.target.what} now (${e instanceof Error ? e.message : String(e)}) · your text is kept · ctrl+r tries again`); return; }
+    finally { this.status.phase = null; }
+    if (typeof r === "string") this.status.say(r);
+    else if (r) { this.status.say(r.said); return; }
     this.settled();
     this.hold?.revise(this.draft.base);
   }
@@ -741,12 +749,12 @@ export function blockTarget(m: Msg, o: {
     },
     async reload(s) {
       const d = s.draft;
-      if (!s.status.conflict && !s.status.changedElsewhere) return "nothing newer to load";
+      if (!s.status.conflict && !s.status.changedElsewhere) return { said: "nothing newer to load", reloaded: false };
       const copy = d.dirty ? d.copyOut(m.id.slice(0, 8)) : s.status.savedCopy;
       const now = await o.board.get(m.id);
       if (!s.open) return;
       redraw();
-      if (!now) return "the note is gone from the outline";
+      if (!now) return { said: "the note is gone from the outline", reloaded: false };
       o.reread?.(now);
       d.rebase(now);
       return copy ? `loaded revision ${d.base} · your earlier draft is at ${copy}` : d.note;
@@ -921,11 +929,11 @@ export function commentEditTarget(o: {
     },
     async reload(s) {
       const d = s.draft;
-      if (!s.status.conflict && !s.status.changedElsewhere) return "nothing newer to load";
+      if (!s.status.conflict && !s.status.changedElsewhere) return { said: "nothing newer to load", reloaded: false };
       const copy = d.dirty ? d.copyOut(label) : s.status.savedCopy;
       const now = await o.reread();
       if (!s.open) return;
-      if (!now) return `the ${what} is gone from the outline`;
+      if (!now) return { said: `the ${what} is gone from the outline`, reloaded: false };
       mark = now;
       s.settled();
       d.rebase({ id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });

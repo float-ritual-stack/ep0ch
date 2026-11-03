@@ -274,7 +274,7 @@ export class CommentSession {
   hint(): string {
     if (this.busy) return this.busy;
     if (this.mode === "select") return modeHint(SELECT_KEYS, () => undefined);
-    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true, follow: true });
+    if (this.mode === "compose" && this.composer) return editHint(this.composer, { save: "send", reload: this.target?.kind === "edit" ? (this.composer.status.conflict || this.composer.status.changedElsewhere ? "reload" : null) : this.stale ? "find quote" : null, close: this.fromReader ? "done" : "back", place: nextPlace(this.place), move: true, follow: true });
     return `${modeHint(THREAD_KEYS, () => undefined)}${this.picked.size ? ` ${this.picked.size} picked` : ""} · ${modeHint(THREAD_MORE_KEYS, () => undefined)}`;
   }
 
@@ -306,7 +306,7 @@ export class CommentSession {
           else if (cmd === "pick") env.pick?.();
           else if (cmd === "follow") env.follow?.();
           else if (cmd === "image") env.image?.();
-          else if (cmd === "reload") void (this.target?.kind === "edit" ? this.reloadEdit(env) : this.relocate(env));
+          else if (cmd === "reload") void this.reload(env);
           else if (cmd === "close" || cmd === "discard") {
             // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
             w.close(cmd === "discard");
@@ -400,10 +400,11 @@ export class CommentSession {
         mark: m, note: this.msg,
         board: () => this.env!.board,
         landed: r => this.edited(r, t),
-        refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
+        // A stale edit is the session's to say (the conflict, where the words were copied, ctrl+r), as a note's edit is.
+        refused: (why, stale) => { this.busy = null; this.error = stale ? null : why; this.stale = stale; },
         reread: async () => {
-          const now = await this.env!.reloadComments().catch(() => null);
-          if (!now) return null;
+          // A failed read throws (the session says so and keeps the conflict); only a missing comment is "gone".
+          const now = await this.env!.reloadComments();
           this.threads = now;
           const th = now.find(x => x.id === t.thread.id), x = m.reply ? th?.replies.find(r => r.id === m.id) : th;
           if (!x || x.revision === undefined) return null;
@@ -490,17 +491,28 @@ export class CommentSession {
     }
   }
 
+  /** ctrl+r: an edit's words as they are now, or a comment's quote found again (the one way, keys, click and act). */
+  reload(env: CommentEnv): Promise<void> { return this.target?.kind === "edit" ? this.reloadEdit(env) : this.relocate(env); }
+
+  /**
+   * The note's comments as the service has them now: a posted comment being edited that moved on since its edit opened
+   * says so on the edit's status line, as a note's edit does ("changed elsewhere"), before any save.
+   */
+  commentsChanged(threads: readonly Comment[]) {
+    const w = this.writing, t = this.target;
+    if (!w?.open || w.busy || t?.kind !== "edit") return;
+    const th = threads.find(x => x.id === t.thread.id), now = t.mark.reply ? th?.replies.find(x => x.id === t.mark.id) : th;
+    if (now?.revision !== undefined && now.revision > t.mark.revision) w.status.changedElsewhere = true;
+  }
+
   /** ctrl+r on a stale edit: its words as they are now (the draft kept and copied). */
-  async reloadEdit(env: CommentEnv): Promise<void> {
+  private async reloadEdit(env: CommentEnv): Promise<void> {
     this.env = env;
     const w = this.writing;
     if (!w || this.target?.kind !== "edit") return;
     this.busy = waitingText("the note again"); env.redraw();
-    try {
-      // What the reload says (the revision it loaded, where the earlier words are) goes on the draft's one status line.
-      const said = await w.target.reload?.(w, { phase: p => { w.status.phase = p; } });
-      if (typeof said === "string" && w.open) w.status.say(said);
-    } finally { this.busy = null; }
+    // The session's reload, as a note's edit takes: what it says (the revision, the copy) goes on the one status line.
+    try { await w.reload(); } finally { this.busy = null; }
     const t = this.target;
     if (t?.kind === "edit" && w.open) {
       const th = this.threads.find(x => x.id === t.thread.id);
@@ -608,7 +620,6 @@ export class CommentSession {
     if (this.mode !== "compose" || !d || !t) return null;
     const w = 60;
     const status = (s: string, colour: number) => fg(colour) + s + RESET;
-    const state = this.busy ? status(this.busy, C.grey) : this.error ? status(`! ${this.error}`, C.lred) : null;
     const kind = this.props?.kind === "question" ? "question" : this.props?.kind === "explain" ? "explain" : "comment";
     const what = t.kind === "quote" ? kind : t.kind === "note" ? `${kind} on the whole note` : t.kind === "reply" ? `reply to ${authorName(t.thread.author)}` : `edit ${authorName(t.mark.author)}'s ${t.mark.reply ? "reply" : "comment"}`;
     const away = this.place === "popup" || this.place === "split" || this.place === "tile";
@@ -616,7 +627,11 @@ export class CommentSession {
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
     return {
       title: what,
-      status: [state ?? status(d.note || this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
+      // The draft's own status line, as a note's edit draws it (PIE-1560): an edit's conflict or "changed elsewhere", and
+      // what the draft said, drawn by the frame to its width.
+      // A refusal is said the same bounded way (an offline error names its copy at any width, PIE-1560).
+      draftStatus: { state: t.kind === "edit" && !!(d.status.conflict || d.status.changedElsewhere), said: this.busy ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
+      status: [...(this.busy ? [status(this.busy, C.grey)] : this.error || d.note ? [] : [status(this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.dirty ? C.yellow : C.dark)])],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };
   }
