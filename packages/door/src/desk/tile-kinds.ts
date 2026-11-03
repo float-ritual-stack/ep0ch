@@ -539,7 +539,9 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
   onEvent(desk: DeskApi, e?: OutlineEvent) {
     // A tool's bookkeeping a drawing never asked for and never read can't change it (PIE-1546).
     const read = this.frame?.read;
-    if (e?.hidden && read && !read.machinery && !(e.blockId && read.ids.includes(e.blockId))) return;
+    // (A note it read is one changed, or one a note was made, moved or trashed under: its children may be what it drew.)
+    const touched = [e?.blockId, e?.change?.parentId, e?.change?.previousParentId];
+    if (e?.hidden && read && !read.machinery && !touched.some(id => id && read.ids.includes(id))) return;
     this.schedule.pause(() => { const [c, r] = this.asked.split("x").map(Number); if (c && r) this.refresh(desk, c, r); });
   }
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {

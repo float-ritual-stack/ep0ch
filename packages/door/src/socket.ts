@@ -1958,6 +1958,7 @@ export class SocketBoard implements Board {
   close(): void {
     for (const h of [...this.drafts.values()]) this.letGo(h);
     this.closing = true;
+    this.watched.stop();
     if (this.sub?.retry) clearTimeout(this.sub.retry);
     this.sub = null;
     this.sock?.end(); this.events?.end(); this.sock = null; this.events = null;

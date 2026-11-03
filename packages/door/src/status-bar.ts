@@ -130,6 +130,8 @@ export class StatusBarNote {
   private stale = false;
   private said = "";
   private builtins: StatusItem[] | null = null;
+  /** The notes the bar was last read from (ids and revisions), refused or not. */
+  private taken = "";
   constructor(private board: SocketBoard, private changed: () => void, private warn: (text: string) => void) {
     // A watched answer arrived (this one, or any other on the connection): ours, as it stands, asks nothing.
     board.watched?.listen(() => this.heard());
@@ -140,6 +142,7 @@ export class StatusBarNote {
 
   /** Take the notes read: the bar's entries, and what's wrong with them said once. */
   private take(notes: Msg[], builtins: StatusItem[]): void {
+    this.taken = notes.map(n => `${n.id}@${n.revision}`).join(",");
     try {
       if (notes.length > 1) throw new Error(`more than one [status-bar::true] note: ${notes.map(n => n.id).join(", ")}; keep the property on one`);
       this.note = notes[0] ?? null;
@@ -165,8 +168,10 @@ export class StatusBarNote {
     if (!this.builtins || this.reading) return;
     const shown = this.board.byPropShown?.(STATUS_BAR_KEY, "true");
     if (!shown) return;
-    const same = shown.length === (this.note ? 1 : 0) && (!this.note || (shown[0]!.id === this.note.id && shown[0]!.revision === this.note.revision));
-    if (same) return;
+    // Every note the question holds, not only the one taken: a second one refused the bar, and its going brings it back.
+    const now = shown.map(n => `${n.id}@${n.revision}`).join(",");
+    if (now === this.taken) return;
+    this.taken = now;
     this.take(shown, this.builtins);
     this.changed();
   }

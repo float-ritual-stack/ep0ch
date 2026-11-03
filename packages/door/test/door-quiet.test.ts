@@ -93,3 +93,38 @@ test.skipIf(!outliner)("a person's write elsewhere asks none of them again, and 
     expect(events.some(e => e.change?.kind === "edit" && !e.hidden)).toBe(true);
   } finally { app.quit(); }
 }, 30_000);
+
+// Review of round two (Codex): the views that stayed stale.
+test.skipIf(!outliner)("the waiting asks come back by themselves after the service let go of their watch (past 64 on the connection)", async () => {
+  await door();
+  try {
+    const before = app.waitingAsks.count();
+    // A busy screen's figures: more watched questions than the service keeps for one connection.
+    for (let i = 0; i < 70; i++) board.watched.read("blocks.query", { query: { where: `bed=${i}`, limit: 5 } }, r => r);
+    await board.watched.settled();
+    await writer.request("create", { parentId: null, text: `Mulch which bed? [type::task] [needs::sysop: mulch ${Date.now()}?]`, author: "user" });
+    await until(() => app.waitingAsks.count() === before + 1, "the new ask in the door's waiting list", 10_000);
+  } finally { app.quit(); }
+}, 30_000);
+
+test.skipIf(!outliner)("a tool's bookkeeping still tells what looks things up (a view that shows machinery, embedded) that something changed", async () => {
+  await door();
+  try {
+    const { anyChangeSince, changeClock } = await import("../src/refs");
+    const at = changeClock();
+    app.event({ domain: "content", action: "create", sequence: 1, blockId: "rec-1", hidden: true, change: { kind: "create", blockId: "rec-1", parentId: records } } as any);
+    expect(anyChangeSince(at)).toBe(true);
+  } finally { app.quit(); }
+}, 30_000);
+
+test.skipIf(!outliner)("a second status-bar note breaks the bar; trashing it brings the bar's own entries back", async () => {
+  await door();
+  try {
+    const items = () => app.statusNote.items([{ id: "clock", text: "12:00", place: "right" }]).map(i => i.id);
+    await until(() => items().includes("clock") && app.statusNote.note !== null, "the bar read");
+    const twin = (await writer.request<any>("create", { parentId: null, text: "Another bar [status-bar::true]\n\n- clock", author: "user" })).id;
+    await until(() => app.statusNote.problems.length === 0 && (app.statusNote as any).read === null, "the bar refused two notes", 10_000);
+    await writer.request("delete", { blockId: twin, mutation: { author: "user" } });
+    await until(() => (app.statusNote as any).read !== null, "the bar's own note read again", 10_000);
+  } finally { app.quit(); }
+}, 30_000);

@@ -60,9 +60,7 @@ const changedAt = new Map<string, number>();
  * null: anything may have changed (a move or trash takes a subtree along; a reset; a service without
  * change records). `config`: the workspace may differ too (a reconnect), so its Work-ID prefix is re-read.
  */
-export function outlineChanged(ids: readonly string[] | null, config = false, hidden = false) {
-  // A tool's bookkeeping (PIE-1546, `hidden`): what shows those notes is stale, nothing that looks things up is.
-  if (hidden && ids) { tick++; for (const id of ids) { changedAt.delete(id); changedAt.set(id, tick); } return; }
+export function outlineChanged(ids: readonly string[] | null, config = false) {
   tick++; anyAt = tick;
   if (config) configAt = tick;
   if (!ids || changedAt.size > 5000) { allAt = tick; changedAt.clear(); }

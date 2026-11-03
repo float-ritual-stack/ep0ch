@@ -1068,7 +1068,7 @@ export class App implements Ctx {
       // A move or trash takes a subtree along, and an event without a record could be anything.
       const c = e.change;
       // A block made under a note changes what is drawn beside it (a proposal, PIE-725): the note is named too.
-      if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId, ...(c.kind === "create" && c.parentId ? [c.parentId] : [])] : null, false, e.hidden === true);
+      if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId, ...(c.kind === "create" && c.parentId ? [c.parentId] : [])] : null);
       else if (e.action === "reconnected") outlineChanged([], true);   // the missed changes were replayed first
       else outlineChanged(null, e.action === "reset");
       // Resource events aren't in the change feed, so none were replayed: projections are read again, and the

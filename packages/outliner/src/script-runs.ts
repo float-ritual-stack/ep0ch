@@ -238,7 +238,7 @@ export class ScriptRuns {
       } : this.client;
       // What it asks is looked at on the way: one question that holds machinery is enough for its drawing to.
       const looked: AgentToolsClient = { requireCompatibleService: () => base.requireCompatibleService(), request: <T>(request: Parameters<AgentToolsClient["request"]>[0], timeoutMs?: number) => {
-        if (!machinery && asksMachinery(request as unknown as Record<string, unknown>)) machinery = true;
+        if (!machinery && asksMachinery(this.store, request as unknown as Record<string, unknown>)) machinery = true;
         return base.request<T>(request, timeoutMs);
       } };
       const api = hostApi(looked, undefined, {

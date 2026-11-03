@@ -124,6 +124,7 @@ export class Watched {
       } catch (e) {
         entry.registered = false;
         entry.retryAt = Date.now() + RETRY_MS;
+        this.revive(entry);
         const error = e instanceof Error ? e.message : String(e);
         entry.shown = { state: "error", error, ...(entry.shown.value !== undefined ? { value: entry.shown.value } : {}) } as Watching<unknown>;
       } finally {
@@ -150,17 +151,31 @@ export class Watched {
     for (const change of changes) {
       const entry = this.byKey.get(change.key);
       if (!entry) continue;
-      if (change.dropped) { entry.registered = false; entry.again = null; entry.generation = 0; entry.retryAt = Date.now() + RETRY_MS; continue; }
+      if (change.dropped) { entry.registered = false; entry.again = null; entry.generation = 0; entry.retryAt = Date.now() + RETRY_MS; this.revive(entry); continue; }
       if (change.generation <= entry.generation) continue;
       if (entry.asking) entry.again = Math.max(entry.again ?? 0, change.generation);
       else this.ask(entry, change.generation);
     }
   }
 
+  private stopped = false;
+  /** The board closed for good: nothing is asked again. */
+  stop() { this.stopped = true; }
+
   /** The connection closed: its watches ended with it. Each is registered again (from generation 0) when next read. */
   lost() {
     this.epoch += 1;
-    for (const entry of this.entries.values()) { entry.registered = false; entry.generation = 0; entry.again = null; }
+    for (const entry of this.entries.values()) { entry.registered = false; entry.generation = 0; entry.again = null; this.revive(entry); }
+  }
+
+  /**
+   * A held read (a list the door keeps, not one a frame draws) is asked again by itself once its watch is gone (the
+   * service let go of it past its bounds, it failed, the connection was lost): nothing draws it to ask again, and a
+   * list that stopped being told would stay as it was (PIE-1546 review).
+   */
+  private revive(entry: Entry) {
+    if (!entry.held || this.stopped) return;
+    setTimeout(() => { if (!this.stopped && this.byKey.get(entry.key) === entry && !entry.registered && !entry.asking) this.ask(entry); }, Math.max(0, entry.retryAt - Date.now())).unref?.();
   }
 
   /** Once every answer asked for so far has come (and any those asked for in turn), or `ms` passed. */

@@ -282,3 +282,34 @@ describe("a door's lists and drawings (PIE-1546, round two)", () => {
     }
   });
 });
+
+// Review of round two (Codex, five stale views): the changes a stamped note's write still reaches.
+describe("what round two's machinery skips must still reach (PIE-1546 review)", () => {
+  test("trashing a stamped note takes its ordinary children along: the waiting asks under it go", async () => {
+    const log = store.create("Greenhouse log [machine::record]");
+    store.create("Vent or not? [type::task] [needs::sysop: vent?]", log.id);
+    const server = new OutlinerServer(store, join(root, "service.sock"));
+    await server.start();
+    const door = rawClient(join(root, "service.sock")), tool = rawClient(join(root, "service.sock"));
+    try {
+      expect((await door.request({ action: "waiting.list", watch: "asks" })).result.length).toBe(1);
+      expect((await tool.request({ action: "delete", blockId: log.id, mutation: { author: "agent", actorId: "keeper" } })).ok).toBe(true);
+      const until = Date.now() + 3000;
+      while (!door.events.some(e => e.changes?.some(c => c.key === "asks")) && Date.now() < until) await Bun.sleep(20);
+      const gen = door.events.flatMap(e => e.changes ?? []).find(c => c.key === "asks")?.generation;
+      expect(gen).toBeDefined();
+      expect((await door.request({ action: "waiting.list", watch: "asks", generation: gen })).result.length).toBe(0);
+    } finally { door.socket.destroy(); tool.socket.destroy(); await server.close(); }
+  });
+
+  test("a script's read sees machinery when its question does: a saved view that shows it, or one that reads other notes", async () => {
+    const { asksMachinery } = await import("../src/watch-machinery");
+    const shows = store.create("Every record [type::virtual-branch] [query::type=log] [machinery::show]");
+    const plain = store.create("Logs [type::virtual-branch] [query::type=log]");
+    expect(asksMachinery(store, { action: "views.read", viewId: shows.id })).toBe(true);
+    expect(asksMachinery(store, { action: "views.read", viewId: plain.id })).toBe(false);
+    expect(asksMachinery(store, { action: "blocks.query", query: { where: "type=bed AND child:status=done" } })).toBe(true);
+    expect(asksMachinery(store, { action: "blocks.query", query: { where: "type=bed" } })).toBe(false);
+    expect(asksMachinery(store, { action: "blocks.query", query: { where: "machine=record" } })).toBe(true);
+  });
+});

@@ -30,13 +30,42 @@ export function machineryChange(store: Pick<OutlinerStore, "get" | "liveBlocks">
   }
   const before = known.get(change.blockId);
   known.set(change.blockId, now);
-  // A create had no before: a new stamped note was never visible.
-  const created = (change as { kind?: string }).kind === "create";
-  return { ...change, machinery: now && (created || before === true) };
+  // A create had no before: a new stamped note was never visible. A trash or a restore takes the note's whole subtree
+  // along, ordinary children too: a change anyone may see (PIE-1546 review).
+  const kind = (change as { kind?: string }).kind;
+  if (kind === "delete" || kind === "restore" || kind === "purge") return { ...change, machinery: false };
+  return { ...change, machinery: now && (kind === "create" || before === true) };
 }
 
 /** A question about other notes (`child:`, `links:`, `under:`, `parent:`…): a stamped note can change which notes it holds. */
 const readsAcross = (query: { predicate?: Parameters<typeof queryReach>[0] }) => queryReach(query.predicate).open;
+
+/**
+ * A `blocks.query` or `views.read` that leaves machinery out, as the service answers it: the notes it names (its `this`,
+ * subtree root or view). Undefined when it may hold a stamped note (it names `machine`, shows or counts machinery, reads
+ * other notes) or isn't one of those reads.
+ */
+function questionOf(store: Pick<OutlinerStore, "get">, request: Record<string, unknown>): unknown[] | undefined {
+  try {
+    if (request.action === "blocks.query") {
+      const query = request.query as BlockSearchQuery | undefined;
+      if (!query || typeof query !== "object" || query.countMachinery) return undefined;
+      // The question as the service answers it: one that names `machine` in its own clauses holds stamped notes.
+      const normal = normalizeBlockSearchQuery({ ...query, machinery: query.machinery ?? DEFAULT_MACHINERY });
+      if (normal.machinery !== "hide" || readsAcross(normal)) return undefined;
+      return [(query as { this?: unknown }).this, query.subtreeRootId];
+    }
+    if (request.action === "views.read") {
+      const viewId = request.viewId;
+      const definition = typeof viewId === "string" ? store.get(viewId) : null;
+      const config = definition ? parseVirtualBranchConfig(definition, []).config : undefined;
+      const normal = config && normalizeBlockSearchQuery(virtualBranchMembershipQuery(viewId as string, config, 1));
+      if (!normal || normal.machinery !== "hide" || readsAcross(normal)) return undefined;
+      return [viewId];
+    }
+  } catch { /* a question that doesn't read: as one that may hold anything */ }
+  return undefined;
+}
 
 /**
  * When a watched question leaves machinery out, the notes a stamped note's change could still reach it through: the
@@ -51,42 +80,21 @@ export function machineryBlind(store: Pick<OutlinerStore, "get">, request: Recor
   if (isMachineryBlindRead(request.action)) return new Set();
   const result = response.result as { blocks?: { id?: unknown }[]; machineryHidden?: unknown; machineryLeftOut?: unknown };
   if (!Array.isArray(result.blocks) || result.machineryHidden !== undefined || result.machineryLeftOut !== undefined) return undefined;
-  const named: unknown[] = [];
-  try {
-    if (request.action === "blocks.query") {
-      const query = request.query as BlockSearchQuery | undefined;
-      if (!query || typeof query !== "object" || query.countMachinery) return undefined;
-      // The question as the service answers it: one that names `machine` in its own clauses holds stamped notes.
-      const normal = normalizeBlockSearchQuery({ ...query, machinery: query.machinery ?? DEFAULT_MACHINERY });
-      if (normal.machinery !== "hide" || readsAcross(normal)) return undefined;
-      named.push((query as { this?: unknown }).this, query.subtreeRootId);
-    } else if (request.action === "views.read") {
-      const viewId = request.viewId;
-      const definition = typeof viewId === "string" ? store.get(viewId) : null;
-      const config = definition ? parseVirtualBranchConfig(definition, []).config : undefined;
-      const normal = config && normalizeBlockSearchQuery(virtualBranchMembershipQuery(viewId as string, config, 1));
-      if (!normal || normal.machinery !== "hide" || readsAcross(normal)) return undefined;
-      named.push(viewId);
-    } else return undefined;
-  } catch {
-    return undefined;
-  }
+  const named = questionOf(store, request);
+  if (!named) return undefined;
   const ids = new Set<string>();
   for (const id of [...named, ...result.blocks.map(block => block?.id)]) if (typeof id === "string" && id) ids.add(id);
   return ids;
 }
 
 /**
- * Whether a read asks for notes tools stamped `[machine::…]`: a `blocks.query` that names `machine` or says
- * `machinery: show|only`, or any read with `machinery: show|only` (`changes.since`, `views.read`…). A script's drawing
- * that asked one sees them (PIE-1546), so a change to a stamped note draws it again; one that asked none doesn't.
+ * Whether a read can hold notes tools stamped `[machine::…]`: the question as the service answers it (a saved view by
+ * its own definition) names `machine`, shows machinery, counts what it hid, or reads other notes (`child:`, `links:`…),
+ * as `machineryBlind` classifies it; any other read that says `machinery: show|only`. A script's drawing that asked one
+ * sees them (PIE-1546), so a change to a stamped note draws it again; one that asked none doesn't.
  */
-export function asksMachinery(request: Record<string, unknown>): boolean {
-  const query = request.action === "blocks.query" ? request.query as BlockSearchQuery | undefined : undefined;
-  if (query && typeof query === "object") {
-    if (query.countMachinery) return true;
-    try { return normalizeBlockSearchQuery({ ...query, machinery: query.machinery ?? DEFAULT_MACHINERY }).machinery !== "hide"; } catch { return false; }
-  }
+export function asksMachinery(store: Pick<OutlinerStore, "get">, request: Record<string, unknown>): boolean {
+  if (request.action === "blocks.query" || request.action === "views.read") return questionOf(store, request) === undefined;
   return request.machinery === "show" || request.machinery === "only";
 }
 
