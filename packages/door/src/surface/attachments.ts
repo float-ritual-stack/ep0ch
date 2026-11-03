@@ -212,7 +212,8 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
    */
   compose(kinds: readonly AttachmentKind[], w: number, h: number, host: H | undefined, read: (cols: number, rows: number) => V, frame?: FloatRect, over?: (v: V) => V): V {
     let base = read;
-    for (const k of kinds) if (this.def(k).owner()?.place === "split") { const under = base; base = (cols, rows) => this.beside(cols, rows, (c, r, y, x) => this.def(k).draw(c, r, y, x, host, "split") ?? { lines: [] } as unknown as V, under, k); }
+    // The first kind's split is the outermost (Sources beside a note whose settings split it again).
+    for (const k of [...kinds].reverse()) if (this.def(k).owner()?.place === "split") { const under = base; base = (cols, rows) => this.beside(cols, rows, (c, r, y, x) => this.def(k).draw(c, r, y, x, host, "split") ?? { lines: [] } as unknown as V, under, k); }
     let v = base(w, h);
     const floats = kinds.filter(k => { const p = this.def(k).owner()?.place; return p === "floating" || p === "popup"; });
     const top = floats.filter(k => this.def(k).holdsKeys());

@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Everything attached to a note places the same way (PIE-1536)
+
+- Settings, a comment, a list's children, Sources and the edit preview go through one attached layer: each opens inline, floating, split or popup and goes into a tile of its own the same way, and the one holding your keys is drawn on top.
+- **New:** a floating list-children preview drags by its top edge and sizes by its corner (`list.preview.move`). The split's side and size are kept for Sources, settings and list children, as the edit preview's already were.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### The reader's keys come from one table (PIE-1527)
 
 - Every reader key, its hint and its line in `?` come from one table. A key you rebind can't be taken by an extension, and a custom binding with arguments works. shift+↑/↓ steps reading, and shift+⏎ and ctrl+⏎ act as ⏎.
