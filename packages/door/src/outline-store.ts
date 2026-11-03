@@ -5,6 +5,7 @@
 // service answers (`agents.held`, src/held-asks.ts), read again once the outline is quiet. Both are read-only copies:
 // the service decides what is in them.
 import type { OutlineEvent } from "./socket";
+import { SearchSchedule } from "./search-schedule";
 import { watchedOn, type Watched, type WatchSource } from "./watched";
 
 export abstract class OutlineStore {
@@ -20,8 +21,9 @@ export abstract class OutlineStore {
 
 /**
  * A list the service answers, kept as it last answered: read once (`seed`) and again `quietMs` after an event that
- * `wants` it (a burst of events is one read). Reads can overlap: only the latest asked is taken, so a slow old answer
- * never puts back what has gone, and one that fails keeps what was there.
+ * `wants` it (a burst of events is one read, on the door's SearchSchedule, PIE-1395). A newer read ends the one before:
+ * only the newest turn's answer is taken, so a slow old answer never puts back what has gone, and one that fails keeps
+ * what was there.
  *
  * A list the service can watch (`watched()` names its read, PIE-1546) is never asked again on an event: the service
  * says when its answer changed (src/watched.ts), evaluating it once for every door, and a change no answer can see (a
@@ -29,12 +31,12 @@ export abstract class OutlineStore {
  */
 export abstract class ServiceList<Row, Board = unknown> extends OutlineStore {
   private rows: readonly Row[] = [];
-  private timer: ReturnType<typeof setTimeout> | null = null;
   private board: Board | null = null;
-  private asked = 0;
   private unlisten: (() => void) | null = null;
+  /** Its reads: a burst of events reads once, `quietMs` after the last; a newer read ends the one before. */
+  private readonly search: SearchSchedule;
   /** Wait this long after an event before asking again. */
-  constructor(private readonly quietMs = 400) { super(); }
+  constructor(quietMs = 400) { super(); this.search = new SearchSchedule(quietMs); }
 
   /** Ask the service. */
   protected abstract read(board: Board): Promise<readonly Row[]>;
@@ -79,18 +81,17 @@ export abstract class ServiceList<Row, Board = unknown> extends OutlineStore {
     if (!this.board) return;
     if (this.watched()) { if (e.action === "reconnected" || e.action === "reset") this.take(); return; }
     if (!this.wants(e)) return;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => { this.timer = null; void this.refresh(); }, this.quietMs);
+    this.search.pause(() => void this.refresh());
   }
 
   private async refresh(): Promise<void> {
     const board = this.board;
     if (!board) return;
-    const n = ++this.asked;
+    const turn = this.search.begin();
     const next = await this.read(board).catch(() => null);
-    if (!next || n !== this.asked) return;
+    if (!next || !turn.alive()) return;
     this.keep(next);
   }
 
-  stop(): void { if (this.timer) clearTimeout(this.timer); this.timer = null; this.board = null; this.unlisten?.(); this.unlisten = null; }
+  stop(): void { this.search.cancel(); this.board = null; this.unlisten?.(); this.unlisten = null; }
 }
