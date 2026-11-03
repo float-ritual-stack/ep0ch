@@ -314,7 +314,7 @@ extensions/horoscope/
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
-| `sources[]` | Sources of rows (at most 8): with a `prefix` (or `main`) the door's power bar's, with `triggers` completion's, under the triggers that exist (`[[`, `((`, `@`, `::`, `[key`, `key::`, `yaml-key`, `yaml-value`, `[file::`, `> [!`; never a sigil of its own); see [Bar sources](#bar-sources-a-command-palettes-rows) and [Completion sources](#completion-sources-rows-where-a-person-types). Needs `run`. |
+| `sources[]` | Sources of rows (at most 8): with a `prefix` (or `main`) the door's power bar's, with `triggers` completion's, under the triggers that exist (`[[`, `((`, `@`, `::`, `[key`, `key::`, `yaml-key`, `yaml-value`, `[file::`, `> [!`, `query`; never a sigil of its own); see [Bar sources](#bar-sources-a-command-palettes-rows) and [Completion sources](#completion-sources-rows-where-a-person-types). Needs `run`. |
 | `bar[]` | Gone (PIE-1344): the palette's old name for `sources[]`. A manifest that still says it is refused with the rename; answer the `source` operation. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 | `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
@@ -461,7 +461,8 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
-| `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect?, priority? }] }` |
+| `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component?, where? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect?, priority? }] }` |
+| `picked` | a completion source with `picks: true`, when its rows were chosen, changed after, or left | `{ source, outcome, key, query?, row?, text? }` (`outcome`: `accepted`, `edited` or `ignored`) | anything: it only hears |
 | `resolve`, `read`, `changed` | a provider of Resources (a `kind: "resource"` handler: Jira's, or any) | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
@@ -1296,6 +1297,60 @@ actions yet; `r` is its path today.
   "mutation": { "author": "agent", "actorId": "loki" } }
 ```
 
+## Facet sources: narrow rows outside the outline
+
+The facets tile accepts `source=notes` (the default), `source=trail`, or an installed extension's
+`ext.<extension>.<source>` id. `S`, the source chip and `facets.source` switch it. Include/exclude picks,
+path values, the query line, counts and the calendar use the same tile. Notes still use `blocks.query`;
+local rows use outline-core's shared query parser/evaluator and `questionFacets` counter.
+
+Declare a source backed by an ordinary read action on the outline:
+
+```json
+{
+  "contract": 2,
+  "id": "seed-box",
+  "version": 1,
+  "name": "Seed box",
+  "run": ["bun", "seeds.ts"],
+  "actions": [{ "id": "rows", "label": "Read seeds", "on": "outline", "effects": "read" }],
+  "facetSources": [{ "id": "seeds", "title": "Seeds", "read": "rows" }]
+}
+```
+
+`seeds.ts` returns all its rows as JSON in the existing action's `answer`:
+
+```ts
+await Bun.stdin.json();
+const at = new Date().toISOString();
+const rows = [
+  { id: "dwarf", title: "Dwarf beans", properties: { family: ["beans/dwarf"], colour: ["green"] }, createdAt: at, updatedAt: at },
+  { id: "runner", title: "Runner beans", properties: { family: ["beans/runner"], colour: ["red", "green"] }, createdAt: at, updatedAt: at },
+];
+console.log(JSON.stringify({ ok: true, value: { answer: JSON.stringify(rows) } }));
+```
+
+Open `tile.open kind=facets source=ext.seed-box.seeds`. Pick **family → beans**, then **colour → red**:
+only Runner beans remains. `facets.query text="family=beans/* NOT colour=red"` leaves Dwarf beans.
+The shipped **Garden seed facets** extension (`facet-garden`) is a runnable example, also installed in the
+showcase's **facets** section.
+
+Rows have a source-local `id`, `title`, ISO `createdAt` and `updatedAt`, and `properties` mapping any key to
+an array of values. Optional `open: { action: "open", args: { id: "<note-id>" } }` runs that door action on
+Enter; without it the row explains that it has no open action. A visit's id is its visit id, never its note id.
+The row dates drive the calendar and recent groups. Property and text atoms, boolean expressions, dates,
+numbers and path values have the views' meanings; outline relations need the service's notes source.
+The existing action-answer size limit applies; the example is for a local collection, not a streamed dataset.
+
+The door's `FacetSource.query({ where, limit, … }, desk)` answers `{ facets, rows, matched, truncated,
+groups?, hint? }`. `registerFacetSource` binds it; `unregisterFacetSource` removes it. The trail is the first
+local source, the extension adapter the second. Extension declarations appear in their page's **What it adds**;
+uninstalling unbinds them immediately.
+
+`facets.save` keeps notes searches as ordinary saved views. Other sources save a `[type::facet-view]` note
+with `[facet-source::<id>]`, `[query::…]` and an **Open facets** button that restores both. These saved searches
+remain after uninstall and report the missing source. Pin and tag edit notes, so they belong to the notes source.
+
 ## Bar sources: a command palette's rows
 
 A **bar source** (PIE-656) gives a client's command palette (the door's power bar, `ctrl+k`) rows of the extension's
@@ -1310,6 +1365,10 @@ already has.
   already uses (its own `% / > + @`, another extension's) is left off, and tab still reaches the source.
 - `main`: its rows join the bar's main list (before a scope is chosen) as well as its own scope. Each pause in typing
   calls it, so only a quick source should.
+- `grammar` (PIE-1508): what the line completes as while the bar is scoped to it. `"query"` makes it a query line, as
+  the bar's own `=` is: query words and every `query` completion source answer what's typed, Tab accepts, and the line
+  your `source` operation gets is the query. `"act"` (the default) completes act lines and references. Issues' `$`
+  is one: the notes about an issue that the query typed selects (`blocks.query` with `issue AND (<query>)`).
 - **The `source` operation** gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
   front of the person as `context` (bounded and read-only, as an action's). It returns `{ rows }`, at most 50:
   `{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }` (`resource`: a
@@ -1346,6 +1405,16 @@ service ranking. The outline host keeps picks, so every client agrees.
 
 - `triggers`: which of the existing ones it answers. `key::` is a property's value; `keys` narrows it to those keys
   (`[issue::` and nothing else). There is no way to declare a new sigil.
+- **`query`** (PIE-1508) is every query line: the facets tile's `where:`, a view's `[query::`, a figure's `query:`, a
+  component's `query="`, the power bar's `=` and any bar source with `grammar: "query"`. Its rows come beside query
+  words', in your source's own order (the line is a query, not a name to match letters against). `query` is the whole
+  line through the cursor, and `insert` is the whole query it becomes; the service fits it to its place (the `]` after
+  `[query::`, a YAML value's quotes). `trigger.where` is the query already applied there, when there is one.
+- `picks: true` (PIE-1508): the source hears what became of its rows through the **`picked` operation**:
+  `{ source, outcome, key, query, row: { id?, label, insertion }, text? }`. `outcome` is `accepted` (a row chosen),
+  `edited` (the line it was written into changed after, told once, `text` the line then) or `ignored` (its rows
+  shown and the list closed with none chosen; no `row`). It's told without waiting: a slow or failing answer never
+  holds up the pick. Detail tells `accepted` only.
 - **The `source` operation** gets `{ source, query, limit, trigger: { kind, key?, component? }, context? }` and returns
   `{ rows }`, at most 20: `{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect?, priority? }`.
   - `insert` is what choosing it writes in place of the token (the whole `[[…` under `[[`, only the value under
@@ -1364,19 +1433,31 @@ service ranking. The outline host keeps picks, so every client agrees.
   "target": { "kind": "page", "query": "seed" }, "near": "<block id>" }` → `{ answers: [{ source, rows, problem? }],
   picks }`; a client merges the answers with outline-core's `mergeSourceAnswers`. `completion.picked` `{ key, insert }`
   counts a pick: `key` comes from `pickKey`, and `insert` is `pickId(insertText(row.insert))`, never the insertion text.
+  With `source` (the row's, `ext.<extension>.<id>`), `outcome`, `query`, `row` and `text` it also tells that source
+  (when it declares `picks`); only `accepted` is counted, and `ignored` takes no `insert`.
   `completion.rows` can carry `turn`; `completion.cancel` with that same `turn` aborts its sources.
   `extensions.list` lists every serving extension's completion sources as `completionSources`.
 
 The example is [issues](../../extensions/issues): a tracker's open issues (made up, in `issues.json`), read once a
-call and offered under `[[` and `[issue::`, as pi's `github-issue-autocomplete.ts` preloads `gh issue list`. Its second
-source answers `::button issue` with a two-slot button:
+call and offered under `[[` and `[issue::`, as pi's `github-issue-autocomplete.ts` preloads `gh issue list`. Its
+`issue-words` source answers `query`: on a query line `seed sw` offers `issue="#15"`, the notes about that issue,
+written over the clause being typed (`type=job AND seed sw` becomes `type=job AND issue="#15"`). Another source answers
+`::button issue` with a two-slot button:
 
 ```json
 { "rows": [{ "label": "button · issue note", "kind": "snippet", "detail": "two slots: label and note",
   "insert": { "snippet": "::button{label=\"{label}\"}\nopen id={note}\n::" } }] }
 ```
 
-Try the kitchen sink's **sources** and **snippets** sections. Remove Issues in the power bar's extensions scope,
+A source that hears its picks (a demo log here; state it keeps belongs in the outline, as [below](#where-an-extension-keeps-its-state)):
+
+```ts
+const { operation, input } = await Bun.stdin.json();
+if (operation === "picked") appendFileSync(LOG, `${input.outcome} ${input.row?.insertion ?? ""} after ${input.query}\n`);
+console.log(JSON.stringify({ ok: true, value: operation === "source" ? { rows: [{ label: "mine", insert: "by:me" }] } : {} }));
+```
+
+Try the kitchen sink's **sources**, **query-sources** and **snippets** sections. Remove Issues in the power bar's extensions scope,
 then double-click **install Issues** to restore it (`act extensions.install id=issues` does the same). Removing its
 folder removes both sources; already inserted text stays in the draft.
 
@@ -2523,7 +2604,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{{key}}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
-  "completionSources": [{ "id": "issues", "extension": "issues", "name": "ext.issues.issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"] }],
+  "completionSources": [{ "id": "issues", "extension": "issues", "name": "ext.issues.issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"] }, { "id": "issue-words", "extension": "issues", "name": "ext.issues.issue-words", "title": "issue words", "triggers": ["query"] }],
   "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],

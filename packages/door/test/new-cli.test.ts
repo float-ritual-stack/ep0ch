@@ -34,6 +34,12 @@ describe.skipIf(!outliner)("ep0ch new on an empty outline", () => {
     expect(await board.get(id)).toMatchObject({ text: "Seed swap Saturday", parentId: inbox, author: "user" });
   }, 30_000);
 
+  test("a figure key with a typo is made as written and warned, as the reader would say it (PIE-1518)", async () => {
+    const r = await run(["new", "Beds\n\n::graph-table\n---\nquery: type=bed\nlayoutt: feed\n---\n::"], env);
+    expect(r.code).toBe(0);
+    expect(r.err).toContain("warning: the ::graph-table on line 3 doesn't take layoutt: did you mean layout?");
+  }, 30_000);
+
   test("--as names the agent; --near puts it under a note; --json says it all; [page::x] titles itself", async () => {
     const r = await run(["new", "[page::2026-10-04]", "--as", "gardener", "--json"], env);
     expect(r.code).toBe(0);

@@ -1,3 +1,4 @@
+import { extensionFacetSource, registerFacetSource, unregisterFacetSource } from "./facet-sources";
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
@@ -82,6 +83,7 @@ export interface ExtensionArgChoice extends ExtensionActionArg {
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
 export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
 export interface ExtensionEntry {
+  facetSources?: { id: string; title: string; read: string }[];
   scripts?: { name: string; file: string; about: string }[];
   script?: { keys: readonly string[]; line?: number; blockId?: string; file?: string; code: string };
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
@@ -898,7 +900,7 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     return { action: a.name, args: { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) } };
   };
   return {
-    id: b.name, title: b.title, prefix, by: b.extension, asks: true,
+    id: b.name, title: b.title, prefix, by: b.extension, asks: true, ...(b.grammar ? { grammar: b.grammar } : {}),
     about: `${b.description ?? b.title} (extension ${b.extension})`,
     main: { empty: b.main, typed: b.main, most: 6 },
     async rows(q, host, _scope, signal) {
@@ -958,6 +960,8 @@ export interface Bound { added: string[]; removed: string[]; problems: string[] 
  * actions, and the tile kinds (as the service lists them: it lists only what it serves). What a previous list
  * bound and this one doesn't is taken out.
  */
+const boundFacets = new Set<string>();
+
 export function bindExtensions(raw: ExtensionList | null): Bound {
   const next = raw ? cleaned(raw) : null;
   const was = new Map((current?.extensions ?? []).map(e => [e.id, e] as const));
@@ -967,6 +971,12 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   useResourceProviders(next?.resourceProviders ?? []);
   const served = (next?.extensions ?? []).filter(serving);
   const problems: string[] = [];
+  for (const id of boundFacets) unregisterFacetSource(id);
+  boundFacets.clear();
+  for (const extension of served) for (const declaration of extension.facetSources ?? []) {
+    const source = extensionFacetSource(extension.id, declaration);
+    registerFacetSource(source); boundFacets.add(source.id);
+  }
   // An extension that started failing (it may still serve its last good version): said once, with why.
   for (const e of next?.extensions ?? []) {
     if (e.state === "failed" && was.get(e.id)?.state !== "failed") problems.push(`${e.name ?? e.id} failed${e.error ? `: ${e.error}` : ""}${e.name ? " (still serving its last good version)" : ""}`);

@@ -868,9 +868,10 @@ test("a written figure is confirmed in components; a typo in its name or a key, 
   expect(edit.exitCode).toBe(0);
   expect(store.get(note.id)!.text).toBe(typos);
   expect(edit.json.components).toEqual(["graph-stat"]);
+  // The construct warnings first (a key it doesn't take is syntaxWarnings', PIE-1518), then the components'.
   expect(edit.json.warnings).toEqual([
-    "the ::graph-stats on line 2 isn't a component: did you mean ::graph-stat?",
     "the ::graph-stat on line 7 doesn't take titel: did you mean title?",
+    "the ::graph-stats on line 2 isn't a component: did you mean ::graph-stat?",
   ]);
 
   const now = store.get(note.id)!;

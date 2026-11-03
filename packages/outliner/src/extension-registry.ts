@@ -146,6 +146,7 @@ export interface ExtensionAgentEntry {
 }
 
 export interface ExtensionEntry {
+  readonly facetSources?: ExtensionManifest["facetSources"];
   readonly script?: { readonly keys: readonly string[]; readonly line?: number; readonly blockId?: string; readonly file?: string; readonly code: string };
   readonly id: string;
   readonly name?: string;
@@ -545,6 +546,7 @@ export class ExtensionRegistry {
       ...(source.prefix ? { prefix: source.prefix } : {}),
       ...(source.description ? { description: source.description } : {}),
       main: source.main ?? false,
+      ...(source.grammar ? { grammar: source.grammar } : {}),
     }));
   }
 
@@ -553,7 +555,7 @@ export class ExtensionRegistry {
     return manifestSources(extension.manifest).flatMap((source) => source.triggers ? [{
       id: source.id, extension: extension.id, name: `ext.${extension.id}.${source.id}`, title: source.title,
       ...(source.description ? { description: source.description } : {}),
-      triggers: source.triggers, ...(source.keys ? { keys: source.keys } : {}),
+      triggers: source.triggers, ...(source.keys ? { keys: source.keys } : {}), ...(source.picks ? { picks: true } : {}),
     }] : []);
   }
 
@@ -606,6 +608,7 @@ export class ExtensionRegistry {
             options: handler.options ?? {},
             ...(handler.staleAfter ? { staleAfter: handler.staleAfter } : {}),
           })) : [],
+        facetSources: serving ? extension.manifest.facetSources : undefined,
         actions: serving ? this.actionsOf(extension) : [],
         tiles: serving ? this.tilesOf(extension) : [],
         agents: serving ? (extension.manifest.agents ?? [])

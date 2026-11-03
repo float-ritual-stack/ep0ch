@@ -224,14 +224,14 @@ describe.skipIf(!outliner)("a turn's signal on the socket, on a scratch service"
   test("an aborted search stops waiting at once, and the board answers the next one", async () => {
     const board = new SocketBoard(await scratch.start());
     try {
-      await board.request("create", { parentId: null, text: "Garden beds", author: "agent" });
+      await board.request("create", { parentId: null, text: "Quince beds", author: "agent" });
       const ctl = new AbortController(), waiting = hostTraffic.waiting;
-      const first = board.search("garden", 10, { signal: ctl.signal });
+      const first = board.search("quince", 10, { signal: ctl.signal });
       ctl.abort();
       expect(await first.then(() => "answered", e => (e as Error).name)).toBe("AbortError");
       expect(hostTraffic.waiting).toBe(waiting);
-      expect((await board.search("garden", 10)).map(m => m.text)).toEqual(["Garden beds"]);
-      await expect(board.search("garden", 10, { signal: ctl.signal })).rejects.toThrow();
+      expect((await board.search("quince", 10)).map(m => m.text)).toEqual(["Quince beds"]);
+      await expect(board.search("quince", 10, { signal: ctl.signal })).rejects.toThrow();
     } finally { board.close(); }
   });
 });

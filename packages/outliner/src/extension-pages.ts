@@ -170,6 +170,7 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
     out.push(`- Rule \`${rule.id}\`: when a note matches ${match}, ${does || "nothing yet"}${rule.description ? `. ${words(rule.description)}` : ""}`);
   }
   for (const agent of manifest.agents ?? []) out.push(`- Agent \`@${agent.name}\`${agent.threads ? " (answers in comment threads)" : ""}${agent.description ? `: ${words(agent.description)}` : ""}`);
+  for (const source of manifest.facetSources ?? []) out.push(`- Facet source **${words(source.title)}** (\`ext.${manifest.id}.${source.id}\`): \`tile.open kind=facets source=ext.${manifest.id}.${source.id}\`.`);
   for (const source of manifestSources(manifest)) {
     const about = source.description ? `: ${words(source.description)}` : "";
     if (source.prefix || source.main) out.push(`- Power bar rows: **${words(source.title)}**${source.prefix ? ` (prefix \`${source.prefix}\`)` : ""}${about}`);

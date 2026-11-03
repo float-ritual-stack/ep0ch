@@ -138,7 +138,7 @@ import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
 import { parseTileAddress } from "../desk/tile-address";
-import { buttonLineLook, buttonMarks, describeButtonMarks, type ButtonLookups } from "../button-check";
+import { buttonIn, buttonLineLook, buttonMarks, describeButtonMarks, slotButton, type ButtonLookups } from "../button-check";
 import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
@@ -1256,6 +1256,7 @@ export class NoteSurface {
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
+    const b = this.buttonAtReading()?.link?.press; if (b) return `press ${printable(b.label ?? "")} · ⏎ runs ${printable(b.act.replaceAll("\n", " -> "))}`;
     return null;
   }
 
@@ -4655,6 +4656,8 @@ export class NoteSurface {
         return true;
       }
       if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
+      const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
+      if (b && (!fresh || b.link?.press?.alt)) { void this.runKey("button.press", { n: this.elems.indexOf(b) + 1, ...(fresh ? { alt: true } : {}) }, host); return true; }
       return false;
     }
     if ((c === "(" || c === ")") && this.msg && !this.msg.partial) { void this.runKey("fold.select", { by: c === ")" ? 1 : -1 }, host); return true; }
@@ -4827,14 +4830,14 @@ export class NoteSurface {
     const tile = messageContext.getStore()?.tile;
     // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
     const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}`;
-    const then = `button.slot note=${block} line=${line} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
+    const then = `button.slot note=${block} line=${line} label=${JSON.stringify(button.label)} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
     const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
     if (q?.kind === "tile") {
       host.ctx.flash(`${button.label}: choose a tile for ${key}`);
       return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
     }
     return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
-      answers => d.act({ action: "button.slot", args: { note: block, line, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
+      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
   }
 
   /**
@@ -4844,16 +4847,11 @@ export class NoteSurface {
    * the person is asked again (a re-pick); with `ask`, the next empty slot is asked after it.
    */
   async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string; run?: boolean }, host: SurfaceHost, actor: Actor): Promise<unknown> {
-    const m = a.note && a.note !== this.msg?.id ? await host.ctx.board.get(a.note) : await this.whole();
+    const m = await host.ctx.board.get(a.note ?? this.requireNote().id); // the service's text, never this reader's copy, which catches up (PIE-1518)
     if (!m) throw new ActionRefused(`no note ${a.note}: button.slot note=<id> takes the note the button is written in`);
-    const buttons = buttonCallsOf(m.text);
-    const hits = a.line !== undefined ? buttons.filter(b => b.line === a.line! - 1) : a.label !== undefined ? buttons.filter(b => b.label === a.label || b.label.toLowerCase().includes(a.label!.toLowerCase())) : buttons.filter(b => b.slots.length);
-    const names = buttons.filter(b => b.slots.length).map(b => `line ${b.line + 1} "${b.label}" (${b.slots.map(s => s.key).join(", ")})`).join("; ");
-    if (!hits.length) throw new ActionRefused(`no ${a.line !== undefined ? `button on line ${a.line}` : a.label !== undefined ? `button called "${a.label}"` : "button with a slot"} in this note; ${names ? `buttons with slots: ${names}` : "none has a slot (a button with act=\"… tile={target}\" target= has one)"}`);
-    if (hits.length > 1) throw new ActionRefused(`${hits.length} buttons match (${names}); say line=<n>`);
-    const button = hits[0]!;
-    const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
-    if (!key || !button.slots.some(s => s.key === key)) throw new ActionRefused(`${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)`);
+    if (this.msg?.id === m.id && !this.msg.partial && this.msg.revision !== m.revision) { this.refresh({ ...m, childIds: this.msg.childIds }); host.redraw(); }
+    const named = slotButton(buttonCallsOf(m.text), a); if ("refused" in named) throw new ActionRefused(named.refused);
+    const { button, key } = named;
     if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor, !!a.run);
     const given = await this.slotValue(m.id, button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
@@ -5361,6 +5359,8 @@ export class NoteSurface {
     if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
   }
 
+  /** The ::button the reading line is on, in view, with no element current: what ⏎ presses there (PIE-1518). */
+  buttonAtReading() { const d = this.drawn, r = this.readingRows(); return d && r && !this.cur && this.link < 0 ? buttonIn(this.elems, d.top + Math.max(r[0], d.scroll), d.top + Math.min(r[1], d.scroll + d.room)) : null; }
   /** The current element while the person can see it (or it's about to be brought into view). */
   inView(): Element | null {
     const e = this.selectedElement(), d = this.drawn;
@@ -10269,7 +10269,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
         if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
-      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item.insertion);
+      if (r.pickKey) await recordCompletionPick(board, r.pickKey, item, target.query);
       surface.noteAgent(actor, `inserted ${item.insertion}`);
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };
@@ -11012,7 +11012,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {
       note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
       line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
-      label: { type: "string", optional: true, about: "or: the button's label (or part of it)" },
+      label: { type: "string", optional: true, about: "or: the button's label (or part of it); with line=, its whole label: a moved line is found by it, a gone button refused" },
       key: { type: "string", optional: true, about: "the slot (the word on the line a {key} fills); default the first empty one" },
       value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
