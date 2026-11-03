@@ -60,6 +60,8 @@ import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate } from "./template-stamp";
 import { keepSuggestion, readKeep, SuggestionWrites } from "./jev-suggestions";
+import { asksFor } from "./jev-asks";
+import { answerSuggestions } from "./jev-service";
 import type { RecordCache } from "./records";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
@@ -2338,7 +2340,7 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "query.suggest") return querySuggestReply(this.querySuggester ??= new QuerySuggester(this.own, this.suggestionKeeps), request, () => this.store.sequence);
+    if (request.action === "query.suggest") return querySuggestReply(this.querySuggester ??= new QuerySuggester(this.own, this.suggestionKeeps, asksFor(this.store.workspaceRoot)), request, () => this.store.sequence);
     if (request.action === "completion.rows" || request.action === "completion.picked" || request.action === "completion.cancel") {
       try {
         const result = await (this.completions ??= new CompletionRequests(this.store, this.own, this.extensionRegistry, this.extensionCalls, this.readOnly)).run(request);
@@ -2416,6 +2418,7 @@ export class OutlinerServer {
         return { id: request.id, ok: true, result: { kept: picks.length }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
+    if (request.action === "suggestions.asks" || request.action === "suggestions.stamp") return { id: request.id, ok: true, result: answerSuggestions(this.store, asksFor(this.store.workspaceRoot), request), sequence: this.store.sequence };
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
       // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
@@ -2425,7 +2428,7 @@ export class OutlinerServer {
         const own = this.own;
         // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
         // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
-        const turn = this.suggestionKeeps.run(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
+        const turn = this.suggestionKeeps.run(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache, asksFor(this.store.workspaceRoot)));
         const settled = await turn;
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
@@ -3631,14 +3634,7 @@ export class OutlinerServer {
           result = this.answerHolder(request.requestId, request.clientId, request.answer, request.error);
           break;
         case "update":
-          result = this.store.update(
-            request.blockId,
-            titled(request.text!),
-            request.expectedRevision,
-            request.mutation,
-            "text",
-            request.identityChanges,
-          );
+          result = this.store.update(request.blockId, titled(request.text!), request.expectedRevision, request.mutation, "text", request.identityChanges);
           break;
         case "move":
           result = moveNote(this.store, request.blockId, request, request.expectedRevision, request.mutation);
@@ -3757,13 +3753,7 @@ export class OutlinerServer {
           );
           break;
         case "properties.patch":
-          result = this.store.patchProperties(
-            request.blockId,
-            request.expectedRevision,
-            request.operations,
-            request.mutation,
-            request.keepUpdated === true,
-          );
+          result = this.store.patchProperties(request.blockId, request.expectedRevision, request.operations, request.mutation, request.keepUpdated === true);
           break;
         case "activity.recent":
           result = this.store.recentEditActivity({

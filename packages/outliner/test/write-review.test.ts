@@ -10,6 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
+import { asksFor } from "../src/jev-asks";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -64,7 +65,9 @@ async function setup(answers: Answers = () => undefined, o: { facetsDelayMs?: nu
   const client = new OutlinerClient(paths.socket);
   const records = async (type: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `type=${type}`, machinery: "show" } })).blocks
     .map(b => ({ id: b.id, text: b.text, ...Object.fromEntries(parsePropertyRecords(b.text).map(p => [p.key, p.value])) as Record<string, string> } as { id: string; text: string } & Record<string, string>));
-  return { store, agent, records, client, asked };
+  // Jev's asks, as the service keeps them in the outline's folder (PIE-1546): a quiet ask is a line there, never a block.
+  const asks = (kind?: string) => asksFor(root).find(a => kind === undefined || a.kind === kind);
+  return { store, agent, records, client, asked, asks };
 }
 
 /** A board with things in it, so a count typed in prose has a query that counts it. */
@@ -216,7 +219,7 @@ test("a list Jev reads as a timeline comes with the figure built from its lines,
 });
 
 test("the backfill reviews what agents already wrote, read only, and keeps its stats as its own experiment when asked", async () => {
-  const { store, client, records } = await setup();
+  const { store, client, records, asks } = await setup();
   const count = async () => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "", machinery: "show", limit: 1000 } })).blocks.length;
   seedBoard(store);
   const by = (actorId: string) => ({ actorId });
@@ -249,7 +252,7 @@ test("the backfill reviews what agents already wrote, read only, and keeps its s
   const again = await reviewBackfill(client as never, { since: "7d", jev: false, into: counting as never, outline: "scratch" });
   // Jev was off, so the quiet notes weren't kept as read: they're read again, with the new one; the flagged note isn't.
   expect(again).toMatchObject({ reviewed: 3, skipped: 1, flagged: 1 });
-  expect(await records("review-quiet")).toHaveLength(0);
+  expect(asks("quiet")).toHaveLength(0);
   // One request for the note with findings, and no record stamped from the client: the service makes them.
   expect(keeps.filter(a => a === "suggestions.keep")).toHaveLength(3);
   expect((await records("review-finding")).filter(r => r.writer === "kitty")).not.toHaveLength(0);
@@ -261,7 +264,8 @@ test("the backfill reviews what agents already wrote, read only, and keeps its s
   // A note Jev read and said nothing of is kept as quiet (PIE-1402), so a rerun doesn't ask Jev again; edited, it's new.
   const quiet = store.create("Pea rows\n\n- Sown on Monday.", null, "agent", by("kitty/claude-code@float-box"));
   await client.request({ action: "suggestions.keep", keep: { kind: "reviewed", at: { note: quiet.id, revision: quiet.revision, actorId: "kitty/claude-code@float-box", source: "backfill" }, title: "Pea rows", review: { verdict: "ship", findings: [], jev: "asked", next: "" } } } as never);
-  expect((await records("review-quiet")).map(r => r.note)).toEqual([quiet.id]);
+  expect(asks("quiet").map(a => [a.note, a.source])).toEqual([[quiet.id, "backfill"]]);
+  expect(await records("review-quiet")).toHaveLength(0);
   const third = await reviewBackfill(client as never, { since: "7d", jev: false, into: client as never, outline: "scratch" });
   expect(third.skipped).toBe(3);
   store.update(quiet.id, "Pea rows\n\n- Sown on Monday.\n- Netted on Tuesday.", quiet.revision, { author: "agent", actorId: "kitty/claude-code@float-box" } as never);
@@ -464,17 +468,19 @@ test("a ready patch the writer was told and hasn't applied keeps the verdict fix
   expect(review.verdict).toBe("ship");
 });
 
-// PIE-1388: a live write the review passed left nothing to find it by; only the backfill kept its quiet notes.
-test("a live write that ships is kept as quiet, findable on the suggestions page with when", async () => {
-  const { agent, records } = await setup();
+// PIE-1388: a live write the review passed left nothing to find it by; only the backfill kept its quiet notes. PIE-1546:
+// kept as a line of the day's ask file, not a block, and the suggestions page counts them a day a row.
+test("a live write that ships is kept as quiet, counted on the suggestions page by day", async () => {
+  const { agent, asks, records } = await setup();
   await agent("create", { parent: "root", text: "Bean rows [type::note]\n\n- Sown on Monday.\n- Netted on Tuesday." });
   const sore = await agent("create", { parent: "root", text: "Seed list sorted\n\n- Evan, can you check the order on your phone?" });
-  const quiet = await records("review-quiet");
-  expect(quiet.map(q => [q.source, q.writer])).toEqual([["write", "loki"]]);
+  const quiet = asks("quiet");
+  expect(quiet.map(q => [q.source, q.writer, q.harness])).toEqual([["write", "loki", "claude-code"]]);
   expect(quiet[0]!.note).not.toBe(sore.json.id);
+  expect(await records("review-quiet")).toHaveLength(0);
   const { SUGGESTIONS_PAGE } = await import("../src/jev-suggestions");
-  expect(SUGGESTIONS_PAGE).toContain("query: type=review-quiet NOT source=backfill");
-  expect(SUGGESTIONS_PAGE).toContain("columns: [note, writer, revision, created]");
+  expect(SUGGESTIONS_PAGE).toContain("query: type=jev-run experiment=figure-fit-live");
+  expect(SUGGESTIONS_PAGE).toContain("columns: [run, quiet, items, unavailable, tokens-in]");
 });
 
 test("Jev's dense finding with its ready patch stays the writer's to apply across writes, as code's do", async () => {

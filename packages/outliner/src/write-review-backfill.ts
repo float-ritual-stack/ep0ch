@@ -6,6 +6,7 @@
 // It reads the source outline only. With `into`, it keeps what it found there as records of its own experiment
 // (`review-finding` with `source::backfill`, and a `jev-run` with `experiment::write-review-backfill`), so the
 // suggestions page shows the stats beside the live reviews and Evan can mark rows right or wrong.
+import type { JevAsk } from "./jev-asks";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { RUBRIC, type Rubric } from "@ep0ch/outline-core/write-shape";
@@ -116,18 +117,21 @@ async function keep(into: SuggestionClient, block: Block, title: string, review:
 }
 
 /**
- * `note@revision` for every note of `window` that `into` already holds a backfill's findings or quiet verdict of: a note
- * edited since it was reviewed is new again. Asked fifty notes at a time.
+ * `note@revision` for every note of `window` that `into` already holds a backfill's findings (blocks) or quiet verdict of
+ * (`review-quiet` blocks from before PIE-1546, and the ask files since: `suggestions.asks`): a note edited since it was
+ * reviewed is new again. Asked fifty notes at a time.
  */
 async function keptRevisions(into: SuggestionClient, window: readonly Block[]): Promise<Set<string>> {
   const out = new Set<string>();
   for (let i = 0; i < window.length; i += 50) {
-    const ids = window.slice(i, i + 50).map(b => `note=${b.id}`).join(" OR ");
+    const notes = window.slice(i, i + 50).map(b => b.id), ids = notes.map(id => `note=${id}`).join(" OR ");
     const found = await into.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `(type=review-finding OR type=review-quiet) source=backfill (${ids})`, machinery: "show", limit: 1000 } } as never).catch(() => ({ blocks: [] as Block[] }));
     for (const b of found.blocks) {
       const note = b.properties.find(p => p.key === "note")?.value, revision = b.properties.find(p => p.key === "revision")?.value;
       if (note && revision) out.add(`${note}@${revision}`);
     }
+    const asked = await into.request<{ asks: JevAsk[] }>({ action: "suggestions.asks", notes, source: "backfill" } as never).catch(() => ({ asks: [] as JevAsk[] }));
+    for (const ask of asked.asks) if (ask.note && ask.revision !== undefined && ask.kind !== "unavailable") out.add(`${ask.note}@${ask.revision}`);
   }
   return out;
 }
