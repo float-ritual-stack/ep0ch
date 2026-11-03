@@ -101,7 +101,8 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
   const needs = { cols: b.needs?.cols ?? OPEN_READS.cols, rows: b.needs?.rows ?? OPEN_READS.rows };
   const holds = (id: I) => !!ctx.tile(id).holds;
   const name = s.names.get(b.target) ?? String(b.target);
-  const order = besideOrder(b, rects({ ...s, zoom: null }, ctx.area, holds).get(b.target));
+  // The target as it's drawn (zoomed, it has the screen): what the person sees is what the sides are weighed by.
+  const order = besideOrder(b, rects(s, ctx.area, holds).get(b.target));
   let refused: string | null = null, first: { d: D; at: Place<I>; size: Rect } | null = null;
   for (const at of order) {
     const d = attempt(s, { ...op, at }, ctx);
@@ -114,16 +115,27 @@ export function besideAttempt<I, D extends Pick<LayoutState<I>, "tree" | "floats
     }
     first ??= { d, at, size };
   }
-  if (!first) return refused ?? `there's no place beside ${name}`;
+  const floats = (why: string): D | string => {
+    const d = attempt(s, { ...op, at: { kind: "float" } }, ctx);
+    if (typeof d !== "string") d.answer = { ...d.answer, where: "float", why: `${why}, so it floats (layout.move tile=<it> to=<a tile> places it)` };
+    return d;
+  };
+  if (!first) {
+    const why = refused ?? `there's no place beside ${name}`;
+    // An open that named no place, with no place beside its target that takes it (a board's lanes take only their own
+    // kind): it floats, as when there's no room; refused there too, the first refusal says why.
+    // Beside the tile the person types in, a float would cover their edit: the refusal (the typing guard's) stands.
+    if (b.prefers !== "beside" || ctx.protectTyping && b.target === ctx.person.typingIn) return why;
+    const d = floats(`beside ${name}: ${why}`);
+    return typeof d === "string" ? why : d;
+  }
   const narrow = narrowWhy(name, first.size, needs);
   if (b.strict) return narrow;
   const place = first.at.kind === "split" ? `${PLACE_WORDS[first.at.dir]} ${name}` : `along the screen's ${(first.at as { dir: Dir }).dir} edge`;
   if (b.prefers === "beside") {
     // A float would cover the tile the person types in: it stays beside, said.
     if (ctx.protectTyping && b.target === ctx.person.typingIn) { first.d.answer = { ...first.d.answer, where: whereWord(first.at), why: `${narrow}, so it went ${place}: floating, it would cover the tile being typed in` }; return first.d; }
-    const d = attempt(s, { ...op, at: { kind: "float" } }, ctx);
-    if (typeof d !== "string") d.answer = { ...d.answer, where: "float", why: `${narrow}, so it floats (layout.move tile=<it> to=<a tile> places it)` };
-    return d;
+    return floats(narrow);
   }
   first.d.answer = { ...first.d.answer, where: whereWord(first.at), why: `${narrow}, and it went ${place}${b.prefers === "there" ? ", as asked" : ""}` };
   return first.d;

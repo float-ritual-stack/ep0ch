@@ -7476,10 +7476,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = pane === this.ptyIn && this.focus === t.id; this.bindFollows(t.id, pane);
     // The tiles that give their keys back to it keep that, by identity, for when it comes back here (`carryIn`).
     const owed = [...this.layout.openedFrom].filter(([, o]) => o.from === t.id).map(([k, o]) => ({ child: this.panes.get(k)!, typing: !!o.typing })); if (owed.length) keysOwed.set(pane, owed);
-    this.commit(plan.from);
+    // Its heir takes its place and its name in the same step: a new tile of its kind joining as the take commits (so
+    // the step is one undo entry), started as any tile joining a live desk; then the tile that went is forgotten here.
+    if (heir) this.join(this.nextId, heir, plan.from); else this.commit(plan.from);
     this.tileLeaves(t.id, "carry");
-    // Its heir takes its place and its name: a new tile of its kind, started as any tile joining a live desk.
-    if (heir) this.join(this.nextId, heir, null);
     for (const [z, verb, rule] of into) this.addExt(z, { pane, verb, rule, found: true });
     this.save(); this.redraw();
     return { pane, name: plan.name, spec, from: this.title, typing, links };

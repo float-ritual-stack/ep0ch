@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
+import { makeTile } from "../src/desk/tiles";
 import { MIN_ROWS } from "../src/desk/layout";
 import { apply, init, leaf, type Beside, type Ctx, type LayoutState } from "../src/desk/screen-layout";
 import type { Actor } from "../src/socket";
@@ -62,6 +63,27 @@ describe("where a new tile beside another lands: one rule, one try (PIE-1559)", 
     expect(r.ok && r.answer).toMatchObject({ where: "down", why: expect.stringMatching(/^beside hearth it is \d+×40, under the 28×6 a tile reads at, so it went below it$/) });
   });
 
+  test("an open naming no place that no container beside takes floats, as before the one rule (a board's lanes)", () => {
+    // Three lanes that take only query tiles, on a 100×24 board: beside one, a reader is refused either way; it floats.
+    const lanes = { t: "split" as const, dir: "row" as const, kids: [leaf(1), leaf(3), leaf(4)], weights: [1, 1, 1], policy: { accepts: ["query"] } };
+    const s: LayoutState = init({ tree: lanes, names: new Map([[1, "sow"], [3, "grow"], [4, "reap"]]) });
+    const ctx = { ...ctxOf(AGENT, { col: 0, row: 0, cols: 100, rows: 24 }), tile: (id: number) => ({ kind: id === 2 ? "reader" : "query", notes: id === 2 }) };
+    const r = apply(s, { op: "open", tile: 2, kind: "reader", at: { kind: "beside", target: 1, prefers: "beside" } }, ctx);
+    expect(r.ok ? r.answer.where : r.refused).toBe("float");
+    // Named, it is that place or the container's refusal.
+    const named = apply(s, { op: "open", tile: 2, kind: "reader", at: { kind: "beside", target: 1, prefers: "there", dir: "right" } }, ctx);
+    expect(named.ok ? named.answer.where : named.refused).toMatch(/takes only query/);
+  });
+
+  test("a zoomed tile is measured as it's drawn: zoomed on a 80×24 desk of four, a preview goes beside it", () => {
+    const four = new Map([[1, "r1"], [3, "r3"], [4, "r4"], [5, "r5"]]);
+    const s: LayoutState = { ...init({ tree: { t: "split", dir: "row", kids: [leaf(1), leaf(3), leaf(4), leaf(5)], weights: [1, 1, 1, 1] }, names: four }), zoom: 3 };
+    for (const actor of [PERSON, AGENT]) {
+      const r = apply(s, { op: "open", tile: 2, kind: "reader", at: { kind: "beside", target: 3, prefers: "axis", needs: { cols: 6, rows: MIN_ROWS } } }, ctxOf(actor, { col: 0, row: 0, cols: 80, rows: 24 }));
+      expect(r.ok ? r.answer.where : r.refused).toBe("right");
+    }
+  });
+
   test("a place no container takes is skipped for the next, never caught by the caller", () => {
     // Only keys tiles in the row the target is in: beside it is refused, and the screen's edge takes it.
     const row = { t: "split" as const, dir: "row" as const, kids: [leaf(1), leaf(3)], weights: [1, 1], policy: { accepts: ["reader"] } };
@@ -99,5 +121,17 @@ describe("a tile joins and leaves a layout in one step (PIE-1559)", () => {
     }
     expect(d.layoutGet().tiles.map((t: { name: string }) => t.name)).not.toContain("cinder");
     (d as { dispose?: () => void }).dispose?.();
+  });
+
+  test("a screen's only tile carried away leaves a blank heir, and the carry is one undo entry", async () => {
+    process.env.EP0CH_STATE = mkdtempSync(join(state, "carry-"));   // a desk of its own, not the walk's saved one
+    const from = new Desk(), to = new Desk();
+    const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => from.dispatch.act({ action, args, ...(tile ? { tile } : {}) }, USER);
+    for (const name of ["tree", "replies", "activity"]) await act("tile.close", {}, name);
+    const before = from.history.newest()?.seq ?? 0;
+    from.carry(to, "reader", { floating: { col: 2, row: 2, cols: 40, rows: 12 }, heir: makeTile({ t: "leaf", kind: "blank" }) }, USER);
+    expect(from.outOfStep()).toEqual([]);
+    expect(from.history.newest()?.seq ?? 0).toBeGreaterThan(before);
+    expect(await act("layout.undo").then(() => "undone", (e: Error) => e.message)).toBe("undone");
   });
 });
