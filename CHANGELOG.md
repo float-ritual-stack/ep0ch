@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The reader's keys come from one table (PIE-1527)
+
+- Every reader key, its hint and its line in `?` come from one table. A key you rebind can't be taken by an extension, and a custom binding with arguments works. shift+↑/↓ steps reading, and shift+⏎ and ctrl+⏎ act as ⏎.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
+- **Frame controls:** every click on a tile's frame goes through one press map, so x-ray and hints name the same action the click runs (PIE-1530).
+- **Fix:** PgDn in a table collection pages one screen, not to the last row (PIE-1529).
+
 ### Waiting is an extension, and any screen can have a menu row (PIE-1525)
 
 - **Waiting moved out of the door:** the waiting extension, on by default. O on the main menu opens the same list beside a reader, with no install step.
