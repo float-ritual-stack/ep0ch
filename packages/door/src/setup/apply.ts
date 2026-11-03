@@ -605,6 +605,14 @@ export function rerunAfterMove(code: number, moved: boolean, args: readonly stri
   return code === 0 && moved && args.includes("--apply") && !args.includes("--json") && !args.includes("--as-client") && !env.EP0CH_INSTALL_RERUN;
 }
 
+/**
+ * Another pass follows this one on the new code: a person's rerun, or the link's second invocation of a pinned install
+ * (`installLinkedSha`). Each pass kills a live named agent to restart it, so with one to come this leaves them to it.
+ */
+export function leaveToNextPass(moved: boolean, args: readonly string[], env: Record<string, string | undefined>, sha?: string): boolean {
+  return moved && ((args.includes("--as-client") && !!sha) || rerunAfterMove(0, moved, args, env));
+}
+
 export async function setupCommand(args: readonly string[], io: SetupIO = { out: console.log, err: console.error }): Promise<number> {
   const json = args.includes("--json");
   const env = io.env ?? process.env;
@@ -734,7 +742,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     }
   };
   const beginRecord = () => record(async () => {
-    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; }, selectors, args.includes("--as-client"));
+    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; }, selectors, args.includes("--as-client") && !!sha);
     if (!deploy) return;
     say(`    deploy record: ${deploy.id}`);
     if (json) plan.notes.push(`deploy record: ((${deploy.id}))`);
@@ -774,6 +782,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       current = { ...current, mcp: await mcpFacts(current.platform, current.home, current.repo.root) };
       step = current.mcp ? mcpStep(current, current.repo.checkout.behind > 0) : { ...step, status: "skip", why: "the MCP gateway's unit is gone" };
     }
+    if (step.id === "named-agents" && leaveToNextPass(results.some(s => s.id === "repo" && s.done?.some(line => line.startsWith("RUN AGAIN:"))), args, env, sha)) step = { ...step, status: "skip", why: "the checkout moved: the next pass, on the new code, restarts them" };
     if (step.status !== "do" && step.id !== "backup") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
     status?.report({ state: "working", progress: Math.round((i / plan.steps.length) * 100), msg: `step ${i + 1} of ${plan.steps.length}: ${step.title}` });
     const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });

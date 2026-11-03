@@ -14,11 +14,12 @@ import type { Facts } from "./model";
 type Env = Record<string, string | undefined>;
 
 /**
- * The destination is selected normally; deployment facts are observed on the machine being installed. A client's install
- * (`asClient`, sent by a link or an ssh leg) with no outline named has none to guess (PIE-1557): the machine that asked
- * records it from the receipt (`recordLinkInstall`, the deploy's client leg), so this writes nothing and answers undefined.
+ * The destination is selected normally; deployment facts are observed on the machine being installed. A linked install
+ * (`linked`, pinned to a sha by the link) with no outline named has none to guess (PIE-1557): the machine that asked
+ * records it from the receipt (`recordLinkInstall`), so this writes nothing and answers undefined. An ssh leg has no
+ * receipt, so it still hears why nothing was saved.
  */
-export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void, selectors: readonly string[] = [], asClient = false) {
+export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void, selectors: readonly string[] = [], linked = false) {
   const target = resolveTarget(selectors, env, folder);
   if ("error" in target) throw new Error(target.error);
   const socket = "unnamed" in target ? f.host.socket : target.path;
@@ -26,7 +27,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
     ? (await hostRequest(socket, "outlines.list")).defaultOutline
     : target.outline;
   if (!("unnamed" in target) && target.machine) await forwardTo(target.machine, env);
-  if (!outline && asClient) return undefined;
+  if (!outline && linked) return undefined;
   if (!outline) throw new Error("no outline named here or by the host; run install with EP0CH_WS=<served outline>");
   const actor = sessionPersona({ env, folder, fs: disk })?.name;
   const sessionId = env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || env.CODEX_THREAD_ID;
