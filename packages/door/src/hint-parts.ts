@@ -24,6 +24,8 @@ export function hotParts(rows: readonly ModeKey[]): (string | [string, Key])[] {
 /** The lists' own keys on their hot line: the lit row moves, ⏎ takes it, q goes back. */
 export const listKeys = (enter: string, then: readonly ModeKey[] = []): readonly ModeKey[] => [{ key: "up", action: "list.select", label: "select" }, { key: "down", action: "list.select", label: "select" }, { key: "enter", action: "list.open", label: enter }, ...then];
 export const BACK_KEY: readonly ModeKey[] = [{ key: "q", action: "screen.back", label: "back" }];
+/** The BBS reader's n and p (message.next, message.previous): parts, so a click on each reads on as its key does. */
+export const messageNavHint = () => partsHint([{ key: "n", action: "message.next", label: "next" }, { key: "p", action: "message.previous", label: "prev" }]);
 /** The drawer's folded title row: + or ⏎ opens it, esc leaves. */
 export const drawerTitleHint = () => partsHint([DRAWER_OPEN_PART, DRAWER_LEAVE_PART]);
 /** The drawer's foot: entered, - folds it, esc steps out and esc again puts it away; else esc puts it away. */

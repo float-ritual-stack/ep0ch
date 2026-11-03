@@ -497,7 +497,11 @@ export class ReaderPane implements Pane, AttachedOwner {
     if (!this.pinnable) return ["reader", st].filter(Boolean).join(" · ");
     return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
-  hint() { return this.surface.hint(!this.pinnable ? "" : this.pinned ? `pinned · opens → ${this.opensGo ?? "beside it"} · p unpins · ` : "p pin · "); }
+  hint() {
+    // p is a part with its action (reader.pin), so a click on it pins as the key does (PIE-1293).
+    const pin = (label: string) => `${modeHint([{ key: "p", action: "reader.pin", label }], () => undefined)} · `;
+    return this.surface.hint(!this.pinnable ? "" : this.pinned ? `pinned · opens → ${this.opensGo ?? "beside it"} · ${pin("unpins")}` : pin("pin"));
+  }
   /** A reader's keys are its note's (NOTE_ACTIONS). */
   keysScope(): string { return NOTE_ACTIONS.scope; }
   /** The frame and policy panel share the words for the reader's pin. */
