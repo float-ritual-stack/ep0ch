@@ -17,9 +17,9 @@ import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
-import { COPY_ROWS, historyAction, historyRow, IN_TRASH, type Link, type TrailDir } from "../surface/note";
+import { historyRow, type DrawnNote, type Hit, type Link } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
-import { Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
+import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
 import type { DocTrim } from "../doc";
 import { describeLinkRow, linkNote, linkRowLines, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
@@ -34,7 +34,7 @@ import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
 import { askInBar } from "../bar/ask";
 import type { WriteBoard } from "../mcp-writes";
-import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
+import { READER_ACTIONS, ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import { readerFacts } from "../desk/reader-facts";
@@ -57,8 +57,8 @@ const GLYPH: Record<string, string> = { hub: "◎", workboard: "▦", workspace:
 export type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind: "tag"; key: string; value: string };
 interface Clause { key: string; value: string; exclude: boolean }
 interface Row { m: Msg; depth: number }
-/** A row as drawn: its card (-1: none), whether it's the replies toggle, the links on it, the history row's parts. */
-type HitRow = { card: number; replies: boolean; copy?: { from: number; to: number; n: number }[]; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: TrailDir }[]; fold?: { to: number; n: number } };
+/** A row as drawn: its card (-1: none), whether it's the replies toggle or the links' header, and the note's press targets on it (its digest's: PIE-1543). */
+type HitRow = { card: number; replies: boolean; linksHead?: boolean; targets?: Hit[] };
 
 /** A source as a tile spec writes it: `roots`, `block:<id>`, `tag:<key>=<value>`. */
 export const sourceText = (s: Source) => (s.kind === "roots" ? "roots" : s.kind === "block" ? `block:${s.id}` : `tag:${s.key}=${s.value}`);
@@ -177,7 +177,7 @@ export class RiverColumn extends ReaderPane {
   private headRows = 0;
   /** The note's images on the column's rows (before its scroll), from its digest. */
   private images: Placement[] = [];
-  private digestOf_: { key: string; m: Msg; s: Msg | null; dg: ReturnType<ReaderPane["surface"]["digest"]> } | undefined;
+  private digestOf_: { key: string; m: Msg; s: Msg | null; dg: DrawnNote } | undefined;
   private shown?: { key: string; at: number };
   private gesture = new Gesture();
   /** Presses on its cards: a second on the same card soon after is a double click. */
@@ -189,7 +189,7 @@ export class RiverColumn extends ReaderPane {
    */
   linksShown = true;
   private linkShut = new Set<LinkGroupName>();
-  private down: { row?: HitRow; link?: Link; fold?: number; same: boolean; fresh?: boolean; dragging: boolean; move?: Msg } | null = null;
+  private down: { row?: HitRow; target?: Hit; same: boolean; fresh?: boolean; dragging: boolean; move?: Msg } | null = null;
   private editDrag = false;
   /** The keys came here just now (a click that focuses it only focuses it). */
   private justFocused = false;
@@ -346,6 +346,9 @@ export class RiverColumn extends ReaderPane {
     desk.redraw();
   }
 
+  /** The surface draws the whole column (and takes its mouse): an edit, a comment, the thread list, or the Sources inspector ([sources], S). */
+  private surfaceDraws(): boolean { return !!this.surface.msg && (this.surface.editing || !!this.surface.sourcesMode); }
+
   /** A link is selected in its note: ⏎ follows it instead of opening the selected card. */
   private linked(): boolean { return !!this.surface.msg && this.surface.msg.id === this.noteOf()?.id && this.surface.describe().links.some(l => l.selected); }
 
@@ -353,19 +356,21 @@ export class RiverColumn extends ReaderPane {
 
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     if (desk) this.desk = desk;
-    // Editing, quoting, the thread list: the shared surface, drawn in the column.
-    if (this.surface.editing && this.surface.msg) return super.render(w, h, focused, desk);
+    // Editing, quoting, the thread list, the Sources inspector: the shared surface, drawn in the column.
+    if (this.surfaceDraws()) return super.render(w, h, focused, desk);
     const head: string[] = [];
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
     const foot = this.mode === "filter" ? [paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
-    // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
-    // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
+    // A block column keeps its note's header above the scroll, as a reader does: the note drawn once (the surface's
+    // digest, PIE-1543), its header with the backdrop of a picture that has scrolled under it (PIE-598).
     const root = this.source.kind === "block" && desk ? this.rootOf() : undefined;
-    const stuck = root && desk ? this.surface.stickyHeader(root, w, this.host(desk), 0).lines.length : 0;
+    if (root && desk && this.surface.msg?.id !== root.id) this.show(root, desk);
+    const dg = root && desk ? this.digest(root, w, Math.max(4, Math.round((h - head.length - foot.length) * 0.8))) : null;
+    const stuck = dg?.header.lines.length ?? 0;
     const room = Math.max(1, h - head.length - stuck - foot.length);
-    const view = this.view(w, room, focused);
-    const sticky = root && desk ? this.surface.stickyHeader(root, w, this.host(desk), this.top - this.digestAt) : null;
-    this.sticky = (sticky?.lines ?? []).map((_, r) => ({ card: -1, replies: false, links: sticky!.links.filter(l => l.row === r) }));
+    const view = this.view(w, room, focused, dg);
+    const sticky = root && desk && dg ? this.surface.stickyHeader(root, w, this.host(desk), this.top - this.digestAt, dg) : null;
+    this.sticky = (sticky?.lines ?? []).map((_, r) => ({ card: -1, replies: false, targets: dg!.header.targets.filter(t => t.row === r) }));
     this.headRows = head.length + this.sticky.length;
     // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
     const placements = [...(sticky?.placements ?? []).map(p => ({ ...p, row: p.row + head.length })), ...this.images.flatMap(p => inWindow(p, this.top, room, this.headRows) ?? [])];
@@ -383,49 +388,32 @@ export class RiverColumn extends ReaderPane {
   }
 
   /** The column's rows as they show: its note (a block column) and its cards, scrolled; what a click reaches kept. */
-  private view(w: number, rows: number, active: boolean): string[] {
+  private view(w: number, rows: number, active: boolean, dg: DrawnNote | null): string[] {
     const desk = this.desk;
     const all: (HitRow & { text: string })[] = [], trims = new Map<number, DocTrim>();
     this.images = [];
     const push = (text: string, card = -1, replies = false) => all.push({ text, card, replies });
     if (this.error) push(fg(C.lred) + this.error + RESET);
     const root = this.rootOf();
-    if (this.source.kind === "block" && root && desk) {
+    if (this.source.kind === "block" && root && desk && dg) {
       // Its title, summary, byline and crumbs are the sticky header above the scroll (render).
-      const m = root, host = this.host(desk);
+      const m = root, s = this.surface;
       // Where back and forward go (its flow's trail), under the title where it's always in reach.
-      const hr = historyRow(w, this.surface.peek(-1), this.surface.peek(1));
-      if (hr) all.push({ text: hr.line, card: -1, replies: false, history: hr.hits });
+      const hr = historyRow(w, s.peek(-1), s.peek(1));
+      if (hr) all.push({ text: hr.line, card: -1, replies: false, targets: hr.hits.map(x => ({ row: 0, from: x.from, to: x.to, history: x.dir })) });
       for (const l of this.banner(m, w)) push(l);
-      // The note's body through the shared surface's renderer (its digest): links as Detail reads them, transclusions,
-      // step controls; a click on a link opens it in the next column; `[ ]` walks its elements; the column scrolls.
-      if (this.surface.msg?.id !== m.id) this.show(m, desk);
-      const dg = this.digest(m, w - 1, Math.max(4, Math.round(rows * 0.8))), at = all.length;
+      // The note's body, drawn once by the shared surface (its digest): links, transclusions, step controls, folds,
+      // copy controls, each a press target the reader's click presses too; `[ ]` walks its elements; the column scrolls.
+      const at = all.length;
       this.digestAt = at;
       this.digestRows = dg.lines.length;
-      this.images = dg.placements.map(p => ({ ...p, row: p.row + at, col: p.col + 1 }));
-      const byRow = new Map<number, { from: number; to: number; link: Link }[]>();
-      for (const x of dg.links) { const r = byRow.get(x.row); const l = { from: x.from + 1, to: x.to + 1, link: x.link }; if (r) r.push(l); else byRow.set(x.row, [l]); }
-      // A heading (or a list item's mark) is a fold point, as in a reader: a click on it folds or unfolds it.
-      const folds = new Map(dg.folds.map(f => [f.row, { to: f.cols + 1, n: f.n }] as const));
-      // A code block's, a quote's and a callout's copy control (PIE-638): a dim ⧉ where the reader puts it, a click on it block.copy.
-      const copies = new Map<number, { b: (typeof dg.blocks)[number]; put: string }>();
-      // An inline code span is a click target, no control: it copies its contents.
-      const spans = new Map<number, { from: number; to: number; n: number }[]>();
-      for (const b of dg.blocks) if (b.kind === "span") { const g = spans.get(b.row) ?? []; g.push({ from: b.col + 1, to: (b.to ?? b.col) + 1, n: b.n }); spans.set(b.row, g); }
-      for (const b of dg.blocks) {
-        if (b.kind === "span") continue;
-        for (let r = b.row; r < Math.min(dg.lines.length, b.row + Math.min(b.rows, COPY_ROWS)) && b.col + 1 < w; r++) {
-          const put = putCell(" " + dg.lines[r]!, b.col + 1, "⧉", fg(b.n + 1 === this.surface.currentBlock() ? C.lcyan : C.dark));
-          if (put !== null) { copies.set(r, { b, put }); break; }
-        }
-      }
+      this.images = dg.placements.map(p => ({ ...p, row: p.row + at }));
+      const byRow = new Map<number, Hit[]>();
+      for (const t of dg.targets) byRow.set(t.row, [...(byRow.get(t.row) ?? []), t]);
       dg.lines.forEach((l, i) => {
-        const c = copies.get(i), b = c?.b, put = c?.put, hits = [...(put && b ? [{ from: b.col + 1, to: b.col + 2, n: b.n }] : []), ...(spans.get(i) ?? [])];
-        all.push({ text: put ?? " " + l, card: -1, replies: false, links: byRow.get(i) ?? [], ...(folds.has(i) ? { fold: folds.get(i)! } : {}), ...(hits.length ? { copy: hits } : {}) });
-        const t = dg.trims.get(i), cuts = (t?.cuts ?? []).map(([a, z, rep]) => [a + 1, z + 1, rep] as [number, number, string?]);
-        if (put && b) cuts.push([b.col + 1, b.col + 2]);                 // the control itself is never copied
-        if (cuts.length || t?.edge) trims.set(all.length - 1, { cuts, ...(t?.edge ? { edge: true as const } : {}) });
+        all.push({ text: l, card: -1, replies: false, targets: byRow.get(i) ?? [] });
+        const t = dg.trims.get(i);
+        if (t) trims.set(all.length - 1, t);
       });
       // The element `[ ]` just stepped to comes into view (only when it changed: the wheel still reads on).
       if (dg.key !== (this.shownElem ?? null)) {
@@ -475,10 +463,10 @@ export class RiverColumn extends ReaderPane {
     // Past the end as every reader scrolls (PIE-622, reader.overscroll): the last row up to the middle.
     this.maxTop = lastTop(all.length, rows);
     this.top = scrolled(this.top, 0, this.maxTop);
-    this.drawn = { lines: all.map(l => l.text), w, trims, body: [this.digestAt, this.digestAt + (this.source.kind === "block" && root && desk ? this.digestRows : 0)] };
+    this.drawn = { lines: all.map(l => l.text), w, trims, body: [this.digestAt, this.digestAt + (dg ? this.digestRows : 0)] };
     if (this.text && this.text.w !== w) this.text = null;
     const shown = all.slice(this.top, this.top + rows);
-    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history, fold: l.fold, ...(l.copy ? { copy: l.copy } : {}), ...(l.linksHead ? { linksHead: true } : {}) }));
+    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, ...(l.targets?.length ? { targets: l.targets } : {}), ...(l.linksHead ? { linksHead: true } : {}) }));
     return shown.map((l, i) => { const span = this.text?.span(this.top + i); return span ? paintRange(l.text, span[0], span[1], SELECT_BG) : l.text; });
   }
 
@@ -492,6 +480,13 @@ export class RiverColumn extends ReaderPane {
       keptChanged?.();
     };
     h.redraw = () => { this.gen++; redraw(); };
+    // A comment thread's mark (a whole-note [+]): the column draws no thread cards; its comments are its replies, so
+    // the thread's card is selected there.
+    h.showThread = thread => {
+      const n = this.flat().findIndex(r => r.m.id === thread);
+      if (n >= 0) this.run(desk, "column.select", { n: n + 1 });
+      else desk.ctx.flash("that thread isn't among this column's replies · m lists the note's threads");
+    };
     // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
     h.links = async (actor, standing) => {
       if (!standing) throw new ActionRefused("showing or hiding a column's links changes what the person reads · peek reads them (noteLinks)");
@@ -521,7 +516,7 @@ export class RiverColumn extends ReaderPane {
     const t = this.desk?.ctx.t;
     const key = `${this.gen}|${w}|${maxImageRows}|${this.desk?.ctx.graphics ? 1 : 0}|${t?.kitty ? 1 : 0}|${t?.cellW}x${t?.cellH}|${m.revision ?? ""}|${this.surface.cursorKey}`, d = this.digestOf_;
     if (d && d.key === key && d.m === m && d.s === this.surface.msg && this.desk?.coverOf?.(this) === "peek") return d.dg;
-    const dg = this.surface.digest(m, w, this.host(this.desk!), maxImageRows);
+    const dg = this.surface.digest(m, w, this.host(this.desk!), maxImageRows, 1);
     this.digestOf_ = { key, m, s: this.surface.msg, dg };
     return dg;
   }
@@ -533,11 +528,7 @@ export class RiverColumn extends ReaderPane {
     const key = `${s.notice}|${s.agent?.at ?? ""}`;
     if (key !== "|" && this.shown?.key !== key) this.shown = { key, at: Date.now() };
     if (this.shown && key !== "|" && Date.now() - this.shown.at >= BANNER_MS && !this.desk?.hasFocus?.(this)) { s.notice = ""; s.agent = null; this.shown = undefined; return []; }
-    return [
-      ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
-      ...(s.notice ? [fg(C.yellow) + pad(s.notice, w) + RESET] : []),
-      ...(s.agent ? [fg(C.lmagenta) + pad(`an agent (${s.agent.id}) ${s.agent.did}`, w) + RESET] : []),
-    ];
+    return [...s.banner("trash", m, w), ...s.banner("notice", m, w), ...s.banner("agent", m, w)];
   }
 
   /** The person acted here: its property notice and agent line have been read. */
@@ -633,7 +624,7 @@ export class RiverColumn extends ReaderPane {
       return true;
     }
     if (c === "y") { this.run(desk, "column.copy"); return true; }
-    if (c === "Y") { desk.ctx.flash("a river column draws a digest of the note, so its source isn't mapped here · y copies what's drawn; a reader's Y copies the source"); return true; }
+    if (c === "Y") { this.run(desk, "column.copy", { source: true }); return true; }
     if (!sel.keys) {
       if (c === "v") { sel.keys = true; desk.redraw(); return true; }
       if (k.kind === "esc") { this.text = null; desk.redraw(); return true; }
@@ -666,8 +657,8 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     if (sideways(k)) return false;                                              // the flow's: its kind steps to the column beside
     if (this.mode === "filter" && this.input.mouse({ ...k, x, y }, this.filterAt)) { desk.redraw(); return true; }
-    if (this.surface.editing && this.surface.msg) {
-      // In an edit: the surface's own press, drag and release, as on the desk (the cursor placed, a completion picked,
+    if (this.surfaceDraws()) {
+      // In an edit (or the Sources inspector): the surface's own press, drag and release, as on the desk (the cursor placed, a completion picked,
       // a drag selecting in the draft and copied when the button comes up, a double click's word).
       if (k.action === "down") { this.editDrag = true; this.surface.press(x, y, this.host(desk), !!((k.mods ?? 0) & 4)); }
       else if (k.action === "drag" && this.editDrag) this.surface.drag(x, y, this.host(desk));
@@ -709,21 +700,19 @@ export class RiverColumn extends ReaderPane {
     if (this.mode === "filter" && completerOf(this.input)?.click(y, x)) { desk.redraw(); return true; }
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
-    const back = row?.history?.find(h => x >= h.from && x < h.to);
-    if (back) { void desk.perform?.(historyAction(back.dir), {}, USER, this); return true; }
-    const copy = row?.copy?.find(c => x >= c.from && x < c.to);
-    if (copy) { this.run(desk, "column.block", { n: copy.n + 1 }); return true; }
-    const link = row?.links?.find(l => x >= l.from && x < l.to);
+    // The note's own targets (its header's chips and crumbs, a link, a fold, a copy control, back and forward): the
+    // reader's press of the same target (PIE-1543), on release; a link's on the same cell, so a drag from it selects.
+    const target = row?.targets?.filter(t => x >= t.from && x < t.to).sort((a, b) => Number("link" in b) - Number("link" in a))[0];
+    const link = target && "link" in target ? target : undefined;
     // A card escalates as every list's row does (RowPresses): a click selects it, a double click or an alt-, ctrl- or
     // middle-click opens it in the next column (⏎); the click that gave the column the keys only selects.
     const g = row && row.card >= 0 && !link ? this.presses.press(row.card, { mods: k.mods ?? 0, button: k.button, focusing: press?.focusing ?? this.justFocused, selected: row.card === this.sel }) : "select";
     const same = g === "open" || g === "fresh";
     if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
-    const fold = !link && row?.fold && x >= 1 && x <= row.fold.to ? row.fold.n : undefined;
     // An alt-, ctrl- or middle-click on a link is a fresh one, as in a reader (a button's alt=, or asking its slots again).
     const fresh = g === "fresh" || (!!link && (!!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE));
-    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(x < 4 && row && row.card >= 0 ? { move: this.flat()[row.card]?.m } : {}), ...(fresh ? { fresh: true } : {}), dragging: false };
+    this.down = { row, ...(target ? { target } : {}), same, ...(x < 4 && row && row.card >= 0 ? { move: this.flat()[row.card]?.m } : {}), ...(fresh ? { fresh: true } : {}), dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
     const rows = this.drawn && this.selRows();
@@ -735,10 +724,9 @@ export class RiverColumn extends ReaderPane {
 
   /** A press and release on the same cell: a link opens in the next column, a heading folds, a card's replies show, a selected card opens. */
   private click_(d: NonNullable<RiverColumn["down"]>, desk: DeskApi) {
-    if (d.fold !== undefined) { void this.surface.runKey("fold.toggle", { n: d.fold }, this.host(desk)); return; }
-    if (d.link) {
-      this.gesture.forget();
-      try { this.surface.clickLink(d.link, this.host(desk), !!d.fresh); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
+    if (d.target) {
+      if ("link" in d.target) this.gesture.forget();
+      try { this.surface.pressTarget(d.target, this.host(desk), undefined, !!d.fresh); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
       return;
     }
     const row = d.row;
@@ -828,10 +816,13 @@ export class RiverColumn extends ReaderPane {
   }
 
   /** `column.copy`: the text selected in the column. The person's goes to the clipboard; an agent's is given back. */
-  copy(actor: Actor, desk: DeskApi): { chars: number; text: string } {
+  copy(actor: Actor, desk: DeskApi, source = false): { chars: number; text: string } {
     const sel = this.text;
     if (!sel) throw new ActionRefused("nothing is selected · drag across the text, or v and move");
-    const text = sel.text(this.selRows());
+    // source: the note's lines the selected rows are drawn from, as written (the digest's map back to source, PIE-1543).
+    const body = this.drawn?.body, dg = this.digestOf_?.dg;
+    const text = !source ? sel.text(this.selRows())
+      : (body && dg && this.surface.digestSource(dg, sel.start.row - body[0], sel.end.row - body[0], sel.text(this.selRows()))) ?? (() => { throw new ActionRefused("no source to copy: the selection isn't on the note's body"); })();
     if (!text.trim()) throw new ActionRefused("nothing to copy: only blanks are selected");
     if (actor.kind !== "agent") {
       if (desk.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes`);
@@ -1046,10 +1037,14 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
-    keys: [{ keys: "y cmd+c", does: "copy the selected text" }, { keys: "drag", does: "copies when the button comes up" }, { keys: "double-click", does: "copies the selection (a triple click too)" }],
+    keys: [{ keys: "y cmd+c", does: "copy the selected text" }, { keys: "Y", does: "copy the source the selected rows are drawn from" }, { keys: "drag", does: "copies when the button comes up" }, { keys: "double-click", does: "copies the selection (a triple click too)" }],
     touches: "nothing", replay: "safe",
-    args: {},
-    run: (_, { pane, desk }, actor) => columnOf(pane).copy(actor, desk),
+    args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) the selected rows are drawn from, instead of what's drawn" } },
+    examples: [
+      { act: "column.copy tile=column2", does: "copies the text selected in that column, as drawn" },
+      { act: "column.copy tile=column2 source=true", does: "copies the source the selected rows are drawn from, as a reader's Y does" },
+    ],
+    run: ({ source }, { pane, desk }, actor) => columnOf(pane).copy(actor, desk, !!source),
   }),
 });
 
@@ -1093,7 +1088,8 @@ export function riverColumnKind(): TileKind {
     },
     save: p => (p as RiverColumn).spec(),
     start: (p, env) => (p as RiverColumn).load(env.desk),
-    actions: COLUMN_ACTIONS,
+    // A column is a reader: its header's crumbs (reader.crumb), alt+r and the reader's other actions are its too (PIE-1543).
+    actions: COLUMN_ACTIONS, inherits: [READER_ACTIONS],
     press: (_p, k) => modeBinding(FLOW_KEYS, k) ?? null,
     // A swipe sideways steps to the column beside, as h and l do.
     sideways: (_p, dir) => modeBinding(FLOW_KEYS, { kind: dir < 0 ? "left" : "right" }) ?? null,

@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import type { App } from "../../src/app";
 import { SEED } from "../../src/showcase/seed";
 import type { Showcase } from "../../src/showcase/showcase";
-import type { SocketBoard } from "../../src/socket";
+import { USER, type SocketBoard } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { C, fg } from "../../src/style";
@@ -58,6 +58,20 @@ describe.skipIf(!outliner)("the showcase screen: a note with no header (PIE-1319
     await setText(SEED.dashboard);
     await until(() => tiles().reader.slice(0, 3).some(r => r.includes(SEED.dashboard)), "the reader's title back", 8000);
     await until(() => tiles().column.slice(0, 4).some(r => r.includes(SEED.dashboard)), "the column's header back", 8000);
+    // The column's header is the reader's, and so are its presses (PIE-1543): its [comment] starts a comment on the whole note.
+    const desk = sc.tilesHere()!;
+    const colName = ((await app.act({ action: "layout.get", as: "test-agent" }) as any).tiles as any[]).find(t => t.kind === "river.column").name;
+    const col = desk.pane(colName) as any, rect = desk.rectOf(col)!;
+    const rows = col.render(rect.cols, rect.rows, true, desk).lines.map(plain);
+    const y = rows.findIndex((r: string) => r.includes("[comment]"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const x = rows[y]!.indexOf("[comment]") + 1;
+    col.mouse({ kind: "mouse", action: "down", button: 0, x, y }, x, y, desk);
+    col.mouse({ kind: "mouse", action: "up", button: 0, x, y }, x, y, desk);
+    await until(() => col.surface.session?.mode === "compose", "the column's comment on the whole note", 8000);
+    expect(col.surface.session.target).toMatchObject({ kind: "note" });
+    await desk.dispatch.act({ action: "comment.close", args: {}, tile: colName }, USER);
+    await until(() => !col.surface.session, "the comment closed", 8000);
     expect(tiles().reader[0]).not.toContain(FIGURE);
     // And put back: gone again.
     await setText(`${SEED.dashboard} [header::none]`);
