@@ -238,13 +238,13 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
     case "band":
       return bandRows(n, w, headings);
     case "image": {
-      if (typeof n.src !== "string" || !n.src) throw new PrimitiveUnknown("an image needs src");
-      const node: ImagePrimitive = { src: n.src, ...(typeof n.alt === "string" ? { alt: n.alt } : {}), ...(typeof n.size === "string" ? { size: n.size } : {}),
+      if ((typeof n.src !== "string" || !n.src) && typeof n.svg !== "string") throw new PrimitiveUnknown("an image needs src or svg");
+      const node: ImagePrimitive = { ...(typeof n.svg === "string" ? { svg: n.svg } : { src: n.src as string }), ...(typeof n.alt === "string" ? { alt: n.alt } : {}), ...(typeof n.size === "string" ? { size: n.size } : {}),
         ...(n.fit === "cover" || n.fit === "contain" ? { fit: n.fit } : {}), ...(typeof n.height === "number" && Number.isInteger(n.height) && n.height > 0 ? { height: n.height } : {}),
         ...(typeof n.caption === "boolean" ? { caption: n.caption } : {}) };
       if (draw.image) return draw.image(node, w);
       // As the service's terminal target says it: its words, then its file.
-      return wrap(`[image${node.alt ? `: ${one(node.alt)}` : ""}] ${one(imageSource(node.src))}`, w).map(l => fg(C.cyan) + l + RESET);
+      return wrap(`[image${node.alt ? `: ${one(node.alt)}` : ""}] ${node.src ? one(imageSource(node.src)) : "svg picture"}`, w).map(l => fg(C.cyan) + l + RESET);
     }
     case "list": {
       if (!Array.isArray(n.rows)) throw new PrimitiveUnknown("a list needs rows");

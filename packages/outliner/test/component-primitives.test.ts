@@ -95,6 +95,17 @@ test("a blockdown primitive is the reader's to draw: its source in every text ta
     '<div class="ext-blockdown">## Plan\n- one &lt;b&gt;\n- [[A page]]</div></section></div></div>');
 });
 
+test("an image primitive's svg (PIE-1555): a script's own drawing, said as an svg picture where it can't be drawn", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><a href="[[Bike shed]]"><rect width="5" height="5"/></a></svg>';
+  const view = validateComponent({ data: null, view: { type: "image", svg, alt: "the banner" } });
+  expect(view.view).toEqual({ type: "image", svg, alt: "the banner" });
+  expect(renderComponent(view, "terminal").body).toBe("[image: the banner] svg picture");
+  expect(renderComponent(view, "html").body).not.toContain("<svg");
+  expect(() => validatePrimitive({ type: "image", svg: "<div>no</div>" })).toThrow("view.svg must be an <svg …> element");
+  expect(() => validatePrimitive({ type: "image", svg, src: "a.png" })).toThrow("view.svg takes src or svg, not both");
+  expect(() => validatePrimitive({ type: "image", svg: `<svg>${"x".repeat(300_000)}</svg>` })).toThrow("view.svg must be at most");
+});
+
 test("an image primitive (PIE-827): a file the outline names, said as its words and file where it can't be drawn, a numbered place on a page", () => {
   const view = validateComponent({ data: null, view: { type: "card", title: "Beetroot", children: [
     { type: "image", src: "/plot/pics/seed packet.webp", alt: "a packet of <seed>", size: "50%", fit: "cover", height: 6 },

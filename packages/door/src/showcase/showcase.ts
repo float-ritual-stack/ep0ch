@@ -1,6 +1,7 @@
 import { namedAgentSection } from "./named-agent";
 import { completionPlaceSection, completionSection, snippetSection } from "./completion";
 import { STRIP_SECTION } from "./strip";
+import { picturesSection } from "./pictures";
 import { spacingSection } from "./spacing";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
@@ -981,8 +982,8 @@ export const SECTIONS: Section[] = [
         render: async req => {
           const l = extensionList();
           const rows = !l ? [`${fg(C.yellow)}this service lists no extensions (it lacks extensions.list, or none are installed)${RESET}`]
-            : l.extensions.flatMap(e => e.id.startsWith("script-")
-            // A script is one line (its notes are in the sections that use them; four lines each would push the programs off a screen).
+            : [...l.extensions].sort((a, b) => Number(a.id.startsWith("script-")) - Number(b.id.startsWith("script-"))).flatMap(e => e.id.startsWith("script-")
+            // The programs first, then each script on one line (its notes are in the sections that use them): more scripts never push the programs off a screen.
             ? [`${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}script · ${e.state}${RESET}`]
             : [
               `${fg(C.lcyan)}${e.name}${RESET} ${fg(C.dark)}${e.id} · ${e.state}${RESET}`,
@@ -1175,11 +1176,9 @@ export const SECTIONS: Section[] = [
   {
     key: "images", need: "draw an image or video in a note; size it, place it, make it the note's header", part: "the media line (PIE-532): [img::path] and the layout properties beside it ([size::] [height::] [align::] [layout::hero] [alt::]), parsed once (parseMediaLine), laid out by renderDoc into Kitty placements (scaled by sharp to the box, never up), the header drawn by NoteSurface above the title; image.size, image.align and image.hero write the line through the note's save", files: "src/media.ts, src/doc.ts, src/surface/note.ts, src/kitty.ts",
     aside: "[ ] to an image, then + - size it, ← → move it, H makes it the header (or click its caption's [−][+] [◂][▸] [▀]) · ctrl+z undoes · an agent: images, then image.size n=2 to=50%, image.align, image.hero · images draw under Kitty graphics; elsewhere each line says what it is",
-    stage(n, show) {
-      const r = new ReaderPane();
-      return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]);
-      },
-    },
+    stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]); },
+  },
+  picturesSection({ deskOf, row }),
   {
     key: "hero", need: "tune a hero picture, its fade, title and scrolling", part: "the header's backdrop (PIE-598, src/surface/hero-header.ts): NoteSurface finds the hero (the header image, a [layout::hero] image, or an image that is the note's first block) and how far it has gone under its sticky header; the media pipeline makes the muted, dimmed variant (src/media.ts Look mute, a PNG under Kitty graphics, one colour per cell otherwise); reader.hero turns it off, kept like the theme", files: "src/surface/hero-header.ts, src/media.ts, src/doc.ts (coverCrop), src/surface/note.ts, src/screens.ts (reader.hero)",
     aside: "the hero line is the header picture's only setting (PIE-1361): alt+y opens the tune, whose Hero rows (j k, + −, the wheel, ×, or act tune.nudge row=hero.tint by=1) write blur, bleed, height, fit, dim, tint, fade, title and scroll on that line at once, and ctrl+z here puts it back; drag the header's bottom row to size it and the picture to move its focus (image.size height=, image.look focus=x,y). This demo uses blur=4, full bleed, height=33%, cover, dim=0.4, tint=0.5, fade=0.75, title=over and scroll=pinned. In cells, j, the wheel or space scrolls the picture up under the header: the header takes it, dimmed, by steps · [hero-focus::x,y] on the picture's line says what the crop keeps · `act reader.hero on=false` turns it off everywhere, `mode=follow` makes the header follow each picture down the note (kept for the next start) · Kitty draws the picture under the text; cells colour each cell from it · the river column on the right keeps the same header above its scroll, drawn once by the reader (PIE-1543): its [comment], comment count, crumbs and [+] press as the reader's do, and Y on text selected there copies its source",

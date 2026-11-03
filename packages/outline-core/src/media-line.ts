@@ -169,7 +169,8 @@ export function parseMediaLine(line: string): MediaSpec | null {
  * `full`). `caption: false` (PIE-839): the picture alone where it's drawn, without the caption line under it (a card's
  * cover, where the card is what opens); where it can't be drawn, its caption still says what it is.
  */
-export interface ImagePrimitive { src: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number; caption?: boolean }
+/** `src` a file; or `svg`, the picture's own markup (PIE-1555: a render script's drawing), which the door draws as it draws an SVG file. */
+export interface ImagePrimitive { src?: string; svg?: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number; caption?: boolean }
 
 /**
  * The path an image primitive's `src` names: a `file:` Resource ref's path, read by `parseResourceRef` (so it is
@@ -187,8 +188,8 @@ export function imageSource(src: string): string {
  * where neither can be drawn). What isn't a value of the line's grammar is a problem, said on its caption.
  */
 export function imagePrimitiveSpec(node: ImagePrimitive): MediaSpec {
-  const spec: MediaSpec = { kind: "img", path: imageSource(node.src), problems: [] };
-  if (!spec.path) spec.problems.push(`${node.src} isn't a file: ref this can read (file:/absolute/path)`);
+  const spec: MediaSpec = { kind: "img", path: node.src ? imageSource(node.src) : "", problems: [] };
+  if (!spec.path) spec.problems.push(node.svg !== undefined ? "an svg picture is drawn where its markup is read (the door), not served from a file" : `${node.src} isn't a file: ref this can read (file:/absolute/path)`);
   if (node.size !== undefined) {
     const size = parseSize(String(node.size));
     if (size) spec.size = size; else spec.problems.push(`size ${node.size} isn't a size (cells, N% or full)`);
