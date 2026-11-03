@@ -506,7 +506,8 @@ export class ListView<S = unknown> {
           if (width(shown.map((key, i) => pad(headers[i] ?? key, 8)).join("  ")) <= cols) break;
           shown.pop();
         }
-        return [...primitiveLines({ type: "table", columns: shown.map((key, i) => headers[i] ?? key), rows: own.map(r => cells(r).slice(0, shown.length)) }, cols - 1, { link: o.link,
+        // The title column (a finding's problem) gives way last and wraps whole (PIE-1541).
+        return [...primitiveLines({ type: "table", title: shown.indexOf("title"), columns: shown.map((key, i) => headers[i] ?? key), rows: own.map(r => cells(r).slice(0, shown.length)) }, cols - 1, { link: o.link,
           expanded: i => sameRow(own[i], expanded),
           row: (i, text) => o.tag?.(own[i]!, text) ?? text,
           rowStyle: (i, text) => sameRow(own[i], mine) ? selectedRow(" " + text, cols, o.focused, "idleRow") : " " + text,

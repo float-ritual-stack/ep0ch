@@ -404,17 +404,46 @@ function reattach(message: string, o: { args?: string[]; watch?: boolean }): voi
 export interface Handover { name: string; pid: [number, number | null]; code: [string | null, string | null]; programs: number; terminals: number }
 export interface UpgradeResult { ok: boolean; message: string; handover?: Handover }
 
-export async function upgradeSession(place: Place, o: { clients?: boolean; handoff?: boolean } = {}): Promise<UpgradeResult> {
-  const path = sessionSocket(place.dir), name = placeLabel(place);
-  const before = await sessionInfo(path);
-  if (!before) return { ok: false, message: `no session runs for ${name} · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts one` };
+/**
+ * The session at `path` once it serves again, within `ms`: a read between a daemon handing over and its successor
+ * serving finds nothing (PIE-1550: install said "no session runs" for sessions that came over a moment later).
+ */
+async function servesAgain(path: string, ms: number): Promise<SessionInfo | null> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const info = await sessionInfo(path).catch(() => null);
+    if (info || Date.now() >= end) return info;
+    await Bun.sleep(Math.min(250, Math.max(0, end - Date.now())));
+  }
+}
+
+/** A session that came over to this code by itself while install read it (another handover, a terminal's restart). */
+const cameOver = (name: string, info: SessionInfo): UpgradeResult => {
+  const n = info.clients.length;
+  return { ok: true, message: `${name}: the session came over to ${info.code.commit?.slice(0, 9) ?? "this code"} while install read it (pid ${info.pid}) · ${info.terminals.length} program${info.terminals.length === 1 ? "" : "s"} running · ${n} terminal${n === 1 ? "" : "s"} attached` };
+};
+
+/** `wait`: how long a session between daemons (its terminal host up, no daemon answering) has to serve again before it's reported gone. */
+export async function upgradeSession(place: Place, o: { clients?: boolean; handoff?: boolean; wait?: number } = {}): Promise<UpgradeResult> {
+  const path = sessionSocket(place.dir), name = placeLabel(place), wait = o.wait ?? 20_000;
   const here = codeVersion();
+  const now = await sessionInfo(path).catch(() => null);
+  // Its terminal host still runs with no daemon answering: a handover in between, so it waits for the successor.
+  const before = now ?? (await listening(ptyHostSocket(place.dir)) ? await servesAgain(path, wait) : null);
+  if (!before) return { ok: false, message: `no session runs for ${name} · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts one` };
+  // Its successor, already on this code: handed over while install looked, nothing left to do.
+  if (!now && here.commit && before.code.commit === here.commit) return cameOver(name, before);
   if (o.clients || (!o.handoff && before.code.commit && before.code.commit === here.commit)) {
     await askSession(path, { t: "reload" });
     const n = before.clients.length;
     return { ok: true, message: `${name}: the session (pid ${before.pid}) runs ${before.code.commit?.slice(0, 9) ?? "this code"} already · its ${n} terminal${n === 1 ? "" : "s"} start${n === 1 ? "s" : ""} again on this checkout${o.clients ? "" : ` (\`${ep0ch(process.env, place)}session restart ${sessionFlags({ place })}\` hands it over anyway, for changes not committed yet)`}` };
   }
   const r = await askSession(path, { t: "upgrade" }, 60_000);
+  if (r?.t !== "ask" || r.message !== "handed over") {
+    // Already being handed over (or gone mid-ask): what serves next is the answer, when it runs this code.
+    const next = await servesAgain(path, wait);
+    if (next && next.pid !== before.pid && here.commit && next.code.commit === here.commit) return cameOver(name, next);
+  }
   if (r?.t !== "ask" || r.message !== "handed over") return { ok: false, message: `${name}: ${r?.t === "ask" ? r.message : "the session didn't answer the handoff"} · run \`${ep0ch(process.env, place)}session upgrade ${sessionFlags({ place })}\`` };
   const after = await sessionInfo(path);
   const progs = before.terminals.length, n = before.clients.length;
