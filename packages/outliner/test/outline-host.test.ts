@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -651,7 +651,10 @@ test("an away machine's big copies answer links while the door's reads keep thei
   })();
   const backlinks = () => ok<import("../src/types").BacklinkCollection>(host.socketPath, { action: "references.backlinks", outline: "garden", query: { targetBlockId: target.id, limit: 20 } });
   const first = await backlinks();
+  // The laptop didn't answer: the next read goes to its copies at once, without waiting out the deadline again.
+  const secondStarted = performance.now();
   const second = await backlinks();
+  const secondMs = performance.now() - secondStarted;
   running = false;
   await door;
   console.info(`PIE-1546: the door's slowest read during the copies' snapshots: ${Math.round(worst)} ms`);
@@ -660,6 +663,23 @@ test("an away machine's big copies answer links while the door's reads keep thei
   expect(second.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
   expect(first.away).toContainEqual({ machine: "laptop", asOf: expect.any(String) });
   expect(worst).toBeLessThan(1000);
+  expect(secondMs).toBeLessThan(1000);
+  // The laptop wakes: it's asked again in the background, and links are read live once it answers.
+  const farRoot = scratch();
+  mkdirSync(layoutOf(farRoot).root, { recursive: true });
+  const seedCopy = new Database(seedFile, { readonly: true });
+  seedCopy.run("VACUUM INTO ?", [layoutOf(farRoot).database("orchard")]);
+  seedCopy.close();
+  const far = await startHost(farRoot, "orchard");
+  for (const socket of sockets) socket.destroy();
+  await new Promise<void>(resolve => listener.close(() => resolve()));
+  symlinkSync(far.socketPath, layout.remote("laptop").socket);
+  setSystemTime(new Date(Date.now() + 31_000));
+  cleanups.push(() => { setSystemTime(); });
+  let live = await backlinks();
+  for (let tries = 0; live.away?.some(a => a.machine === "laptop") && tries < 100; tries++) { await Bun.sleep(50); live = await backlinks(); }
+  expect(live.away ?? []).not.toContainEqual(expect.objectContaining({ machine: "laptop" }));
+  expect(live.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
 }, 90_000);
 
 test("seven laptop copies snapshotted under load never close local outlines or crash the host (PIE-1057, PIE-1546)", async () => {
