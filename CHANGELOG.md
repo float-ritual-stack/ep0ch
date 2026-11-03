@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Undo brings a tile back from the glass whole (PIE-1559)
+
+- **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it.
+- **Every move between layouts undoes whole:** a tile carried into or out of the drawer, two carries in one run, a group gathered or spilled. The same instances come back, wires and the tab you had shown too, and both layouts are saved. A change made since on either side is undone first, said by name.
+- **The tile keeps its name** on the glass: the blank left in its place has a name of its own.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A posted comment's edit says what happened, and a narrow edit keeps "not saved" (PIE-1560)
 
 - **A comment's edit has the note edit's lifecycle.** While you edit a posted comment that changes elsewhere, it says `!! changed elsewhere`. A refused ctrl+s says `not saved` and where your words were copied, and ctrl+r (`^R reload` in its hint row) loads its words as they are now and names the copy.

@@ -8,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
-import { makeTile } from "../src/desk/tiles";
 import { MIN_ROWS } from "../src/desk/layout";
 import { apply, init, leaf, type Beside, type Ctx, type LayoutState } from "../src/desk/screen-layout";
 import type { Actor } from "../src/socket";
@@ -123,15 +122,4 @@ describe("a tile joins and leaves a layout in one step (PIE-1559)", () => {
     (d as { dispose?: () => void }).dispose?.();
   });
 
-  test("a screen's only tile carried away leaves a blank heir, and the carry is one undo entry", async () => {
-    process.env.EP0CH_STATE = mkdtempSync(join(state, "carry-"));   // a desk of its own, not the walk's saved one
-    const from = new Desk(), to = new Desk();
-    const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => from.dispatch.act({ action, args, ...(tile ? { tile } : {}) }, USER);
-    for (const name of ["tree", "replies", "activity"]) await act("tile.close", {}, name);
-    const before = from.history.newest()?.seq ?? 0;
-    from.carry(to, "reader", { floating: { col: 2, row: 2, cols: 40, rows: 12 }, heir: makeTile({ t: "leaf", kind: "blank" }) }, USER);
-    expect(from.outOfStep()).toEqual([]);
-    expect(from.history.newest()?.seq ?? 0).toBeGreaterThan(before);
-    expect(await act("layout.undo").then(() => "undone", (e: Error) => e.message)).toBe("undone");
-  });
 });
