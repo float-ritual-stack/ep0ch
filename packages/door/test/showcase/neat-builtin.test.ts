@@ -280,7 +280,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     app.push(desk);
     try {
       const r = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "frame" } }, USER) as { tile: string };
-      await app.dispatch.act({ action: "tile.float", tile: r.tile }, USER);
+      await app.dispatch.act({ action: "tile.float", tile: r.tile, args: { on: true } }, USER);
       await app.dispatch.act({ action: "tile.focus", tile: r.tile }, USER);
       expect(await floating(r.tile)).toBe(true);
       const said = await fromBar();
@@ -296,7 +296,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
       expect(said).not.toMatch(/t-[0-9a-f]{8}|Error:/);
       // A reader floating over the river (a new note's float is one), the person's keys in it.
       const made = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "glass" } }, USER) as { tile: string };
-      await app.dispatch.act({ action: "tile.float", tile: made.tile }, USER);
+      await app.dispatch.act({ action: "tile.float", tile: made.tile, args: { on: true } }, USER);
       await app.dispatch.act({ action: "tile.focus", tile: made.tile }, USER);
       expect(await floating(made.tile)).toBe(true);
       said = await fromBar();
