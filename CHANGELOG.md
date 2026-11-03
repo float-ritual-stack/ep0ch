@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An extension's tile can hold your keys (PIE-1523)
+
+- A tile kind says what its tiles are now (an edit, a program running, your keys in it, a pin); the desk asks the kind instead of checking which built-in tile it is.
+- An extension's `tiles[].holds` (`{ "keys": true, "edit": "…" }`) makes its tile hold your keys while you're on it: agents don't move, resize, float or close it, as with a terminal you're in.
+- **Try it:** `ep0ch --showcase`, section `kind-facts`.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### A published page never prints a proposal's patch (PIE-1333)
 
 - A published page's inside list folds proposals and deliveries into one "N changes" line; each change is one line ("1 edit from @daddy, applied") linking to its diff.

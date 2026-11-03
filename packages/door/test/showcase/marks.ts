@@ -61,6 +61,8 @@ export const marks: Record<string, string[]> = {
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],
   kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
+  // A tile declared as an extension declares one that holds the keys (PIE-1523), the notebook beside it.
+  "kind-facts": ["patience", "hand of patience", "Allotment notebook"],
   // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node and the one that dials in.
   echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", ",DIAL", "last tosses"],
   terminal: ["a terminal tile: sh in a pty the door owns", "shell"],

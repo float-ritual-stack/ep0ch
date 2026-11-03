@@ -251,6 +251,15 @@ const Tile = Type.Object(
      * this kind (`"replaces": ["what-changed"]`). Full names, as a layout saved them.
      */
     replaces: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 8 })),
+    /**
+     * What a tile of this kind holds while the person's keys are on it (PIE-1523), as a reader's edit or a terminal does:
+     * `keys` (the typing rule: an agent doesn't move, resize, float or close it, and no open lands in it), and `edit`, the
+     * words an agent's refusal names it by ("a spread being laid").
+     */
+    holds: Type.Optional(Type.Object(
+      { keys: Type.Optional(Type.Boolean()), edit: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })) },
+      { additionalProperties: false },
+    )),
     /** The arguments a tile is opened with and saved with in a screen. */
     args: Type.Optional(Type.Record(
       Type.String({ pattern: EXTENSION_ID_PATTERN }),
