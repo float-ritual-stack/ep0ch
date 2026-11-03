@@ -17,7 +17,7 @@ import { draftRule, recordAs } from "../src/draft-session";
 import { startControl } from "../src/control";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { ACTOR_ID, SocketBoard, type Actor } from "../src/socket";
+import { ACTOR_ID, EditConflict, SocketBoard, type Actor } from "../src/socket";
 import { visible, width } from "../src/style";
 import { ActionRefused, ActionSet, asActor, lineWords, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
@@ -186,6 +186,25 @@ describe("the surface without a service", () => {
     const fallback = agentActor();
     expect(fallback.kind === "agent" ? fallback.id : "").toEndWith(":agent");
     expect(() => agentActor("rm -rf /")).toThrow("an actor id");
+  });
+
+  test("at 44 columns a refused save says not saved and names the copy's file, its folder shortened (PIE-1560)", async () => {
+    const h = host();
+    Object.assign(h.ctx.board, {
+      previewPropertyList: async () => [],
+      update: async (id: string) => { throw new EditConflict(id, "revision is stale"); },
+    });
+    const s = new NoteSurface();
+    s.show(note("Plan the allotment\nBeans."), h);
+    s.startDraft({ ...s.msg!, revision: 3 }, h);
+    for (const c of " soon") s.key(char(c), h);
+    await s.save(h);
+    const copy = s.draft!.status.savedCopy!;
+    const shown = s.render(44, 20, h).lines.map(visible);
+    expect(shown.every(l => width(l) <= 44)).toBe(true);
+    const all = shown.join("\n");
+    expect(all).toContain("not saved");
+    expect(all.replace(/\s+/g, "")).toContain(copy.split("/").at(-1)!);
   });
 
   test("a save holds the draft still while the service previews its properties, and warns only for the text it read", async () => {

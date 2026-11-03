@@ -129,7 +129,7 @@ export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { holdsEdit, NOBODY } from "../whereabouts";
-import { draftState, editHint, editorClick, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
+import { editHint, editState, saidRows, editorClick, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedSide, type AttachedPlace, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { Attachments, type AttachedState, type AttachmentDef, type AttachmentKind, type SplitFrame } from "./attachments";
@@ -2967,10 +2967,10 @@ export class NoteSurface {
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.pathLabel}` } : {}),
       title: `editing · ${subject({ ...m, text: d.text })}`,
       status: [
-        fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
+        ...editState(d, w),
         // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down. What
         // the draft says (an ask: the undo at a save) wraps onto up to three rows rather than being cut (PIE-1428).
-        ...d.note ? rowLines(d.note, w, 3).map(l => fg(C.cyan) + pad(l, w) + RESET)
+        ...d.note ? saidRows(d.note, w, 3, C.cyan)
           : by ? [fg(C.lmagenta) + pad(by, w) + RESET]
           : [fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET],
       ],
@@ -3530,7 +3530,7 @@ export class NoteSurface {
       this.comments = c; this.commentsFor = id;
       // A thread that's gone (deleted, or the note's comments re-read elsewhere) isn't kept expanded.
       for (const t of this.expanded) if (!c.some(x => x.id === t)) this.expanded.delete(t);
-      if (this.session?.mode === "threads" && !this.session.busy) this.session.threads = c;
+      if (this.session?.mode === "threads" && !this.session.busy) this.session.threads = c; this.session?.commentsChanged(c);
       host.redraw();
     } catch { /* comments are extra; the note still reads */ }
   }
@@ -11007,13 +11007,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.reload": def({
-    summary: "after a send refused because the note moved on: find the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: modeActionKeys(ATTACHED_KEYS, "comment.reload"),
+    summary: "after a save or send refused because it moved on: an edit of a posted comment loads its words as they are now (its earlier words copied), a comment finds the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: modeActionKeys(ATTACHED_KEYS, "comment.reload"),
     touches: "draft", draft: "type", replay: "ask",
     args: {},
     async run(_, { surface, host }, actor) {
       const s = surface.session;
       if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here");
-      await s.relocate(surface.env(host, actor));
+      await s.reload(surface.env(host, actor));
       if (s.error) throw new ActionRefused(s.error);
       host.redraw();
       return { mode: s.mode, note: s.note || s.composer?.note || null };

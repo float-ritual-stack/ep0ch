@@ -18,7 +18,7 @@ import { scrollOff } from "../scroll";
 import { LINE_BOX, stringFrame } from "../canvas";
 import { C, fg, headOf, pad, RESET, tailFrom, width } from "../style";
 import { completerOf } from "./completer";
-import { renderEditor, type EditFrame } from "./editor";
+import { draftStatusHeight, renderEditor, type EditFrame } from "./editor";
 
 let setting: AttachedPlace = "inline";
 /** Use the placement kept from last time (the door's start) or just chosen (composer.place); anything else: inline. */
@@ -42,11 +42,15 @@ export interface ComposerBox {
  */
 export function composerBody(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false): ComposerBox {
   const iw = Math.max(4, W - 2), avail = Math.max(2, rows - 2);
-  const topOf = (x: EditFrame) => 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
-  // A short reader keeps the text's rows: the quote goes first, then the status line.
+  // The draft's own status rows count too (PIE-1560), drawn at the box's inner width as renderEditor draws them.
+  const own = (x: EditFrame) => draftStatusHeight(d, x, iw);
+  const topOf = (x: EditFrame) => own(x) + 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
+  // A short reader keeps a row of the text: the quote goes first, then the status line, then what the draft said, then its state.
   let f = frame0;
   if (topOf(f) + 1 > avail) f = { ...f, context: [] };
   if (topOf(f) + 1 > avail) f = { ...f, status: [] };
+  if (topOf(f) + 1 > avail && f.draftStatus) f = { ...f, draftStatus: { ...f.draftStatus, said: null } };
+  if (topOf(f) + 1 > avail && f.draftStatus) f = { ...f, draftStatus: { ...f.draftStatus, state: false } };
   const top = topOf(f);
   const textRows = Math.max(1, draftView(d).layout(Math.max(4, iw - 2)).length);
   // Room for every row of text with the cursor's scroll-off below the last, so the view never scrolls while it fits.
