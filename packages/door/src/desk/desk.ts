@@ -87,7 +87,7 @@ import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
 import { AnswerTile } from "./answer-tile";
-import { AttachedTilePane } from "./attached-tile";
+import { AttachedTilePane, type Attachment } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
@@ -442,24 +442,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
   }
   /**
-   * Reader `r`'s comment in a tile of its own beside it (PIE-846, comment.place place=tile): in the reader's own place, a
-   * pair of the two (Split.pair), on the side last chosen, so the tiles around keep their room and the reader has its own
-   * back whole when the comment ends (closing restores the layout as it was). `side` moves an open one to that side of
-   * the reader, keeping its share. The person's keys go to it when `keys` (their comment); `on` false closes it, the keys
-   * back to the reader.
+   * Tile `p`'s attachment in a tile of its own (PIE-846, PIE-1443, PIE-1536): a reader's comment, Sources, settings, list or
+   * edit preview, a facets tile's Matches; any owner, one path. A pair in the owner's place, on the side last chosen, so the
+   * tiles round keep their room and closing it gives the owner its room back; `side` moves an open one there, its share
+   * kept; `keys` gives it the person's keys; `on` false closes it.
    */
-  composerTile(r: ReaderPane, on: boolean, keys = true, side?: Dir): Promise<unknown> {
-    return this.ownTile(r, "comment", on, keys, side);
-  }
-  listPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(r, "list-preview", on, false, side); }
-  hasListPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "list-preview"); }
-  editPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(r, "edit-preview", on, false, side); }
-  hasEditPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "edit-preview"); }
-  sourcesTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> {
-    return this.ownTile(r, "sources", on, true, side);
-  }
-  /** Tile `p`'s attachment in a tile of its own (a facets tile's Matches, PIE-1443): the reader's attached tiles, any owner. */
-  attachedTile(p: Pane, attachment: "matches" | "settings", on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(p, attachment, on, attachment === "settings", side); }
+  attachedTile(p: Pane, attachment: AttachedKind, on: boolean, side?: Dir, keys = false): Promise<unknown> { return this.ownTile(p, attachment, on, keys, side); }
   private async ownTile(r: Pane, attachment: AttachedKind, on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
@@ -542,9 +530,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.tileAnswer(id);
   }
 
-  /** Reader `r`'s comment tile is open. */
-  hasComposerTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "comment"); }
-  hasSourcesTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "sources"); }
   hasAttachedTile(r: Pane, attachment: AttachedKind): boolean {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     return at !== undefined && [...this.panes.values()].some(p => p instanceof AttachedTilePane && p.attachment === attachment && p.source === this.nameOf(at));
@@ -8262,7 +8247,7 @@ export interface TileLine {
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold; inPlace?: true }
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */
 /** What a tile's attachment is: a reader's comment, Sources, list or edit preview; a facets tile's Matches (PIE-1443). */
-type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches" | "settings";
+type AttachedKind = Attachment;
 
 export interface ExtLink { pane?: Pane; path?: string; verb: WireVerb; rule?: AltRule; found?: boolean }
 

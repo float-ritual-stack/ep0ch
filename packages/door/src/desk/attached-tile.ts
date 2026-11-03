@@ -112,7 +112,7 @@ export class AttachedTilePane implements Pane {
   }
 }
 
-/** The comment tile's kind: opened by the desk when a reader's comment goes into a tile (Desk.composerTile). */
+/** The comment tile's kind: opened by the desk when a reader's comment goes into a tile (Desk.attachedTile). */
 export const COMMENT_TILE: TileKind = {
   kind: COMMENT_TILE_KIND, noun: "a comment tile",
   about: "the comment being written in a reader (source=tile:<name>), or its thread list, in a tile of its own in the reader's place beside it (PIE-846): left, right, above or below (comment.place side=), sized by its border; the tiles round them never move, and closing it gives the reader its room back. Opened by comment.place place=tile (ctrl+o), closed when the comment is sent or put back",
