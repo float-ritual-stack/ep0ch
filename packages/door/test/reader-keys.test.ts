@@ -51,10 +51,10 @@ describe("the reader's key table", () => {
   });
 
   test("the keys window lists each reader key with what picks it, and finds no fight among them", () => {
-    const all = bindings(), reader = all.filter(b => b.scope === "reader");
+    const all = bindings(), reader = all.filter(b => b.scope === "note" && b.from === "table");
     expect(reader.find(b => b.key === "r" && b.action === "proposal.resolve")?.does).toContain("when");
     expect(reader.every(b => b.layer === "tile")).toBe(true);
-    expect(conflicts(all).filter(g => g.some(b => b.scope === "reader"))).toEqual([]);
+    expect(conflicts(all).filter(g => g.some(b => b.scope === "note" && b.from === "table"))).toEqual([]);
   });
 
   test("what reads the reader's keys reads the table: the actions' own keys, the session keys, the hint, the extensions' reserve", () => {

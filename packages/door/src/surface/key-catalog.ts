@@ -35,8 +35,8 @@ const SCOPE_LAYER: Record<string, Layer> = {
   board: "screen", river: "screen", desk: "screen", home: "screen", welcome: "screen", echo: "screen", showcase: "screen", brief: "screen",
   waiting: "screen", menu: "screen", art: "screen", blank: "screen", activity: "screen", who: "screen",
 };
-/** A table's layer: the ^W keys and the hyper layer are their own, the reader's (READER_KEYS) a tile's; every other table is a mode's. */
-const tableLayer = (scope: string): Layer => (scope === "^W" ? "^W" : scope === "hyper" ? "hyper" : scope === "reader" ? "tile" : SCOPE_LAYER[scope] ?? "mode");
+/** A table's layer: the ^W keys and the hyper layer are their own, the reader's (READER_KEYS, scope `note`, as its actions are) a tile's; every other table is a mode's. */
+const tableLayer = (scope: string): Layer => (scope === "^W" ? "^W" : scope === "hyper" ? "hyper" : scope === "note" ? "tile" : SCOPE_LAYER[scope] ?? "mode");
 
 /** One binding: a key, what it runs, where, and whether the keymap can move it. */
 export interface Binding {

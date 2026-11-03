@@ -66,7 +66,7 @@ export const ZOOM_KEYS: readonly ReaderKey[] = [
 ];
 
 /** Every key of a note being read, first first: the first row whose key matches and whose guards hold runs. */
-export const READER_KEYS = keyTable<ReaderKey>("reader", "a note being read", [
+export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   // Back, forward and the trail (PIE-453, PIE-208): alt+b alt+f too, which some macOS terminals send for option+← →.
   r("alt+left", "back", { label: "back" }), r("alt+b", "back", { label: "back" }), r("backspace", "back", { label: "back" }),
   r("alt+right", "forward", { label: "forward" }), r("alt+f", "forward", { label: "forward" }),

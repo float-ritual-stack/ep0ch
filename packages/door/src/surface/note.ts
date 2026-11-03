@@ -4,7 +4,7 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
-import { READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
+import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { collectionAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
@@ -9120,8 +9120,8 @@ export class NoteSurface {
   }
 
   private proposalKeys(id: string): string {
-    const keys = { apply: "A apply anyway", dismiss: "X dismiss", resolve: "r resolve" };
-    return this.proposalOperations(id).map(op => keys[op] + " · ").join("");
+    // Each operation's key and word are its row of the reader's table (READER_KEYS: proposal.apply, …).
+    return this.proposalOperations(id).map(op => { const r = READER_KEYS.find(r => r.action === `proposal.${op}`)!; return `${r.key} ${r.label} · `; }).join("");
   }
 
   /** The person's `A`, `X`, or a click or ⏎ on a proposal's control: `proposal.apply` or `proposal.dismiss`, its refusal flashed. */
