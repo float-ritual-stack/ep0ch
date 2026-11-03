@@ -14,6 +14,11 @@ test("a cell naming a note is drawn as its title and links it; the row's other c
   expect(t.cellBlocks).toEqual([[NOTE, null]]);
   // `link: note`: the row opens the note it's about, not the record.
   expect(tableOf({ columns: ["note", "rubric"], link: "note" }, [item], { [NOTE]: "Status tonight" }).blocks).toEqual([NOTE]);
+  // `row: record` (PIE-1539): the row opens its own record, and the note's cell opens the note at `at:`'s revision.
+  const own = tableOf({ columns: ["note", "rubric"], link: "note", row: "record", at: "revision" }, [{ ...(item as object), properties: [...(item as { properties: unknown[] }).properties, { key: "revision", values: ["3"] }] } as never], { [NOTE]: "Status tonight" });
+  expect(own.blocks).toEqual([RECORD]);
+  expect(own.aboutBlocks).toEqual([NOTE]);
+  expect(own.rowRevisions).toEqual([3]);
   // Without its title (the page may not show that note), the id stays as written.
   expect(tableOf({ columns: ["note"] }, [item], {}).rows).toEqual([[NOTE]]);
 

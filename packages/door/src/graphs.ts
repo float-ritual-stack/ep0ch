@@ -271,6 +271,9 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // wrapped, so nothing is hidden. Each line is its row's note (a cell naming a note, that note), as a row's are.
     // `at:` (PIE-1433): the revision each row's link opens its note at, beside how it is now.
     const revisionOf = (i: number): number | undefined => { const n = Number(p.rowRevisions?.[i]); return Number.isInteger(n) && n > 0 ? n : undefined; };
+    // The note a row's revision is of: the row's own link, or with `row: record` (PIE-1539) the linked note's cell.
+    const aboutOf = (i: number): string | undefined => p.aboutBlocks?.[i] ?? p.blocks?.[i];
+    const revisionAt = (i: number, to: unknown) => (to === aboutOf(i) ? revisionOf(i) : undefined);
     if (tier(w) === "narrow" && remaining > 2 && rows.length) {
       const blocks: (string | undefined)[] = p.blocks ?? [];
       const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
@@ -279,7 +282,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const card = (r: string[], i: number) => {
         const limit = expansion?.open(i + 1, blocks[i]) || named[i]?.some(block => !!block && expansion?.open(i + 1, block)) ? Infinity : most;
         const linkOf = (k: number) => named[i]?.[k] ?? blocks[i];
-        const at = (to: unknown) => (to === blocks[i] ? revisionOf(i) : undefined);
+        const at = (to: unknown) => revisionAt(i, to);
         // Each cell's words drawn as the note's line (PIE-1334): its links labelled and followable, its code and bold.
         const shown = (k: number, ink: number) => presentRow(r[k] ?? "", ink, ui?.rows, !!link && typeof linkOf(k) === "string");
         const lead = rowLines(BOLD + shown(tcol, HI), w, Math.max(2, limit)).map(l => l + UNBOLD + RESET);
@@ -330,7 +333,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     };
     const body = shown.flatMap((r, i) => {
       const limit = expansion?.open(i + 1, blocks[i]) || named[i]?.some(block => !!block && expansion?.open(i + 1, block)) ? Infinity : most;
-      const row = named[i]?.some(Boolean) && link ? drawRow(r, limit, k => named[i]![k] ?? blocks[i], to => (to === blocks[i] ? revisionOf(i) : undefined)) : rowLinks(link, blocks[i], drawRow(r, limit), ui?.key, undefined, revisionOf(i));
+      const row = named[i]?.some(Boolean) && link ? drawRow(r, limit, k => named[i]![k] ?? blocks[i], to => revisionAt(i, to)) : rowLinks(link, blocks[i], drawRow(r, limit), ui?.key, undefined, revisionAt(i, blocks[i]));
       return [...(density === "comfortable" && i ? [""] : []), ...(expansion?.draw(i + 1, row) ?? row)];
     });
     const inset = (s: string) => (expansion ? "  " : "") + s;

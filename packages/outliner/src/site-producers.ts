@@ -270,12 +270,12 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       const label = (displayTitleOfText(block.text) ?? block.id) + (match ? ` · ${matchWords(match, false)}` : "");
       const front = frontMatterLines(block.text);
       const body = block.text.split("\n").filter((_, i) => !front.has(i)).join("\n").trim().split("\n");
-      const cells = columns.map(key => rowValue(block, key, label, body)).map(cell => typeof cell === "object" && cell.link === table.blocks[i] && table.rowRevisions?.[i] ? { ...cell, revision: table.rowRevisions[i]! } : cell);
+      const cells = columns.map(key => rowValue(block, key, label, body)).map(cell => typeof cell === "object" && cell.link === (table.aboutBlocks?.[i] ?? table.blocks[i]) && table.rowRevisions?.[i] ? { ...cell, revision: table.rowRevisions[i]! } : cell);
       const cover = viewWords(p.cover).map(key => valuesOf(block, key).join(", ")).find(Boolean);
       return { id: block.id, label, cells, bind: `((${block.id}))`, body: body.slice(0, bodyLines),
         detail: columns.flatMap((key, i) => key === "title" || !listCellText(cells[i]!) ? [] : [`${key}: ${listCellText(cells[i]!)}`]).join(" · "),
         ...(cover ? { cover } : {}), preview: { block: block.id },
-        do: { open: p.open || table.rowRevisions?.[i] || match ? { ref: table.blocks[i]!, ...(p.open ? { where: p.open } : {}), ...(table.rowRevisions?.[i] ? { revision: table.rowRevisions[i]! } : {}), ...(match ? { at: match.start, atLabel: match.raw, atSays: `the line its ${match.key} is written on` } : {}) } : table.blocks[i]! },
+        do: { open: p.open || (table.rowRevisions?.[i] && !table.aboutBlocks) || match ? { ref: table.blocks[i]!, ...(p.open ? { where: p.open } : {}), ...(table.rowRevisions?.[i] && !table.aboutBlocks ? { revision: table.rowRevisions[i]! } : {}), ...(match ? { at: match.start, atLabel: match.raw, atSays: `the line its ${match.key} is written on` } : {}) } : table.blocks[i]! },
       };
     });
     const groups = (sourceGroups: QuestionGroup[], parent = ""): ListGroup[] => sourceGroups.map(group => ({
