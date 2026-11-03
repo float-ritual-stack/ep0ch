@@ -49,16 +49,25 @@ describe.skipIf(!outliner)("showcase: write review at 177 columns (PIE-1541)", (
     const left = lines()[head]!.indexOf("title"), noteAt = lines()[head]!.indexOf("note", left);
     const titles = lines().slice(head + 2, head + 14).map(l => l.slice(left, noteAt).trim()).join(" ").replace(/\s+/g, " ");
     expect(titles).toContain("fix: line 4 types a count a query keeps true (\"2 queued\" is stage=queued)");
-    // A click, then another on the same row a while later: the first selects, the second opens the finding.
-    const y = lines().findIndex((l, i) => i > head && l.slice(left, noteAt).includes("fix:")), x = left + 1;
-    const click = () => { h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); };
+    // A click selects the row. Away in the wall (a click in its text) and back by a click on the same row: that click only gives the page the keys, never opens (Codex on #1262). The next click, a while later, opens.
     const id = page().msg.id;
+    const rowAt = () => { const ls = lines(), hy = ls.findIndex(l => /┊\s+title\s+note\s+passage/.test(l)), lx = hy < 0 ? -1 : ls[hy]!.indexOf("title");
+      const ry = hy < 0 ? -1 : ls.findIndex((l, i) => i > hy && /fix: line/.test(l.slice(lx, lx + 20))); return ry < 0 ? null : { x: lx + 1, y: ry }; };
+    const click = () => { const at = rowAt()!; h.press({ kind: "mouse", action: "down", button: 0, x: at.x, y: at.y } as never); h.press({ kind: "mouse", action: "up", button: 0, x: at.x, y: at.y } as never); };
     click();
+    await Bun.sleep(700);
+    expect(page().msg.id).toBe(id);
+    expect(stage().nameOf(stage().focus)).toBe("page");
+    const wy = lines().findIndex(l => l.includes("Tacks ran out")), wx = lines()[wy]!.indexOf("Tacks ran out");
+    h.press({ kind: "mouse", action: "down", button: 0, x: wx, y: wy } as never); h.press({ kind: "mouse", action: "up", button: 0, x: wx, y: wy } as never);
+    await until(() => stage().nameOf(stage().focus) === "wall", "the wall has the keys", 8000);
+    await until(() => !!rowAt(), "the rows, the wall with the keys", 8000);
+    click();
+    await until(() => stage().nameOf(stage().focus) === "page", "the click gave the page the keys", 8000);
     await Bun.sleep(700);
     expect(page().msg.id).toBe(id);
     click();
     await until(() => page().msg.id !== id, "the finding's card opened", 8000);
-    expect(page().msg.properties?.some?.((p: { key: string }) => p.key === "rubric") ?? h.screen().includes("rubric")).toBe(true);
-    await h.app.act({ action: "back", tile: "page", as: "test-agent" }).catch(() => undefined);
+    expect(h.screen()).toContain("Kitchen sink › Records");
   });
 });

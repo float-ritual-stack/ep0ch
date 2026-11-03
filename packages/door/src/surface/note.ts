@@ -6203,7 +6203,7 @@ export class NoteSurface {
     if (e && (lbk?.row || e.link?.inlineList) && !link.cell && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
-      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was, untimed: e.key === was });
+      const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was, untimed: e.key === was && !host.focusing });
       if (lbk?.row) {
         const n = this.listViews.get(lbk.key)!.indexOf(PERSON, { id: lbk.row, group: lbk.group }) + 1;
         void this.runList(g === "open" || fresh ? "list.open" : "list.pick", { list: lbk.key, n, ...(fresh ? { where: "new" } : {}) }, host);

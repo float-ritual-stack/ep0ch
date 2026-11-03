@@ -57,3 +57,25 @@ test("a session that never comes back still says no session runs, with the comma
   expect(r.message).toContain("no session runs for orchard");
   expect(r.message).toContain("starts one");
 });
+
+// Codex on #1262: `upgradeAll` listed only the sessions that answered, so one between daemons whose successor never
+// came up was skipped and install said installed. A session install planned to hand over, or one whose terminal host
+// still runs, is checked whether it answers the listing or not.
+test("upgradeAll counts a planned session missing from the listing, and one whose terminal host runs alone", async () => {
+  const state = mkdtempSync(join(root, "state-")), was = process.env.EP0CH_STATE;
+  process.env.EP0CH_STATE = state;
+  try {
+    const { upgradeAll } = await import("../src/session/client");
+    const { recordPlace } = await import("../src/session/place");
+    const { mkdirSync } = await import("node:fs");
+    // orchard: its terminal host runs, no daemon answers, and none comes back. quince: planned, and nothing runs at all.
+    const orchard = join(state, "sessions", "local", "orchard"), quince = join(state, "sessions", "local", "quince");
+    for (const dir of [orchard, quince]) mkdirSync(dir, { recursive: true });
+    recordPlace({ outline: "orchard", dir: orchard });
+    const host = createServer(() => {}); host.listen(ptyHostSocket(orchard)); servers.push(host);
+    const rs = await upgradeAll({ handoff: true, wait: 300, expected: [{ outline: "quince", dir: quince }] });
+    expect(rs.map(r => r.ok)).toEqual([false, false]);
+    expect(rs.map(r => r.message).join("\n")).toContain("no session runs for orchard");
+    expect(rs.map(r => r.message).join("\n")).toContain("no session runs for quince");
+  } finally { if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was; }
+});
