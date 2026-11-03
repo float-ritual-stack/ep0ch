@@ -10,7 +10,7 @@
     {
       "name": "waiting",
       "file": "scripts/waiting.js",
-      "about": "waiting:: — the outbox items still waiting for an answer ([type::outbox-item] [outbox::waiting]), grouped by who they wait on, the longest wait first; demo=only lists this extension's made-up ones"
+      "about": "waiting:: draws the outbox items still waiting for an answer ([type::outbox-item] [outbox::waiting]), by who they wait on, the longest wait first (demo=only: this extension's made-up ones)"
     }
   ],
   "tiles": [
