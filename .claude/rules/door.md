@@ -38,6 +38,12 @@ feature gets a showcase section or note in the same PR, live where possible (`ep
 `packages/door/test/showcase/` opens it on the seeded outline, drives it through `act` and checks the result,
 so a feature can't quietly break its own demo. If it can't be shown there, the PR says why.
 
+A feature that moves out of the door into an extension takes its demo with it, as the extension's demo notes (its
+manifest's `demo` folder, made up, written under its page when it's installed): Waiting's made-up asks are
+`packages/outliner/extensions/waiting/demo` (PIE-1525). A default-on extension's demo must never join the person's
+real views: mark its notes (`[demo::<id>]`), give them no type a real view matches, and have a demo line ask for them. The
+glass, a door module, still sits in the showcase.
+
 ## Capture, tested as a person works
 
 The comment box, the note editor and every other place a person types share one editor (mouse select, delete,
