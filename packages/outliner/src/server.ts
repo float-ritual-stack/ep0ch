@@ -21,7 +21,8 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, GRAMMAR, SHARE_TTL, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, SHARE_TTL, atLeast, lowerLevel, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
+import { gate } from "./write-gate";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
@@ -53,7 +54,7 @@ import {
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
-import { siteBudget, StillCounting } from "./site-budget";
+import { siteBudget } from "./site-budget";
 import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
@@ -110,7 +111,7 @@ import { probeSocket } from "./socket-probe";
 import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
 import { machineryBlind, machineryChange } from "./watch-machinery";
-import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, type NotHandledHere } from "./actions";
+import { copyAnswers, eventOf, extensionMay, isAsyncOnly, isHostAction, isWatchable, isWholeOutlineRead, replayOnce, type NotHandledHere } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -164,7 +165,7 @@ import {
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
 import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
-import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
+import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
@@ -2089,15 +2090,22 @@ export class OutlinerServer {
       try {
         return await this.handleAsyncOnce(request, subscribedClient, connection);
       } catch (error) {
-        // A request may contain several commits; replay only when none of its content landed. A provider command has
-        // already run outside the store by the time a busy read can fail, so it is never replayed.
-        if (isSqliteBusy(error) && attempt === 0 && this.store.sequence === sequence && request.action !== "resources.command.execute") {
+        // A request may contain several commits; replay only when none of its content landed. An action whose row says
+        // `once` (it acts outside the store, a provider command or a deploy) is never replayed.
+        if (isSqliteBusy(error) && attempt === 0 && this.store.sequence === sequence && !replayOnce(request.action)) {
           await Bun.sleep(50);
           continue;
         }
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+        // Every refusal's envelope, for every branch: its words, and a query's problem when it has one.
+        const problem = queryRequestProblem(error);
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(problem ? { problem } : {}), sequence: this.store.sequence };
       }
     }
+  }
+
+  /** Every answer's envelope: the result, at the store's sequence now. Handlers return a result or throw. */
+  private answered(request: OutlinerRequest, result: unknown): OutlinerResponse {
+    return { id: request.id, ok: true, result, sequence: this.store.sequence };
   }
 
   /** The artifact store beside this outline's (the machine's one, in the outlines folder). */
@@ -2111,27 +2119,21 @@ export class OutlinerServer {
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
     if (request.action.startsWith("artifacts.")) {
-      try {
-        if (this.readOnly && !copyAnswers(request.action)) throw new Error("This outline is read-only.");
-        const result = request.action === "artifacts.lease" ? this.uploadLease(request)
-          : request.action === "artifacts.deploy" ? (request.note ? await deployNote(this.artifacts(), this.store, request.note, request.mutation) : await deployArtifact(this.artifacts(), this.store, request.repo ?? "", request.mutation, request.domain))
-          // A repo an artifact line names is answered from the deploy's records (PIE-1060), never read as a file.
-          : request.action === "artifacts.show" && artifactRepoRef(request.name) ? artifactRepoInfo(this.artifacts(), this.store, request.name)!
-          : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
-          : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
-          : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence }; }
+      if (this.readOnly && !copyAnswers(request.action)) throw new Error("This outline is read-only.");
+      const result = request.action === "artifacts.lease" ? this.uploadLease(request)
+        : request.action === "artifacts.deploy" ? (request.note ? await deployNote(this.artifacts(), this.store, request.note, request.mutation) : await deployArtifact(this.artifacts(), this.store, request.repo ?? "", request.mutation, request.domain))
+        // A repo an artifact line names is answered from the deploy's records (PIE-1060), never read as a file.
+        : request.action === "artifacts.show" && artifactRepoRef(request.name) ? artifactRepoInfo(this.artifacts(), this.store, request.name)!
+        : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
+        : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
+        : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
+      return this.answered(request, result);
     }
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (this.linkReader) {
-      try {
-        const answer = await this.linkReader(request);
-        if (answer) return { id: request.id, ok: true, result: answer.result, sequence: this.store.sequence };
-      } catch (error) {
-        return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence };
-      }
+      const answer = await this.linkReader(request);
+      if (answer) return this.answered(request, answer.result);
     }
     if (request.action === "update" && request.replaceSection !== undefined) {
       const block = this.store.require(request.blockId);
@@ -2149,95 +2151,79 @@ export class OutlinerServer {
       return response;
     }
     if (request.action === "site.answer" && request.sources) {
-      try {
-        const budget = siteBudget();
-        const answer = answerSite(this.store, request, Date.now, budget);
-        const deps = new Set(answer.deps);
-        const projections = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalizeResourceProjectionRequest({ blockId: answer.blockId })), false)).projections.map(p => ({ ...p }));
-        if (request.hidden) for (const projection of projections) {
-          if (!projection.extension || !projection.output) continue;
-          if (projection.output.reads) {
-            try {
-              const rendered = await this.extensionCalls.renderForSite(answer.blockId, projection.anchor.line, request.hidden, ids => ids.forEach(id => deps.add(id)), request);
-              rendered.reads.forEach(r => deps.add(r.id));
-              const hidden = rendered.untracked || rendered.reads.some(read => request.hidden!.includes(read.id));
-              projection.output = { ...projection.output, markdown: hidden ? "hidden here" : rendered.markdown };
-            } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
-          }
+      const budget = siteBudget();
+      const answer = answerSite(this.store, request, Date.now, budget);
+      const deps = new Set(answer.deps);
+      const projections = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalizeResourceProjectionRequest({ blockId: answer.blockId })), false)).projections.map(p => ({ ...p }));
+      if (request.hidden) for (const projection of projections) {
+        if (!projection.extension || !projection.output) continue;
+        if (projection.output.reads) {
+          try {
+            const rendered = await this.extensionCalls.renderForSite(answer.blockId, projection.anchor.line, request.hidden, ids => ids.forEach(id => deps.add(id)), request);
+            rendered.reads.forEach(r => deps.add(r.id));
+            const hidden = rendered.untracked || rendered.reads.some(read => request.hidden!.includes(read.id));
+            projection.output = { ...projection.output, markdown: hidden ? "hidden here" : rendered.markdown };
+          } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
         }
-        const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
-          const ext = this.extensionRegistry.extension(id);
-          return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
-        } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
-        return { id: request.id, ok: true, result: { ...answer, deps: [...deps], sources }, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(error instanceof StillCounting ? { problem: error.problem } : {}), sequence: this.store.sequence }; }
+      }
+      const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
+        const ext = this.extensionRegistry.extension(id);
+        return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
+      } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
+      return this.answered(request, { ...answer, deps: [...deps], sources });
     }
     if (request.action === "site.answer" && request.scriptLine !== undefined) {
-      try {
-        if (!Number.isInteger(request.scriptLine) || request.scriptLine < 0 || request.hidden === undefined) throw new Error("A published script needs scriptLine (from zero) and hidden (the reader's cut)");
-        const answer = answerSite(this.store, request, Date.now, siteBudget());
-        const deps = new Set(answer.deps);
-        const rendered = await this.extensionCalls.renderForSite(answer.blockId, request.scriptLine, request.hidden, ids => { for (const id of ids) deps.add(id); }, request);
-        const ids = rendered.reads.map(read => read.id);
-        for (const id of ids) deps.add(id);
-        return { id: request.id, ok: true, result: { ...answer, deps: [...deps], script: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}), reads: { ids, ...(rendered.untracked ? { untracked: true } : {}) } } }, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(error instanceof StillCounting ? { problem: error.problem } : {}), sequence: this.store.sequence }; }
+      if (!Number.isInteger(request.scriptLine) || request.scriptLine < 0 || request.hidden === undefined) throw new Error("A published script needs scriptLine (from zero) and hidden (the reader's cut)");
+      const answer = answerSite(this.store, request, Date.now, siteBudget());
+      const deps = new Set(answer.deps);
+      const rendered = await this.extensionCalls.renderForSite(answer.blockId, request.scriptLine, request.hidden, ids => { for (const id of ids) deps.add(id); }, request);
+      const ids = rendered.reads.map(read => read.id);
+      for (const id of ids) deps.add(id);
+      return this.answered(request, { ...answer, deps: [...deps], script: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}), reads: { ids, ...(rendered.untracked ? { untracked: true } : {}) } } });
     }
     if (request.action === "scripts.sequence") {
-      try {
-        await this.extensionRegistry.reload();
-        const asked: ExtensionActRequest = { extension: "button", action: "run", blockId: request.blockId, line: request.line,
-          clientId: request.clientId, invitation: request.invitation, button: { block: request.blockId, line: request.line },
-          requestedBy: declaredRequester(request, "scripts.sequence") ?? { author: "user" },
-        };
-        const result = await this.scriptRuns.answered(this.scriptRuns.startSequence(asked), asked);
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      await this.extensionRegistry.reload();
+      const asked: ExtensionActRequest = { extension: "button", action: "run", blockId: request.blockId, line: request.line,
+        clientId: request.clientId, invitation: request.invitation, button: { block: request.blockId, line: request.line },
+        requestedBy: declaredRequester(request, "scripts.sequence") ?? { author: "user" },
+      };
+      const result = await this.scriptRuns.answered(this.scriptRuns.startSequence(asked), asked);
+      return this.answered(request, result);
     }
     if (request.action === "scripts.stop") {
-      try {
-        if (typeof request.run !== "string" || !request.run.trim()) throw new Error("scripts.stop needs run: the id a script run answered with (its undo), for example { action: \"scripts.stop\", run: \"<undo id>\" }");
-        const stopped = this.scriptRuns.stopRun(request.run, declaredRequester(request, "scripts.stop") ?? { author: "user" });
-        return { id: request.id, ok: true, result: { run: request.run, ...stopped }, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
-      }
+      if (typeof request.run !== "string" || !request.run.trim()) throw new Error("scripts.stop needs run: the id a script run answered with (its undo), for example { action: \"scripts.stop\", run: \"<undo id>\" }");
+      const stopped = this.scriptRuns.stopRun(request.run, declaredRequester(request, "scripts.stop") ?? { author: "user" });
+      return this.answered(request, { run: request.run, ...stopped });
     }
     if (request.action === "scripts.render") {
-      try { return { id: request.id, ok: true, result: await this.scriptRuns.format(request), sequence: this.store.sequence }; }
-      catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      return this.answered(request, await this.scriptRuns.format(request));
     }
     if (request.action === "scripts.run") {
-      try {
-        const levels = ["none", "read", "propose", "full"] as const;
-        const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.mcpAccess().level))];
-        if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
-        await this.extensionRegistry.reload();
-        const scripts = (await scriptSources(this.store)).filter(s => s.script?.blockId === request.blockId);
-        const properties = this.store.require(request.blockId).properties;
-        const name = properties.find(p => p.key === "script")?.value;
-        // A folder's script has no note of its own: its extension's page names it (`[[ext-keep]]`).
-        const page = scripts.length ? undefined : properties.find(p => p.key === "ext.page")?.value;
-        const bundled = page ? this.extensionRegistry.extension(`script:${page}`) : undefined;
-        const nameOf = (s: (typeof scripts)[number]) => s.script!.fence?.name ?? name;
-        if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(nameOf).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
-        const selected = name ? scripts.find(s => nameOf(s) === name) : scripts[0];
-        if (!selected && !bundled) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
-        const extension = bundled ?? this.extensionRegistry.extension(selected!.expectedId);
-        if (!extension) throw new Error(`Script ${nameOf(selected!)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected!.expectedId)?.error ?? "not runnable"}`);
-        const slots = request.slots;
-        if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
-          throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");
-        }
-        const about = request.this === undefined ? undefined : this.store.requireActive(String(request.this)).id;
-        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(about ? { blockId: about } : {}), ...(slots && Object.keys(slots).length ? { args: slots } : {}), ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
-        const result = await this.scriptRuns.answered(this.scriptRuns.start(extension, asked), asked);
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      // The run's access is the lower of what its caller has and this outline allows; the write gate says if it runs.
+      const access = lowerLevel(request.access, this.mcpAccess().level);
+      const decided = gate({ tool: "script_run", level: access, ...(this.outline ? { where: { outline: this.outline.name, machine: canonicalLocalMachineName() } } : {}) });
+      if (decided.becomes === "refused") throw new Error(decided.why);
+      await this.extensionRegistry.reload();
+      const scripts = (await scriptSources(this.store)).filter(s => s.script?.blockId === request.blockId);
+      const properties = this.store.require(request.blockId).properties;
+      const name = properties.find(p => p.key === "script")?.value;
+      // A folder's script has no note of its own: its extension's page names it (`[[ext-keep]]`).
+      const page = scripts.length ? undefined : properties.find(p => p.key === "ext.page")?.value;
+      const bundled = page ? this.extensionRegistry.extension(`script:${page}`) : undefined;
+      const nameOf = (s: (typeof scripts)[number]) => s.script!.fence?.name ?? name;
+      if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(nameOf).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
+      const selected = name ? scripts.find(s => nameOf(s) === name) : scripts[0];
+      if (!selected && !bundled) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
+      const extension = bundled ?? this.extensionRegistry.extension(selected!.expectedId);
+      if (!extension) throw new Error(`Script ${nameOf(selected!)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected!.expectedId)?.error ?? "not runnable"}`);
+      const slots = request.slots;
+      if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
+        throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");
       }
+      const about = request.this === undefined ? undefined : this.store.requireActive(String(request.this)).id;
+      const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(about ? { blockId: about } : {}), ...(slots && Object.keys(slots).length ? { args: slots } : {}), ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
+      const result = await this.scriptRuns.answered(this.scriptRuns.start(extension, asked), asked);
+      return this.answered(request, result);
     }
     // A watched read is kept on the connection that asked (ADR 0004); without one (in-process) it is just answered.
     if (connection && "watch" in request && request.watch !== undefined && isWatchable(request.action)) {
@@ -2246,238 +2232,189 @@ export class OutlinerServer {
     // A TL;DR asked of the agent that answers in threads waits a moment for it: one that can't write one (no model,
     // PIE-860) says so at once, and nothing is posted.
     if (request.action === "annotations.tldr" && request.remove !== true && !(typeof request.body === "string" && request.body.trim())) {
-      try {
-        if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
-        const root = this.store.getAnnotation(String(request.annotationId ?? ""));
-        if (root.parentAnnotationId) throw new Error("a TL;DR belongs to the thread: give its first annotation's id");
-        const result = { asked: await this.agentRequests.tldr(root.block.id) };
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error; return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      if (!request.mutation || typeof request.mutation !== "object") throw new Error("annotations.tldr needs mutation: who asks for it");
+      const root = this.store.getAnnotation(String(request.annotationId ?? ""));
+      if (root.parentAnnotationId) throw new Error("a TL;DR belongs to the thread: give its first annotation's id");
+      const result = { asked: await this.agentRequests.tldr(root.block.id) };
+      return this.answered(request, result);
     }
     if(request.action==="resources.describe"){
-      try {
-        // This built-in only reads an immutable Inbox before-image. It cannot
-        // execute arbitrary producers, tools, or external requests on preview.
-        const checked=this.handle(request,subscribedClient);
-        if(!checked.ok||!this.store.resources.isCaptureHistory(request.target.resourceId))return checked;
-        const description=this.store.resources.describe(request.target.resourceId,true,request.target.revision);
-        if(request.target.revision===undefined&&!description.computed&&!description.source.policy.deniedCapabilities.includes("read"))await this.store.resources.executeComputedResource(request.target.resourceId,true);
-        return this.handle(request,subscribedClient);
-      } catch(error){if (isSqliteBusy(error)) throw error;return {id:request.id,ok:false,error:error instanceof Error?error.message:String(error),sequence:this.store.sequence};}
+      // This built-in only reads an immutable Inbox before-image. It cannot
+      // execute arbitrary producers, tools, or external requests on preview.
+      const checked=this.handle(request,subscribedClient);
+      if(!checked.ok||!this.store.resources.isCaptureHistory(request.target.resourceId))return checked;
+      const description=this.store.resources.describe(request.target.resourceId,true,request.target.revision);
+      if(request.target.revision===undefined&&!description.computed&&!description.source.policy.deniedCapabilities.includes("read"))await this.store.resources.executeComputedResource(request.target.resourceId,true);
+      return this.handle(request,subscribedClient);
     }
     if (request.action === "tree.index") {
-      try {
-        // The whole outline's labels, made a slice per turn: a first read after a start never holds the loop.
-        const result = await this.store.readTreeIndexInSlices(request.view ?? {}, () => this.turns.next(request.action));
-        // The snapshot's own sequence: a write between two slices is not in it.
-        return { id: request.id, ok: true, result, sequence: result.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
-      }
+      // The whole outline's labels, made a slice per turn: a first read after a start never holds the loop.
+      const result = await this.store.readTreeIndexInSlices(request.view ?? {}, () => this.turns.next(request.action));
+      // The snapshot's own sequence: a write between two slices is not in it.
+      return { id: request.id, ok: true, result, sequence: result.sequence };
     }
     if (request.action === "pages.complete" && request.semantic) {
-      try {
-        if (typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
-        const ranked = this.store.rankPageAddresses(request.query, request.limit, request.contextBlockId);
-        const context = ranked.context ? { context: ranked.context } : {};
-        let result: PageAddressCollection & Pick<GotoSearchCollection, "semantic" | "context"> = { addresses: ranked.addresses.map(({ exact: _exact, ...address }) => address), completeness: ranked.completeness, semantic: { status: "lexical" }, ...context };
-        if (request.query?.trim() && this.activeGotoRankings < 2) {
-          this.activeGotoRankings++;
-          try {
-            const candidate = (address: (typeof ranked.addresses)[number]) => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact });
-            const note = ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {};
-            let reordered = await rankSearchWithJev(request.query, { matches: ranked.addresses.map(candidate), completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
-            // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every page, as
-            // `//` reads every note, and its finds are ranked with the rest.
-            if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
-              const paged = this.store.pagedBlockIds();
-              const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
-              const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
-              if (added.length) {
-                const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
-                const again = await rankSearchWithJev(request.query, { matches: all, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
-                // Still the request's limit: the finds take the places of the weakest.
-                reordered = { ...again, matches: again.matches.slice(0, limit), completeness: all.length > limit ? { kind: "truncated", limit } : ranked.completeness, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
-              } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
-            }
-            // A model answer cannot resurrect an address renamed or deleted while it ranked.
-            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
-            this.tallySearch(reordered.semantic);
-          } finally { this.activeGotoRankings--; }
-        } else if (request.query?.trim()) {
-          result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
-        }
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      if (typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
+      const ranked = this.store.rankPageAddresses(request.query, request.limit, request.contextBlockId);
+      const context = ranked.context ? { context: ranked.context } : {};
+      let result: PageAddressCollection & Pick<GotoSearchCollection, "semantic" | "context"> = { addresses: ranked.addresses.map(({ exact: _exact, ...address }) => address), completeness: ranked.completeness, semantic: { status: "lexical" }, ...context };
+      if (request.query?.trim() && this.activeGotoRankings < 2) {
+        this.activeGotoRankings++;
+        try {
+          const candidate = (address: (typeof ranked.addresses)[number]) => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact });
+          const note = ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {};
+          let reordered = await rankSearchWithJev(request.query, { matches: ranked.addresses.map(candidate), completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+          // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every page, as
+          // `//` reads every note, and its finds are ranked with the rest.
+          if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
+            const paged = this.store.pagedBlockIds();
+            const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
+            const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
+            if (added.length) {
+              const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
+              const again = await rankSearchWithJev(request.query, { matches: all, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+              // Still the request's limit: the finds take the places of the weakest.
+              reordered = { ...again, matches: again.matches.slice(0, limit), completeness: all.length > limit ? { kind: "truncated", limit } : ranked.completeness, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
+            } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
+          }
+          // A model answer cannot resurrect an address renamed or deleted while it ranked.
+          result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+          this.tallySearch(reordered.semantic);
+        } finally { this.activeGotoRankings--; }
+      } else if (request.query?.trim()) {
+        result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
       }
+      return this.answered(request, result);
     }
     if (request.action === "tree.search") {
-      try {
-        let result = readGoto(this.store, request);
-        if (request.semantic && this.activeGotoRankings < 2) {
-          this.activeGotoRankings++;
-          const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
-          try {
-            result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note });
-            if (request.deep === true) result = await this.deepen(request.query, result, note);
-          } finally { this.activeGotoRankings--; }
-          this.tallySearch(result.semantic);
-          // A model answer cannot resurrect a deleted or edited candidate.
-          result.matches = result.matches.filter(match => {
-            const current = this.store.get(match.block.id);
-            return current && !current.effectiveDeletedRootId && !current.deletedAt && current.revision === match.block.revision;
-          });
-        } else if (request.semantic) {
-          result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
-        }
-        return { id: request.id, ok: true, result: visibleGotoResults(result, request.limit), sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      let result = readGoto(this.store, request);
+      if (request.semantic && this.activeGotoRankings < 2) {
+        this.activeGotoRankings++;
+        const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
+        try {
+          result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note });
+          if (request.deep === true) result = await this.deepen(request.query, result, note);
+        } finally { this.activeGotoRankings--; }
+        this.tallySearch(result.semantic);
+        // A model answer cannot resurrect a deleted or edited candidate.
+        result.matches = result.matches.filter(match => {
+          const current = this.store.get(match.block.id);
+          return current && !current.effectiveDeletedRootId && !current.deletedAt && current.revision === match.block.revision;
+        });
+      } else if (request.semantic) {
+        result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
       }
+      return this.answered(request, visibleGotoResults(result, request.limit));
     }
     if (request.action === "query.suggest") return querySuggestReply(this.querySuggester ??= new QuerySuggester(this.own, this.suggestionKeeps, asksFor(this.store.workspaceRoot)), request, () => this.store.sequence);
     if (request.action === "completion.rows" || request.action === "completion.picked" || request.action === "completion.cancel") {
-      try {
-        const result = await (this.completions ??= new CompletionRequests(this.store, this.own, this.extensionRegistry, this.extensionCalls, this.readOnly)).run(request);
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
-      }
+      const result = await (this.completions ??= new CompletionRequests(this.store, this.own, this.extensionRegistry, this.extensionCalls, this.readOnly)).run(request);
+      return this.answered(request, result);
     }
     if (request.action === "roadmap.items.similar" || request.action === "roadmap.items.attach" || (request.action === "roadmap.items.create" && (request.author === "agent" || request.input?.new !== undefined))) {
       // Twins at filing (PIE-1258, work-twins.ts): code finds open items like the new one, Jev reads them, code decides.
       // An agent's create with twins is refused with the two calls; a person's never is (the door shows a hint).
-      try {
-        const own = this.own;
-        const jev = { promptDirectory: this.promptDirectory };
-        if (request.action === "roadmap.items.similar") {
-          const input = request.input;
-          if (!input || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.similar needs input: { title, body? }");
-          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 10)) throw new Error("limit must be a whole number from 1 to 10");
-          const found = await findTwins(own, { title: input.title, ...(typeof input.body === "string" ? { body: input.body } : {}) }, { ...jev, ...(request.limit ? { limit: request.limit } : {}) });
-          // The person's check (the door asks it on ctrl+s): an offer when it found one, the tokens either way.
-          if (found.twins.length) await recordTwin(own, found, { title: input.title, outcome: "offered" });
-          else await tallyTwins(own, found);
-          const { reading, ...answer } = found;
-          return { id: request.id, ok: true, result: { ...answer, ...(reading?.usage ? { tokens: reading.usage.input } : {}) }, sequence: this.store.sequence };
-        }
-        if (this.readOnly) throw new Error("This outline is read-only.");
-        if (request.action === "roadmap.items.attach") {
-          const input = request.input;
-          if (!input || typeof input.item !== "string" || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.attach needs input: { item: <Work ID or block id>, title, body?, sourceBlockId? }");
-          const item = (parseWorkId(input.item.trim()) ? (await own.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${input.item.trim()}`, limit: 1 } })).blocks[0] : this.store.get(input.item.trim()))
-            ?? (() => { throw new Error(`no roadmap item ${input.item}: attach names an open item by its Work ID (PIE-12) or block id`); })();
-          if (!item.properties.some(p => p.key === "type" && p.value === "roadmap-item")) throw new Error(`${input.item} isn't a roadmap item: attach names open work by its Work ID (PIE-12)`);
-          const stage = item.properties.find(p => p.key === "work-stage")?.value;
-          if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
-          const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
-          let updated: Block | undefined;
-          for (let attempt = 0; attempt < 2 && !updated; attempt++) {
-            const now = this.store.require(item.id);
-            try { updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation }); }
-            catch (error) { if (attempt) throw error; }
-          }
-          const workId = item.properties.find(p => p.key === "work-id")?.value ?? item.id;
-          await recordTwin(own, { candidates: [], twins: [workId], jev: "not asked: attached" }, { title: input.title, outcome: "attached", item: workId, ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}), twin: workId });
-          return { id: request.id, ok: true, result: { attached: workId, block: updated! }, sequence: this.store.sequence };
-        }
-        const { new: fileAnyway, ...input } = request.input;
-        const answer = await findTwins(own, { title: input.title, ...(input.body ? { body: input.body } : {}) }, jev);
-        const actorId = request.provenance?.actorId;
-        if (answer.twins.length && !fileAnyway && request.author === "agent") {
-          await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
-          throw new Error(twinRefusal(answer, input.title));
-        }
-        if (!answer.twins.length) await tallyTwins(own, answer);
-        const beside = fileAnyway ? answer.twins : [];
-        const filed = beside.length ? { ...input, relatedTo: [...new Set([...(input.relatedTo ?? []), ...answer.candidates.filter(c => beside.includes(c.workId)).map(c => c.id)])], body: `${input.body?.trim() ? `${input.body.trim()}\n\n` : ""}Filed beside ${beside.map(w => `[[${w}]]`).join(", ")}: open work that looked like the same, filed anyway.` } : input;
-        const response = this.handle({ ...request, input: filed }, subscribedClient);
-        if (response.ok && beside.length) await recordTwin(own, answer, { title: input.title, outcome: "filed-anyway", item: (response.result as RoadmapItemCreateReceipt).workId, ...(actorId ? { actorId } : {}) });
-        return response;
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      const own = this.own;
+      const jev = { promptDirectory: this.promptDirectory };
+      if (request.action === "roadmap.items.similar") {
+        const input = request.input;
+        if (!input || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.similar needs input: { title, body? }");
+        if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 10)) throw new Error("limit must be a whole number from 1 to 10");
+        const found = await findTwins(own, { title: input.title, ...(typeof input.body === "string" ? { body: input.body } : {}) }, { ...jev, ...(request.limit ? { limit: request.limit } : {}) });
+        // The person's check (the door asks it on ctrl+s): an offer when it found one, the tokens either way.
+        if (found.twins.length) await recordTwin(own, found, { title: input.title, outcome: "offered" });
+        else await tallyTwins(own, found);
+        const { reading, ...answer } = found;
+        return this.answered(request, { ...answer, ...(reading?.usage ? { tokens: reading.usage.input } : {}) });
       }
+      if (this.readOnly) throw new Error("This outline is read-only.");
+      if (request.action === "roadmap.items.attach") {
+        const input = request.input;
+        if (!input || typeof input.item !== "string" || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.attach needs input: { item: <Work ID or block id>, title, body?, sourceBlockId? }");
+        const item = (parseWorkId(input.item.trim()) ? (await own.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${input.item.trim()}`, limit: 1 } })).blocks[0] : this.store.get(input.item.trim()))
+          ?? (() => { throw new Error(`no roadmap item ${input.item}: attach names an open item by its Work ID (PIE-12) or block id`); })();
+        if (!item.properties.some(p => p.key === "type" && p.value === "roadmap-item")) throw new Error(`${input.item} isn't a roadmap item: attach names open work by its Work ID (PIE-12)`);
+        const stage = item.properties.find(p => p.key === "work-stage")?.value;
+        if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
+        const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
+        let updated: Block | undefined;
+        for (let attempt = 0; attempt < 2 && !updated; attempt++) {
+          const now = this.store.require(item.id);
+          try { updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation }); }
+          catch (error) { if (attempt) throw error; }
+        }
+        const workId = item.properties.find(p => p.key === "work-id")?.value ?? item.id;
+        await recordTwin(own, { candidates: [], twins: [workId], jev: "not asked: attached" }, { title: input.title, outcome: "attached", item: workId, ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}), twin: workId });
+        return this.answered(request, { attached: workId, block: updated! });
+      }
+      const { new: fileAnyway, ...input } = request.input;
+      const answer = await findTwins(own, { title: input.title, ...(input.body ? { body: input.body } : {}) }, jev);
+      const actorId = request.provenance?.actorId;
+      if (answer.twins.length && !fileAnyway && request.author === "agent") {
+        await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
+        throw new Error(twinRefusal(answer, input.title));
+      }
+      if (!answer.twins.length) await tallyTwins(own, answer);
+      const beside = fileAnyway ? answer.twins : [];
+      const filed = beside.length ? { ...input, relatedTo: [...new Set([...(input.relatedTo ?? []), ...answer.candidates.filter(c => beside.includes(c.workId)).map(c => c.id)])], body: `${input.body?.trim() ? `${input.body.trim()}\n\n` : ""}Filed beside ${beside.map(w => `[[${w}]]`).join(", ")}: open work that looked like the same, filed anyway.` } : input;
+      const response = this.handle({ ...request, input: filed }, subscribedClient);
+      if (response.ok && beside.length) await recordTwin(own, answer, { title: input.title, outcome: "filed-anyway", item: (response.result as RoadmapItemCreateReceipt).workId, ...(actorId ? { actorId } : {}) });
+      return response;
     }
     if (request.action === "search.picks") {
-      return { id: request.id, ok: true, result: { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) }, sequence: this.store.sequence };
+      return this.answered(request, { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) });
     }
     if (request.action === "search.picked") {
       // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
-      try {
-        if (this.readOnly) throw new Error("This outline is read-only.");
-        const pick = readSearchPicked(request as unknown as Record<string, unknown>);
-        const picks = keepSearchPick(readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)), pick);
-        this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
-        return { id: request.id, ok: true, result: { kept: picks.length }, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      if (this.readOnly) throw new Error("This outline is read-only.");
+      const pick = readSearchPicked(request as unknown as Record<string, unknown>);
+      const picks = keepSearchPick(readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)), pick);
+      this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
+      return this.answered(request, { kept: picks.length });
     }
-    if (request.action === "suggestions.asks" || request.action === "suggestions.stamp") return { id: request.id, ok: true, result: answerSuggestions(this.store, asksFor(this.store.workspaceRoot), request), sequence: this.store.sequence };
+    if (request.action === "suggestions.asks" || request.action === "suggestions.stamp") return this.answered(request, answerSuggestions(this.store, asksFor(this.store.workspaceRoot), request));
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
       // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
-      try {
-        if (this.readOnly) throw new Error("This outline is read-only.");
-        const keep = readKeep(request.keep);
-        const own = this.own;
-        // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
-        // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
-        const turn = this.suggestionKeeps.run(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache, asksFor(this.store.workspaceRoot)));
-        const settled = await turn;
-        return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      if (this.readOnly) throw new Error("This outline is read-only.");
+      const keep = readKeep(request.keep);
+      const own = this.own;
+      // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
+      // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
+      const turn = this.suggestionKeeps.run(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache, asksFor(this.store.workspaceRoot)));
+      const settled = await turn;
+      return this.answered(request, { settled });
     }
     if (request.action === "quote") {
-      try {
-        if (!request.mutation || typeof request.mutation !== "object") throw new Error("quote needs mutation: who quotes (the person, or an agent with its actor id)");
-        const input = readQuoteInput(request.input);
-        let result: QuoteReceipt;
-        if (input.place.kind === "into") result = await quoteInto(this.store, this.draftPatches, input, request.mutation);
-        else {
-          const quoted = this.store.quote(input, request.mutation);
-          // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
-          const undo = this.extensionCalls.writes.keepMade("quote", [quoted.block.id]);
-          result = { ...quoted, ...(undo ? { undo } : {}) };
-        }
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      if (!request.mutation || typeof request.mutation !== "object") throw new Error("quote needs mutation: who quotes (the person, or an agent with its actor id)");
+      const input = readQuoteInput(request.input);
+      let result: QuoteReceipt;
+      if (input.place.kind === "into") result = await quoteInto(this.store, this.draftPatches, input, request.mutation);
+      else {
+        const quoted = this.store.quote(input, request.mutation);
+        // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
+        const undo = this.extensionCalls.writes.keepMade("quote", [quoted.block.id]);
+        result = { ...quoted, ...(undo ? { undo } : {}) };
       }
+      return this.answered(request, result);
     }
     if (request.action === "template.stamp" && request.into !== undefined) {
-      try {
-        const result = await stampTemplateInto(this.store, request, this.draftPatches);
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
-      }
+      const result = await stampTemplateInto(this.store, request, this.draftPatches);
+      return this.answered(request, result);
     }
     if (request.action === "outputs.place" || request.action === "draft.patch" || request.action === "draft.proposal.apply" || request.action === "draft.proposal.dismiss" || request.action === "draft.proposal.resolve" || request.action === "drafts.read") {
-      try {
-        const result = request.action === "outputs.place"
-          ? await placeOutput(this.draftPatches, request)
-          : request.action === "draft.patch"
-          ? await this.draftPatches.patch(request)
-          : request.action === "draft.proposal.resolve"
-            ? await this.draftPatches.resolveProposal(request.proposalId, request.mutation)
-          : request.action === "draft.proposal.apply"
-            ? await this.draftPatches.applyProposal(request.proposalId, request.mutation)
-            : request.action === "draft.proposal.dismiss"
-              ? await this.draftPatches.dismissProposal(request.proposalId, request.mutation)
-              : await this.draftPatches.read(request.blockId);
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
-      }
+      const result = request.action === "outputs.place"
+        ? await placeOutput(this.draftPatches, request)
+        : request.action === "draft.patch"
+        ? await this.draftPatches.patch(request)
+        : request.action === "draft.proposal.resolve"
+          ? await this.draftPatches.resolveProposal(request.proposalId, request.mutation)
+        : request.action === "draft.proposal.apply"
+          ? await this.draftPatches.applyProposal(request.proposalId, request.mutation)
+          : request.action === "draft.proposal.dismiss"
+            ? await this.draftPatches.dismissProposal(request.proposalId, request.mutation)
+            : await this.draftPatches.read(request.blockId);
+      return this.answered(request, result);
     }
     if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" ||
       request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args" ||
@@ -2573,56 +2510,42 @@ export class OutlinerServer {
             ...(typeof request.slots === "string" ? { slots: request.slots } : {}),
           });
         }
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+        return this.answered(request, result);
       } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error), sequence: this.store.sequence };
+        // The extension's own words, without the provider's prefix; the dispatcher writes the envelope.
+        if (error instanceof Error) error.message = error.message.replace(/^Resource extension: /, "");
+        throw error;
       }
     }
     if (request.action === "outline.snapshot" || request.action.startsWith("shares.") || request.action.startsWith("reader.")) {
-      try {
-        return { id: request.id, ok: true, result: await this.shareRequest(request), sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
-      }
+      return this.answered(request, await this.shareRequest(request));
     }
     if (request.action === "echonet.bulletin" || request.action === "echonet.put" || request.action === "echonet.take") {
-      try {
-        if (!this.outlinesFolder || !this.outline?.name) throw new Error(`${request.action} is served by an outline host, for a named outline`);
-        const folder = outlineLayout(this.outlinesFolder).folder(this.outline.name);
-        let result: unknown;
-        if (request.action === "echonet.bulletin") result = { bulletin: readBulletin(folder) };
-        else if (request.action === "echonet.take") result = takePackets(folder, request.for, request.ack);
-        else {
-          result = putPacket(folder, request.from, request.packet);
-          this.tossOnArrival();
-        }
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      if (!this.outlinesFolder || !this.outline?.name) throw new Error(`${request.action} is served by an outline host, for a named outline`);
+      const folder = outlineLayout(this.outlinesFolder).folder(this.outline.name);
+      let result: unknown;
+      if (request.action === "echonet.bulletin") result = { bulletin: readBulletin(folder) };
+      else if (request.action === "echonet.take") result = takePackets(folder, request.for, request.ack);
+      else {
+        result = putPacket(folder, request.from, request.packet);
+        this.tossOnArrival();
       }
+      return this.answered(request, result);
     }
     if (request.action === "notes.address" || request.action === "notes.render") {
-      try {
-        let result: NoteAddress | RenderedNote;
-        if (request.action === "notes.address") {
-          if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
-          result = await this.noteAddress(request.blockId);
-        } else {
-          if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
-          if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
-          if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
-          result = await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
-            ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
-          });
-        }
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      let result: NoteAddress | RenderedNote;
+      if (request.action === "notes.address") {
+        if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
+        result = await this.noteAddress(request.blockId);
+      } else {
+        if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
+        if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
+        if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
+        result = await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
+          ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
+        });
       }
+      return this.answered(request, result);
     }
     if (
       request.action !== "resources.open" &&
@@ -2635,158 +2558,131 @@ export class OutlinerServer {
       return this.handle(request, subscribedClient);
     }
     if (request.action === "resources.projection.refresh") {
-      try {
-        const normalized = normalizeResourceProjectionRequest(request);
-        const requestedBy = declaredRequester(request, "resources.projection.refresh");
-        const owner = this.store.extensionOwner(normalized.blockId);
-        const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
-        // A data handler's record (no Resource) refetches its one key; an extension's handler lines (or the one
-        // on `line`) run now.
-        const dataRecord = record !== null && !record.resourceId && !this.extensionSync.provides(record.extensionId);
-        if (dataRecord && !(await this.extensionCalls.refreshRecord(record.extensionId, record.itemKey))) {
-          throw new Error(`Nothing asks for ${record.itemKey} with a ${record.extensionId}:: line that parses, or ${record.extensionId} isn't installed here: nothing to refresh`);
-        }
-        const handlerLines = dataRecord || record ? [] : (this.extensionCalls.calls(normalized.blockId)?.calls ?? [])
-          .filter((call) => normalized.line === undefined || call.line === normalized.line);
-        if (handlerLines.length) {
-          await this.extensionCalls.refreshOutput(normalized.blockId, "refresh", normalized.line !== undefined ? { line: normalized.line } : {});
-        }
-        // `r` on an `@name` line asks its agent again; on the note, the requests not answered yet. Who pressed it
-        // is who asked.
-        const asked = !dataRecord && !record && await this.agentRequests.refresh(normalized.blockId, normalized.line, requestedBy);
-        const onlyHandlers = dataRecord || ((handlerLines.length > 0 || asked) && normalized.line !== undefined);
-        // One line's ticket (a click on its age), the ticket block's own, or every ticket the block shows.
-        const one = !onlyHandlers && normalized.line !== undefined && !record
-          ? readResourceProjections(this.store, normalized).projections.find((projection) => projection.resourceId)
-          : undefined;
-        if (onlyHandlers) {
-          // Nothing of Jira's on that line.
-        } else if (record?.resourceId) {
-          await this.store.resources.refreshRemoteEntity(record.resourceId, false);
-        } else if (one?.resourceId) {
-          await this.store.resources.refreshRemoteEntity(one.resourceId, false);
-        } else {
-          // A line whose ticket isn't registered yet: register and fetch what the block asks for, not a forced refetch of the rest.
-          await this.extensionSync.materialize(normalized.blockId, normalized.line === undefined);
-        }
-        const result = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), false), normalized.line);
-        const refreshedId = record?.resourceId ?? one?.resourceId;
-        this.broadcast({ id: crypto.randomUUID(), domain: "resource-catalog", action: request.action, sequence: this.store.sequence,
-          ...(refreshedId ? { resourceId: refreshedId } : {}) });
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      const normalized = normalizeResourceProjectionRequest(request);
+      const requestedBy = declaredRequester(request, "resources.projection.refresh");
+      const owner = this.store.extensionOwner(normalized.blockId);
+      const record = owner?.role === "comment" ? this.store.extensionOwner(owner.parentBlockId) : owner;
+      // A data handler's record (no Resource) refetches its one key; an extension's handler lines (or the one
+      // on `line`) run now.
+      const dataRecord = record !== null && !record.resourceId && !this.extensionSync.provides(record.extensionId);
+      if (dataRecord && !(await this.extensionCalls.refreshRecord(record.extensionId, record.itemKey))) {
+        throw new Error(`Nothing asks for ${record.itemKey} with a ${record.extensionId}:: line that parses, or ${record.extensionId} isn't installed here: nothing to refresh`);
       }
+      const handlerLines = dataRecord || record ? [] : (this.extensionCalls.calls(normalized.blockId)?.calls ?? [])
+        .filter((call) => normalized.line === undefined || call.line === normalized.line);
+      if (handlerLines.length) {
+        await this.extensionCalls.refreshOutput(normalized.blockId, "refresh", normalized.line !== undefined ? { line: normalized.line } : {});
+      }
+      // `r` on an `@name` line asks its agent again; on the note, the requests not answered yet. Who pressed it
+      // is who asked.
+      const asked = !dataRecord && !record && await this.agentRequests.refresh(normalized.blockId, normalized.line, requestedBy);
+      const onlyHandlers = dataRecord || ((handlerLines.length > 0 || asked) && normalized.line !== undefined);
+      // One line's ticket (a click on its age), the ticket block's own, or every ticket the block shows.
+      const one = !onlyHandlers && normalized.line !== undefined && !record
+        ? readResourceProjections(this.store, normalized).projections.find((projection) => projection.resourceId)
+        : undefined;
+      if (onlyHandlers) {
+        // Nothing of Jira's on that line.
+      } else if (record?.resourceId) {
+        await this.store.resources.refreshRemoteEntity(record.resourceId, false);
+      } else if (one?.resourceId) {
+        await this.store.resources.refreshRemoteEntity(one.resourceId, false);
+      } else {
+        // A line whose ticket isn't registered yet: register and fetch what the block asks for, not a forced refetch of the rest.
+        await this.extensionSync.materialize(normalized.blockId, normalized.line === undefined);
+      }
+      const result = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalized), false), normalized.line);
+      const refreshedId = record?.resourceId ?? one?.resourceId;
+      this.broadcast({ id: crypto.randomUUID(), domain: "resource-catalog", action: request.action, sequence: this.store.sequence,
+        ...(refreshedId ? { resourceId: refreshedId } : {}) });
+      return this.answered(request, result);
     }
     if (request.action === "resources.follow-authored") {
-      try {
-        const provenance = request.mutation ? normalizeFollowProvenance(request.mutation) : undefined;
-        const receipt = await this.store.resources.followAuthoredReference(request.reference);
-        const result = provenance ? { ...receipt, provenance } : receipt;
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
-      } catch (error) {
-        if (isSqliteBusy(error)) throw error;
-        return {
-          id: request.id,
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-          sequence: this.store.sequence,
-        };
-      }
+      const provenance = request.mutation ? normalizeFollowProvenance(request.mutation) : undefined;
+      const receipt = await this.store.resources.followAuthoredReference(request.reference);
+      const result = provenance ? { ...receipt, provenance } : receipt;
+      return this.answered(request, result);
     }
-    try {
-      // Reading and refreshing a Resource needs no Detail:
-      // without a destination the terminal presentation is used.
-      const destination = request.destinationClientId === undefined
-        ? undefined
-        : this.clientById(request.destinationClientId);
-      if ((request.action === "resources.command.execute" || request.action === "computed.execute") &&
-        (!destination || !clientSupportsRole(destination, "detail"))) {
-        throw new Error("Resource documents require a Detail destination");
-      }
-      let result: unknown;
-      if (request.action === "resources.open") {
-        const target = this.normalizeNavigationTarget(request.target);
-        if (target.kind !== "resource") {
-          throw new Error("Resource document target must be a resource");
-        }
-        const description = await this.store.resources.open(
-          target.resourceId,
-          true,
-          target.revision,
-        );
-        result = this.presentResource(description, destination);
-      } else if (request.action === "resources.refresh") {
-        const local = this.presentResource(
-          this.store.resources.describe(request.resourceId, true),
-          destination,
-        );
-        this.requireAvailableResourceCapability(local, "refresh", true);
-        const description = await this.store.resources.refresh(
-          request.resourceId,
-          true,
-        );
-        result = this.presentResource(description, destination);
-      } else if (request.action === "computed.execute") {
-        const local = this.presentResource(
-          this.store.resources.describe(request.resourceId, true),
-          destination,
-        );
-        this.requireAvailableResourceCapability(local, "refresh", true);
-        const receipt = await this.store.resources.executeComputedResource(
-          request.resourceId,
-          true,
-        );
-        const description = this.presentResource(
-          this.store.resources.describe(request.resourceId, true),
-          destination,
-        );
-        result = { receipt, description } satisfies ComputedExecutionResult;
-      } else {
-        const input = normalizeResourceProviderCommandInput(request.input);
-        const resource = this.store.resources.require(request.resourceId);
-        if (!isExtensionProvider(resource.provider) && resource.provider !== "linear") {
-          throw new Error("Resource provider commands require an extension provider's or a Linear Resource");
-        }
-        if (input.provider !== resource.provider) {
-          throw new Error("Resource provider command does not match the resolved Resource");
-        }
-        const local = this.presentResource(
-          this.store.resources.describe(resource.id, true),
-          destination,
-        );
-        this.requireAvailableResourceCapability(local, "command");
-        if (
-          !local.availableCommands.some((descriptor) =>
-            descriptor.provider === input.provider &&
-            descriptor.command === input.command
-          )
-        ) {
-          throw new Error("Resource provider command is not available for this entity");
-        }
-        const receipt = await this.store.resources.executeRemoteEntityCommand(
-          resource.id,
-          input,
-        );
-        const description = this.presentResource(
-          this.store.resources.describe(resource.id, true),
-          destination,
-        );
-        result = { receipt, description } satisfies ResourceProviderCommandResult;
-      }
-      return { id: request.id, ok: true, result, sequence: this.store.sequence };
-    } catch (error) {
-      if (isSqliteBusy(error)) throw error;
-      const problem = queryRequestProblem(error);
-      return {
-        id: request.id,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        ...(problem ? { problem } : {}),
-        sequence: this.store.sequence,
-      };
+    // Reading and refreshing a Resource needs no Detail:
+    // without a destination the terminal presentation is used.
+    const destination = request.destinationClientId === undefined
+      ? undefined
+      : this.clientById(request.destinationClientId);
+    if ((request.action === "resources.command.execute" || request.action === "computed.execute") &&
+      (!destination || !clientSupportsRole(destination, "detail"))) {
+      throw new Error("Resource documents require a Detail destination");
     }
+    let result: unknown;
+    if (request.action === "resources.open") {
+      const target = this.normalizeNavigationTarget(request.target);
+      if (target.kind !== "resource") {
+        throw new Error("Resource document target must be a resource");
+      }
+      const description = await this.store.resources.open(
+        target.resourceId,
+        true,
+        target.revision,
+      );
+      result = this.presentResource(description, destination);
+    } else if (request.action === "resources.refresh") {
+      const local = this.presentResource(
+        this.store.resources.describe(request.resourceId, true),
+        destination,
+      );
+      this.requireAvailableResourceCapability(local, "refresh", true);
+      const description = await this.store.resources.refresh(
+        request.resourceId,
+        true,
+      );
+      result = this.presentResource(description, destination);
+    } else if (request.action === "computed.execute") {
+      const local = this.presentResource(
+        this.store.resources.describe(request.resourceId, true),
+        destination,
+      );
+      this.requireAvailableResourceCapability(local, "refresh", true);
+      const receipt = await this.store.resources.executeComputedResource(
+        request.resourceId,
+        true,
+      );
+      const description = this.presentResource(
+        this.store.resources.describe(request.resourceId, true),
+        destination,
+      );
+      result = { receipt, description } satisfies ComputedExecutionResult;
+    } else {
+      const input = normalizeResourceProviderCommandInput(request.input);
+      const resource = this.store.resources.require(request.resourceId);
+      if (!isExtensionProvider(resource.provider) && resource.provider !== "linear") {
+        throw new Error("Resource provider commands require an extension provider's or a Linear Resource");
+      }
+      if (input.provider !== resource.provider) {
+        throw new Error("Resource provider command does not match the resolved Resource");
+      }
+      const local = this.presentResource(
+        this.store.resources.describe(resource.id, true),
+        destination,
+      );
+      this.requireAvailableResourceCapability(local, "command");
+      if (
+        !local.availableCommands.some((descriptor) =>
+          descriptor.provider === input.provider &&
+          descriptor.command === input.command
+        )
+      ) {
+        throw new Error("Resource provider command is not available for this entity");
+      }
+      const receipt = await this.store.resources.executeRemoteEntityCommand(
+        resource.id,
+        input,
+      );
+      const description = this.presentResource(
+        this.store.resources.describe(resource.id, true),
+        destination,
+      );
+      result = { receipt, description } satisfies ResourceProviderCommandResult;
+    }
+    return this.answered(request, result);
   }
 
   handle(
@@ -4264,8 +4160,7 @@ export class OutlinerServer {
     const writes = extensionMay(action) === "write";
     const marks = action.startsWith("annotations.");
     const need = !writes ? "read" : marks ? "propose" : "full";
-    const allowed = (level === "propose" && need !== "full") || (level === "read" && need === "read");
-    if (allowed) return;
+    if (atLeast(level, need)) return;
 
     throw new Error(`${extensionActorId(grant.extensionId)} runs for ${grant.outline}, and ${here} grants other outlines ${level}: ` +
       `${action} needs ${need} (its owner runs \`ep0ch mcp access ${need} --ws ${here}\`)`);

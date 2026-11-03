@@ -498,17 +498,28 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       await api.tool.outline_patch!(await edit("Bring labels.", "Bring twine."));
       expect(await record()).toMatchObject({ text: "Seed ledger\nBring twine.", author: "agent", actor: "garden-script" });
 
-      const command = OUTLINE_TOOLS.find(t => t.name === "outline_patch")!.command(await edit("Bring twine.", "Bring pots."));
-      if (typeof command === "string") throw new Error(command);
-      const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod"], {
-        cwd: outliner!, env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe",
-      });
-      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      expect(code, stderr || stdout).toBe(0);
-      expect(await record()).toMatchObject({ text: "Seed ledger\nBring pots." });
+      const modPatch = async () => {
+        const command = OUTLINE_TOOLS.find(t => t.name === "outline_patch")!.command(await edit("Bring twine.", "Bring pots."));
+        if (typeof command === "string") throw new Error(command);
+        const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod"], {
+          cwd: outliner!, env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe",
+        });
+        const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        return { stdout, stderr, code };
+      };
+      // At read the mod is refused as the stdio server is, in the same words (PIE-1544: it used to write regardless).
+      const refusedMod = await modPatch();
+      expect(refusedMod.code).toBe(1);
+      const refusedStdio = called((await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_patch", arguments: await edit("Bring twine.", "Bring pots.") } }])).find(r => r.id === 2));
+      expect(refusedStdio.isError).toBe(true);
+      expect(refusedMod.stderr).toContain(refusedStdio.text);
+      expect(await record()).toMatchObject({ text: "Seed ledger\nBring twine." });
 
       await setAccess("full");
       try {
+        const mod = await modPatch();
+        expect(mod.code, mod.stderr || mod.stdout).toBe(0);
+        expect(await record()).toMatchObject({ text: "Seed ledger\nBring pots." });
         const response = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_patch", arguments: await edit("Bring pots.", "Bring seeds.") } }]);
         expect(called(response.find(r => r.id === 2))).toMatchObject({ isError: false, json: { outcome: "applied" } });
         expect(await record()).toMatchObject({ text: "Seed ledger\nBring seeds." });
@@ -534,6 +545,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         const script = await make("garden-mod");
         expect(await api.call(name, { ref: script.id })).toMatchObject({ outcome: op === "apply" ? "applied" : "dismissed" });
         const mod = await make("garden-mod");
+        await setAccess("full"); // the mod settles at full, as every agent does (PIE-1544)
         const command = OUTLINE_TOOLS.find(t => t.name === name)!.command({ ref: mod.id });
         if (typeof command === "string") throw new Error(command);
         const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod"], { cwd: outliner!, env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe" });

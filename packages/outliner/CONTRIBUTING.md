@@ -89,7 +89,16 @@ source evidence or distinguish authored glyphs from controls.
   the store's `extensionGeneratedNotes` and `hasOtherTextWriter` keep another writer's additions out of cleanup.
   It switches kept rules off on removal and back on during installation, using `extension-rules.ts`'s
   `extensionRuleNotes` to read their scoped action references and the ordinary attributed property writer.
-- `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
+- `src/server.ts` owns protocol dispatch, sequence, and subscriptions. Its dispatcher (`handleAsync`) writes every
+  answer's envelope and retries a busy database once when none of the request landed (except `once` rows in
+  `actions.ts`); a handler returns its result or throws, and never catches SQLITE_BUSY itself (PIE-1544).
+- `src/write-gate.ts` is the one place that decides what an agent's write becomes (ADR 0005): the level a caller
+  writes at (`effectiveLevel`: the setting, the maker's `full`, a local session's `full` on an outline whose owner set
+  none, its cap) and, for a tool at that level, applied, proposed as a patch, proposed as a comment, or refused in the
+  words every surface says. The MCP gateway and stdio server, the netmail drain, the CLI's agent operations (the
+  Claude mod's path), a script's tools, `place()`, `scripts.run` and the extension grants ask it; the one level order
+  is outline-core's `MCP_ACCESS_LEVELS` (`lowerLevel`, `atLeast`). `src/agent-write.ts` carries out a gated write
+  for the CLI and scripts; `src/mcp-write.ts`'s `applyWrite` makes the proposals.
 - `src/block-grep.ts` scans live note text for matching source lines; `goto-search.ts` adds context lines and exact-phrase priority to ranked search. Their shared wire shapes and line context live in `outline-core/text-search.ts`. Clients use `blocks.grep` or `tree.search`, never fetch the whole outline to search it.
 - `src/completion-sources.ts` owns built-in completion rows; `src/completion-requests.ts` owns their shared pick history and cancellable turns. Every client merges them with outline-core's `completion-source.ts`, and Draft and TextBuffer use its `SnippetSession` for slot positions.
 - `src/query-suggest.ts` owns query-word candidates, select-only Jev judgments, aliases and acceptance. Completion sources, Detail, web search and MCP call it; `outline-core/query-clauses.ts` is the facets and suggestion writer, and `jev-suggestions.ts` serializes their records with the other suggestion writes.

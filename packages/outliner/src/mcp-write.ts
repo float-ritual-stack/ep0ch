@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { gate, gateRefusal } from "./write-gate";
 
 
 export interface WriteActor { actorId: string; sessionId?: string; taskId?: string }
@@ -17,27 +18,11 @@ const clientOf = (board: WriteBoard) => ({
   requireCompatibleService: () => board.info(),
 });
 const pick = (args: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]));
-/** Why a work id isn't stamped at this level (it is no proposal), or null when it may be. */
-export const assignIdRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
-  : `outline_assign_id stamps the note and can't be proposed: it needs full access (this outline's is ${level}).`;
-
-/** Why a note isn't brought back from Trash at this level (it is no proposal), or null when it may be. */
-export const restoreRefusal = (level: McpAccessLevel): string | null => level === "full" ? null
-  : `outline_restore brings a note back from Trash and can't be proposed: it needs full access (this outline's is ${level}).`;
-
-/** Settling a proposal cannot become another proposal; check before queueing and again at its destination. */
-export const proposalSettlementRefusal = (tool: McpWriteTool, level: McpAccessLevel): string | null =>
-  (tool === "outline_proposal_apply" || tool === "outline_proposal_dismiss" || tool === "outline_proposal_resolve") && level !== "full"
-    ? `${tool} settles a proposal and can't be proposed: it needs full access (this outline's is ${level}).` : null;
-
-/** Whether a level allows writes, and which kind. */
 /** When a patch was read at an older revision and applied on the newer one, say which (PIE-687). */
 const rebasedSaid = (edits: readonly { revision?: number; rebasedFrom?: number }[]): string => {
   const rebased = edits.filter(edit => edit.rebasedFrom !== undefined);
   return rebased.length ? ` on the newer text (rebased from revision ${rebased.map(edit => edit.rebasedFrom).join(", ")}; now at ${rebased.map(edit => edit.revision).join(", ")})` : "";
 };
-
-export const writesAt = (level: McpAccessLevel): "proposals" | "applied" | null => level === "full" ? "applied" : level === "propose" ? "proposals" : null;
 
 /**
  * One write, checked for shape and ready to apply: the block it is about (a patch's or comment's note, a new block's
@@ -95,21 +80,13 @@ export interface ApplyOptions {
  * it for this machine's outlines, and a machine pulling its queued writes runs it for its own.
  */
 export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOptions): Promise<WriteOutcome> {
-  const kind = writesAt(o.level);
-  if (!kind) throw new Error(`MCP access is ${o.level}${board.address ? ` for ${board.address.outline}@${board.address.machine}` : ""}: no writes`);
+  // The gate decides (src/write-gate.ts); the branches below carry out what it said.
+  const decided = gate({ tool: write.tool, level: o.level, ...(board.address ? { where: board.address } : {}), proposeOnly: o.proposeOnly, top: write.tool === "outline_create" && write.blockId === "root" });
+  if (decided.becomes === "refused") throw gateRefusal(decided.why!);
+  const kind = o.level === "full" ? "applied" : "proposals";
   const module = "./agent-tools";
   const tools = await import(module) as AgentTools;
   const client = clientOf(board);
-  if (write.tool === "outline_assign_id") {
-    const why = assignIdRefusal(o.level) ?? (o.proposeOnly ? "outline_assign_id stamps the note and can't be proposed: the note changed since it was read." : null);
-    if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
-  }
-  if (write.tool === "outline_restore") {
-    const why = restoreRefusal(o.level) ?? (o.proposeOnly ? "outline_restore can't be proposed: the note changed since it was read." : null);
-    if (why) throw Object.assign(new Error(why), { name: "WorkToolRefusal" });
-  }
-  const settlementRefusal = proposalSettlementRefusal(write.tool, o.level);
-  if (settlementRefusal) throw Object.assign(new Error(settlementRefusal), { name: "WorkToolRefusal" });
   const propose = kind === "proposals" || o.proposeOnly || write.input.propose === true ? true : o.queued ? "on-conflict" : false;
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }
@@ -196,8 +173,6 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
         const made = await tools.createBlock(client, { parent: write.blockId, ...write.input }, o.actor);
         return { outcome: "applied", uri: o.uri(made.id), said: `created ${o.uri(made.id)} ${top ? "at the top level" : `under ${o.uri(write.blockId)}`}`, detail: made };
       }
-      // A proposal is a comment on a note, and the top level is none.
-      if (top) throw Object.assign(new Error("A new top-level note can't be proposed: a proposal is a comment on a note, and the top level is none. Give a parent note, or ask for full access (ep0ch mcp access full)."), { name: "WorkToolRefusal" });
       // A new block can't be a draft.patch: it is offered as a comment on its parent, for its owner to make.
       const body = `Proposed new block under this note${write.input.position === undefined ? "" : ` at position ${write.input.position}`}, from ${actorLabel(o.actor.actorId)}:\n\n${String(write.input.text)}`;
       const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body, requestId: write.input.requestId }, o.actor);
