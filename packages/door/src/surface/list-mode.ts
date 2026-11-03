@@ -60,9 +60,9 @@ function listKey(surface: NoteSurface, list: string, k: Key, host: SurfaceHost):
 /**
  * The list key `k` binds to while the `[ ]` position is on a list's row, as figureKey reads a figure's. On a
  * collection's row (PIE-1501): the tables in list-keys.ts, less list.enter (esc lets go of the position, as anywhere;
- * tab is the screen's). On another list's row (a ::links list, ::backlinks, an extension's list: PIE-1534): its steps
- * only (j k, PgDn PgUp a page of its rows); ⏎ / and the rest stay the reader's until ⏎ in gives it the keys. Null for
- * any other key, or off every list's row.
+ * tab is the screen's). On another list's row (a ::links list, ::backlinks, an extension's list: PIE-1534): its page
+ * only (PgDn PgUp); j k stay the host's (the reader's walk steps the rows, a river column's j selects its next note),
+ * and ⏎ / and the rest the reader's until ⏎ in gives it the keys. Null for any other key, or off every list's row.
  */
 export function collectionBinding(surface: NoteSurface, k: Key): { list: ListHandle<any>; binding: ModeKey } | null {
   if (surface.modes.top()) return null;
@@ -70,7 +70,7 @@ export function collectionBinding(surface: NoteSurface, k: Key): { list: ListHan
   if (!list) return null;
   const binding = listBinding(k, !!list.change, list.view.pickable().length);
   if (!binding || binding.action === "list.enter") return null;
-  return list.collection || (binding.action === "list.step" && binding.args?.axis === undefined) ? { list, binding } : null;
+  return list.collection || (binding.action === "list.step" && binding.args?.page) ? { list, binding } : null;
 }
 
 /** `k` run on the collection the `[ ]` position is in: j k step its rows through the reading walk (one owner of a row step, stepReading), the rest through its list.* action. True when it ran. */
