@@ -78,6 +78,55 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
 ].join("\n");
 
 /**
+ * The pictures section's note (PIE-1555): a ```mermaid flowchart, sequence and state diagram, a ```svg fence and an
+ * [img::…svg] line, each drawn as a picture under kitty graphics and as its source (with what it is) without.
+ */
+export const picturesText = (dir = SHOWCASE_ASSETS) => [
+  SEED.pictures,
+  "",
+  "Each fence below is drawn as its picture, the reader's width; ~ shows the note as written, the fences' text again. Without kitty graphics they stay text, their first row saying what they draw.",
+  "",
+  "```mermaid",
+  "flowchart LR",
+  "  A[Sow] --> B{Frost tonight?}",
+  "  B -->|yes| C[Cover the bed]",
+  "  B -->|no| D[Water]",
+  "  C --> E[Harvest]",
+  "  D --> E",
+  "```",
+  "",
+  "Who fetches what from the shed:",
+  "",
+  "```mermaid",
+  "sequenceDiagram",
+  "  participant Gardener",
+  "  Gardener->>Shed: the fork, please",
+  "  Shed-->>Gardener: the fork",
+  "  Gardener->>Neighbour: netting?",
+  "  Neighbour-->>Gardener: a spare roll",
+  "```",
+  "",
+  "```mermaid",
+  "stateDiagram-v2",
+  "  [*] --> Seed",
+  "  Seed --> Sprout: water",
+  "  Sprout --> Plant: a month",
+  "  Plant --> Seed: saved",
+  "  Plant --> [*]",
+  "```",
+  "",
+  "An svg fence, written in the note:",
+  "",
+  "```svg",
+  `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="90" viewBox="0 0 360 90"><rect width="360" height="90" rx="8" fill="#101826"/><g fill="#4fb3c7"><circle cx="45" cy="45" r="18"/><circle cx="135" cy="45" r="18"/><circle cx="225" cy="45" r="18"/><circle cx="315" cy="45" r="18"/></g><text x="180" y="84" fill="#9aa7b8" font-family="DejaVu Sans, sans-serif" font-size="12" text-anchor="middle">four beans to a row</text></svg>`,
+  "```",
+  "",
+  "And an SVG file, as any image is:",
+  "",
+  `[img::${dir}/plot-plan.svg] [size::full] [alt::the plot plan]`,
+].join("\n");
+
+/**
  * The gallery section's note (PIE-827): the outliner's gallery extension draws its child notes as cards with their
  * `[cover::]` pictures, and `pic::` one picture, each through the `image` primitive. Nothing is written for them.
  */

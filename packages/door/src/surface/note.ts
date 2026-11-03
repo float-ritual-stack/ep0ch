@@ -2501,7 +2501,9 @@ export class NoteSurface {
     if (d) this.refusedPress = act => { try { return d.refusedNow(actRequestOf(lineWords(act)), USER); } catch { return null; } };
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
-    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), headings: headingStylesOf(this.src), printed: this.printed };
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), headings: headingStylesOf(this.src), printed: this.printed,
+      // A picture fence's source is the note as written (PIE-1555): decor.raw shows it, and its caption names the key.
+      pictures: !this.raw, pictureSource: `${keyCaption(READER_KEYS.find(r => r.action === "decor.raw")?.key ?? "~")} shows its source` };
   }
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
