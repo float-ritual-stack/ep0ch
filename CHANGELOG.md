@@ -16,11 +16,6 @@ are its record. The outliner's entries from then are kept below, under
 - **The dispatcher owns every answer** and retries a busy database once for all of them.
 - **Run:** `ep0ch install --apply` on every machine, laptop included: PROTOCOL 308.
 
-### pie's host answers while tools write (PIE-1546)
-
-- **Bookkeeping writes skip the live views that hide them**, so a Jev record or a tool's note no longer re-runs every door's watches; door requests queued 1 s at the median instead of 3 to 6 s.
-- **Jev's quiet asks go to a file** in the outline's folder (`jev/<day>.jsonl`), its daily tally at most every 15 minutes; findings stay notes.
-
 ### A note draws once for the reader and the river (PIE-1543)
 
 - One drawing of a note and its press targets; the river column's header chips ([comment], [sources], the crumbs, the whole-note [+]) work, a callout's ⧉ copies, `Y` keeps a closing code block.
@@ -34,11 +29,17 @@ are its record. The outliner's entries from then are kept below, under
 - A not-installed extension's preview shows its README, every action, tile, script and component it adds, its demos and what it needs.
 - `ep0ch ext remove` and `ext update` find an outline's own extension from the folder you're in.
 
-### pie's host answers again while tools write (PIE-1546)
+### pie's host answers while tools write, and the door stops re-asking (PIE-1546)
 
-- **Bookkeeping writes stop re-running watches:** a write to a note stamped `[machine::…]` (Jev's records, sysop's health samples, install stamps) no longer evaluates a watched `blocks.query` or view that leaves machinery out, unless it lists that note or its parent. On a copy of pie, 20 record writes went from 500 watch evaluations (877 ms of the loop a write) to 80 (204 ms).
-- **Jev writes far less:** a quiet ask is a line of `<outline folder>/jev/<day>.jsonl`, not a `review-quiet` note; the day's `jev-run` is written from that file at most every 15 minutes; a pass's settled-finding stamps are one request. The suggestions page's "Reviewed, nothing to fix" table counts quiet asks a day a row (an old page's table is replaced on its next review).
-- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change; a backfill CLI older than the host still runs (it skips by blocks only).
+- **Bookkeeping writes stop re-running watches:** a write to a note stamped `[machine::…]` (Jev's records, install stamps) no longer evaluates a watched `blocks.query` or view that leaves machinery out, unless it lists that note or its parent. On a copy of pie, 20 record writes went from 500 watch evaluations (877 ms of the loop a write) to 80 (204 ms).
+- **The door's reads are watched, not re-asked:** the waiting list, the status bar's counts, embeds and script tiles are told when their answer changes. On a copy with Evan's layout, door requests per write went from 8.9 to 0.7 and the host's worst queue from 1,363 ms to 43 ms.
+- **Jev writes far less:** a quiet ask is a line of `<outline folder>/jev/<day>.jsonl`, not a `review-quiet` note; the day's `jev-run` is written from that file at most every 15 minutes; a pass's settled-finding stamps are one request.
+- **Run:** `ep0ch install --apply` on every machine, laptop included: PROTOCOL 309.
+
+### River comments and the drawer's keys window (PIE-1551, PIE-1552)
+
+- A comment written from a river column's own [comment] shows among its replies at once, its [+] selects it, and a new reply never moves your selected card.
+- A keys window opened from a drawer tile, or a reader in a group there, draws full height and closes back to that tile.
 
 ### Every place you type is one text field (PIE-1542)
 
