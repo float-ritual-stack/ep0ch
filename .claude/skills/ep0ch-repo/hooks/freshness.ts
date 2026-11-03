@@ -132,6 +132,13 @@ const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
   ssh: w => w.length >= 3 && !w[1]!.startsWith('-') && bashReadRefusal(w.slice(2).join(' ')) === null,
 }
 
+/** Whether one simple command (its words) only reads, by the sweep's list: the budget guard asks it too (hooks/guards.ts). */
+export function readsOnly(w: readonly string[]): boolean {
+  const name = baseName(w[0] ?? '')
+  const check = Object.hasOwn(READ_PROGRAMS, name) ? READ_PROGRAMS[name] : undefined
+  return !!check && check(w)
+}
+
 /** Why the sweep may not run `command`, or null when it only reads. */
 export function bashReadRefusal(command: string): string | null {
   // A substitution runs a command the checks below can't see whole; process substitution too.

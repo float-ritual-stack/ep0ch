@@ -167,7 +167,8 @@ export interface CommentEnv {
   fetch(id: string): Promise<Msg | null>;
   /** The reader shows the note as the service has it now. */
   setMsg(m: Msg): void;
-  reloadComments(): Promise<Comment[]>;
+  /** The note's comments read again. `strict`: a failed read throws, never answering what the door already holds (a reload's). */
+  reloadComments(strict?: boolean): Promise<Comment[]>;
   external(d: Draft): void;
   /** Insert from a picker at the comment's cursor (ctrl+t), as the edit does: its host's `draft.pick`. */
   pick?(): void;
@@ -404,7 +405,7 @@ export class CommentSession {
         refused: (why, stale) => { this.busy = null; this.error = stale ? null : why; this.stale = stale; },
         reread: async () => {
           // A failed read throws (the session says so and keeps the conflict); only a missing comment is "gone".
-          const now = await this.env!.reloadComments();
+          const now = await this.env!.reloadComments(true);
           this.threads = now;
           const th = now.find(x => x.id === t.thread.id), x = m.reply ? th?.replies.find(r => r.id === m.id) : th;
           if (!x || x.revision === undefined) return null;
