@@ -487,10 +487,13 @@ export class ReaderPane implements Pane, AttachedOwner {
   /** Its page didn't resolve when last asked (no note has `[page::…]` yet): it says so, and asks again as the outline changes. */
   pageMissing = false;
   private pageAsk: Timer | null = null;
-  /** Ask for the page it's pinned to and show it (`pinnedTo`); a page that isn't there yet is waited for (onEvent asks again). */
+  /**
+   * Ask for the page it's pinned to and show it (`pinnedTo`). It asks again as the outline changes (onEvent): a page that
+   * isn't there yet is waited for, and an address that moves to another note (`[page::today]` on today's) is followed.
+   */
   async resolvePin(desk: DeskApi) {
     const page = this.pinPage;
-    if (!page || this.msg) return;
+    if (!page) return;
     const res = await this.context(desk).board.resolvePage(page).catch(() => null);
     if (this.pinPage !== page) return;
     this.pageMissing = !(res?.status === "resolved" && res.block);
@@ -500,7 +503,13 @@ export class ReaderPane implements Pane, AttachedOwner {
   /** Start pinned: to `page` (shown once the page resolves, `pinnedTo`), else on the note it was saved with. */
   pinTo(page?: string) { this.pinned = this.pinnable; if (page) this.pinPage = page; }
   /** The page it's pinned to resolved to `block` (the tile joined a desk): show it, unless a note is open there already. */
-  pinnedTo(block: Msg, desk: DeskApi) { if (this.pinPage && !this.msg) { this.pageNote = block.id; this.show({ ...block, address: this.noteAddress }, desk); } else if (this.pinPage && this.msg?.id === block.id) this.pageNote = block.id; }
+  pinnedTo(block: Msg, desk: DeskApi) {
+    if (!this.pinPage) return;
+    // Empty, or still on the page's last note while its address moved to another (and not mid-edit): show the page's note now.
+    const moved = !!this.msg && this.msg.id === this.pageNote && block.id !== this.pageNote && !this.editing;
+    if (!this.msg || moved) { this.pageNote = block.id; this.show({ ...block, address: this.noteAddress }, desk); }
+    else if (this.msg.id === block.id) this.pageNote = block.id;
+  }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
   dispose() { if (this.pageAsk) clearTimeout(this.pageAsk); this.offOutlineEvents?.(); this.surface.dispose(); }
@@ -759,8 +768,8 @@ export class ReaderPane implements Pane, AttachedOwner {
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
   onEvent(desk: DeskApi) {
     this.surface.onEvent(this.host(desk));
-    // A page it waits for (pinned to one that isn't there yet): the outline changed, so ask again.
-    if (!this.pinPage || this.msg || !this.pageMissing) return;
+    // Pinned to a page: the outline changed, so ask again (it may have arrived, or moved to another note).
+    if (!this.pinPage) return;
     if (this.pageAsk) clearTimeout(this.pageAsk);
     this.pageAsk = setTimeout(() => { this.pageAsk = null; void this.resolvePin(desk); }, 400);
   }

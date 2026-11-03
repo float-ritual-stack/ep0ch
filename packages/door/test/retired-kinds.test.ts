@@ -121,6 +121,41 @@ describe.skipIf(!outliner)("a layout saved with the five retired kinds (PIE-1528
     } finally { app.pop(); desk.dispose(); }
   }, 30_000);
 
+  test("tile.open kind=thread opens a links tile with Children alone (the command the old kind took)", async () => {
+    const desk = new Desk({ name: "open-thread", title: "open-thread", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    const D = desk as any;
+    try {
+      desk.render(D.ctx);
+      const r = await D.dispatch.act({ action: "tile.open", args: { kind: "thread", name: "replies", source: "tile:reader" }, tile: "reader" }, { kind: "user" });
+      expect(r).toMatchObject({ name: "replies", kind: "backlinks" });
+      expect(D.specOf(D.idNamed("replies"))).toMatchObject({ kind: "backlinks", linkGroups: "children" });
+      (desk.pane("reader") as ReaderPane).hold(lamp, D);
+      // Children alone, following the reader: the lamp's one reply, and no other group.
+      // The fake terminal draws nothing by itself: draw as the screen would, so the opened tile starts.
+      await until(() => { desk.render(D.ctx); return (desk.pane("replies") as BacklinksPane).target?.id === lamp.id && (desk.pane("replies") as any).describe().across?.children?.total === 1; }, "the lamp's reply in the opened thread tile");
+      expect(Object.keys((desk.pane("replies") as any).describe().across)).toEqual(["children"]);
+    } finally { app.pop(); desk.dispose(); }
+  }, 30_000);
+
+  test("a pinned page follows its address when [page::] moves to another note", async () => {
+    const yesterday = await board.createBlock(null, "Monday [page::porch-today]\nSweep the porch.");
+    const desk = new Desk({ name: "moved", title: "moved", layout: { root: { t: "leaf", kind: "reader", name: "today", mode: "pinned", page: "porch-today" } as any } });
+    app.push(desk);
+    const D = desk as any;
+    try {
+      desk.render(D.ctx);
+      const r = desk.pane("today") as ReaderPane;
+      await until(() => r.msg?.id === yesterday.id, "yesterday's note on the page");
+      // The address moves: yesterday's note lets it go, today's takes it.
+      const y = (await board.get(yesterday.id))!;
+      await board.update(yesterday.id, y.text.replace(" [page::porch-today]", ""), y.revision!);
+      const today = await board.createBlock(null, "Tuesday [page::porch-today]\nOil the hinge.");
+      await until(() => r.msg?.id === today.id, "today's note, once the page moved to it");
+      expect(D.specOf(D.idNamed("today"))).toMatchObject({ mode: "pinned", page: "porch-today" });
+    } finally { app.pop(); desk.dispose(); }
+  }, 30_000);
+
   test("screen.open name=pinned waits for its page in a pinned reader", async () => {
     const s = openScreen("pinned", { address: "porch-now", label: "Porch · now" }) as Desk;
     app.push(s);

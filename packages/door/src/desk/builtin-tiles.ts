@@ -228,7 +228,7 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
-    kind: "backlinks", openArgs: ["source"], about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+    kind: "backlinks", openArgs: ["source", "linkGroups", "subject"], about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
     // The thread tile was this one with Children alone (PIE-693): a layout saved with one opens it so (canonSpec), and saves it so.
     replaces: ["thread"],
     aim: p => p as BacklinksPane, companion: "preview", previews: true,

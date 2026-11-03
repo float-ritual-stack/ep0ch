@@ -5654,7 +5654,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.besideFocus() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...(t.args && !t.screen && t.inner === undefined ? { args: t.args } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...(t.args && !t.screen && t.inner === undefined ? { args: t.args } : {}), ...(t as Partial<TileSpec>).linkGroups ? { linkGroups: (t as Partial<TileSpec>).linkGroups } : {}, ...(t as Partial<TileSpec>).subject ? { subject: (t as Partial<TileSpec>).subject } : {}, ...this.mountFields(t) };
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
     if (wrong && k.choices && actor.kind !== "agent") {
@@ -8204,10 +8204,10 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
  * threads (a comment or a reply on it), or an edit of its note that can move a quoted passage (PIE-399: only what a
  * change can touch is refreshed). Without a change record (a reset), anything may have.
  */
-export function readerHears(r: Pick<ReaderPane, "msg" | "comments"> & Partial<Pick<ReaderPane, "pinPage" | "pageMissing">>, e: OutlineEvent): boolean {
+export function readerHears(r: Pick<ReaderPane, "msg" | "comments"> & Partial<Pick<ReaderPane, "pinPage">>, e: OutlineEvent): boolean {
   const c = e.change, m = r.msg;
-  if (!c) return true;
-  if (!m) return !!r.pinPage && !!r.pageMissing;   // empty: nothing, unless it waits for its pinned page (any change may be it)
+  if (!c || r.pinPage) return true;   // pinned to a page: any change may be the page arriving, or its address moving
+  if (!m) return false;
   const id = c.blockId;
   if (c.kind === "annotate") return m.id === c.parentId || (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
   // An extension's agent answers a thread by writing its reply block (`@margin`'s "working" line, its edits each
