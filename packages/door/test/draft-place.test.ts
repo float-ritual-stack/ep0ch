@@ -135,6 +135,20 @@ describe("an agent's patch keeps the person's place", () => {
     expect(v.render(W, 7).map(visible)[0]).not.toContain("Tansy");
   });
 
+  test("a note that fits draws from its first row with the view not following too: an open, seeded by the reader's top", () => {
+    const d = new Draft("note-opened", 4, ["Tansy", "one", "two", "three", "four", "five", "six"].join("\n"));
+    const v = draftView(d);
+    v.render(W, 8);
+    d.position.view = { line: 1, row: 0 };
+    d.follow = false;
+    expect(v.render(W, 8).map(visible)[0]).toContain("Tansy");
+    const rich = richView(d), draw = (text: string) => ({ lines: text.split("\n"), source: text.split("\n").map((_, i) => i) });
+    rich.open(TIDY);
+    d.position.view = { line: 1, row: 0 };
+    d.follow = false;
+    expect(rich.render(W, 20, draw).map(visible).join("\n")).toContain("Tansy");
+  });
+
   test("rich cells that fit show all of it once there's room again", () => {
     const d = new Draft("note-rich-fit", 4, `${Array.from({ length: 6 }, (_, i) => `row note ${i + 1}`).join("\n\n")}\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`);
     const rich = richView(d);

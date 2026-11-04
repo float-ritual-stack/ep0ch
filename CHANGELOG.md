@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note that fits opens with its first line (PIE-1560)
+
+- **Nothing to press first.** In a short tile, opening an edit kept the reader's scroll, so the title stayed hidden over blank rows until the first key. A note that fits now draws from its first row from the moment it opens, and can't be wheeled away from it. A longer note read from its top opens at its top too, with the cursor in view. Scrolled down, an edit still opens where you were reading.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### The nightly watches test time and names the files that grew; `bun run check` fits the test slot (PIE-1422, PIE-1558)
 
 - **A test-time budget.** The nightly and `scripts/box-test` compare summed test time, per package and per file, with the budget file, and name the files over it and what grew since the last green night.

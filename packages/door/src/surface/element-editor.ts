@@ -419,7 +419,8 @@ export class ElementEdit {
     this.positionRows.source = sourceRows;
     this.total = body.length; this.room = room;
     // Rows that fit start at the first, whatever scrolled them before (the raw rows' rule, src/draft-view.ts).
-    if (d.follow) this.top = this.total <= room ? 0 : follow(cursor, this.top, room);
+    if (this.total <= room) this.top = 0;
+    else if (d.follow) this.top = follow(cursor, this.top, room);
     // The cursor's line where it is on screen, in the position's terms (src/draft-view.ts): an agent's patch keeps it there.
     const first = sourceRows.indexOf(d.row);
     d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: above + first - this.top } : null;

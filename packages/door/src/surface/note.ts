@@ -3047,7 +3047,7 @@ export class NoteSurface {
       reread: m => { if (this.msg?.id === m.id) this.msg = this.rereadNote(m); },
       redraw,
     });
-    this.anchorView();
+    this.anchorView(); if (this.scroll === 0) this.position.view = null; // A reader at its top opens the edit at its top, its title in view (PIE-1560).
     const row = fresh.text.slice(0, this.position.reading).split("\n").length - 1;
     this.position.cursor = { row, col: 0 };
     this.readingLine(row);

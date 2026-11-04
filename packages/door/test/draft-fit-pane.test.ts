@@ -41,6 +41,18 @@ describe.skipIf(!outliner || !Bun.which("tmux"))("a draft in a real pane", () =>
   /** The word on a row of the text, not in the frame's `editing · <title>`. */
   const onARow = (frame: string, word: string) => new RegExp(`(?<!· ?)\\b${word}\\b`).test(frame);
 
+  test.each([[44, 16], [80, 16], [60, 14], [44, 13], [44, 30], [80, 24]])("a note read from its top opens with its first line at %d×%d, before any key, fitting or not", async (cols, rows) => {
+    const title = `Comfrey${cols}x${rows}`;
+    const id = await create(`${title}\none\ntwo\nthree\nfour\nfive\nsix`);
+    const p = await pane(id, title, cols, rows);
+    try {
+      p.keys("e");
+      await until(() => p.capture().includes("editing") && p.capture().includes("one"), "the edit");
+      const frame = p.capture();
+      expect(onARow(frame, title), frame).toBe(true);
+    } finally { p.close(); }
+  }, 30_000);
+
   test("a seven-line note in a 44×16 pane keeps its first line, cursor on the last, typed or not", async () => {
     const id = await create("Tansy\none\ntwo\nthree\nfour\nfive\nsix");
     const p = await pane(id, "Tansy", 44, 16);
