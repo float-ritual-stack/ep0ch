@@ -89,6 +89,8 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       const saved = JSON.parse(JSON.stringify(d.saved()));
       d.build(saved, true);
       await until(() => d.pane("orchard-note")?.msg?.id === note.id, "restored foreign note");
+      // The note is up and no frame has drawn it yet, as on a loaded box (PIE-1570): followed as ⏎ would, not refused.
+      d.pane("orchard-note").surface.drawn = null;
       await app.act({ action: "link.follow", tile: "orchard-note", args: { n: 1 }, as: "test-agent" });
       expect(d.pane("orchard-note").msg.text).toContain("Water deeply");
       await app.act({ action: "back", tile: "orchard-note", as: "test-agent" });

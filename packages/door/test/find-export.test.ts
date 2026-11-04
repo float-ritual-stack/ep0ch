@@ -467,7 +467,9 @@ describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
       await board.request("update", { blockId: id, text: "Orchard packet\nFresh words after the forward died.", expectedRevision: note!.revision!, mutation: { author: "user" } });
       await until(() => existsSync(ctl), "mirror to recreate its dead ssh forward", 10_000);
       expect(Number(readFileSync(ctl, "utf8"))).not.toBe(previous);
-      await until(() => copy.manifest().files.some(file => file.endsWith(`-${id.slice(0, 8)}.md`) && readFileSync(join(dir, file), "utf8").includes("Fresh words after the forward died.")), "remote mirror catch-up");
+      // The new title renames its file: the manifest read here can name the old one, gone a moment before the manifest is rewritten.
+      const says = (file: string) => { try { return readFileSync(join(dir, file), "utf8").includes("Fresh words after the forward died."); } catch { return false; } };
+      await until(() => copy.manifest().files.some(file => file.endsWith(`-${id.slice(0, 8)}.md`) && says(file)), "remote mirror catch-up");
     } finally { await copy.stop(); await stopForward(); }
   }, 30_000);
 });
