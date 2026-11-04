@@ -88,9 +88,13 @@ describe("an agent's patch keeps the person's place", () => {
   });
 
   test("an ask's progress growing a row above the cursor leaves the cursor's row where it was", () => {
-    const d = new Draft("note-ask", 4, `Plan\n\n@gardener plan the beds now please\n\nKeep typing here`);
-    d.place(4, 3);
+    const d = new Draft("note-ask", 4, `${"the plan so far\n".repeat(8)}@gardener plan the beds now please\n\nKeep typing here\n${"and after it\n".repeat(8)}`);
+    // Mid-screen, away from the margins that would hide a jump.
+    d.place(13, 3);
+    drawn(d);
+    d.place(10, 3);
     const row = cursorRow(d);
+    expect(row).toBeGreaterThan(1); expect(row).toBeLessThan(H - 2);
     d.asks.set("@gardener plan the beds now please", { line: "@gardener plan the beds now please", state: "answer in the note", blocks: 2, beside: true });
     expect(drawn(d).join("\n")).toContain("answer in the note");
     expect(draftView(d).cursorRow).toBe(row);
@@ -99,15 +103,35 @@ describe("an agent's patch keeps the person's place", () => {
     expect(drawn(d)[row]).toContain("more");
   });
 
-  test("in a tall box too, where the note fits: the row stays, the rows above giving way", () => {
+  test("a note that fits shows all of it: its first line stays, and the typed row gives way", () => {
     const d = new Draft("note-ask-tall", 4, `Plan\n\n@gardener plan the beds now please\n\nKeep typing here`);
     d.place(4, 3);
     const v = draftView(d);
     v.render(W, 24);
-    const row = v.cursorRow;
     d.asks.set("@gardener plan the beds now please", { line: "@gardener plan the beds now please", state: "answer in the note", blocks: 2, beside: true });
-    v.render(W, 24);
-    expect(v.cursorRow).toBe(row);
+    const rows = v.render(W, 24).map(visible);
+    expect(rows[0]).toContain("Plan");
+    // Grown from a narrow box too: what scrolled away for lack of room comes back.
+    const n = new Draft("note-narrow", 4, Array.from({ length: 5 }, (_, i) => `row ${i + 1}`).join("\n"));
+    n.place(4, 2);
+    const nv = draftView(n);
+    nv.render(W, 3);
+    expect(nv.render(W, 12).map(visible)[0]).toContain("row 1");
+  });
+
+  test("a rich status of three rows: an agent's patch still leaves the cell's row where it was", () => {
+    const text = `${Array.from({ length: 6 }, (_, i) => `row note ${i + 1}`).join("\n\n")}\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`;
+    const d = new Draft("note-rich-said", 4, text);
+    const rich = richView(d);
+    d.place(d.lines.length - 1, 3);
+    rich.open({ kind: "user" });
+    d.status.say("a long thing the draft said that wraps across three rows of the rich editor's status so its body starts lower than it did");
+    const draw = (t: string, w: number) => { const lines = t.split("\n").map(l => l.slice(0, w)); return { lines, source: lines.map((_, i) => i) }; };
+    const at = () => rich.render(W, 16, draw).findIndex((l: string) => /[a-z]│[a-z]/.test(visible(l)));
+    const row = at();
+    expect(row).toBeGreaterThan(3);
+    patch(d, "row note 5\n", "row note 5\nthinned\n");
+    expect(at()).toBe(row);
   });
 
   test("in rich cells, too: lines added above keep the cursor's row", () => {

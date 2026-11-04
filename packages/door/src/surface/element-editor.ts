@@ -209,17 +209,22 @@ export class ElementEdit {
   /** The cell the cursor is in, by its place in the note's tables: what a reload finds again (`landIn`). */
   cellNow() {
     const c = this.current();
-    return c && { element: this.elements().findIndex(e => e.start === c.element.start), row: c.row, col: c.col };
+    return c && { element: this.elements().findIndex(e => e.start === c.element.start), head: this.draft.lines[c.element.start], row: c.row, col: c.col };
   }
   /**
    * The text changed under rich edit (a reload): the cursor goes to the end of the same cell, or the nearest one left, so
-   * the next key lands in a cell and never in the table's syntax. False when no table is left: rich edit closes.
+   * the next key lands in a cell and never in the table's syntax. False when the table at that number isn't the same one
+   * (its first row differs) or none is left: rich edit closes.
    */
   landIn(cell: ReturnType<ElementEdit["cellNow"]>): boolean {
-    const es = this.elements(), e = es[cell?.element ?? 0] ?? es.at(-1);
+    const es = cell ? this.elements() : [], e = cell && es[cell.element];
     const row = e?.fields[cell?.row ?? 0] ?? e?.fields.at(-1), f = row?.[cell?.col ?? 0] ?? row?.at(-1);
-    if (f) { this.draft.place(f.line, f.end); return true; }
+    if (f && this.draft.lines[e?.start ?? -1] === cell?.head) { this.draft.place(f.line, f.end); return true; }
+    // At the note's end, on a line of its own if a table ends it: what's typed next never goes into a table's syntax.
+    const d = this.draft, last = d.lines.length - 1, inTable = this.elements().some(x => last >= x.start && last < x.end);
     this.on = false;
+    d.place(last, d.lines[last]!.length);
+    if (inTable) d.pasteText("\n");
     return false;
   }
   open(by: Actor) {
@@ -415,7 +420,7 @@ export class ElementEdit {
     if (d.follow) this.top = follow(cursor, this.top, room);
     // The cursor's line where it is on screen, in the position's terms (src/draft-view.ts): an agent's patch keeps it there.
     const first = sourceRows.indexOf(d.row);
-    d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: 2 + first - this.top } : null;
+    d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: above + first - this.top } : null;
     this.spots = spots.map(s => ({ ...s, y: s.y - this.top + above }));
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
       ...head,

@@ -232,15 +232,16 @@ export class RawRows {
     // put the cursor's line back on its row (`Draft.commitPatch`), so it is still inside them: nothing on screen moves.
     // The line being typed on stays on its screen row when rows above it come or go (an ask's progress, a status above the
     // text), as it does under an agent's patch: nothing moves under the person's cursor until they move it.
-    const holding = d.follow && d.position.caret?.line === d.row;
+    // A note that fits shows all of it instead: seeing the whole note wins, and the typed row may move.
+    const fits = rows.length <= h, holding = d.follow && !fits && d.position.caret?.line === d.row;
     if (holding) {
       let first = at.vi;
       while (first > 0 && rows[first - 1]!.line === d.row) first--;
       this.top = first - (d.position.caret!.row - pr.origin);
     }
-    // A box of a few rows has no room for margins: rows that all fit are all drawn, never a blank row past the end in place of
-    // one (PIE-1573).
-    if (d.follow && h <= 3 && rows.length <= h) this.top = 0;
+    // Rows that fit start as high as the cursor's margin lets them, whatever scrolled them before: never a blank row past
+    // the end in place of one (PIE-1573).
+    if (d.follow && fits) this.top = Math.max(0, at.vi + scrollOff(h) - h + 1);
     else if (d.follow && !(holding && at.vi >= this.top && at.vi < this.top + h)) {
       const off = scrollOff(h);
       if (at.vi - off < this.top) this.top = at.vi - off;

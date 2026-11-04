@@ -258,6 +258,26 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(d.note).toContain("rich edit closed");
   }, 30_000);
 
+  test("a reload that puts another table at that number closes rich edit: nothing goes into the other table", async () => {
+    const { s, h, d } = await richRefused("Other table");
+    await other.update(s.msg!.id, "Other table\n\n| tool | shed |\n| --- | --- |\n| rake | two |", (await other.get(s.msg!.id))!.revision!, USER);
+    await heldReload(d, () => s.key(ctrl("r"), h), () => { for (const c of "ab") s.key(char(c), h); }, () => d.text.includes("rake"));
+    expect(rich(d)).toBe(false);
+    // The table stays as it came; what was typed is on a line of its own after it.
+    expect(d.text).toBe("Other table\n\n| tool | shed |\n| --- | --- |\n| rake | two |\nab");
+    expect(d.note).toContain("rich edit closed");
+  }, 30_000);
+
+  test("the table gone: held characters and pastes land, a held backspace or move doesn't touch the new prose, and it says so", async () => {
+    const { s, h, d } = await richRefused("Gone keys");
+    await other.update(s.msg!.id, "Gone keys\n\nNo table now.", (await other.get(s.msg!.id))!.revision!, USER);
+    await heldReload(d, () => s.key(ctrl("r"), h), () => {
+      s.key({ kind: "backspace" }, h); s.key({ kind: "left" }, h); s.key(char("a"), h); s.key({ kind: "paste", text: "bc" }, h);
+    }, () => d.text.includes("No table"));
+    expect(d.text).toBe("Gone keys\n\nNo table now.abc");
+    expect(d.note).toContain("didn't apply");
+  }, 30_000);
+
   test("rich edit says what a held command didn't do, whole, during the hold and after it", async () => {
     for (const cols of [80, 177]) {
       const { s, h, d } = await richRefused(`Rich line ${cols}`);
