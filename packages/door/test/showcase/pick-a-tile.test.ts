@@ -40,6 +40,10 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
   });
 
   test("the person's press asks for a tile; the choice is written as the tile's id and the press runs: it lifts, the next press drops it", async () => {
+    // The service's word that the note changed comes late, as on a loaded box: the press after a pick still uses what the pick wrote.
+    const told = app.event.bind(app);
+    app.event = e => { setTimeout(() => told(e), 700); };
+    try {
     const asked = await act("button.press", { label: "pop it" });
     expect(asked.picking).toBe("tile");
     await until(() => screen().includes("pop it: choose a tile for target"), "the picker's card");
@@ -63,6 +67,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(desk().liftsPane(desk().pane("links"))).toBe(true);
     await act("button.press", { label: "pop it" });
     await until(() => !lifted(), "links dropped");
+    } finally { app.event = told; }
   });
 
   test("a slot never keeps a name or a number: an agent's value is resolved now and kept as the tile's id", async () => {

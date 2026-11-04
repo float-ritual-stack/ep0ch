@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A press right after you pick a tile uses the tile you picked (PIE-1570)
+
+- **The button runs what the pick wrote.** On a busy machine a press just after a pick still held the old line, said `no tile is called {target}`, and left the tile lifted. The press now fills its slots from the note as it is.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A reload keeps rich edit in its cell, says what a hold did, and the line you type on holds still (PIE-1560, PIE-1573)
 
 - **A table cell survives ctrl+r.** What you type next lands in the same cell, never in the table's syntax. If the reload takes the table away, rich edit closes and says so, and your typing goes at the end.

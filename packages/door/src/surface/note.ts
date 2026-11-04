@@ -4531,7 +4531,7 @@ export class NoteSurface {
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     const run = async () => {
       const note = p.block ? await host.ctx.board.get(p.block) : null;
-      const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null;
+      const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null; if (button?.act && button.slots.some(s => p.act.includes(`{${s.key}}`))) p = { ...p, act: button.act }; // a slot filled since the frame this press came from (PIE-1570)
       // A button that reads differently than it was written runs nothing (it never acts on the focused tile instead); one with an
       // empty slot asks for it, and alt+click on a button with slots (and no alt= of its own) asks again (PIE-1298).
       if (button?.problem && button.act === null) throw new ActionRefused(`the ::button on line ${button.line + 1} runs nothing: ${button.problem}`);
