@@ -536,13 +536,15 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "Show tile=<tile> at its dock edge, replacing the open choice there. beside=true keeps the other choices open beside it. Clicking a lit segment closes it; open=false tucks its dock away. Nothing underneath reflows.",
     keys: [{ keys: "^W d", does: "slide a dock" }, { keys: "click", does: "on its edge segment; alt-click opens beside" }, { via: "a dock slides shut when the keys go elsewhere" }],
     touches: "shape", replay: "safe", says: r => `${r.open ? "opened" : "shut"} dock ${r.name ?? r.tile}`,
-    args: { beside: { type: "boolean", optional: true, about: "keep the other choices on this edge open beside this one" }, open: { type: "boolean", optional: true, about: "true opens this tile, false shuts its dock; omitted toggles this segment" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=" } },
+    args: { beside: { type: "boolean", optional: true, about: "keep the other choices on this edge open beside this one" }, open: { type: "boolean", optional: true, about: "true opens this tile, false shuts its dock; omitted toggles this segment" }, container: { type: "string", optional: true, about: "the dock's id (d<n>), when it isn't the innermost one holding tile=; with no tile= it slides that dock's own tile, and a tile= from outside it is refused" } },
     examples: [
       { act: "tile.slide open=true tile=tree", does: "slides the dock holding the tree open over the other tiles" },
       { act: "tile.slide open=false tile=tree", does: "tucks the tree away, keeping its edge segment reachable" },
     ],
     run({ open, container, beside }, { d, reader }, actor) {
-      return d.step(reader, t => ({ op: "slide", tile: t.id, beside, ...(open !== undefined ? { open } : {}), ...(container ? { container } : {}) }), actor, (r, t) => ({ ...r.answer, tile: t.tile, name: t.name }));
+      // A dock named alone slides its own tile: what it showed last, else its first (PIE-1566); the focused tile is no default here.
+      const own = reader === undefined && container ? d.dockChoices().find(c => c.dock.id === container && (!c.dock.view || c.dock.view.includes(c.id)))?.hit.tile : undefined;
+      return d.step(reader ?? own, t => ({ op: "slide", tile: t.id, beside, ...(open !== undefined ? { open } : {}), ...(container ? { container } : {}) }), actor, (r, t) => ({ ...r.answer, tile: t.tile, name: t.name }));
     },
   }),
   "tile.preview": def({
@@ -954,7 +956,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "take back the newest change to this screen's layout, from the one history every actor's changes go in (a move, a close, a float, a load; a script's run is one entry, a transaction): the screen is rebuilt as it was before it, tiles kept by name, the lock and the tile you type in holding. Yours takes back the newest; an agent's takes back its own newest only, and both are refused with who changed the layout since (\"undo that first\"). txn=<id> takes back that transaction",
     keys: [{ keys: "ctrl+z", does: "when a reader has nothing of its own to undo and the layout changed after the last trash" }, { keys: "^W B", does: "the newest on any layout, wherever the keys are: never a tile's own undo, never a program's key" }, { via: "the tile menu's row" }],
     touches: "shape", replay: "ask", confirms: true,
-    says: (r: { what: string; steps: number }) => `put the layout back · ${r.steps > 1 ? `${r.steps} steps` : r.what}`,
+    says: (r: { what: string; steps: number; kept?: string[] }) => `put the layout back · ${r.steps > 1 ? `${r.steps} steps` : r.what}${r.kept?.length ? ` · ${r.kept.join(", ")}: kept in a dock at the right edge` : ""}`,
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
     args: { anywhere: { type: "boolean", optional: true, about: "the newest change on any of the person's layouts (the screen, the drawer, a group), not only this one" } },
     examples: [{ act: "layout.undo", does: "takes back the newest change to this layout" }, { act: "layout.undo anywhere=true", does: "takes back the newest change on the screen, the drawer or a group, wherever the keys are" }],

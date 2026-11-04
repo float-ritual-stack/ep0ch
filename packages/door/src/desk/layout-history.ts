@@ -20,6 +20,8 @@ export interface LayoutEntry {
   seq: number;
   /** The screen's shape before this entry, to rebuild from. */
   before: LayoutSpec;
+  /** That shape as the desk compares shapes: a later change that lands back on it leaves nothing to take back. */
+  shape?: string;
   /** Who made it, and the party it undoes for (`you`, or `agent:<id>`). */
   by: Actor;
   party: string;
@@ -51,14 +53,14 @@ export class LayoutHistory {
    * its entry only while that entry is still the newest: once another actor's change landed after it, the step is an entry of
    * its own (the same txn), so undo stays chronological and never reopens what someone else closed in between.
    */
-  record(before: LayoutSpec, by: Actor, what: string, now: number, txn?: string): LayoutEntry {
+  record(before: LayoutSpec, by: Actor, what: string, now: number, txn?: string, shape?: string): LayoutEntry {
     const newest = this.list.at(-1), party = partyOf(by);
     if (txn) {
       const t = this.open.get(txn);
       if (t?.entry && t.entry === newest) { t.entry.steps++; t.touched = now; t.entry.what = `${t.entry.steps} steps`; return t.entry; }
     }
     if (!txn && what === "resize" && newest && !newest.txn && newest.what === "resize" && newest.party === party && now - newest.at < COALESCE_MS) { newest.at = now; return newest; }
-    const entry: LayoutEntry = { seq: undoStamp(), before, by, party, owner: by.kind === "agent" && by.for ? by.for : party, what, steps: 1, at: now, ...(txn ? { txn } : {}) };
+    const entry: LayoutEntry = { seq: undoStamp(), before, ...(shape !== undefined ? { shape } : {}), by, party, owner: by.kind === "agent" && by.for ? by.for : party, what, steps: 1, at: now, ...(txn ? { txn } : {}) };
     this.list.push(entry);
     if (this.list.length > KEEP) this.list.shift();
     if (txn) { const t = this.open.get(txn); if (t) { t.entry = entry; t.touched = now; } }
@@ -66,6 +68,16 @@ export class LayoutHistory {
   }
 
   newest(): LayoutEntry | null { return this.list.at(-1) ?? null; }
+  /**
+   * Whether a change of shape to `shape` is an undo step (PIE-1574). A change that lands back where `party`'s newest step began
+   * (a dock slid open and shut) takes that step out: nothing is left to take back. One that only followed the keys is none:
+   * a float raised, a tab shown, a dock opened around a focus, or shut as the keys left it (`left`).
+   */
+  isStep(shape: string, party: string, what: string, o: { txn: boolean; left: boolean }): boolean {
+    const e = this.newest();
+    if (!o.txn && e && !e.txn && e.party === party && e.shape === shape) { this.take(e); return false; }
+    return !o.left && what !== "focus" && what !== "tab";
+  }
   /** The newest entry `party` made or asked for, or null. */
   last(party: string): LayoutEntry | null { return this.list.findLast(e => e.party === party || e.owner === party) ?? null; }
   /** Entries made after `e`, by anyone. */
