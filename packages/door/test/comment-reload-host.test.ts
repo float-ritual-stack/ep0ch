@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
+import { composerBox } from "../src/surface/composer";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -212,6 +213,111 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     }, () => d.text.includes("season"));
     await until(() => d.text.includes("abcd"), "the held text", 5000);
     expect(d.lines.at(-1)).toContain("abcd");
+  }, 30_000);
+
+  /** A note's rich edit on a table, past the end of its second cell by typing, refused on a save because the note changed. */
+  async function richRefused(title: string) {
+    const text = `${title}\n\n| crop | bed |\n| --- | --- |\n| one | leeks |`;
+    const id = (await board.request("create", { parentId: null, text, author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    const s = new NoteSurface(), h = host();
+    s.show(m, h);
+    s.startDraft(m, h);
+    const d = s.draft!;
+    d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks") + 5);
+    await s.act("rich.toggle", { on: true }, h, USER);
+    for (const c of " and radishes too") s.key(char(c), h);
+    await other.update(id, `${title} today\n\n| crop | bed |\n| --- | --- |\n| one | leeks |`, m.revision!, USER);
+    d.status.changedElsewhere = true;
+    s.key(ctrl("s"), h);
+    await until(() => d.status.conflict !== null && !d.busy, "the stale refusal", 5000);
+    return { s, h, d };
+  }
+  const rich = (d: { views: { rich: unknown } }) => (d.views.rich as { on: boolean }).on;
+
+  test("a rich cell's text after a reload stays in the cell, held or not", async () => {
+    const held = await richRefused("Held cell");
+    await heldReload(held.d, () => held.s.key(ctrl("r"), held.h), () => { for (const c of "ab") held.s.key(char(c), held.h); }, () => held.d.lines[0]!.includes("today"));
+    await until(() => held.d.text.includes("ab"), "the held text", 5000);
+    expect(held.d.lines.at(-1)).toBe("| one | leeksab |");
+    expect(rich(held.d)).toBe(true);
+    const plain = await richRefused("Plain cell");
+    await plain.s.act("edit.reload", {}, plain.h, USER);
+    for (const c of "ab") plain.s.key(char(c), plain.h);
+    await until(() => plain.d.text.includes("ab"), "the typed text", 5000);
+    expect(plain.d.lines.at(-1)).toBe("| one | leeksab |");
+    expect(rich(plain.d)).toBe(true);
+  }, 40_000);
+
+  test("a reload that takes the table away closes rich edit, says so, and keeps the text out of any table", async () => {
+    const { s, h, d } = await richRefused("Gone cell");
+    await other.update(s.msg!.id, "Gone cell\n\nNo table now.", (await other.get(s.msg!.id))!.revision!, USER);
+    await heldReload(d, () => s.key(ctrl("r"), h), () => { for (const c of "ab") s.key(char(c), h); }, () => d.text.includes("No table"));
+    expect(rich(d)).toBe(false);
+    expect(d.text).toBe("Gone cell\n\nNo table now.ab");
+    expect(d.note).toContain("rich edit closed");
+  }, 30_000);
+
+  test("rich edit says what a held command didn't do, whole, during the hold and after it", async () => {
+    for (const cols of [80, 177]) {
+      const { s, h, d } = await richRefused(`Rich line ${cols}`);
+      const flat = () => s.render(cols, 24, h).lines.map(visible).join("").replace(/\s+/g, "");
+      await heldReload(d, () => s.key(ctrl("r"), h), () => {
+        s.key(ctrl("s"), h);
+        s.key({ kind: "esc" }, h);
+        expect(flat()).toContain("reloading·pressctrl+s,escagain");
+      }, () => d.lines[0]!.includes("Rich line") && d.status.phase === null && d.status.conflict === null);
+      const after = flat();
+      expect(after).toContain("ctrl+s,escdidn'trun:pressthemagain");
+      // The status grew by rows; the note under it didn't scroll for that.
+      expect(after).toContain(`Richline${cols}today`);
+      expect(after).toContain("revision");
+      expect(after).toContain(d.status.savedCopy!.split("/").at(-1)!);
+      expect(rich(d)).toBe(true);
+    }
+  }, 60_000);
+
+  test("a plain note edit under a hold: written keys land in order, a command says press it again", async () => {
+    const id = (await board.request("create", { parentId: null, text: "Sowing\nbeans", author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    const s = new NoteSurface(), h = host();
+    s.show(m, h);
+    s.startDraft(m, h);
+    const d = s.draft!;
+    s.key(char("!"), h);
+    await other.update(id, "Sowing\npeas", m.revision!, USER);
+    d.status.changedElsewhere = true;
+    await heldReload(d, () => s.key(ctrl("r"), h), () => {
+      s.key(char("x"), h); s.key(ctrl("s"), h); s.key({ kind: "paste", text: "yz" }, h); s.key({ kind: "esc" }, h); s.key(char("w"), h);
+    }, () => d.text.includes("peas"));
+    expect(d.text).toBe("Sowing\npeasxyzw");
+    expect(s.draft).toBe(d);
+    expect(d.note).toContain("didn't run");
+  }, 30_000);
+
+  test("a narrow float brought back with the cursor on line 2 draws both lines, with no blank row for line 1", async () => {
+    const id = (await board.request("create", { parentId: null, text: "Gate\nHang it.", author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    const first = new NoteSurface(), h = host();
+    first.show(m, h);
+    first.key(char("C"), h);
+    await until(() => !!first.session?.composer, "the comment");
+    for (const c of "onions by the gate") first.key(char(c), h);
+    first.key({ kind: "enter" }, h);
+    for (const c of "and a sign for the leeks") first.key(char(c), h);
+    composerBox(first.session!.composer!, first.session!.composerFrame()!, 32, 8, true);   // drawn, so its place is kept
+    first.session!.writing!.keep();
+    first.session!.writing!.dispose();
+    const again = new NoteSurface();
+    again.show(m, h);
+    again.key(char("C"), h);
+    await until(() => !!again.session?.composer, "the comment again");
+    const d = again.session!.composer!;
+    expect(d.note).toContain("brought back");
+    expect(d.row).toBe(1);
+    const box = composerBox(d, again.session!.composerFrame()!, 32, 8, true).lines.map(visible).join("\n");
+    expect(box).toContain("onions by the gate");
+    expect(box).toContain("and a sign for the leeks");
   }, 30_000);
 
   // Last: it stops the host.

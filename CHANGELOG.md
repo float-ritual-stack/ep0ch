@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A reload keeps rich edit in its cell, says what a hold did, and the line you type on holds still (PIE-1560, PIE-1573)
+
+- **A table cell survives ctrl+r.** What you type next lands in the same cell, never in the table's syntax. If the reload takes the table away, rich edit closes and says so, and your typing goes at the end.
+- **Rich edit says all of it.** During a read and after it, its line names the keys that didn't run, first, and wraps rather than cuts.
+- **The line you're typing on holds still** when rows above it come or go, such as an ask's progress growing a row.
+- **A narrow comment box brought back after a handover** draws your lines, with no blank row in place of one.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### A comment comes back after a handover with its text in view (PIE-1573)
 
 - **What's written stays on screen.** A half-written comment in a small box came back after a deploy with "brought back your words…" taking its rows, so its first line looked gone until the next key. Nothing was lost. The box now keeps the text two rows beside anything but a refusal, and the cursor in view.

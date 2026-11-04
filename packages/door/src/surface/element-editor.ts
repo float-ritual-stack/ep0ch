@@ -1,4 +1,5 @@
 import { sourceLines } from "../draft-view";
+import { saidRows } from "./editor";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import { keyTable } from "./keymap";
 import { PositionRows } from "../reader-position";
@@ -205,6 +206,22 @@ export class ElementEdit {
     }
     return null;
   }
+  /** The cell the cursor is in, by its place in the note's tables: what a reload finds again (`landIn`). */
+  cellNow() {
+    const c = this.current();
+    return c && { element: this.elements().findIndex(e => e.start === c.element.start), row: c.row, col: c.col };
+  }
+  /**
+   * The text changed under rich edit (a reload): the cursor goes to the end of the same cell, or the nearest one left, so
+   * the next key lands in a cell and never in the table's syntax. False when no table is left: rich edit closes.
+   */
+  landIn(cell: ReturnType<ElementEdit["cellNow"]>): boolean {
+    const es = this.elements(), e = es[cell?.element ?? 0] ?? es.at(-1);
+    const row = e?.fields[cell?.row ?? 0] ?? e?.fields.at(-1), f = row?.[cell?.col ?? 0] ?? row?.at(-1);
+    if (f) { this.draft.place(f.line, f.end); return true; }
+    this.on = false;
+    return false;
+  }
   open(by: Actor) {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
@@ -388,16 +405,20 @@ export class ElementEdit {
       body.push(...rendered); at = e.end;
     }
     if (at < d.lines.length) prose(at, d.lines.length);
-    const room = Math.max(1, h - 2);
+    // What the draft says, whole, up to three rows; a command held during a reload is said over "reloading…".
+    const said = (d.status.phase === "reloading" && d.note) || d.status.doing || d.note;
+    const head = said ? saidRows(said, w, Math.min(3, Math.max(1, h - 3)), C.cyan) : [fg(C.cyan) + pad(attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET];
+    const above = 1 + head.length, room = Math.max(1, h - above);
+    this.positionRows.moveOrigin(above);
     this.positionRows.source = sourceRows;
     this.total = body.length; this.room = room;
     if (d.follow) this.top = follow(cursor, this.top, room);
     // The cursor's line where it is on screen, in the position's terms (src/draft-view.ts): an agent's patch keeps it there.
     const first = sourceRows.indexOf(d.row);
     d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: 2 + first - this.top } : null;
-    this.spots = spots.map(s => ({ ...s, y: s.y - this.top + 2 }));
+    this.spots = spots.map(s => ({ ...s, y: s.y - this.top + above }));
     return [fg(C.lcyan) + pad(labels.map(l => l[0]).join(" "), w) + RESET,
-      fg(C.cyan) + pad(d.status.doing || d.note || attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET,
+      ...head,
       ...body.slice(this.top, this.top + room)];
   }
 }

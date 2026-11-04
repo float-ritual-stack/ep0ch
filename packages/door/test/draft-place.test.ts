@@ -87,6 +87,29 @@ describe("an agent's patch keeps the person's place", () => {
     expect(drawn(d)[0]).toBe(top);
   });
 
+  test("an ask's progress growing a row above the cursor leaves the cursor's row where it was", () => {
+    const d = new Draft("note-ask", 4, `Plan\n\n@gardener plan the beds now please\n\nKeep typing here`);
+    d.place(4, 3);
+    const row = cursorRow(d);
+    d.asks.set("@gardener plan the beds now please", { line: "@gardener plan the beds now please", state: "answer in the note", blocks: 2, beside: true });
+    expect(drawn(d).join("\n")).toContain("answer in the note");
+    expect(draftView(d).cursorRow).toBe(row);
+    for (const c of " more") d.key({ kind: "char", ch: c });
+    expect(cursorRow(d)).toBe(row);
+    expect(drawn(d)[row]).toContain("more");
+  });
+
+  test("in a tall box too, where the note fits: the row stays, the rows above giving way", () => {
+    const d = new Draft("note-ask-tall", 4, `Plan\n\n@gardener plan the beds now please\n\nKeep typing here`);
+    d.place(4, 3);
+    const v = draftView(d);
+    v.render(W, 24);
+    const row = v.cursorRow;
+    d.asks.set("@gardener plan the beds now please", { line: "@gardener plan the beds now please", state: "answer in the note", blocks: 2, beside: true });
+    v.render(W, 24);
+    expect(v.cursorRow).toBe(row);
+  });
+
   test("in rich cells, too: lines added above keep the cursor's row", () => {
     const text = `${Array.from({ length: 12 }, (_, i) => `row note ${i + 1}`).join("\n\n")}\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`;
     const d = new Draft("note-rich", 4, text);

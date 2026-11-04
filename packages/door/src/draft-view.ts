@@ -230,12 +230,24 @@ export class RawRows {
     // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where the rows
     // under it are the blank ones past the end (reader.overscroll; none keeps the last line on the edge). An agent's patch
     // put the cursor's line back on its row (`Draft.commitPatch`), so it is still inside them: nothing on screen moves.
-    if (d.follow) {
+    // The line being typed on stays on its screen row when rows above it come or go (an ask's progress, a status above the
+    // text), as it does under an agent's patch: nothing moves under the person's cursor until they move it.
+    const holding = d.follow && d.position.caret?.line === d.row;
+    if (holding) {
+      let first = at.vi;
+      while (first > 0 && rows[first - 1]!.line === d.row) first--;
+      this.top = first - (d.position.caret!.row - pr.origin);
+    }
+    // A box of a few rows has no room for margins: rows that all fit are all drawn, never a blank row past the end in place of
+    // one (PIE-1573).
+    if (d.follow && h <= 3 && rows.length <= h) this.top = 0;
+    else if (d.follow && !(holding && at.vi >= this.top && at.vi < this.top + h)) {
       const off = scrollOff(h);
       if (at.vi - off < this.top) this.top = at.vi - off;
       if (at.vi + off >= this.top + h) this.top = at.vi + off - h + 1;
     }
-    const top = Math.max(0, Math.min(this.top, lastTop(rows.length, h)));
+    // Holding the typed line can need more blank room below than the usual overscroll limit.
+    const top = Math.max(0, Math.min(this.top, holding ? Math.max(0, at.vi) : lastTop(rows.length, h)));
     // The place, in source coordinates, for whatever changes the text next: the top row's line (`view`), and the cursor's
     // line where it is on screen while it's in view (`caret`), so an agent's patch keeps either without this render.
     this.top = top;
