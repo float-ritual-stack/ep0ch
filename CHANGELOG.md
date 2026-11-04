@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One ctrl+] takes your keys out of a shell in a group (PIE-1574)
+
+- **It says what happened.** Typing in a shell inside a group, ctrl+] said `out of the group` while the keys stayed with the shell, so a `1` or a ctrl+z landed at its prompt. It now says `back to the door`, on the screen and in the drawer's group, and the door has the keys. A second ctrl+] soon after goes to the program, as on a screen; a ctrl+] once you're out of the program comes out of the group.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### ctrl+z keeps the door up and a board's lanes where they are (PIE-1571, PIE-1574)
 
 - **A shell in a group, undone twice, no longer crashes the door.** The second ctrl+z takes the gather back: the tiles are the screen's again, and the group, with its shell running, is kept in a dock at the right edge.

@@ -452,6 +452,110 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
       } finally { d.quit(); }
     });
 
+    /** Typing in a shell in group `tile`: its input recorded, what ^] says about each layer the test's to check. */
+    async function typingIn(d: Awaited<ReturnType<typeof door>>, tile: any) {
+      await d.press(ctrl("w"), char("o"), char("s"));
+      await until(() => tile.inner.pane("pty")?.running === true, "the shell runs");
+      const shell = tile.inner.pane("pty") as PtyPane, got: string[] = [], real = shell.input.bind(shell);
+      shell.input = (s: string) => { got.push(s); real(s); };
+      await d.press({ kind: "enter" } as Key);
+      await d.press(char("1"));
+      expect(got.join("")).toContain("1");   // it has the keys
+      got.length = 0;
+      return { shell, got };
+    }
+    const walkOut = async (d: Awaited<ReturnType<typeof door>>, tile: any, on: { shell: PtyPane; got: string[] }) => {
+      await d.press(ctrl("]"));
+      expect(d.said()).toContain("back to the door");
+      expect(d.said()).not.toContain("out of the group");
+      expect(tile.inner.programKeys().typing).toBe(false);
+      expect(tile.inside).toBe(true);
+      // The keys are the door's: neither a digit nor ctrl+z reaches the program.
+      await d.press(char("1"));
+      await d.press(ctrl("z"));
+      expect(on.got).toEqual([]);
+    };
+
+    test("typing in a shell in a group: one ^] takes the keys out of the program and says so; a second soon after is the program's; then out of the group", async () => {
+      const d = await door(cols, rows);
+      try {
+        const names = d.names();
+        await d.inTile("reader"); await d.press(ctrl("w"), char(" "));
+        await d.inTile("replies"); await d.press(ctrl("w"), char(" "));
+        await d.press(ctrl("w"), char("G"));
+        const group = d.names().find(n => !names.includes(n))!;
+        await d.press(ctrl("w"), char("e"));
+        const tile = d.desk.pane(group) as any, on = await typingIn(d, tile);
+        await d.press(ctrl("]"));
+        expect(d.said()).toContain("back to the door");
+        expect(tile.inner.programKeys().typing).toBe(false);
+        expect(tile.inside).toBe(true);
+        await d.press(ctrl("]"));   // twice: a literal one to the program, and it has the keys again, as on a screen
+        expect(on.got).toEqual(["\x1d"]);
+        expect(tile.inner.programKeys().typing).toBe(true);
+        expect(tile.inside).toBe(true);
+        await d.press(ctrl("]"));
+        expect(d.said()).toContain("back to the door");
+        await Bun.sleep(1600);   // the second's moment has passed: the next is the group's
+        await d.press(ctrl("]"));
+        expect(d.said()).toContain("out of the group");
+        expect(tile.inside).toBe(false);
+      } finally { d.quit(); }
+    });
+
+    test("the same keys with no second ^]: digits and ctrl+z stay out of the program", async () => {
+      const d = await door(cols, rows);
+      try {
+        const names = d.names();
+        await d.inTile("reader"); await d.press(ctrl("w"), char(" "));
+        await d.inTile("replies"); await d.press(ctrl("w"), char(" "));
+        await d.press(ctrl("w"), char("G"));
+        const group = d.names().find(n => !names.includes(n))!;
+        await d.press(ctrl("w"), char("e"));
+        const tile = d.desk.pane(group) as any;
+        await walkOut(d, tile, await typingIn(d, tile));
+      } finally { d.quit(); }
+    });
+
+    test("a program that exited in a group: ^] steps out of it first, then out of the group", async () => {
+      const d = await door(cols, rows);
+      try {
+        const names = d.names();
+        await d.inTile("reader"); await d.press(ctrl("w"), char(" "));
+        await d.inTile("replies"); await d.press(ctrl("w"), char(" "));
+        await d.press(ctrl("w"), char("G"));
+        const group = d.names().find(n => !names.includes(n))!;
+        await d.press(ctrl("w"), char("e"));
+        const tile = d.desk.pane(group) as any, on = await typingIn(d, tile);
+        on.shell.input("\x15exit\r");
+        await until(() => !on.shell.running, "the shell exits");
+        await d.press(ctrl("]"));
+        expect(tile.inner.programKeys().exited).toBeUndefined();
+        expect(tile.inside).toBe(true);
+        await d.press(ctrl("]"));
+        expect(d.said()).toContain("out of the group");
+        expect(tile.inside).toBe(false);
+      } finally { d.quit(); }
+    });
+
+    test("typing in a shell in a group in the drawer: one ^] takes the keys out of the program and says so", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies", args: { on: true } }, USER);
+        d.paint();
+        const dr = d.drawer();
+        await dr.dispatch.act({ action: "tile.group", tile: "replies", args: { name: "hob" } }, USER);
+        await dr.dispatch.act({ action: "tile.focus", tile: "hob" }, USER);
+        dr.stopTyping();
+        d.paint();
+        await d.press(ctrl("w"), char("e"));
+        const tile = dr.pane("hob") as any;
+        expect(tile.inside).toBe(true);
+        await walkOut(d, tile, await typingIn(d, tile));
+        expect(d.app.drawer.entered).toBe(true);
+      } finally { d.quit(); }
+    });
+
     test("a shell opened inside a group, undone twice: the door stays up and the second undo takes the next change or says there's none", async () => {
       const d = await door(cols, rows);
       try {

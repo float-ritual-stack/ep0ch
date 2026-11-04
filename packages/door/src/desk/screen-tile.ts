@@ -239,7 +239,8 @@ export class ScreenTile implements Pane {
   key(k: Key): boolean {
     if (!this.framed) return false;
     if (this.inside) {
-      if (isEscapeChord(k)) { this.goIn(false); return true; }
+      // A program in it, or a ctrl+] just left one, has this one first: the keys come out a layer at a time (PIE-1574).
+      if (isEscapeChord(k) && !this.inner?.rawKeys() && !this.inner?.chordSteps()) { this.goIn(false); return true; }
       this.framed.key(k);
       this.desk?.redraw();
       return true;
