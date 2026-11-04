@@ -71,12 +71,15 @@ export class LayoutHistory {
   /**
    * Whether a change of shape to `shape` is an undo step (PIE-1574). A change that lands back where `party`'s newest step began
    * (a dock slid open and shut) takes that step out: nothing is left to take back. One that only followed the keys is none:
-   * a float raised, a tab shown, a dock opened around a focus, or shut as the keys left it (`left`).
+   * a float raised, a tab shown, a dock opened around a focus, or shut as the keys left it (`left`). A source filling its
+   * container is none either: the data laid those tiles out, and taking them away only fills them again. Nor is a container
+   * shown another source (the board's `g`): the steps before it were on tiles it just replaced, so they go.
    */
   isStep(shape: string, party: string, what: string, o: { txn: boolean; left: boolean }): boolean {
+    if (what === "source") { for (const x of [...this.list]) this.take(x); return false; }
     const e = this.newest();
     if (!o.txn && e && !e.txn && e.party === party && e.shape === shape) { this.take(e); return false; }
-    return !o.left && what !== "focus" && what !== "tab";
+    return !o.left && what !== "focus" && what !== "tab" && what !== "fill";
   }
   /** The newest entry `party` made or asked for, or null. */
   last(party: string): LayoutEntry | null { return this.list.findLast(e => e.party === party || e.owner === party) ?? null; }

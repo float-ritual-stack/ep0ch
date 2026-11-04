@@ -219,7 +219,7 @@ export type Op<I = number> =
   | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
   /** `at` a `Beside`: the layout picks the side (`besideAt`, PIE-1559), the same for the person and an agent. */
   | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I> | Beside<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; travels?: Travels }
-  | { op: "close"; tile: I; gone?: boolean }
+  | { op: "close"; tile: I; gone?: boolean } | { op: "release"; tile: I }   // release: it leaves whole for an undo putting it back elsewhere (PIE-1571), checked already, so no rule asks
   | { op: "peek.release"; tile: I }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
@@ -1036,7 +1036,7 @@ class Step<I> {
     if (this.agent) this.agentGate(op);
     switch (op.op) {
       case "open": return this.open(op);
-      case "close": return this.close(op.tile, !!op.gone);
+      case "close": return this.close(op.tile, !!op.gone); case "release": this.present(op.tile); return this.lift(op.tile);
       case "peek.release": {
         const f = this.d.floats.find(f => f.id === op.tile);
         if (f) { this.d.wires = this.d.wires.filter(w => w.from !== f.peekOf || w.to !== f.id || w.verb !== "select"); delete f.peekOf; }

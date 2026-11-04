@@ -190,7 +190,7 @@ export class ScreenTile implements Pane {
   goIn(on: boolean) {
     if (on && !this.framed) throw new ActionRefused(this.problem ?? "nothing is mounted in it yet");
     this.inside = on;
-    this.desk?.ctx.flash(on ? `in the ${this.screen ?? "group"} · its keys, ^W and Tab too · ctrl+] or esc comes out` : `out of the ${this.screen ?? "group"} · 1-9 and tab are this screen's again · alt and ^W act inside`);
+    this.desk?.ctx.flash(on ? `in the ${this.screen ?? "group"} · its keys, ^W and Tab too · ctrl+] or esc comes out` : `out of the ${this.screen ?? "group"} · 1-9 and tab are this screen's again · alt and ^W act on its tile, ^W e G u on the group`);
     this.desk?.redraw();
   }
 
