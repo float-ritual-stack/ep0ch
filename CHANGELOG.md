@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note that fits opens with its first line (PIE-1560)
+
+- **Nothing to press first.** In a short tile, opening an edit kept the reader's scroll, so the title stayed hidden over blank rows until the first key. A note that fits now draws from its first row from the moment it opens, and can't be wheeled away from it. A longer note read from its top opens at its top too, with the cursor in view. Scrolled down, an edit still opens where you were reading.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### A red from a test's setup means the setup broke, not that the box was busy (PIE-1576)
 
 - **One budget for host and seed.** The files that seed the showcase now share the showcase harness's 120 s (`SEEDED_SETUP_MS`, `test/scratch.ts`). At load about 20 their fixed 30 s went red with nothing broken: most of the 28 reds in one box-test on Nov 3.
