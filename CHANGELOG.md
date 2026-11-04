@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The nightly watches test time and names the files that grew; `bun run check` fits the test slot (PIE-1422, PIE-1558)
+
+- **A test-time budget.** The nightly and `scripts/box-test` compare summed test time, per package and per file, with the budget file, and name the files over it and what grew since the last green night.
+- **Estimated for now.** The budget's numbers aren't measured on float-box yet, so an over-budget night warns and prints a measured budget. Once they're measured, over budget turns the nightly red and files a request.
+- **Only you raise it.** The repo mod refuses an agent's change to the budget file. **Run,** after a nightly: `bun scripts/test-budget.ts propose --log <that night's log> --write`.
+- **`bun run check` passes under `scripts/agent-env --test`'s default memory cap,** and a refusal there names the cap and the variable that raises it.
+
 ### A press right after you pick a tile uses the tile you picked (PIE-1570)
 
 - **The button runs what the pick wrote.** On a busy machine a press just after a pick still held the old line, said `no tile is called {target}`, and left the tile lifted. The press now fills its slots from the note as it is.
