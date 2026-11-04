@@ -39,6 +39,15 @@ are its record. The outliner's entries from then are kept below, under
 - **Run:** `ep0ch install --apply` (door code).
 
 
+### Undo and group keys on the desk land where you'd expect (PIE-1574, PIE-1571, PIE-1566)
+
+- **A carry undone:** the tile comes back with the keys on it if they went with it, and a drawer the carry pulled up goes down again. Keys on any other tile stay put, on the screen or in the drawer; they move only when their tile went away. A carry out of a group or `^W i` into one undoes the same way, and a drawer you put away and pulled up yourself stays up.
+- **A click doesn't use up a ctrl+z:** a float raised, a tab shown or a dock that shuts when the keys leave is no step, and a dock slid open and shut again leaves none, though it remembers which tile it showed.
+- **`^W G` with the keys on a group spills it.** `^W e` goes in and, inside, comes out; `^W u` on a group says what a group is. Inside a group (`^W e`), `^W G` is still the inner tile's. No key moved.
+- **A terminal undone back from a split stays reachable:** `^W o s` then an undo says `pty is still running: kept in a dock at the right edge`, and one click on that edge shows it.
+- **`tile.slide container=d2` with no tile** slides that dock's own tile open, with your keys where they are. A tile from outside the dock is refused, with the command.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A comment's ctrl+r tells a failed read from a reload, and a tiny box still names the copy (PIE-1560)
 
 - **Offline, ctrl+r says so.** With the outline unreachable, reloading a posted comment's edit says `couldn't read it now · your text is kept · ctrl+r tries again`, and the conflict and your words stay. It no longer takes comments the door already holds for a reload.

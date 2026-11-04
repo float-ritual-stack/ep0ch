@@ -41,6 +41,17 @@ export interface WKey {
   says?: string;
   /** Stays in resize mode after it (the desk's sticky mode): the next resize keys need no ^W. */
   sticky?: true;
+  /** About the tile holding this desk rather than the tile inside it: `mount` whenever there is one, `group` on a group the keys aren't inside. */
+  holder?: "mount" | "group";
+}
+
+/**
+ * ^W reached this desk through the mount holding it: a key about the mount itself goes to the desk holding that mount (PIE-1574),
+ * so `^W e` is never asked of the tile inside. Null: the key is this desk's.
+ */
+export function holdingDesk<D>(e: WKey, holder: { tile: object; desk(): D | null } | null): D | null {
+  const mount = holder?.tile as { group?: boolean; inside?: boolean } | undefined;
+  return holder && (e.holder === "mount" || (e.holder === "group" && mount?.group && !mount.inside)) ? holder.desk() : null;
 }
 
 const run = (action: string, args?: Record<string, unknown>, tile?: "n" | "-"): WHow => ({ k: "run", action, ...(args ? { args } : {}), ...(tile ? { tile } : {}) });
@@ -95,10 +106,10 @@ const W_TABLE = [
   { key: "y", group: "open", action: "note.copy-ref", how: run("note.copy-ref", { kind: "ref" }), label: "copy a reference to its note" },
 
   { key: " ", group: "mounts & groups", action: "tile.select", how: run("tile.select"), label: "pick this tile to gather, or let it go" },
-  { key: "G", group: "mounts & groups", action: "tile.group", how: run("tile.group", { ask: true }), label: "gather the picked tiles into a group, or spill one" },
+  { key: "G", group: "mounts & groups", action: "tile.group", how: run("tile.group", { ask: true }), holder: "group", label: "gather the picked tiles into a group, or spill one" },
   { key: "i", group: "mounts & groups", action: "tile.into", how: run("tile.into"), label: "move this tile into a group, or out of the one it's in" },
-  { key: "e", group: "mounts & groups", action: "mount.enter", how: run("mount.enter"), label: "go into a mount: every key is its own" },
-  { key: "u", group: "mounts & groups", action: "mount.out", how: run("mount.out"), label: "pop a mount out to its full screen" },
+  { key: "e", group: "mounts & groups", action: "mount.enter", how: run("mount.enter"), holder: "mount", label: "go into a mount: every key is its own" },
+  { key: "u", group: "mounts & groups", action: "mount.out", how: run("mount.out"), holder: "mount", label: "pop a mount out to its full screen" },
   { key: "M", group: "mounts & groups", action: "screen.mount", how: run("screen.mount", {}, "-"), label: "put this screen on the desk" },
   { key: "B", group: "layouts & more", action: "layout.undo", how: run("layout.undo", { anywhere: true }, "-"), label: "undo the newest layout change, on any layout" },
   { key: "I", group: "mounts & groups", action: "screen.part", how: run("screen.part"), label: "put the part around this tile on the desk" },

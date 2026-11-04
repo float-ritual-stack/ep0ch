@@ -1,3 +1,4 @@
+import { keysThrough } from "./desk/undo-across";
 import type { Reveal } from "./reveal";
 // One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
 // Quiet focus enters a glass tile without opening or rearranging the drawer.
@@ -1000,7 +1001,7 @@ export class AgentDrawer {
   set(open: boolean, actor: Actor) {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
     if (open && this.open && !this.ctx(actor).standing) return;
-    if (this.ctx(actor).standing) this.restoreGlassKeys();
+    if (this.ctx(actor).standing) { this.restoreGlassKeys(); this.pulledUpBy = null; }   // a toggle of the person's: the drawer is theirs now, no carry's to put down
     this.strip = false;
     if (open) void this.desk;
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
@@ -1049,6 +1050,21 @@ export class AgentDrawer {
    * person's drawer pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
    * the one shown and leaves the drawer and the keys as they are.
    */
+  /** The carry that pulled the drawer up with it: its undo puts the drawer down again (`carriesUndone`). */
+  private pulledUpBy: string | null = null;
+  /**
+   * An undo took back the carries `txns` (PIE-1574). The keys stay where they are unless their tile `keys` moved off the desk
+   * `from` they were on: they go with it, a group's tile included. A drawer a carry pulled up goes down, unless the keys are still in it.
+   */
+  carriesUndone(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void {
+    const pulled = this.pulledUpBy !== null && txns.has(this.pulledUpBy), screen = tilesOf(this.host.screen?.()), d = this.d;
+    if (keys && !from?.nameOfPane(keys)) {
+      if (screen?.descend().some(x => x.nameOfPane(keys))) { if (this.entered) this.leave(this.host.screen?.(), false); keysThrough(screen, keys, USER); }
+      else if (d) { const top = keysThrough(d, keys, USER); if (top) this.goTo(top, USER); }
+    }
+    if (pulled && this.open && !this.entered) { this.set(false, USER); this.save(); }
+    if (pulled) this.pulledUpBy = null;
+  }
   /**
    * Why tile `name` of screen `from` can't go into the drawer (there, if `to`/`where` say where), or null: the screen
    * keeps it (its last tile, a fixed shape), or the drawer's layout won't take it there. `put` refuses with it, and a drag over the drawer shows it before the release.
@@ -1072,7 +1088,7 @@ export class AgentDrawer {
     if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along when they were in it (the carry's one rule), or when asked.
       d.focusTile(done.tile, actor);
-      if (!this.open && this.mode !== "none" && !keep) this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
+      if (!this.open && this.mode !== "none" && !keep) { this.do({ op: "slide", tile: HOST_TILES, open: true }, actor); this.pulledUpBy = d.history.newest()?.txn ?? null; }
       if ((followed || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); if (moved.typing) this.intoShown(); }
       this.save();
     }

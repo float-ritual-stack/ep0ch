@@ -1686,7 +1686,7 @@ class Step<I> {
   private slide(id: I, open: boolean | undefined, container?: string, beside = false) {
     this.present(id);
     const name = this.name(id), nd = container ? nodeById(this.d.tree, container) : null;
-    if (container && nd?.t !== "dock") refuse(`no dock ${container} in the layout; layout.get gives each dock's id (d<n>)`);
+    if (container && (nd?.t !== "dock" || !leaves(nd.kid).includes(id))) refuse(nd?.t === "dock" ? `${name} isn't in dock ${container}: tile.slide container=${container} open=true slides that dock's own tile` : `no dock ${container} in the layout; layout.get gives each dock's id (d<n>)`);
     const dr = nd?.t === "dock" ? nd : dockOf(this.d.tree, id);
     if (!dr) refuse(`${name} isn't docked · tile.dock (^W p) docks it`);
     const want = open ?? !(dr!.open && visible(dockBody(dr!)).includes(id));
