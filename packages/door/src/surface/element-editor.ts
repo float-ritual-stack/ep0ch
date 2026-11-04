@@ -1,5 +1,5 @@
 import { sourceLines } from "../draft-view";
-import { saidRows } from "./editor";
+import { editState, saidRows } from "./editor";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import { keyTable } from "./keymap";
 import { PositionRows } from "../reader-position";
@@ -213,19 +213,17 @@ export class ElementEdit {
   }
   /**
    * The text changed under rich edit (a reload): the cursor goes to the end of the same cell, or the nearest one left, so
-   * the next key lands in a cell and never in the table's syntax. False when the table at that number isn't the same one
-   * (its first row differs) or none is left: rich edit closes.
+   * the next key lands in a cell and never in the table's syntax. When the table at that number isn't the same one (its
+   * first row differs: "changed") or none is left ("gone"), rich edit closes and the cursor waits on a line of its own at
+   * the note's end: what's typed next goes neither into a table's syntax nor onto someone else's sentence.
    */
-  landIn(cell: ReturnType<ElementEdit["cellNow"]>): boolean {
+  landIn(cell: ReturnType<ElementEdit["cellNow"]>): "kept" | "changed" | "gone" {
     const es = cell ? this.elements() : [], e = cell && es[cell.element];
     const row = e?.fields[cell?.row ?? 0] ?? e?.fields.at(-1), f = row?.[cell?.col ?? 0] ?? row?.at(-1);
-    if (f && this.draft.lines[e?.start ?? -1] === cell?.head) { this.draft.place(f.line, f.end); return true; }
-    // At the note's end, on a line of its own if a table ends it: what's typed next never goes into a table's syntax.
-    const d = this.draft, last = d.lines.length - 1, inTable = this.elements().some(x => last >= x.start && last < x.end);
+    if (f && this.draft.lines[e?.start ?? -1] === cell?.head) { this.draft.place(f.line, f.end); return "kept"; }
     this.on = false;
-    d.place(last, d.lines[last]!.length);
-    if (inTable) d.pasteText("\n");
-    return false;
+    this.draft.landAtEnd();
+    return e ? "changed" : "gone";
   }
   open(by: Actor) {
     const d = this.draft;
@@ -412,12 +410,16 @@ export class ElementEdit {
     if (at < d.lines.length) prose(at, d.lines.length);
     // What the draft says, whole, up to three rows; a command held during a reload is said over "reloading…".
     const said = (d.status.phase === "reloading" && d.note) || d.status.doing || d.note;
-    const head = said ? saidRows(said, w, Math.min(3, Math.max(1, h - 3)), C.cyan) : [fg(C.cyan) + pad(attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET];
+    const under = said ? saidRows(said, w, Math.min(3, Math.max(1, h - 4)), C.cyan) : [fg(C.cyan) + pad(attribution || modeHint(ELEMENT_KEYS, () => undefined), w) + RESET];
+    // The draft's state on its own row, as the raw edit draws it (a change elsewhere takes that row: nothing moves). A box
+    // with room for one row keeps the state when something's wrong (PIE-1560).
+    const head = h >= 4 ? [...editState(d, w), ...under] : d.status.conflict || d.status.changedElsewhere ? editState(d, w) : under;
     const above = 1 + head.length, room = Math.max(1, h - above);
     this.positionRows.moveOrigin(above);
     this.positionRows.source = sourceRows;
     this.total = body.length; this.room = room;
-    if (d.follow) this.top = follow(cursor, this.top, room);
+    // Rows that fit start at the first, whatever scrolled them before (the raw rows' rule, src/draft-view.ts).
+    if (d.follow) this.top = this.total <= room ? 0 : follow(cursor, this.top, room);
     // The cursor's line where it is on screen, in the position's terms (src/draft-view.ts): an agent's patch keeps it there.
     const first = sourceRows.indexOf(d.row);
     d.position.caret = first >= this.top && first < this.top + room ? { line: d.row, row: above + first - this.top } : null;

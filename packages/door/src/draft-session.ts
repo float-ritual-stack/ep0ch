@@ -214,8 +214,8 @@ export class DraftSession {
   /** Keys and pastes that came during a reload, in order, and the text it started from. */
   private heldKeys: { k: Key; replay: (k: Key) => void }[] = [];
   private heldOn = "";
-  /** The reload took away the table the held keys were typed in. */
-  private tableGone = false;
+  /** The reload took away or changed the table the held keys were typed in: how, in words. */
+  private tableLost: "is gone" | "changed" | null = null;
   /** Commands pressed during that reload: never run, said when it ends. */
   private heldBack = new Set<string>();
   /** Its held keys are going in: a host's key path runs no command for them. */
@@ -385,12 +385,12 @@ export class DraftSession {
     if (d.text !== this.heldOn && !d.views.rich?.on) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
     this.replaying = true;
     // Where the keys were meant for is gone (a table): a delete or a move would act on text they weren't pressed for.
-    const gone = this.tableGone, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
-    this.tableGone = false;
+    const lost = this.tableLost, gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
+    this.tableLost = null;
     try { for (const { k, replay } of held) if (!gone || inserts(k)) replay(k); } finally { this.replaying = false; }
     // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
     if (!d.note) this.status.say(said);
-    if (off.length) this.status.say(`${off.join(", ")} didn't apply: the table they were for is gone · ${d.note}`);
+    if (off.length) this.status.say(`${off.join(", ")} didn't apply: the table they were for ${lost} · ${d.note}`);
     // What to do first: a narrow line cuts its end, never this.
     if (back.length) this.status.say(`${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again${d.note ? ` · ${d.note}` : ""}`);
     this.env.redraw?.();
@@ -408,9 +408,10 @@ export class DraftSession {
     if (typeof r === "string") this.status.say(r);
     else if (r) { this.status.say(r.said); return; }
     // Rich edit stays in its cell over the new text, or says it can't: nothing typed goes into a table's syntax (PIE-1560).
-    if (rich && d.text !== this.heldOn && !rich.landIn(cell)) {
-      this.tableGone = true;
-      this.status.say(`the table is gone, so rich edit closed and what you type goes at the end · ${d.note}`);
+    const landed = rich && d.text !== this.heldOn ? rich.landIn(cell) : "kept";
+    if (landed !== "kept") {
+      this.tableLost = landed === "gone" ? "is gone" : "changed";
+      this.status.say(`the table ${this.tableLost}, so rich edit closed and what you type gets its own line · ${d.note}`);
     }
     this.settled();
     this.hold?.revise(this.draft.base);
