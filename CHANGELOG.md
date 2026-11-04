@@ -14,6 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **The button runs what the pick wrote.** On a busy machine a press just after a pick still held the old line, said `no tile is called {target}`, and left the tile lifted. The press now fills its slots from the note as it is.
 - **Run:** `ep0ch install --apply` (door code).
+
 ### A note that fits shows all of it, rich edit says when it changed elsewhere, and text with nowhere to go gets its own line (PIE-1560)
 
 - **A note that fits keeps its first line.** In a short tile, or beside an answer tile, the cursor's margin no longer scrolled the title away for blank rows at the bottom. Past the fit, it scrolls as before.
