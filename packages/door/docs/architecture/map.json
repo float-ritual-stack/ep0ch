@@ -567,10 +567,10 @@
     {
       "id": "door.session", "name": "What's alive in the background", "group": "door", "chapter": "layout", "ladder": "accidental", "dependsOn": ["door.desk"],
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
-      "built": "Two owners: App.background and a static Desk.kept.",
+      "built": "Two owners: App.background and the kept desk (kept-desk.ts).",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 765, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1898, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/kept-desk.ts", "l": 4, "m": "export const kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
