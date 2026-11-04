@@ -81,6 +81,8 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
       await d.act("tile.open", { kind: "facets", name: "nav", where: "down" }, "reader");
       await until(() => ((d.desk as any).describe().panes.find((p: any) => p.name === "nav")?.facets ?? []).length > 0, "the facets");
       const nav = (a: any) => a.tiles.find((t: any) => t.name === "nav");
+      // The first peek makes the shut drawer's desk, with a rect it has until a paint: one landing between these reads told them apart.
+      d.app.describe(); (d.app as any).paint();
       const peek = d.app.describe() as any, whole = d.app.describe({ full: true }) as any;
       const brief = peek.layout, full = whole.layout;
       // The screen's own tiles (state.panes) the same: in brief unless full.

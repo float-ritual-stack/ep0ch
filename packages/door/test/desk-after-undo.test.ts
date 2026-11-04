@@ -404,6 +404,94 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         expect(after.rect!.cols).toBeGreaterThan(0);
       } finally { d.quit(); }
     });
+
+    test("a shell on the plain screen, undone twice: the door stays up", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.inTile("tree");
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (d.desk.pane("pty") as PtyPane | undefined)?.running === true, "the shell runs");
+        const shell = d.desk.pane("pty") as PtyPane;
+        await d.press(ctrl("]"));
+        await d.press(ctrl("z"));
+        expect(d.said()).toContain("kept in a dock");
+        await d.press(ctrl("z"));
+        expect(d.said()).toContain("nothing to undo");
+        expect(d.desk.outOfStep()).toEqual([]);
+        expect(shell.running).toBe(true);
+      } finally { d.quit(); }
+    });
+
+    test("a shell opened inside a group in the drawer, undone twice: the door stays up", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies", args: { on: true } }, USER);
+        d.paint();
+        const dr = d.drawer();
+        await dr.dispatch.act({ action: "tile.group", tile: "replies", args: { name: "hob" } }, USER);
+        await dr.dispatch.act({ action: "tile.focus", tile: "hob" }, USER);
+        dr.stopTyping();
+        d.paint();
+        await d.press(ctrl("w"), char("e"));
+        const tile = dr.pane("hob") as any;
+        expect(tile.inside).toBe(true);
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => tile.inner.pane("pty")?.running === true, "the shell runs");
+        const shell = tile.inner.pane("pty") as PtyPane;
+        await d.press(ctrl("]"));
+        await d.press(ctrl("z"));
+        expect(d.said()).toContain("kept in a dock");
+        await d.press(ctrl("z"));
+        expect(d.said()).toContain("put the layout back");
+        await d.press(ctrl("z"));   // the carry into the drawer: the group's tile comes home, the shell stays in its group
+        expect(d.said()).toContain("put the layout back");
+        expect(d.names()).toContain("replies");
+        expect(dr.outOfStep()).toEqual([]);
+        expect(tile.inner.outOfStep()).toEqual([]);
+        expect(shell.running).toBe(true);
+      } finally { d.quit(); }
+    });
+
+    test("a shell opened inside a group, undone twice: the door stays up and the second undo takes the next change or says there's none", async () => {
+      const d = await door(cols, rows);
+      try {
+        const names = d.names();
+        await d.inTile("reader"); await d.press(ctrl("w"), char(" "));
+        await d.inTile("replies"); await d.press(ctrl("w"), char(" "));
+        await d.press(ctrl("w"), char("G"));
+        const group = d.names().find(n => !names.includes(n))!;
+        expect(group).toBeDefined();
+        await d.press(ctrl("w"), char("e"));
+        const tile = d.desk.pane(group) as any;
+        expect(tile.inside).toBe(true);
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => tile.inner.pane("pty")?.running === true, "the shell runs");
+        const shell = tile.inner.pane("pty") as PtyPane;
+        await d.press(ctrl("]"));
+        expect(d.said()).toContain("^W e G on the group");   // never ^W u: it refuses a group
+        await d.press(ctrl("z"));
+        expect(d.said()).toContain("kept in a dock");
+        expect(shell.running).toBe(true);
+        await d.press(ctrl("z"));
+        // It took the gather back, and said what stays: the two tiles are the screen's again, the shell runs on in its group.
+        expect(d.said()).toContain("put the layout back");
+        expect(d.names()).toContain("reader");
+        expect(d.names()).toContain("replies");
+        expect(d.desk.outOfStep()).toEqual([]);
+        expect(tile.inner.outOfStep()).toEqual([]);
+        expect(shell.running).toBe(true);
+        expect(() => d.desk.layoutSpec()).not.toThrow();
+        await d.press(ctrl("z"));
+        expect(d.said()).toMatch(/nothing to undo|no step change to undo/);
+        // One click on the edge shows the group, with the same shell in it.
+        const spot = d.edgeOf(group);
+        expect(spot).not.toBeNull();
+        await d.click(spot!.x, spot!.y);
+        expect(d.desk.layoutGet().tiles.find((t: any) => t.name === group)!.shown).toBe(true);
+        expect(tile.inner.pane("pty")).toBe(shell);
+        expect(shell.running).toBe(true);
+      } finally { d.quit(); }
+    });
   });
 });
 

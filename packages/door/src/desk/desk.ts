@@ -53,7 +53,7 @@ import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } f
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, specTileIds, type LayoutEntry } from "./layout-history";
-import { adoptTile, groupWith, newestDesk, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
+import { adoptTile, groupWith, newestDesk, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost, forgetCarries } from "./undo-across";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
@@ -768,7 +768,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return answer(r, { ...(sel === null ? { tile: "", name: "" } : this.tileAnswer(t.id)), n: t.n, id: t.id });
   }
   /** Tile `rid` (its identity) leaves this desk whole to whoever asked (an undo across desks, PIE-1559): its instance, or undefined. */
-  releaseTile(rid: string): Pane | undefined { for (const d of this.descend()) { const hit = [...d.panes].find(([i]) => d.tileId(i) === rid); if (hit) { d.tileLeaves(hit[0], "carry"); return hit[1]; } } return undefined; }
+  releaseTile(rid: string): Pane | undefined { for (const d of this.descend()) { const hit = [...d.panes].find(([i]) => d.tileId(i) === rid); if (hit) { const was = d.replaying; d.replaying = true; /* its layout lets it go too: a group a program keeps stays on with its other tiles (PIE-1571); no step of anyone's */ try { d.commit(d.ask({ op: "release", tile: hit[0] })); } finally { d.replaying = was; } d.tileLeaves(hit[0], "carry"); return hit[1]; } } return undefined; }
   private adoptHost(): AdoptHost { return { panes: this.panes, tileId: id => this.tileId(id), leave: id => this.tileLeaves(id, "carry"), self: this }; }
   /** `run` as one transaction on this desk (and `also`), unless it's already in one: what one undo takes back whole (PIE-1559). */
   private inTxn<T>(what: string, run: () => T, also?: Desk): T { const scope = TXN.getStore(), txn = scope?.txn ?? `${what}:${crypto.randomUUID()}`; try { return TXN.run({ ...scope, txn }, run); } finally { if (!scope?.txn) { this.history.close(txn); also?.history.close(txn); } } }
@@ -901,7 +901,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.state = r.state;
     if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
-    if (!this.replaying && prior && now && now.shape !== prior.shape && this.history.isStep(now.shape, partyOf(by?.actor ?? USER), by?.op ?? "change", { txn: !!TXN.getStore()?.txn, left: this.shuttingLeft && by?.op === "slide" })) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
+    if (!this.replaying && prior && now && now.shape !== prior.shape && by?.op === "source") forgetCarries(this.history.clear(), this.relatives()); else if (!this.replaying && prior && now && now.shape !== prior.shape && this.history.isStep(now.shape, partyOf(by?.actor ?? USER), by?.op ?? "change", { txn: !!TXN.getStore()?.txn, left: this.shuttingLeft && by?.op === "slide" })) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
     this.settled = now;
     this.focus = r.focus;
     if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
@@ -1078,7 +1078,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startMotion(TXN.getStore()?.motion, "put back");
     // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
     const here = keepFocus ? this.focusId() : undefined;
-    try { this.entered.clear(); this.ptyIn = null; this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; }
+    try { this.entered.clear(); this.ptyIn = null; this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; } void this.fillColumns();   // lanes follow their source, not the shape put back (PIE-1574)
   }
 
   /**
@@ -1277,7 +1277,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     const restorePolicies = (n: LNode) => { if (n.t !== "leaf") { n.policy = restorePolicy(n.policy); kidsOf(n).forEach(restorePolicies); } };
     restorePolicies(tree);
-    const next = init({ tree, names, floats, collapsed: folded, wires, across, altReaders, agents: agentsOf, policy: restorePolicy(policy) }, this.layout, { freshIds: !restore });
+    const next = init({ tree, names, floats, collapsed: folded, wires, across, altReaders, agents: agentsOf, policy: restorePolicy(policy) }, this.layout, { freshIds: !restore && !this.replaying });   // an undo's shape is this desk's own past: its containers keep their ids, and what's kept by them (a source's model, its tiles)
     this.state = next;
     this.specTiles = slots;
     if (this.ctx) this.reconcileNames();
@@ -5152,7 +5152,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // The newest of a layout change and a trash (PIE-957): a layout change is taken back as a trash is brought back.
         const trashed = lastTrashed(this.ctx.board, USER)?.seq, owner = undoDesk<Desk>(this), laid = owner.history.newest()?.seq;
         if (laid !== undefined && (trashed === undefined || laid > trashed)) return owner.run("layout.undo", {}, owner.nameOf(owner.focus));
-        if (trashed !== undefined) return this.run("note.untrash", {}, this.nameOf(this.focus));
+        return trashed !== undefined ? this.run("note.untrash", {}, this.nameOf(this.focus)) : owner.run("layout.undo", {}, owner.nameOf(owner.focus));   // nothing left: its refusal says so (PIE-1571)
       }
     }
     // Bare - folds the focused tile to a spine and + or = opens it (PIE-699), only now: a tile's own - + = (the tune
