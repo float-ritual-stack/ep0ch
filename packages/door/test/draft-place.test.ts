@@ -119,6 +119,32 @@ describe("an agent's patch keeps the person's place", () => {
     expect(nv.render(W, 12).map(visible)[0]).toContain("row 1");
   });
 
+  test("a note that just fits keeps its first line whatever the cursor's margin says, and an agent's patch leaves it there", () => {
+    const d = new Draft("note-just-fits", 4, ["Tansy", "", "two", "", "four", "", "six"].join("\n"));
+    d.place(6, 3);
+    const v = draftView(d);
+    for (const h of [7, 8, 9, 10]) {
+      const rows = v.render(W, h).map(visible);
+      expect(rows[0]).toContain("Tansy");
+      expect(rows[6]).toContain("six");
+    }
+    patch(d, "two", "two and a bit");
+    expect(v.render(W, 8).map(visible)[0]).toContain("Tansy");
+    // One row past the fit the margin is back.
+    d.key({ kind: "enter" });
+    expect(v.render(W, 7).map(visible)[0]).not.toContain("Tansy");
+  });
+
+  test("rich cells that fit show all of it once there's room again", () => {
+    const d = new Draft("note-rich-fit", 4, `${Array.from({ length: 6 }, (_, i) => `row note ${i + 1}`).join("\n\n")}\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`);
+    const rich = richView(d);
+    rich.open(TIDY);
+    d.place(d.lines.length - 1, 3);
+    const draw = (text: string) => ({ lines: text.split("\n"), source: text.split("\n").map((_, i) => i) });
+    rich.render(W, 8, draw);
+    expect(rich.render(W, 40, draw).map(visible).join("\n")).toContain("row note 1");
+  });
+
   test("a rich status of three rows: an agent's patch still leaves the cell's row where it was", () => {
     const text = `${Array.from({ length: 6 }, (_, i) => `row note ${i + 1}`).join("\n\n")}\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |`;
     const d = new Draft("note-rich-said", 4, text);

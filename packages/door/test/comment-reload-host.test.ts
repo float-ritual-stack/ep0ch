@@ -254,7 +254,9 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     await other.update(s.msg!.id, "Gone cell\n\nNo table now.", (await other.get(s.msg!.id))!.revision!, USER);
     await heldReload(d, () => s.key(ctrl("r"), h), () => { for (const c of "ab") s.key(char(c), h); }, () => d.text.includes("No table"));
     expect(rich(d)).toBe(false);
-    expect(d.text).toBe("Gone cell\n\nNo table now.ab");
+    // A line of its own, never glued onto someone else's sentence.
+    expect(d.text).toBe("Gone cell\n\nNo table now.\nab");
+    expect(d.note).toContain("the table is gone");
     expect(d.note).toContain("rich edit closed");
   }, 30_000);
 
@@ -265,7 +267,47 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     expect(rich(d)).toBe(false);
     // The table stays as it came; what was typed is on a line of its own after it.
     expect(d.text).toBe("Other table\n\n| tool | shed |\n| --- | --- |\n| rake | two |\nab");
+    expect(d.note).toContain("the table changed");
+    expect(d.note).not.toContain("gone");
     expect(d.note).toContain("rich edit closed");
+  }, 30_000);
+
+  test("the table gone and nothing typed: the line it waits on isn't a change to save", async () => {
+    const { s, h, d } = await richRefused("Gone quiet");
+    await other.update(s.msg!.id, "Gone quiet\n\nNo table now.", (await other.get(s.msg!.id))!.revision!, USER);
+    await s.act("edit.reload", {}, h, USER);
+    expect(rich(d)).toBe(false);
+    expect(d.dirty).toBe(false);
+    expect(d.lines.at(-1)).toBe("");
+    expect(d.row).toBe(d.lines.length - 1);
+  }, 30_000);
+
+  test.each([[80, 24], [30, 12]])("rich edit at %d×%d says changed elsewhere, then not saved, on the draft's own status row", async (cols, rows) => {
+    const title = `Rich why ${cols}`;
+    const id = (await board.request("create", { parentId: null, text: `${title}\n\n| crop | bed |\n| --- | --- |\n| one | leeks |`, author: "user" })).id as string;
+    const m = (await board.get(id))!;
+    const s = new NoteSurface(), h = host();
+    s.show(m, h);
+    s.startDraft(m, h);
+    const d = s.draft!;
+    d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks"));
+    await s.act("rich.toggle", { on: true }, h, USER);
+    const flat = () => s.render(cols, rows, h).lines.map(visible).join("").replace(/\s+/g, "");
+    const before = s.render(cols, rows, h).lines.map(visible).findIndex(l => l.includes("leeks"));
+    d.status.changedElsewhere = true;
+    expect(flat()).toContain("!!changedelsewhere");
+    // The status takes the state row it already has: the note under it stays where it was.
+    expect(s.render(cols, rows, h).lines.map(visible).findIndex(l => l.includes("leeks"))).toBe(before);
+    for (const c of "ab") s.key(char(c), h);
+    await other.update(id, `${title} today\n\n| crop | bed |\n| --- | --- |\n| one | leeks |`, m.revision!, USER);
+    s.key(ctrl("s"), h);
+    await until(() => d.status.conflict !== null && !d.busy, "the stale refusal", 5000);
+    expect(flat()).toContain("notsaved");
+    expect(flat()).toContain("changed");
+    await s.act("edit.reload", {}, h, USER);
+    expect(flat()).not.toContain("notsaved");
+    expect(flat()).not.toContain("changedelsewhere");
+    expect(rich(d)).toBe(true);
   }, 30_000);
 
   test("the table gone: held characters and pastes land, a held backspace or move doesn't touch the new prose, and it says so", async () => {
@@ -274,7 +316,7 @@ describe.skipIf(!outliner)("a posted comment's edit against a real host", () => 
     await heldReload(d, () => s.key(ctrl("r"), h), () => {
       s.key({ kind: "backspace" }, h); s.key({ kind: "left" }, h); s.key(char("a"), h); s.key({ kind: "paste", text: "bc" }, h);
     }, () => d.text.includes("No table"));
-    expect(d.text).toBe("Gone keys\n\nNo table now.abc");
+    expect(d.text).toBe("Gone keys\n\nNo table now.\nabc");
     expect(d.note).toContain("didn't apply");
   }, 30_000);
 
