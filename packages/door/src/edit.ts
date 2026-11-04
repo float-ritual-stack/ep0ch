@@ -1037,7 +1037,11 @@ export class Draft {
   askStatus(line: string, room = Infinity): string {
     const ask = this.asks.get(line);
     if (!ask) return "";
-    if (ask.warning) return ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
+    if (ask.warning) {
+      // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
+      const said = ` · ${ask.warning}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}`, whole = said + (ask.beside ? " · beside ▸" : "");
+      return width(whole) > room && width(said) <= room ? said : whole;
+    }
     const short = ` · ${ask.state}${ask.beside ? " · beside ▸" : ""}`;
     const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
     return width(full) <= room ? full : short;

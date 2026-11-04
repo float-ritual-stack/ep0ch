@@ -51,8 +51,8 @@ export function composerBody(d: Draft, frame0: EditFrame, W: number, rows: numbe
   let f = frame0;
   if (topOf(f) + 1 > avail) f = { ...f, context: [] };
   if (topOf(f) + 1 > avail) f = { ...f, status: [] };
-  // The text keeps a row beside a refusal, and two beside anything else said: what's written is what the box is for (PIE-1573).
-  const keep = f.draftStatus?.state ? 1 : Math.min(2, Math.max(1, draftView(d).layout(Math.max(4, iw - 2)).length));
+  // The text keeps a row beside a refusal, and up to three beside anything else said: what's written is what the box is for (PIE-1573).
+  const keep = f.draftStatus?.state ? 1 : Math.min(3, Math.max(1, draftView(d).layout(Math.max(4, iw - 2)).length));
   const left = (x: EditFrame) => avail - topOf({ ...x, draftStatus: undefined }) - keep;
   if (f.draftStatus && own(f) > left(f)) {
     if (f.by && left(f) < 2) f = { ...f, by: null };

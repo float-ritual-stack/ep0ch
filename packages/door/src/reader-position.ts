@@ -40,6 +40,11 @@ export class PositionRows {
     this.waiting = null;
     if (!this.position.view) this.top = top;         // a place restored meanwhile (back, an edit closing) is newer than a row count
   }
+  /** The body now starts at screen row `origin`, what's above it having grown or shrunk: the view stays on the same rows of the text. */
+  moveOrigin(origin: number) {
+    if (this.position.view) this.position.view.row += origin - this.origin;
+    this.origin = origin;
+  }
   /** Source line `line`'s first row is drawn at screen row `screen` (from the body's top), in `view`'s terms. */
   at(line: number, screen: number) { return { line, row: this.origin + screen }; }
   get top(): number {
