@@ -73,10 +73,9 @@ export class LayoutHistory {
    * (a dock slid open and shut) takes that step out: nothing is left to take back. One that only followed the keys is none:
    * a float raised, a tab shown, a dock opened around a focus, or shut as the keys left it (`left`). A source filling its
    * container is none either: the data laid those tiles out, and taking them away only fills them again. Nor is a container
-   * shown another source (the board's `g`): the steps before it were on tiles it just replaced, so they go.
+   * shown another source (the board's `g`): the steps before it were on tiles it just replaced, so the desk `clear`s them.
    */
   isStep(shape: string, party: string, what: string, o: { txn: boolean; left: boolean }): boolean {
-    if (what === "source") { for (const x of [...this.list]) this.take(x); return false; }
     const e = this.newest();
     if (!o.txn && e && !e.txn && e.party === party && e.shape === shape) { this.take(e); return false; }
     return !o.left && what !== "focus" && what !== "tab" && what !== "fill";
@@ -95,6 +94,10 @@ export class LayoutHistory {
     if (i >= 0) this.list.splice(i, 1);
     for (const t of this.open.values()) if (t.entry === e) t.entry = null;
   }
+  /** Every entry out; the transactions they were part of, whose other halves are on other desks. */
+  clear(): string[] { const txns = this.list.flatMap(e => (e.txn ? [e.txn] : [])); for (const e of [...this.list]) this.take(e); return txns; }
+  /** Every entry up to this transaction's newest out: their shapes come from before what it carried in, and rebuilding one would lose it. The transactions they were part of. */
+  forgetThrough(txn: string): string[] { const last = this.forTxn(txn); if (!last) return []; const out = this.list.filter(e => e.seq <= last.seq); for (const e of out) this.take(e); return out.flatMap(e => (e.txn ? [e.txn] : [])); }
   get size() { return this.list.length; }
 
   // ── transactions ─────────────────────────────────────────────────────────────

@@ -53,7 +53,7 @@ import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } f
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, specTileIds, type LayoutEntry } from "./layout-history";
-import { adoptTile, groupWith, newestDesk, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost } from "./undo-across";
+import { adoptTile, groupWith, newestDesk, stepThere, undoDesk, undoOrder, type Adopt, type AdoptHost, forgetCarries } from "./undo-across";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
@@ -901,7 +901,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.state = r.state;
     if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
-    if (!this.replaying && prior && now && now.shape !== prior.shape && this.history.isStep(now.shape, partyOf(by?.actor ?? USER), by?.op ?? "change", { txn: !!TXN.getStore()?.txn, left: this.shuttingLeft && by?.op === "slide" })) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
+    if (!this.replaying && prior && now && now.shape !== prior.shape && by?.op === "source") forgetCarries(this.history.clear(), this.relatives()); else if (!this.replaying && prior && now && now.shape !== prior.shape && this.history.isStep(now.shape, partyOf(by?.actor ?? USER), by?.op ?? "change", { txn: !!TXN.getStore()?.txn, left: this.shuttingLeft && by?.op === "slide" })) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
     this.settled = now;
     this.focus = r.focus;
     if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
@@ -1078,7 +1078,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startMotion(TXN.getStore()?.motion, "put back");
     // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
     const here = keepFocus ? this.focusId() : undefined;
-    try { this.entered.clear(); this.ptyIn = null; this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; }
+    try { this.entered.clear(); this.ptyIn = null; this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; } void this.fillColumns();   // lanes follow their source, not the shape put back (PIE-1574)
   }
 
   /**

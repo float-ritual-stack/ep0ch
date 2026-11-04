@@ -14,9 +14,11 @@ are its record. The outliner's entries from then are kept below, under
 
 - **A shell in a group, undone twice, no longer crashes the door.** The second ctrl+z takes the gather back: the tiles are the screen's again, and the group, with its shell running, is kept in a dock at the right edge.
 - **ctrl+z on a board never touches its lanes.** A board's lanes come from its hub, so filling them is no step of yours: a fresh board says there's nothing to undo, and undoing a real step no longer adds `query`, `query2`… lanes.
-- **Showing another board (`g`) is no step either.** ctrl+z doesn't take it back, and the steps you made on the board before it go with its lanes.
+- **Showing another board (`g`) is no step either.** ctrl+z doesn't take it back, and the steps you made on the board before it go with its lanes, a carry's other half included: the tile stays where you carried it.
+- **Lanes follow the hub through an undo.** A lane added since a resize stays when you undo the resize.
 - **ctrl+z with nothing left says so** on every screen, rather than saying nothing.
 - **Run:** `ep0ch install --apply` (door code).
+
 ### A note that fits opens with its first line (PIE-1560)
 
 - **Nothing to press first.** In a short tile, opening an edit kept the reader's scroll, so the title stayed hidden over blank rows until the first key. A note that fits now draws from its first row from the moment it opens, and can't be wheeled away from it. A longer note read from its top opens at its top too, with the cursor in view. Scrolled down, an edit still opens where you were reading.

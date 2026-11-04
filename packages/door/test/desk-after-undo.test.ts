@@ -468,6 +468,7 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         await until(() => tile.inner.pane("pty")?.running === true, "the shell runs");
         const shell = tile.inner.pane("pty") as PtyPane;
         await d.press(ctrl("]"));
+        expect(d.said()).toContain("^W e G on the group");   // never ^W u: it refuses a group
         await d.press(ctrl("z"));
         expect(d.said()).toContain("kept in a dock");
         expect(shell.running).toBe(true);

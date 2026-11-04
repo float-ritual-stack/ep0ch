@@ -29,6 +29,12 @@ export function newestDesk<D extends { history: { newest(): { seq: number } | nu
  */
 export const stepThere = (name: string, change: string): string => `${name} changed since (${change}); ${keyCaption(hintKey({ action: "layout.undo", args: { anywhere: true }, key: "ctrl+w B", label: "" }) ?? "ctrl+w B")} undoes it`;
 
+/** A desk's steps are gone (another source shown, PIE-1574): so is each carry's other half, and what came before it on that desk. The tile stays where it was carried. */
+export function forgetCarries(txns: string[], desks: { history: { forgetThrough(txn: string): string[] } }[]) {
+  const seen = new Set<string>(), todo = [...txns];
+  for (let t = todo.pop(); t !== undefined; t = todo.pop()) if (!seen.has(t)) { seen.add(t); for (const d of desks) todo.push(...d.history.forgetThrough(t)); }
+}
+
 /** What gives a claimed tile up: a desk being put back (`releaseTile`). */
 export interface Releases { releaseTile(rid: string): Pane | undefined }
 /** `claims`: the ids the shapes being put back name; `pool`: instances a rebuilt desk let go that another claims; `from`: the desks put back; `kept`: tiles a rebuild kept in a dock for the work they hold, in words (PIE-1571). */
