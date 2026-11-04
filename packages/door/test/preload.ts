@@ -80,9 +80,10 @@ afterAll(() => { for (const app of apps.keys()) app.retire(); apps.clear(); });
 // left something fails, naming each. A part with process-wide state registers it here (`what`, what's left now, how to
 // put it back): src/extensions.ts does.
 const leftovers = new Map<string, { left(): string[]; reset(): void }>();
-// Process-wide state a file may leave as a matter of course, put back without a word (as the environment is): a desk left
-// with a program running is kept for the next open of the desk (src/desk/desk.ts), and that next open was another file's.
-const putBack = new Set<() => Promise<void>>();
+// Process-wide state a file may leave as a matter of course, put back without a word (as the environment is), unless it
+// can't be (what it answers is named, as a leftover is): a desk left with a program running is kept for the next open of
+// the desk (src/desk/desk.ts), and that next open was another file's.
+const putBack = new Set<() => Promise<string | void>>();
 (globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.putBack")] = putBack;
 (globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.leftovers")] = { set(what: string, left: () => string[], reset: () => void) { leftovers.set(what, { left, reset }); } };
 // The environment the file running now started with (its module code is the file's too).
@@ -99,7 +100,7 @@ async function between(file: string, end = false): Promise<void> {
     try { await s.dispose(); } catch { /* stopped as far as it goes */ }
     scratches.delete(s);
   }
-  for (const f of putBack) await f();
+  for (const f of putBack) { const still = await f(); if (still) left.push(still); }
   for (const [what, l] of leftovers) { const now = l.left(); if (now.length) { left.push(`${what} (${now.join(", ")})`); l.reset(); } }
   // The environment is put back without a word: a file's beforeAll setting EP0CH_STATE for its scratch is the usual way.
   const changed = [...new Set([...Object.keys(env0), ...Object.keys(process.env)])].filter(k => process.env[k] !== env0[k]);

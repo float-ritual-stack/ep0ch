@@ -72,3 +72,17 @@ test("a theme a file left on isn't the next file's", () => {
   expect(r.out).toMatch(/ 2 pass/);
   expect(r.code).toBe(0);
 }, 60_000);
+
+// #1280 review: a terminal in a group inside the kept desk went to the drawer and ran into later files.
+test("a kept desk's programs end inside its groups too", () => {
+  const r = run("keeps-group.ts", "reads-group.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
+
+test("a kept desk's program that won't end is named, and the run fails", () => {
+  const r = run("keeps-survivor.ts", "opens-desk-after.ts");
+  expect(r.out).toContain("test/fixtures/leaks/keeps-survivor.ts left behind: a kept desk's program that won't end");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).not.toBe(0);
+}, 60_000);

@@ -188,11 +188,12 @@ describe.skipIf(!outliner)("the home base", () => {
       h.type("\x15Not A Name\r");
       await h.on(p => p.text?.some((line: string) => line.includes("isn't an outline name")), "the name refusal");
       await Bun.sleep(2500);                    // past a retry of anything the door keeps asking
+      // A refusal shows for 4 s, and this peek may come after that: the message log says what was said since.
       const after = await h.peek();
-      const screen = after.text.join("\n");
-      expect(screen).toContain("isn't an outline name");
-      expect(screen).not.toContain("socket closed");
-      expect(screen).not.toContain("offline");
+      const said = after.messages.map((m: { message: string }) => m.message);
+      expect(said.at(-1)).toContain("isn't an outline name");
+      expect(said.filter((m: string) => /socket closed|ENOENT/.test(m))).toEqual([]);
+      expect(after.text.at(-1)).not.toContain("offline");
     } finally { await h.end(); }
   }, 30_000);
 
