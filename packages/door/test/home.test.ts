@@ -177,6 +177,26 @@ describe.skipIf(!outliner)("the home base", () => {
     } finally { await h.end(); if (host) { host.kill(); await host.exited; } stopUnder(home); }
   }, 30_000);
 
+  // PIE-1570: its board has no outline, so every read the door keeps asked and lost the connection every 2 s: the status
+  // bar said offline, and "outline socket closed" drew over a refusal the person had just been given.
+  test("the host answering, the home base says nothing about a lost connection, and a refusal stays said", async () => {
+    const h = new Home(join(dir, "work/jam-shelf"));
+    try {
+      await h.on(p => p.screen === "home base", "the home base");
+      h.type("n");
+      await Bun.sleep(300);
+      h.type("\x15Not A Name\r");
+      await h.on(p => p.text?.some((line: string) => line.includes("isn't an outline name")), "the name refusal");
+      await Bun.sleep(2500);                    // past a retry of anything the door keeps asking
+      // A refusal shows for 4 s, and this peek may come after that: the message log says what was said since.
+      const after = await h.peek();
+      const said = after.messages.map((m: { message: string }) => m.message);
+      expect(said.at(-1)).toContain("isn't an outline name");
+      expect(said.filter((m: string) => /socket closed|ENOENT/.test(m))).toEqual([]);
+      expect(after.text.at(-1)).not.toContain("offline");
+    } finally { await h.end(); }
+  }, 30_000);
+
   test("by keys: n names a new outline, ⏎ makes it, the offer to write .ep0ch is declined, and the door opens on it", async () => {
     const h = new Home(join(dir, "work/jam-shelf"));
     try {

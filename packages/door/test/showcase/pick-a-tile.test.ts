@@ -187,8 +187,8 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     press({ kind: "end" }); press({ kind: "enter" });
     for (const c of '::button{label="two" act="tile.zom reach="column" tile=links}') ch(c);
     await until(() => screen().includes("✗ act= ends early"), "the misread said under the line");
-    // Underlined (SGR 4) where the line stops being read.
-    expect(h.painted.join("\n")).toContain("\x1b[4m");
+    // Underlined (SGR 4) where the line stops being read: in the next frame painted (`screen()` above renders without painting).
+    await until(() => h.painted.join("\n").includes("\x1b[4m"), "the misread underlined in a painted frame");
     // Fix it: the nested quotes go, and the action's name.
     for (let i = 0; i < '"column" tile=links}'.length; i++) press({ kind: "backspace" });
     for (const c of 'column tile=links"}') ch(c);

@@ -1491,12 +1491,14 @@ function hang(text: string, W: number, o: { head: string; lead: number; paint: (
   return rows;
 }
 
-const CODE_ON = fg(C.lmagenta), CODE_OFF = fg(C.grey), TAG_CHAR = /[\u{100000}-\u{10FFFD}]/u;
+const TAG_CHAR = /[\u{100000}-\u{10FFFD}]/u;
 /**
  * The inline code spans in drawn `lines`, as colourBody draws them (magenta, then back to grey: nothing else ends that way), one block
  * each (`kind: "span"`). A span the wrap cut across rows is one: its text joined with a space.
  */
 export function codeSpans(lines: readonly string[], source: readonly number[]): DocBlock[] {
+  // The theme's colours now: taken once as the module loaded, a theme change left no code span to click or copy (PIE-1570).
+  const CODE_ON = fg(C.lmagenta), CODE_OFF = fg(C.grey);
   const out: DocBlock[] = [];
   const cellsOfRow = (l: string) => [...l.split(/\x1b\[[\d;]*m/).join("")].filter(c => !TAG_CHAR.test(c));
   lines.forEach((line, row) => {

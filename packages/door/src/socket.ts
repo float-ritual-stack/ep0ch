@@ -496,6 +496,9 @@ export class SocketBoard implements Board {
    */
   constructor(readonly path = DEFAULT_SOCKET, private readonly timeoutMs = 15_000, readonly outline?: string) {}
 
+  /** With no subscription to say so: the requests' connection was said lost, and nothing has answered since. */
+  private lostSaid = false;
+
   private conn(): Socket {
     if (this.sock && !this.sock.destroyed) return this.sock;
     const s = connect(this.path);
@@ -505,13 +508,20 @@ export class SocketBoard implements Board {
       const w = this.waiting.get(r.id);
       if (!w) return;
       this.waiting.delete(r.id); clearTimeout(w.timer);
+      // Only an answer is the link back: an ssh forward's local end takes a connection with the far host asleep.
+      if (r.ok) this.lostSaid = false;
       r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed"));
     });
     s.on("data", d => lines.feed(d));
     // Only this connection's requests fail with it: a close that comes after a new connection opened leaves its alone.
     const fail = (e: Error) => {
       for (const [id, w] of this.waiting) if (w.sock === s) { clearTimeout(w.timer); w.reject(e); this.waiting.delete(id); }
-      if (this.sock === s) { this.sock = null; this.watched.lost(); if (!this.sub) this.onConnection("lost", e.message); }
+      if (this.sock === s) {
+        this.sock = null; this.watched.lost();
+        // Said once until the service answers again: each try against a dead socket is the same news, and drew over what
+        // the status line had just said (PIE-1570).
+        if (!this.sub && !this.lostSaid) { this.lostSaid = true; this.onConnection("lost", e.message); }
+      }
     };
     s.on("error", fail);
     s.on("close", () => fail(new Error("outline socket closed")));

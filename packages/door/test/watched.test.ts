@@ -1,6 +1,10 @@
 // The door's watched reads (src/watched.ts, ADR 0004): asked once, asked again only when the service says the answer
 // changed, registered again after the connection was lost, and never asked on paint. A fake connection.
 import { describe, expect, test } from "bun:test";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SocketBoard } from "../src/socket";
 import { RETRY_MS, Watched } from "../src/watched";
 
 function fake() {
@@ -85,3 +89,40 @@ describe("watched reads", () => {
     expect(f.asked.length).toBe(before);
   });
 });
+
+// PIE-1570: with the service down, each failed connect lost every read and scheduled each held read again, so the timers
+// multiplied: the door connected hundreds of times a second, and without a subscription said each one over the status line.
+test("service down: a held read asks once per retry, and the lost connection is said once", async () => {
+  const dead = join(tmpdir(), `ep0ch-no-host-${process.pid}.sock`);
+  const board = new SocketBoard(dead, 1000);
+  const said: string[] = [];
+  board.onConnection = (state, detail) => said.push(`${state}: ${detail}`);
+  try {
+    for (const key of ["one", "two", "three"]) board.watched.read("blocks.query", { key }, raw => raw, "", { held: true });
+    await Bun.sleep(RETRY_MS * 2 + 500);
+    // The first ask of each, then one a retry; a little room for a timer that lands late, nothing like a storm.
+    expect(board.sent.length).toBeLessThanOrEqual(3 * 4);
+    expect(said).toHaveLength(1);
+  } finally { board.close(); }
+}, 15_000);
+
+// An ssh forward's local end takes a connection with the far host asleep: a connect isn't the link coming back (#1280 review).
+test("connected but nothing answers: the lost connection is still said once, and said again only after an answer", async () => {
+  const sock = join(tmpdir(), `ep0ch-forward-${process.pid}.sock`);
+  let answers = 2;
+  const forward = createServer(c => c.on("data", d => {
+    const asked = JSON.parse(d.toString().split("\n")[0]!) as { id: string };
+    if (answers-- > 0) c.write(`${JSON.stringify({ id: asked.id, ok: true, result: {} })}\n`);
+    c.end();
+  }));
+  await new Promise<void>(r => forward.listen(sock, r));
+  const board = new SocketBoard(sock, 1000);
+  const said: string[] = [];
+  board.onConnection = (state, detail) => said.push(`${state}: ${detail}`);
+  try {
+    board.watched.read("blocks.query", {}, raw => raw, "", { held: true });
+    await Bun.sleep(RETRY_MS * 3 + 500);
+    expect(answers).toBeLessThan(0);        // it asked past the answers: the rest were connect, then close
+    expect(said).toHaveLength(2);           // one for each close after an answer; none for the closes with no answer
+  } finally { board.close(); forward.close(); }
+}, 20_000);

@@ -49,3 +49,40 @@ test("the last file of a run is checked too", () => {
   expect(r.out).toContain("test/fixtures/leaks/binds.ts left behind: extensions bound (tarot)");
   expect(r.code).not.toBe(0);
 }, 60_000);
+
+// PIE-1562: a file after another timed out at Bun's 5 s, so what took longer failed only in a shared run: 5 s in the
+// middle of a wait of 15, "killed N dangling processes", the file's scratch host with them, and the tests after it.
+test("every file of a run has the preload's budget, not only the first", () => {
+  const r = run("uses-theme.ts", "slow.ts");
+  expect(r.out).not.toContain("timed out after");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
+
+// PIE-1562: status.test's desk opened on extensions.test's tiles (its programs still running, its kinds gone), so a click
+// landed on what wasn't there; look.test the same. Only in a run with such a file before it.
+test("a desk a file left kept isn't the next file's", () => {
+  const r = run("keeps-desk.ts", "opens-desk.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
+
+test("a theme a file left on isn't the next file's", () => {
+  const r = run("turns-theme.ts", "reads-theme.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
+
+// #1280 review: a terminal in a group inside the kept desk went to the drawer and ran into later files.
+test("a kept desk's programs end inside its groups too", () => {
+  const r = run("keeps-group.ts", "reads-group.ts");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
+
+test("a kept desk's program that won't end is named, and the run fails", () => {
+  const r = run("keeps-survivor.ts", "opens-desk-after.ts");
+  expect(r.out).toContain("test/fixtures/leaks/keeps-survivor.ts left behind: a kept desk's program that won't end");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).not.toBe(0);
+}, 60_000);

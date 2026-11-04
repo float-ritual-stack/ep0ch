@@ -212,6 +212,11 @@ export function setTheme(name: ThemeName): boolean {
   return true;
 }
 
+// The test run's teardown between files, when there is one: a file that turned the theme (power-bar's theme.cycle) leaves
+// the next file's screens in it. Nothing outside tests sets it.
+const started = active.name;
+(globalThis as { [k: symbol]: Set<() => Promise<void>> | undefined })[Symbol.for("ep0ch.test.putBack")]?.add(async () => { setTheme(started); });
+
 /** The theme after `from` (calm → night → classic → calm). */
 export const nextTheme = (from: ThemeName = active.name): ThemeName => THEME_NAMES[(THEME_NAMES.indexOf(from) + 1) % THEME_NAMES.length]!;
 
