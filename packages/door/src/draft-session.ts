@@ -135,6 +135,8 @@ const registry = (board: object | null | undefined) => {
 
 /** A key that writes in a draft, or moves between what's written (a command is anything else: `DraftSession.holdKey`). */
 const WRITES = new Set<Key["kind"]>(["char", "paste", "enter", "alt-enter", "backspace", "alt-backspace", "delete", "tab", "backtab", "left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
+/** A held key that only adds text: what's safe wherever it lands. */
+const inserts = (k: Key) => k.kind === "paste" || (k.kind === "char" && !k.ctrl);
 const writes = (k: Key, d: Draft) => WRITES.has(k.kind) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
 
 export class DraftSession {
@@ -212,6 +214,8 @@ export class DraftSession {
   /** Keys and pastes that came during a reload, in order, and the text it started from. */
   private heldKeys: { k: Key; replay: (k: Key) => void }[] = [];
   private heldOn = "";
+  /** The reload took away the table the held keys were typed in. */
+  private tableGone = false;
   /** Commands pressed during that reload: never run, said when it ends. */
   private heldBack = new Set<string>();
   /** Its held keys are going in: a host's key path runs no command for them. */
@@ -365,7 +369,7 @@ export class DraftSession {
     if (writes(k, this.draft)) { this.heldKeys.push({ k, replay }); return; }
     const name = keyName(k) ?? "that key";
     this.heldBack.add(name);
-    this.status.say(`reloading · press ${name} again once it has loaded`);
+    this.status.say(`reloading · press ${[...this.heldBack].join(", ")} again once it has loaded`);
     this.env.redraw?.();
   }
 
@@ -380,14 +384,20 @@ export class DraftSession {
     // After the words it loaded; in a rich cell, the cell the cursor is in.
     if (d.text !== this.heldOn && !d.views.rich?.on) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
     this.replaying = true;
-    try { for (const { k, replay } of held) replay(k); } finally { this.replaying = false; }
+    // Where the keys were meant for is gone (a table): a delete or a move would act on text they weren't pressed for.
+    const gone = this.tableGone, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
+    this.tableGone = false;
+    try { for (const { k, replay } of held) if (!gone || inserts(k)) replay(k); } finally { this.replaying = false; }
     // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
     if (!d.note) this.status.say(said);
-    if (back.length) this.status.say(`${d.note ? `${d.note} · ` : ""}${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again`);
+    if (off.length) this.status.say(`${off.join(", ")} didn't apply: the table they were for is gone · ${d.note}`);
+    // What to do first: a narrow line cuts its end, never this.
+    if (back.length) this.status.say(`${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again${d.note ? ` · ${d.note}` : ""}`);
     this.env.redraw?.();
   }
 
   private async reloading(): Promise<void> {
+    const d = this.draft, rich = d.views.rich?.on ? d.views.rich : null, cell = rich?.cellNow() ?? null;
     let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
     // Keys wait for it and an agent's writes are refused: what they'd add now the reload's rebase would drop (PIE-1560).
     this.status.phase = "reloading"; this.status.say("");
@@ -397,6 +407,11 @@ export class DraftSession {
     finally { this.status.phase = null; }
     if (typeof r === "string") this.status.say(r);
     else if (r) { this.status.say(r.said); return; }
+    // Rich edit stays in its cell over the new text, or says it can't: nothing typed goes into a table's syntax (PIE-1560).
+    if (rich && d.text !== this.heldOn && !rich.landIn(cell)) {
+      this.tableGone = true;
+      this.status.say(`the table is gone, so rich edit closed and what you type goes at the end · ${d.note}`);
+    }
     this.settled();
     this.hold?.revise(this.draft.base);
   }
@@ -466,7 +481,7 @@ export class DraftSession {
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
     // Its place as it was, with the cursor kept in view: the frame around it may not be the size it was (PIE-1573).
-    if (u.position) { d.usePosition(u.position); d.follow = true; }
+    if (u.position) { d.usePosition(u.position); d.position.caret = null; d.follow = true; }
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w, "bringing back the unsent draft");
