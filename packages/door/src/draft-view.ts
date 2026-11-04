@@ -239,9 +239,9 @@ export class RawRows {
       while (first > 0 && rows[first - 1]!.line === d.row) first--;
       this.top = first - (d.position.caret!.row - pr.origin);
     }
-    // Rows that fit start as high as the cursor's margin lets them, whatever scrolled them before: never a blank row past
-    // the end in place of one (PIE-1573).
-    if (d.follow && fits) this.top = Math.max(0, at.vi + scrollOff(h) - h + 1);
+    // Rows that fit start at the first, whatever scrolled them before and whatever the cursor's margin wants: a blank row
+    // past the end is never worth a row of the note (PIE-1573, PIE-1560).
+    if (d.follow && fits) this.top = 0;
     else if (d.follow && !(holding && at.vi >= this.top && at.vi < this.top + h)) {
       const off = scrollOff(h);
       if (at.vi - off < this.top) this.top = at.vi - off;

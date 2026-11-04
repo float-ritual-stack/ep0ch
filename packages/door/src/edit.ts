@@ -389,6 +389,16 @@ export class Draft {
   }
 
   /**
+   * Just loaded (`rebase`), and what's typed next has no place in it: the cursor waits at the end, on a line of its own
+   * when the last one has words. The line is part of what was loaded, not a change: with nothing typed on it there's
+   * nothing to save, and a save only writes it with words on it.
+   */
+  landAtEnd() {
+    if (this.lines.at(-1)) { this.lines.push(""); this.original = this.seen = this.text; }
+    this.place(this.lines.length - 1, 0);
+  }
+
+  /**
    * Replace the text wholesale ($EDITOR came back, an agent sent it, an earlier revision put in). The base revision
    * stays: the service still judges it. One undo step, `what` it was.
    */
