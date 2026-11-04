@@ -465,7 +465,8 @@ export class DraftSession {
     unshelve(this.target.place);
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
-    if (u.position) d.usePosition(u.position);
+    // Its place as it was, with the cursor kept in view: the frame around it may not be the size it was (PIE-1573).
+    if (u.position) { d.usePosition(u.position); d.follow = true; }
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
     for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w, "bringing back the unsent draft");

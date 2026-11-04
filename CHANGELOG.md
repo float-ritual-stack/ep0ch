@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A comment comes back after a handover with its text in view (PIE-1573)
+
+- **What's written stays on screen.** A half-written comment in a small box came back after a deploy with "brought back your words…" taking its rows, so its first line looked gone until the next key. Nothing was lost. The box now keeps the text two rows beside anything but a refusal, and the cursor in view.
+- **Run:** nothing; the door picks it up on its next start.
+
 ### What you type during a reload lands, and a save's status keeps your typed row in view (PIE-1560)
 
 - **Nothing typed during ctrl+r is lost.** Keys and pastes wait while the read is out, then go in, in order, after the words it loaded (in a table cell, in that cell), or on your kept text if the read failed.
