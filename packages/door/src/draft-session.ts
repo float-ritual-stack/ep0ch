@@ -17,7 +17,7 @@ import { dayOf, keptNot, onDay } from "./unsent-compare";
 import { DraftStatus, type DraftPhase } from "./draft-status";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
-import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
+import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
 import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
@@ -133,6 +133,10 @@ const registry = (board: object | null | undefined) => {
   return s;
 };
 
+/** A key that writes in a draft, or moves between what's written (a command is anything else: `DraftSession.holdKey`). */
+const WRITES = new Set<Key["kind"]>(["char", "paste", "enter", "alt-enter", "backspace", "alt-backspace", "delete", "tab", "backtab", "left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
+const writes = (k: Key, d: Draft) => WRITES.has(k.kind) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
+
 export class DraftSession {
   readonly draft: Draft;
   /** Who opened it: the person (their `e`, `C`, `n`) or an agent (`edit.text`, `comment.write`). */
@@ -205,7 +209,15 @@ export class DraftSession {
    */
   /** A submit is on its way to its target: keys wait for it (`key`). */
   private submitting = false;
+  /** Keys and pastes that came during a reload, in order, and the text it started from. */
+  private heldKeys: { k: Key; replay: (k: Key) => void }[] = [];
+  private heldOn = "";
+  /** Commands pressed during that reload: never run, said when it ends. */
+  private heldBack = new Set<string>();
+  /** Its held keys are going in: a host's key path runs no command for them. */
+  replaying = false;
   key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null }): void {
+    if (this.status.phase === "reloading") { this.holdKey(k, held => this.key(held, { ...host, run() {} })); return; }
     // While a submit is in flight the keys are held (PIE-1542 review): typing then would show and be lost with the field.
     if (!this.open || this.draft.busy || this.submitting) return;
     // The default attachment (PIE-626): a session's draft completes from its own connection, whoever hosts it; a host
@@ -336,15 +348,51 @@ export class DraftSession {
   }
 
   /** ctrl+r: after a stale refusal, start over from what the service has now (the target's way). */
-  async reload(): Promise<void> {
+  async reload(replay = true): Promise<void> {
     if (!this.open) return;
     if (!this.target.reload) { this.status.say("nothing to reload"); return; }
     if (this.draft.busy) return;
+    this.heldOn = this.draft.text;
+    try { await this.reloading(); } finally { if (replay) this.replayHeld(); }
+  }
+
+  /**
+   * A key during a reload (PIE-1560). What a person writes always lands, so what they wrote (characters, pastes and the
+   * moves between them) waits for `replayHeld`, through `replay`: their key path. A command (ctrl+s, esc, ctrl+r, anything
+   * else) never runs later on text they haven't seen: it doesn't run at all, and the line says to press it again.
+   */
+  holdKey(k: Key, replay: (k: Key) => void) {
+    if (writes(k, this.draft)) { this.heldKeys.push({ k, replay }); return; }
+    const name = keyName(k) ?? "that key";
+    this.heldBack.add(name);
+    this.status.say(`reloading · press ${name} again once it has loaded`);
+    this.env.redraw?.();
+  }
+
+  /**
+   * What was typed or pasted during the reload goes in now, in order, on what the draft holds: after the words it loaded
+   * (the cursor at their end), or where it was on the kept text. A host with more to do after the reload calls this itself.
+   */
+  replayHeld() {
+    const held = this.heldKeys, back = [...this.heldBack], d = this.draft, said = d.note;
+    this.heldKeys = []; this.heldBack = new Set();
+    if (!held.length && !back.length) return;
+    // After the words it loaded; in a rich cell, the cell the cursor is in.
+    if (d.text !== this.heldOn && !d.views.rich?.on) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
+    this.replaying = true;
+    try { for (const { k, replay } of held) replay(k); } finally { this.replaying = false; }
+    // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
+    if (!d.note) this.status.say(said);
+    if (back.length) this.status.say(`${d.note ? `${d.note} · ` : ""}${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again`);
+    this.env.redraw?.();
+  }
+
+  private async reloading(): Promise<void> {
     let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
-    // Keys and draft writes wait for it: what they'd add now the reload's rebase would drop (PIE-1560).
-    this.status.phase = "reloading";
+    // Keys wait for it and an agent's writes are refused: what they'd add now the reload's rebase would drop (PIE-1560).
+    this.status.phase = "reloading"; this.status.say("");
     // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
-    try { r = await this.target.reload(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
+    try { r = await this.target.reload!(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
     catch (e) { this.status.say(`couldn't read it now · your text is kept · ctrl+r tries again (${e instanceof Error ? e.message : String(e)})`); return; }
     finally { this.status.phase = null; }
     if (typeof r === "string") this.status.say(r);
