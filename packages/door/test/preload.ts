@@ -18,7 +18,8 @@ process.env.OUTLINER_FIGURE_FIT = "off";
 // --parallel=16) a test whose waits all held still ran past 5 s and was timed out. A timeout costs more than that test:
 // Bun ends every process the file started when a test times out ("killed N dangling processes"), the file's scratch
 // host among them, so each test after it in the file failed too, with "connect ENOENT …/host.sock" (test/scratch.ts `revive` starts it again, below).
-setDefaultTimeout(30_000);
+const TEST_BUDGET_MS = 30_000;
+setDefaultTimeout(TEST_BUDGET_MS);
 // The scratch services a file holds register here (test/scratch.ts), and each test starts by having any that Bun ended
 // started again on the same folder, so one test's timeout is that test's alone.
 // Only the running file's own: one a file left undisposed is no business of the next file's tests.
@@ -79,6 +80,11 @@ afterAll(() => { for (const app of apps.keys()) app.retire(); apps.clear(); });
 // left something fails, naming each. A part with process-wide state registers it here (`what`, what's left now, how to
 // put it back): src/extensions.ts does.
 const leftovers = new Map<string, { left(): string[]; reset(): void }>();
+// Process-wide state a file may leave as a matter of course, put back without a word (as the environment is), unless it
+// can't be (what it answers is named, as a leftover is): a desk left with a program running is kept for the next open of
+// the desk (src/desk/desk.ts), and that next open was another file's.
+const putBack = new Set<() => Promise<string | void>>();
+(globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.putBack")] = putBack;
 (globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.leftovers")] = { set(what: string, left: () => string[], reset: () => void) { leftovers.set(what, { left, reset }); } };
 // The environment the file running now started with (its module code is the file's too).
 let env0 = { ...process.env };
@@ -94,6 +100,7 @@ async function between(file: string, end = false): Promise<void> {
     try { await s.dispose(); } catch { /* stopped as far as it goes */ }
     scratches.delete(s);
   }
+  for (const f of putBack) { const still = await f(); if (still) left.push(still); }
   for (const [what, l] of leftovers) { const now = l.left(); if (now.length) { left.push(`${what} (${now.join(", ")})`); l.reset(); } }
   // The environment is put back without a word: a file's beforeAll setting EP0CH_STATE for its scratch is the usual way.
   const changed = [...new Set([...Object.keys(env0), ...Object.keys(process.env)])].filter(k => process.env[k] !== env0[k]);
@@ -109,7 +116,7 @@ plugin({
   setup(build) {
     build.onLoad({ filter: /\/test\/(?:.*\.test|fixtures\/.*)\.ts$/ }, async a => {
       // This package's files only: another package's (a run from the repository's root) has its own preload.
-      if (a.path === Bun.main && last !== a.path && a.path.startsWith(import.meta.dir)) { if (last) await between(last); last = a.path; env0 = { ...process.env }; }
+      if (a.path === Bun.main && last !== a.path && a.path.startsWith(import.meta.dir)) { if (last) await between(last); last = a.path; env0 = { ...process.env }; setDefaultTimeout(TEST_BUDGET_MS); }
       return { contents: readFileSync(a.path, "utf8"), loader: "ts" };
     });
   },

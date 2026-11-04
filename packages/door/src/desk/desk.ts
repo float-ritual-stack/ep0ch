@@ -107,6 +107,7 @@ import { QueryPane } from "./query";
 import { tileRegistry } from "./tile-registry";
 import { ListsBeneath } from "./in-place";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
+import { kept } from "./kept-desk";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
@@ -1939,7 +1940,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.onScreen = false;
     this.leaveResize();
     this.stopPanelTimer();
-    if (this.spec.stays && this.running().length) { Desk.kept = this; return "keep"; }
+    if (this.spec.stays && this.running().length) { kept.desk = this; return "keep"; }
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
@@ -1956,10 +1957,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, p] of this.panes) { this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
   }
   private disposed = false;
-  /** The desk kept alive with its programs, to come back to (the menu's D). */
-  private static kept: Desk | null = null;
   /** The desk to open: the one kept running in the background, else a new one. */
-  static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
+  static resume(): Desk { const d = kept.desk; kept.desk = null; return d ?? new Desk(); }
   private onScreen = false;
   /** Popped out of a mount (PIE-651, `mount.out`): the mount it came from; `screen.mount` and `q` go back to it. */
   poppedFrom: { tile: Pane; desk: DeskApi } | null = null;
@@ -5871,7 +5870,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r.ok ? null : r.refused;
   }
   /** Keep a desk made to ask (Desk.resume) for the next open of the desk, as leaving it with programs does. */
-  static keep(d: Desk) { if (!Desk.kept) Desk.kept = d; }
+  static keep(d: Desk) { if (!kept.desk) kept.desk = d; }
   /** This screen can go on the desk as a mount (screen.mount): it's a registered screen, and not the desk or a mount. */
   mountable(): boolean { return this.spec.name !== "desk" && this.spec.name !== "group" && !this.onSave && screenNames().includes(this.spec.name) && !this.ctx?.hostLayer?.isDrawer(this); }
   /** The key of the nearest container around tile `sel` that has one (the board's lanes, readers): a part a mount can hold. */

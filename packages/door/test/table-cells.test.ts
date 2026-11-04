@@ -77,3 +77,13 @@ test("a record table at 66 columns keeps the title column whole, wrapped; the ot
   const plain = primitiveLines({ type: "table", columns: ["a", "b"], rows: [["x".repeat(40), "y".repeat(40)]] }, 41).map(strip);
   expect(plain[1]).toBe(`${"─".repeat(19)}  ${"─".repeat(20)}`);
 });
+
+// PIE-1570: the Search evals page drew "jev-1." over "14.0" beside a title column that kept all of "search-eval 2026-10-20".
+test("a short title column wraps at its words before a cell beside it is cut", async () => {
+  const { primitiveLines } = await import("../src/components");
+  const lines = primitiveLines({ type: "table", title: 0, columns: ["title", "model", "with answer", "hit@1", "hit@5", "sure", "wrong", "cost $"],
+    rows: [["trial-run 2026-02-14", "spruce-1.4", "12", "7 of 12", "10 of 12", "9 of 22", "3 of 9", "0.001722"]] }, 81).map(strip);
+  expect(Math.max(...lines.map(l => l.length))).toBeLessThanOrEqual(81);
+  const text = lines.join("\n");
+  for (const whole of ["trial-run", "2026-02-14", "spruce-1.4", "7 of 12", "0.001722"]) expect(text).toContain(whole);
+});

@@ -8916,7 +8916,7 @@ export class NoteSurface {
   /** The note's followable links, in order (link.follow's n=). */
   noteLinks(): readonly Link[] { return this.links; }
   /** The element the target index holds for link `l` (the one drawn as it), if any. */
-  elementOfLink(l: Link): Element | undefined { return this.elems.find(e => e.link === l) ?? this.elems.find(e => !!e.link && sameLink(e.link, l)); }
+  elementOfLink(l: Link, drawnOnly = false): Element | undefined { return drawnOnly && !this.drawn && !this.digesting ? undefined : this.elems.find(e => e.link === l) ?? this.elems.find(e => !!e.link && sameLink(e.link, l)); }
   /** The note's nth link (from 0) becomes the position: its element, or, until it's drawn, the element it will be. */
   selectLink(i: number) {
     const l = this.links[i];
@@ -10565,7 +10565,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (n !== undefined && !links[n - 1]) throw new ActionRefused(`there is no link ${n}; the note has ${links.length}`);
       const link = n !== undefined ? links[n - 1]! : surface.selectedLink();
       if (!link) throw new ActionRefused("no link is selected; pass n");
-      const e = surface.elementOfLink(link);
+      const e = surface.elementOfLink(link, true);
       if (e) { const r: unknown = await NOTE_ACTIONS.run("element.open", { n: surface.elems.indexOf(e) + 1, ...(fresh && opens(e) ? { fresh } : {}) }, on, actor); return r as { opened: string | null }; }
       const m = await surface.followLink(link, host, !!fresh);
       // Outside the door (a web page, a file): the person's opened there; an agent's is given the address.

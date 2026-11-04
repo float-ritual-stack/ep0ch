@@ -34,6 +34,8 @@ interface Entry {
   retryAt: number;
   /** A list the door keeps for as long as it runs (the status bar's note, the waiting asks): never trimmed. */
   held?: true;
+  /** A timer to ask this held read again is set. */
+  reviving?: boolean;
   /** The ask in flight, when one is. */
   pending?: Promise<void>;
 }
@@ -174,8 +176,15 @@ export class Watched {
    * list that stopped being told would stay as it was (PIE-1546 review).
    */
   private revive(entry: Entry) {
-    if (!entry.held || this.stopped) return;
-    setTimeout(() => { if (!this.stopped && this.byKey.get(entry.key) === entry && !entry.registered && !entry.asking) this.ask(entry); }, Math.max(0, entry.retryAt - Date.now())).unref?.();
+    if (!entry.held || this.stopped || entry.reviving) return;
+    // One timer an entry, and it waits out retryAt as it stands when it fires: a failed connect loses every read on the
+    // connection, again each try, and a timer per loss asked hundreds of times a second while the service was down (PIE-1570).
+    entry.reviving = true;
+    setTimeout(() => {
+      entry.reviving = false;
+      if (this.stopped || this.byKey.get(entry.key) !== entry || entry.registered || entry.asking) return;
+      if (Date.now() < entry.retryAt) this.revive(entry); else this.ask(entry);
+    }, Math.max(0, entry.retryAt - Date.now())).unref?.();
   }
 
   /** Once every answer asked for so far has come (and any those asked for in turn), or `ms` passed. */

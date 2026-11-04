@@ -184,11 +184,15 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const rowLink = (index: number, text: string) => draw.row ? draw.row(index, text) : links[index] ? tag(links[index], text) : press(acts[index], text);
       if (!columns.length) throw new PrimitiveUnknown("a table needs columns");
       const widths = columns.map((c, i) => Math.max(vwidth(c), ...rows.map(r => vwidth(r[i] ?? ""))));
-      // `title`: the column a row is (a record table's problem, PIE-1541): it gives way last and wraps whole, never cut.
+      // `title`: the column a row is (a record table's problem, PIE-1541): it wraps whole, never cut.
       const title = Number.isInteger(n.title) && (n.title as number) >= 0 && (n.title as number) < columns.length ? n.title as number : -1;
-      // Too wide: the widest columns give room first, down to 4 cells each; the title column keeps a third of the room
-      // (at least 16) until every other column is down to 4, wrapping to as many lines as it needs.
-      const room = w - 2 * (widths.length - 1), keep = title >= 0 ? Math.min(widths[title]!, Math.max(16, Math.floor(room / 3))) : 0;
+      // Too wide: the widest columns give room first, down to 4 cells each. A title of prose (more than two rows of 16)
+      // keeps a third of the room (at least 16) until every other column is down to 4, wrapping to as many lines as it
+      // needs. A short title wraps at its words as the room goes, so it gives way like any column, down to its longest
+      // word: keeping it whole cut a model's name in the column beside it (PIE-1570).
+      const room = w - 2 * (widths.length - 1);
+      const longestWord = (k: number) => Math.max(0, ...rows.flatMap(r => (r[k] ?? "").split(/\s+/).map(vwidth)));
+      const keep = title < 0 ? 0 : widths[title]! > 32 ? Math.max(16, Math.floor(room / 3)) : longestWord(title);
       const over = () => widths.reduce((a, b) => a + b, 0) > room;
       for (const floor of [(k: number) => (k === title ? keep : 4), () => 4]) while (over()) {
         const i = widths.reduce((best, x, k) => (x > floor(k) && (best < 0 || x > widths[best]!) ? k : best), -1);

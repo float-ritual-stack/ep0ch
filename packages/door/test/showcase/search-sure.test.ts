@@ -12,9 +12,10 @@ describe.skipIf(!outliner)("showcase: search says how sure (PIE-1198)", () => {
     await h.app.act({ action: "section", args: { name: "search-sure" }, as: "test-agent" });
     await until(() => marks["search-sure"]!.every(m => h.screen().includes(m)), "the search section", 15_000);
     await until(() => h.screen().includes("jev-1.14.0"), "a run per model", 15_000);
+    // The labelled set's figure answers on its own, a moment after the table ("asking the outline…" until then).
+    await until(() => h.screen().includes("agents read"), "the labelled set", 15_000);
     const screen = h.screen();
     expect(screen).toContain("jev-1.13.0");
-    expect(screen).toContain("agents read");
     expect(screen).toContain("the note made after");
     // In plain words (PIE-1409): how often the label came first and in the first five, and what a run cost.
     expect(screen).toContain("hit@5");

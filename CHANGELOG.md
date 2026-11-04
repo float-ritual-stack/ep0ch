@@ -62,6 +62,16 @@ are its record. The outliner's entries from then are kept below, under
 - **Run:** `ep0ch install --apply` (door code).
 
 
+### A red in the door suite means something broke (PIE-1570, PIE-1562)
+
+- **The home base says what it means.** With no outline open, the door kept asking the host for its held lists and lost the connection every 2 s: the status bar said `offline` and `outline socket closed` drew over a refusal you'd just been given. It asks nothing now.
+- **With the outline down, the door stops hammering it.** Each failed connect scheduled every held read again, so the tries multiplied (about 200 in 4 s, growing). Now it's one try per read every 2 s, and a door with no subscription says the lost connection once.
+- **A code span stays clickable after a theme change.** After alt+t a click on `code` in a note copied nothing until the door restarted.
+- **An agent's follow right after a note came up works.** With no frame drawn yet it was refused, or it opened whatever the last frame had at that number; it's now followed as ⏎ would.
+- **Search evals reads whole again.** A short title column wraps at its words before the column beside it is cut (`jev-1.` over `14.0`, since PIE-1541). A long title keeps its third of the room.
+- **Tests:** a desk one test file left kept isn't the next file's (status opened on extensions' tiles in a shared run), nor is a theme it left on; every file of a shared run has the 30 s budget (a later file could get Bun's 5 s); the no-light-surface scan looks at `src/` wherever the run starts (from the root it found nothing, and passed); neat's float test and pick-a-tile's frame wait no longer depend on timing.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### Undo brings a tile back from the glass whole (PIE-1559)
 
 - **`^W U` then ctrl+z:** the same tile comes back to its place on the screen and the glass is empty, with no second copy of it.

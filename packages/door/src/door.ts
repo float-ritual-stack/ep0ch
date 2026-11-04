@@ -9,7 +9,7 @@ import { startControl } from "./control";
 import { Logon } from "./screens";
 import { startScreens } from "./start";
 import type { BoardInfo } from "./board";
-import { Offline, SocketBoard, USER } from "./socket";
+import { Offline, Refused, SocketBoard, USER } from "./socket";
 import { resolveTarget } from "./discover";
 import { attachTarget, unnamedHelp } from "./outlines";
 import { forwardSaying, forwardTo, rememberMachine } from "./machine";
@@ -167,9 +167,20 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
  * is let go of either way (a crash too), for the door that follows. Not main's door runner: that one ends the process;
  * this one hands the terminal on.
  */
+/**
+ * The home base's board: the host's socket and no outline yet, so nothing here can read a note. Its choices ask the host
+ * themselves (src/home.ts, by this socket's path). Asked by the door's parts all the same (a held list, the screen notes),
+ * the host answers a request naming no outline and ends the connection, or there's no host yet: each was said as a lost
+ * connection every RETRY_MS, over whatever the status line had just said, and drawn as offline (PIE-1570).
+ */
+class HostOnlyBoard extends SocketBoard {
+  constructor(path: string) { super(path); this.watched.stop(); }
+  override send(action: string): Promise<unknown> { return Promise.reject(new Refused(`the home base has no outline open to answer ${action}`)); }
+}
+
 export async function homeBase(args: HomeArgs): Promise<HomeChoice | null> {
   const term = new Term();
-  const board = new SocketBoard(args.socket ?? hostSocketOf());
+  const board = new HostOnlyBoard(args.socket ?? hostSocketOf());
   let finish: (c: HomeChoice | null) => void = () => {};
   const chosen = new Promise<HomeChoice | null>(r => { finish = r; });
   let choice: HomeChoice | null = null, door: Door | null = null;
