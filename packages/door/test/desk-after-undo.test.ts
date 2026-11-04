@@ -176,6 +176,94 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
       } finally { d.quit(); }
     });
 
+    test("into a group, ^W a carries its tile out, ctrl+z: the tile is back in the group with the keys on it, the drawer shut", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.group", tile: "reader", args: { with: "replies", name: "hob" } }, USER);
+        await d.desk.dispatch.act({ action: "tile.focus", tile: "hob" }, USER);
+        d.paint();
+        await d.press(ctrl("w"), char("e"));
+        const hob = d.desk.pane("hob") as any, moved = hob.inner.layoutGet().focus as string, pane = hob.inner.pane(moved);
+        await d.press(ctrl("w"), char("a"));
+        expect(hob.inner.pane(moved)).toBeUndefined();
+        expect(d.app.drawer.entered).toBe(true);
+        await d.press(ctrl("z"));
+        expect(hob.inner.pane(moved)).toBe(pane);
+        expect(d.app.drawer.entered).toBe(false);
+        expect(d.app.drawer.open).toBe(false);
+        expect(d.focus()).toBe("hob");
+        expect(hob.inner.layoutGet().focus).toBe(moved);
+      } finally { d.quit(); }
+    });
+
+    test("^W i into a group, ctrl+z: the keys come back out with the tile", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.group", tile: "reader", args: { name: "hob" } }, USER);
+        await d.desk.dispatch.act({ action: "tile.focus", tile: "activity" }, USER);
+        d.paint();
+        await d.press(ctrl("w"), char("i"));
+        expect(d.focus()).toBe("hob");
+        await d.press(ctrl("z"));
+        expect(d.focus()).toBe("activity");
+      } finally { d.quit(); }
+    });
+
+    test("keys on a group's tile, a carry from elsewhere undone: they stay on the group", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.group", tile: "reader", args: { with: "replies", name: "hob" } }, USER);
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "activity", args: { on: true } }, USER);
+        await d.desk.dispatch.act({ action: "tile.focus", tile: "hob" }, USER);
+        await d.app.dispatch.act({ action: "host.leave", args: {} }, USER).catch(() => {});
+        d.paint();
+        await d.press(ctrl("w"), char("B"));
+        expect(d.names()).toContain("activity");
+        expect(d.focus()).toBe("hob");
+      } finally { d.quit(); }
+    });
+
+    test("a drawer the person put away and pulled up again stays up when the carry is undone", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.inTile("replies");
+        await d.press(ctrl("w"), char("a"));
+        await d.press({ kind: "alt", ch: "a" } as Key);                      // put away
+        expect(d.app.drawer.open).toBe(false);
+        await d.press({ kind: "alt", ch: "a" } as Key);                      // pulled up by hand
+        expect(d.app.drawer.open).toBe(true);
+        await d.inTile("activity");
+        expect(d.app.drawer.entered).toBe(false);
+        await d.press(ctrl("z"));
+        expect(d.names()).toContain("replies");
+        expect(d.app.drawer.open).toBe(true);
+      } finally { d.quit(); }
+    });
+
+    test("a dock of two opened on one tile, shut as the keys leave: no step by design, and it remembers the tile", async () => {
+      const d = await door(cols, rows);
+      try {
+        const act = (action: string, tile: string, args: Record<string, unknown> = {}) => d.desk.dispatch.act({ action, tile, args }, USER);
+        await act("tile.dock", "activity", { edge: "right" });
+        await act("layout.move", "replies", { to: "activity", where: "tabs" });
+        await act("tile.focus", "tree");
+        d.paint();
+        const shown = (n: string) => d.desk.layoutGet().tiles.find((t: any) => t.name === n)!;
+        const dock = (shown("activity") as { container?: string }).container!;
+        const what = d.desk.history.newest()?.what, steps = d.desk.history.size;
+        await d.desk.dispatch.press("tile.slide", { open: true, container: dock }, "replies");
+        d.paint();
+        expect(shown("replies").shown).toBe(true);
+        await d.inTile("tree");                                               // the keys leave: the dock shuts, as it looked before
+        expect(shown("replies").shown).toBe(false);
+        expect(d.desk.history.size).toBe(steps);
+        expect(d.desk.history.newest()?.what).toBe(what);
+        await d.desk.dispatch.press("tile.slide", { open: true, container: dock });   // its memory is kept: it opens on replies
+        d.paint();
+        expect(shown("replies").shown).toBe(true);
+      } finally { d.quit(); }
+    });
+
     test("a click doesn't use up a ctrl+z: a float raised, a tab shown and a dock shut by the keys leaving are no steps", async () => {
       const d = await door(cols, rows);
       try {

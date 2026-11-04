@@ -1039,10 +1039,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       .map(d => [d, [...txns].flatMap(t => d.history.entriesOf(t)).sort((a, b) => b.seq - a.seq)] as [Desk, LayoutEntry[]])];
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor, this); if (why) throw new ActionRefused(why); }
     const { plan, adopt } = undoOrder(asked, d => [...d.panes.keys()].map(i => d.tileId(i)));
-    const across = plan.length > 1, person = across && actor.kind !== "agent", top = person ? this.relatives().find(d => !d.holder && d.keysHere()) : undefined, keys = top?.panes.get(top.focus); let steps = 0;
+    const across = plan.length > 1, person = across && actor.kind !== "agent", from = person ? this.relatives().find(d => !d.holder && d.keysHere())?.keysDesk() : undefined, keys = from?.panes.get(from.focus); let steps = 0;
     for (const [d, es] of plan) steps += d.undoEntries(es, actor, keepFocus || across || actor.kind === "agent", adopt);
     for (const p of adopt.pool.values()) { p.dispose?.(); tileRegistry.release(p); }   // claimed and never placed: ended, as a rebuild ends it
-    if (person) this.ctx?.hostLayer?.carriesUndone?.(txns, keys);
+    if (person) this.ctx?.hostLayer?.carriesUndone?.(txns, keys, from);
     for (const [d] of plan) { d.save(); d.redraw(); }
     return { steps, kept: adopt.kept };
   }
@@ -1374,7 +1374,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The outermost desk this one is mounted under. */
   private top(): Desk { let d: Desk = this; for (let h = d.holder?.desk(); h; h = d.holder?.desk()) d = h; return d; }
   /** This desk and every desk mounted under it, down. */
-  private descend(): Desk[] {
+  descend(): Desk[] {
     const out: Desk[] = [this];
     for (const p of this.panes.values()) if (p instanceof ScreenTile && p.inner) out.push(...p.inner.descend());
     return out;

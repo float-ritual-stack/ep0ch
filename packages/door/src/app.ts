@@ -120,7 +120,7 @@ export type { Video };
 /** The host layer's drawer as a screen's tiles reach it (PIE-498): `tile.drawer` moves a tile in or out through it. */
 export interface HostLayer {
   /** `d` is the drawer's own desk (its tiles, the drawer's tabs). */
-  isDrawer(d: unknown): boolean; carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined): void;   // an undo took back these carries, the person's keys on `keys` before it (PIE-1574)
+  isDrawer(d: unknown): boolean; carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void;   // an undo took back these carries, the person's keys on `keys` in `from` before it (PIE-1574)
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. `everyDesk`: every screen's too, shown or not, and the background's (PIE-1280: a program's tile is found wherever it runs). */
   desks(): Desk[]; everyDesk?(): Desk[];
   /** What of the drawer lies over row `row` of the screen now (PIE-1455): the drawer open over it, a drawer tile lifted over the whole screen, or nothing. */

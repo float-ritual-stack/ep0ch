@@ -10,6 +10,7 @@ import { savedNodes } from "./screen-spec";
 import { ScreenTile } from "./screen-tile";
 import type { Pane } from "./panes";
 import type { TileSpec } from "./tiles";
+import type { Actor } from "../socket";
 
 /** Whose layout a ctrl+z on `desk` takes back (PIE-1569): it or a desk holding it, whichever changed last (a group's gather is its holder's). */
 export function undoDesk<D extends { history: { newest(): { seq: number } | null }; holder?: { desk(): unknown } | null }>(desk: D): D {
@@ -34,6 +35,18 @@ export interface Releases { releaseTile(rid: string): Pane | undefined }
 export interface Adopt { claims: Set<string>; pool: Map<string, Pane>; from: Releases[]; kept: string[] }
 /** The desk rebuilding, as adoption reads it: its instances by layout id, their identities, and how one leaves it whole. */
 export interface AdoptHost { self: Releases; panes: ReadonlyMap<number, Pane>; tileId(id: number): string; leave(id: number): void }
+
+/** The keys to `p` wherever under `root` it is, a group's tile included: focused here and each mount around it. The outermost tile, or null when `root` doesn't hold it. */
+export function keysThrough<D extends { descend(): D[]; nameOfPane(p: Pane): string; focusPane(p: Pane, actor: Actor): void; holder: { tile: Pane; desk(): D | null } | null }>(root: D, p: Pane, actor: Actor): Pane | null {
+  let d = root.descend().find(x => x.nameOfPane(p)), top = p;
+  if (!d) return null;
+  for (;;) {
+    d.focusPane(top, actor);
+    const up: D | null | undefined = d.holder?.desk();
+    if (!up) return top;
+    top = d.holder!.tile; d = up;
+  }
+}
 
 /**
  * The desks an undo puts back, in the order that keeps every instance: one holding a tile another's shape claims goes
