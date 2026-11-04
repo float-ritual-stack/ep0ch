@@ -87,7 +87,9 @@ Before a PR claims a change works:
      its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still
      running or an extension list still bound is named (`test leak: <file> left behind: …`) and fails the run. Stop
      what you start in `afterAll` (`scratch.dispose()`, `bindExtensions(null)`, `app.quit()`); a part with
-     process-wide state of its own registers it with the check, as `src/extensions.ts` does.
+     process-wide state of its own registers it with the check, as `src/extensions.ts` does. A host a failed setup left
+     is named as that (still seeding, or ended by Bun at the timeout): read the setup's red first (PIE-1576). A setup
+     that starts a host and seeds the showcase takes `SEEDED_SETUP_MS` (`test/scratch.ts`) as its limit.
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program

@@ -44,6 +44,24 @@ test.skipIf(!outliner)("a scratch host a file left running is named and stopped 
   expect(r.code).not.toBe(0);
 }, 60_000);
 
+// PIE-1576: a setup that timed out read as two reds, the second "a scratch host still running" about a host Bun had
+// already ended. A setup that can't finish still fails, whatever its budget, and the check names it.
+test.skipIf(!outliner)("a setup that never finishes seeding fails, and what it left names that setup", () => {
+  const r = run("setup-hangs-seeding.ts");
+  expect(r.out).toContain("hook timed out");
+  expect(r.out).toMatch(/setup-hangs-seeding\.ts left behind: a scratch host \(.*\) whose setup never finished: still seeding the showcase/);
+  expect(r.out).not.toContain("a scratch host still running");
+  expect(r.code).not.toBe(0);
+}, 60_000);
+
+test.skipIf(!outliner)("a host Bun ended at a timed-out setup is named as that, not as one still running", () => {
+  const r = run("setup-hangs-after-host.ts");
+  expect(r.out).toContain("hook timed out");
+  expect(r.out).toMatch(/setup-hangs-after-host\.ts left behind: a scratch host \(.*\) Bun ended when a setup or test in this file timed out/);
+  expect(r.out).not.toContain("a scratch host still running");
+  expect(r.code).not.toBe(0);
+}, 60_000);
+
 test("the last file of a run is checked too", () => {
   const r = run("binds.ts");
   expect(r.out).toContain("test/fixtures/leaks/binds.ts left behind: extensions bound (tarot)");

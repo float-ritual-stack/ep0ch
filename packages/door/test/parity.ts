@@ -38,7 +38,7 @@ import { unwatchTileKinds } from "../src/desk/tile-kinds";
 import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
-import { outliner, Scratch } from "./scratch";
+import { outliner, Scratch, SEEDED_SETUP_MS } from "./scratch";
 import { watchHosts } from "./settle";
 import { FakeSearchClock, useSearchClock } from "../src/search-schedule";
 import { cacheReads } from "./board-reads";
@@ -194,7 +194,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     restore.push(() => { Date.now = now; });
     newApp();
     board.subscribe(e => { reads.forget(); app.event(e); });
-  }, 60_000);
+  }, SEEDED_SETUP_MS);
 
   /** A door of its own for each screen: nothing one screen's probes left (a dock, a timer) reaches the next. */
   function newApp() {

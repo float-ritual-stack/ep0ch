@@ -15,7 +15,7 @@ import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../../src/showcase/showcas
 import { SocketBoard } from "../../src/socket";
 import { drawNote } from "../../src/notes-cli";
 import { C } from "../../src/style";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, Scratch, until, SEEDED_SETUP_MS } from "../scratch";
 import { prop } from "../../src/props";
 
 /** `until` for an answer that takes a request. */
@@ -57,7 +57,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     seeded = await scratch.seedShowcase();
     board = new SocketBoard(scratch.sock);
     await board.info();
-  }, 30_000);
+  }, SEEDED_SETUP_MS);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
   test("every seeded note is found by title under the marked root", async () => {
