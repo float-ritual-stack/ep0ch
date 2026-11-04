@@ -11,7 +11,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import type { Seeded } from "../src/showcase/seed";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, until, SEEDED_SETUP_MS } from "./scratch";
 
 describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outline", () => {
   const scratch = new Scratch();
@@ -39,8 +39,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     app.push(desk);
     render();
     await mine("tile.focus", {}, "tree");                    // the person's keys stay here: an agent's moves leave them
-  }, 30_000);
-  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  }, SEEDED_SETUP_MS);
+  afterAll(async () => { D()?.dispose?.(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   const showing = (name: string) => tile(name)?.showing?.id ?? null;
   const inner = (g: string, name: string) => tile(g).mount.layout.tiles.find((t: any) => (t.name === name || t.tile === name));
