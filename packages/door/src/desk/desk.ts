@@ -108,7 +108,7 @@ import { tileRegistry } from "./tile-registry";
 import { ListsBeneath } from "./in-place";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { holdingDesk, W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, busyFor, factsOf, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, RETIRED_KINDS, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -270,7 +270,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Who asked each answer the module gave, and what for: `commit` records the change as theirs. */
   private asked = new WeakMap<object, { actor: Actor; op: string; standing: boolean }>();
   /** The layout is being put back (an undo, a transaction's end rule): that is no new entry. */
-  private replaying = false;
+  private replaying = false; private shuttingLeft = false;   // a dock shutting because the keys left it (`shutLeftDocks`): no step of the person's
   /**
    * Motion (PIE-958): a change of shape draws its tiles on the way from where they were to where they are. `pending` is a
    * change recorded and not yet laid out (the next paint knows where the tiles are now); `transition` is one running. They
@@ -900,7 +900,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.state = r.state;
     if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
-    if (!this.replaying && prior && now && now.shape !== prior.shape) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change");
+    if (!this.replaying && prior && now && now.shape !== prior.shape && this.history.isStep(now.shape, partyOf(by?.actor ?? USER), by?.op ?? "change", { txn: !!TXN.getStore()?.txn, left: this.shuttingLeft && by?.op === "slide" })) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change", prior.shape);
     this.settled = now;
     this.focus = r.focus;
     if (now) now.before.focus   /* the next change records the keys where this one left them (PIE-1559) */ = this.panes.has(this.focus) ? this.tileId(this.focus) : 0;
@@ -941,12 +941,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** A change of shape `by` made, recorded with the transaction its action named (src/surface/txn.ts), which it opens or joins. */
-  private recordChange(before: LayoutSpec, by: Actor, what: string) {
+  private recordChange(before: LayoutSpec, by: Actor, what: string, shape?: string) {
     if (this.replaying) return;
     const scope = TXN.getStore(), now = Date.now();
     if (scope?.txn) this.history.join(scope.txn, by, before, now, scope.motion);
     if (scope?.txn && by.kind === "agent" && by.id.startsWith("script:") && !this.announced.has(scope.txn)) { this.announced.add(scope.txn); this.ctx?.flash(`${by.id.slice(7)} is rearranging the screen · esc stops it`, 8000); }
-    this.history.record(before, by, what, now, scope?.txn);
+    this.history.record(before, by, what, now, scope?.txn, shape);
     this.startMotion(scope?.motion ?? (scope?.txn ? this.history.openTxn(scope.txn)?.motion : undefined), what);
   }
 
@@ -1008,7 +1008,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the entry (tiles kept by name), checked through the module's `load` so a lock, the tile the person types in and a
    * container's policy hold.
    */
-  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number; screen: string; left?: string } {
+  undoLayout(actor: Actor, txn?: string, keepKeys = false): { undone: string; what: string; steps: number; screen: string; left?: string; kept?: string[] } {
     probe("layout.undo");
     const party = partyOf(actor);
     let entries: LayoutEntry[];
@@ -1023,27 +1023,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         : "nothing to undo on this screen's layout");
       entries = [mine];
     }
-    const steps = this.undoAcross(entries, actor);
-    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps };
+    const { steps, kept } = this.undoAcross(entries, actor, keepKeys);
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: entries[0]!.what, steps, ...(kept.length ? { kept } : {}) };
   }
 
   /**
    * `entries` taken back on every desk their transactions reached (neat's links tile in the drawer, PIE-1230; a carry's two
    * layouts, PIE-1559): each checked first, the whole refused when one can't be; then each rebuilt with the tiles that moved
-   * between them kept by identity (`Adopt`), and saved. An agent's undo leaves the person's keys where they are (`keepFocus`).
+   * between them kept by identity (`Adopt`), and saved. An agent's undo, ^W B and a carry's leave the person's keys where they are (`keepFocus`), unless their tile went; on one that moved between layouts they go with it (`carriesUndone`).
    */
-  undoNewest(actor: Actor) { return newestDesk<Desk>(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor); }   // `layout.undo anywhere=true`, ^W B
-  private undoAcross(entries: LayoutEntry[], actor: Actor, keepFocus = false): number {
+  undoNewest(actor: Actor) { return newestDesk<Desk>(this.relatives(), this, actor.kind === "agent" ? partyOf(actor) : null).undoLayout(actor, undefined, true); }   // `layout.undo anywhere=true`, ^W B
+  private undoAcross(entries: LayoutEntry[], actor: Actor, keepFocus = false): { steps: number; kept: string[] } {
     const txns = new Set(entries.flatMap(e => (e.txn ? [e.txn] : [])));
     const asked: [Desk, LayoutEntry[]][] = [[this, entries], ...this.relatives().filter(d => d !== this && [...txns].some(t => d.history.forTxn(t)))
       .map(d => [d, [...txns].flatMap(t => d.history.entriesOf(t)).sort((a, b) => b.seq - a.seq)] as [Desk, LayoutEntry[]])];
     for (const [d, es] of asked) { const why = d.undoRefusal(es, actor, this); if (why) throw new ActionRefused(why); }
     const { plan, adopt } = undoOrder(asked, d => [...d.panes.keys()].map(i => d.tileId(i)));
-    let steps = 0;
-    for (const [d, es] of plan) steps += d.undoEntries(es, actor, keepFocus || actor.kind === "agent", adopt);
+    const across = plan.length > 1, person = across && actor.kind !== "agent", top = person ? this.relatives().find(d => !d.holder && d.keysHere()) : undefined, keys = top?.panes.get(top.focus); let steps = 0;
+    for (const [d, es] of plan) steps += d.undoEntries(es, actor, keepFocus || across || actor.kind === "agent", adopt);
     for (const p of adopt.pool.values()) { p.dispose?.(); tileRegistry.release(p); }   // claimed and never placed: ended, as a rebuild ends it
+    if (person) this.ctx?.hostLayer?.carriesUndone?.(txns, keys);
     for (const [d] of plan) { d.save(); d.redraw(); }
-    return steps;
+    return { steps, kept: adopt.kept };
   }
   /** Why `entries` can't be taken back here now, or null: what `undoEntries` checks, asked first and changing nothing. */
   private undoRefusal(entries: LayoutEntry[], actor: Actor, from: Desk): string | null {
@@ -1075,9 +1076,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.replaying = true;
     this.startMotion(TXN.getStore()?.motion, "put back");
     // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
-    const here = keepFocus ? this.nameOf(this.focus) : undefined;
-    const names = here ? new Set(this.all().map(id => this.nameOf(id))) : null;
-    try { this.entered.clear(); this.ptyIn = null; this.build(here && names!.has(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; }
+    const here = keepFocus ? this.focusId() : undefined;
+    try { this.entered.clear(); this.ptyIn = null; this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; }
   }
 
   /**
@@ -1241,7 +1241,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         kept.push(id);
       } else this.tileLeaves(id, "rebuilt");
     }
-    if (kept.length) {
+    if (kept.length) { adopt?.kept.push(...kept.map(id => `${names.get(id)} ${kindOf(old.get(id)!)?.workWords?.(old.get(id)!) ?? "holds work"}`));
       const kid: LNode = kept.length > 1 ? { t: "tabs", ids: kept, active: 0 } : leaf(kept[0]!);
       tree = splitOf("row", [tree, { t: "dock", kid, edge: "right", open: false }], [0.7, 0.3]);
     }
@@ -5004,7 +5004,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.dragging && !this.headPress) for (const d of docks(this.root)) {
       if (!d.open || d.policy?.overlay === false || d.policy?.stays || !leaves(d.kid).length || leaves(d.kid).includes(this.focus) || dockOf(this.root, this.focus)?.edge === d.edge) continue;
       if (!policyOfNode(this.layout, d).collapsible) continue;
-      this.run("tile.slide", { open: false, container: d.id }, this.nameOf(leaves(d.kid)[0]!));
+      this.shuttingLeft = true; try { this.run("tile.slide", { open: false, container: d.id }, this.nameOf(leaves(d.kid)[0]!)); } finally { this.shuttingLeft = false; }
     }
   }
 
@@ -5378,7 +5378,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "focus": return dir && n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
-      case "run": {
+      case "run": { const up = holdingDesk(e, this.holder); if (up) return up.run(e.how.action, e.how.args ?? {}, up.nameOfPane(this.holder!.tile));
         const done = this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
         // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
         if (e.sticky) { this.armResize(); this.ctx.flash("resize · - + < > · h j k l · = evens · esc done", RESIZE_IDLE_MS); }
@@ -6530,7 +6530,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */
   private savedAs: string | null = null;
   /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note, a reader's history) nor their ids. */
-  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "nav" || k === "id" ? undefined : v)); }
+  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, function (this: { t?: string; open?: boolean }, k, v) { return k === "note" || k === "nav" || k === "id" || (k === "view" && this.t === "dock" && !this.open) ? undefined : v; }); }   // what a shut dock showed last isn't on screen
 
   /**
    * `layout.load`: lay this screen out as the screen named `name` (a screen note) or a built-in layout. Tiles with the same

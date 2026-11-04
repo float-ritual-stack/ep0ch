@@ -1049,6 +1049,20 @@ export class AgentDrawer {
    * person's drawer pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
    * the one shown and leaves the drawer and the keys as they are.
    */
+  /** The carry that pulled the drawer up with it: its undo puts the drawer down again (`carriesUndone`). */
+  private pulledUpBy: string | null = null;
+  /**
+   * An undo took back the carries `txns` (PIE-1574). The keys stay where they are unless their tile `keys` moved between the
+   * drawer and the screen: they go with it. A drawer one of them pulled up goes down, unless the keys are still in it.
+   */
+  carriesUndone(txns: ReadonlySet<string>, keys: Pane | undefined): void {
+    const screen = tilesOf(this.host.screen?.());
+    if (keys && this.entered && screen?.nameOfPane(keys)) { this.leave(this.host.screen?.(), false); screen.focusPane(keys, USER); }
+    else if (keys && !this.entered && this.d?.nameOfPane(keys)) this.goTo(keys, USER);
+    const pulled = this.pulledUpBy !== null && txns.has(this.pulledUpBy);
+    if (pulled) this.pulledUpBy = null;
+    if (pulled && this.open && !this.entered) { this.set(false, USER); this.save(); }
+  }
   /**
    * Why tile `name` of screen `from` can't go into the drawer (there, if `to`/`where` say where), or null: the screen
    * keeps it (its last tile, a fixed shape), or the drawer's layout won't take it there. `put` refuses with it, and a drag over the drawer shows it before the release.
@@ -1072,7 +1086,7 @@ export class AgentDrawer {
     if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along when they were in it (the carry's one rule), or when asked.
       d.focusTile(done.tile, actor);
-      if (!this.open && this.mode !== "none" && !keep) this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
+      if (!this.open && this.mode !== "none" && !keep) { this.do({ op: "slide", tile: HOST_TILES, open: true }, actor); this.pulledUpBy = d.history.newest()?.txn ?? null; }
       if ((followed || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); if (moved.typing) this.intoShown(); }
       this.save();
     }

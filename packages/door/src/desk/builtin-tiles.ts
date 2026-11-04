@@ -158,6 +158,7 @@ const builtins = (): TileKind[] => [
     // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
     press: (p, k) => (p as PtyPane).named?.card ? (p as PtyPane).named!.press(k) : (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || ch(k) === "e" ? { action: "tile.enter" } : null),
     holdsWork: p => !(p as PtyPane).named && (p as PtyPane).running,
+    workWords: () => "is still running",
     whenFree: (p, then) => {
       const t = p as PtyPane, was = t.onExit;
       t.onExit = code => { was?.(code); then(); };

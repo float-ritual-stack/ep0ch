@@ -30,8 +30,8 @@ export const stepThere = (name: string, change: string): string => `${name} chan
 
 /** What gives a claimed tile up: a desk being put back (`releaseTile`). */
 export interface Releases { releaseTile(rid: string): Pane | undefined }
-/** `claims`: the ids the shapes being put back name; `pool`: instances a rebuilt desk let go that another claims; `from`: the desks put back. */
-export interface Adopt { claims: Set<string>; pool: Map<string, Pane>; from: Releases[] }
+/** `claims`: the ids the shapes being put back name; `pool`: instances a rebuilt desk let go that another claims; `from`: the desks put back; `kept`: tiles a rebuild kept in a dock for the work they hold, in words (PIE-1571). */
+export interface Adopt { claims: Set<string>; pool: Map<string, Pane>; from: Releases[]; kept: string[] }
 /** The desk rebuilding, as adoption reads it: its instances by layout id, their identities, and how one leaves it whole. */
 export interface AdoptHost { self: Releases; panes: ReadonlyMap<number, Pane>; tileId(id: number): string; leave(id: number): void }
 
@@ -41,7 +41,7 @@ export interface AdoptHost { self: Releases; panes: ReadonlyMap<number, Pane>; t
  */
 export function undoOrder<D extends Releases>(plan: [D, LayoutEntry[]][], held: (d: D) => string[]): { plan: [D, LayoutEntry[]][]; adopt: Adopt } {
   const own = new Map(plan.map(([d, es]) => [d, new Set(es.flatMap(e => specTileIds(e.before)))]));
-  const adopt: Adopt = { claims: new Set([...own.values()].flatMap(s => [...s])), pool: new Map(), from: plan.map(([d]) => d) };
+  const adopt: Adopt = { claims: new Set([...own.values()].flatMap(s => [...s])), pool: new Map(), from: plan.map(([d]) => d), kept: [] };
   const gives = (d: D) => held(d).filter(id => adopt.claims.has(id) && !own.get(d)!.has(id)).length;
   return { plan: [...plan].sort(([a], [b]) => gives(b) - gives(a)), adopt };
 }

@@ -178,6 +178,8 @@ export interface TileKind {
   follows?(p: Pane): string | null;
   /** It holds work closing would lose (a running program, an unsaved edit): a new layout keeps it in a dock. */
   holdsWork?(p: Pane): boolean;
+  /** That work in words, after the tile's name ("is still running"): what a layout keeping the tile says (PIE-1571). */
+  workWords?(p: Pane): string;
   /** What it shows or has selected (a reader's note, the tree's row, a board's card), for followers and marks. */
   shows?(p: Pane): Msg | null;
   /**

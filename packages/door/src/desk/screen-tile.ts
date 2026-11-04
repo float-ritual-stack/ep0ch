@@ -14,7 +14,7 @@
 // starts as its full screen was last left (read, never written). One action pops a mount out to its full screen (the
 // screen switch, `mount.out`), and `q` comes back; `screen.mount` on a full screen puts it (or a part) on the desk.
 //
-// Keys: the mounted screen's own keys work in it (the board's h l j k); 1-9 and Tab stay the holder; alt and ^W act on the focused tile inside.
+// Keys: the mounted screen's own keys work in it (the board's h l j k); 1-9 and Tab stay the holder; alt and ^W act on the focused tile inside, but for the keys about the mount itself (^W e, ^W u, ^W G on a group: WKey.holder).
 // `^W e` (`mount.enter`) goes in: every key is the mounted screen's, its ^W and Tab too, until ctrl+] or an Esc with
 // nothing left to close in it. A q with nothing left to leave in it is the holding screen's q: it leaves that screen, as on
 // any desk (PIE-727), or, from inside, comes out. What the mounted screen selects (the board's card) is the tile's selection: a preview
