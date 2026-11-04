@@ -6,7 +6,7 @@
 import { placeOf } from "../src/session/place";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LINE_LIMIT } from "../src/control";
@@ -419,6 +419,52 @@ describe("offline says offline (F24, C F17)", () => {
       expect(peek).toContain("offline · the outline isn't answering");
     } finally {
       proc.kill("SIGTERM"); await proc.exited;
+      await own.dispose();
+    }
+  }, 60_000);
+});
+
+describe("the host goes while a read is out (PIE-1577)", () => {
+  test("the connection closes during the read: the door keeps drawing and says offline", async () => {
+    const own = new Scratch();
+    await own.start();
+    const b2 = new SocketBoard(own.sock); await b2.info();
+    const id = (await b2.request("create", { parentId: null, text: "Tide table\nspring, from the harbour", author: "agent" })).id;
+    b2.close();
+    // Between the door and its host: passes everything until `cut`, then closes on a note's read, unanswered.
+    let cut = false, cuts = 0;
+    const between = join(root, `between-${process.pid}.sock`);
+    const forward = createServer(door => {
+      const host = connect(own.sock);
+      door.on("data", d => {
+        if (cut && d.toString().includes('"blocks.context"')) { cuts++; door.destroy(); host.destroy(); return; }
+        host.write(d);
+      });
+      host.on("data", d => { if (!door.destroyed) door.write(d); });
+      host.on("error", () => door.destroy()); door.on("error", () => host.destroy());
+      host.on("close", () => door.destroy()); door.on("close", () => host.destroy());
+    });
+    await new Promise<void>(r => forward.listen(between, r));
+    const { env } = sandbox();
+    const pty = new Bun.Terminal({ cols: 140, rows: 40, data: () => {} });
+    const proc = Bun.spawn(["bun", MAIN, "--screen", "desk", "--ws", own.name], { terminal: pty, env: { ...env, EP0CH_SOCKET: between } });
+    try {
+      await until(() => existsSync(env.EP0CH_CONTROL!), "the door", 20_000);
+      const cli = async (...args: string[]) => {
+        const p = Bun.spawn(["bun", MAIN, ...args], { env, stdout: "pipe", stderr: "pipe" });
+        const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+        return out + err;
+      };
+      cut = true;
+      expect(await cli("open", id)).toContain("offline");
+      expect(cuts).toBeGreaterThan(0);
+      expect(proc.exitCode).toBeNull();
+      const peek = JSON.parse(await cli("peek", "--json"));
+      expect(peek.screen).toBe("desk");
+      expect(peek.service.offline).toBe(true);
+    } finally {
+      proc.kill("SIGTERM"); await proc.exited;
+      forward.close();
       await own.dispose();
     }
   }, 60_000);

@@ -4,7 +4,7 @@
 // screen's tiles by the names tile= takes. Scratch service, fictional notes.
 import { describe, expect, test } from "bun:test";
 import { completerOf, completionOf } from "../../src/surface/completer";
-import { until } from "../scratch";
+import { until, untilAsync } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 
@@ -54,7 +54,7 @@ describe("showcase: one completer (PIE-1076)", () => {
     const id = h.seeded.notes.oneCompleter.id;
     await until(() => !draft(), "the edit saved and left", 8000);
     let text = "";
-    await until(() => { void h.board.get(id).then(m => { text = m?.text ?? ""; }); return text.indexOf("Water the leeks") >= 0 && text.indexOf("Water the leeks") < text.indexOf("Label the chilli trays"); }, "the list sorted desc", 8000);
+    await untilAsync(async () => { text = (await h.board.get(id))?.text ?? ""; return text.indexOf("Water the leeks") >= 0 && text.indexOf("Water the leeks") < text.indexOf("Label the chilli trays"); }, "the list sorted desc", 8000);
     expect(text).not.toContain("/ext.structure");
     expect(text.indexOf("Sow the broad beans")).toBeLessThan(text.indexOf("Label the chilli trays"));
 
