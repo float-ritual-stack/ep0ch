@@ -16,7 +16,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import type { Seeded } from "../src/showcase/seed";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, until, SEEDED_SETUP_MS } from "./scratch";
 import { prop } from "../src/props";
 
 describe("a part of a screen (partSpec)", () => {
@@ -58,8 +58,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     desk = new Desk();
     app.push(desk);
     render();
-  }, 30_000);
-  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  }, SEEDED_SETUP_MS);
+  afterAll(async () => { D()?.dispose?.(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("tile.open kind=screen mounts the board on its hub, live: its own tiles, its title, layout.get under the mount's id; nothing written to the full board's file", async () => {
     const r = await act("tile.open", { kind: "screen", screen: "board", target: seeded.notes.hub.id, name: "kanban" }, get().focus);
@@ -257,8 +257,8 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     desk = new Desk();
     app.push(desk);
     frame();
-  }, 30_000);
-  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  }, SEEDED_SETUP_MS);
+  afterAll(async () => { D()?.dispose?.(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("a mount of a screen is named for it, and a second one is numbered", async () => {
     const a = await act("tile.open", { kind: "screen", screen: "who" }, focusId());
@@ -385,8 +385,8 @@ describe.skipIf(!outliner)("an open naming no tile reaches the readers inside mo
     desk = new Desk({ name: "mounts-1306", title: "mounts", layout: { root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "tree", name: "outline" }, { t: "leaf", kind: "activity", name: "activity" }] } } });
     app.push(desk);
     render();
-  }, 30_000);
-  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  }, SEEDED_SETUP_MS);
+  afterAll(async () => { D()?.dispose?.(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("with no mount it is refused, saying what gives it a destination", async () => {
     await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open; tile.open kind=reader/);

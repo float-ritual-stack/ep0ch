@@ -8,7 +8,7 @@ import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch } from "./scratch";
+import { outliner, Scratch, SEEDED_SETUP_MS } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("refusals and a desk holding only a group, against a 
     desk = new Desk();
     app.push(desk);
     frame();
-  }, 30_000);
+  }, SEEDED_SETUP_MS);
   afterAll(async () => { D()?.dispose?.(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("a desk holding only a group: Esc is refused on the group's focused tile, loud the second time, gone on another key; q leaves", async () => {

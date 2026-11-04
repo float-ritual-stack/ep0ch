@@ -11,7 +11,7 @@ import { seedShowcase, type Seeded } from "../../src/showcase/seed";
 import { Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { type Key } from "../../src/term";
-import { Scratch, until } from "../scratch";
+import { Scratch, until, SEEDED_SETUP_MS } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -65,8 +65,7 @@ export function useShowcaseScreen(cols = 200): ShowcaseScreen {
     await until(() => !!h.S().notes, "the showcase outline", 8000);
     // A first frame, as the door draws one before anyone presses a key.
     h.screen();
-  // A cold seed writes hundreds of notes and loads extensions before opening the screen.
-  }, 120_000);
+  }, SEEDED_SETUP_MS);
   afterAll(async () => { h.sc?.dispose(); h.app?.retire(); h.board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
   return h;
 }

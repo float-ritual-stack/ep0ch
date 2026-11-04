@@ -10,7 +10,7 @@ import { Help, MainMenu } from "../../src/screens";
 import { seedShowcase } from "../../src/showcase/seed";
 import { Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, Scratch, until, SEEDED_SETUP_MS } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -46,7 +46,7 @@ describe.skipIf(!outliner)("the showcase screen across a --reset", () => {
     sc = new Showcase();
     app.push(new MainMenu()); app.push(sc);
     await until(() => !!S().notes, "the showcase outline", 8000);
-  }, 30_000);
+  }, SEEDED_SETUP_MS);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   const embeds = ["» Kitchen whiteboard", "Shopping: oats, lemons, washing-up liquid.", "» Kitchen tap ^t-7a9c11", "[~] fix the dripping tap"];
@@ -70,5 +70,5 @@ describe.skipIf(!outliner)("the showcase screen across a --reset", () => {
     sc.pick(0);
     await until(() => embeds.every(m => screen().includes(m)), `the notebook's embeds after the reset: ${embeds.filter(m => !screen().includes(m)).join(" | ")}`, 10_000);
     expect(screen()).not.toContain("◌");
-  }, 60_000);
+  }, SEEDED_SETUP_MS);
 });
