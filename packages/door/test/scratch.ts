@@ -47,6 +47,13 @@ export const testSlack = () => {
   return Number.isFinite(n) && n > 0 ? n : 1;
 };
 
+/**
+ * What a file's setup may take to start its host and seed the showcase: a cold seed writes hundreds of notes, and on a
+ * box at load 20 a limit of 30 s went red with nothing broken (PIE-1576). It doesn't scale with EP0CH_TEST_SLACK:
+ * box-test sets none, and this is already the busy box's number. A setup that can't finish still fails at this limit.
+ */
+export const SEEDED_SETUP_MS = 120_000;
+
 export const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms * testSlack();
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
@@ -226,10 +233,24 @@ async function revived(p: Subprocess | null, root: string, answers: () => Promis
   return true;
 }
 
+/**
+ * What the between-files check says of a host a file left (test/preload.ts). A failed setup is the red to read and this
+ * only follows from it, so the line names the setup: its step, or Bun ending the host at the timeout, which is a moment
+ * after the file's last hook. `step` is what `start` or `seedShowcase` hadn't finished. Only a host that did finish
+ * and still runs is a leak of its own.
+ */
+async function leftAs(p: Subprocess | null, root: string, step: string | null): Promise<string> {
+  if (step) return `a scratch host (${root}) whose setup never finished: still ${step} (the setup's own failure is the red to read; this follows from it)`;
+  if (p) await Promise.race([p.exited, Bun.sleep(1000)]);
+  if (p && (p.exitCode !== null || p.signalCode !== null)) return `a scratch host (${root}) Bun ended when a setup or test in this file timed out (that timeout is the red to read; this follows from it)`;
+  return `a scratch host still running (${root})`;
+}
+
 export class Scratch {
   readonly root: string;
   sock = "";
   private proc: Subprocess | null = null;
+  private step: string | null = null;
   /** `root`: serve that directory's outlines/config (the layout scripts/try-it.sh --showcase uses) instead of a new temp dir. */
   constructor(root?: string, readonly name = "scratch") {
     this.root = root ?? scratchDir("ep0ch-scratch-");
@@ -238,6 +259,8 @@ export class Scratch {
   }
   /** Its service runs (started, not stopped): one a test file leaves running is named between files (test/preload.ts). */
   get running() { return !!this.proc; }
+  /** How that names it. */
+  left() { return leftAs(this.proc, this.root, this.step); }
   /** The outlines folder the host serves. */
   get outlines() { return join(this.root, "outlines"); }
   /** The outline's own folder (`<outlines>/<name>/`): the root its relative file links resolve against. */
@@ -252,6 +275,7 @@ export class Scratch {
 
   /** Starts the host (its default outline is this one, so a board that names none reads it) and makes the outline. */
   async start(): Promise<string> {
+    this.step = "starting the host";
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
       EP0CH_OUTLINES: this.outlines, EP0CH_DEFAULT_WS: this.name, XDG_CONFIG_HOME: join(this.root, "config"),
@@ -271,7 +295,7 @@ export class Scratch {
     for (;;) {
       if (existsSync(path)) {
         try { await hostRequest(path, "outlines.attach", { name: this.name, create: true }, 2000); } catch { /* not up yet */ }
-        if (await ping()) return (this.sock = path);
+        if (await ping()) { this.step = null; return (this.sock = path); }
       }
       if (Date.now() > end) throw new Error("the scratch outline host didn't start");
       await Bun.sleep(50);
@@ -297,7 +321,13 @@ export class Scratch {
     const { SocketBoard } = await import("../src/socket");
     const { seedShowcase } = await import("../src/showcase/seed");
     const b = new SocketBoard(this.sock);
-    try { await b.info(); return await seedShowcase(b, { ticketsConfig: join(this.root, "config"), ...(outliner ? { rulesFrom: outliner } : {}) }); } finally { b.close(); }
+    this.step = "seeding the showcase";
+    try {
+      await b.info();
+      const seeded = await seedShowcase(b, { ticketsConfig: join(this.root, "config"), ...(outliner ? { rulesFrom: outliner } : {}) });
+      this.step = null;
+      return seeded;
+    } finally { b.close(); }
   }
 
   /** Starts the host again when it has ended under the tests (Bun's, at a test's timeout); true when it did. The preload asks before every test. */
@@ -320,6 +350,7 @@ export const hostOutliner = [process.env.EP0CH_OUTLINER_HOST, outliner]
 export class ScratchHost {
   readonly root: string;
   private proc: Subprocess | null = null;
+  private step: string | null = null;
   private defaultOutline: string | undefined;
   constructor() {
     this.root = scratchDir("ep0ch-host-");
@@ -328,6 +359,8 @@ export class ScratchHost {
   }
   /** As `Scratch.running`. */
   get running() { return !!this.proc; }
+  /** As `Scratch.left`. */
+  left() { return leftAs(this.proc, this.root, this.step); }
   get outlines() { return join(this.root, "outlines"); }
   get config() { return join(this.root, "config"); }
   get sock() { return join(this.outlines, ".host", "host.sock"); }
@@ -340,6 +373,7 @@ export class ScratchHost {
 
   async start(defaultOutline?: string): Promise<string> {
     this.defaultOutline = defaultOutline;
+    this.step = "starting the host";
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>), ...this.env,
     };
@@ -353,6 +387,7 @@ export class ScratchHost {
       if (Date.now() > end) throw new Error("the scratch outline host didn't start");
       await Bun.sleep(50);
     }
+    this.step = null;
     return this.sock;
   }
 

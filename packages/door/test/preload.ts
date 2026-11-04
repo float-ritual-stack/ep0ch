@@ -23,7 +23,7 @@ setDefaultTimeout(TEST_BUDGET_MS);
 // The scratch services a file holds register here (test/scratch.ts), and each test starts by having any that Bun ended
 // started again on the same folder, so one test's timeout is that test's alone.
 // Only the running file's own: one a file left undisposed is no business of the next file's tests.
-type Held = { root: string; running: boolean; revive(): Promise<boolean>; dispose(): Promise<void> };
+type Held = { root: string; running: boolean; left(): Promise<string>; revive(): Promise<boolean>; dispose(): Promise<void> };
 const scratches = new Map<Held, string>();
 (globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.scratches")] = { add(s: Held) { scratches.set(s, Bun.main); }, delete(s: Held) { scratches.delete(s); } };
 beforeEach(async () => { for (const [s, file] of [...scratches]) if (file === Bun.main) await s.revive(); });
@@ -95,8 +95,9 @@ async function between(file: string, end = false): Promise<void> {
   const left: string[] = [];
   for (const [s, from] of [...scratches]) {
     if (from !== file && !end) continue;
-    // One stopped and not disposed has only its folder left, removed here; one still running is a leak.
-    if (s.running) left.push(`a scratch host still running (${s.root})`);
+    // One stopped and not disposed has only its folder left, removed here; one still running is a leak, and one a failed
+    // setup left says so (PIE-1576: it read like a second, separate red).
+    if (s.running) left.push(await s.left());
     try { await s.dispose(); } catch { /* stopped as far as it goes */ }
     scratches.delete(s);
   }

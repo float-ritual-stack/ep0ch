@@ -17,6 +17,17 @@ are its record. The outliner's entries from then are kept below, under
 - **Showing another board (`g`) is no step either.** ctrl+z doesn't take it back, and the steps you made on the board before it go with its lanes.
 - **ctrl+z with nothing left says so** on every screen, rather than saying nothing.
 - **Run:** `ep0ch install --apply` (door code).
+### A note that fits opens with its first line (PIE-1560)
+
+- **Nothing to press first.** In a short tile, opening an edit kept the reader's scroll, so the title stayed hidden over blank rows until the first key. A note that fits now draws from its first row from the moment it opens, and can't be wheeled away from it. A longer note read from its top opens at its top too, with the cursor in view. Scrolled down, an edit still opens where you were reading.
+- **Run:** nothing; the door picks it up on its next start.
+
+### A red from a test's setup means the setup broke, not that the box was busy (PIE-1576)
+
+- **One budget for host and seed.** The files that seed the showcase now share the showcase harness's 120 s (`SEEDED_SETUP_MS`, `test/scratch.ts`). At load about 20 their fixed 30 s went red with nothing broken: most of the 28 reds in one box-test on Nov 3.
+- **A broken setup still fails.** A made-up setup that never finishes goes red at its limit.
+- **One red, not two.** After a failed setup, "test files left state behind" names it: still seeding the showcase, or a host Bun ended at the timeout. It says "still running" only of a host that truly is. A timed-out setup in group-gather and mounts no longer throws in `afterAll` too.
+- **Run:** nothing; tests only.
 
 ### The nightly watches test time and names the files that grew; `bun run check` fits the test slot (PIE-1422, PIE-1558)
 
