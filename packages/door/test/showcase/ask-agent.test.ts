@@ -7,7 +7,7 @@ import { askAgent, askOf } from "../../src/bar/ask-agent";
 import type { BarHost } from "../../src/bar/source";
 import { ActionRefused } from "../../src/surface/actions";
 import type { Actor } from "../../src/socket";
-import { until } from "../scratch";
+import { until, untilAsync } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 
@@ -59,7 +59,7 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     bar().input.splice(bar().query.length, 0, "please");
     press({ kind: "enter" });
     let body = "";
-    await until(() => { void h.board.comments(rota().id).then(cs => { body = cs.find(c => c.body.startsWith("@wren"))?.body ?? ""; }); return !!body; }, "the comment on the rota", 8000);
+    await untilAsync(async () => { body = (await h.board.comments(rota().id)).find(c => c.body.startsWith("@wren"))?.body ?? ""; return !!body; }, "the comment on the rota", 8000);
     expect(body).toStartWith("@wren looking at [[Raised beds plan]] can you pop it into %rota please");
     expect(body).toContain("- %rota: the tile rota in the door");
     await until(() => said.some(t => t.startsWith("· asked @wren on Potting bench rota")), "said where the person looks", 8000);

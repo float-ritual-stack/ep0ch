@@ -16,7 +16,7 @@ import { surfaceRgb } from "../src/theme";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { litCells } from "../src/bar/filter";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, until, untilAsync } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -395,7 +395,6 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await expect(act("note.rename", { text: "Toads", note: inside.id, revision: read.revision }, "pond")).rejects.toThrow("changed since");
     await expect(act("note.rename", { text: "Toads", note: note.id }, "pond")).rejects.toThrow("shows another note");
     expect((await board.get(inside.id))!.text).toBe("## Frog log, Sunday [type::chirp] #garden\nfrogs");
-    let text = "";
-    await until(() => { void board.get(note.id).then(m => { text = m?.text ?? ""; }); return text === "Plum trees [type::chirp]\nbring envelopes"; }, "the person's rename lands");
+    await untilAsync(async () => (await board.get(note.id))?.text === "Plum trees [type::chirp]\nbring envelopes", "the person's rename lands");
   });
 });

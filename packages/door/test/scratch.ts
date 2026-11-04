@@ -51,6 +51,14 @@ export const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms * testSlack();
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }
 };
+/**
+ * `until` for an answer that takes a request: one at a time, each awaited. A poll of `void board.get(id).then(…)` leaves its
+ * last request out when the wait ends, and the file's host stopping under it was an unhandled error between tests (PIE-1577).
+ */
+export const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
+  const end = Date.now() + ms * testSlack();
+  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
+};
 
 /** Whether a process with this id runs (EPERM: it does, as another user's). */
 export const alive = (pid: number) => {
