@@ -78,8 +78,8 @@ export async function undoMove(board: WriteBoard, by: Actor, context: string): P
 }
 
 /**
- * Route note `id` by the outline's routing rules (PIE-1010): the service's `notes.route` finds the first rule note whose
- * query holds for it and moves it there as `ext:route`, with `actor` recorded as who asked; `dryRun` says what would
+ * Route note `id` by the outline's note mover rules (PIE-1010): the service's `notes.route` finds the first rule note whose
+ * query holds for it and moves it there as `ext:note-mover`, with `actor` recorded as who asked; `dryRun` says what would
  * move and moves nothing. A move made is remembered for ctrl+z (`note.move.undo`), as a move of the person's own is.
  */
 export async function routeNote(board: Pick<SocketBoard, "request" | "get">, id: string, actor: Actor, opts: { dryRun?: boolean } = {}): Promise<NoteRouteResult> {

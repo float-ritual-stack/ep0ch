@@ -302,13 +302,13 @@ one.
   change, and a later note moves a value again. The defaults place next, doing, waiting, parked (waiting) and done. A list
   shows only the values its own rows carry; `stages: [next, doing, waiting]` on a `::backlinks` (or `stages=` on a links
   tile) names which, in that order, and rows with any other value stay listed, said as `other: parked 1`.
-- **Routing rules** (PIE-1010): notes file themselves by rules written as notes. A rule is `Recipes go to the shelf
-  [type::route] [query::type=recipe] [route-to::((<recipes>))]`, with optional `[route-when::create|edit|command]`
+- **Note mover rules** (PIE-1010): notes file themselves by rules written as notes. A rule is `Recipes go to the shelf
+  [note-mover::((<recipes>))] [query::type=recipe]`, with optional `[note-mover-when::create|edit|command]`
   (default `create`: new notes and a new note's first words; `edit`: every save; `command`: only when asked),
-  `[route-order::N]` (lower first) and `[route-at::top|end]`. First match wins (route-order, then the **Routing** view's
+  `[note-mover-order::N]` (lower first) and `[note-mover-at::top|end]`. First match wins (note-mover-order, then the **Note mover** view's
   order, then the order written); the match is the views' grammar, so any property works. A match moves the note as
-  `ext:route`, one change, with a history under the rule; a note the person has a draft of waits for the draft to close.
-  The Routing view (`[[routing]]`, a saved view over `type=route`) lists every rule: write one anywhere, or reorder them
+  `ext:note-mover`, one change, with a history under the rule; a note the person has a draft of waits for the draft to close.
+  The Note mover view (`[[note-mover]]`, a saved view over the rules) lists every rule: write one anywhere, or reorder them
   there. To see what would move: `ep0ch route <note> --dry-run` or `ep0ch route --all --dry-run`; to route by hand:
   `ep0ch route <note>` (`--actor <you>` records who asked), or `act note.route id=<note> --as <you>` in the door. A new
   note made with its words lands where its rule says (`outline_new` with `[type::recipe]` goes to Recipes directly).

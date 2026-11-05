@@ -276,6 +276,14 @@ function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSch
   return { ...schema, props, example };
 }
 
+/** What a component written with properties inserts: its made-up ((reference)) is selected, to be typed over. */
+function typedInsert(text: string): SourceRow["insert"] {
+  const at = /\(\([^()]*\)\)/.exec(text);
+  if (!at) return text;
+  const slot = { start: at.index, end: at.index + at[0].length };
+  return { snippet: text, slots: [slot], select: slot };
+}
+
 /** The schema's example values are the snippet's slots, in their authored order. */
 function variationRow(schema: ComponentSchema, v: ReturnType<typeof variation>, label: string): SourceRow {
   const yaml = v.use.indexOf("\n---\n");
@@ -321,7 +329,13 @@ const components: ServiceSource = {
     const listed = await svc.request<Listed>("extensions.list", {});
     const handlers = listed.extensions.filter(e => e.state === "active" || e.state === "failed").flatMap(e => e.handlers.filter(h => h.argument?.example));
     for (const h of handlers) rows.push({ label: `${h.key}::`, filter: h.key, kind: "handler", insert: `${h.key}:: `, docs: h.description, example: { use: h.argument!.example! } });
-    const made = newComponentRow(q, [...all.map(c => c.id), ...handlers.map(h => h.key)]);
+    // A component written with properties (note-mover): `::` still finds it, and choosing it writes them.
+    const typed = schemas.flatMap(schema => schema.source.typed ? [schema] : []);
+    for (const schema of typed) rows.push({
+      label: titleOf(schema), id: schema.id, kind: "component", group: schema.group, component: schema.id, filter: `${schema.id} ${schema.intro}`,
+      insert: typedInsert(schema.source.typed!), detail: schema.source.typed!, docs: `${schema.title}: ${schema.intro}`,
+    });
+    const made = newComponentRow(q, [...all.map(c => c.id), ...typed.map(s => s.id), ...handlers.map(h => h.key)]);
     if (made) rows.push(made);
     return { rows };
   },

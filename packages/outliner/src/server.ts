@@ -3220,7 +3220,7 @@ export class OutlinerServer {
           result = wired(action, request.dryRun === true ? { placement: this.store.placeNote(titled(request.text ?? ""), readNewNoteIntent(request.intent)) } : this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance));
           break;
         case "notes.route": {
-          // PIE-1010: the moves are ext:route's; who asked is recorded beside them.
+          // PIE-1010: the moves are ext:note-mover's; who asked is recorded beside them.
           if (request.ref !== undefined && (typeof request.ref !== "string" || !request.ref.trim())) throw new Error("ref names the note to route: an id, ((id)), [[page]] or Work ID");
           if (request.all !== undefined && typeof request.all !== "boolean") throw new Error("all is true or false");
           if (request.dryRun !== undefined && typeof request.dryRun !== "boolean") throw new Error("dryRun is true or false");

@@ -3980,7 +3980,7 @@ export class OutlinerStore {
   }
 
   /**
-   * The outline's routing rules asked where a new note's text goes (PIE-1010, src/note-routing.ts), set by the server
+   * The outline's note mover rules asked where a new note's text goes (PIE-1010, src/note-routing.ts), set by the server
    * that runs them: the first placement rule. Without one, placement goes on as before.
    */
   newNoteRouter: ((text: string) => Placement | null) | undefined;

@@ -2136,8 +2136,8 @@ export type OutlinerRequestAction =
       provenance?: BlockProvenance;
     }
   /**
-   * Route one note (`ref`) or every note (`all`) by the outline's routing rules (PIE-1010, src/note-routing.ts); `dryRun`
-   * says what would move where and why, moving nothing. The moves are `ext:route`'s, with the caller as `requestedBy`.
+   * Route one note (`ref`) or every note (`all`) by the outline's note mover rules (PIE-1010, src/note-routing.ts); `dryRun`
+   * says what would move where and why, moving nothing. The moves are `ext:note-mover`'s, with the caller as `requestedBy`.
    */
   | {
       id: string;

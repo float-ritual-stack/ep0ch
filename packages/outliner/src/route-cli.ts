@@ -1,6 +1,6 @@
 // `ep0ch route [<note> | --all] [--dry-run]` (PIE-1010): notes route themselves by rules written as notes
 // (src/note-routing.ts); this asks the running service (`notes.route`) to route one note or every note, or to say what
-// would move where and why. The moves are `ext:route`'s, with this command's caller recorded as who asked.
+// would move where and why. The moves are `ext:note-mover`'s, with this command's caller recorded as who asked.
 import { parseArgs } from "node:util";
 import type { NoteRouteRun } from "@ep0ch/outline-core/protocol";
 import { createOutlinerClient } from "./client";
@@ -8,9 +8,9 @@ import { resolveClientPaths } from "./paths";
 
 const USAGE = `usage: ep0ch route <note> [--dry-run] [--ws <outline>] [--json]
        ep0ch route --all [--dry-run] [--ws <outline>] [--json]
-  Routes a note (an id, ((id)), [[page]] or Work ID), or every note, by the outline's routing rules: notes with
-  [type::route] [query::…] [route-to::((id))], listed in the Routing view; the first whose query holds for a note moves it
-  there, as ext:route, in one revision, with a history under the rule. --dry-run says what would move where and why, and
+  Routes a note (an id, ((id)), [[page]] or Work ID), or every note, by the outline's note mover rules: notes with
+  [note-mover::((id))] [query::…], listed in the Note mover view; the first whose query holds for a note moves it
+  there, as ext:note-mover, in one revision, with a history under the rule. --dry-run says what would move where and why, and
   moves nothing. A note being written in a door is never moved under the person: it routes when the draft closes.
   --actor <name> records who asked (default: you).`;
 
@@ -29,7 +29,7 @@ export function routeReport(run: NoteRouteRun, scope: { all: boolean; ws?: strin
   if (count("refused")) parts.push(`${count("refused")} refused`);
   if (count("no-rule")) parts.push(`${count("no-rule")} no rule holds for`);
   if (scope.all && run.unmatched) parts.push(`${run.unmatched} no rule holds for`);
-  lines.push(`${run.rules} rule${run.rules === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : run.rules ? "" : " (write one: a note with [type::route] [query::…] [route-to::((id))])"}`);
+  lines.push(`${run.rules} rule${run.rules === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : run.rules ? "" : " (write one: a note with [note-mover::((id))] [query::…])"}`);
   if (run.dryRun && count("would-move")) lines.push(`A dry run. To move them: ep0ch route ${scope.all ? "--all" : run.results[0]?.blockId ?? "<note>"}${scope.ws ? ` --ws ${scope.ws}` : ""}`);
   return lines;
 }

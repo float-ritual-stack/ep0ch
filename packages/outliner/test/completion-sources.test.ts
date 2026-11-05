@@ -202,6 +202,16 @@ test(":: lists a render script's note as a component whose g opens its note; a n
   expect(merged(await rows("component", "Zz"), "Zz").some(r => r.newComponent)).toBe(false);
 });
 
+test("::note- finds the note mover, written with properties, and choosing it writes a rule; nothing offers it new (PIE-1314)", async () => {
+  const { rows } = await setup();
+  const found = merged(await rows("component", "note-"), "note-");
+  const mover = found.find(r => r.component === "note-mover");
+  expect(mover).toMatchObject({ label: "Note mover", kind: "component" });
+  expect(insertText(mover!.insert)).toBe("Recipes go to the shelf [note-mover::((recipes))] [query::type=recipe]");
+  expect(mover!.insert).toMatchObject({ select: { start: 37, end: 48 } }); // ((recipes)), typed over first
+  expect(merged(await rows("component", "note-mover"), "note-mover").some(r => r.newComponent)).toBe(false);
+});
+
 test("group= offers the keys where='s rows carry, most carried first; where=\" completes the query grammar", async () => {
   const { create, list, rows } = await setup();
   await create(BOARD);

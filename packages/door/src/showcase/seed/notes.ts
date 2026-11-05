@@ -163,7 +163,7 @@ export const MOVING_NOTES = [
 export const ROUTING_NOTES = [
   SEED.routing,
   "",
-  "A **routing rule** is a note: `[type::route]`, a `[query::…]` in the saved views' grammar and a `[route-to::((id))]`. The first rule whose query holds for a note moves it there, as `ext:route`, in one revision, with a history under the rule. The **Routing** view at the root lists every rule; its order is the rules' order.",
+  "A **note mover rule** is a note: `[note-mover::((id))]` and a `[query::…]` in the saved views' grammar. The first rule whose query holds for a note moves it there, as `ext:note-mover`, in one revision, with a history under the rule. The **Note mover** view at the root lists every rule; its order is the rules' order.",
   "",
   "**alt+z** on *Pickled walnuts* (the reader on the right) routes it: the first rule here, by command only, sends recipes to the *Recipe shelf*; **alt+Z** says what would move without moving it; **ctrl+z** puts it back. **ctrl+n**, then `Nasturtium [type::seed]` and ctrl+s, esc: a moment after you stop typing the note is in the *Seed tin* (the second rule routes new notes by itself). `ep0ch route --all --dry-run` says what every rule would do.",
 ].join("\n");

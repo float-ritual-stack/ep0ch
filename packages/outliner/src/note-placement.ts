@@ -3,7 +3,7 @@
 // the person was in (`near`); the service answers where it goes. No client computes where the Inbox is.
 //
 // The rule is a list of rules, tried in order; the first that answers places the note. First the outline's own routing
-// rules (PIE-1010, src/note-routing.ts: `[type::route] [query::…] [route-to::((id))]` notes, asked through
+// rules (PIE-1010, src/note-routing.ts: `[note-mover::((id))] [query::…]` notes, asked through
 // `reads.route` with the note's text, so a captured `[type::recipe]` lands in Recipes directly); then a note made from
 // inside another note goes under it, at the end of its children; everything else goes to the top of the Inbox, where
 // quick capture puts its notes.
@@ -31,7 +31,7 @@ export type Placement = NotePlacement;
 export interface PlacementReads {
   inbox(): Block;
   active(id: string): Block | null;
-  /** The outline's routing rules (src/note-routing.ts) asked for a note with this text: a placement, or null for none. */
+  /** The outline's note mover rules (src/note-routing.ts) asked for a note with this text: a placement, or null for none. */
   route?(): Placement | null;
 }
 
@@ -61,7 +61,7 @@ export function systemNoteKind(block: Block): string {
   return "a note the service made";
 }
 
-/** A note or capture whose words a routing rule holds for goes where the rule says (a page stub is never routed). */
+/** A note or capture whose words a note mover rule holds for goes where the rule says (a page stub is never routed). */
 const byRoute: PlacementRule = (intent, reads) => (intent.kind === "page" ? null : reads.route?.() ?? null);
 
 /** A note made from inside another goes under it, last; never under a system note other than the Inbox. */

@@ -11,6 +11,7 @@
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { checkValue, type ComponentSchema } from "./component-schema";
 import { figureProps, figureSource, figureYaml, graphKind } from "./figure-props";
+import { moverLineWarning } from "./note-mover-rename";
 import { oneLineCalls } from "./script-component";
 import { closest } from "./tool-args";
 
@@ -38,6 +39,7 @@ export function componentReading(text: string, schemas: readonly ComponentSchema
     const at = `the ::${block.name} on line ${block.start + 1}`;
     const schema = byName.get(block.name);
     if (!schema) {
+      if (moverLineWarning(block.name, block.start)) continue; // syntax-warnings.ts says it, on every write path
       // Only a name plainly meant as one: a near miss of a component's, or a figure's. Any other `::name` may be an
       // extension's whose schema the outline doesn't have, and is left alone.
       const near = closest(block.name, names);

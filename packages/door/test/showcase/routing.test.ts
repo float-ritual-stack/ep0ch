@@ -1,7 +1,7 @@
 // PIE-1010: the showcase screen, notes that file themselves. One of the showcase's test files (a section's test is a
 // file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it. The section drives
-// the real part: the outliner's routing rules (rule notes), the service's one move, the door's note.route by key and
-// act, note.new placed by routing, and the Routing view. Scratch services only; the seed is fictional.
+// the real part: the outliner's note mover rules (rule notes), the service's one move, the door's note.route by key and
+// act, note.new placed by routing, and the Note mover view. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { NoteRouteResult } from "@ep0ch/outline-core/protocol";
 import { App } from "../../src/app";
@@ -69,13 +69,19 @@ describe.skipIf(!outliner)("the showcase screen: notes that file themselves", ()
     expect(made).toMatchObject({ parentId: seedTin.id, rule: "route" });
     expect(made.said).toBe("in “Seed tin” (routed by “Seeds go to the tin”)");
 
-    // The Routing view at the root lists every rule, in the order they're tried.
-    const view = (await board.roots()).find(r => prop(r, "page") === "routing")!;
+    // The Note mover view at the root lists every rule, in the order they're tried.
+    const view = (await board.roots()).find(r => prop(r, "page") === "note-mover")!;
     expect(view).toBeDefined();
     const order = await board.request("virtual.occurrences.order", { viewId: view.id });
-    const rules = (await board.children(routing.id)).filter(c => prop(c, "type") === "route").map(c => c.id);
+    const rules = (await board.children(routing.id)).filter(c => prop(c, "note-mover")).map(c => c.id);
     expect(rules).toHaveLength(2);
     for (const id of rules) expect(order.blockIds).toContain(id);
     expect(sc).toBeDefined();
+
+    // The rules are written under the name the library lists (PIE-1314), and the view says it too.
+    const library = await board.request("components.schemas", {});
+    expect(library.schemas.map((s: { id: string }) => s.id)).toContain("note-mover");
+    expect(library.schemas.map((s: { id: string }) => s.id)).not.toContain("route");
+    expect(view.text).toStartWith("Note mover ");
   });
 });

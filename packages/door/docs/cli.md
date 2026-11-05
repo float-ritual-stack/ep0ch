@@ -714,9 +714,9 @@ ep0ch route <note> | --all [--dry-run] [--ws <name>] [--json]
 ```
 
 route a note (an id, ((id)), [[page]] or Work ID), or every note, by the
-outline's routing rules: notes with [type::route] [query::…] [route-to::((id))],
-listed in the Routing view; the first whose query holds for a note moves it
-there, as ext:route. --dry-run says what would move where and why (PIE-1010)
+outline's note mover rules: notes with [note-mover::((id))] [query::…],
+listed in the Note mover view; the first whose query holds for a note moves it
+there, as ext:note-mover. --dry-run says what would move where and why (PIE-1010)
 
 ## resource
 
