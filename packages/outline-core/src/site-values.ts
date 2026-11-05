@@ -34,7 +34,9 @@ const oneLine = (text: string) => text.replace(/\s*\n\s*/g, " ");
 
 /** What a value draws as: its values joined, each link-valued one by its note's title. Empty for a list with none. */
 export function valueWords(v: SiteValue): string {
-  const titles = new Map((v.links ?? []).map(l => [l.text, l.title]));
+  // A link to a note reads as its title, except a Work ID: `{{this.work-id}}` is asked for the id (HUB-096), and the
+  // title is already the note's own first line (Evan, Oct 30 and Nov 5).
+  const titles = new Map((v.links ?? []).filter(l => l.how !== "Work ID").map(l => [l.text, l.title]));
   return oneLine((v.values ?? []).map(x => titles.get(x) ?? x).join(", "));
 }
 
