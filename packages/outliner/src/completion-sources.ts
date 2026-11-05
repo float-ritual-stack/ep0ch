@@ -276,6 +276,12 @@ function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSch
   return { ...schema, props, example };
 }
 
+/** What a component written with properties inserts: its references are slots, the first selected to be typed over. */
+function typedInsert(text: string): SourceRow["insert"] {
+  const slots = slotReferences(text);
+  return slots.length ? { snippet: text, slots, select: slots[0] } : text;
+}
+
 /** The schema's example values are the snippet's slots, in their authored order. */
 function variationRow(schema: ComponentSchema, v: ReturnType<typeof variation>, label: string): SourceRow {
   const yaml = v.use.indexOf("\n---\n");
@@ -325,7 +331,7 @@ const components: ServiceSource = {
     const typed = schemas.flatMap(schema => schema.source.typed ? [schema] : []);
     for (const schema of typed) rows.push({
       label: titleOf(schema), id: schema.id, kind: "component", group: schema.group, component: schema.id, filter: `${schema.id} ${schema.intro}`,
-      insert: schema.source.typed!, detail: schema.source.typed!, docs: `${schema.title}: ${schema.intro}`,
+      insert: typedInsert(schema.source.typed!), detail: schema.source.typed!, docs: `${schema.title}: ${schema.intro}`,
     });
     const made = newComponentRow(q, [...all.map(c => c.id), ...typed.map(s => s.id), ...handlers.map(h => h.key)]);
     if (made) rows.push(made);

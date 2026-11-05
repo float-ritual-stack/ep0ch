@@ -208,6 +208,7 @@ test("::note- finds the note mover, written with properties, and choosing it wri
   const mover = found.find(r => r.component === "note-mover");
   expect(mover).toMatchObject({ label: "Note mover", kind: "component" });
   expect(insertText(mover!.insert)).toBe("Recipes go to the shelf [note-mover::((recipes))] [query::type=recipe]");
+  expect(mover!.insert).toMatchObject({ select: { start: 36, end: 47 } }); // ((recipes)), typed over first
   expect(merged(await rows("component", "note-mover"), "note-mover").some(r => r.newComponent)).toBe(false);
 });
 
