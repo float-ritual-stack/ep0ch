@@ -126,6 +126,15 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     expect(text).toContain("none");
   });
 
+  test("a Work ID read as a value draws as the Work ID, not its note's title (Evan, Nov 5: HUB-096 asked many times)", async () => {
+    await board.request("work-ids.configure", { prefix: "HUB" });
+    const item = await create("Answer Ada about the gears\n# {{this.work-id}}");
+    await board.request("work-ids.allocate", { blockId: item.id, expectedRevision: item.revision });
+    const text = await drawn(item.id);
+    expect(text).toMatch(/HUB-\d+/);
+    expect(text.split("\n").filter(l => l.includes("Answer Ada about the gears")).length).toBe(1);   // the title row only
+  });
+
   test("a Markdown link whose destination is a value opens what the value reads (Evan, Oct 19)", async () => {
     const note = await create("Thread [src::https://example.test/archives/C01/p1792]\n- [plain](https://example.test/archives/C01/p1792)\n- [pew]({{this.src}})\n- [gone]({{this.nope}})");
     await drawn(note.id);
