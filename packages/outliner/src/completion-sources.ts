@@ -276,10 +276,12 @@ function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSch
   return { ...schema, props, example };
 }
 
-/** What a component written with properties inserts: its references are slots, the first selected to be typed over. */
+/** What a component written with properties inserts: its made-up ((reference)) is selected, to be typed over. */
 function typedInsert(text: string): SourceRow["insert"] {
-  const slots = slotReferences(text);
-  return slots.length ? { snippet: text, slots, select: slots[0] } : text;
+  const at = /\(\([^()]*\)\)/.exec(text);
+  if (!at) return text;
+  const slot = { start: at.index, end: at.index + at[0].length };
+  return { snippet: text, slots: [slot], select: slot };
 }
 
 /** The schema's example values are the snippet's slots, in their authored order. */
