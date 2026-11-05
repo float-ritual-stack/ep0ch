@@ -739,7 +739,7 @@ export class OutlinerServer {
     if (demo !== "keep" && demo !== "remove") throw new Error("extensions.uninstall needs demo: keep (its demo notes stay) or remove (to Trash, unless you changed one)");
     const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
     const lines: string[] = [];
-    if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : {}));
+    if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : { userFolder: true }));
     else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id] && !this.extensionPages.hasActiveRules(id)) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
     await this.extensionRegistry.reload();
     // Another copy (the user folder's, shadowed by the outline's) may serve it now: then it's still installed, and its demo stays.

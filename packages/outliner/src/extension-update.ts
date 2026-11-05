@@ -336,9 +336,15 @@ export const newsWords = (news: readonly BuiltInNews[]) => news.map((n) => n.sub
 /** "the user folder" or "pie's folder", for people. */
 export const whereWords = (where: string) => (where === "user" ? "the user folder" : `${where}'s folder`);
 
-/** The `ext remove` that takes a copy away, so the built-in can be installed fresh (an outline's own names its folder). */
-export const removeCommand = (copy: { id: string; where: string; dir: string }) =>
-  `ext remove ${copy.id}${copy.where === "user" ? "" : ` --outline-folder ${resolve(copy.dir, "..", "..")}`}`;
+/** The `ext remove` or `ext update` for exactly this copy: its flag names the folder, wherever the command is run. */
+export const copyCommand = (verb: "remove" | "update", copy: { id: string; where: string; dir: string }) =>
+  `ext ${verb} ${copy.id} ${copy.where === "user" ? "--user-folder" : `--outline-folder ${resolve(copy.dir, "..", "..")}`}`;
+
+/** The `ext remove` that takes a copy away, so the built-in can be installed fresh. */
+export const removeCommand = (copy: { id: string; where: string; dir: string }) => copyCommand("remove", copy);
+
+/** The `ext update` that refreshes this copy, or shows its diff and asks. */
+export const updateCommand = (copy: { id: string; where: string; dir: string }) => copyCommand("update", copy);
 
 /** ", your copy v1, the built-in v2" when the versions differ, else nothing. */
 export const versionWords = (copy: Pick<InstalledCopy, "version">) =>
@@ -359,5 +365,5 @@ export function copyLine(copy: InstalledCopy): string {
   const news = copy.news.length ? `: ${copy.news.length} change${copy.news.length === 1 ? "" : "s"} since it was installed` : "";
   if (copy.state === "current") return `${at} is current`;
   if (copy.state === "stale") return `${at} is an unchanged copy, behind the built-in${news}`;
-  return `${at} was changed here (forked); the built-in differs in ${copy.differs.join(", ")}${news}: ep0ch ext update ${copy.id} shows the diff and asks`;
+  return `${at} was changed here (forked); the built-in differs in ${copy.differs.join(", ")}${news}: ep0ch ${updateCommand(copy)} shows the diff and asks`;
 }

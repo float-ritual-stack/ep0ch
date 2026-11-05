@@ -10,7 +10,8 @@ import { parseArgs } from "node:util";
 import { readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, overrideWords, type ExtensionsListResult } from "./extension-registry";
-import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, removeCommand, whereWords, writeInstallRecord } from "./extension-update";
+import { extFlagOptions, extFlagUsage } from "./extension-flags";
+import { type CopyRoot, type CopyUpdate, copyCommand, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, updateCommand, whereWords, writeInstallRecord } from "./extension-update";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { invocationFolder, whichOutlineFor } from "./paths";
 import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
@@ -26,9 +27,9 @@ import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse
  *   outline's own `extensions/` with `--outline-folder`. A first install seeds
  *   `config.json` (from `config.example.json`, or an old
  *   `resource-extensions.json` entry: references only, never a secret).
- * - `remove <name>` deletes the folder (with `--outline-folder` the outline's; without, the user folder's copy, else
- *   the copy in the outline it's run in: --ws, EP0CH_WS, the nearest .ep0ch). Its records stay as blocks; its lines say no extension
- *   handles them.
+ * - `remove <name>` deletes the folder: the copy in the outline it's run in (--ws, EP0CH_WS, the nearest .ep0ch), else
+ *   the user folder's; a copy in both is refused until a flag picks (namedCopyRoot). Its records stay as blocks; its
+ *   lines say no extension handles them.
  * - `ls` asks the running service (`extensions.list`): each folder's state and
  *   its error; without a service it reads the folders itself.
  * - `act <name> <action> [--block <id>] [--line N] [--quote <words> [--near N]] [--arg k=v]…` runs an
@@ -204,39 +205,71 @@ export async function ensureDefaultOnFor(workspaceRoot: string, readOnly = false
   } catch (error) { console.error(`default-on extensions: ${error instanceof Error ? error.message : String(error)}`); return []; }
 }
 
+/** Which copy a command means by flag: `--outline-folder`'s, `--user-folder`'s, or neither (look for it). */
+export interface CopyPick { outlineFolder?: string; userFolder?: boolean }
+
+const hasExtension = (root: string, id: string) => existsSync(join(root, id, "extension.json"));
+
 /**
- * The folder `ext remove <id>` takes it out of. With `--outline-folder`, that outline's own. Without, the user folder
- * when it has a copy, else the outline the command is run in (`--ws`, EP0CH_WS, the nearest `.ep0ch`; said by name).
- * Another outline's copy is never taken: it is named with the command that would, and none says every folder looked in.
+ * The folder `ext remove <id>` and `ext update <id>` mean when no flag picks one: the own folder of the outline the
+ * command is run in (whichOutlineFor: --ws, EP0CH_WS, the nearest `.ep0ch`), else the user folder. A copy in both is
+ * refused with both paths and the command that picks each, `carry` being the flags to say again. Another outline's
+ * copy is never taken: it is named with the command that would, and none says every folder looked in.
  */
-function removeRoot(id: string, outlineFolder: string | undefined): { root: string; where?: string } {
-  const has = (root: string) => existsSync(join(root, id, "extension.json"));
-  if (outlineFolder) {
-    const root = targetRoot(outlineFolder);
-    if (!has(root)) throw new Error(`No extension ${id} in ${root}`);
-    return { root };
-  }
+function namedCopyRoot(id: string, verb: "remove" | "update", carry: readonly string[]): CopyRoot {
+  const again = carry.length ? ` ${carry.join(" ")}` : "";
   // A scratch environment with no user folder is refused as before (targetRoot), never sent looking in ~/outlines.
   const user = targetRoot(undefined);
-  if (has(user)) return { root: user };
   const outlines = outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir());
   const which = whichOutlineFor(invocationFolder());
+  const named = which.kind === "named" ? which.name : undefined;
   // An outline whose home is another machine has no folder here to take it from.
-  const here = which.kind === "named" && !which.machine ? which.name : undefined;
+  const away = which.kind === "named" ? which.machine : undefined;
+  const here = named && !away ? named : undefined;
   const own = here ? join(outlines, here, "extensions") : undefined;
-  if (own && has(own)) return { root: own, where: here! };
-  const looked = [user, ...(own ? [own] : [])];
-  const elsewhere = copyRoots({ user: null, outlines }).filter((root) => root.where !== here && has(root.path));
+  const inOwn = !!own && hasExtension(own, id), inUser = hasExtension(user, id);
+  if (inOwn && inUser) {
+    throw new Error([
+      `${id} is installed in ${whereWords(here!)} and in the user folder. Say which:`,
+      `  ${join(own!, id)}`,
+      `    ep0ch ${copyCommand(verb, { id, where: here!, dir: join(own!, id) })}${again}`,
+      `  ${join(user, id)}`,
+      `    ep0ch ${copyCommand(verb, { id, where: "user", dir: join(user, id) })}${again}`,
+    ].join("\n"));
+  }
+  if (inOwn) return { path: own!, where: here! };
+  if (inUser) return { path: user, where: "user" };
+  const elsewhere = copyRoots({ user: null, outlines }).filter((root) => root.where !== here && hasExtension(root.path, id));
+  const unnamed = !named ? " (no outline is named here: --ws <name>, EP0CH_WS or a .ep0ch)" : "";
   throw new Error([
-    `No extension ${id} in ${looked.join(" or ")}${here ? "" : " (no outline is named here: --ws <name>, EP0CH_WS or a .ep0ch)"}`,
-    ...(elsewhere.length ? [`${elsewhere.length === 1 ? "Another outline has" : "Other outlines have"} its own copy; to take ${elsewhere.length === 1 ? "it" : "one"} away:`,
-      ...elsewhere.map((root) => `  ep0ch ${removeCommand({ id, where: root.where, dir: join(root.path, id) })}`)] : []),
+    `No extension ${id} in ${[user, ...(own ? [own] : [])].join(" or ")}${unnamed}`,
+    ...(away ? [`${named} is on ${away}; to look in its own folder there:`, `  ssh ${away} ep0ch ext ${verb} ${id} --ws ${named}${again}`] : []),
+    ...(elsewhere.length ? [`${elsewhere.length === 1 ? "Another outline has" : "Other outlines have"} its own copy; for ${elsewhere.length === 1 ? "it" : "one"}:`,
+      ...elsewhere.map((root) => `  ep0ch ${copyCommand(verb, { id, where: root.where, dir: join(root.path, id) })}${again}`)] : []),
+    ...(verb === "update" ? [`To install it: ep0ch ext add ${id}`] : []),
   ].join("\n"));
 }
 
-export async function removeExtension(id: string, options: { outlineFolder?: string } = {}): Promise<string[]> {
+/** Only one folder can be picked. */
+function pickOf(values: { "outline-folder"?: string; "user-folder"?: boolean }): CopyPick {
+  if (values["outline-folder"] && values["user-folder"]) throw new Error("Pick one folder: --outline-folder or --user-folder");
+  return values["outline-folder"] ? { outlineFolder: resolve(values["outline-folder"]) } : values["user-folder"] ? { userFolder: true } : {};
+}
+
+/** The folder `ext remove <id>` takes it out of: the one a flag picks, else namedCopyRoot's. */
+function removeRoot(id: string, pick: CopyPick, carry: readonly string[]): { root: string; where?: string } {
+  if (pick.outlineFolder || pick.userFolder) {
+    const root = targetRoot(pick.outlineFolder);
+    if (!hasExtension(root, id)) throw new Error(`No extension ${id} in ${root} (ep0ch ext ls --long says where each one is)`);
+    return { root };
+  }
+  const { path, where } = namedCopyRoot(id, "remove", carry);
+  return { root: path, where };
+}
+
+export async function removeExtension(id: string, options: CopyPick & { carry?: readonly string[] } = {}): Promise<string[]> {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("ext remove expects an extension name such as horoscope");
-  const { root, where } = removeRoot(id, options.outlineFolder);
+  const { root, where } = removeRoot(id, options, options.carry ?? []);
   const target = join(root, id);
   if (existsSync(BUILT_INS) && realpathSync(target).startsWith(`${realpathSync(BUILT_INS)}/`)) throw new Error("That is the repo's built-in source, not an install");
   await rm(target, { recursive: true, force: true });
@@ -249,8 +282,12 @@ export async function removeExtension(id: string, options: { outlineFolder?: str
 }
 
 export interface UpdateOptions {
-  /** Only this outline's own folder; otherwise the user folder and every outline's. */
+  /** Only this outline's own folder. */
   outlineFolder?: string;
+  /** Only the user folder. With neither: a named copy is found as `ext remove` finds it, and no name means every folder. */
+  userFolder?: boolean;
+  /** Flags a refusal says again in the commands it names. */
+  carry?: readonly string[];
   /** Take a forked copy's new version without asking (its files are kept beside the folder first). */
   yes?: boolean;
   /** Leave forked copies as they are and only list them (ep0ch install). */
@@ -286,11 +323,12 @@ export async function updateExtensions(name: string | undefined, options: Update
   if (name !== undefined && !existsSync(join(builtInsDir, name, "extension.json"))) {
     throw new Error(`No built-in extension ${name} (built-ins: ${(await builtIns()).join(", ")}); ext update follows the repo's built-ins`);
   }
-  const roots = options.roots ?? copyRoots({
+  const looksForIt = name !== undefined && !options.roots && !options.outlineFolder && !options.userFolder;
+  const roots = options.roots ?? (looksForIt ? [namedCopyRoot(name, "update", options.carry ?? [])] : options.userFolder ? [{ path: targetRoot(undefined), where: "user" }] : copyRoots({
     user: options.outlineFolder || !userExtensionsFolderInUse() ? null : userExtensionsDirectory(),
     outlines: outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, homedir()),
     ...(options.outlineFolder ? { outlineFolder: options.outlineFolder } : {}),
-  });
+  }));
   const copies = installedCopies(roots, builtInsDir).filter((copy) => name === undefined || copy.id === name);
   if (name !== undefined && !copies.length) say(`${name} isn't installed in ${roots.map((root) => root.path).join(" or ") || "any folder here"}: ep0ch ext add ${name} installs it`);
   const done: CopyUpdate[] = [];
@@ -315,7 +353,7 @@ export async function updateExtensions(name: string | undefined, options: Update
         say(`the diff, your copy (a/, ${copy.dir}) against the built-in's (b/):`);
         for (const line of forkDiff(copy, builtInsDir).trimEnd().split("\n")) say(line);
         take = options.yes === true || (options.ask ? await options.ask(`Take the built-in's ${copy.id} over the changes in ${copy.dir}? Your files are kept beside it first. [y/N] `) : false);
-        if (!take && !options.yes && !options.ask) say(`kept ${copy.id} as it is: ep0ch ext update ${copy.id} --yes takes the built-in's (your files are kept beside it first)`);
+        if (!take && !options.yes && !options.ask) say(`kept ${copy.id} as it is: ep0ch ${updateCommand(copy)} --yes takes the built-in's (your files are kept beside it first)`);
       }
       if (take) {
         const kept = join(root, "..", "extensions-forks", `${copy.id}-${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}`);
@@ -465,9 +503,9 @@ export async function listExtensions(long = false, json = false): Promise<string
 
 const USAGE = `usage: outliner ext ls [--long] [--json]
        (one row per extension; --long adds folders, action arguments and schedules; --json is the registry's own answer, for scripts)
-       outliner ext add <name|path> [--outline-folder <outline root>]
-       outliner ext update <name>|--all [--yes] [--keep-forked] [--outline-folder <outline root>] [--json]
-       outliner ext remove <name> [--outline-folder <outline root>] [--demo keep|remove]
+       outliner ext add <name|path> ${extFlagUsage("add")}
+       outliner ext update [<name>] ${extFlagUsage("update")}   (a name, or --all)
+       outliner ext remove <name> ${extFlagUsage("remove")}
        outliner ext act <name> <action> [--block <id>] [--line N] [--quote <exact words> [--near <offset>]] [--arg key=value]… [--actor <agent id>]
        outliner ext undo <id> [--actor <agent id>]   takes back an action's writes whole (the id ext act prints after undo:)
        outliner ext run <name> <action:id|handler:key>   runs one of its schedules now, recorded as any run
@@ -476,7 +514,9 @@ const USAGE = `usage: outliner ext ls [--long] [--json]
   arguments (ext ls lists them) are --arg name=value; one left out takes its default.
   ext update refreshes an installed copy of a built-in that nobody changed (config.json kept); a changed (forked) one
   shows its diff and asks (--yes takes it, your files kept in extensions-forks/ beside the folder first; --keep-forked
-  only lists it). Without --outline-folder it looks in the user folder and every outline's own.
+  only lists it).
+  remove and update <name> look in the outline it's run in (--ws, EP0CH_WS, the nearest .ep0ch), then the user folder;
+  a copy in both is refused until --outline-folder or --user-folder picks. update --all takes every folder.
   Folders are watched: add and remove apply without a restart. Installing writes the extension's page under the
   outline's Extensions hub, with its demo notes once; install is another name for add. Remove keeps the demo notes
   unless --demo remove, switches off their rule-on notes, and reinstalling switches them back on.
@@ -513,24 +553,25 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
     if (operation === "add" || operation === "remove" || operation === "rm") {
       const { values, positionals } = parseArgs({
         args: [...rest], allowPositionals: true, strict: true,
-        options: { from: { type: "string" }, "outline-folder": { type: "string" }, demo: { type: "string" } },
-      });
+        options: extFlagOptions(operation === "add" ? "add" : "remove"),
+      }) as { values: { from?: string; "outline-folder"?: string; "user-folder"?: boolean; demo?: string }; positionals: string[] };
       const [name, ...extra] = positionals;
       if (!name || extra.length) throw new Error(USAGE);
-      if (values.demo !== undefined && (operation === "add" || (values.demo !== "keep" && values.demo !== "remove"))) {
-        throw new Error("--demo is remove's: keep (its demo notes stay, the default) or remove (to Trash, unless you changed one)");
+      if (values.demo !== undefined && values.demo !== "keep" && values.demo !== "remove") {
+        throw new Error("--demo takes keep (its demo notes stay, the default) or remove (to Trash, unless you changed one)");
       }
-      const outlineFolder = values["outline-folder"] ? resolve(values["outline-folder"]) : undefined;
+      const pick = pickOf(values), outlineFolder = pick.outlineFolder;
+      const carry = values.demo !== undefined ? ["--demo", values.demo] : [];
       const client = await connect();
       const before = operation === "add" && client
         ? await client.request<{ disabledRules?: Record<string, number> }>({ action: "extensions.list" }) : undefined;
       // `remove <name> --demo remove` with the folder already gone takes out only what it left in the outline.
       const folderGone = operation !== "add" && !!client && values.demo === "remove" && (() => {
-        try { removeRoot(name, outlineFolder); return false; } catch (error) { return error instanceof Error && error.message.startsWith("No extension "); }
+        try { removeRoot(name, pick, carry); return false; } catch (error) { return error instanceof Error && error.message.startsWith("No extension "); }
       })();
       const lines = operation === "add"
         ? await addExtension(name, { ...(values.from ? { from: values.from } : {}), ...(outlineFolder ? { outlineFolder } : {}) })
-        : folderGone ? [] : await removeExtension(name, outlineFolder ? { outlineFolder } : {});
+        : folderGone ? [] : await removeExtension(name, { ...pick, carry });
       for (const line of lines) print(line);
       // Say what the service made of it when one is running here.
       if (client) {
@@ -560,14 +601,15 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
     if (operation === "update") {
       const { values, positionals } = parseArgs({
         args: [...rest], allowPositionals: true, strict: true,
-        options: { all: { type: "boolean" }, yes: { type: "boolean" }, "keep-forked": { type: "boolean" }, "outline-folder": { type: "string" }, json: { type: "boolean" } },
-      });
+        options: extFlagOptions("update"),
+      }) as { values: { all?: boolean; yes?: boolean; "keep-forked"?: boolean; "outline-folder"?: string; "user-folder"?: boolean; json?: boolean }; positionals: string[] };
       const [name, ...extra] = positionals;
       if (extra.length || (name === undefined) === !values.all) throw new Error(USAGE);
       const json = values.json === true;
       const tty = !json && process.stdin.isTTY === true;
       const results = await updateExtensions(name, {
-        ...(values["outline-folder"] ? { outlineFolder: resolve(values["outline-folder"]) } : {}),
+        ...pickOf(values),
+        carry: [...(values.yes ? ["--yes"] : []), ...(values["keep-forked"] ? ["--keep-forked"] : []), ...(json ? ["--json"] : [])],
         yes: values.yes === true, keepForked: values["keep-forked"] === true,
         ...(tty ? { ask: async (question: string) => /^y(es)?$/i.test((prompt(question) ?? "").trim()) } : {}),
         say: json ? () => {} : print,

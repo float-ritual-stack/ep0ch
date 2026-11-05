@@ -225,7 +225,8 @@ outliner ext add ./my-extension                   # any folder (checked first; a
 outliner ext add moon --outline-folder ~/outlines/pie   # into that outline's own extensions/
 outliner ext update --all                         # refreshes each copy of a built-in nobody changed; a changed one shows its diff and asks
 outliner ext update tarot --yes                   # takes the built-in's over your changes (yours kept in extensions-forks/ first)
-outliner ext remove horoscope                     # deletes the folder; the service drops it at once (its demo notes stay)
+outliner ext remove horoscope                     # deletes the folder of the outline it's run in, else the machine's; the service drops it at once (its demo notes stay)
+outliner ext remove horoscope --user-folder       # a copy in both is refused until a flag picks: this, or --outline-folder <outline root>
 outliner ext remove notify --demo remove          # and its demo notes, the ones you didn't change, to Trash
 outliner ext act fancy-horror ward --block <id>   # runs an action, attributed to the extension
 ```
@@ -251,14 +252,18 @@ disk). From that, each installed copy of a built-in is one of:
 - Taking the built-in's over a forked copy (`--yes`, or yes when asked) first copies yours to
   `extensions-forks/<id>-<time>/` beside the extensions folder (`~/.config/pi-herdr-outliner/extensions-forks/`, or
   `<outline root>/extensions-forks/`), which no service reads.
-- Without `--outline-folder`, `ext update` looks in the user folder and every outline's own folder under the outlines
-  folder (`EP0CH_OUTLINES`, else `~/outlines`). `ep0ch doctor` lists the stale and forked copies under `extensions`.
+- `ext update <name>` and `ext remove <name>` find the copy one way: the own folder of the outline the command is run
+  in (`--ws`, `EP0CH_WS`, the nearest `.ep0ch`), then the user folder. A copy in both is refused with both paths and the
+  command that picks each (`--outline-folder <outline root>` or `--user-folder`); only another outline's copy is named
+  with its command, never taken.
+- `ext update --all` takes the user folder and every outline's own under the outlines folder (`EP0CH_OUTLINES`, else
+  `~/outlines`). `ep0ch doctor` lists the stale and forked copies under `extensions`, each with the flag that names it.
 - A copy is what runs: the built-in is never loaded in place. `extensions.list` marks each copy with `builtIn`
   (the built-in's folder and the copy's state), so `ext ls`, the power bar's `&` list and its page say "your copy
   overrides the built-in" for a copy changed here or behind the built-in (one installed as it ships just reads as
   installed, PIE-1399), with both folders in `ext ls --long` and the preview. `ep0ch doctor` and `ep0ch install
   --apply` name the command that removes a stale or forked copy (`ep0ch ext remove <name>`, with `--outline-folder`
-  for an outline's own). A script an extension ships (its manifest's `scripts`) is listed under that extension
+  for an outline's own, `--user-folder` for the machine's). A script an extension ships (its manifest's `scripts`) is listed under that extension
   (`partOf`), not as one of its own, and has no page of its own (PIE-1283).
 - `ext add <path>` of your own folder over a built-in's id writes no record: it is your extension, not a copy.
 

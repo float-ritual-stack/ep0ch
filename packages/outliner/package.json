@@ -34,6 +34,7 @@
     "./draft-patch": "./src/draft-patch.ts",
     "./echo-health": "./src/echo-health.ts",
     "./extension-update": "./src/extension-update.ts",
+    "./extension-flags": "./src/extension-flags.ts",
     "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
     "./mcp-access-files": "./src/mcp-access-files.ts",

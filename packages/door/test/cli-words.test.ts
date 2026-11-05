@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { checkWords, closest, COMMANDS, screenUriArgs } from "../src/cli-words";
 import { CLI_COMMANDS, SESSION_COMMANDS } from "../src/cli-commands";
+import { EXT_FLAGS } from "@ep0ch/outliner/extension-flags";
 import { renderHelp } from "../src/cli-help";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest } from "../src/socket";
@@ -100,6 +101,11 @@ describe("--help, -h and help, anywhere", () => {
     expect(ep0ch("help", "session", "list").out).toContain("--machine <ssh-name>");
     expect(sessions).toContain("list --machine lists that machine's sessions");
     expect(ep0ch("help", "ext").out).toContain("ep0ch ext add");
+    // What ext remove and update take is the command's own table: help lists every flag it parses (PIE-1548).
+    for (const verb of ["remove", "update", "add"] as const) {
+      const help = ep0ch("help", "ext", verb).out;
+      for (const flag of EXT_FLAGS[verb]) expect(help).toContain(`--${flag.name}`);
+    }
   });
 
   test("shell completion finds commands and session flags through the printed Bash script", () => {

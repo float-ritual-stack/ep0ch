@@ -927,7 +927,7 @@ An extension is a folder: in the outline's own `extensions/<id>/` (under `~/outl
 service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, every outline): `extension.json`,
 the code, `config.json` (secrets as references, never literals; set from its configSchema with `ep0ch act ext.<id>.settings <field>=<value>`, or ctrl+k then `& settings <name>` in the door). `outliner ext ls` lists them, `outliner ext add
 <id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira, meeting-card, done-stamp, shout) into the user folder, or with
-`--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (from the user folder, else the outline it's run in) (both apply
+`--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (from the outline it's run in, else the user folder; a copy in both asks which by flag) (both apply
 without a restart), `ep0ch install --apply` refreshes a copy nobody changed when the built-in moves on (`outliner ext
 update <id>` shows a changed copy's diff and asks), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are packages/outliner
 `docs/extensions/README.md`. Test one against a scratch host, never their live folder. For a need, pick the
