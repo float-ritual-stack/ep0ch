@@ -81,6 +81,8 @@ export interface DeclaringNote {
    * any other note `[echo::]` is a posting): what a settings card asks before it draws this component's fields.
    */
   requires?: string[];
+  /** The name's old property (`route-to`), still read: a note written the old way is still one of these. */
+  was?: string;
 }
 
 export interface ComponentSchema {
@@ -101,7 +103,11 @@ export interface ComponentSchema {
    * else nothing, when the variation leaves it out) and `{{props.yaml}}` for the YAML properties given, a `key: value` line each.
    * `note`: the declaring note, written only when a variation sets one of its properties.
    */
-  source: { use: string; note?: DeclaringNote };
+  source: {
+    use: string; note?: DeclaringNote;
+    /** A component written with properties and no `::name` of its own: what choosing it in `::` completion writes. */
+    typed?: string;
+  };
   /** The minimal example's values. */
   example: Record<string, string>;
   /** The properties drawn one value at a time, in order. */
@@ -308,33 +314,36 @@ const SPARK: ComponentSchema = {
 };
 
 /** The components every outline has. */
-/** A routing rule (PIE-1010): notes file themselves by rules written as notes. */
-const ROUTE: ComponentSchema = {
-  id: "route", group: "site",
-  title: "Routing rules",
-  intro: "Notes route themselves by rules written as notes: a rule says which notes (a query in the saved views' grammar) and where they go (a note). The first rule whose query holds for a note moves it there, by the service's one move, as `ext:route`, in one revision, with a history under the rule; the Routing view lists every rule, and its order is the rules' order. New notes are placed by routing first (a captured recipe lands in Recipes); a bare note and a new note's first words route once quiet; `ep0ch route <note> --dry-run` and the door's `note.route` (alt+z) say what would move where and why.",
-  where: "a note with `[type::route]`, `[query::…]` and `[route-to::((id))]`",
+/** A note mover's rule (PIE-1010, named PIE-1314): notes file themselves by rules written as notes. */
+const NOTE_MOVER: ComponentSchema = {
+  id: "note-mover", group: "site",
+  title: "Note mover",
+  intro: "Notes move themselves by rules written as notes: a rule says which notes (a query in the saved views' grammar) and where they go (a note). The first rule whose query holds for a note moves it there, by the service's one move, as `ext:note-mover`, in one revision, with a history under the rule; the Note mover view lists every rule, and its order is the rules' order. New notes are placed by the rules first (a captured recipe lands in Recipes); a bare note and a new note's first words move once quiet; `ep0ch route <note> --dry-run` and the door's `note.route` (alt+z) say what would move where and why.",
+  where: "a note with `[note-mover::((id))]` and `[query::…]`",
   props: [
-    { key: "type", where: "note", type: "enum", meaning: "declares a routing rule", values: enumOf({ route: "a routing rule" }) },
-    { key: "query", where: "note", type: "query", complete: "query", meaning: "which notes it routes: the saved views' grammar; the first rule whose query holds for a note wins", samples: ["type=recipe", "type=recipe AND #sweet"] },
-    { key: "route-to", where: "note", type: "ref", meaning: "where they go: a note's ((id)), a [[page]], a Work ID, inbox or root" },
-    { key: "route-when", where: "note", type: "enum", meaning: "when it fires on its own", default: "create", values: enumOf({ create: "new notes: a note made with its words, a new note's first words", edit: "every save, too", command: "only when asked: ep0ch route, the door's note.route" }) },
-    { key: "route-order", where: "note", type: "int", meaning: "its place among the rules: lower first; without one, the Routing view's order, then the order written", samples: ["1", "10"] },
-    { key: "route-at", where: "note", type: "enum", meaning: "where a routed note lands among the target's children", default: "top", values: enumOf({ top: "first", end: "last" }) },
+    { key: "note-mover", where: "note", type: "ref", meaning: "declares a rule, and says where its notes go: a note's ((id)), a [[page]], a Work ID, inbox or root" },
+    { key: "query", where: "note", type: "query", complete: "query", meaning: "which notes it moves: the saved views' grammar; the first rule whose query holds for a note wins", samples: ["type=recipe", "type=recipe AND #sweet"] },
+    { key: "note-mover-when", where: "note", type: "enum", meaning: "when it fires on its own", default: "create", values: enumOf({ create: "new notes: a note made with its words, a new note's first words", edit: "every save, too", command: "only when asked: ep0ch route, the door's note.route" }) },
+    { key: "note-mover-order", where: "note", type: "int", meaning: "its place among the rules: lower first; without one, the Note mover view's order, then the order written", samples: ["1", "10"] },
+    { key: "note-mover-at", where: "note", type: "enum", meaning: "where a moved note lands among the target's children", default: "top", values: enumOf({ top: "first", end: "last" }) },
   ],
-  source: { use: "Pickled walnuts [type::recipe]\n\nBrine for a week.", note: { title: "Recipes go to the shelf", name: "route-to", value: "((recipes))", requires: ["query"] } },
+  source: {
+    use: "Pickled walnuts [type::recipe]\n\nBrine for a week.",
+    note: { title: "Recipes go to the shelf", name: "note-mover", value: "((recipes))", requires: ["query"], was: "route-to" },
+    typed: "Recipes go to the shelf [note-mover::((recipes))] [query::type=recipe]",
+  },
   example: {},
   sweep: [],
   grids: [],
   space: [],
 };
 
-export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, ROUTE, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS, USE, BUTTON].map(s => ({ ...s, origin: "built-in" }));
+export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_STYLE, CALLOUT, RULE, NOTE_MOVER, VIEW, METER, SPARK, ...FIGURE_COMPONENT_SCHEMAS, ...BLOCK_COMPONENT_SCHEMAS, USE, BUTTON].map(s => ({ ...s, origin: "built-in" }));
 
 /** The schemas a note configures: shared by its settings card and property completion. */
 export function settingsSchemas(schemas: readonly ComponentSchema[], props: readonly { key: string; value: string }[]): ComponentSchema[] {
   const keys = new Set(props.map(p => p.key.toLowerCase()));
-  return schemas.filter(s => s.source.note && keys.has(s.source.note.name) && (s.source.note.requires ?? []).every(k => keys.has(k.toLowerCase())));
+  return schemas.filter(s => s.source.note && (keys.has(s.source.note.name) || (s.source.note.was !== undefined && keys.has(s.source.note.was))) && (s.source.note.requires ?? []).every(k => keys.has(k.toLowerCase())));
 }
 
 // ── merging: the outline's values, the extensions' schemas ────────────────────

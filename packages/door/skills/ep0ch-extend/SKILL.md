@@ -39,7 +39,7 @@ sleep, a guess at a tile name): a probe bent to pass hides what it found.
 
 | Tier | When | Lives in |
 |---|---|---|
-| **Rule note** (no code) | "when a note matches X, draw/file/stamp Y": a look, a route, a property | a note in the outline (`[rule-name::name]`, `[type::route]`): extensions, *Rule notes: the no-code tier*, *Routing* |
+| **Rule note** (no code) | "when a note matches X, draw/file/stamp Y": a look, a note mover, a property | a note in the outline (`[rule-name::name]`, `[note-mover::…]`): extensions, *Rule notes: the no-code tier*, *The note mover* |
 | **Script note** | a small thing for one note or one outline: a button, a computed line, a stamp, a layout | a ```` ```js script=name ```` fence or a `[script::name]` note: scripts, *A script in one minute* |
 | **Extension folder** | disk, network, a secret, another language, a schedule, a component, a tile, a palette source, an agent | `<outline root>/extensions/<id>/` (that outline) or the user folder (every outline): extensions, *Where extensions live*, *The folder* |
 | **Built-in / kit** | proven in daily use, wanted in every outline | ep0ch's own `packages/outliner/extensions/<id>/`, installed from the power bar; a change to ep0ch itself, so `ep0ch-core` applies |
@@ -58,7 +58,7 @@ behaviour stays an extension as its first user ([ADR 0008](../../../../docs/adr/
 | a value computed from the note or a query, kept up to date | a render script (`mode=render`) under a `name::` line | scripts: *Modes*, *view.\** |
 | arguments to a button | slots: every word on `::button` other than its own is `props.<word>`, repeats are a list (`page=a page=b`) | scripts: *Globals* |
 | a button that asks for a value the first time (click a tile, pick a note) | a `{key}` in `act=` filled from `key=` on the same line, left empty: `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`. A press asks in the kind the action's argument takes (a tile: click it), writes `target=t-…` on the line and runs; later presses use it; alt+click asks again; an agent writes it with `button.slot` | scripts: *Buttons that ask* |
-| notes that file themselves | a route rule note | extensions: *Routing* |
+| notes that file themselves | a note mover rule | extensions: *The note mover* |
 | a look or a badge on matching notes | a rule (`match` + `decorate`), no code if it can | extensions: *Rules* |
 | something that reacts when a note changes | a rule's `on` trigger | extensions: *`on`: change triggers* |
 | `key:: value` lines that fetch or draw | a handler (data, output, component) | extensions: *Handler lines*, *Kind 1–3* |

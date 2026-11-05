@@ -15,6 +15,7 @@ import { USE_NAME, useCallsOf } from "./template-use";
 import { BUTTON_NAME, buttonCallsOf } from "./button-call";
 import { figureSource, figureYaml, graphKind, propsWithoutRules, unknownFigureKeys } from "./figure-props";
 import { BUILTIN_COMPONENT_SCHEMAS } from "./component-schema";
+import { moverLineWarning, oldRuleWarning } from "./note-mover-rename";
 
 export type SyntaxWarningKind = "fence" | "page-link" | "property" | "component" | "literal" | "form-field" | "figure";
 
@@ -77,7 +78,11 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
 
   // A `::name` opener nothing closes: plain text. One inside a component or a fence is that block's.
   const covered = new Set<number>();
-  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) covered.add(j);
+  for (const c of componentBlocks(lines)) {
+    for (let j = c.start; j <= c.end; j++) covered.add(j);
+    const mover = moverLineWarning(c.name, c.start);
+    if (mover) out.push({ kind: "component", line: c.start, message: mover });
+  }
   for (const f of codeBlocks(lines).fences) for (let j = f.start; j <= f.end; j++) covered.add(j);
   const builtIn = new Set(BUILTIN_COMPONENT_SCHEMAS.map(s => s.id));
   lines.forEach((raw, i) => {
@@ -87,6 +92,8 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
     // built-in owns is a note component's call (script-component.ts), one line too: the service checks its name.
     if (!open || covered.has(i) || (LINK_BLOCK_KINDS as readonly string[]).includes(open[1]!) || open[1] === "fields" || open[1] === USE_NAME || open[1] === BUTTON_NAME) return;
     if (open[3] && !open[2] && !builtIn.has(open[1]!)) return;
+    const mover = moverLineWarning(open[1]!, i);
+    if (mover) { out.push({ kind: "component", line: i, message: mover }); return; }
     out.push({ kind: "component", line: i, message: `the ::${open[1]} on line ${i + 1} isn't closed with :: on a line of its own: it's plain text` });
   });
 
@@ -116,6 +123,10 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
     const read = figureYaml(figureSource(body, undefined, false, c.attrs));
     if ("yaml" in read) for (const w of unknownFigureKeys(kind, read.yaml)) out.push({ kind: "figure", line: c.start, end: c.end, message: `the ::${c.name} on line ${c.start + 1} ${w}` });
   }
+
+  // The note-routing component's old name (PIE-1314): it still works, and saving it says what it's called now.
+  const renamed = oldRuleWarning(text);
+  if (renamed) out.push({ kind: "property", ...renamed });
 
   const unterminated = scanLiteralRegions(text).unterminated;
   if (unterminated) {

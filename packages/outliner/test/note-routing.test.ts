@@ -1,6 +1,6 @@
 // Notes route themselves by rules written as notes (PIE-1010, src/note-routing.ts): a rule is a block
-// `[type::route] [query::…] [route-to::((id))]`; first match wins; a match moves the note with the service's atomic
-// move (note-move.ts), as `ext:route`; a note a door holds a draft of waits for the draft to close. Every service here
+// `[query::…] [note-mover::((id))]`; first match wins; a match moves the note with the service's atomic
+// move (note-move.ts), as `ext:note-mover`; a note a door holds a draft of waits for the draft to close. Every service here
 // is a scratch service in a temp folder; every note is made up.
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -52,7 +52,7 @@ async function startService() {
   return { client, store, server, inbox, events, create, update, route, parentOf, directory, socket };
 }
 
-const RECIPES_RULE = (recipes: string) => `Recipes go to the shelf [type::route] [query::type=recipe] [route-to::((${recipes}))]`;
+const RECIPES_RULE = (recipes: string) => `Recipes go to the shelf [query::type=recipe] [note-mover::((${recipes}))]`;
 
 test("a new note whose text matches a rule is placed by routing, and the receipt names the rule", async () => {
   const { client, create, inbox } = await startService();
@@ -67,7 +67,7 @@ test("a new note whose text matches a rule is placed by routing, and the receipt
   expect(plain.placement).toMatchObject({ parentId: inbox.id, rule: "inbox" });
 });
 
-test("a note made bare, and a new note whose first words match, route after a quiet moment, as ext:route; the rule's history says so", async () => {
+test("a note made bare, and a new note whose first words match, route after a quiet moment, as ext:note-mover; the rule's history says so", async () => {
   const { client, create, update, events, parentOf, store } = await startService();
   const recipes = await create("Recipes");
   const rule = await create(RECIPES_RULE(recipes.id));
@@ -75,23 +75,23 @@ test("a note made bare, and a new note whose first words match, route after a qu
   const made = await create("Damson jam [type::recipe]");
   await until("the bare note routed", () => parentOf(made.id) === recipes.id);
   const moved = await until("the move's event", () => events.find(e => e.change?.kind === "move" && e.blockId === made.id));
-  expect(moved.change?.actor).toMatchObject({ author: "agent", actorId: "ext:route" });
+  expect(moved.change?.actor).toMatchObject({ author: "agent", actorId: "ext:note-mover" });
   // The person's ctrl+n: an empty note first, its words on the first save. That first save is its creation to a rule.
   const fresh = await client.request<NewNoteReceipt>({ action: "notes.create", text: "" });
   expect(fresh.block.parentId).not.toBe(recipes.id);
   await update(fresh.block.id, "Quince cheese [type::recipe]\n\nSlow.");
   await until("the new note routed on its first words", () => parentOf(fresh.block.id) === recipes.id);
   // The rule's history: one line per move, newest first, under the rule.
-  const history = await until("the history under the rule", () => store.children(rule.id).find(b => b.properties.some(p => p.key === "type" && p.value === "route-history")));
+  const history = await until("the history under the rule", () => store.children(rule.id).find(b => b.properties.some(p => p.key === "type" && p.value === "note-mover-history")));
   expect(history.text).toContain(`((${fresh.block.id}|Quince cheese))`);
   expect(history.text).toContain(`((${made.id}|Damson jam))`);
   expect(history.text.indexOf("Quince cheese")).toBeLessThan(history.text.indexOf("Damson jam"));
   expect(history.author).toBe("agent");
-  expect(history.actorId).toBe("ext:route");
+  expect(history.actorId).toBe("ext:note-mover");
   // Its own writes set nothing off: the history note stays, and the routed notes aren't touched again.
   await Bun.sleep(300);
-  expect(store.children(rule.id).filter(b => b.properties.some(p => p.key === "type" && p.value === "route-history"))).toHaveLength(1);
-  expect(events.filter(e => e.change?.kind === "move" && e.change?.actor?.actorId === "ext:route")).toHaveLength(2);
+  expect(store.children(rule.id).filter(b => b.properties.some(p => p.key === "type" && p.value === "note-mover-history"))).toHaveLength(1);
+  expect(events.filter(e => e.change?.kind === "move" && e.change?.actor?.actorId === "ext:note-mover")).toHaveLength(2);
 });
 
 test("route-when says when a rule fires on its own: create (default) only for new notes, edit on every save, command only when asked", async () => {
@@ -100,8 +100,8 @@ test("route-when says when a rule fires on its own: create (default) only for ne
   const archive = await create("Archive");
   const done = await create("Done");
   await create(RECIPES_RULE(recipes.id));
-  await create(`Old things are archived [type::route] [query::status=old] [route-to::((${archive.id}))] [route-when::edit]`);
-  await create(`Done by hand [type::route] [query::status=done] [route-to::((${done.id}))] [route-when::command]`);
+  await create(`Old things are archived [query::status=old] [note-mover::((${archive.id}))] [note-mover-when::edit]`);
+  await create(`Done by hand [query::status=done] [note-mover::((${done.id}))] [note-mover-when::command]`);
   const note = await create("Shelf plan");
   await Bun.sleep(250);
   expect(parentOf(note.id)).toBeNull();
@@ -127,8 +127,8 @@ test("a dry run says what would move where and why, and moves nothing; --all rou
   const recipes = await create("Recipes");
   const sweets = await create("Sweets");
   // Written second, but first by route-order: a sweet recipe goes to Sweets, the rest to Recipes.
-  await create(`${RECIPES_RULE(recipes.id)} [route-order::2]`);
-  await create(`Sweet recipes [type::route] [query::type=recipe AND #sweet] [route-to::((${sweets.id}))] [route-order::1] [route-when::command]`);
+  await create(`${RECIPES_RULE(recipes.id)} [note-mover-order::2]`);
+  await create(`Sweet recipes [query::type=recipe AND #sweet] [note-mover::((${sweets.id}))] [note-mover-order::1] [note-mover-when::command]`);
   const jam = await create("Plum jam [type::recipe] #sweet");
   const stew = await create("Oxtail stew [type::recipe]");
   const plan = await create("Weekend plan");
@@ -171,7 +171,7 @@ test("a note a door holds a draft of is never moved under the person: it routes 
   await until("routed once the draft closed", () => parentOf(fresh.block.id) === recipes.id);
   // Asked by hand for a rule that fires only by command, while held: it still routes when the draft closes.
   const done = await create("Done");
-  await create(`Finished by hand [type::route] [query::status=done] [route-to::((${done.id}))] [route-when::command]`);
+  await create(`Finished by hand [query::status=done] [note-mover::((${done.id}))] [note-mover-when::command]`);
   const bench = await client.request<NewNoteReceipt>({ action: "notes.create", text: "Bench [status::done]" });
   const hold2 = await client.request<{ holdId: string }>({ action: "drafts.hold", blockId: bench.block.id, clientId: "routing-test-door", revision: bench.block.revision });
   expect((await client.request<NoteRouteRun>({ action: "notes.route", ref: bench.block.id })).results[0]).toMatchObject({ outcome: "held", to: { id: done.id } });
@@ -186,10 +186,10 @@ test("a rule that can't be used is a listed problem, never a move: no route-to, 
   const recipes = await create("Recipes");
   const gone = await create("Old shelf");
   const bad1 = await create("No target [type::route] [query::type=recipe]");
-  const bad2 = await create(`Trashed target [type::route] [query::type=recipe] [route-to::((${gone.id}))]`);
+  const bad2 = await create(`Trashed target [query::type=recipe] [note-mover::((${gone.id}))]`);
   const trash = store.liveBlocks().find(b => b.properties.some(p => p.key === "system-view" && p.value === "trash"))!;
-  const bad3 = await create(`Into the trash [type::route] [query::type=recipe] [route-to::((${trash.id}))]`);
-  const bad4 = await create(`Broken query [type::route] [query::(type=recipe] [route-to::((${recipes.id}))]`);
+  const bad3 = await create(`Into the trash [query::type=recipe] [note-mover::((${trash.id}))]`);
+  const bad4 = await create(`Broken query [query::(type=recipe] [note-mover::((${recipes.id}))]`);
   await client.request({ action: "delete", blockId: gone.id, mutation: { author: "user" } });
   const note = await create("Marmalade [type::recipe]");
   await Bun.sleep(300);
@@ -197,13 +197,13 @@ test("a rule that can't be used is a listed problem, never a move: no route-to, 
   const run = await route({ ref: note.id, dryRun: true });
   expect(run.results[0]).toMatchObject({ outcome: "no-rule" });
   expect(run.problems).toHaveLength(4);
-  expect(run.problems.find(p => p.includes(bad1.id.slice(0, 8)))).toContain("no [route-to::");
+  expect(run.problems.find(p => p.includes(bad1.id.slice(0, 8)))).toContain("no [note-mover::");
   expect(run.problems.find(p => p.includes(bad2.id.slice(0, 8)))).toContain("Trash");
   expect(run.problems.find(p => p.includes(bad3.id.slice(0, 8)))).toContain("Trash");
   expect(run.problems.find(p => p.includes(bad4.id.slice(0, 8)))).toContain("query");
   // Fixed, it works: the rule note's save is what the engine reads next.
   const fixed = store.get(bad1.id)!;
-  await client.request({ action: "update", blockId: bad1.id, text: `No target [type::route] [query::type=recipe] [route-to::((${recipes.id}))]`, expectedRevision: fixed.revision, mutation: { author: "user" } });
+  await client.request({ action: "update", blockId: bad1.id, text: `No target [query::type=recipe] [note-mover::((${recipes.id}))]`, expectedRevision: fixed.revision, mutation: { author: "user" } });
   const again = await route({ ref: note.id });
   expect(again.results[0]).toMatchObject({ outcome: "moved", to: { id: recipes.id } });
 });
@@ -211,7 +211,7 @@ test("a rule that can't be used is a listed problem, never a move: no route-to, 
 test("the rules are read again when a rule, the Routing view or a target changes, never for a write elsewhere (PIE-1413)", async () => {
   const { client, create, route, store } = await startService();
   const recipes = await create("Recipes");
-  await create(`Recipes go to the shelf [type::route] [query::type=recipe] [route-to::((${recipes.id}))]`);
+  await create(`Recipes go to the shelf [query::type=recipe] [note-mover::((${recipes.id}))]`);
   expect((await route({ ref: (await create("Toast")).id, dryRun: true })).problems).toEqual([]);
   // Every rules read starts by asking for the rule notes.
   const internals = store as unknown as { queryBlocks: (...args: unknown[]) => unknown };
@@ -230,10 +230,10 @@ test("the rules are read again when a rule, the Routing view or a target changes
 
 test("the Routing view is seeded once, listing every rule; a person who trashes it isn't given it again", async () => {
   const { client, create, store, server } = await startService();
-  const hub = store.liveBlocks().find(b => b.properties.some(p => p.key === "page" && p.value === "routing"));
+  const hub = store.liveBlocks().find(b => b.properties.some(p => p.key === "page" && p.value === "note-mover"));
   expect(hub).toBeDefined();
   expect(hub!.properties).toEqual(expect.arrayContaining([
-    { key: "type", value: "virtual-branch" }, { key: "query", value: "type=route" },
+    { key: "type", value: "virtual-branch" }, { key: "query", value: "note-mover OR type=route" },
   ]));
   expect(hub!.author).toBe("system");
   const recipes = await create("Recipes");
@@ -245,7 +245,7 @@ test("the Routing view is seeded once, listing every rule; a person who trashes 
   const reopened = new OutlinerServer(store, join(mkdtempSync(join(tmpdir(), "outliner-routing-2-")), "o.sock"), undefined, undefined, { extensionPollMs: 0 });
   await reopened.start();
   cleanups.push(async () => { await reopened.close(); });
-  expect(store.liveBlocks().some(b => b.properties.some(p => p.key === "page" && p.value === "routing"))).toBe(false);
+  expect(store.liveBlocks().some(b => b.properties.some(p => p.key === "page" && p.value === "note-mover"))).toBe(false);
 });
 
 test("ep0ch route says each note's words, the rules that can't be used and the count; --dry-run names the command that moves them", async () => {
@@ -258,7 +258,7 @@ test("ep0ch route says each note's words, the rules that can't be used and the c
   // The rule routed the jam on create; a second place it would go needs a command rule.
   await until("the jam routed", () => parentOf(jam.id) === recipes.id);
   const done = await create("Done things [status::finished]");
-  await create(`Finished [type::route] [query::status=done] [route-to::((${done.id}))] [route-order::1] [route-when::command]`);
+  await create(`Finished [query::status=done] [note-mover::((${done.id}))] [note-mover-order::1] [note-mover-when::command]`);
   const lines: string[] = [];
   const log = console.log;
   console.log = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
@@ -266,7 +266,7 @@ test("ep0ch route says each note's words, the rules that can't be used and the c
     expect(await runRouteCommand(["--all", "--dry-run"], { ...process.env, EP0CH_SOCKET: socket, EP0CH_WS: "scratch", EP0CH_OUTLINES: directory })).toBe(0);
     expect(lines).toEqual([
       "would move “Plum jam” from “Recipes” to “Done things” (rule “Finished”)",
-      expect.stringMatching(/^can't use rule [0-9a-f]{8} “Half a rule”: no \[route-to::/),
+      expect.stringMatching(/^can't use rule [0-9a-f]{8} “Half a rule”: no \[note-mover::/),
       expect.stringMatching(/^2 rules: 1 would move, \d+ no rule holds for$/),
       "A dry run. To move them: ep0ch route --all",
     ]);
@@ -282,14 +282,42 @@ test("ep0ch route says each note's words, the rules that can't be used and the c
 test("a person's rule routes a note the service wrote (a snapshot record); the Inbox, Trash and guides stay put", async () => {
   const { store, inbox, create, route, parentOf } = await startService();
   const snapshots = await create("Snapshots");
-  await create(`Snapshots go to their page [type::route] [query::type=snapshot] [route-to::((${snapshots.id}))]`);
+  await create(`Snapshots go to their page [query::type=snapshot] [note-mover::((${snapshots.id}))]`);
   // The service writes the record itself, as the snapshot tool does.
   const record = store.create("Snapshot of garden [type::snapshot] [machine::snapshot] [publish::never]\n\nWho: you\nOutline: garden", null, "system");
   await until("the record routed on create", () => parentOf(record.id) === snapshots.id);
   // A rule that would catch the Inbox never moves it: the service finds it by its place.
   const elsewhere = await create("Elsewhere");
-  await create(`Grab the inbox [type::route] [query::system-view=inbox] [route-to::((${elsewhere.id}))] [route-when::command]`);
+  await create(`Grab the inbox [query::system-view=inbox] [note-mover::((${elsewhere.id}))] [note-mover-when::command]`);
   const run = await route({ all: true });
   expect(run.results.some(r => r.blockId === inbox.id && r.outcome === "moved")).toBe(false);
   expect(parentOf(inbox.id)).toBe(null);
+});
+
+test("the old name still works (PIE-1314): a [type::route] rule moves notes, by its route-* properties, and its rule and history are never moved", async () => {
+  const { create, route, parentOf, store } = await startService();
+  const recipes = await create("Recipes");
+  const rule = await create(`Old shelf rule [type::route] [query::type=recipe] [route-to::((${recipes.id}))] [route-when::command] [route-at::end]`);
+  const first = await create("Quince [type::recipe]", recipes.id);
+  const note = await create("Marmalade [type::recipe]");
+  const run = await route({ ref: note.id });
+  expect(run.rules).toBe(1);
+  expect(run.results[0]).toMatchObject({ outcome: "moved", to: { id: recipes.id }, rule: { id: rule.id } });
+  expect(parentOf(note.id)).toBe(recipes.id);
+  expect(store.children(recipes.id).map(b => b.id)).toEqual([first.id, note.id]);
+  expect((await route({ ref: rule.id })).results[0]).toMatchObject({ outcome: "refused" });
+});
+
+test("a [note-mover::…] rule moves notes, and a rule written while the old one stands is read beside it (PIE-1314)", async () => {
+  const { create, route, parentOf } = await startService();
+  const jars = await create("Jars");
+  const tins = await create("Tins");
+  await create(`Jars [note-mover::((${jars.id}))] [query::type=jar] [note-mover-when::command]`);
+  await create(`Tins [type::route] [query::type=tin] [route-to::((${tins.id}))] [route-when::command]`);
+  const jar = await create("Damson jar [type::jar]");
+  const tin = await create("Tea tin [type::tin]");
+  const run = await route({ all: true });
+  expect(run.rules).toBe(2);
+  expect(parentOf(jar.id)).toBe(jars.id);
+  expect(parentOf(tin.id)).toBe(tins.id);
 });

@@ -698,8 +698,8 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.recipeShelf = await make(notes.routing.id, `${SEED.recipeShelf}\nJars and the recipes that filled them.`);
   notes.seedTin = await make(notes.routing.id, `${SEED.seedTin}\nPackets by the month they go in.`);
   notes.pickled = await make(notes.routing.id, `${SEED.pickled} [type::recipe]\nPick them green in July, before the shells set. Brine for a week, then the spiced vinegar.`);
-  await make(notes.routing.id, `Recipes go to the shelf [type::route] [query::type=recipe] [route-to::((${notes.recipeShelf.id}))] [route-when::command]`);
-  await make(notes.routing.id, `Seeds go to the tin [type::route] [query::type=seed] [route-to::((${notes.seedTin.id}))]`);
+  await make(notes.routing.id, `Recipes go to the shelf [query::type=recipe] [note-mover::((${notes.recipeShelf.id}))] [note-mover-when::command]`);
+  await make(notes.routing.id, `Seeds go to the tin [query::type=seed] [note-mover::((${notes.seedTin.id}))]`);
   notes.greenhouse = await make(notes.root.id, `${SEED.greenhouse}\nWhere the seedlings go once they have two leaves.`);
   notes.recentFiles = await make(notes.root.id, recentFilesText());
   {

@@ -11531,7 +11531,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.route": def({
-    summary: "route a note by the outline's routing rules (PIE-1010): the one shown, or id=. The first rule note ([type::route] [query::…] [route-to::((id))], listed in the Routing view) whose query holds for it moves it there, by the service's one move, as ext:route with you recorded as who asked, in one revision; ctrl+z puts it back (note.move.undo). dry=true says what would move where and why (which rule) and moves nothing; a note no rule holds for is said so, and a rule that can't be used is named. A note being written in a door is never moved under the person: it routes when the draft closes",
+    summary: "route a note by the outline's note mover rules (PIE-1010): the one shown, or id=. The first rule note ([note-mover::((id))] [query::…], listed in the Note mover view) whose query holds for it moves it there, by the service's one move, as ext:note-mover with you recorded as who asked, in one revision; ctrl+z puts it back (note.move.undo). dry=true says what would move where and why (which rule) and moves nothing; a note no rule holds for is said so, and a rule that can't be used is named. A note being written in a door is never moved under the person: it routes when the draft closes",
     keys: [...readerKeys("note.route"), { via: "the tile menu's \"route by rules\"" }],
     touches: "nothing", replay: "ask",
     menu: { label: "route by rules", group: "note", key: "alt+z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
@@ -11542,7 +11542,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
     examples: [
       { act: "note.route dry=true", does: "says where the note shown would move and which rule, moving nothing" },
-      { act: "note.route", does: "moves the note shown by the first routing rule that holds for it" },
+      { act: "note.route", does: "moves the note shown by the first note mover rule that holds for it" },
     ],
     async run({ id, dry }, { surface, host }, actor) {
       const target = id ?? surface.requireNote().id;

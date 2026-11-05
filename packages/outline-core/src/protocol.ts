@@ -365,13 +365,13 @@ export interface HostedOutlineDeletion {
  */
 export interface NotePlacement {
   parentId: string; at: "top" | "end";
-  /** `route`: a routing rule note placed it (PIE-1010); `routeRule` names which. */
+  /** `route`: a note mover rule note placed it (PIE-1010); `routeRule` names which. */
   rule: "near" | "inbox" | "route"; said: string;
   routeRule?: { id: string; title: string };
 }
 
 /**
- * What routing did, or would do, with one note (PIE-1010, `notes.route`): the first rule note (`[type::route]`) whose
+ * What routing did, or would do, with one note (PIE-1010, `notes.route`): the first rule note (`[note-mover::…]`) whose
  * query holds for it, and where that rule sends it. `held`: a door holds a draft of the note, so it routes when the
  * draft closes; `refused`: the move itself was refused (the words say why).
  */

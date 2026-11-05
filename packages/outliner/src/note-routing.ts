@@ -1,11 +1,13 @@
-// Notes route themselves by rules written as notes (PIE-1010), a core extension of the service like Obsidian's Auto
-// Note Mover: a rule is a block `[type::route] [query::<the views' grammar>] [route-to::((id))]`, with an optional
-// `[route-when::create|edit|command]` (default create), `[route-order::N]` and `[route-at::top|end]`. First match wins:
-// by `route-order`, then the Routing view's hand order, then when the rule was written. The service owns the whole of
+// The note mover (PIE-1010, named PIE-1314): notes move themselves by rules written as notes, a core extension of the
+// service like Obsidian's Auto Note Mover: a rule is a block `[note-mover::((id))] [query::<the views' grammar>]`, with
+// an optional `[note-mover-when::create|edit|command]` (default create), `[note-mover-order::N]` and
+// `[note-mover-at::top|end]`. A rule under the old names (`[type::route] [route-to::((id))]`, `route-*`) still works
+// (outline-core's note-mover-rename.ts, which also says so on a save). First match wins: by order, then the Note mover
+// view's hand order, then when the rule was written. The service owns the whole of
 // it: the match is the store's one query matcher (`matchQuery`, `matchesText`: never a second one), the move is the
-// one atomic move (note-move.ts, the rule `outline_move` runs), attributed `author: agent` `actorId: ext:route` with
-// who asked as `requestedBy`, and the Routing view (`Routing [page::routing] [system-view::routing]`, a saved view over
-// `type=route`, one of the outline's own like Bookmarks) is seeded once so every rule is listed, editable and reorderable. Everything here is deletable: remove
+// one atomic move (note-move.ts, the rule `outline_move` runs), attributed `author: agent` `actorId: ext:note-mover` with
+// who asked as `requestedBy`, and the Note mover view (`Note mover [page::note-mover] [system-view::note-mover]`, a saved view over
+// the rules, one of the outline's own like Bookmarks) is seeded once so every rule is listed, editable and reorderable. Everything here is deletable: remove
 // this file and its three hooks (placement, the change feed, `notes.route`) and nothing else in the service changes.
 //
 // When a note routes on its own: at `notes.create`, as the first placement rule (a note made with its text, a quick
@@ -18,6 +20,7 @@
 import { noteWork } from "./loop-watch";
 import type { NoteRouteResult, NoteRouteRun } from "@ep0ch/outline-core/protocol";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { NOTE_MOVER, NOTE_MOVER_HISTORY, NOTE_MOVER_VIEW_WORDS, OLD_HISTORY_TYPE, OLD_RULE_TYPE } from "@ep0ch/outline-core/note-mover-rename";
 import { ruleWriter } from "@ep0ch/outline-core/rules";
 import { moveNote } from "./note-move";
 import { isSystemNote, systemNoteKind, type Placement } from "./note-placement";
@@ -26,20 +29,20 @@ import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
 
 /** The actor every routing write carries: the service's own, as an extension's. */
-export const ROUTE_ACTOR = "ext:route";
-export const ROUTE_TYPE = "route";
-export const ROUTE_HISTORY_TYPE = "route-history";
+export const ROUTE_ACTOR = "ext:note-mover";
 export const ROUTE_WHENS = ["create", "edit", "command"] as const;
 export type RouteWhen = (typeof ROUTE_WHENS)[number];
 /** The most history lines a rule keeps (newest first). */
 export const HISTORY_LINES = 50;
 const DEFAULT_QUIET_MS = 2_000;
 const MAX_FRESH = 2_000;
-/** Where the Routing view is remembered once seeded (the outline's metadata), so a trashed one isn't given again. */
+/** Where the Note mover view is remembered once seeded (the outline's metadata), so a trashed one isn't given again. */
 const HUB_METADATA = "routing.hub";
-export const HUB_PAGE = "routing";
+export const HUB_PAGE = NOTE_MOVER;
+/** What lists every rule: the new name, and an old rule still waiting to be rewritten. */
+const RULES_QUERY = `${NOTE_MOVER} OR type=${OLD_RULE_TYPE}`;
 
-/** Rules the service seeds into the Routing view when they're missing (PIE-1011 adds the snapshot-records rule here). */
+/** Rules the service seeds into the Note mover view when they're missing (PIE-1011 adds the snapshot-records rule here). */
 export const SEEDED_RULES: readonly { key: string; text: (reads: { store: OutlinerStore }) => string | null }[] = [];
 
 /** One rule note, as the engine reads it. */
@@ -47,7 +50,7 @@ export interface RouteRule {
   id: string;
   title: string;
   query: string;
-  /** `route-to` as written: inbox, root, an id, ((id)), [[page]] or a Work ID. */
+  /** The target as written: inbox, root, an id, ((id)), [[page]] or a Work ID. */
   to: string;
   when: RouteWhen;
   order?: number;
@@ -71,10 +74,11 @@ const quoted = (s: string) => `“${s}”`;
 const ref = (block: Block) => `((${block.id}|${title(block).replace(/[|()]/g, " ").trim()}))`;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const typeOf = (block: Block) => block.properties.find(p => p.key === "type")?.value.trim().toLowerCase();
+const isRuleNote = (block: Block) => typeOf(block) === OLD_RULE_TYPE || block.properties.some(p => p.key === NOTE_MOVER);
 
 export class NoteRouting {
   /**
-   * The rules as last read, and what they were read from (PIE-1413): the rule notes and their ancestors, the Routing
+   * The rules as last read, and what they were read from (PIE-1413): the rule notes and their ancestors, the Note mover
    * view and its hand order, and the notes they send to. Asked on every new note and every settle, so a write elsewhere
    * (an import's thousands) never reads them again.
    */
@@ -82,7 +86,8 @@ export class NoteRouting {
 
   private stamp(targets: readonly string[]): string {
     const hub = this.hub();
-    return `${hub?.id ?? ""}\0${this.store.propertyDependencyStamp("type", ROUTE_TYPE, hub ? [hub.id, ...targets] : targets, hub?.id)}`;
+    const also = hub ? [hub.id, ...targets] : targets;
+    return `${hub?.id ?? ""}\0${this.store.propertyDependencyStamp(NOTE_MOVER, undefined, also, hub?.id)}\0${this.store.propertyDependencyStamp("type", OLD_RULE_TYPE)}`;
   }
   private readonly timers = new Map<string, { when: RouteWhen; timer: ReturnType<typeof setTimeout> }>();
   /** Notes made empty (the person's ctrl+n): their first words are their creation to a rule. */
@@ -110,8 +115,9 @@ export class NoteRouting {
     const targets: string[] = [];
     // A rule whose target names nothing yet may start working with any note written: read again after every write.
     let unresolved = false;
-    const declared = this.store.queryBlocks({ filters: [{ key: "type", value: ROUTE_TYPE }], limit: 500, machinery: "show" }).blocks;
-    if (declared.length >= 500) problems.push("more than 500 notes declare routing rules: the first 500 are used");
+    const read = (filter: { key: string; value?: string }) => this.store.queryBlocks({ filters: [filter], limit: 500, machinery: "show" }).blocks;
+    const declared = [...new Map([...read({ key: NOTE_MOVER }), ...read({ key: "type", value: OLD_RULE_TYPE })].map(block => [block.id, block])).values()];
+    if (declared.length >= 500) problems.push("more than 500 notes declare note mover rules: the first 500 are used");
     const hubOrder = this.hubOrder();
     const rules: RouteRule[] = [];
     for (const block of declared) {
@@ -119,18 +125,19 @@ export class NoteRouting {
       const props = parsePropertyRecords(block.text).filter(p => p.scope === "block");
       const value = (key: string) => props.find(p => p.key === key)?.value.trim();
       const where = `rule ${block.id.slice(0, 8)} ${quoted(title(block))}`;
-      const query = value("query"), to = value("route-to"), when = (value("route-when") ?? "create").toLowerCase(), at = (value("route-at") ?? "top").toLowerCase();
-      const order = value("route-order");
+      const named = (now: string, old: string) => value(now) ?? value(old);
+      const query = value("query"), to = named(NOTE_MOVER, "route-to"), when = (named("note-mover-when", "route-when") ?? "create").toLowerCase(), at = (named("note-mover-at", "route-at") ?? "top").toLowerCase();
+      const order = named("note-mover-order", "route-order");
       if (!query) { problems.push(`${where}: no [query::…]: say which notes it routes, in the saved views' grammar (type=recipe)`); continue; }
-      if (!to) { problems.push(`${where}: no [route-to::((id))]: say where they go (a note's ((id)), [[page]], Work ID, inbox or root)`); continue; }
-      if (!(ROUTE_WHENS as readonly string[]).includes(when)) { problems.push(`${where}: [route-when::${when}] isn't one of ${ROUTE_WHENS.join(", ")}`); continue; }
-      if (at !== "top" && at !== "end") { problems.push(`${where}: [route-at::${at}] is top or end`); continue; }
+      if (!to) { problems.push(`${where}: no [note-mover::((id))]: say where they go (a note's ((id)), [[page]], Work ID, inbox or root)`); continue; }
+      if (!(ROUTE_WHENS as readonly string[]).includes(when)) { problems.push(`${where}: [note-mover-when::${when}] isn't one of ${ROUTE_WHENS.join(", ")}`); continue; }
+      if (at !== "top" && at !== "end") { problems.push(`${where}: [note-mover-at::${at}] is top or end`); continue; }
       try { this.store.matchQuery(query, []); } catch (error) { problems.push(`${where}: its query doesn't parse: ${message(error)}`); continue; }
       const target = this.target(to);
       if (target.ok && target.id) targets.push(target.id);
       if (!target.ok) { problems.push(`${where}: ${target.problem}`); unresolved = true; continue; }
       const parsedOrder = order === undefined ? undefined : Number(order);
-      if (order !== undefined && !Number.isFinite(parsedOrder)) { problems.push(`${where}: [route-order::${order}] isn't a number`); continue; }
+      if (order !== undefined && !Number.isFinite(parsedOrder)) { problems.push(`${where}: [note-mover-order::${order}] isn't a number`); continue; }
       rules.push({ id: block.id, title: title(block), query, to, when: when as RouteWhen, at, createdAt: block.createdAt, ...(parsedOrder !== undefined ? { order: parsedOrder } : {}) });
     }
     const rank = (rule: RouteRule) => hubOrder.get(rule.id) ?? Number.MAX_SAFE_INTEGER;
@@ -139,7 +146,7 @@ export class NoteRouting {
     return this.cache;
   }
 
-  /** The Routing view's hand order, when it's there: a rule's place in it, from 0. */
+  /** The Note mover view's hand order, when it's there: a rule's place in it, from 0. */
   private hubOrder(): Map<string, number> {
     const hub = this.hub();
     if (!hub) return new Map();
@@ -158,11 +165,11 @@ export class NoteRouting {
       const inbox = this.store.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }], limit: 1 }).blocks[0];
       return inbox ? { ok: true, id: inbox.id, title: title(inbox) } : { ok: false, problem: "this outline has no Inbox to route to" };
     }
-    const found = this.store.lookupBlockRef(to, "route-to");
-    if (found.kind === "trashed") return { ok: false, problem: `[route-to::${to}] is in Trash: restore it or name another note` };
-    if (found.kind !== "found") return { ok: false, problem: `[route-to::${to}] doesn't name a note: ${found.message}` };
+    const found = this.store.lookupBlockRef(to, NOTE_MOVER);
+    if (found.kind === "trashed") return { ok: false, problem: `[note-mover::${to}] is in Trash: restore it or name another note` };
+    if (found.kind !== "found") return { ok: false, problem: `[note-mover::${to}] doesn't name a note: ${found.message}` };
     if (isSystemNote(found.block) && !found.block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "inbox")) {
-      return { ok: false, problem: `[route-to::${to}] is ${systemNoteKind(found.block)}, which the service fills itself: name a note of the outline's, the Inbox or root` };
+      return { ok: false, problem: `[note-mover::${to}] is ${systemNoteKind(found.block)}, which the service fills itself: name a note of the outline's, the Inbox or root` };
     }
     return { ok: true, id: found.block.id, title: title(found.block) };
   }
@@ -178,7 +185,7 @@ export class NoteRouting {
   private candidate(block: Block | null | undefined): boolean {
     if (!block || block.effectiveDeletedRootId || isSystemNote(block)) return false;
     const type = typeOf(block);
-    return type !== ROUTE_TYPE && type !== ROUTE_HISTORY_TYPE;
+    return !isRuleNote(block) && type !== NOTE_MOVER_HISTORY && type !== OLD_HISTORY_TYPE;
   }
 
   // ── placing a new note ─────────────────────────────────────────────────
@@ -215,7 +222,7 @@ export class NoteRouting {
   private apply(block: Block, rule: RouteRule | null, how: { dryRun?: boolean; requestedBy?: MutationProvenance; when: RouteWhen }): NoteRouteResult {
     const from = block.parentId ? this.store.get(block.parentId) : null;
     const base = { blockId: block.id, title: title(block), from: { id: block.parentId, title: from ? title(from) : "the top level" } };
-    if (!rule) return { ...base, outcome: "no-rule", said: `no routing rule holds for ${quoted(base.title)}` };
+    if (!rule) return { ...base, outcome: "no-rule", said: `no note mover rule holds for ${quoted(base.title)}` };
     const named = { rule: { id: rule.id, title: rule.title, query: rule.query } };
     const target = this.target(rule.to);
     if (!target.ok) return { ...base, ...named, outcome: "refused", said: `${quoted(base.title)} matches ${quoted(rule.title)}, but ${target.problem}` };
@@ -245,13 +252,13 @@ export class NoteRouting {
     }
   }
 
-  /** Append a line to the rule's history (a child `[type::route-history]`, newest first, HISTORY_LINES at most). */
+  /** Append a line to the rule's history (a child `[type::note-mover-history]`, newest first, HISTORY_LINES at most). */
   private remember(rule: RouteRule, block: Block, from: Block | null, target: { title: string; id: string | null }, actor: MutationProvenance): void {
     const stamp = new Date(this.now).toISOString().slice(0, 16).replace("T", " ") + "Z";
     const toRef = target.id ? ref(this.store.get(target.id)!) : "the top level";
     const line = `- ${stamp} ${ref(block)} from ${from ? ref(from) : "the top level"} to ${toRef}`;
-    const existing = this.store.children(rule.id).find(child => typeOf(child) === ROUTE_HISTORY_TYPE);
-    const head = `Routing history [type::${ROUTE_HISTORY_TYPE}] [machine::route]`;
+    const existing = this.store.children(rule.id).find(child => typeOf(child) === NOTE_MOVER_HISTORY || typeOf(child) === OLD_HISTORY_TYPE);
+    const head = `Moves [type::${NOTE_MOVER_HISTORY}] [machine::${NOTE_MOVER}]`;
     if (!existing) {
       this.store.create(`${head}\n\n${line}`, rule.id, "agent", { actorId: ROUTE_ACTOR, taskId: actor.taskId });
       return;
@@ -270,7 +277,7 @@ export class NoteRouting {
     if (input.ref) {
       const block: Block = this.store.resolveBlockRef(input.ref, "note");
       if (!this.candidate(block)) {
-        const why = block.effectiveDeletedRootId ? "it's in Trash" : isSystemNote(block) ? `it's ${systemNoteKind(block)}` : typeOf(block) === ROUTE_TYPE ? "it's a routing rule" : "it's a rule's history";
+        const why = block.effectiveDeletedRootId ? "it's in Trash" : isSystemNote(block) ? `it's ${systemNoteKind(block)}` : isRuleNote(block) ? "it's a note mover rule" : "it's a rule's history";
         results.push({ blockId: block.id, title: title(block), from: { id: block.parentId, title: "" }, outcome: "refused", said: `${quoted(title(block))} isn't routed: ${why}` });
       } else results.push(this.apply(block, this.firstMatch(block, rules), how));
     } else if (input.all) {
@@ -380,9 +387,9 @@ export class NoteRouting {
     this.settle(blockId, when);
   }
 
-  // ── the Routing view ───────────────────────────────────────────────────
+  // ── the Note mover view ───────────────────────────────────────────────────
 
-  /** The Routing view, when the outline still has it. */
+  /** The Note mover view, when the outline still has it. */
   hub(): Block | null {
     const remembered = this.store.readMetadata(HUB_METADATA);
     const block = remembered ? this.store.get(remembered) : null;
@@ -392,7 +399,7 @@ export class NoteRouting {
   }
 
   /**
-   * Seeds the Routing view once: a saved view over `type=route` (every rule is listed wherever it's written, and its
+   * Seeds the Note mover view once: a saved view over the rules (every rule is listed wherever it's written, and its
    * hand order is the rules' tie order), one of the outline's own views like Bookmarks (`system-view`, author system:
    * never a change to catch up on), which the person can rename or move. Gone, it isn't given again. Then the seeded rules (PIE-1011's seam), each once.
    */
@@ -402,11 +409,9 @@ export class NoteRouting {
       if (existing) this.store.writeMetadata(HUB_METADATA, existing.id);
       else {
         const hub = this.store.create([
-          `Routing [page::${HUB_PAGE}] [type::virtual-branch] [system-view::${HUB_PAGE}] [query::type=${ROUTE_TYPE}] [limit::200]`,
+          `Note mover [page::${HUB_PAGE}] [type::virtual-branch] [system-view::${HUB_PAGE}] [query::${RULES_QUERY}] [limit::200]`,
           "",
-          "Notes route themselves by the rules listed here, and a rule is a note anywhere in the outline: its properties are type (route), query (which notes, in the saved views' grammar: type=recipe) and route-to (where they go: a note's ((id)), a [[page]], a Work ID, inbox or root). Optional: route-when (create, the default: new notes; edit: every save; command: only when asked), route-order (a number; lower first) and route-at (top, the default, or end).",
-          "",
-          "First match wins: by route-order, then the order of this view, then the order written. A match moves the note as ext:route, one revision, with a history under the rule. `ep0ch route <note> --dry-run` says what would move where and why; `ep0ch route --all` routes every note; in the door, alt+z routes the note you read.",
+          NOTE_MOVER_VIEW_WORDS,
         ].join("\n"), null, "system");
         this.store.writeMetadata(HUB_METADATA, hub.id);
       }

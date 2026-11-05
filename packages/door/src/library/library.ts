@@ -10,6 +10,7 @@
 // `act`. Too narrow for the rail beside a readable page, the rail folds into the header (‹ name ›, `,` `.` step).
 // A screen spec (`library`) of one tile kind; every key and click runs one of LIBRARY_ACTIONS or the lists' actions.
 import { axisValues, componentIsLive, grid, spaceSize, spaceVariations, sweep, variation, variationText, type ComponentSchema, type SpaceFilter, type Variation } from "@ep0ch/outline-core/component-schema";
+import { currentComponentId } from "@ep0ch/outline-core/note-mover-rename";
 import type { ListGroup } from "@ep0ch/outline-core/list-row";
 import { stringFrame } from "../canvas";
 import { componentsOf } from "../component-schemas";
@@ -594,7 +595,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     run({ name, by }, { pane }) {
       whole("by", by);
       const p = libraryOf(pane), all = p.schemas();
-      const at = name !== undefined ? all.findIndex(s => s.id === name) : step(all.findIndex(s => s.id === p.schema().id), by ?? 1, all.length);
+      const at = name !== undefined ? all.findIndex(s => s.id === currentComponentId(name)) : step(all.findIndex(s => s.id === p.schema().id), by ?? 1, all.length);
       if (at < 0) throw new ActionRefused(`no component ${name}; components: ${all.map(s => s.id).join(", ")}`);
       p.show(all[at]!.id);
       return { component: p.component, title: all[at]!.title, group: all[at]!.group };

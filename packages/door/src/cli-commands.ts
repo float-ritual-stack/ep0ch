@@ -196,7 +196,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   { name: "mirror", group: "Notes", summary: "Keep a folder of exported notes up to date", moreOnly: true,
     synopsis: "mirror <dir> [--once]", flags: [...target, ["--once", "Export once and exit"]],
     examples: ["ep0ch mirror ./notes --once --ws garden", "ep0ch mirror ./notes --ws garden"] },
-  { name: "route", group: "Notes", summary: "File notes using the outline's routing rules", moreOnly: true,
+  { name: "route", group: "Notes", summary: "File notes using the outline's note mover rules", moreOnly: true,
     synopsis: "route <note> | --all [--dry-run]", flags: [ws, ["--all", "Route every note"], ["--dry-run", "Show moves without making them"], json],
     examples: ["ep0ch route '[[seed-plan]]' --ws garden", "ep0ch route --all --dry-run --ws garden"] },
   { name: "reader", group: "Notes", summary: "Read the web reader's page and selection", moreOnly: true,
