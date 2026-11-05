@@ -127,6 +127,33 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
     expect(d.lines[d.row]).toStartWith(label);
   });
 
+  const closed = async (r: NonNullable<typeof last>) => {
+    for (let i = 0; i < 4 && r.reader.surface.editing; i++) { h.press({ kind: "esc" }); screen(); await Bun.sleep(20); }
+    await until(() => { screen(); return !r.reader.surface.editing; }, "the edit closed");
+  };
+
+  test("the wheel, e, esc with nothing done: the reading line stays where it was, so the next j starts from the view's top", async () => {
+    const r = await reading(`Left beans ${cols}`);
+    for (let i = 0; i < 30; i++) r.feed(r.wheel);
+    const place = r.reader.surface.position.reading, first = r.reader.surface.viewport()!.first!;
+    const d = await opened(r);
+    expect(d.row).toBeGreaterThan(0);                      // the open placed the cursor in view
+    await closed(r);
+    expect(r.reader.surface.position.reading).toBe(place);
+    r.feed("j");
+    expect(r.reader.surface.readingSourceLine()).toBeGreaterThanOrEqual(first - 1);
+  });
+
+  test("the wheel, e, a move, esc: the reading line goes where the person took the cursor", async () => {
+    const r = await reading(`Moved beans ${cols}`);
+    for (let i = 0; i < 30; i++) r.feed(r.wheel);
+    const d = await opened(r);
+    r.feed("\x1b[B");                                      // ↓: the person's own move
+    const row = d.row;
+    await closed(r);
+    expect(r.reader.surface.readingSourceLine()).toBe(row);
+  });
+
   test("the reading line left below, then wheeled back to the top: the edit opens on the title", async () => {
     const title = `Topped beans ${cols}`, r = await reading(title);
     for (let i = 0; i < 40; i++) r.feed("j");

@@ -1040,6 +1040,9 @@ export class Draft {
    * onto the first row with text in view, so the first key lands where the person is looking and nothing jumps.
    */
   landInView = false;
+  /** Where that first draw put the cursor: an edit closed with the cursor still here leaves the reading line alone. */
+  landed: { row: number; col: number } | null = null;
+  get stillLanded() { return !!this.landed && this.landed.row === this.row && this.landed.col === this.col; }
   /** The column up and down keep to (cells from the row's left), while they repeat. */
   goal: number | null = null;
   private selectAsk() {

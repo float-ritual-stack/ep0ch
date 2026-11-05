@@ -135,6 +135,20 @@ describe("an agent's patch keeps the person's place", () => {
     expect(v.render(W, 7).map(visible)[0]).not.toContain("Tansy");
   });
 
+  test("an open landing in view with only a drawing in view leaves the cursor where it was (PIE-1579)", () => {
+    const d = new Draft("note-drawn", 4, ["Tansy", ...Array.from({ length: 10 }, (_, i) => `bed ${i + 1}`), "run the count", "after it"].join("\n"));
+    const v = draftView(d);
+    v.kept = line => (line === 11 ? Array.from({ length: 30 }, (_, i) => `drawn ${i + 1}`) : []);
+    d.follow = false;
+    v.render(W, H);
+    v.scrollBy(14);
+    expect(v.render(W, H).map(visible).every(l => l.includes("drawn"))).toBe(true);
+    d.landInView = true;
+    v.render(W, H);
+    expect(d.row).toBe(0);
+    expect(d.landed).toBeNull();
+  });
+
   test("a note that fits draws from its first row with the view not following too: an open, seeded by the reader's top", () => {
     const d = new Draft("note-opened", 4, ["Tansy", "one", "two", "three", "four", "five", "six"].join("\n"));
     const v = draftView(d);

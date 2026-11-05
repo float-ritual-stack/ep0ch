@@ -223,9 +223,11 @@ export class RawRows {
     if (d.follow || !rows.length) return;
     const top = rows.length <= h ? 0 : Math.max(0, Math.min(this.top, lastTop(rows.length, h))), at = this.cursorIn(rows).vi;
     if (at >= top && at < top + h) return;
-    const shown = rows.slice(top, top + h), first = shown.findIndex(r => !r.status && r.end > r.start);
-    const p = this.posIn(rows, top + Math.max(0, first), 0);
-    d.row = p.row; d.col = p.col;
+    // A status or a drawing is no place to type, and its line can be above the view: with only those in view, the cursor stays.
+    const shown = rows.slice(top, top + h), first = [shown.findIndex(r => !r.status && r.end > r.start), shown.findIndex(r => !r.status)].find(i => i >= 0);
+    if (first === undefined) return;
+    const p = this.posIn(rows, top + first, 0);
+    d.row = p.row; d.col = p.col; d.landed = p;
   }
 
   /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */

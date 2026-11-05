@@ -3302,7 +3302,7 @@ export class NoteSurface {
    */
   private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
-    if (!this.replyParent) this.position.reading = s.draft.offsetOf(s.draft.row, 0);
+    if (!this.replyParent && !s.draft.stillLanded) this.position.reading = s.draft.offsetOf(s.draft.row, 0);
     this.endPreviewDraft();
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
