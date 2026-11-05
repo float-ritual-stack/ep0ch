@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Shift+3 types # in Claude Code inside a terminal tile
+
+- **A shifted key is its character again.** A program that asked the tile for the Kitty keyboard protocol without "all keys as escape codes" (Claude Code pushes flags 1) got every key as a report, so Shift+3 came as `CSI 51;2u` and Claude Code typed `3`; a plain shell, and Claude Code under `TERM=xterm-256color`, were fine. A key that types text with nothing but shift held now reaches such a program as its text (`#`, `A`), as the protocol says; ctrl, alt and cmd combinations, Shift+Enter and keys under flag 8 are reported as before.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### One ctrl+] takes your keys out of a shell in a group (PIE-1574)
 
 - **It says what happened.** Typing in a shell inside a group, ctrl+] said `out of the group` while the keys stayed with the shell, so a `1` or a ctrl+z landed at its prompt. It now says `back to the door`, on the screen and in the drawer's group, and the door has the keys. A second ctrl+] soon after goes to the program, as on a screen; a ctrl+] once you're out of the program comes out of the group.

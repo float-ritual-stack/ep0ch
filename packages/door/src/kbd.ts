@@ -7,7 +7,8 @@
 // - Inward (src/desk/pty.ts): the door is a terminal tile's terminal. `KbdModes` follows what the program asked
 //   for (push, pop, set; its `CSI ? u` query is answered), and the person's keys reach it encoded that way:
 //   the report as it came when the program asked for the protocol, legacy bytes when it didn't (Shift+Enter
-//   as `ESC CR`, as alt+enter: a newline in Claude Code and most line editors).
+//   as `ESC CR`, as alt+enter: a newline in Claude Code and most line editors). A key that types text stays
+//   text (`#` for Shift+3) unless the program asked for all keys as escape codes (flag 8).
 import { hyperOn } from "./hyper";
 import type { Key } from "./term";
 
@@ -63,12 +64,17 @@ export function parseReport(seq: string): (KeyReport & { length: number }) | nul
   return { code: Number(m[1]), shifted: num(m[2]), base: num(m[3]), mods: Math.max(0, (num(m[4]) ?? 1) - 1), event: num(m[5]) ?? 1, ...(m[5] ? { eventType: true as const } : {}), length: m[0].length };
 }
 
-const SHIFT = 1, ALT = 2, CTRL = 4, SUPER = 8;
+const SHIFT = 1, ALT = 2, CTRL = 4, SUPER = 8, LOCKS = 64 | 128;
+
+/** The report is of a key that produces text (a printable codepoint, or a keypad key that stands for one). */
+function isTextReport(r: KeyReport): boolean {
+  const kp = KEYPAD[r.code], code = typeof kp === "number" ? kp : r.code;
+  return typeof kp !== "object" && code >= 32 && code !== 127 && !(code >= 0xe000 && code <= 0xf8ff) && code <= 0x10ffff;
+}
 
 /** A report of ⌃⌥⇧⌘ held with a printable key (a release too), while the hyper layer is on: the door's, never a program's. */
 export function isHyperReport(r: KeyReport): boolean {
-  const kp = KEYPAD[r.code], code = typeof kp === "number" ? kp : r.code;
-  return typeof kp !== "object" && (r.mods & 15) === 15 && code > 32 && code !== 127 && !(code >= 0xe000 && code <= 0xf8ff) && code <= 0x10ffff && hyperOn();
+  return (r.mods & 15) === 15 && r.code !== 32 && isTextReport(r) && hyperOn();
 }
 
 /**
@@ -141,8 +147,17 @@ export function rawKey(s: string): Key | null {
   return s.length === 2 && s[0] === "\x1b" && /^[A-Za-z0-9]$/.test(s[1]!) ? { kind: "alt", ch: s[1]! } : null;
 }
 
-/** The report for a program with the protocol on, carrying only what its `flags` asked for. */
+/**
+ * The report for a program with the protocol on, carrying only what its `flags` asked for. Unless it asked for all
+ * keys as escape codes (flag 8), a key that produces text with no modifier but shift (the lock keys aren't reported
+ * for text keys) is its text, the shifted key when shift is held: Shift+3 is `#`, never `CSI 51;2u` (which Claude
+ * Code read as a `3`). Its release is still a report under flag 2, as Kitty sends it; caps lock upper-cases a letter.
+ */
 export function kittyBytes(r: KeyReport, flags: number): string {
+  if (!(flags & 8) && r.event !== 3 && !(r.mods & ~(SHIFT | LOCKS)) && isTextReport(r)) {
+    const text = legacyBytes(r);
+    return r.mods & 64 && !(r.mods & SHIFT) ? text.toUpperCase() : text;   // caps lock: a letter typed upper case
+  }
   if (r.event === 3 && !(flags & 2)) return "";
   if (r.legacy) {
     const ev = flags & 2 && r.event > 1 ? `:${r.event}` : "", eventIn = flags & 2 && r.eventType ? `:${r.event}` : ev;
