@@ -1,4 +1,6 @@
 // The CLI's vocabulary and descriptions live here: help, completion and typo suggestions read these records.
+import { extFlagRows, extFlagUsage } from "@ep0ch/outliner/extension-flags";
+
 export type CliFlag = readonly [flag: string, description: string, argument?: "value" | "none" | "rest" | "screen"];
 export const HELP_FLAGS: readonly CliFlag[] = [["--help, -h", "Show this help"], ["--more", "With help, include detailed rules"]];
 export interface CliCommand {
@@ -143,8 +145,9 @@ export const BACKUP_COMMANDS: readonly CliCommand[] = [
 const ext = sub("ext", "Extensions");
 export const EXT_COMMANDS: readonly CliCommand[] = [
   ext("ls", "List the outline's extensions, what each serves and its schedules", "ls [--long] [--json]", [ws, ["--long", "Folders, arguments and schedules"], json], ["ls --ws garden", "ls --long --ws garden"]),
-  ext("add", "Install an extension by name or from a folder", "add <name|path> [--outline-folder <path>]", [ws, ["--outline-folder <path>", "Install into this outline's extensions folder"], json], ["add horoscope --ws garden", "add ./my-extension --ws garden"]),
-  ext("remove", "Uninstall an extension", "remove <name>", [ws, json], ["remove horoscope --ws garden", "remove my-extension --ws garden"]),
+  ext("add", "Install an extension by name or from a folder", `add <name|path> ${extFlagUsage("add")}`, [ws, ...extFlagRows("add")], ["add horoscope --ws garden", "add ./my-extension --ws garden"]),
+  ext("remove", "Uninstall an extension: the outline's own copy, else the machine's", `remove <name> ${extFlagUsage("remove")}`, [ws, ...extFlagRows("remove")], ["remove horoscope --ws garden", "remove horoscope --user-folder"]),
+  ext("update", "Refresh a copy of a built-in, by name: the outline's own, else the machine's (or --all: every folder)", `update [<name>] ${extFlagUsage("update")}`, [ws, ...extFlagRows("update")], ["update horoscope --ws garden", "update --all --keep-forked"]),
   ext("act", "Run one of an extension's actions, as the extension", "act <name> <action> [--block <id>]", [ws, ["--block <id>", "Run it on this note"], json], ["act horoscope today --ws garden", "act horoscope today --block '[[seed-plan]]' --ws garden"]),
   ext("run", "Run one of an extension's schedules now", "run <name> <action:id|handler:key>", [ws, json], ["run weather handler:refresh --ws garden", "run weather action:fetch --ws garden"]),
 ];
@@ -270,8 +273,8 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   { name: "log", group: "Sessions", summary: "Read or follow session messages",
     synopsis: "log [--follow]", flags: [...target, ["--follow", "Follow new messages as JSON lines"]],
     examples: ["ep0ch log --ws garden", "ep0ch log --ws garden --follow"] },
-  { name: "ext", group: "Extensions", summary: "List, add, remove or run an extension",
-    synopsis: "ext ls | add <name|path> | remove <name> | act <name> <action> | run <name> <action:id|handler:key>",
+  { name: "ext", group: "Extensions", summary: "List, add, remove, update or run an extension",
+    synopsis: "ext ls | add <name|path> | remove <name> | update <name> | act <name> <action> | run <name> <action:id|handler:key>",
     flags: [ws, json], children: EXT_COMMANDS, guide: "ep0ch docs extensions",
     examples: ["ep0ch ext ls --ws garden", "ep0ch ext add horoscope --ws garden"] },
   { name: "library", group: "Extensions", summary: "Browse components and their examples",

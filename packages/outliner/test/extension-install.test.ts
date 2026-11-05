@@ -1,10 +1,11 @@
 // `outliner ext add` (wave A): copies a built-in into the user folder and seeds config.json from an
 // existing resource-extensions.json entry. Made-up paths and names only.
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addExtension } from "../src/extension-install";
+import { EXT_FLAGS } from "../src/extension-flags";
 import { ResourceExtensionRuntime } from "../src/resource-extensions";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -281,3 +282,139 @@ test("ext remove of a name nobody has says every folder it looked in", async () 
     expect(result.output).toContain(join(root, "outlines", "garden-notes", "extensions"));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+/** `ext …` run from `cwd` on a scratch outlines folder with no service answering (PIE-1548). */
+async function extFrom(root: string, cwd: string, args: string[], env: Record<string, string> = {}) {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), "ext", ...args], {
+    cwd,
+    env: { ...process.env, EP0CH_WS: "", EP0CH_MACHINE: "", EP0CH_OUTLINES: join(root, "outlines"), OUTLINER_EXTENSIONS_DIR: join(root, "user-extensions"),
+      EP0CH_SOCKET: join(root, "absent.sock"), XDG_CONFIG_HOME: join(root, "config"), ...env },
+    stdout: "pipe", stderr: "pipe", stdin: "ignore",
+  });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  return { code, output: stdout + stderr };
+}
+
+/** A folder two levels under the one whose `.ep0ch/config.toml` names `outline`. */
+function boundSubfolder(root: string, outline: string, machine?: string): string {
+  const project = join(root, "project");
+  mkdirSync(join(project, ".ep0ch"), { recursive: true });
+  writeFileSync(join(project, ".ep0ch", "config.toml"), `ws = "${outline}"\n${machine ? `machine = "${machine}"\n` : ""}`);
+  const deep = join(project, "beds", "north");
+  mkdirSync(deep, { recursive: true });
+  return deep;
+}
+
+function userCopy(root: string, id: string) {
+  const dir = join(root, "user-extensions", id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "extension.json"), JSON.stringify({ contract: 2, id, name: "Garden", version: 1 }));
+  return dir;
+}
+
+function withScratch(run: (root: string) => Promise<void>) {
+  return async () => {
+    const root = mkdtempSync(join(tmpdir(), "outliner-ext-pick-"));
+    try {
+      mkdirSync(join(root, "user-extensions"));
+      await run(root);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  };
+}
+
+test("ext remove <name> from a subfolder takes the outline's own copy", withScratch(async (root) => {
+  const copy = outlineCopy(root, "garden-notes", "garden");
+  const result = await extFrom(root, boundSubfolder(root, "garden-notes"), ["remove", "garden"]);
+  expect(result.output).toContain(`removed ${copy} (garden-notes's folder)`);
+  expect(result.code).toBe(0);
+  expect(existsSync(copy)).toBe(false);
+}));
+
+test("ext remove falls back to the machine's copy, and --ws names the outline from anywhere", withScratch(async (root) => {
+  mkdirSync(join(root, "outlines", "garden-notes"), { recursive: true });
+  const user = userCopy(root, "garden");
+  const here = boundSubfolder(root, "garden-notes");
+  const result = await extFrom(root, here, ["remove", "garden"]);
+  expect(result.code).toBe(0);
+  expect(result.output).toContain("the user folder");
+  expect(existsSync(user)).toBe(false);
+  // EP0CH_WS (what `ep0ch --ws` sets) wins over the .ep0ch.
+  const orchard = outlineCopy(root, "orchard", "garden");
+  expect((await extFrom(root, here, ["remove", "garden"], { EP0CH_WS: "orchard" })).code).toBe(0);
+  expect(existsSync(orchard)).toBe(false);
+}));
+
+test("ext remove of a copy in both places refuses with both paths and the two commands, then each flag picks", withScratch(async (root) => {
+  const own = outlineCopy(root, "garden-notes", "garden"), user = userCopy(root, "garden");
+  const here = boundSubfolder(root, "garden-notes");
+  const refused = await extFrom(root, here, ["remove", "garden", "--demo", "remove"]);
+  expect(refused.code).toBe(1);
+  expect(refused.output).toContain(own);
+  expect(refused.output).toContain(user);
+  const outlineCommand = `ep0ch ext remove garden --outline-folder ${join(root, "outlines", "garden-notes")} --demo remove`;
+  const userCommand = "ep0ch ext remove garden --user-folder --demo remove";
+  expect(refused.output).toContain(outlineCommand);
+  expect(refused.output).toContain(userCommand);
+  expect(existsSync(own) && existsSync(user)).toBe(true);
+  // The commands it named do what they say, each taking only its own copy.
+  expect((await extFrom(root, here, ["remove", "garden", "--user-folder"])).code).toBe(0);
+  expect(existsSync(user)).toBe(false);
+  expect(existsSync(own)).toBe(true);
+  expect((await extFrom(root, here, ["remove", "garden", "--outline-folder", join(root, "outlines", "garden-notes")])).code).toBe(0);
+  expect(existsSync(own)).toBe(false);
+  // One picks one.
+  const both = await extFrom(root, here, ["remove", "garden", "--user-folder", "--outline-folder", join(root, "outlines", "garden-notes")]);
+  expect(both.code).toBe(1);
+  expect(both.output).toContain("--outline-folder or --user-folder");
+}));
+
+test("ext remove of an outline on another machine says so and names the command there", withScratch(async (root) => {
+  // Outside agent-env, so the .ep0ch's machine counts (a scratch shell sets it aside).
+  const env = { EP0CH_AGENT_ENV: "" };
+  const result = await extFrom(root, boundSubfolder(root, "garden-notes", "box-a"), ["remove", "garden"], env);
+  expect(result.code).toBe(1);
+  expect(result.output).toContain("garden-notes is on box-a");
+  expect(result.output).toContain("ssh box-a ep0ch ext remove garden --ws garden-notes");
+  expect(result.output).not.toContain("no outline is named");
+}));
+
+test("ext update <name> looks where remove does; --all still takes every folder", withScratch(async (root) => {
+  const here = boundSubfolder(root, "garden-notes");
+  // moon is a real built-in: its copies here are older, so an update refreshes them.
+  const copyOf = (dir: string) => { mkdirSync(dir, { recursive: true }); cpSync(join(import.meta.dir, "../extensions/moon"), dir, { recursive: true }); writeFileSync(join(dir, "stray.ts"), "// changed here\n"); return dir; };
+  const own = copyOf(join(root, "outlines", "garden-notes", "extensions", "moon"));
+  const other = copyOf(join(root, "outlines", "orchard", "extensions", "moon"));
+  const named = await extFrom(root, here, ["update", "moon", "--keep-forked", "--json"]);
+  expect(named.code).toBe(0);
+  expect(JSON.parse(named.output.trim())).toMatchObject([{ id: "moon", where: "garden-notes", dir: own }]);
+  // Both places: refused, with the two commands.
+  const user = copyOf(join(root, "user-extensions", "moon"));
+  const refused = await extFrom(root, here, ["update", "moon", "--yes"]);
+  expect(refused.code).toBe(1);
+  expect(refused.output).toContain(`ep0ch ext update moon --outline-folder ${join(root, "outlines", "garden-notes")} --yes`);
+  expect(refused.output).toContain("ep0ch ext update moon --user-folder --yes");
+  expect(refused.output).toContain(user);
+  const picked = await extFrom(root, here, ["update", "moon", "--user-folder", "--keep-forked", "--json"]);
+  expect(JSON.parse(picked.output.trim())).toMatchObject([{ where: "user", dir: user }]);
+  // Only another outline has it, from a folder that names none: named with its command, nothing touched.
+  rmSync(user, { recursive: true });
+  const elsewhere = await extFrom(root, root, ["update", "moon", "--keep-forked"]);
+  expect(elsewhere.code).toBe(1);
+  expect(elsewhere.output).toContain(`ep0ch ext update moon --outline-folder ${join(root, "outlines", "orchard")}`);
+  expect(elsewhere.output).toContain("ep0ch ext add moon");
+  const all = await extFrom(root, here, ["update", "--all", "--keep-forked", "--json"]);
+  expect(JSON.parse(all.output.trim()).map((copy: { where: string }) => copy.where).sort()).toEqual(["garden-notes", "orchard"]);
+  expect(existsSync(other)).toBe(true);
+}));
+
+test("every flag ext remove and ext update list parses, and a flag not listed is refused", withScratch(async (root) => {
+  for (const [verb, name] of [["remove", "absent"], ["update", "moon"], ["add", "absent"]] as const) {
+    for (const flag of EXT_FLAGS[verb]) {
+      const args = [verb, name, `--${flag.name}`, ...(flag.value ? [flag.name === "demo" ? "keep" : join(root, "nowhere")] : [])];
+      if (flag.name === "all") args.splice(1, 1);
+      const result = await extFrom(root, root, args);
+      expect(result.output).not.toContain("Unknown option");
+    }
+    expect((await extFrom(root, root, [verb, name, "--no-such-flag"])).output).toContain("Unknown option");
+  }
+}));
