@@ -304,3 +304,23 @@ describe("a terminal tile's program", () => {
     } finally { p.input("q"); p.kill(); }
   });
 });
+
+// Nov 5, Evan: Shift+3 typed 3 in Claude Code in a door tile. The spec: unless a program asks for flag 8 (report all
+// keys as escape codes), a key that types text with nothing but Shift (or a lock) arrives as that text.
+describe("a key that types text reaches a program as its text, unless it asked for every key as a code", () => {
+  test("shift+3 is #, a and A are themselves, a release under flag 2 sends nothing", () => {
+    expect(translateReports("\x1b[51:35;2u", 1)).toBe("#");
+    expect(translateReports("\x1b[97u", 1)).toBe("a");
+    expect(translateReports("\x1b[97:65;2u", 1)).toBe("A");
+    expect(translateReports("\x1b[51:35;2:1u\x1b[51:35;2:3u", 3)).toBe("#");
+    expect(translateReports("\x1b[233u", 1)).toBe("é");
+  });
+  test("Esc, Enter with Shift, ctrl and alt chords and every key under flag 8 stay codes", () => {
+    expect(translateReports("\x1b[27u", 1)).toBe("\x1b[27u");
+    expect(translateReports("\x1b[13;2u", 1)).toBe("\x1b[13;2u");
+    expect(translateReports("\x1b[99;5u", 1)).toBe("\x1b[99;5u");
+    expect(translateReports("\x1b[97;3u", 1)).toBe("\x1b[97;3u");
+    expect(translateReports("\x1b[51:35;2u", 9)).toBe("\x1b[51;2u");
+    expect(translateReports("\x1b[51:35;2u", 13)).toBe("\x1b[51:35;2u");
+  });
+});

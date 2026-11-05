@@ -149,11 +149,27 @@ export function kittyBytes(r: KeyReport, flags: number): string {
     const tail = r.mods || eventIn ? `;${r.mods + 1}${eventIn}` : "";
     return r.legacy.final === "~" ? `\x1b[${r.legacy.n}${tail}~` : `\x1b[${tail ? `1${tail}` : ""}${r.legacy.final}`;
   }
+  const text = flags & 8 ? null : typedText(r);
+  if (text !== null) return r.event === 3 ? "" : text;
   let s = `\x1b[${r.code}`;
   if (flags & 4 && (r.shifted || r.base)) s += `:${r.shifted ?? ""}${r.base ? `:${r.base}` : ""}`;
   const ev = flags & 2 && r.event > 1 ? `:${r.event}` : "";
   if (r.mods || ev) s += `;${r.mods + 1}${ev}`;
   return `${s}u`;
+}
+
+/**
+ * The text a key types, when it types text with nothing but Shift or a lock held: under flags 1–4 such a key reaches
+ * the program as that text, not a code (only flag 8 asks for every key as a code). Shift+3 is `#`, its shifted key,
+ * not `CSI 51;2u`, which Claude Code reads as 3. Null for Esc, Enter, Tab, Backspace, the private-use keys (arrows,
+ * F-keys, bare modifiers) and any chord with alt, ctrl or super.
+ */
+function typedText(r: KeyReport): string | null {
+  if (r.mods & ~(SHIFT | 64 | 128) || r.code < 32 || r.code === 127 || (r.code >= 57344 && r.code <= 63743)) return null;
+  const shift = !!(r.mods & SHIFT);
+  if (shift && r.shifted) return String.fromCodePoint(r.shifted);
+  const ch = String.fromCodePoint(r.code);
+  return shift !== !!(r.mods & 64) ? ch.toUpperCase() : ch;
 }
 
 /**
