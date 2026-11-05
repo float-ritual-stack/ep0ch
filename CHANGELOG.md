@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The component that moves notes is note-mover (PIE-1314)
+
+- Write a rule as `[note-mover::((target))] [query::…]`; `::note-` completes it and the component library lists Note mover.
+- An old `[type::route]` rule keeps moving notes and warns on save with the rule it means; `ep0ch route` and the wire keep their names.
+- **Run:** `ep0ch install --apply` (GRAMMAR 33), then once per outline `bun packages/outliner/scripts/rename-route-to-note-mover.ts --ws <outline> --apply` (a dry run without `--apply`). pie and gurgle are done; float-hub on the laptop is still to run.
+
+### `{{this.work-id}}` draws the Work ID
+
+- A template's `{{this.work-id}}` shows the note's Work ID (PIE-123), not its title.
+- **Run:** `ep0ch install --apply` (GRAMMAR 34).
+
+### An edit opened after scrolling starts where you can see (PIE-1579)
+
+- After a wheel or PageDown, `e` opens with the cursor on the top visible row, so what you type lands on screen; Esc without typing keeps your reading place.
+- **Run:** `ep0ch install --apply`. No protocol, grammar or schema change.
+
 ### Shift+3 types # in Claude Code inside a terminal tile
 
 - **A shifted key is its character again.** A program that asked the tile for the Kitty keyboard protocol without "all keys as escape codes" (Claude Code pushes flags 1) got every key as a report, so Shift+3 came as `CSI 51;2u` and Claude Code typed `3`; a plain shell, and Claude Code under `TERM=xterm-256color`, were fine. A key that types text with nothing but shift held now reaches such a program as its text (`#`, `A`), as the protocol says; ctrl, alt and cmd combinations, Shift+Enter and keys under flag 8 are reported as before.
