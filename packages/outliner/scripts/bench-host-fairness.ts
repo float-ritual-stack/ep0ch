@@ -47,7 +47,7 @@ const importCount = Number(values.import ?? 3000);
 const opsBudget = Number(values["ops-budget"] ?? 200);
 // A whole-outline query waits behind the Tree's and the doors' reads of the same change (on main: p95 ~1.5 s).
 const queryBudget = Number(values["query-budget"] ?? 1_000);
-const root = mkdtempSync(join(process.env.EP0CH_BENCH_TMP ?? tmpdir(), "host-fairness-"));
+const root = mkdtempSync(join(process.env.EP0CH_BENCH_TMP || tmpdir(), "host-fairness-"));
 const outlines = join(root, "outlines");
 const socket = join(outlines, ".host", "host.sock");
 const OUTLINE = "bench";

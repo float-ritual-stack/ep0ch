@@ -28,7 +28,8 @@ EP0CH_PROGRAM_STATUS=0 "$repo/scripts/box-test" --on float-box --ref "$sha" --ea
 code=$?
 secs=$(( $(date +%s) - start ))
 # The files that failed: the file header bun prints before a run of tests, kept when a (fail) line follows it.
-red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^\(fail\)/{if (f != "") print f}' "$log" | sort -u)
+# bun's summary at a suite's end repeats each (fail) under no file: it would be pinned on whichever file ran last.
+red=$(awk '/\.test\.ts:$/{f=$0; sub(/:$/, "", f)} /^[0-9]+ tests? failed:$/{f=""} /^\(fail\)/{if (f != "") print f}' "$log" | sort -u)
 count=$(printf '%s' "$red" | grep -c . || true)
 
 # The budget: the comparison box-test printed at the end of the log, decided here (0 within, 3 near, 4 over, 5 none).
