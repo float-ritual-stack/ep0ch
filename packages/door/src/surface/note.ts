@@ -4,7 +4,7 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
-import { heroLinkSpans, pictureRows, placePictures, scriptHero } from "./picture-rows";
+import { drawnImagesOf, fenceRowStep, heroLinkSpans, notArtifact, pictureFences, pictureRows, pictureSourceOf, placePictures, scriptHero, sizeStep } from "./picture-rows";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
@@ -100,7 +100,7 @@ import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, u
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, fileName, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, fileName, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseImageLine, parseMediaLine, parsePictureFence, parseSize, rewriteImageLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { TONE_INDEX, surfaceMix } from "../theme";
@@ -1849,9 +1849,10 @@ export class NoteSurface {
       if (ref) out.push({ path: ref.path, kind: ref.spec.kind === "video" ? "video" : "img", ...look(ref.spec), line: ref.line, gone: this.hero.pinned ? 0 : clamp(scroll / Math.max(1, this.hero.full)) });
       if (mode === "first") return out;
     }
-    const all = m.text.split("\n"), first = doc.media[0];
+    const files = doc.media.filter(x => !x.spec.fence);
+    const all = m.text.split("\n"), first = files[0];
     const firstBlock = first && noteLines[first.line] !== undefined && all.slice(1, noteLines[first.line]).every(l => !l.trim()) ? first : undefined;
-    const body = mode === "follow" ? doc.media : [doc.media.find(x => x.spec.layout === "hero") ?? firstBlock].filter(x => x !== undefined);
+    const body = mode === "follow" ? files : [files.find(x => x.spec.layout === "hero") ?? firstBlock].filter(x => x !== undefined);
     for (const x of body) {
       const line = noteLines[x.line];
       if (line === undefined || x.spec.kind !== "img" || line === this.hero?.line || out.some(o => o.line === line && o.path === x.path)) continue;
@@ -2470,11 +2471,13 @@ export class NoteSurface {
   /** Why a press of action line `act` would be refused now (the dispatcher of the host this surface last drew for), or null. */
   private refusedPress: (act: string) => string | null = () => null;
 
+  private imageRowsMost = Infinity; // The most rows the last layout let an image take.
   private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     const d = (host?.ctx as { dispatch?: import("./dispatch").Dispatcher } | undefined)?.dispatch;
     if (d) this.refusedPress = act => { try { return d.refusedNow(actRequestOf(lineWords(act)), USER); } catch { return null; } };
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
+    this.imageRowsMost = maxImageRows;
     return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), headings: headingStylesOf(this.src), printed: this.printed,
       // A picture fence's source is the note as written (PIE-1555): decor.raw shows it, and its caption names the key.
       pictures: !this.raw, pictureSource: `${keyCaption(READER_KEYS.find(r => r.action === "decor.raw")?.key ?? "~")} shows its source` };
@@ -2563,7 +2566,7 @@ export class NoteSurface {
     const text = m.text.split("\n");
     return i => {
       const line = noteLines[i], source = line === undefined ? undefined : text[line];
-      const spec = source === undefined ? null : parseMediaLine(source);
+      const spec = source === undefined ? null : parseImageLine(source);
       return spec ? { block: m.id, line: line!, source: source!, path: spec.path } : null;
     };
   }
@@ -5504,7 +5507,7 @@ export class NoteSurface {
     }
     for (const x of doc.media) {
       const image = imageRef?.(x.line) ?? undefined;
-      out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: this.bx, to: this.bx + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path, ...(image ? { image } : {}) } });
+      out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: this.bx, to: this.bx + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.spec.fence ? x.spec.path : x.path.split("/").pop() ?? x.path, link: { media: x.path, ...(image ? { image } : {}) } });
     }
     // A code block and a quote (a callout is an element already): `[ ]` stops on them so y copies one (PIE-638).
     doc.blocks.forEach((b, n) => {
@@ -5673,6 +5676,7 @@ export class NoteSurface {
     if (!e?.link?.image || !e.link.media) return null;
     const c = ch(k);
     if (c === "+" || c === "-") return { name: "image.size", args: { by: c === "+" ? 1 : -1 } };
+    if (parsePictureFence(e.link.image.source)) return null;
     if (c === "H") return { name: "image.hero", args: {} };
     const hero = parseMediaLine(e.link.image.source)?.layout === "hero";
     if (!hero && (k.kind === "left" || k.kind === "right")) return { name: "image.align", args: { by: k.kind === "right" ? 1 : -1 } };
@@ -5699,7 +5703,7 @@ export class NoteSurface {
   imagesIn(m: Msg): (ImageRef & { spec: MediaSpec })[] {
     // The reader's own scan of the body it draws (mediaLines), each line mapped back to the note's.
     const { text, lines } = this.foldsIn(m), all = m.text.split("\n");
-    return [...mediaLines(text.split("\n"))].flatMap(([i, spec]) => {
+    return [...mediaLines(text.split("\n")), ...pictureFences(text.split("\n"))].sort(([a], [b]) => a - b).flatMap(([i, spec]) => {
       const line = lines[i], source = line === undefined ? undefined : all[line];
       return line === undefined || source === undefined ? [] : [{ block: m.id, line, source, path: spec.path, spec }];
     });
@@ -5715,7 +5719,7 @@ export class NoteSurface {
       // Its line as the note reads now (a change just saved, + pressed twice, has moved on from the last render).
       const r = this.inView()?.link?.image;
       const source = r && this.msg?.id === r.block ? this.msg.text.split("\n")[r.line] ?? r.source : r?.source;
-      const spec = source !== undefined ? parseMediaLine(source) : null;
+      const spec = source !== undefined ? parseImageLine(source) : null;
       if (r && spec) return { block: r.block, line: r.line, source: source!, path: spec.path, spec };
       throw new ActionRefused("say which image: n= or line= (images lists them), or put [ ] on an image");
     }
@@ -5735,14 +5739,7 @@ export class NoteSurface {
   }
   /** How each image is drawn now, by its note line: its cells and where it sits, or the header's rows. */
   drawnImages(): Map<number, { cols: number; rows: number; col: number } | { header: number }> {
-    const out = new Map<number, { cols: number; rows: number; col: number } | { header: number }>(), d = this.drawn;
-    if (this.hero) out.set(this.hero.line, { header: this.hero.full });
-    if (!d) return out;
-    for (const x of d.doc.media) {
-      const im = x.image !== undefined ? d.doc.images[x.image] : undefined, line = d.lines[x.line];
-      if (im && line !== undefined) out.set(line, { cols: im.cols, rows: im.rows, col: im.col });
-    }
-    return out;
+    return drawnImagesOf(this.drawn, this.hero);
   }
   /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), else a render line's drawing with it (PIE-1555): the one place that decides it. */
   heroRef(m: Msg) { const own = this.imagesIn(m).find(x => x.spec.layout === "hero"), drawn = own || !isOutlineNote(m) ? null : scriptHero(m, projectionsOf(m, this.src)); this.heroSvg = drawn?.svg ?? null; return own ?? drawn?.ref; }
@@ -5766,12 +5763,12 @@ export class NoteSurface {
   async changeImage(ref: ImageRef & { spec: MediaSpec }, set: Partial<Record<MediaAttr, string | null>>, what: string, host: SurfaceHost, actor: Actor, others: { line: number; source: string; set: Partial<Record<MediaAttr, string | null>> }[] = []) {
     const edits: LineEdit[] = [];
     for (const x of [{ line: ref.line, source: ref.source, set }, ...others]) {
-      const after = rewriteMediaLine(x.source, x.set);
+      const after = rewriteImageLine(x.source, x.set);
       if (after === null) throw new ActionRefused("that line isn't an image any more");
       if (after !== x.source) edits.push({ line: x.line, before: x.source, after });
     }
     const name = ref.path.split("/").pop() ?? ref.path;
-    const r = await this.rewriteLines(ref.block, edits, this.imageHistory, host, actor, IMAGE_STALE);
+    const r = await this.rewriteLines(ref.block, edits, this.imageHistory, host, actor, IMAGE_STALE, this.msg?.id === ref.block ? this.msg.revision : undefined);
     if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
     // The person's image stays in view as it grows or moves, so its keys keep working on it.
     if (standsAsPerson(actor, host.ctx.person?.() ?? NOBODY, "tile")) this.reveal = true;
@@ -5800,12 +5797,10 @@ export class NoteSurface {
   }
 
   /** The width `ref` steps to by `by` (one of the reader's steps: a quarter, a third, a half, two thirds, three quarters, all). */
-  sizeStep(ref: ImageRef & { spec: MediaSpec }, by: number): string | null {
-    const s = ref.spec.size, W = Math.max(1, (this.drawn?.w ?? 81) - 1);
-    const now = s === "full" ? 100 : s && "percent" in s ? s.percent : s ? (s.cells / W) * 100 : this.drawnShare(ref) ?? 50;
-    const next = by > 0 ? SIZE_STEPS.find(p => p > now + 1) : SIZE_STEPS.findLast(p => p < now - 1);
-    return next === undefined ? null : next === 100 ? "full" : `${next}%`;
-  }
+  sizeStep(ref: ImageRef & { spec: MediaSpec }, by: number) { return sizeStep(ref.spec.size, Math.max(1, (this.drawn?.w ?? 81) - 1), this.drawnShare(ref), by); }
+
+  /** The rows picture fence `ref` takes one step bigger or smaller (picture-rows.ts), or null when a step changes nothing. */
+  fenceRowStep(ref: ImageRef & { spec: MediaSpec }, by: number) { const d = this.drawn; return fenceRowStep(this.drawnImages().get(ref.line), ref.spec.height ?? HERO_ROWS, by, this.imageRowsMost, d ? d.w - d.bx - this.bxRight : Infinity); }
 
   /** A click (or ⏎ through `open`) on a figure's control: the action its key runs. */
   /** An agent's (or anyone's) `element.open` on a figure's control: figure.tab or figure.density as `actor`. */
@@ -6784,9 +6779,9 @@ export class NoteSurface {
    * Lines of note `blockId` rewritten (`edits`: each line's text as it was read and what it becomes) through the
    * note's ordinary save (`update`): one change, recorded as `actor`'s, checked against the revision the service has
    * now and against each line as it was read (`stale` is said when one isn't); an agent never underneath a draft
-   * someone has open on the note. Kept in `history` for undo. The callout header and the image line changes.
+   * someone has open on the note. Kept in `history` for undo. The callout header and the image line changes. `drawnAt`: a line the note holds twice (two fences open alike) names itself only at that revision.
    */
-  private async rewriteLines(blockId: string, edits: LineEdit[], history: UndoHistory<LineUndo>, host: SurfaceHost, actor: Actor, stale: Stale): Promise<Msg> {
+  private async rewriteLines(blockId: string, edits: LineEdit[], history: UndoHistory<LineUndo>, host: SurfaceHost, actor: Actor, stale: Stale, drawnAt?: number): Promise<Msg> {
     const board = host.ctx.board;
     const no = agentRefusal(actor, { board, blockId });
     if (no) throw new ActionRefused(no);
@@ -6795,7 +6790,7 @@ export class NoteSurface {
     if (!m) throw new ActionRefused("that note isn't there any more");
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
     const lines = m.text.split("\n");
-    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
+    if (edits.some(e => lines[e.line] !== e.before || (drawnAt !== undefined && drawnAt !== m.revision && lines.filter(l => l === e.before).length > 1))) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
     // Nothing to change (it reads that way already): checked and refused as a change would be, nothing written.
     if (!edits.length) return m;
     for (const e of edits) lines[e.line] = e.after;
@@ -8311,7 +8306,7 @@ export class NoteSurface {
     if (!keep(this.agentSelection?.sel)) this.agentSelection = null;
     const s = this.selection, rows = s && this.selRows();
     if (!s || !rows || d.top < 1) return;
-    const n = [...s.text(rows)].length, copy = "[y copy]", source = "[Y source]";
+    const n = [...(s.text(rows).trim() ? s.text(rows) : this.pictureSourceOf(s)?.text ?? "")].length, copy = "[y copy]", source = "[Y source]";
     // The passage toolbar goes on the line too: when it all fits beside the count and [Y source] they stay; else they
     // give it their room (Y still copies the source).
     const bar = this.msg && !this.msg.partial && s.text(rows).trim() ? this.passageChoices() : [];
@@ -8481,9 +8476,14 @@ export class NoteSurface {
    * source (no link or formatting inside), else the whole source lines it covers. Offsets are into the
    * note's text, as the comment passage picker takes them. Null when only the header's details are selected.
    */
+  /** The fence a selection with no words in it is over (PIE-1583). */
+  private pictureSourceOf(s: Selection) { return this.drawn && this.msg ? pictureSourceOf(s, this.drawn, this.msg.text) : null; }
+
   sourceOf(s: Selection, noteOnly = false): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
     const d = this.drawn, m = this.msg, rows = this.selRows(noteOnly);
     if (!d || !m || !rows) return null;
+    const picture = !s.text(rows).trim() ? this.pictureSourceOf(s) : null;
+    if (picture) return picture;
     const lines: number[] = [];
     for (let r = s.start.row; r <= s.end.row; r++) {
       // The title's rows, wrapped (PIE-815): the subject line.
@@ -8533,7 +8533,7 @@ export class NoteSurface {
     if (!s || !rows) return null;
     let text = s.text(rows), said = "";
     let src: ReturnType<NoteSurface["sourceOf"]> = null;
-    if (source) {
+    if (source || !text.trim() && this.pictureSourceOf(s)) {
       src = this.sourceOf(s);
       if (!src) { host.ctx.flash("no source to copy: only the header's details are selected · y copies them"); return null; }
       text = src.text;
@@ -8951,14 +8951,7 @@ const calloutTitle = (c: CalloutRef) => calloutBlocks([c.header])[0]?.title || c
 const HERO_MIN_PANE = 16;
 /** A header image's rows when the pane's height isn't known. */
 const HERO_ROWS = 10;
-/** The widths + and - step an image through, as shares of the reader (100 is `full`). */
-const SIZE_STEPS = [25, 33, 50, 66, 75, 100];
 /** What a caption control of an image does, said as its element's label. */
-/** An image action's image, refused when it's an artifact (PIE-793): an artifact takes a size, a height and a place, nothing else. */
-const notArtifact = <T extends { spec: MediaSpec }>(ref: T): T => {
-  if (ref.spec.kind === "artifact") throw new ActionRefused("that's an artifact, not an image: it takes a size, a height and a place (image.size, image.align), and artifact.open runs it");
-  return ref;
-};
 const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : "open" in c ? "open it on its web page" : "share" in c ? "share it with a link" : c.hero ? "make it the header" : "not the header";
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
 interface Stale { flash: string; refused: string; again: string }
@@ -12180,7 +12173,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         images: surface.imagesIn(m).map((x, i) => ({
           n: i + 1, line: x.line + 1, path: x.path, kind: x.spec.kind,
           ...(x.spec.size ? { size: sizeText(x.spec.size) } : {}), ...(x.spec.height ? { height: x.spec.height } : {}),
-          ...(x.spec.align ? { align: x.spec.align } : {}), ...(x.spec.layout ? { layout: x.spec.layout } : {}), ...(x.spec.fit ? { fit: x.spec.fit } : {}), ...(x.spec.dim !== undefined ? { dim: x.spec.dim } : {}), ...(x.spec.alt ? { alt: x.spec.alt } : {}),
+          ...(x.spec.align ? { align: x.spec.align } : {}), ...(x.spec.layout ? { layout: x.spec.layout } : {}), ...(x.spec.fit ? { fit: x.spec.fit } : {}), ...(x.spec.dim !== undefined ? { dim: x.spec.dim } : {}), ...(x.spec.alt ? { alt: x.spec.alt } : {}), ...(x.spec.fence ? { fence: x.spec.fence } : {}),
           ...(x.spec.problems.length ? { problems: x.spec.problems } : {}),
           drawn: d.get(x.line) ?? null,
         })),
@@ -12216,7 +12209,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "image.size": def({
-    summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by the steps image.look prop=height takes). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
+    summary: "size an image or a picture fence (PIE-532, PIE-1583): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header and on a ```svg or ```mermaid fence, its height by the steps image.look prop=height takes). Its aspect is kept. Written as [size::…] [height::…] on its line (a fence: size= height= words on its opening line) through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
     keys: "+ - while an image is the [ ] position, a click on its caption's − or +",
     touches: "draft", draft: "write", replay: "ask",
     args: {
@@ -12239,6 +12232,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (by !== undefined && hero) {
           // The same steps as the tune's height row (outline-core's HERO_PROPS), a share by shares.
           set.height = heroPropStep("height", heroPropText(ref.spec, "height") ?? String(surface.heroRowsDrawn() ?? HERO_ROWS), by);
+        } else if (by !== undefined && ref.spec.fence) {
+          const next = surface.fenceRowStep(ref, by);
+          if (next === null) { const why = by > 0 ? "it's as big as this reader draws it" : "it's at its smallest"; host.ctx.flash(why); throw new ActionRefused(why); }
+          set.height = next;
         } else if (by !== undefined) {
           const next = surface.sizeStep(ref, by);
           if (next === null) { const why = by > 0 ? "it's the full width already" : "it's at the smallest step (25%) already: image.size to= any width"; host.ctx.flash(why); throw new ActionRefused(why); }

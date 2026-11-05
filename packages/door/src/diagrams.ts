@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { mediaCache, mediaChanged } from "./media";
+import { mediaCache, mediaChanged, type PictureFence } from "./media";
 import { theme, type Rgb } from "./theme";
 
 /** The colours a picture is drawn in: the door's own ground, text and lines (dark first, never a white sheet). */
@@ -123,7 +123,7 @@ export function describeSvg(source: string): string {
 // ── the table ─────────────────────────────────────────────────────────────────
 
 /** Every fence language that draws as a picture, and how. */
-export const FENCE_PICTURES: Record<string, FencePicture> = {
+export const FENCE_PICTURES: Record<PictureFence, FencePicture> = {
   mermaid: {
     describe: describeMermaid,
     async svg(source, c, room) {
@@ -154,7 +154,7 @@ export const FENCE_PICTURES: Record<string, FencePicture> = {
 };
 
 /** The picture kind fence `language` draws as, or null when it's text (any other language, or none). */
-export const fencePictureOf = (language: string): FencePicture | null => Object.hasOwn(FENCE_PICTURES, language.toLowerCase()) ? FENCE_PICTURES[language.toLowerCase()]! : null;
+export const fencePictureOf = (language: string): FencePicture | null => Object.hasOwn(FENCE_PICTURES, language.toLowerCase()) ? FENCE_PICTURES[language.toLowerCase() as PictureFence]! : null;
 
 /** The door's colours for a picture: its palette's ground, text, blue lines and cyan arrows. */
 export function pictureColours(): PictureColours {

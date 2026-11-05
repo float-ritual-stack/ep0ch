@@ -5,6 +5,7 @@ import { isArtifactName } from "./artifacts";
 // An artifact (PIE-793) is a file claude.ai would run (`.jsx`/`.tsx`, `.html`, `.svg`, `.mermaid`): the web pages run it
 // inline in a sandboxed frame, the door draws it as a card that opens that page.
 
+import { codeFenceInfo, codeFenceOpen } from "./code-fence";
 import { noteStructure } from "./component-block";
 import { frontMatterLines } from "./header-line";
 import { propertyTokensInLine } from "./property-grammar";
@@ -50,6 +51,8 @@ export interface MediaSpec {
   kind: MediaKind; path: string;
   size?: MediaSize; width?: ContentWidth; height?: number; align?: Align; layout?: "hero"; fit?: "cover" | "contain"; dim?: number; focus?: Focus; alt?: string;
   blur?: number; bleed?: "full" | "measure"; heightShare?: number; tint?: number; fade?: number; title?: "below" | "over"; scroll?: "scroll" | "pinned";
+  /** A picture drawn from a fence (parsePictureFence), its language; a file's image has none. */
+  fence?: PictureFence;
   problems: string[];
 }
 /** A point in an image, as fractions of it across and down. */
@@ -254,6 +257,67 @@ export function artifactTitle(spec: Pick<MediaSpec, "path" | "alt">, text?: stri
  * web page frames it, and the door's open goes there. It names the note and the line, never a path.
  */
 export const artifactPagePath = (blockId: string, line: number) => `/p/${blockId}/artifact/${line}`;
+
+/** The fence languages that draw as a picture: the door's renderers and the publisher's cover exactly these. */
+export const PICTURE_FENCES = ["mermaid", "svg"] as const;
+export type PictureFence = (typeof PICTURE_FENCES)[number];
+/** What may stand before a fence's opening on its line: its indent and a list item's mark. */
+const FENCE_LEAD = /^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?/;
+/** The layout words a picture fence takes, each meaning what the media line's `[word::…]` means (`height=12` is `[height::12]`, rows). */
+const FENCE_WORDS = ["size", "height", "align"] as const;
+
+/**
+ * A picture fence's opening line (PIE-1583) as the image it draws: ` ```svg height=12 `, with `size=`, `height=` and
+ * `align=` read as a media line reads them, and what isn't one of their values a problem said on its caption. Other
+ * words in the info string are the fence's own. Null when `line` opens no picture fence. Its `path` only names it (the
+ * file is the door's, made from the fence's text).
+ */
+export function parsePictureFence(line: string): MediaSpec | null {
+  const open = codeFenceOpen(line.slice(FENCE_LEAD.exec(line)![0].length));
+  return open ? pictureFenceSpec(open.info) : null;
+}
+
+/** The image a fence's info string says it is, for a reader that has the fence parsed already; null when it draws no picture. */
+export function pictureFenceSpec(info: string): MediaSpec | null {
+  const { language, attrs } = codeFenceInfo(info), fence = PICTURE_FENCES.find(l => l === language.toLowerCase());
+  if (!fence) return null;
+  const spec: MediaSpec = { kind: "img", path: `${fence} picture`, fence, problems: [] };
+  if (attrs.size !== undefined) {
+    const size = parseSize(attrs.size);
+    if (size) spec.size = size; else spec.problems.push(`size=${attrs.size} isn't a size (cells, N% or full)`);
+  }
+  if (attrs.height !== undefined) {
+    const size = readContentSize({ height: attrs.height });
+    if (size.height !== undefined) spec.height = size.height;
+    spec.problems.push(...size.problems);
+  }
+  if (attrs.align !== undefined) {
+    const align = attrs.align.toLowerCase();
+    if ((ALIGNS as readonly string[]).includes(align)) spec.align = align as Align; else spec.problems.push(`align=${attrs.align} isn't left, center or right`);
+  }
+  return spec;
+}
+
+/** A picture fence's opening line with its layout words changed: each in `set` written, or taken out when null; the rest stays. Null when `line` opens none. */
+export function rewritePictureFence(line: string, set: Partial<Record<MediaAttr, string | null>>): string | null {
+  if (!parsePictureFence(line)) return null;
+  const lead = FENCE_LEAD.exec(line)![0], [, run = "", info = ""] = /^(`{3,}|~{3,})\s*(.*?)\s*$/.exec(line.slice(lead.length)) ?? [];
+  let words = info.split(/\s+/);
+  for (const key of FENCE_WORDS) {
+    const value = set[key];
+    if (value === undefined) continue;
+    const at = words.findIndex(w => w.startsWith(`${key}=`));
+    if (value === null) words = words.filter((_, i) => i !== at);
+    else if (at < 0) words.push(`${key}=${value}`);
+    else words[at] = `${key}=${value}`;
+  }
+  return `${lead}${run}${words.join(" ")}`;
+}
+
+/** The image a note line writes: a media line, or a picture fence's opening line. */
+export const parseImageLine = (line: string): MediaSpec | null => parseMediaLine(line) ?? parsePictureFence(line);
+/** An image's line with its layout changed, whichever form it is (rewriteMediaLine, rewritePictureFence). */
+export const rewriteImageLine = (line: string, set: Partial<Record<MediaAttr, string | null>>): string | null => rewriteMediaLine(line, set) ?? rewritePictureFence(line, set);
 
 /** A width as `[size::…]` writes it: cells, `N%` (1–100) or `full`; null when it's none of those. */
 export function parseSize(v: string): MediaSize | null {

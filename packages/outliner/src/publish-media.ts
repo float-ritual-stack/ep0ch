@@ -6,8 +6,8 @@
 // shown note names.
 //
 
-import { noteStructure } from "@ep0ch/outline-core/component-block";
-import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, parseMediaLine, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
+import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, parseMediaLine, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
 import type { ArtifactDeployState } from "@ep0ch/outline-core/artifacts";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import type { DrawnComponent } from "./publish-live";
@@ -141,6 +141,38 @@ export const MEDIA_STYLE = `
 .artifact iframe{display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light}
 `;
 
+/** A picture fence's SVG, from its language and text; null when it doesn't draw (the fence stays its source). */
+export type FenceSvg = (fence: PictureFence, source: string) => string | null;
+/** What draws the picture fences of `texts`: an svg fence's own text; pele (loaded only for a page holding a mermaid fence), its colours its own, links off. */
+export async function fenceSvg(texts: readonly string[]): Promise<FenceSvg> {
+  const holdsMermaid = texts.some(text => { const lines = text.split("\n"); return noteCodeFences(lines).some(f => pictureFenceSpec(f.fence.info)?.fence === "mermaid"); });
+  const pele = holdsMermaid ? await import("pele").catch(() => null) : null;
+  return (fence, source) => {
+    try {
+      if (fence === "mermaid") return pele?.render(source.trim(), { links: false, images: false }).svg ?? null;
+      const svg = source.trim();
+      return /^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg\b/i.test(svg) ? svg : null;
+    } catch { return null; }
+  };
+}
+
+/**
+ * A note's picture fences on a page (PIE-1583), by their opening line: each drawn as an image holding its SVG, sized as
+ * its fence's words say. An `<img>` runs no script and loads nothing, whoever wrote it. One that doesn't draw stays code.
+ */
+function drawNotePictures(text: string, components: string[], own: Map<number, DrawnComponent>, svg: FenceSvg): void {
+  const lines = text.split("\n");
+  for (const f of noteCodeFences(lines)) {
+    const spec = f.closed ? pictureFenceSpec(f.fence.info) : null;
+    if (!spec?.fence || components.length >= MAX_PUBLISHED_COMPONENTS || [...own].some(([at, c]) => at <= f.start && f.start < c.end)) continue;
+    const drawn = svg(spec.fence, lines.slice(f.start + 1, f.end).join("\n"));
+    if (!drawn) continue;
+    const src = `data:image/svg+xml;base64,${Buffer.from(drawn).toString("base64")}`;
+    components.push(mediaHtml({ ...spec, alt: spec.path, ...(spec.size || spec.height ? {} : { size: "full" as const }) }, src, undefined, false));
+    own.set(f.start, { end: f.end + 1, markdown: componentSentinel(components.length - 1) });
+  }
+}
+
 /**
  * Each note's media lines, drawn in their lines' place (`drawn`, beside the figures already there, which keep theirs):
  * in HTML a component (its sentinel), in Markdown the image or its words. `src` answers where a line's image (or
@@ -152,10 +184,13 @@ export function drawNoteMedia(
   drawn: Map<string, Map<number, DrawnComponent>>, src: (blockId: string, line: number, spec: MediaSpec) => string | null,
   first?: { id: string; title: string }, title?: (blockId: string, line: number, spec: MediaSpec) => string | undefined,
   open?: (blockId: string, line: number) => string | undefined, deploy?: (blockId: string, line: number) => ArtifactDeployState | undefined,
+  pictures?: FenceSvg,
 ): void {
   for (const note of notes) {
-    if (!/\[?(?:img|image|video|artifact)::/i.test(note.text)) continue;
     const own = drawn.get(note.id) ?? new Map<number, DrawnComponent>();
+    // A page draws them; Markdown keeps a fence as the text it is.
+    if (pictures && format === "html") { drawNotePictures(note.text, components, own, pictures); if (own.size) drawn.set(note.id, own); }
+    if (!/\[?(?:img|image|video|artifact)::/i.test(note.text)) continue;
     const taken = (line: number) => [...own].some(([at, component]) => at <= line && line < component.end);
     for (const [line, spec] of noteMediaLines(note.text)) {
       if (taken(line)) continue;

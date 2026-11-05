@@ -36,7 +36,7 @@ if (WRITES.includes(scenario)) {
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
 const wide = ["bold", "frames", "figures", "themes", "brief", "projection", "backlinks", "tree-links", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
-const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
+const COLS = Number(process.env.SNAP_COLS) || (wide ? 200 : 120), ROWS = Number(process.env.SNAP_ROWS) || (wide ? 60 : 40);
 const kitty = scenario !== "cells";
 
 const emu = new Mirror(COLS, ROWS);
@@ -52,7 +52,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -81,6 +81,57 @@ if (scenario === "box") {
   app.push(new MainMenu());
   app.push(openScreen("detail", { note: note.id, persist: false }));
   await snap("body", 1500);
+  app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "pictures") {
+  // PIE-1583, the walk: one caption, the right size line, [+] twice and [-] once by click and by key, reopened at that
+  // size. SNAP_COLS sets the width (80, 160). Also two fences of one size, a selection over a picture, and a float.
+  const svg = (fill: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1422 800" width="1422" height="800"><rect width="1422" height="800" fill="${fill}"/><circle cx="711" cy="400" r="300" fill="#4fb3c7"/></svg>`;
+  const fence = (body: string) => `\`\`\`svg\n${body}\n\`\`\``;
+  const one = await board.createBlock(null, `One bed\n\nbefore\n\n${fence(svg("#123")).replace("```svg", "```svg height=8")}\n\nafter`);
+  const two = await board.createBlock(null, `Two beds\n\n${fence(svg("#123"))}\n\n${fence(`${svg("#512")}\n<!-- the second bed -->`)}\n\nafter`);
+  const { SHOWCASE_ASSETS } = await import("../src/showcase/seed/media");
+  const file = await board.createBlock(null, `A file\n\nbefore\n\n[img::${SHOWCASE_ASSETS}/plot-plan.svg] [size::33%]\n\nafter`);
+  const flow = await board.createBlock(null, "A flow\n\n\`\`\`mermaid\nflowchart LR\n  A[Sow] --> B[Water]\n\`\`\`\n\nafter");
+  const rows = () => emu.text();
+  const source = async (id: string) => (await board.read(id))!.text.split("\n").filter(l => (/^```/.test(l) && l !== "```") || l.startsWith("[img::")).join(" | ").replace(/\[img::[^\]]*\//, "[img::");
+  const said = (name: string) => console.log(`${name}: ${rows().map(l => l.trim().replace(/^[║│]\s*/, "")).filter(l => /(picture|diagram|plot-plan\.svg).*(·|rows)/.test(l)).join(" / ")}`);
+  const mouse = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+  const clickOn = (text: string) => { const y = rows().findLastIndex(l => l.includes(text)); if (y < 0) throw new Error(`no ${text} on screen:\n${rows().join("\n")}`); mouse(rows()[y]!.indexOf(text) + 1, y); };
+  const open = (id: string) => { app.push(openScreen("detail", { note: id, persist: false })); };
+  app.push(new MainMenu());
+  for (const [name, note] of [["one", one], ["flow", flow], ["file", file]] as const) {
+    open(note.id);
+    await snap(`${name}-first`, 2500); said(`${name} first`); console.log("  source:", await source(note.id));
+    clickOn("[+]"); await snap(`${name}-click1`, 700); clickOn("[+]"); await snap(`${name}-click2`, 700); clickOn("[-]"); await snap(`${name}-click3`, 700);
+    said(`${name} [+][+][−] by click`); console.log("  source:", await source(note.id));
+    ch("+"); await snap(`${name}-key1`, 700); ch("+"); await snap(`${name}-key2`, 700); ch("-"); await snap(`${name}-key3`, 700);
+    said(`${name} + + - by key`); console.log("  source:", await source(note.id));
+    app.pop(); await Bun.sleep(300); open(note.id);
+    await snap(`${name}-reopened`, 2000); said(`${name} reopened`);
+  }
+  open(two.id);
+  await snap("two", 2500); said("two fences");
+  open(one.id);
+  await snap("select-before", 1500);
+  const y = rows().findIndex(l => l.includes("before")) + 3;
+  press({ kind: "mouse", action: "down", button: 0, x: 30, y });
+  press({ kind: "mouse", action: "drag", button: 0, x: 50, y: y + 3 });
+  press({ kind: "mouse", action: "up", button: 0, x: 50, y: y + 3 });
+  await snap("select", 500);
+  console.log("selection rule:", rows().find(l => l.includes("[y copy]"))?.trim());
+  // In a float on the glass, as it was first seen.
+  const desk = new Desk();
+  app.push(desk);
+  await Bun.sleep(600);
+  desk.openBlock(two);
+  await Bun.sleep(1000);
+  const tiles = (await app.act({ action: "layout.get", as: "snap-agent" }) as { tree: unknown }).tree;
+  console.log("tree:", JSON.stringify(tiles).slice(0, 300));
+  const reader = /"name":"([^"]*reader[^"]*|detail|preview)"/.exec(JSON.stringify(tiles))?.[1];
+  await (app.dispatch.act({ action: "tile.float", tile: reader, args: { to: "glass" } }, { kind: "user" }) as Promise<unknown>).then(r => console.log("floated:", JSON.stringify(r).slice(0, 160)), e => console.log("no float:", e.message));
+  await snap("two-float", 2500);
+  console.log(rows().filter(l => /svg picture/.test(l)).map(l => l.trim().slice(0, 120)).join("\n"));
   app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "bold") {

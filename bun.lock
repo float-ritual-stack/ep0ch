@@ -56,6 +56,7 @@
         "jose": "6.2.12",
         "marked": "18.0.5",
         "pdfjs-dist": "^6.3.289",
+        "pele": "1.13.0",
         "typebox": "^1.0.44",
       },
       "devDependencies": {

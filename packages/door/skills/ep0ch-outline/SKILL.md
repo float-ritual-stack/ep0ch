@@ -654,6 +654,8 @@ title and byline, so a dashboard or a contents page starts with its first figure
 [img::~/shots/packet.webp] [size::33%] [align::center]
 ```
 
+A ```` ```svg ```` or ```` ```mermaid ```` fence draws as a picture where the reader can. Its size is words on the opening line, meaning what the image line's properties mean: ```` ```svg height=12 ````, `size=50%`, `align=center`. `image.size` (`by=1`, `height=12`, `to=50%`, with `n=` from `images`) writes them; the caption's `[−]` `[+]` and `+` `-` do the same.
+
 - Put an image that comes right under the title in a list item (`- [img::…]`): a line of only properties there is
   the note's own metadata, not body.
 - PNG, JPEG, WebP and GIF draw on Linux and macOS; video needs ffmpeg (Quick Look on a Mac). The path is on the

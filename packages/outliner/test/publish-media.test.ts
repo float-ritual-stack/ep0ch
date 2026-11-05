@@ -207,3 +207,20 @@ test("a repo line on a published page links its live site and says its state; wh
   expect(shared).not.toContain("ep0ch artifact deploy");
   expect(await (await get("/p/desk-sites?view=md")).text()).toContain("*repo: [moth-garden](https://moth-garden.example.test)* `ep0ch-artifacts/moth-garden`");
 });
+
+test("a picture fence on a published page is its picture, at the size its fence writes (PIE-1583)", async () => {
+  const { store, get } = await setup();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 30"><rect width="90" height="30" fill="#123"/><text>row of beans</text></svg>`;
+  store.create(`Plot plan [publish::public:plot-plan]\n\nSized:\n\n\`\`\`svg height=12\n${svg}\n\`\`\`\n\n\`\`\`mermaid size=50%\nflowchart LR\n  A[Sow] --> B[Water]\n\`\`\`\n\n\`\`\`svg\nnot a picture\n\`\`\``);
+  const html = await (await get("/p/plot-plan?view=html")).text();
+  const pictures = [...html.matchAll(/<img src="data:image\/svg\+xml;base64,([^"]+)"[^>]*style="([^"]*)"/g)];
+  expect(pictures).toHaveLength(2);
+  expect(Buffer.from(pictures[0]![1]!, "base64").toString()).toBe(svg);
+  expect(pictures[0]![2]).toContain("max-height:15.00rem");
+  expect(Buffer.from(pictures[1]![1]!, "base64").toString()).toContain("Sow");
+  expect(pictures[1]![2]).toContain("width:50%");
+  // What doesn't draw stays what it was written as; the page's Markdown keeps every fence as text.
+  expect(html).toContain("not a picture");
+  const markdown = await (await get("/p/plot-plan?view=markdown")).text();
+  expect(markdown).toContain("```svg height=12");
+});

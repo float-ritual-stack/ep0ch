@@ -99,6 +99,7 @@
     "@mcp-b/global": "5.1.0",
     "callscript": "^0.1.0",
     "diff": "8.0.4",
+    "pele": "1.13.0",
     "entities": "8.1.0",
     "jose": "6.2.12",
     "marked": "18.0.5",
