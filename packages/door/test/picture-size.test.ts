@@ -60,6 +60,34 @@ describe("one caption, under its picture", () => {
   });
 });
 
+describe("a picture fence in a list item", () => {
+  const item = (info: string) => `Beds\n\n- the plan\n- \`\`\`${info}\n  ${A}\n  \`\`\`\n\nafter`;
+  test("draws, and a resize keeps the list mark", async () => {
+    const { s, h, v } = await reader(item("svg"));
+    expect(captions(v.lines)).toHaveLength(1);
+    const saved: string[] = [];
+    (h.ctx.board as any).get = async () => note(item("svg"));
+    (h.ctx.board as any).update = async (_: string, text: string) => { saved.push(text); return { ...note(text), revision: 3 }; };
+    await s.changeImage((await s.imageNamed({ n: 1 }, { kind: "user" } as any)), { height: "12" }, "height 12 rows", h, { kind: "user" } as any);
+    expect(saved[0]).toContain("- ```svg height=12\n");
+  });
+});
+
+describe("two fences that read alike", () => {
+  test("a resize drawn before a fence was inserted above it is refused, never written on the other one", async () => {
+    const both = `Beds\n\n\`\`\`svg\n${A}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\``;
+    const { s, h } = await reader(both);
+    const saved: string[] = [];
+    // Someone puts a fence above the second: line 6 is now that one, and reads the same as the line drawn there.
+    const moved = { ...note(`Beds\n\n\`\`\`svg\n${svg("#512")}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\``), revision: 3 };
+    (h.ctx.board as any).get = async () => moved;
+    (h.ctx.board as any).update = async (_: string, text: string) => { saved.push(text); return { ...note(text), revision: 4 }; };
+    const drawn = s.imagesIn(note(both))[1]!;
+    await expect(s.changeImage(drawn, { height: "12" }, "height 12 rows", h, { kind: "user" } as any)).rejects.toThrow(/changed since it was drawn/);
+    expect(saved).toEqual([]);
+  });
+});
+
 describe("a selection over the picture says what it is over", () => {
   test("the rule counts the source, y and Y copy it, never 0 chars", async () => {
     const { s, h, v, draw } = await reader(fenced("svg"));

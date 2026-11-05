@@ -5768,7 +5768,7 @@ export class NoteSurface {
       if (after !== x.source) edits.push({ line: x.line, before: x.source, after });
     }
     const name = ref.path.split("/").pop() ?? ref.path;
-    const r = await this.rewriteLines(ref.block, edits, this.imageHistory, host, actor, IMAGE_STALE);
+    const r = await this.rewriteLines(ref.block, edits, this.imageHistory, host, actor, IMAGE_STALE, this.msg?.id === ref.block ? this.msg.revision : undefined);
     if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
     // The person's image stays in view as it grows or moves, so its keys keep working on it.
     if (standsAsPerson(actor, host.ctx.person?.() ?? NOBODY, "tile")) this.reveal = true;
@@ -6779,9 +6779,9 @@ export class NoteSurface {
    * Lines of note `blockId` rewritten (`edits`: each line's text as it was read and what it becomes) through the
    * note's ordinary save (`update`): one change, recorded as `actor`'s, checked against the revision the service has
    * now and against each line as it was read (`stale` is said when one isn't); an agent never underneath a draft
-   * someone has open on the note. Kept in `history` for undo. The callout header and the image line changes.
+   * someone has open on the note. Kept in `history` for undo. The callout header and the image line changes. `drawnAt`: a line the note holds twice (two fences open alike) names itself only at that revision.
    */
-  private async rewriteLines(blockId: string, edits: LineEdit[], history: UndoHistory<LineUndo>, host: SurfaceHost, actor: Actor, stale: Stale): Promise<Msg> {
+  private async rewriteLines(blockId: string, edits: LineEdit[], history: UndoHistory<LineUndo>, host: SurfaceHost, actor: Actor, stale: Stale, drawnAt?: number): Promise<Msg> {
     const board = host.ctx.board;
     const no = agentRefusal(actor, { board, blockId });
     if (no) throw new ActionRefused(no);
@@ -6790,7 +6790,7 @@ export class NoteSurface {
     if (!m) throw new ActionRefused("that note isn't there any more");
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
     const lines = m.text.split("\n");
-    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
+    if (edits.some(e => lines[e.line] !== e.before || (drawnAt !== undefined && drawnAt !== m.revision && lines.filter(l => l === e.before).length > 1))) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
     // Nothing to change (it reads that way already): checked and refused as a change would be, nothing written.
     if (!edits.length) return m;
     for (const e of edits) lines[e.line] = e.after;

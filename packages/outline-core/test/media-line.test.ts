@@ -125,6 +125,8 @@ describe("the size word on a picture fence (PIE-1583)", () => {
     expect(parsePictureFence("```svg height=tall")!.problems[0]).toContain("height");
     expect(parsePictureFence("```ts height=12")).toBeNull();
     expect(parsePictureFence("not a fence")).toBeNull();
+    expect(parsePictureFence("- ```svg height=12")).toMatchObject({ fence: "svg", height: 12 });
+    expect(parsePictureFence("1. ~~~mermaid")).toMatchObject({ fence: "mermaid" });
     expect(parseImageLine("[img::beds.png] [height::4]")).toMatchObject({ height: 4 });
     expect(parseImageLine("```svg height=4")).toMatchObject({ height: 4, fence: "svg" });
   });
@@ -132,6 +134,7 @@ describe("the size word on a picture fence (PIE-1583)", () => {
     expect(rewritePictureFence("```svg", { height: "12" })).toBe("```svg height=12");
     expect(rewritePictureFence("  ````svg name=beds height=12", { height: "14" })).toBe("  ````svg name=beds height=14");
     expect(rewritePictureFence("```svg height=12 size=50%", { height: null })).toBe("```svg size=50%");
+    expect(rewritePictureFence("  - ```svg", { height: "12" })).toBe("  - ```svg height=12");
     expect(rewriteImageLine("[img::beds.png]", { height: "4" })).toBe("[img::beds.png] [height::4]");
     expect(rewriteImageLine("plain words", { height: "4" })).toBeNull();
   });

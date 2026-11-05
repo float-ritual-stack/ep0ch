@@ -7,7 +7,7 @@
 //
 
 import { noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
-import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, parseMediaLine, parsePictureFence, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
+import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, parseMediaLine, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
 import type { ArtifactDeployState } from "@ep0ch/outline-core/artifacts";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import type { DrawnComponent } from "./publish-live";
@@ -145,7 +145,7 @@ export const MEDIA_STYLE = `
 export type FenceSvg = (fence: PictureFence, source: string) => string | null;
 /** What draws the picture fences of `texts`: an svg fence's own text; pele (loaded only for a page holding a mermaid fence), its colours its own, links off. */
 export async function fenceSvg(texts: readonly string[]): Promise<FenceSvg> {
-  const holdsMermaid = texts.some(text => { const lines = text.split("\n"); return noteCodeFences(lines).some(f => parsePictureFence(lines[f.start]!)?.fence === "mermaid"); });
+  const holdsMermaid = texts.some(text => { const lines = text.split("\n"); return noteCodeFences(lines).some(f => pictureFenceSpec(f.fence.info)?.fence === "mermaid"); });
   const pele = holdsMermaid ? await import("pele").catch(() => null) : null;
   return (fence, source) => {
     try {
@@ -163,7 +163,7 @@ export async function fenceSvg(texts: readonly string[]): Promise<FenceSvg> {
 function drawNotePictures(text: string, components: string[], own: Map<number, DrawnComponent>, svg: FenceSvg): void {
   const lines = text.split("\n");
   for (const f of noteCodeFences(lines)) {
-    const spec = f.closed ? parsePictureFence(lines[f.start]!) : null;
+    const spec = f.closed ? pictureFenceSpec(f.fence.info) : null;
     if (!spec?.fence || components.length >= MAX_PUBLISHED_COMPONENTS || [...own].some(([at, c]) => at <= f.start && f.start < c.end)) continue;
     const drawn = svg(spec.fence, lines.slice(f.start + 1, f.end).join("\n"));
     if (!drawn) continue;

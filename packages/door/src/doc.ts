@@ -11,7 +11,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, parsePictureFence, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap } from "./text";
@@ -789,7 +789,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (picture && picture.state === "ready") {
         // The size its fence writes (PIE-1583); left out, its own width in cells (laid out for the body, its words the
         // terminal's size), never past the body.
-        const layout = parsePictureFence(src[fence.start]!)!;
+        const layout = pictureFenceSpec(fence.fence.info)!;
         const entry = media(picture.path, "img"), own = entry.state !== "error" && entry.width ? Math.ceil(entry.width / PICTURE_SCALE / env.cellW) : W;
         const spec: MediaSpec = { ...layout, path: picture.path, ...(layout.size || layout.height ? {} : { size: { cells: Math.max(1, Math.min(W, own)) } }) };
         const drawn = mediaRows(spec, W, env, fence.start, entry);

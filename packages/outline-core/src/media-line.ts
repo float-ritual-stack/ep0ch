@@ -261,6 +261,8 @@ export const artifactPagePath = (blockId: string, line: number) => `/p/${blockId
 /** The fence languages that draw as a picture: the door's renderers and the publisher's cover exactly these. */
 export const PICTURE_FENCES = ["mermaid", "svg"] as const;
 export type PictureFence = (typeof PICTURE_FENCES)[number];
+/** What may stand before a fence's opening on its line: its indent and a list item's mark. */
+const FENCE_LEAD = /^\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)?/;
 /** The layout words a picture fence takes, each meaning what the media line's `[word::…]` means (`height=12` is `[height::12]`, rows). */
 const FENCE_WORDS = ["size", "height", "align"] as const;
 
@@ -271,9 +273,13 @@ const FENCE_WORDS = ["size", "height", "align"] as const;
  * file is the door's, made from the fence's text).
  */
 export function parsePictureFence(line: string): MediaSpec | null {
-  const open = codeFenceOpen(line.trimStart());
-  if (!open) return null;
-  const { language, attrs } = codeFenceInfo(open.info), fence = PICTURE_FENCES.find(l => l === language.toLowerCase());
+  const open = codeFenceOpen(line.slice(FENCE_LEAD.exec(line)![0].length));
+  return open ? pictureFenceSpec(open.info) : null;
+}
+
+/** The image a fence's info string says it is, for a reader that has the fence parsed already; null when it draws no picture. */
+export function pictureFenceSpec(info: string): MediaSpec | null {
+  const { language, attrs } = codeFenceInfo(info), fence = PICTURE_FENCES.find(l => l === language.toLowerCase());
   if (!fence) return null;
   const spec: MediaSpec = { kind: "img", path: `${fence} picture`, fence, problems: [] };
   if (attrs.size !== undefined) {
@@ -295,7 +301,7 @@ export function parsePictureFence(line: string): MediaSpec | null {
 /** A picture fence's opening line with its layout words changed: each in `set` written, or taken out when null; the rest stays. Null when `line` opens none. */
 export function rewritePictureFence(line: string, set: Partial<Record<MediaAttr, string | null>>): string | null {
   if (!parsePictureFence(line)) return null;
-  const [, lead = "", run = "", info = ""] = /^(\s*)(`{3,}|~{3,})\s*(.*?)\s*$/.exec(line) ?? [];
+  const lead = FENCE_LEAD.exec(line)![0], [, run = "", info = ""] = /^(`{3,}|~{3,})\s*(.*?)\s*$/.exec(line.slice(lead.length)) ?? [];
   let words = info.split(/\s+/);
   for (const key of FENCE_WORDS) {
     const value = set[key];

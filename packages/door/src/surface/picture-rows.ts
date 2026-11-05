@@ -5,7 +5,7 @@ import { mediaRows, type Doc, type DocEnv } from "../doc";
 import { ActionRefused } from "@ep0ch/outline-core/action-line";
 import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { sourceLines } from "@ep0ch/outline-core/code-ranges";
-import { heroPropStep, imagePrimitiveSpec, media, parseMediaLine, parsePictureFence, type ImagePrimitive, type MediaSpec } from "../media";
+import { heroPropStep, imagePrimitiveSpec, media, parseMediaLine, pictureFenceSpec, type ImagePrimitive, type MediaSpec } from "../media";
 import { C, ellipsize, fg, RESET } from "../style";
 import { tagInto as tagged } from "./blockdown-context";
 import type { ImageRef, LinkTarget as Link } from "../refs";
@@ -139,7 +139,7 @@ export const notArtifact = <T extends { spec: MediaSpec }>(ref: T): T => {
 
 /** The picture fences of a body (PIE-1583), by their opening line: images as its media lines are. */
 export const pictureFences = (lines: readonly string[]): [number, MediaSpec][] =>
-  noteCodeFences(lines).filter(f => f.closed).flatMap(f => { const spec = parsePictureFence(lines[f.start]!); return spec ? [[f.start, spec] as [number, MediaSpec]] : []; });
+  noteCodeFences(lines).filter(f => f.closed).flatMap(f => { const spec = pictureFenceSpec(f.fence.info); return spec ? [[f.start, spec] as [number, MediaSpec]] : []; });
 
 /**
  * The rows a picture fence takes one step bigger or smaller, by the header's steps, from the rows it is drawn at now
