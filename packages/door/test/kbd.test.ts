@@ -289,7 +289,7 @@ describe("a terminal tile's program", () => {
       expect(translateReports("\x1b[97:65;2u", flags)).toBe("A");
       expect(translateReports("\x1b[97;2u", flags)).toBe("A");                 // no shifted key reported: a letter upper-cased
       expect(translateReports("\x1b[97u", flags)).toBe("a");                   // a plain key is its text too
-      expect(translateReports("\x1b[97;65u", flags)).toBe("a");               // caps lock isn't reported for text keys (the door's own key ignores it: still a, not A)
+      expect(translateReports("\x1b[97;65u", flags)).toBe("A");               // caps lock: the letter upper case (Codex on #1292)
       expect(translateReports("\x1b[51:35;130u", flags)).toBe("#");           // nor num lock
       expect(translateReports("\x1b[57401u", flags)).toBe("2");               // keypad 2, Num Lock on: text
     }
@@ -307,7 +307,9 @@ describe("a terminal tile's program", () => {
     expect(translateReports("\x1b[57414u", 1)).toBe("\x1b[57414u");           // keypad Enter: a non-text keypad key
     // A text key has no release or repeat events unless the program asked for all keys (the release is dropped, a
     // repeat is the text again); an escape-coded key's events follow flag 2 as before.
-    expect(translateReports("\x1b[51:35;2:3u", 3)).toBe("");
+    expect(translateReports("\x1b[51:35;2:3u", 3)).toBe("\x1b[51;2:3u");   // a release stays a report under flag 2, as Kitty sends it
+    expect(translateReports("\x1b[97;1:3u", 3)).toBe("\x1b[97;1:3u");
+    expect(translateReports("\x1b[97;1:3u", 1)).toBe("");
     expect(translateReports("\x1b[51:35;2:2u", 3)).toBe("#");
     expect(translateReports("\x1b[51:35;2:3u", 11)).toBe("\x1b[51;2:3u");
     expect(translateReports("\x1b[99;5:3u", 3)).toBe("\x1b[99;5:3u");

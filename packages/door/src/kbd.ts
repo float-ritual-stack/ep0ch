@@ -151,10 +151,13 @@ export function rawKey(s: string): Key | null {
  * The report for a program with the protocol on, carrying only what its `flags` asked for. Unless it asked for all
  * keys as escape codes (flag 8), a key that produces text with no modifier but shift (the lock keys aren't reported
  * for text keys) is its text, the shifted key when shift is held: Shift+3 is `#`, never `CSI 51;2u` (which Claude
- * Code read as a `3`). Such a key has no release event either.
+ * Code read as a `3`). Its release is still a report under flag 2, as Kitty sends it; caps lock upper-cases a letter.
  */
 export function kittyBytes(r: KeyReport, flags: number): string {
-  if (!(flags & 8) && !(r.mods & ~(SHIFT | LOCKS)) && isTextReport(r)) return legacyBytes(r);
+  if (!(flags & 8) && r.event !== 3 && !(r.mods & ~(SHIFT | LOCKS)) && isTextReport(r)) {
+    const text = legacyBytes(r);
+    return r.mods & 64 && !(r.mods & SHIFT) ? text.toUpperCase() : text;   // caps lock: a letter typed upper case
+  }
   if (r.event === 3 && !(flags & 2)) return "";
   if (r.legacy) {
     const ev = flags & 2 && r.event > 1 ? `:${r.event}` : "", eventIn = flags & 2 && r.eventType ? `:${r.event}` : ev;
