@@ -11,7 +11,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, parsePictureFence, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap } from "./text";
@@ -787,14 +787,23 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const said = (head: string, ...more: string[]) => fg(C.dark) + pad(ellipsize(more.reduce((t, m) => (vwidth(`${t} · ${m}`) <= W ? `${t} · ${m}` : t), head), W), W) + RESET;
       if (picture && picture.state === "drawing") { out.push(said(`◌ ${picture.label}`, "drawing")); continue; }
       if (picture && picture.state === "ready") {
-        // Its own width in cells (laid out for the body, its words the terminal's size), never past the body.
+        // The size its fence writes (PIE-1583); left out, its own width in cells (laid out for the body, its words the
+        // terminal's size), never past the body.
+        const layout = parsePictureFence(src[fence.start]!)!;
         const entry = media(picture.path, "img"), own = entry.state !== "error" && entry.width ? Math.ceil(entry.width / PICTURE_SCALE / env.cellW) : W;
-        const drawn = mediaRows({ kind: "img", path: picture.path, size: { cells: Math.max(1, Math.min(W, own)) }, problems: [] }, W, env, fence.start, entry);
+        const spec: MediaSpec = { ...layout, path: picture.path, ...(layout.size || layout.height ? {} : { size: { cells: Math.max(1, Math.min(W, own)) } }) };
+        const drawn = mediaRows(spec, W, env, fence.start, entry);
         if (drawn.entry.state === "error") failed = drawn.entry.reason;
         else {
-          if (drawn.image) images.push({ ...drawn.image, line: out.length + drawn.image.line });
+          // It is an image as an [img::] line is: an element, its caption's row its `[ ]` position.
+          const ref: DocMedia = { path: picture.path, kind: "img", row: out.length + drawn.caption, line: fence.start, spec: layout };
+          if (drawn.image) ref.image = images.push({ ...drawn.image, line: out.length + drawn.image.line }) - 1;
+          mediaRefs.push(ref);
           for (const l of drawn.lines.slice(0, drawn.caption)) { edge(out.length); out.push(l); }
-          out.push(said(`▣ ${picture.label}`, ...(drawn.entry.state === "loading" ? [waitingText()] : []), ...(env.pictureSource ? [env.pictureSource] : [])));
+          // The caption says what it is and how big its source is (two pictures of one size read apart), with the rows control the header's caption has.
+          const controls = sizeControls(env, fence.start), room = Math.max(4, W - vwidth(controls));
+          const facts = [`${[...code.join("\n")].length.toLocaleString("en")} chars`, layout.height ? `${layout.height} rows` : "", sizeText(layout.size), ...layout.problems.map(p => `⚠ ${p}`), ...(drawn.entry.state === "loading" ? [waitingText()] : []), ...(env.pictureSource ? [env.pictureSource] : [])].filter(Boolean);
+          out.push(fg(C.dark) + pad(ellipsize(facts.reduce((t, m) => (vwidth(`${t} · ${m}`) <= room ? `${t} · ${m}` : t), `▣ ${picture.label}`), room), room) + controls + RESET);
           continue;
         }
       }
@@ -1168,6 +1177,15 @@ export function coverCrop(m: { width: number; height: number }, pxW: number, pxH
   return { x: 0, y: at(focus.y, h), w: 1, h };
 }
 
+/** One control on an image's caption: the reader's tag, in the controls' colour. */
+const imageControl = (env: DocEnv, line: number) => (c: ImageControl, text: string) => fg(C.cyan) + env.image!(line, c, text) + fg(C.dark);
+/** The rows control a picture's caption carries (a header image's, a picture fence's); nothing when the reader tags no controls. */
+function sizeControls(env: DocEnv, line: number): string {
+  if (!env.image) return "";
+  const ctl = imageControl(env, line);
+  return ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows`;
+}
+
 /**
  * An image's caption: what it is (its name, size in pixels, alt text, the layout written), what's wrong with what's
  * written, and its controls when the reader tags them (− + its size, ◂ ▸ where it sits, ▀ the header). It is also
@@ -1184,10 +1202,9 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
     spec.alt ? `“${spec.alt}”` : "",
   ].filter(Boolean);
   // Its controls, at the right end, kept whole: the text before them is cut first.
-  const tag = env.image;
-  const ctl = (c: ImageControl, text: string) => fg(C.cyan) + tag!(line, c, text) + fg(C.dark);
-  const controls = !tag || entry.state === "error" ? ""
-    : hero ? ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows ${spec.fit === "contain" ? ctl({ fit: "cover" }, "[fill]") : ctl({ fit: "contain" }, "[whole]")} ${ctl({ hero: false }, "[▀ ✓]")}`
+  const ctl = imageControl(env, line);
+  const controls = !env.image || entry.state === "error" ? ""
+    : hero ? `${sizeControls(env, line)} ${spec.fit === "contain" ? ctl({ fit: "cover" }, "[fill]") : ctl({ fit: "contain" }, "[whole]")} ${ctl({ hero: false }, "[▀ ✓]")}`
     : ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} ${ctl({ align: -1 }, "[◂]")}${ctl({ align: 1 }, "[▸]")} ${ctl({ hero: true }, "[▀]")}`;
   const room = Math.max(4, W - vwidth(controls));
   const fit = (x: string) => ellipsize(x, room);

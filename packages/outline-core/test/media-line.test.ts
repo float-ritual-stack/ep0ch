@@ -1,6 +1,6 @@
 // The media line's grammar is shared (PIE-598): the service's property parser and every client agree on it.
 import { describe, expect, test } from "bun:test";
-import { artifactKind, artifactRepoRef, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseMediaLine, rewriteMediaLine, withHeroLine } from "../src/media-line";
+import { artifactKind, artifactRepoRef, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseImageLine, parseMediaLine, parsePictureFence, rewriteImageLine, rewritePictureFence, rewriteMediaLine, withHeroLine } from "../src/media-line";
 
 test("a media line is an image or video reference and its layout, nothing else", () => {
   expect(isMediaLine("[img::/p/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]")).toBe(true);
@@ -116,4 +116,23 @@ test("an artifact line may name a GitHub repo (PIE-1060): a URL, github.com/… 
   for (const value of ["shots/lamp.html", "https://example.com/a/b", "/home/someone/lamp", "~/lamp/site", "moth-garden", "https://github.com/a/b/tree/main"])
     expect(artifactRepoRef(value)).toBeNull();
   expect(parseMediaLine("[artifact::https://github.com/ep0ch-artifacts/moth-garden]")).toMatchObject({ kind: "artifact", problems: [] });
+});
+
+describe("the size word on a picture fence (PIE-1583)", () => {
+  test("reads as a media line's word does, and what isn't a value is a problem", () => {
+    expect(parsePictureFence("```svg height=12")).toMatchObject({ fence: "svg", height: 12, problems: [] });
+    expect(parsePictureFence("~~~mermaid size=50% align=center")).toMatchObject({ fence: "mermaid", size: { percent: 50 }, align: "center" });
+    expect(parsePictureFence("```svg height=tall")!.problems[0]).toContain("height");
+    expect(parsePictureFence("```ts height=12")).toBeNull();
+    expect(parsePictureFence("not a fence")).toBeNull();
+    expect(parseImageLine("[img::beds.png] [height::4]")).toMatchObject({ height: 4 });
+    expect(parseImageLine("```svg height=4")).toMatchObject({ height: 4, fence: "svg" });
+  });
+  test("rewriting keeps the rest of the line", () => {
+    expect(rewritePictureFence("```svg", { height: "12" })).toBe("```svg height=12");
+    expect(rewritePictureFence("  ````svg name=beds height=12", { height: "14" })).toBe("  ````svg name=beds height=14");
+    expect(rewritePictureFence("```svg height=12 size=50%", { height: null })).toBe("```svg size=50%");
+    expect(rewriteImageLine("[img::beds.png]", { height: "4" })).toBe("[img::beds.png] [height::4]");
+    expect(rewriteImageLine("plain words", { height: "4" })).toBeNull();
+  });
 });

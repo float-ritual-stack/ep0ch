@@ -65,6 +65,31 @@ describe("showcase: pictures", () => {
     expect((raw.placements ?? []).filter(p => !p.key.startsWith("hero")).length).toBeLessThan(keys().length);
     await act("decor.raw", { on: false }, "reader");
 
+    // The svg fence sizes by its height= word (PIE-1583): an agent's step, attributed, leaves the person's [ ] alone; a
+    // click on the caption's [+] and the - key are the same action; the note's source holds it.
+    const svgFence = async () => (await act("images", {}, "reader")).images.find((x: { fence?: string }) => x.fence === "svg");
+    const source = async () => (await h.board.read(h.seeded.notes.pictures.id))!.text;
+    draw();
+    const at = await svgFence();
+    expect(at).toMatchObject({ height: 6 });
+    const before = reader().surface.cursorKey;
+    expect(await h.app.act({ action: "image.size", args: { line: at.line, by: 1 }, tile: "reader", as: "test-agent" })).toMatchObject({ changed: true, image: expect.stringContaining("height=8"), recordedAs: { author: "agent", actorId: "test-agent" } });
+    expect(reader().surface.cursorKey).toBe(before);
+    await until(() => draw().lines.map(visible).some(l => l.includes("▣ svg picture: 360×90") && l.includes("8 rows")), "the caption at 8 rows");
+    const plus = () => ((reader().surface as any).hits as { row: number; from: number; link?: { image?: { line: number; control?: { size?: number } } } }[]).find(x => x.link?.image?.line === at.line - 1 && x.link.image.control?.size === 1)!;
+    draw();
+    { const p = plus(), host = reader().host(d), y = p.row + reader().surface.drawn!.heroRows; reader().surface.press(p.from, y, host); reader().surface.release(p.from, y, host); }
+    await until(() => draw().lines.map(visible).some(l => l.includes("▣ svg picture: 360×90") && l.includes("10 rows")), "the caption at 10 rows, by its [+]");
+    const row = ((await act("elements", {}, "reader")).elements as { n: number; label: string }[]).find(e => e.label === "svg picture")!;
+    await act("element.select", { n: row.n }, "reader");
+    draw();
+    expect(reader().surface.imageKeyOf({ kind: "char", ch: "-" })).toBe(true);
+    await act("image.size", { by: -1 }, "reader");
+    expect(await source()).toContain("```svg height=8");
+    await act("image.size", { line: at.line, height: "6" }, "reader");
+    expect(await source()).toContain("```svg height=6");
+    await expect(act("image.hero", { line: at.line }, "reader")).rejects.toThrow(/picture fence/);
+
     // The made-up icat asked, was answered, and drew: one placement in its tile, under its own key.
     const t = icat();
     t.render(60, 30, false, d);

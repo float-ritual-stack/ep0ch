@@ -87,7 +87,7 @@ describe("a picture fence in a note", () => {
     expect(wide.images[0]!.cols).toBeLessThanOrEqual(160);
     expect(wide.images[0]!.cols).toBeGreaterThan(doc.images[0]!.cols);
     expect(wide.images[0]!.media.path).not.toBe(doc.images[0]!.media.path);
-    expect(wide.lines.map(visible).some(l => l.includes("▣ mermaid diagram: flowchart, 5 nodes · ~ shows its source"))).toBe(true);
+    expect(wide.lines.map(visible).some(l => /▣ mermaid diagram: flowchart, 5 nodes · \d+ chars · ~ shows its source/.test(l))).toBe(true);
   });
 
   test("a ```svg fence draws as its picture too", async () => {

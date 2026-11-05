@@ -2,7 +2,10 @@
 // view put it; a script's own SVG drawing (PIE-1555) made into a file first, its links the reader's elements.
 import { fencePicture, PICTURE_SCALE, pictureLinks, pictureLinkTarget, pictureRoom } from "../diagrams";
 import { mediaRows, type Doc, type DocEnv } from "../doc";
-import { imagePrimitiveSpec, media, parseMediaLine, type ImagePrimitive, type MediaSpec } from "../media";
+import { ActionRefused } from "@ep0ch/outline-core/action-line";
+import { noteCodeFences } from "@ep0ch/outline-core/component-block";
+import { sourceLines } from "@ep0ch/outline-core/code-ranges";
+import { heroPropStep, imagePrimitiveSpec, media, parseMediaLine, parsePictureFence, type ImagePrimitive, type MediaSpec } from "../media";
 import { C, ellipsize, fg, RESET } from "../style";
 import { tagInto as tagged } from "./blockdown-context";
 import type { ImageRef, LinkTarget as Link } from "../refs";
@@ -106,4 +109,62 @@ export function heroLinkSpans(path: string, box: { col: number; cols: number; ro
     for (let r = r0; r < r1; r++) if (r - cut >= 0) out.push({ row: at + r - cut, from, to: toCol, link: to });
   }
   return out;
+}
+
+/** The widths + and - step an image through, as shares of the reader (100 is `full`). */
+const SIZE_STEPS = [25, 33, 50, 66, 75, 100];
+/** The width one step bigger or smaller than `size` in a body `W` cells wide (`share`: how wide it's drawn now, %); null past the last step. */
+export function sizeStep(size: MediaSpec["size"], W: number, share: number | null, by: number): string | null {
+  const now = size === "full" ? 100 : size && "percent" in size ? size.percent : size ? (size.cells / W) * 100 : share ?? 50;
+  const next = by > 0 ? SIZE_STEPS.find(p => p > now + 1) : SIZE_STEPS.findLast(p => p < now - 1);
+  return next === undefined ? null : next === 100 ? "full" : `${next}%`;
+}
+/** How each image is drawn now, by its note line: its cells and where it sits, or the header's rows. */
+export function drawnImagesOf(d: { doc: Doc; lines: readonly number[] } | null, hero: { line: number; full: number } | null): Map<number, { cols: number; rows: number; col: number } | { header: number }> {
+  const out = new Map<number, { cols: number; rows: number; col: number } | { header: number }>();
+  if (hero) out.set(hero.line, { header: hero.full });
+  for (const x of d?.doc.media ?? []) {
+    const im = x.image !== undefined ? d!.doc.images[x.image] : undefined, line = d!.lines[x.line];
+    if (im && line !== undefined) out.set(line, { cols: im.cols, rows: im.rows, col: im.col });
+  }
+  return out;
+}
+
+/** An image action's image, refused when it takes a size and a place and nothing else: an artifact (PIE-793), a picture fence (PIE-1583). */
+export const notArtifact = <T extends { spec: MediaSpec }>(ref: T): T => {
+  if (ref.spec.kind === "artifact") throw new ActionRefused("that's an artifact, not an image: it takes a size, a height and a place (image.size, image.align), and artifact.open runs it");
+  if (ref.spec.fence) throw new ActionRefused("that's a picture fence: it takes a size, a height and a place (image.size, image.align); a header is an [img::] line");
+  return ref;
+};
+
+/** The picture fences of a body (PIE-1583), by their opening line: images as its media lines are. */
+export const pictureFences = (lines: readonly string[]): [number, MediaSpec][] =>
+  noteCodeFences(lines).filter(f => f.closed).flatMap(f => { const spec = parsePictureFence(lines[f.start]!); return spec ? [[f.start, spec] as [number, MediaSpec]] : []; });
+
+/**
+ * The rows a picture fence takes one step bigger or smaller, by the header's steps, from the rows it is drawn at now
+ * (`rows` when it isn't drawn), or null when a step would change nothing: as wide as the body (`body` cells) or as tall
+ * as the reader lets it (`most` rows), or at the smallest step.
+ */
+export function fenceRowStep(now: { cols: number; rows: number } | { header: number } | undefined, rows: number, by: number, most: number, body: number): string | null {
+  const drawn = now && "rows" in now ? now : null, at = drawn?.rows ?? rows;
+  if (by > 0 && drawn && (at >= most || drawn.cols >= body)) return null;
+  const next = heroPropStep("height", String(at), by);
+  return next === String(at) ? null : next;
+}
+
+/**
+ * The fence a selection with no words in it is over, read from the doc as drawn: a picture draws none, so its text as
+ * written is what the selection counts and copies (PIE-1583). Null when it is over no picture fence.
+ */
+export function pictureSourceOf(s: { start: { row: number }; end: { row: number } }, d: { top: number; doc: Doc; lines: readonly number[] }, note: string): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
+  for (const x of d.doc.media) {
+    const im = x.image !== undefined ? d.doc.images[x.image] : undefined, at = d.lines[x.line];
+    if (!x.spec.fence || !im || at === undefined || s.end.row < d.top + im.line || s.start.row >= d.top + im.line + im.rows) continue;
+    const lines = note.split("\n"), fence = noteCodeFences(lines).find(f => f.start === at);
+    if (!fence) continue;
+    const from = sourceLines(note)[at + 1]!.start, text = lines.slice(at + 1, fence.end).join("\n");
+    return { text, exact: true, from, to: from + text.length, lines: [at + 1, fence.end - 1] };
+  }
+  return null;
 }

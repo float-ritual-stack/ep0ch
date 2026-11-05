@@ -163,7 +163,7 @@ const LANGS = ["ts", "sh", "json", "yaml", "sql", "diff", "md", "text"];
 const FENCE: ComponentSchema = {
   id: "code-fence", group: "layout",
   title: "Code fences",
-  intro: "Fenced code: three backticks (or more, when the code holds three) and a language, to a matching fence. It is literal: properties, references and components inside are the code's text, never read as the note's. The language names the colouring; one the reader doesn't know is drawn plain.",
+  intro: "Fenced code: three backticks (or more, when the code holds three) and a language, to a matching fence. It is literal: properties, references and components inside are the code's text, never read as the note's. A ```svg or ```mermaid fence draws as a picture where the reader can: `height=12` (rows), `size=50%` and `align=center` after its language size and place it, as an image line's properties do, and its caption's [−] [+] write them. The language names the colouring; one the reader doesn't know is drawn plain.",
   where: "a fenced block in a note; the language after the opening backticks",
   props: [{ key: "lang", where: "line", type: "enum", token: "```{value}", meaning: "the language after the opening fence", default: "text", values: LANGS.map(l => ({ value: l, meaning: l === "text" ? "plain, no colouring" : `${l} code` })) }],
   source: { use: "```{{props.lang}}\nmoths = 3  # [not::a property]\n```" }, example: { lang: "sh" }, sweep: ["lang"], grids: [], space: ["lang"],

@@ -17,7 +17,7 @@ import { drawNoteComponents, drawViewLane, drawViewPage, hasCollectionLayout, re
 import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
-import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
+import { ARTIFACT_PATH, drawNoteMedia, fenceSvg, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
 import { artifactPagePath, artifactRepoRef, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
@@ -2558,7 +2558,7 @@ export class Publisher {
         ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
-      (blockId, line) => artifactPages.get(`${blockId}:${line}`), (blockId, line) => repos.get(`${blockId}:${line}`));
+      (blockId, line) => artifactPages.get(`${blockId}:${line}`), (blockId, line) => repos.get(`${blockId}:${line}`), await fenceSvg(rows.map((row) => row.block.text ?? "")));
     if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
