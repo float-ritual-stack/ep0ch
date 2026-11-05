@@ -216,6 +216,20 @@ export class RawRows {
     return { line, row: row > f.row && row < f.row + f.rows ? row : -1 };
   }
 
+  /** `Draft.landInView`, once, unless a key or an agent has placed the cursor since the open (they follow). As ↑↓ resume at the view's top in a reader. */
+  private landInView(rows: VRow[]) {
+    const d = this.d, h = this.shown.h;
+    d.landInView = false;
+    if (d.follow || !rows.length) return;
+    const top = rows.length <= h ? 0 : Math.max(0, Math.min(this.top, lastTop(rows.length, h))), at = this.cursorIn(rows).vi;
+    if (at >= top && at < top + h) return;
+    // A status or a drawing is no place to type, and its line can be above the view: with only those in view, the cursor stays.
+    const shown = rows.slice(top, top + h), first = [shown.findIndex(r => !r.status && r.end > r.start), shown.findIndex(r => !r.status)].find(i => i >= 0);
+    if (first === undefined) return;
+    const p = this.posIn(rows, top + first, 0);
+    d.row = p.row; d.col = p.col; d.landed = p;
+  }
+
   /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */
   render(w: number, h: number): string[] {
     const d = this.d, w1 = Math.max(4, w);
@@ -226,6 +240,7 @@ export class RawRows {
     // An agent's patch moved the top row's start (`Draft.commitPatch`): that row goes back on top, mid-line or not.
     const moved = d.position.top;
     if (moved?.mapped && d.position.view?.line === moved.line) this.top = this.rowOf(rows, moved.line, moved.col);
+    if (d.landInView) this.landInView(rows);
     const at = this.cursorIn(rows), sel = d.selection();
     // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where the rows
     // under it are the blank ones past the end (reader.overscroll; none keeps the last line on the edge). An agent's patch

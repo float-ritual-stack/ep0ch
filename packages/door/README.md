@@ -3364,7 +3364,7 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ### Keeping your place (PIE-920)
 
-Reading and editing share a source position. Opening an edit keeps the first visible source line at the same screen row and starts the cursor on the reading line. Returning to reading keeps that view too. A held edit can be scrolled while another tile has the keys: the first click gives it focus, the next places the cursor, and typing or cursor movement brings the view back to the cursor. Its scroll bar remains visible. Try `act section name=one-place` in the showcase.
+Reading and editing share a source position. Opening an edit keeps the first visible source line at the same screen row and starts the cursor on the reading line; when the wheel or PgDn scrolled that line out of view, on the first row in view instead, as ↑↓ resume there (PIE-1579), so the first letter lands where you are looking and the view stays. Returning to reading keeps that view too, with the reading line on the row the edit's cursor ended on, or where it was when the cursor never left the row it landed on. A held edit can be scrolled while another tile has the keys: the first click gives it focus, the next places the cursor, and typing or cursor movement brings the view back to the cursor. Its scroll bar remains visible. Try `act section name=one-place` in the showcase.
 
 Reading line (PIE-594): `--showcase`, section `reading-line`, demonstrates a click placing the calm
 block highlight, ↑↓ / j k moving through every block, ( ) stepping sections and [ ] stepping actions.

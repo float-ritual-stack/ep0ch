@@ -3049,8 +3049,7 @@ export class NoteSurface {
     });
     this.anchorView(); if (this.scroll === 0) this.position.view = null; // A reader at its top opens the edit at its top, its title in view (PIE-1560).
     const row = fresh.text.slice(0, this.position.reading).split("\n").length - 1;
-    this.position.cursor = { row, col: 0 };
-    this.readingLine(row);
+    this.position.cursor = { row, col: 0 }; this.readingLine(row);
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
@@ -3063,6 +3062,7 @@ export class NoteSurface {
       closed: how => this.draftClosed(s, how, host),
     });
     s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
+    if (this.drawn && s.draft.restored === null) { const rows = this.readingRows(); s.draft.landInView = !rows || rows[0] < this.scroll || rows[0] >= this.scroll + this.drawn.room; } // The wheel left the reading line's first row behind: the words go where the person is looking (PIE-1579).
     this.msg = this.rereadNote(fresh);
     this.modes.push(this.draftMode(s));
     return s;
@@ -3302,7 +3302,7 @@ export class NoteSurface {
    */
   private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
-    if (!this.replyParent) this.position.reading = s.draft.offsetOf(s.draft.row, 0);
+    if (!this.replyParent && !s.draft.stillLanded) this.position.reading = s.draft.offsetOf(s.draft.row, 0);
     this.endPreviewDraft();
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
@@ -11807,7 +11807,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "reading.place": def({
-    summary: "put the reading position on a source line; the next edit starts there without scrolling the page",
+    summary: "put the reading position on a source line; the next edit starts there without scrolling the page (a line out of view: on the first row in view instead, PIE-1579; draft.place puts an open edit's cursor anywhere)",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "click note text",
     args: { line: { type: "number", about: "source line, from 1" } },
     examples: [

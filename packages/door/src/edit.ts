@@ -1035,6 +1035,14 @@ export class Draft {
 
   /** The view follows the cursor; false after the wheel scrolled it, until the next key. */
   follow = true;
+  /**
+   * An open from a reader that had scrolled off its reading line (PIE-1579): the first draw moves a cursor out of view
+   * onto the first row with text in view, so the first key lands where the person is looking and nothing jumps.
+   */
+  landInView = false;
+  /** Where that first draw put the cursor: an edit closed with the cursor still here leaves the reading line alone. */
+  landed: { row: number; col: number } | null = null;
+  get stillLanded() { return !!this.landed && this.landed.row === this.row && this.landed.col === this.col; }
   /** The column up and down keep to (cells from the row's left), while they repeat. */
   goal: number | null = null;
   private selectAsk() {
