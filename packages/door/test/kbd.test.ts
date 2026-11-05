@@ -281,6 +281,39 @@ describe("a terminal tile's program", () => {
     expect(translateReports("\x1b[27;2;13~", 1)).toBe("\x1b[13;2u");
   });
 
+  test("Shift+3 is # to a program that didn't ask for all keys as escape codes (Claude Code typed 3)", () => {
+    // Without flag 8 a key that produces text, with no modifier but shift (and the lock keys), is its text: the
+    // shifted key when shift is held. The door's terminal reports every key (flags 15), so the shifted key is there.
+    for (const flags of [1, 3, 5]) {
+      expect(translateReports("\x1b[51:35;2u", flags)).toBe("#");
+      expect(translateReports("\x1b[97:65;2u", flags)).toBe("A");
+      expect(translateReports("\x1b[97;2u", flags)).toBe("A");                 // no shifted key reported: a letter upper-cased
+      expect(translateReports("\x1b[97u", flags)).toBe("a");                   // a plain key is its text too
+      expect(translateReports("\x1b[97;65u", flags)).toBe("a");               // caps lock isn't reported for text keys (the door's own key ignores it: still a, not A)
+      expect(translateReports("\x1b[51:35;130u", flags)).toBe("#");           // nor num lock
+      expect(translateReports("\x1b[57401u", flags)).toBe("2");               // keypad 2, Num Lock on: text
+    }
+    // Flag 8 (all keys as escape codes) gets the report, with the shifted key only under flag 4.
+    expect(translateReports("\x1b[51:35;2u", 15)).toBe("\x1b[51:35;2u");
+    expect(translateReports("\x1b[51:35;2u", 9)).toBe("\x1b[51;2u");
+    expect(translateReports("\x1b[97u", 9)).toBe("\x1b[97u");
+    expect(translateReports("\x1b[51:35;2u", 17)).toBe("#");                  // flag 16 without 8 is undefined by the spec: text
+    // ctrl, alt or super with a text key is still an escape code, as before.
+    expect(translateReports("\x1b[51:35;6u", 1)).toBe("\x1b[51;6u");          // ctrl+shift+3
+    expect(translateReports("\x1b[99;5u", 1)).toBe("\x1b[99;5u");
+    expect(translateReports("\x1b[97;4u", 1)).toBe("\x1b[97;4u");             // alt+shift+a
+    expect(translateReports("\x1b[99;9u", 1)).toBe("\x1b[99;9u");
+    expect(translateReports("\x1b[13;2u", 1)).toBe("\x1b[13;2u");             // Shift+Enter: no text, so the report
+    expect(translateReports("\x1b[57414u", 1)).toBe("\x1b[57414u");           // keypad Enter: a non-text keypad key
+    // A text key has no release or repeat events unless the program asked for all keys (the release is dropped, a
+    // repeat is the text again); an escape-coded key's events follow flag 2 as before.
+    expect(translateReports("\x1b[51:35;2:3u", 3)).toBe("");
+    expect(translateReports("\x1b[51:35;2:2u", 3)).toBe("#");
+    expect(translateReports("\x1b[51:35;2:3u", 11)).toBe("\x1b[51;2:3u");
+    expect(translateReports("\x1b[99;5:3u", 3)).toBe("\x1b[99;5:3u");
+    expect(translateReports("\x1b[99;5:3u", 1)).toBe("");
+  });
+
   test("end to end: a program gets ESC CR until it pushes the protocol, then CSI 13;2u, and its query is answered", async () => {
     // A tiny program that prints, in hex, each read it gets; `P` makes it push the protocol and ask for it.
     const script = "import os,tty\ntty.setraw(0)\nwhile True:\n b=os.read(0,64)\n if b==b'q': break\n if b==b'P':\n  os.write(1,b'\\x1b[>1u\\x1b[?u'); continue\n os.write(1,(b.hex()+'\\r\\n').encode())\n";
@@ -299,6 +332,8 @@ describe("a terminal tile's program", () => {
       expect(p.kbd.flags).toBe(1);
       p.inputRaw("\x1b[13;2u");
       await until("1b5b31333b3275");                                           // CSI 13;2u
+      p.inputRaw("\x1b[51:35;2u");                                             // Shift+3, as the door's terminal reports it
+      await until("23");                                                      // #
       p.inputRaw("\r");
       await until("0d");                                                      // plain Enter: CR
     } finally { p.input("q"); p.kill(); }
