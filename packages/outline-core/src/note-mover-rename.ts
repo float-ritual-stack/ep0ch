@@ -5,7 +5,6 @@
 // Pure: no I/O.
 
 import { parsePropertyRecords, type PropertyRecord } from "./property-parse";
-import { replacePropertyTokens } from "./property-grammar";
 
 export const NOTE_MOVER = "note-mover";
 export const NOTE_MOVER_HISTORY = "note-mover-history";
@@ -15,8 +14,12 @@ export const OLD_HISTORY_TYPE = "route-history";
 export const OLD_RULE_KEYS: Readonly<Record<string, string>> = {
   "route-to": NOTE_MOVER, "route-when": "note-mover-when", "route-order": "note-mover-order", "route-at": "note-mover-at",
 };
-/** The first line of the view's seeded words before the rename: a view still opening with it takes the new ones. */
-const OLD_VIEW_OPENING = "Notes route themselves by the rules listed here";
+/** The view's seeded words before the rename: replaced only when they stand as seeded; anything else in the note is a person's. */
+const OLD_VIEW_WORDS = [
+  "Notes route themselves by the rules listed here, and a rule is a note anywhere in the outline: its properties are type (route), query (which notes, in the saved views' grammar: type=recipe) and route-to (where they go: a note's ((id)), a [[page]], a Work ID, inbox or root). Optional: route-when (create, the default: new notes; edit: every save; command: only when asked), route-order (a number; lower first) and route-at (top, the default, or end).",
+  "",
+  "First match wins: by route-order, then the order of this view, then the order written. A match moves the note as ext:route, one revision, with a history under the rule. `ep0ch route <note> --dry-run` says what would move where and why; `ep0ch route --all` routes every note; in the door, alt+z routes the note you read.",
+].join("\n");
 /** What the Note mover view says under its title. */
 export const NOTE_MOVER_VIEW_WORDS = [
   "Notes move themselves by the rules listed here, and a rule is a note anywhere in the outline: its properties are note-mover (where they go: a note's ((id)), a [[page]], a Work ID, inbox or root) and query (which notes, in the saved views' grammar: type=recipe). Optional: note-mover-when (create, the default: new notes; edit: every save; command: only when asked), note-mover-order (a number; lower first) and note-mover-at (top, the default, or end).",
@@ -57,11 +60,32 @@ function spliced(text: string, edits: readonly { start: number; end: number; wit
   return [...edits].sort((a, b) => b.start - a.start).reduce((out, e) => out.slice(0, e.start) + e.with + out.slice(e.end), text);
 }
 
-/** The token gone, with the space before it (or after it, first on its line). */
+/**
+ * The token gone. Alone on its line, the line goes too: a blank line there would end the note's properties, and the
+ * rule's query and target under it would stop being the note's. Otherwise the space before it (or after it, first on its line).
+ */
 function dropped(text: string, r: PropertyRecord): { start: number; end: number; with: string } {
+  const lineStart = text.lastIndexOf("\n", r.start - 1) + 1;
+  const next = text.indexOf("\n", r.end);
+  const lineEnd = next < 0 ? text.length : next;
+  if (!text.slice(lineStart, r.start).trim() && !text.slice(r.end, lineEnd).trim()) {
+    return next >= 0 ? { start: lineStart, end: next + 1, with: "" } : { start: Math.max(0, lineStart - 1), end: lineEnd, with: "" };
+  }
   if (r.start > 0 && /[ \t]/.test(text[r.start - 1]!)) return { start: r.start - 1, end: r.end, with: "" };
   return { start: r.start, end: /[ \t]/.test(text[r.end] ?? "") ? r.end + 1 : r.end, with: "" };
 }
+
+/** A token as written with its key renamed: the parser lowercases a record's key, the raw keeps what the person typed. */
+const withKey = (r: PropertyRecord, now: string): string => {
+  const at = r.raw.toLowerCase().indexOf(r.key);
+  return r.raw.slice(0, at) + now + r.raw.slice(at + r.key.length);
+};
+
+/** A token as written with its value replaced, whichever way it's written (`[key::value]` or `key:: value`). */
+const withValue = (r: PropertyRecord, now: string): string => {
+  const at = r.raw.lastIndexOf(r.value);
+  return r.raw.slice(0, at) + now + r.raw.slice(at + r.value.length);
+};
 
 /**
  * An old rule note as note-mover writes it, or null for a note that isn't one, or one with no target yet: its
@@ -73,17 +97,18 @@ export function renamedRuleText(text: string): string | null {
   return spliced(text, records.flatMap(r => {
     if (isOldType(r)) return [dropped(text, r)];
     const now = OLD_RULE_KEYS[r.key];
-    return now ? [{ start: r.start, end: r.end, with: r.raw.replace(r.key, now) }] : [];
+    return now ? [{ start: r.start, end: r.end, with: withKey(r, now) }] : [];
   }));
 }
 
 /** A rule's history note under the new names, or null for any other note. */
 export function renamedHistoryText(text: string): string | null {
   const records = blockRecords(text);
-  if (!records.some(r => r.key === "type" && r.value.trim() === OLD_HISTORY_TYPE)) return null;
+  const isOldHistory = (r: PropertyRecord) => r.key === "type" && r.value.toLowerCase() === OLD_HISTORY_TYPE;
+  if (!records.some(isOldHistory)) return null;
   const out = spliced(text, records.flatMap(r => {
-    if (r.key === "type" && r.value.trim() === OLD_HISTORY_TYPE) return [{ start: r.start, end: r.end, with: r.raw.replace(OLD_HISTORY_TYPE, NOTE_MOVER_HISTORY) }];
-    if (r.key === "machine" && r.value.trim() === OLD_RULE_TYPE) return [{ start: r.start, end: r.end, with: r.raw.replace(OLD_RULE_TYPE, NOTE_MOVER) }];
+    if (isOldHistory(r)) return [{ start: r.start, end: r.end, with: withValue(r, NOTE_MOVER_HISTORY) }];
+    if (r.key === "machine" && r.value.toLowerCase() === OLD_RULE_TYPE) return [{ start: r.start, end: r.end, with: withValue(r, NOTE_MOVER) }];
     return [];
   }));
   return out.replace(/^Routing history\b/, "Moves");
@@ -92,23 +117,24 @@ export function renamedHistoryText(text: string): string | null {
 const OLD_IN_QUERY = /\btype\s*=\s*route(-history)?\b(?!-)/g;
 
 /**
- * A saved view over the old name under the new one, or null for a note that doesn't need it. The seeded view (its
- * `[system-view::routing]`) lists a half-written old rule too, and takes the new title, page and words unless a person
- * has given it their own; a person's own view just asks for the new name.
+ * A saved view over the old name under the new one, or null for a note that doesn't need it. Only the note's own
+ * properties count, however they're written; a `[query::type=route]` in its prose is words about one. The seeded view
+ * (its `[system-view::routing]`) lists a half-written old rule too, and takes the new title, page and words unless a
+ * person has given it their own; a person's own view just asks for the new name.
  */
 export function renamedView(text: string): string | null {
-  const seeded = blockRecords(text).some(r => r.key === "system-view" && r.value.trim() === "routing");
-  const rewritten = replacePropertyTokens(text, t => {
-    if (seeded && t.key === "system-view" && t.value.trim() === "routing") return `[system-view::${NOTE_MOVER}]`;
-    if (seeded && t.key === "page" && t.value.trim() === "routing") return `[page::${NOTE_MOVER}]`;
-    if (t.key !== "query" || /(^|[^\w-])note-mover($|[^\w-])/.test(t.value)) return t.raw;
-    if (seeded && t.value.trim() === `type=${OLD_RULE_TYPE}`) return `[query::${NOTE_MOVER} OR type=${OLD_RULE_TYPE}]`;
-    return `[query::${t.value.replace(OLD_IN_QUERY, (_, history) => (history ? `type=${NOTE_MOVER_HISTORY}` : NOTE_MOVER))}]`;
+  const records = blockRecords(text);
+  const seeded = records.some(r => r.key === "system-view" && r.value === "routing");
+  const edits = records.flatMap(r => {
+    const to = (now: string) => [{ start: r.start, end: r.end, with: withValue(r, now) }];
+    if (seeded && (r.key === "system-view" || r.key === "page") && r.value === "routing") return to(NOTE_MOVER);
+    if (r.key !== "query" || /(^|[^\w-])note-mover($|[^\w-])/.test(r.value)) return [];
+    if (seeded && r.value === `type=${OLD_RULE_TYPE}`) return to(`${NOTE_MOVER} OR type=${OLD_RULE_TYPE}`);
+    const now = r.value.replace(OLD_IN_QUERY, (_, history) => (history ? `type=${NOTE_MOVER_HISTORY}` : NOTE_MOVER));
+    return now === r.value ? [] : to(now);
   });
-  if (rewritten === text) return null;
+  if (!edits.length) return null;
+  const rewritten = spliced(text, edits);
   if (!seeded) return rewritten;
-  const lines = rewritten.split("\n");
-  lines[0] = lines[0]!.replace(/^Routing(?=\s|$)/, "Note mover");
-  const opening = lines.findIndex(l => l.startsWith(OLD_VIEW_OPENING));
-  return (opening > 0 ? [...lines.slice(0, opening), NOTE_MOVER_VIEW_WORDS] : lines).join("\n");
+  return rewritten.replace(/^Routing(?=\s|$)/, "Note mover").replace(OLD_VIEW_WORDS, () => NOTE_MOVER_VIEW_WORDS);
 }

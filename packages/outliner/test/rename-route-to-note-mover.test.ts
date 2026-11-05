@@ -37,13 +37,13 @@ test("a dry run lists every note and writes nothing; --apply rewrites them, attr
   const rule = await create(`Jars go up [type::route] [query::type=jar] [route-to::((${jars.id}))] [route-at::end] [route-when::command]\nFiled by hand since spring.`);
   const half = await create("Half a rule [type::route] [query::type=tin]");
   const view = await create("Rules in the kitchen [type::virtual-branch] [query::type=route AND #kitchen]");
-  const words = await create("Notes on the rename: type=route is the old way to ask");
+  const words = await create("Notes on the rename\n\nA view had [query::type=route] once, and type=route is the old way to ask");
   const moved = await create("Damson jar [type::jar]");
   const history = await create(`Routing history [type::route-history] [machine::route]\n\n- 2026-03-02 10:00Z ((${moved.id})) to ((${jars.id}))`, rule.id);
   const hub = store.liveBlocks().find(b => b.properties.some(p => p.key === "system-view" && p.value === "note-mover"))!;
   // An outline seeded before the rename, as pie and gurgle are.
   await client.request({ action: "update", blockId: hub.id, expectedRevision: hub.revision, mutation: { author: "agent", actorId: "test" },
-    text: "Routing [page::routing] [type::virtual-branch] [system-view::routing] [query::type=route] [limit::200]\n\nNotes route themselves by the rules listed here, and a rule is a note." });
+    text: "Routing [page::routing] [type::virtual-branch] [system-view::routing] [query::type=route] [limit::200]\n\nNotes route themselves by the rules listed here, and a rule is a note anywhere in the outline: its properties are type (route), query (which notes, in the saved views' grammar: type=recipe) and route-to (where they go: a note's ((id)), a [[page]], a Work ID, inbox or root). Optional: route-when (create, the default: new notes; edit: every save; command: only when asked), route-order (a number; lower first) and route-at (top, the default, or end).\n\nFirst match wins: by route-order, then the order of this view, then the order written. A match moves the note as ext:route, one revision, with a history under the rule. `ep0ch route <note> --dry-run` says what would move where and why; `ep0ch route --all` routes every note; in the door, alt+z routes the note you read.\n\nThe jars rule is seasonal." });
   const before = new Map(store.liveBlocks().map(b => [b.id, b.revision]));
 
   const dry = await run();
@@ -68,6 +68,7 @@ test("a dry run lists every note and writes nothing; --apply rewrites them, attr
   expect(seeded.split("\n")[0]).toBe("Note mover [page::note-mover] [type::virtual-branch] [system-view::note-mover] [query::note-mover OR type=route] [limit::200]");
   expect(seeded).toContain("Notes move themselves by the rules listed here");
   expect(seeded).not.toContain("route themselves");
+  expect(seeded).toEndWith("The jars rule is seasonal.");
   expect(store.get(half.id)!.revision).toBe(half.revision);
   expect(store.get(words.id)!.revision).toBe(words.revision);
 

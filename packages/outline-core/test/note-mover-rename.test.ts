@@ -3,7 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import { BUILTIN_COMPONENT_SCHEMAS, settingsSchemas } from "../src/component-schema";
 import { componentReading } from "../src/component-warnings";
-import { renamedRuleText, renamedView } from "../src/note-mover-rename";
+import { NOTE_MOVER_VIEW_WORDS, renamedRuleText, renamedView } from "../src/note-mover-rename";
+import { parsePropertyRecords } from "../src/property-parse";
 import { syntaxWarnings } from "../src/syntax-warnings";
 
 const renames = (text: string) => syntaxWarnings(text).filter(w => w.message.includes("renamed to note-mover"));
@@ -84,5 +85,44 @@ describe("rewriting", () => {
     const after = renamedView(seeded)!;
     expect(after.split("\n")[0]).toBe("Note mover [page::note-mover] [type::virtual-branch] [system-view::note-mover] [query::note-mover OR type=route] [limit::200]");
     expect(renamedView("My shelf rules [page::shelf-rules] [system-view::routing] [query::type=route]")).toBe("My shelf rules [page::shelf-rules] [system-view::note-mover] [query::note-mover OR type=route]");
+  });
+
+  // Codex on #1293.
+  const blockKeys = (text: string) => parsePropertyRecords(text).filter(r => r.scope === "block").map(r => r.key);
+
+  test("a [type::route] alone on its line goes with its line, so the properties under it stay the note's", () => {
+    const after = renamedRuleText("Jars go up\n[type::route]\n[query::type=jar]\n[route-to::root]\n\nFiled by hand.")!;
+    expect(after).toBe("Jars go up\n[query::type=jar]\n[note-mover::root]\n\nFiled by hand.");
+    expect(blockKeys(after)).toEqual(["query", "note-mover"]);
+    const bare = renamedRuleText("Jars go up\ntype:: route\nquery:: type=jar\nroute-to:: root")!;
+    expect(bare).toBe("Jars go up\nquery:: type=jar\nnote-mover:: root");
+    expect(blockKeys(bare)).toEqual(["query", "note-mover"]);
+    expect(renamedRuleText("Jars go up\n[query::type=jar]\n[route-to::root]\n[type::route]")).toBe("Jars go up\n[query::type=jar]\n[note-mover::root]");
+  });
+
+  test("a key written with capitals is the same key: nothing is left under the old name", () => {
+    expect(renamedRuleText("Jars [Type::Route] [query::type=jar] [Route-to::root] [ROUTE-WHEN::command]")).toBe("Jars [query::type=jar] [note-mover::root] [note-mover-when::command]");
+  });
+
+  test("the seeded view takes the new words for the default only: what a person added stays", () => {
+    const old = "Notes route themselves by the rules listed here, and a rule is a note anywhere in the outline: its properties are type (route), query (which notes, in the saved views' grammar: type=recipe) and route-to (where they go: a note's ((id)), a [[page]], a Work ID, inbox or root). Optional: route-when (create, the default: new notes; edit: every save; command: only when asked), route-order (a number; lower first) and route-at (top, the default, or end).\n\nFirst match wins: by route-order, then the order of this view, then the order written. A match moves the note as ext:route, one revision, with a history under the rule. `ep0ch route <note> --dry-run` says what would move where and why; `ep0ch route --all` routes every note; in the door, alt+z routes the note you read.";
+    const head = "Routing [page::routing] [type::virtual-branch] [system-view::routing] [query::type=route] [limit::200]";
+    const newHead = "Note mover [page::note-mover] [type::virtual-branch] [system-view::note-mover] [query::note-mover OR type=route] [limit::200]";
+    expect(renamedView(`${head}\n\n${old}\n\nMy own note: the jars rule is seasonal.`)).toBe(`${newHead}\n\n${NOTE_MOVER_VIEW_WORDS}\n\nMy own note: the jars rule is seasonal.`);
+    // Words a person has changed are theirs, whole.
+    const edited = "Notes route themselves by the rules listed here, more or less.";
+    expect(renamedView(`${head}\n\n${edited}`)).toBe(`${newHead}\n\n${edited}`);
+  });
+
+  test("only a note's own query is a view's: prose about one is left as written", () => {
+    expect(renamedView("How rules were listed\n\nA view had [query::type=route] on its first line, back then.")).toBeNull();
+    expect(renamedView("Old notes\n\n[query::type=route]\n\nA line in the body.")).toBeNull();
+    expect(renamedView("Ticket about it\n\nThe [system-view::routing] view and [page::routing] page.")).toBeNull();
+  });
+
+  test("a view written with bare properties is rewritten in the same form", () => {
+    expect(renamedView("Rules\ntype:: virtual-branch\nquery:: type=route AND #kitchen")).toBe("Rules\ntype:: virtual-branch\nquery:: note-mover AND #kitchen");
+    expect(renamedView("Rules\nsystem-view:: routing\npage:: routing\nquery:: type=route")).toBe("Rules\nsystem-view:: note-mover\npage:: note-mover\nquery:: note-mover OR type=route");
+    expect(renamedView("Rules [Query::type=route]")).toBe("Rules [Query::note-mover]");
   });
 });
