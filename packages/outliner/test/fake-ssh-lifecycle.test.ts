@@ -34,7 +34,7 @@ for (const ending of ["pass", "failure", "timeout", "killed", "clean"] as const)
     const ctl = join(temp, "ctl"), ready = join(temp, "ready");
     const owner = join(root, "owner.ts");
     writeFileSync(owner, `
-      import ${JSON.stringify(join(import.meta.dir, "preload.ts"))};
+      import ${JSON.stringify(join(import.meta.dir, "../../../scripts/fake-ssh-owner"))};
       ${ending === "clean" ? 'delete process.env.FAKE_SSH_OWNER_FILE;' : ""}
       const child = Bun.spawn([process.execPath, ${JSON.stringify(join(import.meta.dir, "fake-ssh.ts"))},
         ...${JSON.stringify(ending === "clean" ? ["--serve", `${temp}/local`, `${temp}/remote`, ctl] : ["-S", ctl, "-L", `${temp}/local:${temp}/remote`, "--", "garden"])}],
@@ -47,7 +47,9 @@ for (const ending of ["pass", "failure", "timeout", "killed", "clean"] as const)
     const run = Bun.spawn([...(ending === "timeout" ? ["timeout", "5"] : []), process.execPath, owner], { env: { ...process.env, TMPDIR: temp }, stdin: "pipe", stdout: "ignore", stderr: "inherit" });
     let pid = 0;
     try {
-      await until(() => existsSync(ready));
+      // An owner that dies before it's ready fails here, not at the test's 30 s timeout.
+      await until(() => existsSync(ready) || run.exitCode !== null);
+      expect(existsSync(ready)).toBe(true);
       pid = Number(readFileSync(ctl, "utf8"));
       expect(alive(pid)).toBe(true);
       if (ending === "clean") {

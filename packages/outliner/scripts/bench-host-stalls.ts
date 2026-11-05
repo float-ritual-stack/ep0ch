@@ -19,7 +19,7 @@ import { makeOutline } from "./host-bench/fixture";
 const { values } = parseArgs({ options: { outliner: { type: "string" }, keep: { type: "boolean" }, budget: { type: "string" } } });
 const outliner = resolve(values.outliner ?? join(import.meta.dir, ".."));
 const budget = Number(values.budget ?? 200);
-const root = mkdtempSync(join(process.env.EP0CH_BENCH_TMP ?? tmpdir(), "host-stalls-"));
+const root = mkdtempSync(join(process.env.EP0CH_BENCH_TMP || tmpdir(), "host-stalls-"));
 const outlines = join(root, "outlines");
 const socket = join(outlines, ".host", "host.sock");
 const OUTLINE = "bench";

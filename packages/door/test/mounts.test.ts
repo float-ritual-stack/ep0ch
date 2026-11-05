@@ -16,7 +16,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import type { Seeded } from "../src/showcase/seed";
-import { outliner, Scratch, until, SEEDED_SETUP_MS } from "./scratch";
+import { outliner, Scratch, until, untilAsync, SEEDED_SETUP_MS } from "./scratch";
 import { prop } from "../src/props";
 
 describe("a part of a screen (partSpec)", () => {
@@ -90,6 +90,9 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     }
     expect(get().focus).toBe(focus);
     const lane = tile("kanban").mount.layout.tiles.find((t: any) => t.kind === "query").name;
+    // The lanes are laid out before their first read lands, and card.select looks the card up in what they've read.
+    const lanes: string[] = tile("kanban").mount.layout.tiles.filter((t: any) => t.kind === "query").map((t: any) => t.name);
+    await untilAsync(async () => (await Promise.all(lanes.map(l => act("view.get", {}, l)))).some(v => JSON.stringify(v).includes(seeded.cards[0]!.id)), "the mounted board's lanes read", 8000);
     expect(await act("card.select", { id: seeded.cards[0]!.id }, lane)).toBeDefined();
     // Two mounted boards expose the same name: the refusal gives paths instead of choosing one.
     await act("tile.open", { kind: "screen", screen: "board", target: seeded.notes.hub.id, name: "second-898" }, focus);
