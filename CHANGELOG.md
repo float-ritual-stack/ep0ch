@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Pictures in notes size the way you set them (PIE-1583)
+
+- **Smaller or bigger:** a picture's caption has `[-][+]`, and a key or `act` does the same. The size is saved in the note as `height=N` on an svg or mermaid fence or `[size::N%]` on an `[img::]` line, so it reopens at that size, published pages included.
+- **Captions tell pictures apart:** each one gives its source's size in characters, and selecting a picture counts the fence's source instead of `0 chars`.
+- **Run:** `ep0ch install --apply` (GRAMMAR 35).
+
 ### The component that moves notes is note-mover (PIE-1314)
 
 - Write a rule as `[note-mover::((target))] [query::…]`; `::note-` completes it and the component library lists Note mover.
