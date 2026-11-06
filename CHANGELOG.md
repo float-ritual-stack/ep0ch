@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Published pages keep their bold and their tables (PIE-1590)
+
+- **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
+- **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
+
 ### ctrl+r reloads every draft the same way (PIE-1591)
 
 - **What you type during the read lands:** in a note's edit, a comment, a comment's edit or a table cell, the words wait and go in after what was read. A comment finding its quote again used to drop them.
