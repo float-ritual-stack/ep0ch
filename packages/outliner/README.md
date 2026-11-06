@@ -120,7 +120,7 @@ No shared user host is used.
 - The service owns fragment slices and nested transclusion (`fragments.read`, `transclusions.read`, used by the door and published pages); Detail shows one level of embeds with the same limits and wording.
 - Detail Backlinks are grouped by kind and stage from service facets, with the note itself, its descendants and resolved comments hidden by default.
 - Fresh databases seed version 6 of the Documentation hub: an addressable feature tour, the agent documentation guide, native transclusions, a working virtual branch, and authored block, page, file, web, SSH-application, and Jira reference examples. Existing workspaces keep their customized content.
-- Agent-created blocks retain immutable creator provenance. Every later text or property mutation, and every move, trash and restore, records its own `user`, `agent`, or `system` identity plus available actor, session, and task IDs, so edit attribution never depends on the creator. CLI writes take `--author`/`--actor`, and `bun run cli activity` reads the record.
+- Agent-created blocks retain immutable creator provenance. Every later text or property mutation, and every move, trash and restore, records its own `user`, `agent`, or `system` identity plus available actor, session, and task IDs, so edit attribution never depends on the creator. CLI writes take `--author`/`--actor` (a bare name is recorded as `<name>/cli@<this machine>`, a full id as given), and `bun run cli activity` reads the record, its `--actor` matching the recorded id exactly.
 - Clients catch up after a disconnect with `changes.since`, read many blocks at once with field projection (`blocks.read`), and preview how a draft's properties will parse (`properties.preview`).
 - `outliner publish serve` gives blocks with `[publish::…]` a read-only URL, including attached HTML, claude.ai React artifacts, SVG, Mermaid and Markdown; `[publish::never]` keeps a subtree from every outsider. See [Publishing blocks](#publishing-blocks).
 - Recoverable deletion preserves canonical structure and identity, excludes Trash content from normal queries/completions, and requires explicit identifier-confirmed purge.
@@ -668,14 +668,14 @@ bun run cli properties-preview --text "Draft title [stage::queued]"
 bun run cli ticket <block-uuid>
 bun run cli ticket <block-uuid> --line 3
 bun run cli update --id <block-uuid> --text "Revised note" --expected <revision>
-bun run cli update --id <block-uuid> --text "Revised note" --expected <revision> --author agent --actor claude-code
-bun run cli create --text "Agent's note" --author agent --actor claude-code [--session <id>]
-bun run cli move --id <block-uuid> --expected <revision> --parent <block-uuid|root> [--position 0] [--author agent --actor claude-code]
-bun run cli delete --id <block-uuid> [--expected <revision>] [--if-empty] [--author agent --actor claude-code]
-bun run cli restore --id <block-uuid> [--author agent --actor claude-code]
-bun run cli activity --limit 50 [--since 2026-09-27T00:00:00Z] [--after <cursor>] [--author agent] [--actor claude-code] [--kinds text,properties,move,delete,restore]
+bun run cli update --id <block-uuid> --text "Revised note" --expected <revision> --author agent --actor loki
+bun run cli create --text "Agent's note" --author agent --actor loki [--session <id>]
+bun run cli move --id <block-uuid> --expected <revision> --parent <block-uuid|root> [--position 0] [--author agent --actor loki]
+bun run cli delete --id <block-uuid> [--expected <revision>] [--if-empty] [--author agent --actor loki]
+bun run cli restore --id <block-uuid> [--author agent --actor loki]
+bun run cli activity --limit 50 [--since 2026-09-27T00:00:00Z] [--after <cursor>] [--author agent] [--actor loki/cli@float-box] [--kinds text,properties,move,delete,restore]
 bun run cli agent read --json '{"ref":"PIE-123","depth":2}'          # full text, properties, revision, children
-bun run cli agent edit --stdin --actor claude-code [--session <id>] < edit.json   # {"ref","expectedRevision","text"|"replaceSection"|"append"}
+bun run cli agent edit --stdin --actor loki [--session <id>] < edit.json   # {"ref","expectedRevision","text"|"replaceSection"|"append"}
 bun run cli selection
 bun run cli changes --since <sequence> --limit 50
 bun run cli clients --role tree

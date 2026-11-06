@@ -68,3 +68,27 @@ test("a chain keeps the tightest limits of the grants it came through, and a wak
   expect(day.count("tight")).toBe(0);
   expect(first.chain.spent.n).toBe(0);
 });
+
+// PIE-1605: an agent's id carries its client and machine now; a grant naming the persona still holds it to its limits.
+test.each(["loki", "loki/cli@garden-box", "loki/ep0ch@garden-box", "loki/claude-code@garden-box", "mcp:loki/claude.ai"])("a grant naming loki denies and caps %s", actorId => {
+  const loki = { author: "agent" as const, actorId };
+  const denied = decide([grant({ from: ["loki"], to: ["all"], deny: true })], loki, "kitty", undefined, counts());
+  expect(denied).toMatchObject({ wake: false, denied: true });
+  const capped = grant({ from: ["loki"], cap: 1 });
+  const today = counts();
+  expect(decide([capped], loki, "kitty", undefined, today).wake).toBe(true);
+  const second = decide([capped], loki, "kitty", undefined, today);
+  expect(second.wake).toBe(false);
+  expect((second as { why: string }).why).toContain("capped at 1/day");
+  const spent = decide([grant({ from: ["loki"], budget: 1 })], loki, "kitty", { ...newChain("loki"), spent: { n: 1 } }, counts());
+  expect((spent as { why: string }).why).toContain("budget: all 1 wakes");
+});
+
+test("a grant naming someone else, or a whole id, holds only that writer", () => {
+  const mine = { author: "agent" as const, actorId: "loki/cli@garden-box" };
+  const deny = (from: string) => grant({ from: [from], deny: true });
+  expect(decide([deny("kitty")], mine, "kitty", undefined, counts()).wake).toBe(true);
+  expect(decide([deny("loki/cli@potting-shed")], mine, "kitty", undefined, counts()).wake).toBe(true);
+  expect(decide([deny("loki/cli@garden-box")], mine, "kitty", undefined, counts()).wake).toBe(false);
+  expect(decide([deny("cli")], mine, "kitty", undefined, counts()).wake).toBe(true);
+});

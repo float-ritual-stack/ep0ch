@@ -21,7 +21,7 @@ function isolatedEnv(extra: Record<string, string>): Record<string, string> {
     if (value !== undefined && !key.startsWith("HERDR_") && !key.startsWith("OUTLINER_")) env[key] = value;
   }
   // No test asks the real Jev (the preload's rule): the work tools' review answers from code's words alone.
-  return { ...env, OUTLINER_FIGURE_FIT: "off", ...extra };
+  return { ...env, OUTLINER_FIGURE_FIT: "off", EP0CH_MACHINE_NAME: "garden-box", ...extra };
 }
 
 async function runCli(env: Record<string, string>, args: string[], stdin?: string) {
@@ -87,7 +87,7 @@ test("an item is created, staged and read back by Work ID with its revision", as
   expect(created.json).toMatchObject({ workId: "PIE-001", workStage: "queued", revision: 1 });
   expect(created.json.ref).toBe(`((${created.json.blockId}))`);
   const block = h.store.require(created.json.blockId);
-  expect(block).toMatchObject({ author: "agent", actorId: "test-agent" });
+  expect(block).toMatchObject({ author: "agent", actorId: "test-agent/cli@garden-box" });
 
   let revision = 1;
   for (const stage of ["doing", "review", "validate"]) {
@@ -373,7 +373,7 @@ test("a request ticketed from its copy follows the ticket; done gets its day and
     { key: "ticket", value: "PIE-001" }, { key: "ticket-stage", value: "queued" },
   ]));
   expect(h.store.require(request.id).text).toContain("What happened, in the asker's words.");
-  expect(h.store.recentEditActivity({ author: "agent", actorId: "test-agent", limit: 10 }).entries.map((entry) => entry.block.id))
+  expect(h.store.recentEditActivity({ author: "agent", actorId: "test-agent/cli@garden-box", limit: 10 }).entries.map((entry) => entry.block.id))
     .toContain(request.id);
 
   // A second request, ticketed later by hand, and an unknown ticket refused before anything changes.

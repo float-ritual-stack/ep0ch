@@ -1,6 +1,7 @@
 import { keyLineWords } from "./secret-keys";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { cliActorId } from "./machine-name";
 import { checkServiceCompatibility } from "./service-compatibility";
 import type { OutlinerServiceStatus } from "./types";
 import { existsSync, realpathSync, statSync } from "node:fs";
@@ -669,7 +670,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         ...(values.line !== undefined ? { line: Number(values.line) } : {}),
         ...(Object.keys(argsMap).length ? { args: argsMap } : {}),
         // Who asked: the writes stay the extension's, this is recorded beside them (requestedBy).
-        mutation: values.actor?.trim() ? { author: "agent", actorId: values.actor.trim() } : { author: "user" },
+        mutation: values.actor?.trim() ? { author: "agent", actorId: cliActorId(values.actor) } : { author: "user" },
       }, EXTENSION_RUN_WAIT_MS);
       if (values.json) console.log(JSON.stringify(result));
       else {
@@ -691,7 +692,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       if (!client) throw new Error("No outline service answers here (start the outline host, or name an outline with EP0CH_WS or a .ep0ch)");
       const done = await client.request<{ undone: string; action: string; written: string[] }>({
         action: "extensions.undo", undo: id,
-        mutation: values.actor?.trim() ? { author: "agent", actorId: values.actor.trim() } : { author: "user" },
+        mutation: values.actor?.trim() ? { author: "agent", actorId: cliActorId(values.actor) } : { author: "user" },
       });
       if (values.json) console.log(JSON.stringify(done));
       else print(`undid ${done.action}: ${done.written.length} ${done.written.length === 1 ? "block" : "blocks"} put back`);

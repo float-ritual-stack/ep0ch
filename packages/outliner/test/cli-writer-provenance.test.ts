@@ -13,7 +13,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 
 async function runCli(args: string[], env: Record<string, string>) {
   const p = Bun.spawn(["bun", "src/cli.ts", ...args], {
-    cwd: join(import.meta.dir, ".."), env: { ...process.env, ...env }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, ...env, EP0CH_MACHINE_NAME: "garden-box" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
   });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { stdout, stderr, exitCode };
@@ -47,7 +47,7 @@ test("update --author agent --actor records the agent, and activity reads it bac
   const entry = entryFor(JSON.parse(activity.stdout), note.id);
   expect(entry).toBeDefined();
   expect(entry.author).toBe("agent");
-  expect(entry.actorId).toBe("garden-agent");
+  expect(entry.actorId).toBe("garden-agent/cli@garden-box");
 });
 
 test("update without --author stays the person's, as before", async () => {
@@ -66,7 +66,7 @@ test("create --author agent --actor records the agent as the creator", async () 
   const id = JSON.parse(created.stdout).id;
   const block = store.get(id)!;
   expect(block.author).toBe("agent");
-  expect(block.actorId).toBe("garden-agent");
+  expect(block.actorId).toBe("garden-agent/cli@garden-box");
 });
 
 test("a bad --author is refused before anything is written", async () => {
@@ -88,17 +88,17 @@ test("move, delete and restore --author agent --actor record the agent, and acti
   expect((await runCli(["move", "--id", garlic.id, "--expected", String(garlic.revision), "--parent", bed.id, ...agent], env)).exitCode).toBe(0);
   expect(store.get(garlic.id)!.parentId).toBe(bed.id);
   let entry = entryFor(JSON.parse((await runCli(kinds, env)).stdout), garlic.id);
-  expect([entry.kind, entry.author, entry.actorId, entry.sessionId]).toEqual(["move", "agent", "garden-agent", "s-2"]);
+  expect([entry.kind, entry.author, entry.actorId, entry.sessionId]).toEqual(["move", "agent", "garden-agent/cli@garden-box", "s-2"]);
 
   expect((await runCli(["delete", "--id", garlic.id, ...agent], env)).exitCode).toBe(0);
   entry = entryFor(JSON.parse((await runCli(kinds, env)).stdout), garlic.id);
-  expect([entry.kind, entry.actorId]).toEqual(["delete", "garden-agent"]);
+  expect([entry.kind, entry.actorId]).toEqual(["delete", "garden-agent/cli@garden-box"]);
 
   const restored = await runCli(["restore", "--id", garlic.id, ...agent], env);
   expect(restored.exitCode).toBe(0);
   expect(JSON.parse(restored.stdout).deletedAt).toBeFalsy();
   entry = entryFor(JSON.parse((await runCli(kinds, env)).stdout), garlic.id);
-  expect([entry.kind, entry.actorId]).toEqual(["restore", "garden-agent"]);
+  expect([entry.kind, entry.actorId]).toEqual(["restore", "garden-agent/cli@garden-box"]);
 });
 
 test("move and delete without --author stay the person's, through the CLI", async () => {

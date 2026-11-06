@@ -1,3 +1,4 @@
+import { actorNamed } from "./attribution";
 import { VALUE_OPERAND_SOURCE, type Clause } from "./query-clauses";
 import { PROPERTY_QUERY_SCOPES as QUERY_SCOPES, type BlockProperty } from "./protocol";
 import type { PropertyRecord } from "./property-parse";
@@ -840,11 +841,11 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       return subject => !!written && subject.id !== undefined && written.has(subject.id);
     }
     case "by": {
-      // An author (`user`, `agent`, `system`) or an actor id, ignoring case: who wrote the block last.
+      // An author (`user`, `agent`, `system`) or a writer (`actorNamed`), ignoring case: who wrote the block last.
       const who = expression.who.toLowerCase();
       return subject => {
         const writer = subject.id && relations?.writerOf ? relations.writerOf(subject.id) : subject;
-        return writer.author?.toLowerCase() === who || writer.actorId?.toLowerCase() === who;
+        return writer.author?.toLowerCase() === who || actorNamed(writer.actorId, who);
       };
     }
     case "unread": {
