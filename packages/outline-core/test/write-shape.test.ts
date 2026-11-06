@@ -420,3 +420,13 @@ test("a ? inside a link's address, a code span or a reference isn't a question",
   expect(writeShape(note("Evan, is ((abcdefgh|this bed ready?))")).map(f => f.rule)).toContain("question");
   expect(writeShape(note("Evan, use <https://example.org/plan>?")).map(f => f.rule)).toContain("question");
 });
+
+test("a chip in a comment's words is told, with a code span as the fix; what a comment shows isn't (PIE-1589)", () => {
+  const found = writeShape("The note carries [orient::all] today.", { kind: "comment" });
+  expect(found.map(f => f.rule)).toEqual(["comment-chip"]);
+  expect(found[0]!.patch).toEqual([{ observed: "[orient::all]", replacement: "`[orient::all]`" }]);
+  for (const words of ["The note carries `[orient::all]` today.", "[img::/media/plot.png] [size::40%]", "See [file::/tmp/plot.txt] for it."]) {
+    expect(writeShape(words, { kind: "comment" }).map(f => f.rule)).toEqual([]);
+  }
+  expect(writeShape("Seed order [orient::all]\n\nWords.").some(f => f.rule === "comment-chip")).toBe(false);
+});

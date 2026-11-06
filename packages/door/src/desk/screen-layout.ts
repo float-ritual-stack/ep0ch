@@ -237,7 +237,7 @@ export type Op<I = number> =
   | { op: "float"; tile: I; at?: At<I> }
   | { op: "place"; tile?: I; dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }
   | { op: "pin"; tile: I; on?: boolean; edge?: Dir; container?: string }
-  | { op: "slide"; tile: I; open?: boolean; container?: string; beside?: boolean }
+  | { op: "slide"; tile: I; open?: boolean; container?: string; beside?: boolean; /** It only follows the keys leaving the dock: no step of anyone's (step-record.ts). */ keysLeft?: true }
   | { op: "collapse"; tile: I; on?: boolean; dir?: "v" | "h" }
   /** Growth by room (PIE-794): tile `tile` was just opened beside others; earlier readers in its row fold until it's readable. */
   | { op: "room"; tile: I; before?: ReadonlyMap<I, Rect>; alt?: boolean }
@@ -404,7 +404,7 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
     taken.add(d.names.get(id)!);
   }
   if (renamed.length) { d.answer.renamed = renamed; d.changed = true; }
-  if (ctx.actor.kind === "user" && d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
+  if (ctx.standing && d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
 

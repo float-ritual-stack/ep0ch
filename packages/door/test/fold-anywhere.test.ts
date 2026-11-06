@@ -344,7 +344,7 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
         expect([d.app.drawer.entered, d.drawer().rawKeys()]).toEqual([true, true]);
         await until(() => kettle.text().some(l => l.includes("^]")), "the second ctrl+] reached the program");
         d.press([ctrl("]")]);                                            // out of the program again; not soon after, the next leaves
-        (d.drawer() as any).chord.at -= 5000;
+        (d.drawer() as any).doorKeys.chordSpent();
         d.press([ctrl("]")]);
         expect(d.app.drawer.entered).toBe(false);
       } finally { d.app.quit(); }

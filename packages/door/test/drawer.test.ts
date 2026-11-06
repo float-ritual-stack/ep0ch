@@ -207,12 +207,12 @@ describe("the drawer", () => {
       d.key(CTRL_RB);
       d.key(ESC);
       expect(d.app.drawer.entered).toBe(false);
-      (d.app.drawer as any).leftAt = 0;
+      d.app.drawer.keysFact.chordSpent();
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(true);
       expect(d.term.rawSink()).not.toBeNull();                 // the keys are the agent's again
       // The person in the screen's terminal tile: ctrl+] leaves the tile (the screen's), and its second is the tile's too.
-      d.key(CTRL_RB); d.key(ESC); (d.app.drawer as any).leftAt = 0;
+      d.key(CTRL_RB); d.key(ESC); d.app.drawer.keysFact.chordSpent();
       raw = true;
       d.key(CTRL_RB);
       raw = false;

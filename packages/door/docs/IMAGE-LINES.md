@@ -47,7 +47,9 @@ size`), and the line is still drawn. A property written twice: the first counts,
 - `\ ` for a space, as a shell writes it: `[img::/shots/plot\ at\ dusk.png]`.
 - macOS screenshot names: the narrow no-break space before AM/PM is found either way.
 - A relative path is read from the door's own folder, so write it absolute (or `~/…`); a picture pasted into a draft
-  (`ctrl+v`, `draft.image`) is copied into the outline's folder (`media/<day>-<hash>.<ext>`) and written absolute.
+  (`ctrl+v`, `draft.image`) or dropped on the terminal (a paste of nothing but image files, `draft.drop`; a bare name
+  is looked up in the folders notes name with `[drop-folder::<folder>]`) is copied into the outline's folder
+  (`media/<day>-<hash>.<ext>`) and written absolute.
 - In an extension's view, an `image` primitive's `src` is the same path, or a `file:/absolute/path` Resource ref.
 
 The file is read on the machine the door runs on. PNG, JPEG, WebP and GIF (its first frame) decode through sharp;

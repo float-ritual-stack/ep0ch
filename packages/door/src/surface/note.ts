@@ -157,7 +157,7 @@ import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERV
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
-import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
+import { clipboardImage, dropActions, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
 import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
@@ -3266,7 +3266,7 @@ export class NoteSurface {
         else if (cmd === "editor") void this.runKey("edit.external", {}, host);
         else if (cmd === "pick") void this.runKey("draft.pick", {}, host);
         else if (cmd === "follow") void this.runKey("edit.follow", {}, host);
-        else if (cmd === "image") void this.runKey("draft.image", {}, host);
+        else if (cmd === "image" || cmd === "drop") void (cmd === "drop" ? this.runKey("draft.drop", { text: s.dropped }, host) : this.runKey("draft.image", {}, host));
         else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
         else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
         // Esc closes an unchanged edit; esc, esc on changed text puts it aside as unsent (never dropped), and says where.
@@ -3563,7 +3563,7 @@ export class NoteSurface {
       external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
       follow: () => void this.runKey("edit.follow", {}, host),
-      image: () => void this.runKey("draft.image", {}, host),
+      image: dropped => void (dropped === undefined ? this.runKey("draft.image", {}, host) : this.runKey("draft.drop", { text: dropped }, host)),
       reload: () => void this.runKey("edit.reload", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
@@ -11965,7 +11965,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return foldResult(surface, p);
     },
   }),
-  ...figureActions,
+  ...figureActions, ...dropActions,
   "select": def({
     summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: [{ keys: "drag", does: "select" }, { keys: "double-click", does: "selects a word" }, { via: "a triple click" }, { keys: "v then h j k l", does: "select with the keys" }],
     touches: "nothing", replay: "safe",

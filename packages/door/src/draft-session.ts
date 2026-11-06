@@ -1,3 +1,4 @@
+import { droppedFiles } from "./paste-image";
 import type { ReaderPosition } from "./reader-position";
 import { Again } from "./arm";
 // One draft session (PIE-516): the lifecycle every draft goes through, whatever it's for. A draft opens
@@ -97,7 +98,7 @@ export interface SessionEnv {
 export type Ended = "written" | "closed" | "aside";
 
 /** What a key in a draft asks its host to run as an action (the key path is the action path, PIE-506). */
-export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy" | "follow" | "image" | "attach";
+export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy" | "follow" | "image" | "drop" | "attach";
 
 /**
  * What leaving a draft by a click (or ^W) did: `closed` (nothing changed), `saved`, `kept` as unsent (with
@@ -235,9 +236,28 @@ export class DraftSession {
     // that passes `completer: null` opts out, one that passes its own (a note's, with the draft's note as context) keeps it.
     const completer = host.completer === undefined ? defaultCompleter(this.draft, this.env.board, () => this.env.redraw?.()) : host.completer;
     const a: DraftAction = completionKey(this.draft, k, completer);
+    this.watchPaste(k, host);
     // A draft with nothing behind it to read (a new card, a note reply, a field) says so, whoever hosts it.
     if (a === "reload" && !this.target.reload) { void this.reload(); return; }
     if (a !== "keep") host.run(a);
+  }
+
+  /** What the last paste holds, when it is nothing but image files: its host's `drop` command takes it (draft.drop). */
+  dropped = "";
+  private pasteSoFar: string | null = null;
+  /**
+   * Every draft's paste, whole (a `paste`) or typed out key by key (the App's): written first, then, once it's all in,
+   * files dropped on a terminal go to the host as `drop` (PIE-1589). A key replayed after a reload runs no command, whichever host's path it comes back by: a held paste stays text.
+   */
+  private watchPaste(k: Key, host: { run(cmd: DraftCommand): void }): void {
+    const piece = k.kind === "paste" ? k.text : !("pasted" in k && k.pasted) ? null : k.kind === "enter" ? "\n" : k.kind === "tab" ? "\t" : k.kind === "char" ? k.ch : "";
+    if (piece === null || this.replaying) return;
+    if (this.pasteSoFar === null) queueMicrotask(() => {
+      const text = this.pasteSoFar ?? "";
+      this.pasteSoFar = null;
+      if (this.open && droppedFiles(text)) { this.dropped = text; host.run("drop"); }
+    });
+    this.pasteSoFar = (this.pasteSoFar ?? "") + piece;
   }
 
   // ── writing ─────────────────────────────────────────────────────────────────

@@ -103,6 +103,20 @@ describe("the session owns the reload (a fake target)", () => {
     expect(d.note).toStartWith("ctrl+s, esc didn't run: press them again · ");
   });
 
+  test("a paste of image files held through the read stays text: a replayed key runs no command, whichever path it comes back by", async () => {
+    const { s, d, read, run } = changed();
+    const file = join(state, "bed.png");
+    await Bun.write(file, "made up");
+    const host = { completer: null, run: (cmd: string) => { run.push(cmd); if (cmd === "reload") void s.reload(); }, replay: (k: Key) => s.key(k, host) };
+    s.key(ctrl("r"), host);
+    s.key({ kind: "paste", text: file }, host);
+    read.open({ loaded: msg("n", "Sowing\npeas", 2) });
+    await settled(d);
+    await Bun.sleep(0);
+    expect(d.text).toBe(`Sowing\npeas${file}`);
+    expect(run).toEqual(["reload"]);
+  });
+
   test("a read that fails isn't a reload: the conflict stands, the text is kept, and what was typed lands on it", async () => {
     const { d, read, press } = changed();
     press(ctrl("r"));

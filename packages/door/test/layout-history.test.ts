@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { LayoutHistory } from "../src/desk/layout-history";
+import { StepRecord } from "../src/desk/step-record";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { INVITES } from "../src/surface/invite";
@@ -27,7 +27,7 @@ const spec = (n: number) => ({ root: { t: "leaf", kind: "blank", name: `t${n}` }
 
 describe("the layout history", () => {
   test("a transaction's steps are one entry, a drag's resizes are one, and an idle transaction is found", () => {
-    const h = new LayoutHistory();
+    const h = new StepRecord().of({});
     h.join("run-1", AGENT, spec(0), 1000);
     h.record(spec(0), AGENT, "close", 1000, "run-1");
     h.record(spec(1), AGENT, "float", 1100, "run-1");
@@ -377,4 +377,81 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await untilAsync(async () => { const b = await board.get(gone.id).catch(() => null); return !!b && !b.deleted; }, "ctrl+z brought the trashed note back");
     expect(names()).not.toContain(second);
   }, 60_000);
+});
+
+// PIE-1592: the rules ctrl+z runs on, without a door: which change is a step, whose it is, which desk and key take it back.
+describe("the step record", () => {
+  const change = (shape: string, op: string, o: { party?: string; txn?: boolean; left?: boolean } = {}) => ({ shape, op, party: o.party ?? "you", txn: !!o.txn, left: !!o.left });
+  const USER_ = { kind: "user" } as const;
+
+  test("a click is no step: a focus, a tab, a source filling and a dock shutting as the keys left", () => {
+    const r = new StepRecord(), d = {};
+    for (const op of ["focus", "tab", "fill"]) expect(r.decide(d, change("s1", op))).toBe("none");
+    expect(r.decide(d, change("s1", "slide", { left: true }))).toBe("none");
+    expect(r.decide(d, change("s1", "slide"))).toBe("step");
+    expect(r.decide(d, change("s1", "close"))).toBe("step");
+  });
+  test("a change landing back where the party's newest step began takes it out; another party's doesn't", () => {
+    const r = new StepRecord(), d = {};
+    r.of(d).record(spec(0), USER_, "slide", 1, undefined, "s0");
+    expect(r.decide(d, change("s0", "slide", { party: "agent:x" }))).toBe("step");
+    expect(r.of(d).size).toBe(1);
+    expect(r.decide(d, change("s0", "slide"))).toBe("none");
+    expect(r.of(d).size).toBe(0);
+  });
+  test("while a step is put back nothing is a step, on any desk; a source forgets", () => {
+    const r = new StepRecord(), a = {}, b = {};
+    r.putBack(() => { expect(r.decide(a, change("x", "close"))).toBe("none"); expect(r.decide(b, change("y", "source"))).toBe("none"); });
+    expect(r.decide(a, change("x", "source"))).toBe("forget");
+  });
+  test("a source shown forgets each carry's other half, and what came before it there; other desks' other steps stay", () => {
+    const r = new StepRecord(), board = {}, drawer = {}, other = {};
+    r.of(drawer).record(spec(0), USER_, "resize", 1);
+    r.of(board).record(spec(1), USER_, "take", 2, "carry-1");
+    r.of(drawer).record(spec(2), USER_, "open", 3, "carry-1");
+    r.of(drawer).record(spec(3), USER_, "close", 4);
+    r.of(other).record(spec(4), USER_, "close", 5);
+    r.forgetAll(board, [board, drawer, other]);
+    expect([r.of(board).size, r.of(drawer).size, r.of(other).size]).toEqual([0, 1, 1]);
+    expect(r.of(drawer).newest()?.what).toBe("close");
+  });
+  test("whose: the newest of a desk and those holding it; anywhere: the newest among the desks, an agent's own", () => {
+    const r = new StepRecord<{ up?: object }>(), screen = {}, group = { up: screen };
+    r.of(screen).record(spec(0), USER_, "gather", 1);
+    expect(r.undoDesk(group, d => d.up)).toBe(screen);
+    r.of(group).record(spec(1), USER_, "close", 2);
+    expect(r.undoDesk(group, d => d.up)).toBe(group);
+    r.of(screen).record(spec(2), AGENT, "close", 3);
+    expect(r.newestDesk([screen, group], group, null)).toBe(screen);
+    expect(r.newestDesk([screen, group], group, "you")).toBe(group);
+  });
+  test("what's taken back, and why not: an agent's own only, a change since named with the key where it is", () => {
+    const r = new StepRecord(), screen = {}, drawer = {};
+    const carry = r.of(screen).record(spec(0), USER_, "take", 1, "c");
+    r.of(drawer).record(spec(1), USER_, "open", 2, "c");
+    const { sides } = r.stepOf(screen, [carry], [screen, drawer, {}]);
+    expect(sides.map(([d]) => d)).toEqual([screen, drawer]);
+    expect(r.takeBack({}, USER_)).toEqual({ refused: "nothing to undo on this screen's layout" });
+    expect(r.takeBack(screen, AGENT)).toEqual({ refused: "the newest layout change is the person's; an agent undoes only its own" });
+    expect(r.stopped(screen, [carry], AGENT, screen, "desk")).toContain("isn't yours");
+    r.of(drawer).record(spec(2), USER_, "close", 3);
+    expect(r.stopped(drawer, r.of(drawer).entriesOf("c"), USER_, screen, "drawer")).toMatch(/^drawer changed since \(you close\); .* undoes it$/);
+    expect(r.stopped(drawer, r.of(drawer).entriesOf("c"), USER_, drawer, "drawer")).toBe("the layout changed since (you close); undo that first: ctrl+z");
+  });
+  test("where the keys go: a step across layouts follows the tile; an agent's and ^W B's stay", () => {
+    const r = new StepRecord();
+    expect(r.keysAfter(1, USER_, false)).toEqual({ stay: false, follow: false });
+    expect(r.keysAfter(1, USER_, true)).toEqual({ stay: true, follow: false });
+    expect(r.keysAfter(2, USER_, false)).toEqual({ stay: true, follow: true });
+    expect(r.keysAfter(2, AGENT, false)).toEqual({ stay: true, follow: false });
+  });
+  test("a carry that pulled the drawer up: its undo says so once; the person's toggle takes that away", () => {
+    const r = new StepRecord();
+    r.pulledDrawer("c");
+    expect(r.pullBack(new Set(["other"]))).toBe(false);
+    expect(r.pullBack(new Set(["c"]))).toBe(true);
+    expect(r.pullBack(new Set(["c"]))).toBe(false);
+    r.pulledDrawer("c"); r.drawerTaken();
+    expect(r.pullBack(new Set(["c"]))).toBe(false);
+  });
 });
