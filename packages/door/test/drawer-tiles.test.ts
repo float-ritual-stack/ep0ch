@@ -451,7 +451,10 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.app.drawer.open).toBe(false);                       // an agent's drawer doesn't pull it up
       expect(d.desk.focusedName()).toBe("tree");                 // nor move the person's keys
       expect(d.A.message).toContain(`an agent (${AS})`);
-      expect(d.paint().at(-1)).toContain("▲ cat (from EP0CH_DAILY_AGENT) +1");          // the chip: its own program, and one more tile
+      // The chip: its own program, and one more tile. While the long message is up it gives up where its name came from
+      // (PIE-1598: the message is said whole), and that's back with the message gone.
+      expect(d.paint().at(-1)).toContain("▲ cat +1");
+      expect(d.app.drawer.chipText()).toContain("▲ cat (from EP0CH_DAILY_AGENT) +1");
     } finally { d.app.quit(); }
   });
 

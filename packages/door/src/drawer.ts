@@ -977,11 +977,13 @@ export class AgentDrawer {
     const s = this.state(now);
     const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "done" ? C.lgreen : s === "exited" || s === "failed" ? C.lred : s === "watching" ? C.lcyan : C.white;
     const parts = this.chipParts(now);
-    // Short: the program and its count, without where its name came from or what it's doing.
+    // Short: the program and its count, without where its name came from or what it's doing. The restart offer stays in
+    // every size: the status bar gives the chip's last cell to it (lastCell), so that cell is always the ⟳ it restarts by.
+    const offer = this.offersRestart ? ` ${RESTART_GLYPH}` : "";
     const of = (head: string, knows: string) => this.dropHover
       ? `${chipStyle(C.yellow, C.black)}${parts.head}${bg(C.blue)}${fg(C.lcyan)}`
       : `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
-    return { whole: of(parts.head, parts.knows), short: of(parts.head.split(" · ")[0]!.replace(/ \(from [^)]*\)/, ""), ""), tiny: of(parts.head.slice(0, 1), "") };
+    return { whole: of(parts.head, parts.knows), short: of(parts.head.split(" · ")[0]!.replace(/ \(from [^)]*\)/, ""), offer), tiny: of(parts.head.slice(0, 1), offer) };
   }
   /** A tile dragged over the drawer (its chip, its drawer): what a release there does (the chip and the drawer light up). */
   private dropHover: string | null = null;
