@@ -140,7 +140,7 @@ test("a hand-written chip is never added to or taken off; ticking takes off only
   expect(text).toContain("- [ ] Should the hedge go? [needs::sysop: Should the hedge go?] [asks.derived::review]");
 });
 
-test("a reply under the line clears it for a person, not an agent; lines already under it don't count", async () => {
+test("a reply under the line clears it for a person, not an agent; lines already under it or an agent's don't count", async () => {
   const t = await setup();
   const note = await t.write("Yard\n\nSome text.\n\n- Should the shed face south?\n  - It gets the morning sun\n- Should the hedge be low?");
   await t.marked(note.id, 2);
@@ -149,12 +149,14 @@ test("a reply under the line clears it for a person, not an agent; lines already
   await t.settled();
   expect(await t.marked(note.id, 2)).toContain("Should the shed face south? [needs::");
   await t.edit(note.id, text => text.replace("- Should the hedge be low?", "- Should the hedge be low? X").replace(" X [needs", " [needs").replace(/(Should the hedge be low\?[^\n]*)/, "$1\n  - An agent's thought"), AGENT);
-  await t.settled();
   expect(await t.marked(note.id, 2)).toContain("An agent's thought");
+  // Once the agent's save has been read: its line under the ask now counts as already there.
+  await until("the agent's line to be counted", async () => (await t.client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `asks.note=${note.id}`, machinery: "show" } })).blocks.some(b => b.text.includes("Should the hedge") && b.text.includes("[asks.under::1]")));
   await t.edit(note.id, text => text.replace(/(Should the shed face south\?[^\n]*\n  - It gets the morning sun)/, "$1\n  - South, it is"));
-  const text = await t.marked(note.id, 0);
+  // The shed's goes; the hedge's stays: the agent's line under it isn't taken for Evan's reply by this save or any later.
+  const text = await t.marked(note.id, 1);
   expect(text).toContain("- Should the shed face south?\n");
-  expect(text).toContain("- Should the hedge be low?\n");
+  expect(text).toContain("- Should the hedge be low? [needs::");
 });
 
 test("a comment on the line clears that one; a comment on the whole note clears them all", async () => {

@@ -21,10 +21,10 @@ const { input } = (await Bun.stdin.json()) as Request;
 const done = (message: string, extra: Record<string, unknown> = {}) => process.stdout.write(JSON.stringify({ ok: true, value: { message, ...extra } }));
 
 const prop = (block: Block, key: string) => block.properties?.find(p => p.key === key)?.value;
-/** What this extension wrote on a note: each line's hash, and how many lines sat under it then. */
-async function records(note: string): Promise<Map<string, number>> {
+/** What this extension wrote on a note, by each line's hash: how many lines sat under it when it last looked. */
+async function records(note: string): Promise<Map<string, { block: Block; under: number }>> {
   const { blocks } = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note}`, machinery: "show", limit: 200 } });
-  return new Map(blocks.flatMap(b => { const line = prop(b, "asks.line"); return line ? [[line, Number(prop(b, "asks.under") ?? 0)] as const] : []; }));
+  return new Map(blocks.flatMap(block => { const line = prop(block, "asks.line"); return line ? [[line, { block, under: Number(prop(block, "asks.under") ?? 0) }] as const] : []; }));
 }
 
 async function settle(note: string, dry: boolean): Promise<void> {
@@ -65,8 +65,16 @@ async function takeOff(block: Block, which: (line: string, i: number, lines: rea
 async function clear(note: string): Promise<void> {
   const block = await outline<Block>({ action: "get", blockId: note });
   if (isDone(block)) return takeOff(block, () => true, "the note is done");
-  const seen = input.requestedBy?.author === "user" ? await records(note) : new Map<string, number>();
-  const replied = (line: string, i: number, lines: readonly string[]) => input.requestedBy?.author === "user" && linesUnder(lines, i) > (seen.get(hashOf(line)) ?? 0);
+  const seen = await records(note), person = input.requestedBy?.author === "user";
+  const replied = (line: string, i: number, lines: readonly string[]) => person && linesUnder(lines, i) > (seen.get(hashOf(line))?.under ?? 0);
+  // An agent's own lines under its ask are no reply: they count as already there, so your next save isn't taken for one.
+  if (!person) {
+    const lines = block.text.split("\n");
+    for (const [i, line] of lines.entries()) {
+      const record = isMarked(line) ? seen.get(hashOf(line)) : undefined;
+      if (record && linesUnder(lines, i) !== record.under) await outline({ action: "update", blockId: record.block.id, expectedRevision: record.block.revision, text: record.block.text.replace(/\[asks\.under::\d+\]/, `[asks.under::${linesUnder(lines, i)}]`) });
+    }
+  }
   return takeOff(block, (line, i, lines) => isAnswered(line) || replied(line, i, lines), "ticked or replied to");
 }
 
