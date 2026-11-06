@@ -56,17 +56,21 @@ export interface SoftMentionsOf {
   days: ReadonlySet<string>;
   /** Keys whose values aren't links. */
   ignore: readonly string[];
+  /** The pull request it is the note about: no other number can land on it, so no other is looked up. */
+  pr?: number;
+  /** The read stopped looking before it had looked at every note holding the words. */
+  truncated?: boolean;
   /** Whether `PR#number` written at this place lands on the target. */
   prLands(number: number, blockId: string, line: number): boolean;
 }
 
 /** The soft links in `source` that land on the target, as occurrences. */
-function softOccurrences(source: Block, soft: SoftMentionsOf): (OutlinerReferenceOccurrence & { target: undefined })[] {
+export function softOccurrences(source: Pick<Block, "id" | "text">, soft: SoftMentionsOf): (OutlinerReferenceOccurrence & { target: undefined })[] {
   const text = maskOutputRegions(source.text);
   return softLinkTokens(text, { ignore: soft.ignore }).flatMap(token => {
     if (token.kind === "value" && !soft.addresses.has(normalizePageAddress(token.value).normalizedAddress)) return [];
     if (token.kind === "date" && !soft.days.has(token.day)) return [];
-    if (token.kind === "pr" && !soft.prLands(token.number, source.id, text.slice(0, token.start).split("\n").length - 1)) return [];
+    if (token.kind === "pr" && (token.number !== soft.pr || !soft.prLands(token.number, source.id, text.slice(0, token.start).split("\n").length - 1))) return [];
     const address = token.kind === "value" ? token.value : token.kind === "date" ? token.day : `PR#${token.number}`;
     return [{ kind: "page" as const, address, normalizedAddress: normalizePageAddress(address).normalizedAddress, start: token.start, end: token.end, soft: true as const, target: undefined, ...(token.key ? { propertyKey: token.key } : {}) }];
   });
@@ -84,7 +88,7 @@ export function normalizeBacklinkQuery(query: BacklinkQuery): BacklinkQuery {
   return {
     targetBlockId: query.targetBlockId.trim(),
     ...(query.includeDeleted ? { includeDeleted: true } : {}),
-    ...(query.explicit ? { explicit: true } : {}),
+    ...(query.softMentions ? { softMentions: true } : {}),
     limit: query.limit,
   };
 }
@@ -209,6 +213,7 @@ function backlinkSource(
   occurrences: readonly BacklinkRelationOccurrence[],
   blocksById: ReadonlyMap<string, Block>,
   facetRules: BacklinkFacetRules,
+  soft = false,
 ): BacklinkSource {
   return {
     blockId: source.id,
@@ -226,7 +231,7 @@ function backlinkSource(
     ...(source.effectiveDeletedRootId
       ? { deletedRootId: source.effectiveDeletedRootId }
       : {}),
-    facets: backlinkSourceFacets(source, target, blocksById, facetRules, occurrences.every(isSoftOccurrence)),
+    facets: backlinkSourceFacets(source, target, blocksById, facetRules, soft),
   };
 }
 
@@ -301,11 +306,12 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
     const soft = input.soft && source.id !== input.target.id ? softOccurrences(source, input.soft) : [];
     const occurrences = [...explicit, ...soft].sort((left, right) => left.start - right.start);
     if (occurrences.length === 0) continue;
-    (occurrences.every(isSoftOccurrence) ? mentions : linked).push(backlinkSource(source, input.target, occurrences, input.blocksById, rules));
-    if (linked.length > query.limit && (!input.soft || mentions.length > query.limit)) break;
+    const mention = !!query.softMentions && occurrences.every(isSoftOccurrence);
+    (mention ? mentions : linked).push(backlinkSource(source, input.target, occurrences, input.blocksById, rules, mention));
+    if (linked.length > query.limit && (!query.softMentions || mentions.length > query.limit)) break;
   }
 
-  const truncated = linked.length > query.limit || mentions.length > query.limit;
+  const truncated = linked.length > query.limit || mentions.length > query.limit || !!input.soft?.truncated;
   const matches = [...linked.slice(0, query.limit), ...mentions.slice(0, query.limit)];
   return {
     targetBlockId: input.target.id,

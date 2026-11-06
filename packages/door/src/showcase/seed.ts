@@ -524,7 +524,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Asked again about the swap table [thread::seed-swap], no brackets anywhere.",
     "",
     "ctx:: 2026-03-14 @ 4:31 AM",
-    `The latch is ${WORK_PREFIX}-001. A value with no page yet: [zone::north-fence].`,
+    `The latch is ${WORK_PREFIX}-001. A value with no page stays text: [zone::north-fence].`,
     "[project::elm-row] holds PR#12.",
     "",
     "On the fence: [project::elm-row] and [project::riverside] both have PR#12.",

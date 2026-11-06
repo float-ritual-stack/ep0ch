@@ -36,9 +36,9 @@ test("each list main kept is now one column of the table", () => {
   expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
   // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
   expect(sorted(DECLARED.host)).toEqual(MAIN.host);
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft"]));
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope"]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
-  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "references.soft",
+  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "references.soft", "references.soft-scope",
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group"]));
 });
 

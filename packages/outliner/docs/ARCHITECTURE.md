@@ -1190,9 +1190,11 @@ for a bare `{{key}}`. It resolves a **line**: a soft link names the line it's on
 date, `PR#n`, a ticket key. outline-core's `soft-links.ts` recognizes them, with no
 list of keys that link (`[soft-link-ignore::a, b]` notes leave keys out); the
 service answers where each lands (`references.soft`): one note, a chooser, or what
-could be made. A target's backlinks list them under the `mention` kind ("Soft
-mentions"), read from the notes that hold its words (newest 1,000), never the
-reference index, and `links:` and a record's `backlinks` stay explicit.
+could be made. A value draws as a link only where its page is (`references.soft-scope`);
+with no page it stays text, and its property row offers the stub. A `references.backlinks`
+that asks (`softMentions`, the door's links) also lists them under the `mention` kind
+("Soft mentions"): the notes holding its words, newest first, each checked, past 5,000
+looked at it says truncated. Everyone else, `links:` and a record's `backlinks` stay explicit.
 
 Provider lines (`jira::`, `jira:: --comments`, floatty's `- jira:: --comments`,
 `jira:: KEY --full`) are recognized by `parsePropertyDirectiveLines` in

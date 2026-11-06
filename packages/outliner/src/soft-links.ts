@@ -11,7 +11,7 @@ import { blockDisplayTitle } from "./references";
 import type { Database } from "bun:sqlite";
 import { SOFT_LINK_IGNORE_KEY } from "@ep0ch/outline-core/soft-links";
 import { resourcePropertyKeys } from "./resource-references";
-import type { SoftMentionsOf } from "./backlinks";
+import { softOccurrences, type SoftMentionsOf } from "./backlinks";
 import type { Block, PageAddressResolution } from "./types";
 
 /** A place a soft link could land: a note that's there, or what following it would make (nothing is made until asked). */
@@ -159,8 +159,8 @@ export function prLandsOn(number: number, place: SoftLinkPlace, target: Block, s
 
 // ── what the store answers from ─────────────────────────────────────────────────────────────────────────────
 
-/** The most notes a soft-mention read looks through: the newest that hold the words. */
-const SOFT_MENTION_CANDIDATES = 1000;
+/** How many notes holding the words a read fetches at a time, and looks through in all before it says it stopped. */
+const SOFT_MENTION_PAGE = 500, SOFT_MENTION_LOOK = 5000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const likeEscaped = (words: string) => words.replace(/[\\%_]/g, char => `\\${char}`);
 
@@ -175,7 +175,7 @@ export function storeSoftLinkSource(db: Database, block: (id: string) => Block |
 }
 
 /** Keys whose values aren't soft links here: what `[soft-link-ignore::…]` notes list, and the Resource keys. */
-export function softLinkIgnored(db: Database): string[] {
+function softLinkIgnored(db: Database): string[] {
   const written = db.query("SELECT value FROM block_properties p JOIN blocks b ON b.id = p.block_id WHERE p.key = ? AND b.effective_deleted_root_id IS NULL").all(SOFT_LINK_IGNORE_KEY) as { value: string }[];
   return [...new Set([...resourcePropertyKeys(), ...written.flatMap(row => splitPropertyValue(row.value).flatMap(item => item.split(",")).map(key => key.trim().toLowerCase()).filter(Boolean))])];
 }
@@ -188,26 +188,55 @@ function softNames(db: Database, block: Block): { addresses: Set<string>; days: 
   return { addresses, days };
 }
 
-/** The words a note must hold to mention this one by a soft link; none for a note nothing names. */
-export function softNeedles(db: Database, block: Block | null): string[] {
-  if (!block) return [];
-  const { addresses, days } = softNames(db, block), pr = /^\s*PR#(\d+)(?![\w-])/i.exec(block.text)?.[1];
-  return [...addresses, ...days, ...(pr ? [prWords(Number(pr)), `PR::${pr}`, `PR:: ${pr}`] : [])];
+/** The pull request a note is about, by its title. */
+const prOfTitle = (block: Block): number | undefined => { const pr = /^\s*PR#(\d+)(?![\w-])/i.exec(block.text)?.[1]; return pr ? Number(pr) : undefined; };
+
+/** Each answer once per read: a hub's mentions ask for the same few notes and titles over and over. */
+function sharedLookups(source: SoftLinkSource): SoftLinkSource {
+  const once = <K, V>(read: (key: K) => V) => { const kept = new Map<K, V>(); return (key: K) => { if (!kept.has(key)) kept.set(key, read(key)); return kept.get(key)!; }; };
+  const notesWith = new Map<string, Block[]>();
+  return { page: once(source.page), block: once(source.block), notesTitled: once(source.notesTitled), notesWith: (key, value) => { const k = `${key}\0${value}`; if (!notesWith.has(k)) notesWith.set(k, source.notesWith(key, value)); return notesWith.get(k)!; } };
 }
 
 /**
- * The notes holding those words, past the ones `known` already: soft mentions aren't indexed (a value's words, a date in a
- * sentence), so the newest and a bounded number, and a hub with thousands answers as fast as one with a few.
+ * The notes that really mention a target: soft mentions aren't indexed (a value's words, a date in a sentence), so the
+ * notes holding the words are read newest first, a page at a time, and each is checked, until `limit` is passed (the
+ * answer is truncated by that) or they run out. Past `look` notes it stops and says so, so a page named by a common word
+ * costs a bounded read and never reports complete.
  */
-export function softCandidates(db: Database, needles: readonly string[], known: readonly { block_id: string }[]): { block_id: string }[] {
-  if (!needles.length) return [];
-  const had = new Set(known.map(row => row.block_id));
-  const rows = db.query(`SELECT id AS block_id FROM blocks WHERE effective_deleted_root_id IS NULL AND (${needles.map(() => "text LIKE ? ESCAPE '\\'").join(" OR ")}) ORDER BY updated_at DESC LIMIT ${SOFT_MENTION_CANDIDATES}`).all(...needles.map(needle => `%${likeEscaped(needle)}%`)) as { block_id: string }[];
-  return rows.filter(row => !had.has(row.block_id));
+export function softMentionRows(db: Database, needles: readonly string[], mentions: (row: { id: string; text: string }) => boolean, limit: number, look = SOFT_MENTION_LOOK): { rows: { block_id: string }[]; truncated: boolean } {
+  const rows: { block_id: string }[] = [];
+  if (!needles.length) return { rows, truncated: false };
+  const query = db.query(`SELECT id, text FROM blocks WHERE effective_deleted_root_id IS NULL AND (${needles.map(() => "text LIKE ? ESCAPE '\\'").join(" OR ")}) ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`);
+  const words = needles.map(needle => `%${likeEscaped(needle)}%`);
+  for (let offset = 0; ; offset += SOFT_MENTION_PAGE) {
+    const page = query.all(...words, Math.min(SOFT_MENTION_PAGE, look - offset + 1), offset) as { id: string; text: string }[];
+    for (const [at, row] of page.entries()) {
+      if (offset + at >= look) return { rows, truncated: true };
+      if (!mentions(row)) continue;
+      rows.push({ block_id: row.id });
+      if (rows.length > limit) return { rows, truncated: false };
+    }
+    if (page.length < SOFT_MENTION_PAGE) return { rows, truncated: false };
+  }
 }
 
-/** What the backlink relation asks to read this note's soft mentions; nothing when nothing names it. */
-export function softMentionsOf(db: Database, target: Block, source: SoftLinkSource): { soft?: SoftMentionsOf } {
-  if (!softNeedles(db, target).length) return {};
-  return { soft: { ...softNames(db, target), ignore: softLinkIgnored(db), prLands: (number, blockId, line) => prLandsOn(number, { blockId, line }, target, source) } };
+/** What a read of this note's soft mentions needs: the notes that do, and how the relation names it. Nothing when nothing names it. */
+export function softMentionRead(db: Database, target: Block | null, limit: number, source: SoftLinkSource): { rows: { block_id: string }[]; soft?: SoftMentionsOf } {
+  if (!target) return { rows: [] };
+  const { addresses, days } = softNames(db, target), pr = prOfTitle(target);
+  const needles = [...addresses, ...days, ...(pr !== undefined ? [prWords(pr), `PR::${pr}`, `PR:: ${pr}`] : [])];
+  if (!needles.length) return { rows: [] };
+  const shared = sharedLookups(source);
+  const soft: SoftMentionsOf = { addresses, days, ignore: softLinkIgnored(db), ...(pr !== undefined ? { pr } : {}), prLands: (number, blockId, line) => prLandsOn(number, { blockId, line }, target, shared) };
+  const read = softMentionRows(db, needles, row => row.id !== target.id && softOccurrences(row, soft).length > 0, limit);
+  return { rows: read.rows, soft: { ...soft, ...(read.truncated ? { truncated: true } : {}) } };
+}
+
+/** What a client draws soft links with: keys left out, and the page addresses (a value links only where its page is). */
+export interface SoftLinkScope { ignore: string[]; pages: string[] }
+
+export function softLinkScope(db: Database): SoftLinkScope {
+  const rows = db.query("SELECT a.normalized_address AS address FROM page_addresses a JOIN blocks b ON b.id = a.block_id WHERE a.kind != 'work-id' AND b.effective_deleted_root_id IS NULL").all() as { address: string }[];
+  return { ignore: softLinkIgnored(db), pages: rows.map(row => row.address) };
 }

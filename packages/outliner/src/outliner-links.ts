@@ -597,12 +597,9 @@ function genericLinkSpans(
       });
     }
   }
-  // A soft link (PIE-408) the words alone can place: a value's page, a date's. A pull request needs its note's context,
-  // which a span of text doesn't have, so it stays text here (the door follows it, by the service's answer).
-  for (const token of softLinkTokens(text, { ignore: resourcePropertyKeys() })) {
-    if (token.kind === "pr") continue;
-    spans.push({ start: token.start, end: token.end, uri: outlinerLinkUri("page", token.kind === "date" ? token.day : token.value) });
-  }
+  // A date is a soft link (PIE-408) the words alone can place. A value links only where its page is, which a span of text
+  // can't say, and a pull request needs its note's context: both stay text here (the door follows them, by the service's answer).
+  for (const token of softLinkTokens(text, { ignore: resourcePropertyKeys() })) if (token.kind === "date") spans.push({ start: token.start, end: token.end, uri: outlinerLinkUri("page", token.day) });
   for (const match of text.matchAll(BLOCK_ID_TOKEN_PATTERN)) {
     const range = { start: match.index, end: match.index + match[0].length };
     if (

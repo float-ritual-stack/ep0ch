@@ -21,9 +21,9 @@ import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
-import { softLinkTokens, softName, type SoftLinkName } from "@ep0ch/outline-core/soft-links";
+import { softLinkTokens, softName, type SoftLinkName, type SoftLinkToken } from "@ep0ch/outline-core/soft-links";
 import { isMediaLine } from "@ep0ch/outline-core/media-line";
-import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
@@ -145,17 +145,21 @@ export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes
   return c?.value ?? null;
 }
 
-const softIgnoreBy = new WeakMap<object, Map<string, Cached<{ keys: string[]; ms: number }>>>();
-/** How long a list of keys stands after a change before it's asked again: a rule note is rare, a note's every draw isn't. */
-const SOFT_IGNORE_MS = 60_000;
+const softScopeBy = new WeakMap<object, Map<string, Cached<{ ignore: string[]; pages: Set<string> }>>>();
 /**
- * Keys whose values aren't soft links here (PIE-408), as the service says them: a note that lists one can appear at any
- * edit, so it's asked again at most once a minute of changes. Empty until answered, where a value then draws as a link for a moment.
+ * What soft links are drawn with (PIE-408), the service's one answer: keys left out, and the page addresses. Asked once
+ * per change whatever the note holds (a page or a rule note can appear at any edit), never once per value. Null while asked.
  */
-export function softLinkIgnoreOf(src: Source | null | undefined): readonly string[] {
-  return ask(softIgnoreBy, src, "ignore", async b => ({ keys: await b.softLinkIgnore(), ms: Date.now() }),
-    c => configChangedSince(c.at) || (anyChangeSince(c.at) && Date.now() - (c.value?.ms ?? 0) > SOFT_IGNORE_MS))?.value?.keys ?? [];
+function softScopeOf(src: Source | null | undefined) {
+  return ask(softScopeBy, src, "scope", async b => { const s = await b.softLinkScope(); return { ignore: s.ignore, pages: new Set(s.pages) }; }, c => anyChangeSince(c.at))?.value ?? null;
 }
+export const softLinkIgnoreOf = (src: Source | null | undefined): readonly string[] => softScopeOf(src)?.ignore ?? [];
+/** Whether a soft link draws as one: a date and a pull request do; a value only where its page is. One with no page stays text, and its panel row offers the stub. */
+const softLinkDraws = (t: SoftLinkToken, src: Source | null | undefined) => {
+  if (t.kind !== "value") return true;
+  const address = tryNormalizePageAddress(t.value)?.normalizedAddress;
+  return !!address && !!softScopeOf(src)?.pages.has(address);
+};
 
 const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();
 /** The workspace's Work-ID prefix: a string, null when none is configured (or unknown), undefined until asked. */
@@ -505,6 +509,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     // service says where it lands when it's followed, from the note and line it's on.
     // A picture line's chips are its layout, read from the line as written, never links.
     if (src) for (const t of softLinkTokens(line, { code: codeSpanRanges(line), ignore: softLinkIgnoreOf(src), literalProperties: !!literal.properties || isMediaLine(line) })) {
+      if (!softLinkDraws(t, src)) continue;
       const { start, end } = t, words = line.slice(start, end);
       spans.push({ start, end, draw: () => mark({ text: words, missing: false }, { soft: { name: softName(t), ...(site?.block ? { block: site.block } : {}), line: site?.lines?.[i] ?? noteLine + i }, label: words }) });
     }

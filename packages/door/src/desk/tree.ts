@@ -342,7 +342,7 @@ export class TreePane implements Pane {
     const why = (e: unknown) => `couldn't ask: ${e instanceof Error ? e.message : String(e)}`;
     board.request("blocks.authored-links", { ownerBlockId: p.blockId }).then(v => { if (current()) { p.links = { kind: "ready", value: v }; this.rebuild(); desk.redraw(); } },
       e => { if (current()) { p.links = { kind: "error", message: why(e) }; this.rebuild(); desk.redraw(); } });
-    board.backlinks(p.blockId).then(v => {
+    board.backlinks(p.blockId, undefined, true).then(v => {
       if (!current()) return;
       // Every kind group starts open the first time (a tree row is short on room; Detail's folded group
       // would show only its open sources). What the person folds after stays folded.

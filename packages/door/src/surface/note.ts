@@ -2818,12 +2818,12 @@ export class NoteSurface {
   }
 
   /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
-  async followValue(r: Pick<PropRow, "key" | "target">, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
+  async followValue(r: Pick<PropRow, "key" | "target" | "line">, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     const t = r.target;
     let target: Msg | null = null, why = "";
     if (!t) why = `${r.key} holds plain text; there is nothing to follow`;
     else if ("soft" in t) {
-      const m = await followSoft(this.pageOffers, { name: t.soft, ...(this.msg && isOutlineNote(this.msg) ? { block: this.msg.id } : {}) }, host, how);
+      const m = await followSoft(this.pageOffers, { name: t.soft, ...(this.msg && isOutlineNote(this.msg) ? { block: this.msg.id } : {}), ...(r.line !== undefined ? { line: r.line } : {}) }, host, how);
       if (m && "choices" in m) throw new ActionRefused(`more than one ${m.words}: ${m.choices.map(c => c.id ? `${c.label} (${c.id})` : c.label).join(", ")}; open id=<id> opens the one you mean`);
       if (m) this.panel = null;
       return m as Msg | null;

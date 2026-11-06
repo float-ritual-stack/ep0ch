@@ -72,6 +72,7 @@ describe("soft links in the reader", () => {
   test("a click lands: the value's page, that day's note, the ticket, that project's PR", async () => {
     for (const [words, target] of [["agent-labour", n.thread], ["2026-11-06", n.day], [n.ticket, n.gate], ["PR#125", n.fp]] as const) {
       await open(n.note.id, words);
+      await until(() => reader().surface.describeElements().some((e: any) => e.label === words), `${words}, a link`);
       click(words);
       await until(() => shown() === target.id, `${words} to open its note`);
     }
@@ -95,21 +96,40 @@ describe("soft links in the reader", () => {
     await open(n.meta.id, "Body.");
   }, 20_000);
 
-  test("a value with no page offers a stub; the second click makes it", async () => {
+  test("a value with no page is plain text in the body; its panel row offers the stub, and the second click makes it", async () => {
     await open(n.note.id, "no-page-yet].");
+    await until(() => reader().surface.describeElements().some((e: any) => e.label === "agent-labour"), "the value with a page, a link");
+    expect(reader().surface.describeElements().some((e: any) => e.label === "no-page-yet")).toBe(false);
     click("no-page-yet].");
+    await Bun.sleep(300);
+    expect(/doesn't exist yet/.test(message() ?? "")).toBe(false);
+    n.stub = await create(null, "Stub\n\nHere [zone::no-page-yet].");
+    await open(n.stub.id, "no-page-yet].");
+    click("no-page-yet].");
+    key({ kind: "char", ch: "i" });
+    const row = "no-page-yet (inline)";
+    await until(() => { try { at(row); return true; } catch { return false; } }, "the panel");
+    click(row);
     await until(() => /doesn't exist yet/.test(message() ?? ""), "the offer");
     expect((await board.resolvePage("no-page-yet")).status).toBe("missing");
-    click("no-page-yet].");
-    await until(() => (reader()?.msg?.text ?? "").startsWith("no-page-yet"), "the stub, opened");
+    click(row);
+    await until(() => [...(desk as any).panes.values()].some((p: any) => p.kind === "reader" && (p.msg?.text ?? "").startsWith("no-page-yet")), "the stub, opened");
     expect((await board.resolvePage("no-page-yet")).status).toBe("resolved");
   }, 20_000);
 
   test("a hidden metadata line doesn't move the walk: PR#125 under a body's project: line is that project's, not the title's", async () => {
-    n.hidden = await create(null, "Plans [project::floatty]\n[zone::x]\n\nproject:: garden-club\nthen PR#125 last.");
-    await open(n.hidden.id, "then PR#125");
-    click("PR#125 last");
+    n.hidden = await create(null, "Plans [project::floatty]\n[zone::x]\n\nproject:: garden-club\nPR#125.");
+    await open(n.hidden.id, "PR#125.");
+    click("PR#125.");
     await until(() => shown() === n.cp.id, "the nearer project's PR");
+  }, 20_000);
+
+  test("a PR followed from the panel walks from its own line: the nearer project's, not the header's", async () => {
+    n.panelPr = await create(null, "Mixed [project::floatty]\n\nproject:: garden-club\nsee [PR::125] here.");
+    await open(n.panelPr.id, "see [PR::125]");
+    const tile = (desk as any).layoutGet().tiles.find((t: any) => t.kind === "reader").name;
+    const opened = await (desk as any).dispatch.act({ action: "props.follow", tile, args: { key: "PR" } }, { kind: "user" });
+    expect(opened).toMatchObject({ opened: n.cp.id });
   }, 20_000);
 
   test("two projects in one scope ask, never guess: the chooser opens the one picked, by mouse", async () => {
@@ -139,11 +159,11 @@ describe("soft links in the reader", () => {
   }, 20_000);
 
   test("the target lists it as a soft mention, in its own group", async () => {
-    const backlinks = await board.request("references.backlinks", { query: { targetBlockId: n.thread.id, limit: 50 } });
+    const backlinks = await board.request("references.backlinks", { query: { targetBlockId: n.thread.id, limit: 50, softMentions: true } });
     const view = backlinkView(backlinks, DEFAULT_BACKLINK_VIEW_OPTIONS);
     expect(view.groups.map(g => g.label)).toEqual(["Soft mentions"]);
     expect(view.groups[0]!.sources.map(s => s.blockId)).toContain(n.note.id);
-    const ticket = backlinkView(await board.request("references.backlinks", { query: { targetBlockId: n.gate.id, limit: 50 } }), DEFAULT_BACKLINK_VIEW_OPTIONS);
+    const ticket = backlinkView(await board.request("references.backlinks", { query: { targetBlockId: n.gate.id, limit: 50, softMentions: true } }), DEFAULT_BACKLINK_VIEW_OPTIONS);
     expect(ticket.groups.map(g => g.label)).toEqual(["Soft mentions"]);
   }, 20_000);
 });

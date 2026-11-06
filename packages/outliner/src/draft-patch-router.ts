@@ -654,7 +654,7 @@ export class DraftPatchRouter {
   /** How many notes link to `^anchor` in `blockId`. */
   private inboundLinks(blockId: string, anchor: string): number {
     try {
-      const sources = this.deps.store.queryBacklinks({ targetBlockId: blockId, limit: 200, explicit: true }).sources;
+      const sources = this.deps.store.queryBacklinks({ targetBlockId: blockId, limit: 200 }).sources;
       return sources.filter(source => this.deps.store.get(source.blockId)?.text.includes(`^${anchor}`)).length;
     } catch {
       return 0;

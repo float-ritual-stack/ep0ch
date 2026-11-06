@@ -313,8 +313,8 @@ describe("semantic backlink relation", () => {
     expect(of(item.id).map((s) => s.blockId).sort()).toEqual([walk.id, list.id].sort());
     expect(of(hub.id).map((s) => s.blockId)).toContain(labelled.id);
     expect(of(item.id).find((s) => s.blockId === walk.id)!.occurrences[0]).toMatchObject({ kind: "property", propertyKey: "waiting-on", label: "PIE-001" });
-    // A plain word that is a page's address is a soft mention (PIE-408), in its own group; a note's own [work-id::…] is no link to itself.
-    expect(of(done.id).map((s) => s.facets!.kind)).toEqual(of(done.id).map(() => "mention"));
+    // A plain word that happens to be a page's address stays text; a note's own [work-id::…] is no link to itself.
+    expect(of(done.id)).toEqual([]);
     expect(of(item.id).map((s) => s.blockId)).not.toContain(item.id);
     // The same edges are the source's links out.
     const out = readAuthoredLinks(workspace, todo.id);

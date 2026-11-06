@@ -3568,6 +3568,7 @@ export class OutlinerServer {
           break;
         }
         case "references.resolve": result = wired(action, this.store.resolveBlockReferences(request.text)); break;
+        case "references.soft-scope": result = wired(action, this.store.softLinkScope()); break;
         case "references.soft": result = wired(action, this.store.softLink(request.name, { ...(request.blockId ? { blockId: request.blockId } : {}), ...(request.line !== undefined ? { line: request.line } : {}) })); break;
         case "callouts.types":
           result = wired(action, this.calloutTypes());
@@ -3593,9 +3594,7 @@ export class OutlinerServer {
         case "references.backlinks":
           result = wired(action, this.store.queryBacklinks(request.query));
           break;
-        case "pages.resolve":
-          result = wired(action, this.store.resolvePageAddress(request.address));
-          break;
+        case "pages.resolve": result = wired(action, this.store.resolvePageAddress(request.address)); break;
         case "pages.follow":
           result = wired(action, this.store.followPageAddress(
             request.address,

@@ -9,7 +9,7 @@ import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/prot
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import { resolveSoftLink, softCandidates, softLinkIgnored, softMentionsOf, softNeedles, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
+import { resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
 import { embeddedPageAddress, pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
@@ -3725,32 +3725,32 @@ export class OutlinerStore {
     });
     const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
     const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
-    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}), ...(text ? {} : { softLinkIgnore: softLinkIgnored(this.database) }) };
+    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}), };
   }
 
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {
     return this.database.transaction(() => {
       const query = { ...input, targetBlockId: input.targetBlockId.trim() };
-      const context = this.backlinkContextFromCurrentRead([query.targetBlockId], [], query.explicit ? [] : softNeedles(this.database, this.getFromCurrentRead(query.targetBlockId)));
+      const read = query.softMentions ? softMentionRead(this.database, this.getFromCurrentRead(query.targetBlockId), query.limit, this.softLinkSource()) : null;
+      const context = this.backlinkContextFromCurrentRead([query.targetBlockId], [], read?.rows);
       const target = context.blocksById.get(query.targetBlockId);
       if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
-      return resolveBacklinkRelation({ query, target, ...context, ...(query.explicit ? {} : softMentionsOf(this.database, target, this.softLinkSource())) });
+      return resolveBacklinkRelation({ query, target, ...context, ...(read?.soft ? { soft: read.soft } : {}) });
     }).deferred();
   }
 
   private softLinkSource() { return storeSoftLinkSource(this.database, id => this.getFromCurrentRead(id), address => this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(address))); }
+  softLinkScope() { return this.database.transaction(() => softLinkScope(this.database)).deferred(); }
   softLink(name: SoftLinkName, place: SoftLinkPlace): SoftLinkAnswer { return this.database.transaction(() => resolveSoftLink(name, place, this.softLinkSource())).deferred(); }
 
-  pageAddressesOf(blockId: string): { normalizedAddress: string }[] {
-    return this.database.query("SELECT normalized_address AS normalizedAddress FROM page_addresses WHERE block_id = ?").all(blockId) as { normalizedAddress: string }[];
-  }
+  pageAddressesOf(blockId: string): { normalizedAddress: string }[] { return this.database.query("SELECT normalized_address AS normalizedAddress FROM page_addresses WHERE block_id = ?").all(blockId) as { normalizedAddress: string }[]; }
 
   queryBacklinksAcross(query: BacklinkQuery, target: Block, addresses: Map<string, string>, targetOutline: string, own = false): BacklinkCollection {
     return this.database.transaction(() => {
       // Soft mentions are this outline's own: a word in another outline names that outline's page.
-      const soft = own && !query.explicit;
-      const context = this.backlinkContextFromCurrentRead([target.id], [...addresses.keys()], soft ? softNeedles(this.database, target) : []);
-      return resolveBacklinkRelation({ ...context, query, target, addressTargets: addresses, targetOutline, ...(soft ? softMentionsOf(this.database, target, this.softLinkSource()) : {}) });
+      const read = own && query.softMentions ? softMentionRead(this.database, target, query.limit, this.softLinkSource()) : null;
+      const context = this.backlinkContextFromCurrentRead([target.id], [...addresses.keys()], read?.rows);
+      return resolveBacklinkRelation({ ...context, query, target, addressTargets: addresses, targetOutline, ...(read?.soft ? { soft: read.soft } : {}) });
     }).deferred();
   }
 
@@ -3822,7 +3822,7 @@ export class OutlinerStore {
   }
 
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
-  private backlinkContextFromCurrentRead(targetIds?: readonly string[], extraAddresses: readonly string[] = [], softNeedles: readonly string[] = []) {
+  private backlinkContextFromCurrentRead(targetIds?: readonly string[], extraAddresses: readonly string[] = [], softRows: readonly { block_id: string }[] = []) {
     this.refreshValueReferences();
     const addressRows = this.database.query(
       "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
@@ -3842,7 +3842,7 @@ export class OutlinerStore {
       const addresses = [...extraAddresses, ...targets, ...[...addressTargets].filter(([, id]) => targets.has(id)).map(([address]) => address)];
       const rows = this.database.query(`SELECT DISTINCT block_id FROM block_reference_candidates
         WHERE address IN (${addresses.map(() => "?").join(", ")})`).all(...addresses) as { block_id: string }[];
-      rows.push(...softCandidates(this.database, softNeedles, rows));
+      const direct = new Set(rows.map(row => row.block_id)); rows.push(...softRows.filter(row => !direct.has(row.block_id)));
       const load = (id: string): Block | null => {
         const cached = blocksById.get(id);
         if (cached) return cached;

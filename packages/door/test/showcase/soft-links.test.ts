@@ -36,6 +36,7 @@ describe("the soft links section", () => {
     const page = stage().pane("page") as any;
     await until(() => (page.surface.describeElements() as any[]).some(e => /Soft mentions/.test(JSON.stringify(e))) || /Soft mentions/.test(h.screen()), "the mention's group", 8000);
     // An excluded key stays text.
-    expect((await h.board.softLinkIgnore())).toContain("rota");
+    expect((await h.board.softLinkScope()).ignore).toContain("rota");
+    expect((detail().surface.describeElements() as any[]).some(e => e.label === "north-fence")).toBe(false);
   }, 40_000);
 });

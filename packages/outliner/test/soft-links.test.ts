@@ -6,6 +6,7 @@ import { OutlinerStore } from "../src/store";
 import { readBlockRecords } from "../src/block-records";
 import { linkSoftWords, softPageAddresses } from "../src/publish-soft-links";
 import { resolveOutlinerLinkTarget } from "../src/outliner-links";
+import { softMentionRows } from "../src/soft-links";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
@@ -77,7 +78,7 @@ describe("soft mentions", () => {
     const line = s.create("Other\nthread:: Agent-Labour");
     const linked = s.create("Explicit [[agent-labour]]");
     const unrelated = s.create("Other [thread::agent-labour-2]");
-    const answer = s.queryBacklinks({ targetBlockId: page.id, limit: 50 });
+    const answer = s.queryBacklinks({ targetBlockId: page.id, limit: 50, softMentions: true });
     expect(kinds(answer)).toEqual({ [soft.id]: "mention", [line.id]: "mention", [linked.id]: "note" });
     expect(answer.sources.find(x => x.blockId === soft.id)!.facets!.kindLabel).toBe("Soft mentions");
     expect(answer.sources.some(x => x.blockId === unrelated.id)).toBe(false);
@@ -89,7 +90,7 @@ describe("soft mentions", () => {
     const log = s.create("Build log [day::2026-11-05]");
     const ctx = s.create("Note\nctx:: 2026-11-05 @ 4:31 AM");
     const prose = s.create("We met on 2026-11-05 at the shed");
-    expect(kinds(s.queryBacklinks({ targetBlockId: log.id, limit: 50 }))).toEqual({ [ctx.id]: "mention", [prose.id]: "mention" });
+    expect(kinds(s.queryBacklinks({ targetBlockId: log.id, limit: 50, softMentions: true }))).toEqual({ [ctx.id]: "mention", [prose.id]: "mention" });
   });
 
   test("a project's PR note lists its own mentions, not the other project's", () => {
@@ -97,8 +98,8 @@ describe("soft mentions", () => {
     const floatty = s.create("Floatty [type::project] [page::floatty]"), hub = s.create("Hub [type::project] [page::hub]");
     const hers = s.create("PR#125 ribbon", floatty.id), his = s.create("PR#125 kettle", hub.id);
     const a = s.create("About [project::floatty]\nsee PR#125"), b = s.create("About [project::hub]\nsee [PR::125]");
-    expect(kinds(s.queryBacklinks({ targetBlockId: hers.id, limit: 50 }))).toEqual({ [a.id]: "mention" });
-    expect(kinds(s.queryBacklinks({ targetBlockId: his.id, limit: 50 }))).toEqual({ [b.id]: "mention" });
+    expect(kinds(s.queryBacklinks({ targetBlockId: hers.id, limit: 50, softMentions: true }))).toEqual({ [a.id]: "mention" });
+    expect(kinds(s.queryBacklinks({ targetBlockId: his.id, limit: 50, softMentions: true }))).toEqual({ [b.id]: "mention" });
   });
 
   test("a bare ticket key is a mention; a key written as a property's value or a link stays a link", () => {
@@ -107,7 +108,7 @@ describe("soft mentions", () => {
     let ticket = s.create("Fix the gate");
     ticket = s.allocateWorkId(ticket.id, ticket.revision).block;
     const bare = s.create("Saw PIE-001 today"), prop = s.create("Note [ticket::PIE-001]"), link = s.create("Note [[PIE-001]]");
-    const answer = kinds(s.queryBacklinks({ targetBlockId: ticket.id, limit: 50 }));
+    const answer = kinds(s.queryBacklinks({ targetBlockId: ticket.id, limit: 50, softMentions: true }));
     expect(answer[bare.id]).toBe("mention");
     expect(answer[prop.id]).not.toBe("mention");
     expect(answer[link.id]).not.toBe("mention");
@@ -117,12 +118,12 @@ describe("soft mentions", () => {
     const s = store();
     const page = s.create("high [page::high]");
     s.create("Task [priority::high]");
-    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toHaveLength(1);
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50, softMentions: true }).sources).toHaveLength(1);
     s.create("Keys that aren't links [soft-link-ignore::priority]");
-    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toHaveLength(0);
-    expect(s.resolveBlockReferences("").softLinkIgnore).toContain("priority");
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50, softMentions: true }).sources).toHaveLength(0);
+    expect(s.softLinkScope().ignore).toContain("priority");
     s.create("Tool's [machine::run] [thread::high]");
-    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toHaveLength(0);
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50, softMentions: true }).sources).toHaveLength(0);
   });
 
   test("soft mentions never crowd the links out, and a note's record and links: stay explicit", () => {
@@ -130,12 +131,72 @@ describe("soft mentions", () => {
     const page = s.create("Hub [page::hub]");
     for (let i = 0; i < 5; i++) s.create(`Soft ${i} [area::hub]`);
     const linked = s.create("Real [[hub]]");
-    const answer = s.queryBacklinks({ targetBlockId: page.id, limit: 2 });
+    const answer = s.queryBacklinks({ targetBlockId: page.id, limit: 2, softMentions: true });
     expect(answer.sources.map(x => x.facets!.kind).filter(k => k === "mention")).toHaveLength(2);
     expect(answer.sources.some(x => x.blockId === linked.id)).toBe(true);
     expect(answer.completeness.kind).toBe("truncated");
     const [record] = readBlockRecords(s, [page.id]).records;
     expect(record!.backlinks).toEqual([linked.id]);
+  });
+});
+
+describe("what a soft-mention read costs and says", () => {
+  const titleScans = (s: OutlinerStore) => {
+    const db = (s as any).database, query = db.query.bind(db), seen = { scans: 0 };
+    db.query = (sql: string) => { if (sql.startsWith("SELECT id FROM blocks WHERE text LIKE")) seen.scans += 1; return query(sql); };
+    return seen;
+  };
+
+  test("a hub's read resolves no pull request: PRs named near it can't be it", () => {
+    const s = store();
+    const hub = s.create("Hub [page::hub]");
+    for (let i = 0; i < 20; i++) s.create(`Note ${i} [area::hub]\nsee PR#${i}`);
+    const seen = titleScans(s);
+    expect(s.queryBacklinks({ targetBlockId: hub.id, limit: 50, softMentions: true }).sources).toHaveLength(20);
+    expect(seen.scans).toBe(0);
+  });
+
+  test("a PR note's read looks its title up once, however many mention it", () => {
+    const s = store();
+    const home = s.create("Floatty [type::project] [page::floatty]");
+    const pr = s.create("PR#125 ribbon", home.id);
+    for (let i = 0; i < 20; i++) s.create(`Note ${i} [project::floatty]\nsee PR#125`);
+    const seen = titleScans(s);
+    expect(s.queryBacklinks({ targetBlockId: pr.id, limit: 50, softMentions: true }).sources).toHaveLength(20);
+    expect(seen.scans).toBe(1);
+  });
+
+  test("soft mentions are asked for: without it the read means what it always did", () => {
+    const s = store();
+    s.configureWorkIdPrefix("PIE");
+    let ticket = s.create("Fix the gate");
+    ticket = s.allocateWorkId(ticket.id, ticket.revision).block;
+    const page = s.create("Hub [page::hub]");
+    s.create("Note [area::hub]");
+    const bare = s.create("Saw PIE-001 today");
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toEqual([]);
+    expect(s.queryBacklinks({ targetBlockId: ticket.id, limit: 50 }).sources.map(x => [x.blockId, x.facets!.kind])).toEqual([[bare.id, "note"]]);
+  });
+
+  test("newer notes that only hold the words never hide a real mention", async () => {
+    const s = store();
+    const hub = s.create("Hub [page::hub]");
+    const real = s.create("Real [thread::hub]");
+    await Bun.sleep(5);
+    for (let i = 0; i < 1001; i++) s.create(`Chatter ${i} about the hub`);
+    const answer = s.queryBacklinks({ targetBlockId: hub.id, limit: 50, softMentions: true });
+    expect(answer.sources.map(x => x.blockId)).toEqual([real.id]);
+    expect(answer.completeness.kind).toBe("complete");
+  });
+
+  test("a read that stops looking says so", () => {
+    const s = store();
+    const hub = s.create("Hub [page::hub]");
+    s.create("Real [thread::hub]");
+    for (let i = 0; i < 5; i++) s.create(`Chatter ${i} about the hub`);
+    const read = softMentionRows((s as any).database, ["hub"], () => false, 50, 3);
+    expect(read).toEqual({ rows: [], truncated: true });
+    expect(hub.id).toBeTruthy();
   });
 });
 
