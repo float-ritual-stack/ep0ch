@@ -4,7 +4,7 @@
 // media-line.ts stays the one grammar: this module reads it, and adds no syntax.
 
 import { noteCodeFences, noteStructure } from "./component-block";
-import { heroPropStep, heroPropText, imagePrimitiveSpec, noteMediaLines, parseMediaLine, pictureFenceSpec, rewriteImageLine, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "./media-line";
+import { heroPropStep, heroPropText, imagePrimitiveSpec, MEDIA_ATTRS, noteMediaLines, parseMediaLine, pictureFenceSpec, rewriteImageLine, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "./media-line";
 
 export type PictureKind = "line" | "fence" | "drawing";
 /** A render line whose script answered with an svg image: the service's answer, as a note's reader has it. */
@@ -28,7 +28,8 @@ export interface Picture {
 const renderName = (line: string): string => line.split("::")[0]!.trim();
 /** The layout a render line writes, read by the media line's own grammar. */
 export function drawingSpec(source: string, path = "svg picture", alt?: string): MediaSpec {
-  const tokens = source.match(/\[[A-Za-z-]+::[^\]]*\]/g) ?? [];
+  // Only the layout words: the line's other properties are its script's.
+  const tokens = (source.match(/\[[A-Za-z-]+::[^\]]*\]/g) ?? []).filter(t => (MEDIA_ATTRS as readonly string[]).includes(t.slice(1, t.indexOf("::")).toLowerCase()));
   const spec = parseMediaLine(`[img::${path}] ${tokens.join(" ")}`) ?? { kind: "img" as const, path, problems: [] };
   return { ...spec, path, drawn: true, ...(alt ? { alt } : {}) };
 }
@@ -175,8 +176,8 @@ export function heroBox(m: Pixels, spec: MediaSpec, W: number, cap: number, cell
 /** An SVG's own size: its root's `width` and `height`, else its viewBox's. Null when it names neither. */
 export function svgOwnSize(svg: string): Pixels | null {
   const root = /<svg\b[^>]*>/i.exec(svg)?.[0] ?? "";
-  const attr = (name: string) => { const v = new RegExp(`\\b${name}\\s*=\\s*["']\\s*([\\d.]+)\\s*(?:px)?\\s*["']`, "i").exec(root)?.[1]; return v ? +v : undefined; };
-  const box = /\bviewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(root);
+  const attr = (name: string) => { const v = new RegExp(`\\s${name}\\s*=\\s*["']\\s*([\\d.]+)\\s*(?:px)?\\s*["']`, "i").exec(root)?.[1]; return v ? +v : undefined; };
+  const box = /\sviewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(root);
   const width = attr("width") ?? (box ? +box[1]! : undefined), height = attr("height") ?? (box ? +box[2]! : undefined);
   return width && height ? { width, height } : null;
 }

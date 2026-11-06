@@ -297,9 +297,12 @@ test("a script's drawing on a page is its picture, at its own width or what its 
   const page = store.create("Plot [publish::public:plot-drawn]\nplot-page-banner:: [layout::hero]\n\nplot-page-banner::\n\nplot-page-banner:: [height::4]");
   await client.request({ action: "extensions.list", reload: true });
   await client.request({ action: "resources.projection.read", blockId: page.id, materialize: true });
-  for (let i = 0; i < 100 && store.extensionOutputs(page.id).every(row => !row.result); i++) await Bun.sleep(25);
-  const html = await (await get("/p/plot-drawn?view=html")).text();
-  const styles = [...html.matchAll(/<img src="data:image\/svg\+xml;base64,[^"]+"[^>]*style="([^"]*)"/g)].map(m => m[1]!);
+  // Three lines of one call share one output: what's waited for is the page holding all three pictures.
+  let styles: string[] = [];
+  for (let i = 0; i < 100 && styles.length < 3; i++) {
+    if (i) await Bun.sleep(25);
+    styles = [...(await (await get("/p/plot-drawn?view=html")).text()).matchAll(/<img src="data:image\/svg\+xml;base64,[^"]+"[^>]*style="([^"]*)"/g)].map(m => m[1]!);
+  }
   expect(styles).toHaveLength(3);
   expect(styles[0]).toContain("width:100%");
   expect(styles[1]).toContain("width:min(100%,360px)");

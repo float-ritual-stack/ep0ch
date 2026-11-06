@@ -1,7 +1,7 @@
 // What a picture is (PIE-1594), given only a note's text: which one it is across an insert above it, which is the header,
 // how big it draws from its words and pixels, and one step for every kind. Made-up notes.
 import { describe, expect, test } from "bun:test";
-import { HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
+import { drawingSpec, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
 import { parseMediaLine, parsePictureFence } from "../src/media-line";
 
 const fence = (body: string, words = "") => `\`\`\`svg${words}\n${body}\n\`\`\``;
@@ -71,6 +71,17 @@ describe("which is the header", () => {
   });
 });
 
+describe("a render line's words", () => {
+  test("its own properties beside them don't lose the layout: [currency::usd] [height::6]", () => {
+    const spec = drawingSpec("price:: [currency::usd] [height::6] [align::center]");
+    expect(spec).toMatchObject({ height: 6, align: "center", drawn: true });
+    expect(spec.problems).toEqual([]);
+  });
+  test("nor which is the header", () => {
+    expect(picturesIn("Beds\nprice:: [currency::usd] [layout::hero]", [{ line: 1, svg: A }])[0]!.header).toBe(true);
+  });
+});
+
 describe("how big it draws", () => {
   const big = { width: 2844, height: 1600 };
   test("no words: a drawing its own width, capped at the body, a file half its pixels and at least 24", () => {
@@ -87,6 +98,9 @@ describe("how big it draws", () => {
     expect(own).toEqual({ width: 90, height: 30 });
     expect(svgOwnSize("<svg width='360' height='90' viewBox='0 0 1 1'/>")).toEqual({ width: 360, height: 90 });
     expect(svgOwnSize("<svg/>")).toBeNull();
+    // An icon's stroke-width is no width, nor any other attribute ending in the word.
+    expect(svgOwnSize("<svg viewBox='0 0 24 24' stroke-width='1.5'/>")).toEqual({ width: 24, height: 24 });
+    expect(svgOwnSize("<svg stroke-width='2' data-height='9' viewBox='0 0 24 12'/>")).toEqual({ width: 24, height: 12 });
     const fence = parsePictureFence("```svg")!;
     expect(pictureWidthCss({ ...fence, own })).toBe("min(100%,90px)");
     expect(pictureWidthCss({ ...parsePictureFence("```svg height=6")!, own })).toBe("min(100%,22.50rem)");
