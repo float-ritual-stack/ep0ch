@@ -137,6 +137,8 @@ test("a ::view card's cover is its note's header picture, served from that note,
   expect(html.slice(html.indexOf(">Plain<") - 200, html.indexOf(">Plain<"))).not.toContain("ext-cover");
   const image = await get(`/p/${luna.id}/media/2`);
   expect(image.status).toBe(200);
+  // A public reader reaches the cover of a note under a public page, by the same gate as any of its images.
+  expect((await get(`/p/${luna.id}/media/2`, "public")).status).toBe(200);
   // cover= names a property, whose picture is served by the line and place that name it; a feed's card holds it beside its words.
   expect(html).toContain(`<img src="/p/${named.id}/media/0/0"`);
   expect(html).toContain('class="ext-card ext-card-covered"');
