@@ -11,7 +11,7 @@ import type { WelcomeList } from "../src/hub/welcome";
 import type { RiverColumn } from "../src/river/column";
 import { MainMenu } from "../src/screens";
 import { FakeSearchClock, useSearchClock } from "../src/search-schedule";
-import { SocketBoard, type Actor } from "../src/socket";
+import { SocketBoard, USER, type Actor } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 import { view } from "./river-view";
 
@@ -113,6 +113,57 @@ describe.skipIf(!outliner)("a write shows in every tile that reads it, against a
     await until(() => clock.pending > 0, "the reply's pause, on the door's clock");
     clock.runOut();
     await until(() => surface()?.comments?.[0]?.replies.length === 1, "the reply");
+    app.pop();
+  });
+
+  test("a tile moved to another desk (a group spilled) repaints there, not on the desk it left", async () => {
+    const river = open("river"), library = view(river).column(1) as RiverColumn;
+    await until(() => !!library.items?.length, "the Library");
+    let there = 0;
+    const moved = Object.create(river, { redraw: { value: () => { there++; } } });
+    library.onEvent(moved, { domain: "content", action: "create", sequence: 1, change: { kind: "create", blockId: "new-root", parentId: null } } as never);
+    expect(clock.pending).toBeGreaterThan(0);
+    clock.runOut();
+    await until(() => there > 0, "a repaint on the desk it moved to");
+    app.pop();
+  });
+
+  test("a door that ended reads no more screen notes; one still open does", async () => {
+    const ended = new SocketBoard(board.path), open2 = new SocketBoard(board.path);
+    await Promise.all([ended.info(), open2.info()]);
+    const term = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    const gone = new App(term as any, ended, Date.now(), () => {}), still = new App(term as any, open2, Date.now(), () => {});
+    await gone.loadScreens(); await still.loadScreens();
+    await Promise.all([ended.watched.settled(), open2.watched.settled()]);
+    let goneReads = 0, stillReads = 0;
+    gone.loadScreens = async () => { goneReads++; };
+    still.loadScreens = async () => { stillReads++; };
+    gone.retire();
+    await write(null, 'A saved screen [type::screen] [screen::shed-screen]\n\n```json\n{"name":"shed-screen","root":{"tile":"reader"}}\n```');
+    await until(() => stillReads > 0, "the open door told of the screen note");
+    expect(goneReads).toBe(0);
+    still.quit();
+    ended.close(); open2.close();
+  });
+
+  test("an open thread panel reads again on any change: a moved reply is named by nothing the note's comments know", async () => {
+    const note = await write(null, "A note with a thread panel\nIts replies are beside it.");
+    const river = open("river");
+    await app.act({ action: "open", args: { id: note.id }, as: "ask-again-agent" });
+    const column = () => view(river).column(2) as RiverColumn;
+    await until(() => column()?.surface.msg?.id === note.id, "the note's column");
+    const surface = column().surface, host = column().host(river);
+    await surface.openReplyLinks(host, USER);
+    expect(surface.replyLinks).not.toBeNull();
+    let reads = 0;
+    const open_ = surface.openReplyLinks.bind(surface);
+    surface.openReplyLinks = async (...a: Parameters<typeof open_>) => { reads++; return open_(...a); };
+    const change = (kind: string, extra: object = {}) => ({ domain: "content", action: kind, sequence: 1, change: { kind, blockId: "moved-reply", parentId: "its-new-parent" }, ...extra }) as never;
+    surface.onEvent(host, change("edit"));
+    expect(reads).toBe(1);
+    surface.onEvent(host, change("draft"));
+    surface.onEvent(host, change("edit", { hidden: true }));
+    expect(reads).toBe(1);
     app.pop();
   });
 });

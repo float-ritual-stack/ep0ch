@@ -728,7 +728,7 @@ export class App implements Ctx {
    * later file (PIE-1412).
    */
   retire(): void {
-    this.closed = true;
+    this.closed = true; this.screensAsk.cancel();
     releaseDoorModules(this); this.hover.dispose();
     stopCompletion(this.board);
     this.offResize();
@@ -1335,7 +1335,7 @@ export class App implements Ctx {
     // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
     for (const s of this.holders()) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
     this.keepPlaces();
-    this.closed = true;
+    this.closed = true; this.screensAsk.cancel();
     this.offResize();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);

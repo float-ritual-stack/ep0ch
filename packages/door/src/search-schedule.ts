@@ -273,6 +273,21 @@ export class AskAgain<T> {
   cancel(): void { this.schedule.cancel(); this.unlisten?.(); this.unlisten = null; }
 }
 
+/**
+ * A tile's `AskAgain` for the place it's in now: a tile can move (a group spilled, a tile dropped in the drawer), and what
+ * it read and repaints is that place's. A new place puts the old one's away and starts again from what the host says now.
+ */
+export class AskAgainAt<P, T> {
+  private on: P | undefined;
+  private again: AskAgain<T> | null = null;
+  constructor(private readonly spec: (at: P) => AskSpec<T>) {}
+  at(place: P): AskAgain<T> {
+    if (!this.again || place !== this.on) { this.again?.cancel(); this.on = place; this.again = new AskAgain(this.spec(place)); }
+    return this.again;
+  }
+  cancel(): void { this.again?.cancel(); this.again = null; }
+}
+
 /** A clock that moves only when told: `advance` runs what falls due, `runOut` everything waiting (and what that starts). */
 export class FakeSearchClock implements SearchClock {
   private due: { at: number; run: () => void }[] = [];

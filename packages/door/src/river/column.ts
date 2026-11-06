@@ -14,7 +14,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
 // The layout (widen, hold, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
-import { AskAgain } from "../search-schedule";
+import { AskAgainAt } from "../search-schedule";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
@@ -272,12 +272,11 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     const b = desk.ctx.board;
     indexOf(b).refresh(b, () => desk.redraw());
-    void this.asks(desk).now();
+    void this.again.at(desk).now();
   }
-  private again: AskAgain<{ items: Msg[]; selected?: string }> | null = null;
-  private asks(desk: DeskApi) {
+  private readonly again = new AskAgainAt<DeskApi, { items: Msg[]; selected?: string }>(desk => {
     const b = desk.ctx.board;
-    return this.again ??= new AskAgain<{ items: Msg[]; selected?: string }>({
+    return {
       read: async turn => {
         const source = this.source;
         let items: Msg[];
@@ -308,8 +307,8 @@ export class RiverColumn extends ReaderPane {
       // the note a block column is, the Library's top level. A #tag column's new note is the host's to say.
       notes: id => id === null ? this.source.kind === "roots" : (this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id),
       told: b.watched && { by: b.watched, answers: () => this.source.kind === "tag" ? [b.byPropShown(this.source.key, this.source.value)] : [] },
-    });
-  }
+    };
+  });
 
   /** In the Library and a #tag the surface shows the selected note (what e, C and m act on); a block column's, its own. */
   private showSelected(desk: DeskApi) {
@@ -773,10 +772,10 @@ export class RiverColumn extends ReaderPane {
     if (!e) return;
     if (e.action === "reconnected") this.surface.retry(this.host(desk));
     if (e.action === "reset") { this.load(desk); indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw(), true); return; }
-    this.asks(desk).heard(e);
+    this.again.at(desk).heard(e);
     indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw());
   }
-  override dispose() { this.again?.cancel(); super.dispose(); }
+  override dispose() { this.again.cancel(); super.dispose(); }
 
   // ── what the column's actions do ──
 

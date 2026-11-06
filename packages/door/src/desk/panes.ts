@@ -32,7 +32,7 @@ import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
 import { prop } from "../props";
-import { AskAgain, heardBy, SearchSchedule } from "../search-schedule";
+import { AskAgainAt, heardBy, SearchSchedule } from "../search-schedule";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { wide?: { row: number; col: number; cols: number }[]; frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -894,18 +894,17 @@ export class ActivityPane implements Pane {
   private drawnItems: number[] = [];
   private sel = 0;
   private view = new RowView();
-  private again: AskAgain<Activity[]> | null = null;
+  /** Who edited what: any change may be a new row. */
+  private readonly again = new AskAgainAt<DeskApi, Activity[]>(desk => ({ read: () => desk.ctx.board.activity(60), show: r => { this.rows = r; desk.redraw(); }, notes: "any" }));
   title() { return "last callers · live"; }
   hint() { return modeHint(ACTIVITY_KEYS, () => undefined); }
   list(): Activity[] { return this.rows ?? []; }
   get selected() { return this.sel; }
   pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }
-  reload(desk: DeskApi) { void this.asks(desk).now(); }
-  init(desk: DeskApi) { void this.asks(desk).now(); }
-  /** Who edited what: any change may be a new row. */
-  private asks(desk: DeskApi) { return this.again ??= new AskAgain<Activity[]>({ read: () => desk.ctx.board.activity(60), show: r => { this.rows = r; desk.redraw(); }, notes: "any" }); }
-  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) this.asks(desk).heard(e); }
-  dispose() { this.again?.cancel(); }
+  reload(desk: DeskApi) { void this.again.at(desk).now(); }
+  init(desk: DeskApi) { void this.again.at(desk).now(); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) this.again.at(desk).heard(e); }
+  dispose() { this.again.cancel(); }
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.rows) return { lines: [dim("listening…")] };
     const drawn = this.rows.flatMap((r, i) => {
@@ -939,10 +938,10 @@ export class WhoPane implements Pane {
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
   init(desk: DeskApi) { this.load(desk); }
-  private again: AskAgain<void> | null = null;
   /** Who's on and what they read: any change may be someone arriving. */
-  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) (this.again ??= new AskAgain<void>({ read: async () => this.load(desk), show() {}, notes: "any" })).heard(e); }
-  dispose() { this.again?.cancel(); }
+  private readonly again = new AskAgainAt<DeskApi, void>(desk => ({ read: async () => this.load(desk), show() {}, notes: "any" }));
+  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) this.again.at(desk).heard(e); }
+  dispose() { this.again.cancel(); }
   /** The callers as last read, as who.refresh answers them. */
   rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
   load(desk: DeskApi) {

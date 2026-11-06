@@ -3538,7 +3538,7 @@ export class NoteSurface {
 
   /** Outline changed: a comment on this note (`commentNotes`) may have been added, answered or resolved anywhere. */
   onEvent(host: SurfaceHost, e?: OutlineEvent) {
-    if (this.replyLinks && (!e || heardBy(e, commentNotes(this)))) void this.openReplyLinks(host, USER, true).catch(err => host.ctx.flash(String(err), undefined, errorDetails(err)));
+    if (this.replyLinks && (!e || heardBy(e, "any"))) void this.openReplyLinks(host, USER, true).catch(err => host.ctx.flash(String(err), undefined, errorDetails(err)));
     if (!this.msg) return;
     this.commentsHost = host;
     const again = this.commentsAgain ??= new AskAgain<void>({ read: () => this.loadComments(this.commentsHost!), show() {}, notes: commentNotes(this) });

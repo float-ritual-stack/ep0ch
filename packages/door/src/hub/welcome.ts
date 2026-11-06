@@ -30,7 +30,7 @@ import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
-import { AskAgain } from "../search-schedule";
+import { AskAgainAt } from "../search-schedule";
 import { USER, type Actor, type OutlineEvent, type SocketBoard, mutationFor } from "../socket";
 import { C, chip, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, type Key, type TermInfo } from "../term";
@@ -210,7 +210,23 @@ export class WelcomeList implements Pane {
   detail: WelcomeDetail | null = null;
   private view = new RowView();
   private rows: ListRow[] = [];
-  private again: AskAgain<{ found: { notes: Msg[]; view: Msg | null } | null; problem: string; fallback: Msg | null }> | null = null;
+  private readonly again = new AskAgainAt<DeskApi, { found: { notes: Msg[]; view: Msg | null } | null; problem: string; fallback: Msg | null }>(desk => {
+    const board = desk.ctx.board;
+    return {
+      read: async () => {
+        // Asked here so a read that lost its question still says why, with the fallback's own answer beside it.
+        const found = await findWelcome(board).then(f => ({ found: f, problem: "" }), e => ({ found: null, problem: `couldn't ask the outline for welcome notes: ${e instanceof Error ? e.message : String(e)}` }));
+        const some = found.found ? found.found.notes.length : (this.items ?? []).length;
+        const page = some || found.problem ? null : await board.resolvePage(welcomeFallback()).catch(() => null);
+        return { ...found, fallback: page?.status === "resolved" && page.block ? page.block : null };
+      },
+      show: ({ found, problem, fallback }) => this.take(found, problem, fallback, desk),
+      // The hand-set order is the view's own: the host's questions can't see it (`virtual.occurrences.order` isn't watched).
+      // And while there are none, any change may be the fallback page arriving.
+      notes: id => !this.items?.length || id === this.orderView?.id,
+      told: board.watched && { by: board.watched, answers: () => [board.queryShown(...NOTES_QUESTION), board.queryShown(...VIEW_QUESTION)] },
+    };
+  });
   /** The next answer is the first read: the detail takes its first note. */
   private first = false;
   private hits: BandHit[] = [];
@@ -304,22 +320,7 @@ export class WelcomeList implements Pane {
   /** Read the welcome notes again. The detail keeps what it shows unless that was the first read or the fallback. */
   async load(desk: DeskApi, first = false) {
     this.first ||= first;
-    const board = desk.ctx.board;
-    this.again ??= new AskAgain({
-      read: async () => {
-        // Asked here so a read that lost its question still says why, with the fallback's own answer beside it.
-        const found = await findWelcome(board).then(f => ({ found: f, problem: "" }), e => ({ found: null, problem: `couldn't ask the outline for welcome notes: ${e instanceof Error ? e.message : String(e)}` }));
-        const some = found.found ? found.found.notes.length : (this.items ?? []).length;
-        const page = some || found.problem ? null : await board.resolvePage(welcomeFallback()).catch(() => null);
-        return { ...found, fallback: page?.status === "resolved" && page.block ? page.block : null };
-      },
-      show: ({ found, problem, fallback }) => this.take(found, problem, fallback, desk),
-      // The hand-set order is the view's own: the host's questions can't see it (`virtual.occurrences.order` isn't watched).
-      // And while there are none, any change may be the fallback page arriving.
-      notes: id => !this.items?.length || id === this.orderView?.id,
-      told: board.watched && { by: board.watched, answers: () => [board.queryShown(...NOTES_QUESTION), board.queryShown(...VIEW_QUESTION)] },
-    });
-    await this.again.now();
+    await this.again.at(desk).now();
   }
 
   private take(found: { notes: Msg[]; view: Msg | null } | null, problem: string, fallback: Msg | null, desk: DeskApi) {
@@ -340,8 +341,8 @@ export class WelcomeList implements Pane {
     desk.redraw();
   }
 
-  onEvent(_desk: DeskApi, e?: OutlineEvent) { if (e) this.again?.heard(e); }
-  dispose() { this.again?.cancel(); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) this.again.at(desk).heard(e); }
+  dispose() { this.again.cancel(); }
 
   /**
    * Show the welcome note at place `i` (from 0) in the detail, as `actor`. The person's pick by digit, tab or ⏎ in

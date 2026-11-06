@@ -8,7 +8,7 @@
 // are the desk's. `,` and `.` are the spec's keys for the kind's actions (BRIEF_ACTIONS); a note opened from it goes
 // to a reader beside (the kind's open rule, `beside`), unless it's another brief, which it steps to.
 import { subject, type Msg } from "../board";
-import { AskAgain } from "../search-schedule";
+import { AskAgainAt } from "../search-schedule";
 import { authorName, USER, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -77,7 +77,24 @@ export class BriefReader extends ReaderPane {
   /** The brief shown, by its place in `briefs`. */
   private at = -1;
   private problem = "";
-  private again: AskAgain<Msg[]> | null = null;
+  private readonly again = new AskAgainAt<DeskApi, Msg[]>(desk => {
+    const board = desk.ctx.board;
+    return {
+      read: () => findBriefs(board),
+      show: list => {
+        const shown = this.briefs?.[this.at]?.id, opening = this.first;
+        this.first = false;
+        this.briefs = list;
+        this.problem = "";
+        const keep = shown ? list.findIndex(m => m.id === shown) : -1;
+        if (opening || keep < 0) this.showAt(list.length - 1, desk);
+        else this.at = keep;
+        desk.redraw();
+      },
+      fail: e => { this.problem = `couldn't ask the outline for briefs: ${e instanceof Error ? e.message : String(e)}`; desk.redraw(); },
+      told: board.watched && { by: board.watched, answers: () => [board.queryShown(...BRIEF_QUESTION)] },
+    };
+  });
   /** Shows the newest brief on the first answer (the screen opening), the same one after that. */
   private first = false;
   constructor() { super(false); }
@@ -116,30 +133,14 @@ export class BriefReader extends ReaderPane {
   /** Read the list again; the shown brief stays shown (a new one only changes the count), or the newest when first read. */
   async load(desk: DeskApi, first = false) {
     this.first ||= first;
-    const board = desk.ctx.board;
-    this.again ??= new AskAgain<Msg[]>({
-      read: () => findBriefs(board),
-      show: list => {
-        const shown = this.briefs?.[this.at]?.id, opening = this.first;
-        this.first = false;
-        this.briefs = list;
-        this.problem = "";
-        const keep = shown ? list.findIndex(m => m.id === shown) : -1;
-        if (opening || keep < 0) this.showAt(list.length - 1, desk);
-        else this.at = keep;
-        desk.redraw();
-      },
-      fail: e => { this.problem = `couldn't ask the outline for briefs: ${e instanceof Error ? e.message : String(e)}`; desk.redraw(); },
-      told: board.watched && { by: board.watched, answers: () => [board.queryShown(...BRIEF_QUESTION)] },
-    });
-    await this.again.now();
+    await this.again.at(desk).now();
   }
 
   override onEvent(desk: DeskApi, e?: OutlineEvent) {
     super.onEvent(desk, e);
-    if (e) this.again?.heard(e);
+    if (e) this.again.at(desk).heard(e);
   }
-  override dispose() { this.again?.cancel(); super.dispose?.(); }
+  override dispose() { this.again.cancel(); super.dispose?.(); }
 
   /** Show the brief at `i` (oldest is 0): null, or why not (the reader holds an edit or a comment on another note: ReaderPane.keepsOff). */
   private showAt(i: number, desk: DeskApi): string | null {
