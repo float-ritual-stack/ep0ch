@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A gallery card shows its note's header picture (PIE-1595)
+
+- **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.
+- **A feed row holds it as a thumbnail,** beside its title and body.
+- **A card's body is its words:** `body:` no longer prints a picture's line as text, and `body: 0` leaves the title and summary chips.
+
 ### Published pages keep their bold and their tables (PIE-1590)
 
 - **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.

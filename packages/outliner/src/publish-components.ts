@@ -23,6 +23,7 @@ export const COMPONENT_STYLE = `
 .ext-cover{margin:0 0 .5rem}
 .ext-cover .media{margin:0}
 .ext-cover img{width:100%;aspect-ratio:16/9;object-fit:cover}
+.ext-collection-rows>*+*{margin-top:.75rem}
 .ext-collection-rows .ext-card-covered{display:grid;grid-template-columns:clamp(5rem,24%,11rem) minmax(0,1fr);gap:.75rem;align-items:start}
 .ext-collection-rows .ext-card-covered .ext-cover{margin:0}
 .ext-collection-rows .ext-card-covered .ext-cover img{aspect-ratio:4/3}
