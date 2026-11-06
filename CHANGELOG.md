@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A status message shows whole (PIE-1598)
+
+- **The room the bar has:** a flash like `back to the door` or `sent ctrl+] to pty2` is no longer cut to about 14 characters. In a narrow door it's cut only when the bar is full, and `status.bar.items` says so.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A slow render tile says it was cut off, and a closed one stops drawing (PIE-1602)
 
 - **Past its budget,** a render script's tile says "drawing took too long: it ran past its 15 s budget and was stopped", wrapped to the tile.
