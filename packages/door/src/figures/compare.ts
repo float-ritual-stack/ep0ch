@@ -13,6 +13,7 @@
 //
 // A cell is the text between `|`s; a bold row is the accent. Under 60 columns the block stacks: each row is its
 // label, then one line per column.
+import { figureRowShape } from "@ep0ch/outline-core/figure-props";
 import { BOLD, drawEllipsized, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, presentRow, records, rowLink, tier, type Props, type RowInline, type RowLink } from "./palette";
@@ -25,7 +26,7 @@ export function drawCompare(p: Props, w: number, link?: RowLink, ui?: { rows?: R
   const named: string[] = Array.isArray(p.columns) && p.columns.length ? p.columns.map(String).slice(0, 3) : [];
   const n = Math.max(2, Math.min(3, named.length || Math.max(0, ...entries.map(e => e.cells.length))));
   const columns = named.length ? named : Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
-  if (!entries.length) return wrap("no rows: `- label: a | b`", w).map(l => fg(DIM) + l + RESET);
+  if (!entries.length) return wrap(`no rows: \`${figureRowShape("compare")?.row}\``, w).map(l => fg(DIM) + l + RESET);
   const ink = (e: Entry) => (e.accent ? fg(ACCENT) + BOLD : e.muted ? fg(DIM) : fg(INK));
   // A label's and a cell's words drawn as the note's line (PIE-1334): its links labelled and followable, its code and
   // bold as prose draws them. A label that is its note's link draws the links in it as links, not elements of their own.

@@ -96,6 +96,11 @@ export interface ComponentSchema {
   /** One line: where it is written. */
   where: string;
   props: PropSchema[];
+  /**
+   * A figure that draws only from Markdown rows says their shape: one row as written, and the YAML key that names what
+   * its cells are. The brief prints it, and a write without those rows is told it (figure-props' figureRowsProblem).
+   */
+  rowShape?: { row: string; namedBy: string };
   /** The reference prop naming a producer whose PropsSpec extends these props. */
   propsFrom?: string;
   /**
@@ -804,7 +809,7 @@ export function componentBrief(schema: ComponentSchema): string {
   const origin = schema.origin && schema.origin !== "built-in" ? ` (${schema.origin})` : "";
   const props = schema.props.map(p =>
     `- ${p.token ?? p.key}${p.where === "line" ? "" : ` [${PLACE_WORDS[p.where]}]`}: ${valuesWords(p)}${p.default === undefined ? "" : ` (default ${p.default})`} — ${p.meaning.replace(/\s+/g, " ").trim()}`);
-  return [`## ${schema.id}${origin}`, purposeOf(schema), `Where: ${schema.where}.`, "Properties:", ...props, "Example:", fence("markdown", variationText(variation(schema, {})))].join("\n");
+  return [`## ${schema.id}${origin}`, purposeOf(schema), `Where: ${schema.where}.`, ...(schema.rowShape ? [`Rows: \`${schema.rowShape.row}\`, one a line after the closing \`---\`, never in the YAML; \`${schema.rowShape.namedBy}:\` in the YAML names the cells.`] : []), "Properties:", ...props, "Example:", fence("markdown", variationText(variation(schema, {})))].join("\n");
 }
 
 /** Several components' briefs, one block each. */

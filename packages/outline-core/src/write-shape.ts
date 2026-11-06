@@ -13,6 +13,7 @@ import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { figureRow } from "./figure-markdown";
+import { figureRowsProblem, figureSource, graphKind } from "./figure-props";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
 import { isMediaLine } from "./media-line";
@@ -47,7 +48,7 @@ export const SHAPE_LIMITS = {
   vocabulary: 20,
 } as const;
 
-export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time" | "comment-chip";
+export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time" | "comment-chip" | "figure-rows";
 
 /**
  * Evan's rubric for a note an agent wrote (Oct 29), which every finding is filed under, code's and Jev's alike, so the
@@ -62,7 +63,7 @@ export type Rubric = typeof RUBRIC[number];
 
 /** The rubric item each of code's rules measures. */
 export const RUBRIC_OF: Record<ShapeRule, Rubric> = {
-  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time", "comment-chip": "context",
+  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time", "comment-chip": "context", "figure-rows": "format",
 };
 
 /** One edit of a ready fix, as outline_patch takes it: the exact text seen, and what replaces it. */
@@ -251,6 +252,14 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
         rule: "headings", key: "headings",
         say: `${written} lines and no heading: a note past a screen is read by its sections; put a "## " heading over each part (a heading-style band reads at a glance), with the conclusion first`,
       });
+    }
+
+    // A figure with rows it can't draw (PIE-1608): saved as written, and its own schema says the shape.
+    for (const c of componentBlocks(lines)) {
+      const kind = c.end > c.start ? graphKind(c) : null;
+      const body = kind ? lines.slice(c.start + 1, c.end) : [];
+      const problem = kind && figureRowsProblem(kind, figureSource(body));
+      if (problem) found.push({ rule: "figure-rows", key: `figure-rows:${c.name}:${excerpt(body.join(" "), 40)}`, line: c.start + 1, say: `the ::${c.name} on line ${c.start + 1} ${problem}` });
     }
 
     const callouts = calloutBlocks(lines);

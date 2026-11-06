@@ -114,6 +114,26 @@ export function unknownFigureKeys(kind: string, yaml: Record<string, unknown>): 
   });
 }
 
+/** The shape of a figure's rows, when its schema says one: the figures that draw only from Markdown rows. */
+export const figureRowShape = (kind: string) => FIGURE_COMPONENT_SCHEMAS.find(s => s.id === `graph-${kind}`)?.rowShape;
+
+/**
+ * What's wrong with a figure's rows, for a figure whose schema says their shape (PIE-1608): none it can draw, or a YAML
+ * `rows:` it never reads (graph-table's form, which looks alike), with the shape to write. null when they're fine, and
+ * for `rows: children`, whose rows the text alone can't tell.
+ */
+export function figureRowsProblem(kind: string, src: FigureSource): string | null {
+  const shape = figureRowShape(kind);
+  if (!shape) return null;
+  const read = figureYaml(src);
+  if ("error" in read || read.yaml.rows === "children") return null;
+  const yaml = read.yaml, inYaml = "rows" in yaml && yaml.rows !== "body";
+  if (!inYaml && (parseFigureMarkdown(src.markdown ?? []).rows.length || figureItemCount(kind, yaml))) return null;
+  const known = figureKeys(kind);
+  const foreign = Object.keys(yaml).filter(key => key === "rows" ? inYaml : !known.includes(key)).map(key => `\`${key}:\``);
+  return `${foreign.length ? `has ${foreign.join(", ")} in its YAML, which it doesn't draw` : "has no rows to draw"}: write \`${shape.namedBy}:\` in the YAML and one \`${shape.row}\` per row after the closing \`---\``;
+}
+
 /**
  * The rows of each `::graph-check` in a note's `lines` that hold a box (PIE-864): steps, as a checklist's are. `line`
  * is the row's line among `lines`, `box` where its `[ ]` starts in it. The service's checklist reads them from here,

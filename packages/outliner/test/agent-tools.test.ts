@@ -853,6 +853,34 @@ test("a written live figure reports its rows; one that matches nothing is a fix 
   expect(stat.json.warnings).toEqual([expect.stringContaining('matched 0 rows ("none")')]);
 });
 
+// PIE-1608: a compare in graph-table's shape draws nothing useful; the receipt gates it and names the shape the compare's schema says.
+test("a graph-compare in table shape gets the gate with its right shape; a right one gets none", async () => {
+  const { store, agent } = await setup();
+  const figure = (...body: string[]) => ["Beds", "::graph-compare", ...body, "::"].join("\n");
+  const gate = (json: { warnings?: string[] }) => json.warnings?.filter(w => w.startsWith("fix before you call this done: ") && w.includes("graph-compare")) ?? [];
+
+  for (const wrong of [
+    figure("---", "headers: [Thing, Raised, Bags]", "rows: [[cost, £60, £12]]", "---"),
+    figure("---", "columns: [Raised, Bags]", "rows: [[cost, £60, £12]]", "---"),
+    figure("---", "columns: [Raised, Bags]", "---"),
+  ]) {
+    const made = await agent("create", { parent: "root", text: wrong });
+    expect(made.exitCode, made.stderr).toBe(0);
+    expect(gate(made.json)).toEqual([expect.stringContaining("on line 2")]);
+    expect(gate(made.json)[0]).toContain("`columns:`");
+    expect(gate(made.json)[0]).toContain("`- label: a | b`");
+    expect(made.json.review.verdict).toBe("fix");
+    // An append to the same note isn't told again; it's told what the append did.
+    const note = store.require(made.json.id);
+    const again = await agent("edit", { ref: note.id, expectedRevision: note.revision, append: "A line below." });
+    expect(gate(again.json)).toEqual([]);
+  }
+
+  const right = await agent("create", { parent: "root", text: figure("---", "columns: [Raised, Bags]", "---", "- cost: £60 | £12") });
+  expect(right.json.components).toContain("graph-compare");
+  expect(right.json.warnings).toBeUndefined();
+});
+
 // PIE-721: a write says what its components will draw, and what in them won't draw as written, without refusing it.
 test("a written figure is confirmed in components; a typo in its name or a key, or YAML that doesn't read, is a warning", async () => {
   const { store, agent } = await setup();
