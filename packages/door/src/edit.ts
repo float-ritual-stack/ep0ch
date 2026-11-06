@@ -480,6 +480,20 @@ export class Draft {
   }
 
 
+  /**
+   * `typed`, just before the cursor (a paste as it came), written again as `lines`, each on a line of its own, in one
+   * undo step that gives `typed` back. False, and nothing changed, when it isn't there any more.
+   */
+  replaceTyped(typed: string, lines: readonly string[], by: Actor = USER): boolean {
+    const upTo = this.text.slice(0, this.offsetOf(this.row, this.col)), want = typed.replace(/\r\n?/g, "\n");
+    if (!upTo.endsWith(want)) return false;
+    const start = this.placeOf(upTo.lastIndexOf(want));
+    const before = this.lines[start.row]!.slice(0, start.col), after = this.line.slice(this.col);
+    this.anchor = start;
+    this.pasteText(`${before.trim() ? "\n" : ""}${lines.join("\n")}${after.trim() ? "\n" : ""}`, by);
+    return true;
+  }
+
   /** The text a put-aside draft was brought back with (its session's restore): esc twice on it unchanged drops it. */
   restored: string | null = null;
 
