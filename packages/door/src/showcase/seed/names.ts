@@ -160,7 +160,7 @@ export const SEED = {
   recentReplies: "Recent replies",
   frost: "Before the first frost",
   softLinks: "Soft links, as you write them",
-  softPage: "Seed swap",
+  softPage: "Tool library",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
   completionPlace: "Sowing calendar, completion practice",

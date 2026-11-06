@@ -15,10 +15,10 @@ describe("the soft links section", () => {
     const agent = (action: string, args: Record<string, unknown> = {}) => stage().dispatch.act({ action, tile: "detail", args }, { kind: "agent", id: "test-agent" });
     const elem = (word: string, nth = 0) => (detail().surface.describeElements() as any[]).filter(e => e.label === word)[nth];
     const home = h.seeded.notes.softLinks!.id;
-    const back = async () => { await person("open", { id: home }); await until(() => detail().msg?.id === home && !!elem("seed-swap"), "the note, its words as links", 8000); };
-    await until(() => detail()?.msg?.id === home && !!elem("seed-swap"), "the note, its words as links", 8000);
+    const back = async () => { await person("open", { id: home }); await until(() => detail().msg?.id === home && !!elem("tool-library"), "the note, its words as links", 8000); };
+    await until(() => detail()?.msg?.id === home && !!elem("tool-library"), "the note, its words as links", 8000);
 
-    for (const [word, title] of [["seed-swap", "Seed swap"], ["2026-03-14", "Plot log"], ["HOME-001", ""], ["PR#12", "PR#12 mend the gate"]] as const) {
+    for (const [word, title] of [["tool-library", "Tool library"], ["2026-03-14", "Plot log"], ["HOME-001", ""], ["PR#12", "PR#12 mend the gate"]] as const) {
       const opened = await person("element.open", { n: elem(word).n }) as any;
       if (title) expect(opened.title).toContain(title);
       else expect(opened.opened).toBeTruthy();

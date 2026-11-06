@@ -511,7 +511,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.listDemo.id, "Wash the seed trays\nBleach and rinse; they dry on the bench.");
   await make(notes.listDemo.id, "Label the dahlia tubers\nTwo to a box, the name on the lid.");
   // Soft links (PIE-408): a note written by convention, with no brackets, and where each of its words lands.
-  notes.softPage = await make(notes.root.id, `${SEED.softPage} [page::seed-swap]\nThe note [thread::seed-swap] lands on. Who mentions it, in their own group:\n\n::backlinks\n::`);
+  notes.softPage = await make(notes.root.id, `${SEED.softPage} [page::tool-library]\nThe note [thread::tool-library] lands on. Who mentions it, in their own group:\n\n::backlinks\n::`);
   await make(notes.root.id, "Plot log [day::2026-03-14]\nThat day's note: a date lands here.");
   const elmRow = await make(notes.root.id, "Elm Row [type::project] [page::elm-row]");
   const riverside = await make(notes.root.id, "Riverside [type::project] [page::riverside]");
@@ -519,9 +519,9 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(riverside.id, "PR#12 paint the shed");
   notes.softLinks = await make(notes.root.id, [
     SEED.softLinks,
-    "[thread::seed-swap]",
+    "[thread::tool-library]",
     "",
-    "Asked again about the swap table [thread::seed-swap], no brackets anywhere.",
+    "Asked again about the shared spade [thread::tool-library], no brackets anywhere.",
     "",
     "ctx:: 2026-03-14 @ 4:31 AM",
     `The latch is ${WORK_PREFIX}-001. A value with no page stays text: [zone::north-fence].`,
