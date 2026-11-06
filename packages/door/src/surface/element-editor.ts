@@ -218,6 +218,8 @@ export class ElementEdit {
    * the note's end: what's typed next goes neither into a table's syntax nor onto someone else's sentence.
    */
   landIn(cell: ReturnType<ElementEdit["cellNow"]>): "kept" | "changed" | "gone" {
+    // The cursor is still where the old text had it: in the new text that can be a cell's padding, which `elements` would take for what's typed.
+    this.draft.col = 0;
     const es = cell ? this.elements() : [], e = cell && es[cell.element];
     const row = e?.fields[cell?.row ?? 0] ?? e?.fields.at(-1), f = row?.[cell?.col ?? 0] ?? row?.at(-1);
     if (f && this.draft.lines[e?.start ?? -1] === cell?.head) { this.draft.place(f.line, f.end); return "kept"; }

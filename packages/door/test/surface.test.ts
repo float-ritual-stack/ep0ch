@@ -77,7 +77,7 @@ describe("the surface without a service", () => {
       // A long-lived note: the revision alone is wider than a narrow column.
       s.drafting!.dispose();
       s.startDraft({ ...s.msg!, revision: 1_234_567_890, text: TEXT }, h);
-      s.draft!.status.changedElsewhere = true;
+      s.drafting!.changedTo(1_234_567_891);
       views.push(["edit at a large revision", s.render(w, 20, h).lines]);
       s.drafting!.dispose();
       s.session = new CommentSession(s.msg!, [], "select");
