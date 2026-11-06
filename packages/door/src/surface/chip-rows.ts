@@ -14,7 +14,7 @@ export interface TabRow { text: string; hits: Hit[]; under?: string }
  * A tab: its label (and hot key), lit when `on`, the cursor's marked, a click running `hit`; `hint` is the label's whole text.
  * In a `drop` strip (phrases, not names: the hint row, the status bar) a tab keeps its words: `short` and `tiny` are the
  * forms it takes before it goes whole into +N, `keep` holds it on the row while others go, and the `yield` tab (a message)
- * gives up its own cells first and takes what is left.
+ * is whole if the others making room gets it there; if nothing would, it costs no tab and takes what is left.
  */
 export interface Tab { label: string; on?: boolean; cursor?: boolean; key?: string; hint?: string; hit?: StripHit; alt?: StripHit; end?: boolean; short?: string; tiny?: string; keep?: boolean; yield?: boolean }
 /** How a strip looks: the lit, unlit and cursor tab, an unlit tab's hot key, "… N more", the space inside and after a tab, between two, and the underline. */
@@ -24,7 +24,7 @@ export const chips = (): TabStyle => ({ on: chip(C.blue), off: fg(C.grey), curso
 
 export interface StripOptions {
   /** `share`: the current name owns half the row, neighbours give up letters, then cells (tile tabs). `middle`: a breadcrumb, cut between.
-   * `wrap`: more rows. `drop`: whole words or none (the hint row, the status bar): `short`, `tiny`, then +N; the `yield` tab shrinks first. */
+   * `wrap`: more rows. `drop`: whole words or none (the hint row, the status bar): `short`, `tiny`, then +N; a `yield` tab that can't fit whole even so takes what's left. */
   width: number; style?: TabStyle; lead?: string; at?: number; overflow?: "wrap" | "share" | "middle" | "drop";
   tag?: (drawn: string, i: number) => string;
   id?: string; cursor?: number; scroll?: number; direct?: boolean; about?: string;
@@ -43,25 +43,39 @@ export function tabStrip(tabs: readonly Tab[], o: StripOptions): TabRow[] {
   let more = 0;
   const narrow = o.overflow !== "wrap" && used() > room;
   if (narrow && o.overflow === "drop") {
-    // Phrases keep their words. The yielding tab (a message) takes only what the others leave, even nothing (a cut
-    // message is said whole above the bar, PIE-1428): it never costs a chip. When the others alone don't fit they take
-    // their short, then tiny forms, from the end, then go whole into +N, the farthest from the current first, a `keep`
-    // tab never.
+    // Phrases keep their words. The others take their short, then tiny forms, from the end, then go whole into +N, the
+    // farthest from the current first, a `keep` tab never. A yielding tab (a message) is said whole when that makes room
+    // for it (PIE-1598: chips are back the moment it goes, and +N holds them till then). One that wouldn't fit even so
+    // costs no chip: the others take their short forms and it takes what they leave, even nothing (a cut message is said
+    // whole above the bar, PIE-1428).
     const controls = () => more ? width(`‹+${more}›`) + join : 0, anchor = o.scroll ?? current;
     const yielding = shown.find(t => t.yield), fits = () => used() + controls() <= room;
-    const give = () => { if (yielding) yielding.text = ellipsize(yielding.label, Math.max(0, room - controls() - (used() - cells(yielding)))); };
+    let cutting = false;
+    const give = () => { if (yielding && cutting) yielding.text = ellipsize(yielding.label, Math.max(0, room - controls() - (used() - cells(yielding)))); };
     const drop = () => {
       const candidates = shown.filter(t => !t.keep && t !== yielding && t.i !== current).sort((a, b) => Math.abs(b.i - anchor) - Math.abs(a.i - anchor) || b.i - a.i);
       if (!candidates.length) return false;
       shown.splice(shown.indexOf(candidates[0]!), 1); more++; give(); return true;
     };
-    give();
-    for (const form of ["short", "tiny"] as const) for (const t of [...shown].reverse()) {
-      if (fits()) break;
-      if (t !== yielding && t[form] !== undefined && width(t[form]) < width(t.text)) { t.text = t[form]; give(); }
+    const makeRoom = () => {
+      give();
+      for (const form of ["short", "tiny"] as const) for (const t of [...shown].reverse()) {
+        if (fits()) break;
+        if (t !== yielding && t[form] !== undefined && width(t[form]) < width(t.text)) { t.text = t[form]; give(); }
+      }
+      while (!fits() && drop());
+      give();
+    };
+    const all = [...shown];
+    makeRoom();
+    if (yielding && !fits()) {
+      shown.splice(0, shown.length, ...all);
+      for (const t of shown) t.text = t.label;
+      more = 0; cutting = true;
+      // Their short forms cost no chip: a cut message keeps its words as far as they go, not its first letter.
+      for (const t of shown) if (t !== yielding && t.short !== undefined && width(t.short) < width(t.text)) t.text = t.short;
+      makeRoom();
     }
-    while (!fits() && drop());
-    give();
   } else if (narrow) {
     gap = ""; sep = o.overflow === "middle" ? " › " : " "; join = width(sep);
     for (const t of shown) {

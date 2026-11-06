@@ -517,6 +517,43 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); }
   });
 
+  test("a flash takes the room the bar has: whole on a full bar at 177 and 80, the chips it displaced in +N, and the bar says what it holds (PIE-1598)", async () => {
+    // A bar as full as a working door's: at 177 the chips alone leave a flash about 14 cells.
+    const pins = Array.from({ length: 8 }, (_, n) => `::button{label="Pinned action ${n + 1}" act="status.log"}`).join("\n");
+    const note = await board.createBlock(null, `Full status [status-bar::true]\n- brand\n- power\n- screen\n${pins}\n- theme\n- video\n- uptime\n- clock`);
+    try {
+      await until(() => bar().includes("Pinned action 8"), "the full bar");
+      for (const cols of [177, 80]) for (const said of ["back to the door", "sent ctrl+] to pty2"]) {
+        size.cols = cols;
+        app.flash(said);
+        const line = bar();
+        expect(line, `${said} at ${cols}`).toContain(said);
+        expect(width(line)).toBe(cols);
+        expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toMatchObject({ text: said, cut: false });
+        // What it displaced is one click away, and comes back with it gone.
+        const more = await app.dispatch.act({ action: "strip.more", args: { strip: "status" } }, { kind: "agent", id: "test" }) as any;
+        for (const n of [1, 8]) expect(more.rows.some((r: any) => r.label === `[Pinned action ${n}]`)).toBe(true);
+      }
+      size.cols = 177; app.flash("");
+      expect(bar()).toContain("Pinned action 1");
+      expect(bar()).not.toContain("sent ctrl+]");
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toBeNull();
+    } finally { await board.trash(note.id, USER); size.cols = 220; app.flash(""); }
+  });
+
+  test("at 44 columns a short flash is whole; one the bar truly has no room for is cut and still whole above it and through status.bar.items (PIE-1598)", async () => {
+    size.cols = 44;
+    try {
+      app.flash("back to the door");
+      expect(bar()).toContain("back to the door");
+      const said = "the shed is locked until the frost has gone and the key is back on its hook";
+      app.flash(said, 60_000, { kind: "refusal" });
+      await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l).trim()).join(" ").replace(/\s+/g, " ").includes(said); }, "the whole sentence above the bar");
+      expect(bar()).not.toContain(said);
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toMatchObject({ text: said, cut: true });
+    } finally { size.cols = 220; app.flash(""); }
+  });
+
   test("the power-bar action stays reachable through the status strip at 177 and 44 columns", async () => {
     try {
       for (const cols of [177, 44]) {

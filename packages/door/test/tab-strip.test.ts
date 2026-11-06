@@ -29,3 +29,25 @@ test("a strip's default look is the theme it's drawn in, not the one it was impo
     }
   } finally { setTheme(was); }
 });
+
+test("a yielding tab is whole when the others can make room, and costs them nothing when they can't (PIE-1598)", () => {
+  const tabs = (said: string) => [{ label: "beans", on: false }, { label: "a long squash row", short: "squash" }, { label: said, yield: true, on: true }, { label: "the onion bed", short: "onions" }, { label: "leeks", keep: true }];
+  const strip = (said: string, w: number) => tabStrip(tabs(said), { width: w, overflow: "drop", style: { on: "", off: "", sep: " | " } })[0]!;
+  // Their short forms are room enough: nothing goes into +N.
+  const shortForms = strip("back to the door", 56);
+  expect(shortForms.text).toContain("back to the door");
+  expect(shortForms.text).toContain("squash");
+  expect(shortForms.hits.some(h => h.index === -1)).toBe(false);
+  // Narrower, they go into +N for it; `keep` stays.
+  const dropped = strip("back to the door", 36);
+  expect(dropped.text).toContain("back to the door");
+  expect(dropped.text).toContain("leeks");
+  expect(dropped.hits.some(h => h.index === -1)).toBe(true);
+  // Too long for any of that: no tab goes, they take their short forms, and it takes what's left.
+  const long = strip("the shed is locked until the frost has gone and the key is back on its hook", 56);
+  expect(long.text).toContain("squash");
+  expect(long.text).toContain("onions");
+  expect(long.text).toContain("the shed");
+  expect(long.hits.some(h => h.index === -1)).toBe(false);
+  expect(width(long.text)).toBeLessThanOrEqual(56);
+});

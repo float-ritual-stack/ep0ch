@@ -223,7 +223,7 @@ export class StatusBarNote {
     if (bad) {
       const at = out.findLastIndex(i => i.place === "left") + 1;
       const more = this.read.problems.length > 1 ? ` +${this.read.problems.length - 1}` : "";
-      out.splice(at, 0, { id: "problems", text: `${fg(C.yellow)}! line ${bad.line + 1}${more}${fg(C.lcyan)}`, place: "left", click: { action: "status.bar.edit", args: { line: bad.line + 1 } } });
+      out.splice(at, 0, { id: "problems", text: `${fg(C.yellow)}! line ${bad.line + 1}${more}${fg(C.lcyan)}`, place: "left", keep: true, click: { action: "status.bar.edit", args: { line: bad.line + 1 } } });
     }
     return out;
   }
@@ -306,7 +306,7 @@ interface StatusOn {
 }
 export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
   "status.bar.items": def({
-    summary: "describe the status bar's declared items, their current text, place, click and alternate ActionDefs, and visible hit boxes; ids also name the built-ins in your [status-bar::true] note",
+    summary: "describe the status bar's declared items, their current text, place, click and alternate ActionDefs, and visible hit boxes, and the message up now (`message`: its whole words, `cut` when the bar drew less); ids also name the built-ins in your [status-bar::true] note",
     touches: "nothing", replay: "safe", args: {},
     run(_, on) { return on.items(); },
   }),
