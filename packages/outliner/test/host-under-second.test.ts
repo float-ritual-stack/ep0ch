@@ -206,6 +206,25 @@ test("a minute's queue reads as actor × action counts, and the deployer's scrip
   expect(busy.out).toContain("door:garden × blocks.query 2");
 });
 
+test.each([
+  ["short-iso", "2026-03-04T09:41:12-05:00", "2026-03-04T09:42:05-05:00"],
+  ["journalctl's default", "Mar 04 09:41:12", "Mar 04 09:42:05"],
+])("a minute with no summary yet keeps its requests, and a summarized one isn't counted twice (%s)", async (_format, earlier, current) => {
+  const summary = { status: "queued_minute", minute: "2026-03-04T09:41", over1s: 1, worstMs: 1200, who: ["door:garden × children 1 (worst 1200 ms)"] };
+  const slow = (action: string, queuedMs: number) => ({ status: "slow_request", action, who: "door:garden", queuedMs });
+  const log = [
+    `${earlier} host bun[1]: ${JSON.stringify(slow("children", 1200))}`,
+    `${current} host bun[1]: ${JSON.stringify(summary)}`,
+    `${current} host bun[1]: ${JSON.stringify(slow("update", 8400))}`,
+  ].join("\n");
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/host-queue-minutes.ts"), "--check"], { stdin: new Blob([log]), stdout: "pipe" });
+  const out = await new Response(child.stdout).text();
+  expect(await child.exited).toBe(1);
+  expect(out).toContain("door:garden × update 1 (worst 8400 ms)");
+  expect(out).toContain("door:garden × children 1 (worst 1200 ms)");
+  expect(out).toContain("2 requests queued over 1 s in 2 minutes");
+});
+
 test("three doors, agents writing, a slow machine and a restart: nothing queues over a second", async () => {
   // The scenario as a person lives it, on a real host: bench-host-queue reads the host's own log.
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/bench-host-queue.ts"), "--shape", "small", "--phase", "laptop,restart", "--seconds", "4", "--warm", "2", "--check"], {

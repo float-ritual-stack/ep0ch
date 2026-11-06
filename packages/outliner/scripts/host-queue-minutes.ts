@@ -2,8 +2,9 @@
 //
 //   ssh float-2 journalctl --user -u outliner-host --since -10min | bun scripts/host-queue-minutes.ts --check
 //
-// Prints each minute that had one (its `queued_minute` line, or counted from `slow_request` lines in a log from before
-// they were written) and how many requests the log covers. --check exits 1 when there is one.
+// Prints each minute that had one (its `queued_minute` line, or counted from its `slow_request` lines when it has none:
+// the minute still going, or a log from before they were written) and how many requests the log covers. --check exits 1
+// when there is one.
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({ options: { check: { type: "boolean" } } });
@@ -12,6 +13,15 @@ interface Minute { over1s: number; worstMs: number; who: string[] }
 const lane = new Map<string, Minute>();
 const counted = new Map<string, Map<string, { n: number; worst: number }>>();
 let first = "", last = "", lines = 0;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** One minute however the log writes it (`2026-11-06T09:41`, or journalctl's `Nov 06 09:41`), in an order that sorts. */
+function minuteKey(stamp: string): string {
+  const iso = /^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d)/.exec(stamp);
+  if (iso) return `${iso[1]}-${iso[2]} ${iso[3]}`;
+  const plain = /^(\w{3}) (\d\d) (\d\d:\d\d)/.exec(stamp);
+  return plain ? `${String(MONTHS.indexOf(plain[1]!) + 1).padStart(2, "0")}-${plain[2]} ${plain[3]}` : stamp;
+}
 
 for (const line of (await new Response(Bun.stdin.stream()).text()).split("\n")) {
   const at = line.indexOf('{"status"');
@@ -34,14 +44,17 @@ for (const line of (await new Response(Bun.stdin.stream()).text()).split("\n")) 
   }
 }
 
-// A log with `queued_minute` lines says it itself; `slow_request` lines stand in for the minutes without one.
-const minutes = lane.size ? [...lane] : [...counted].map(([minute, rows]) => {
+// A minute's `queued_minute` line says it itself; its `slow_request` lines stand in when it has none.
+const merged = new Map<string, [string, Minute]>();
+for (const [minute, rows] of counted) {
   const sorted = [...rows].sort((a, b) => b[1].n - a[1].n);
-  return [minute, {
+  merged.set(minuteKey(minute), [minute, {
     over1s: sorted.reduce((sum, [, e]) => sum + e.n, 0), worstMs: Math.max(...sorted.map(([, e]) => e.worst)),
     who: sorted.slice(0, 12).map(([key, e]) => `${key} ${e.n} (worst ${e.worst} ms)`),
-  }] as [string, Minute];
-});
+  }]);
+}
+for (const [minute, row] of lane) merged.set(minuteKey(minute), [minute, row]);
+const minutes = [...merged].sort((a, b) => a[0].localeCompare(b[0])).map(([, entry]) => entry);
 for (const [minute, row] of minutes) {
   console.log(`${minute}  ${row.over1s} queued over 1 s, worst ${row.worstMs} ms`);
   for (const who of row.who) console.log(`  ${who}`);
