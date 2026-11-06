@@ -30,7 +30,9 @@ Mend the water butt [status::done] [done-at::2026-03-11]      ← written by ext
 
 This is the forkable example for **rules** with **`on`**: when a block starts or stops matching, run this. See [rules](../../docs/extensions/README.md#rules-when-a-block-matches).
 
-- **The rule:** `match: { "query": "status=done OR work-stage=done OR outbox=done" }` (one rule over every done key, so the stamp stays while any of them holds; add yours to the query), `on: { "start": "stamp", "stop": "unstamp", "quiet": "2s" }`.
+- **The rule:** one rule over every done key, so the stamp stays while any of them holds; add yours to the query.
+  - `match: { "query": "status=done OR work-stage=done OR outbox=done" }`
+  - `on: { "start": "stamp", "stop": "unstamp", "quiet": "2s" }`
 - **How it fires.** The service watches the change feed.
   - Once the block has been quiet for 2 seconds it compares what it matched before with what it matches now.
   - `change` runs an action on every save while it matches.

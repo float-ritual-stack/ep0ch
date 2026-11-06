@@ -160,7 +160,7 @@ test("opening opts in per line, and a command past the runbook deadline is stopp
   expect(await Bun.file(join(folder, "escaped")).exists()).toBe(false);
   await create("Slow formatter [script::slow-format]\n```js\nwhile (true) {}\n```");
   const format = await create("Format deadline\n\nsh:: printf done | as slow-format");
-  await expect(client.request({ action: "extensions.act", extension: "runbook", extensionAction: "run-sh", blockId: format.id, line: 2 })).rejects.toThrow(/deadline|time/i);
+  await expect(client.request({ action: "extensions.act", extension: "runbook", extensionAction: "run-sh", blockId: format.id, line: 2 })).rejects.toThrow("drawing took too long");
   expect(body(format)).toBeUndefined();
   expect(store.children(format.id).some(b => b.text.includes("[run.status::failed]"))).toBe(true);
 }, 20000);

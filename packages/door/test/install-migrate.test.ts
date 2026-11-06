@@ -313,7 +313,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(record!.text).toContain("! away");
     expect(record!.text).toContain("✓ workstation");
     const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record!.id }) as import("@ep0ch/outline-core/protocol").BlockRevisions;
-    expect(revisions.revisions[0]).toMatchObject({ author: "agent", actorId: "wren" });
+    expect(revisions.revisions[0]).toMatchObject({ author: "agent", actorId: "wren/ep0ch@garden-host" });
     const recordsPage = await hostRequest(sock, "get", { outline: "allotment", blockId: record!.parentId! });
     expect(recordsPage.text).toContain("[system-view::deploys]");
     const everyday = await ep0ch("find", "--query", "type=deploy", "--json");

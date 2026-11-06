@@ -3,7 +3,7 @@
   "id": "done-stamp",
   "version": 2,
   "name": "Done stamp",
-  "description": "Stamps the date on a note when it becomes done (status, work-stage or outbox), and takes it off if it reopens.",
+  "description": "Stamps the date on a note when it becomes done, and takes it off if it reopens.",
   "run": ["bun", "done-stamp.ts"],
   "actions": [
     { "id": "stamp", "label": "Stamp the date it was done", "on": "block", "effects": "write" },

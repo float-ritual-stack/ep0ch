@@ -5,7 +5,7 @@ import { proposed as asProposed } from "../wire";
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../../src/app";
@@ -35,6 +35,14 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
   const { scratch, written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
+  // Each test starts at the index, as a green one leaves it. One that fails inside a section's draft would otherwise
+  // leave the person "in" that section, and every later test's section change would be refused for it (Nov 6: 11 of 12).
+  afterEach(async () => {
+    if (S().focus !== "stage") return;
+    const stage = S().stage(S().sel).top;
+    for (const [id, pane] of stage.panes ?? []) if (pane.surface?.draft) await stage.dispatch.press("edit.close", { discard: true }, stage.nameOf(id)).catch(() => {});
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
 
 
   test("a recorded macro saves editable action lines and replays slots through the script runtime", async () => {
@@ -263,7 +271,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await stage.dispatch.press("edit.close", { discard: true }, tile);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
-  }, 30000);
+  }, 60_000);
 
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {

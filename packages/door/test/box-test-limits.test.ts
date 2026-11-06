@@ -74,7 +74,8 @@ beforeAll(() => {
   // A run that has started: marks itself, leaves a daemon outside its process group, waits for its go file.
   writeFileSync(join(seed, "packages/outline-core/t.sh"), [
     "#!/bin/sh",
-    'echo $$ >> "$FIX_OUT/$FIX_TAG.started"',
+    'echo $ >> "$FIX_OUT/$FIX_TAG.started"',
+    'echo "${EP0CH_TEST_SLACK:-none}" > "$FIX_OUT/$FIX_TAG.slack"',
     `setsid sh -c 'echo $$ >> "$FIX_OUT/$FIX_TAG.daemons"; exec sleep 600' </dev/null >/dev/null 2>&1 &`,
     'while [ ! -e "$FIX_OUT/$FIX_TAG.go" ]; do sleep 0.2; done',
     // Its JUnit, as bun test writes one for box-test's --reporter-outfile (PIE-1422): a slow file and a quick one.
@@ -139,6 +140,50 @@ describe("scripts/box-test limits", () => {
     b.go(); c.go();
     expect(await b.p.exited).toBe(0);
     expect(await c.p.exited).toBe(0);
+  }, 360_000);
+
+  test("--alone waits for the runs ahead and then has the box: a run started meanwhile waits for it (PIE-1600)", async () => {
+    const a = box(worktree("wt-solo1"), "solo1");
+    await until("the first run to start", a.started);
+    const alone = box(worktree("wt-solo2"), "solo2", ["--alone"]);
+    await until("the alone run to say it waits", () => alone.text.err.includes("waiting for the box"), 120_000);
+    expect(alone.started()).toBe(false);
+    // A box-test run is loaded by design, so the tests' waits get the slack a focused run on a busy box gets (PIE-1504).
+    expect(lines(join(out, "solo1.slack"))).toEqual(["2"]);
+    a.go();
+    expect(await a.p.exited).toBe(0);
+    await until("the alone run to start", alone.started, 120_000);
+    const later = box(worktree("wt-solo3"), "solo3");
+    await until("the later run to say it waits", () => later.text.err.includes("waiting for a slot"), 120_000);
+    expect(later.started()).toBe(false);
+    alone.go();
+    expect(await alone.p.exited).toBe(0);
+    await until("the later run to start", later.started, 120_000);
+    later.go();
+    expect(await later.p.exited).toBe(0);
+  }, 360_000);
+
+  test("two --alone runs take slots in order: neither holds one past a busy slot, so both finish (PIE-1600)", async () => {
+    const a = box(worktree("wt-order1"), "order1");
+    await until("the first run to start", a.started);
+    const x = box(worktree("wt-order2"), "order2", ["--alone"]);
+    await until("the first alone run to say it waits", () => x.text.err.includes("waiting for the box"), 120_000);
+    // Slot 1 is busy, so it holds nothing yet: a plain run still gets slot 2.
+    const b = box(worktree("wt-order3"), "order3");
+    await until("the plain run to start beside the first", b.started, 30_000);
+    const y = box(worktree("wt-order4"), "order4", ["--alone"]);
+    await until("the second alone run to say it waits", () => y.text.err.includes("waiting for the box"), 120_000);
+    a.go(); b.go();
+    expect(await a.p.exited).toBe(0);
+    expect(await b.p.exited).toBe(0);
+    await until("one alone run to start", () => x.started() || y.started(), 120_000);
+    const [first, second] = x.started() ? [x, y] : [y, x];
+    expect(second.started()).toBe(false);
+    first.go();
+    expect(await first.p.exited).toBe(0);
+    await until("the other alone run to start", second.started, 120_000);
+    second.go();
+    expect(await second.p.exited).toBe(0);
   }, 360_000);
 
   test("a killed run leaves nothing: its group, its daemon outside the group and its dir are gone", async () => {
