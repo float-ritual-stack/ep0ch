@@ -45,8 +45,7 @@ import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
 import { CLAUDE_SPLIT_ACTIONS, SplitWatch } from "./claude-splits";
 import { realFleetIO } from "./agent-fleet";
-import { typePaste } from "./paste-image";
-import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileExit, type TileProgram } from "./term";
+import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileExit, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
@@ -1541,7 +1540,8 @@ export class App implements Ctx {
     if (k.kind === "paste" && !raw) {
       // A paste of nothing at all (the clipboard held only a picture, PIE-592) is ctrl+v, which a draft takes as draft.image.
       if (k.text === "") { this.key({ kind: "char", ch: "v", ctrl: true }); return; }
-      return typePaste(k.text, { key: key => this.key(key), held, has: name => this.dispatch.has(name), press: (name, args) => this.dispatch.press(name, args) });
+      for (const key of pasteKeys(k.text)) this.key(key);
+      return;
     }
     // ctrl+c: in a session the person's terminal detaches (nothing ends, nothing is asked); else the door quits, asking first.
     if (k.kind === "char" && k.ctrl && k.ch === "c" && !raw) {

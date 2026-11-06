@@ -28,8 +28,12 @@ describe("what a paste of dropped files reads as", () => {
   test("macOS's bare names, a line each, as they were saved on Nov 2", () => {
     expect(droppedFiles(`${narrow}\ngate.jpg \n`)).toEqual([narrow, "gate.jpg"]);
   });
-  test("anything else is an ordinary paste", () => {
-    for (const text of ["", "\n", "some words", "/tmp is full", "- gate.jpg", "see [img::/a.png]", "/a/notes.txt", "'/a/open.png", "/a/one.png\nand words"]) {
+  test("a path with spaces its terminal left as they are is one file", () => {
+    expect(droppedFiles("/shots/plot at dusk.png")).toEqual(["/shots/plot at dusk.png"]);
+  });
+  test("anything else is an ordinary paste: images mixed with anything stay text, never one file made of them", () => {
+    for (const text of ["", "\n", "some words", "/tmp is full", "- gate.jpg", "see [img::/a.png]", "/a/notes.txt", "'/a/open.png", "/a/one.png\nand words",
+      "/shots/a.png /shots/notes.txt /shots/b.png", "/shots/notes.txt /shots/b.png", "/shots/a.png then /shots/b.png", "/shots/a.png b.png", "'/shots/a b.png' c.png", "/shots/a.png\n/shots/notes.txt"]) {
       expect(droppedFiles(text)).toBeNull();
     }
   });

@@ -11,7 +11,6 @@ import { resolveMediaPath } from "./media";
 import type { SocketBoard } from "./socket";
 import { def } from "./surface/actions";
 import type { On } from "./surface/note";
-import { pasteKeys, type Key } from "./term";
 
 /** The picture formats a paste takes: what the reader draws. */
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic"]);
@@ -124,8 +123,10 @@ export function droppedFiles(text: string): string[] | null {
     const words = shellWords(line);
     if (!words) return null;
     if (words.every(word => isPathWord(word) && isImageName(word))) { files.push(...words); continue; }
+    // One file with spaces its terminal left as they are, unless a word is another file: images mixed with anything stay text.
+    if (words.slice(0, -1).some(isImageName) || words.slice(1).some(word => word.includes("/"))) return null;
     const whole = words.join(" ");
-    // One file with spaces its terminal left as they are: a path, or a name that starts as a file's name does.
+    // A path, or a name that starts as a file's name does.
     if (!isImageName(whole) || !(isPathWord(whole) || (/^[\p{L}\p{N}]/u.test(whole) && !whole.includes("/")))) return null;
     files.push(whole);
   }
@@ -213,12 +214,3 @@ export const dropActions = {
     },
   }),
 };
-
-/**
- * A paste in anything but a terminal tile: written first, key by key, whatever it holds; files dropped on a terminal
- * then become pictures in a draft that took them (draft.drop, PIE-1589).
- */
-export function typePaste(text: string, to: { key(k: Key): void; held: boolean; has(action: string): boolean; press(action: string, args: { text: string }): unknown }): void {
-  for (const key of pasteKeys(text)) to.key(key);
-  if (to.held && droppedFiles(text) && to.has("draft.drop")) void to.press("draft.drop", { text });
-}

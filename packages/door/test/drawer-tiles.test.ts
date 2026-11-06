@@ -19,6 +19,7 @@ import { outlineState } from "../src/state";
 import { SocketBoard } from "../src/socket";
 import { traceActions, type ActionRun } from "../src/surface/actions";
 import type { Key } from "../src/term";
+import { SHOWCASE_ASSETS } from "../src/showcase/seed/media";
 import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[^m]*m/g, "");
@@ -1624,6 +1625,32 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(kept.length).toBeGreaterThan(0);
       expect(kept.map(p => readFileSync(p, "utf8")).join("\n")).toContain("lift the bucket in April");
     } finally { listen = null; d.app.quit(); }
+  });
+
+  test("a file dropped into an edit in the drawer becomes its picture, as in any draft (PIE-1589)", async () => {
+    const d = await door();
+    try {
+      const note = await board.request("create", { parentId: null, text: "Rhubarb: force it under a bucket", author: "agent" });
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "rhubarb" }, tile: "reader" }, USER);
+      await until(() => (d.desk.pane("rhubarb") as any)?.msg?.id === note.id, "the detail shows it");
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "rhubarb", as: AS });
+      d.paint();
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.focus", tile: "rhubarb" }, USER);
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.entered, "the person in the drawer");
+      await drawer.dispatch.act({ action: "edit.text", args: { text: "Rhubarb: force it under a bucket\n" }, tile: "rhubarb" }, USER);
+      const draft = () => (d.pane("rhubarb") as any).surface.draft;
+      await until(() => !!draft(), "the edit open");
+      d.key({ kind: "enter" });
+      const dropped = `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'`;
+      d.key({ kind: "paste", text: dropped });
+      await until(() => draft().text.includes(dropped) || draft().text.includes("[img::"), "the paste in the drawer's edit");
+      await until(() => draft().text.includes("[img::"), "the picture in the drawer's edit");
+      expect(draft().text).not.toContain(dropped);
+      draft().key({ kind: "esc" });
+    } finally { d.app.quit(); }
   });
 
   test("a moved preview follows the tile it followed, by identity: never another screen's tile of the same name", async () => {
