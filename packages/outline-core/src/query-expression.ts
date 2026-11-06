@@ -974,6 +974,40 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
   }
 }
 
+/**
+ * The blocks a question could hold for, from who carries what (`carriers`, a block's records in any scope, with `value`
+ * when it asks for one): every block the expression holds for is in the answer, and a few more (the predicate still
+ * decides). `null` when a clause can hold for a block with no such key (a NOT, a time, a tag, `text~`, `child:`…), so nothing
+ * can be left out by it. A value that reads as a date asks for the key alone: `due=today` holds for a span holding today.
+ */
+export function propertyCandidates(expression: QueryExpression, carriers: (key: string, value?: string) => ReadonlySet<string>, now = Date.now()): ReadonlySet<string> | null {
+  switch (expression.kind) {
+    case "property": {
+      if (expression.relation) return null;
+      const value = expression.value;
+      const plain = value !== undefined && (readNumber(value) !== null || !readDateBound(value, wallClock(now)));
+      return plain ? carriers(expression.key, value) : carriers(expression.key);
+    }
+    // `revision >= 2` is the block's own, no property's.
+    case "compare": return expression.key === "revision" ? null : carriers(expression.key);
+    case "and": {
+      const known = expression.operands.map(operand => propertyCandidates(operand, carriers, now)).filter((set): set is ReadonlySet<string> => !!set).sort((a, b) => a.size - b.size);
+      if (!known.length) return null;
+      return known.length === 1 ? known[0]! : new Set([...known[0]!].filter(id => known.every(set => set.has(id))));
+    }
+    case "or": {
+      const out = new Set<string>();
+      for (const operand of expression.operands) {
+        const set = propertyCandidates(operand, carriers, now);
+        if (!set) return null;
+        for (const id of set) out.add(id);
+      }
+      return out;
+    }
+    default: return null;
+  }
+}
+
 /** A block's title: its first line without property tokens. */
 export function titleOf(text: string): string {
   return firstLineWithoutPropertyTokens(text)?.trim() ?? "";

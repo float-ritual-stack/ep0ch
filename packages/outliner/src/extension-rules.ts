@@ -436,13 +436,13 @@ export class ExtensionRules {
   }
 
   /** Of `ids`, the blocks a rule's block conditions (query, view, under) hold for. */
-  private blockMatches(rule: RuleEntry, ids: readonly string[]): Set<string> {
+  private blockMatches(rule: RuleEntry, ids: readonly string[], overGraph = false): Set<string> {
     const { query, view, under, propertyScope } = rule.match;
     let left = [...ids];
     const narrow = (expression: string | undefined, subtreeRootId?: string, scope?: typeof propertyScope) => {
       const out: string[] = [];
       for (let at = 0; at < left.length; at += 1000) {
-        out.push(...this.store.matchQuery(expression, left.slice(at, at + 1000), { ...(subtreeRootId ? { subtreeRootId } : {}), ...(scope ? { propertyScope: scope } : {}) }).blockIds);
+        out.push(...this.store.matchQuery(expression, left.slice(at, at + 1000), { ...(subtreeRootId ? { subtreeRootId } : {}), ...(scope ? { propertyScope: scope } : {}), ...(overGraph ? { overGraph } : {}) }).blockIds);
       }
       left = out;
     };
@@ -657,7 +657,7 @@ export class ExtensionRules {
 
   /** What a trigger rule matches now, across the outline, with nothing run: its baseline. */
   private recompute(rule: RuleEntry, blocks: readonly Block[] = this.store.liveBlocks()): void {
-    const candidates = rule.match.query || rule.match.view || rule.match.under ? this.blockMatches(rule, blocks.map((block) => block.id)) : null;
+    const candidates = rule.match.query || rule.match.view || rule.match.under ? this.blockMatches(rule, blocks.map((block) => block.id), true) : null;
     const set = new Set<string>();
     for (const block of blocks) {
       if (candidates && !candidates.has(block.id)) continue;

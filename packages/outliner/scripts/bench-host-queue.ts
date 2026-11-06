@@ -10,15 +10,18 @@
 //
 //   bun scripts/bench-host-queue.ts [--phase steady,toss,laptop,restart] [--shape pie|small] [--seconds 30] [--warm 8]
 //                                   [--laptop-ms 500] [--outliner <package dir>] [--profile <dir>] [--timeline]
-//                                   [--check] [--json <file>] [--keep]
+//                                   [--copy <file.sqlite>] [--others <n>] [--check] [--json <file>] [--keep]
 //
 // What it reports is what `journalctl -u outliner-host | grep slow_request` reports: requests with `queuedMs` over 1 s,
 // by action, read from the host's own log. --check exits 1 when any phase has one. Never a real outline: the outlines
-// folder is a temp dir, removed unless --keep. --outliner runs another checkout's host, for a before.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+// folder is a temp dir, removed unless --keep. --outliner runs another checkout's host, for a before. --copy serves a
+// private copy of an outline's file instead of the fiction (a snapshot, to see what only the real shape shows); its host
+// finds no programs on its PATH and no home of its own, so a copy's agents and extensions reach nothing outside.
+// --others adds that many more outlines of the same shape, each with a door of its own at the restart (float-2 has four).
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { blockCommentTarget } from "../src/block-comments";
 import { OutlinerStore } from "../src/store";
@@ -26,7 +29,7 @@ import { fixturePaths, makeOutline } from "./host-bench/fixture";
 import { Conn, quantile } from "./host-bench/wire";
 
 const { values } = parseArgs({ options: {
-  phase: { type: "string" }, shape: { type: "string" }, warm: { type: "string" }, seconds: { type: "string" }, "laptop-ms": { type: "string" }, outliner: { type: "string" },
+  phase: { type: "string" }, shape: { type: "string" }, warm: { type: "string" }, seconds: { type: "string" }, "laptop-ms": { type: "string" }, outliner: { type: "string" }, copy: { type: "string" }, others: { type: "string" },
   profile: { type: "string" }, timeline: { type: "boolean" }, check: { type: "boolean" }, json: { type: "string" }, keep: { type: "boolean" },
 } });
 const outliner = resolve(values.outliner ?? join(import.meta.dir, ".."));
@@ -39,16 +42,39 @@ const root = mkdtempSync(join(process.env.EP0CH_BENCH_TMP || tmpdir(), "host-que
 const outlines = join(root, "outlines");
 const socket = join(outlines, ".host", "host.sock");
 const OUTLINE = "bench";
+const OTHERS = Array.from({ length: Number(values.others ?? 0) }, (_, i) => `other-${i}`);
 const paths = fixturePaths(outlines, OUTLINE);
 const MARKS = 500;
 
 // ─── The outline ───────────────────────────────────────────────────────
 const made = performance.now();
 mkdirSync(paths.workspaceRoot, { recursive: true });
-const fixture = makeOutline(paths.database, paths.workspaceRoot, shape);
 // Marks on notes across the outline, as pie has them: what `annotations.list` reads.
 const marked: string[] = [];
-{
+let fixture: { notes: number; probe: string; hub: string; board: string };
+if (values.copy) {
+  copyFileSync(resolve(values.copy), paths.database);
+  // What sits beside it, if anything (`extensions`, `user-extensions`, `extension-schedules.json`): without its extensions
+  // the host would take their pages down as gone; without its schedules they would all be due.
+  const beside = dirname(resolve(values.copy));
+  for (const [from, to] of [["extensions", join(paths.workspaceRoot, "extensions")], ["extension-schedules.json", join(paths.workspaceRoot, "extension-schedules.json")], ["user-extensions", join(root, ".config", "pi-herdr-outliner", "extensions")]] as const)
+    if (existsSync(join(beside, from))) cpSync(join(beside, from), to, { recursive: true });
+  const { Database } = await import("bun:sqlite");
+  const db = new Database(paths.database, { readonly: true });
+  const one = (sql: string) => (db.query(sql).get() as { id: string } | null)?.id ?? "";
+  const probe = one("SELECT id FROM blocks WHERE deleted_at IS NULL ORDER BY id LIMIT 1 OFFSET 5000");
+  fixture = {
+    notes: (db.query("SELECT count(*) AS n FROM blocks WHERE deleted_at IS NULL").get() as { n: number }).n, probe,
+    hub: one("SELECT parent_id AS id FROM blocks WHERE parent_id IS NOT NULL AND deleted_at IS NULL GROUP BY parent_id ORDER BY count(*) DESC LIMIT 1") || probe,
+    board: one("SELECT b.parent_id AS id FROM blocks b JOIN block_properties p ON p.block_id = b.id AND p.key = 'type' AND p.value = 'virtual-branch' WHERE b.parent_id IS NOT NULL AND b.deleted_at IS NULL GROUP BY b.parent_id ORDER BY count(*) DESC LIMIT 1") || probe,
+  };
+  for (const row of db.query("SELECT DISTINCT b.parent_id AS id FROM blocks b JOIN block_properties p ON p.block_id = b.id AND p.key = 'type' AND p.value = 'annotation' WHERE b.parent_id IS NOT NULL AND b.deleted_at IS NULL LIMIT 250").all() as { id: string }[]) marked.push(row.id);
+  if (!marked.length) marked.push(probe);
+  db.close();
+  console.log(`outline: a private copy of ${values.copy}, ${fixture.notes} notes (${((performance.now() - made) / 1000).toFixed(1)} s)`);
+} else {
+  const made_ = makeOutline(paths.database, paths.workspaceRoot, shape);
+  fixture = made_;
   const store = new OutlinerStore(paths.database, { workspaceRoot: paths.workspaceRoot });
   try {
     const notes = store.queryBlocks({ filters: [{ key: "type", value: "roadmap-item" }], limit: 400 }).blocks;
@@ -60,8 +86,14 @@ const marked: string[] = [];
       }
     })();
   } finally { store.close(); }
+  console.log(`outline: ${shape}-shaped, ${fixture.notes} notes, ${MARKS} marks (${((performance.now() - made) / 1000).toFixed(1)} s)`);
 }
-console.log(`outline: ${shape}-shaped, ${fixture.notes} notes, ${MARKS} marks (${((performance.now() - made) / 1000).toFixed(1)} s)`);
+
+for (const other of OTHERS) {
+  const place = fixturePaths(outlines, other);
+  mkdirSync(place.workspaceRoot, { recursive: true });
+  copyFileSync(paths.database, place.database);
+}
 
 // ─── The host, and what it logs ────────────────────────────────────────
 interface Row { status: string; action?: string; outline?: string; ms?: number; queuedMs?: number; handleMs?: number; loopMs?: number; during?: string[]; phase: string; actor?: string; who?: string[] }
@@ -72,7 +104,7 @@ const profile = values.profile ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir
 function startHost() {
   const child = Bun.spawn([process.execPath, ...profile, join(outliner, "src/host-main.ts")], {
     cwd: outliner, stdin: "ignore", stdout: "pipe", stderr: "pipe",
-    env: { PATH: process.env.PATH ?? "", HOME: root, EP0CH_OUTLINES: outlines, TMPDIR: root },
+    env: { PATH: values.copy ? dirname(process.execPath) : process.env.PATH ?? "", HOME: root, EP0CH_OUTLINES: outlines, TMPDIR: root },
   });
   for (const stream of [child.stdout, child.stderr] as ReadableStream<Uint8Array>[]) {
     void (async () => {
@@ -102,13 +134,13 @@ const refused = new Map<string, number>();
 const MISSING = "99999999-aaaa-4bbb-8ccc-000000000001";
 /** A door on its one connection: its watched reads, its status bar's lists, and a note opened every 3 s. */
 class Door {
-  conn = new Conn(socket, OUTLINE, event => this.heard(event));
+  conn: Conn;
   asked = 0; answers: number[] = []; errors = 0;
   private running = true;
   private opening?: Promise<void>;
   private chromeTimer: ReturnType<typeof setTimeout> | null = null;
   private watches = new Map<string, Record<string, unknown>>();
-  constructor(readonly name: string) {}
+  constructor(readonly name: string, outline = OUTLINE) { this.conn = new Conn(socket, outline, event => this.heard(event)); }
   private async ask(body: Record<string, unknown>): Promise<unknown> {
     this.asked += 1;
     const answer = await this.conn.request(body, 60_000);
@@ -127,6 +159,7 @@ class Door {
       ["figure", { action: "site.answer", blockId: fixture.board, produce: { kind: "figure", figure: "stat", props: { items: [{ label: "doing", query: "type=roadmap-item work-stage=doing" }] } } }],
       ["hub", { action: "references.backlinks", query: { targetBlockId: fixture.hub, limit: 50 } }],
       ["links", { action: "blocks.authored-links", ownerBlockId: fixture.probe }],
+      ["waiting", { action: "waiting.list" }],
       ["styles", { action: "styles.list" }], ["headings", { action: "headings.styles" }], ["callouts", { action: "callouts.types" }],
     ];
     for (const [key, request] of reads) { this.watches.set(key, request); void this.ask({ ...request, watch: key }); }
@@ -151,7 +184,6 @@ class Door {
   }
   private chrome(): void {
     void this.ask({ action: "agents.held" });
-    void this.ask({ action: "waiting.list" });
     void this.ask({ action: "draft.proposals.list", blockId: fixture.probe });
   }
   /** What a door sends when a note opens (float-2's log, in the order it sends them), all at once on the connection. */
@@ -298,13 +330,17 @@ if (phases.includes("restart")) {
   host = startHost();
   const doors = ["a", "b", "c"].map(n => new Door(n));
   const stopAgent = agent;
+  const started = performance.now();
   await up();
+  // Doors reconnect at once: what they wait for here is the host warming their outline, which no `queuedMs` counts.
+  const gap = Math.round(performance.now() - started);
+  doors.push(...OTHERS.map(other => new Door(`door-${other}`, other)));
   await Promise.all(doors.map(d => d.start()));
   const writers = [stopAgent(), machinery()];
   await Bun.sleep(seconds * 1000);
   await Promise.all(writers.map(stop => stop()));
   await Promise.all(doors.map(d => d.stop()));
-  report("restart", doors, "three doors reconnecting");
+  report("restart", doors.slice(0, 3), `three doors reconnecting, the first answer ${gap} ms after the host started`);
   if (values.timeline) for (const r of rows.filter(r => r.phase === "restart" && (r.status === "loop_stalled" || (r.queuedMs ?? 0) > 1000 || (r.loopMs ?? 0) > 200)).slice(0, 80)) {
     console.log(`  ${r.status === "loop_stalled" ? `stall ${(r as { ms?: number }).ms} ${r.during?.join(", ")}` : `${r.action} q=${r.queuedMs} h=${r.handleMs} l=${r.loopMs}`}`);
   }

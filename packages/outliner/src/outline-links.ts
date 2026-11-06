@@ -115,8 +115,11 @@ export class OutlineLinks {
       const block = await remote.client.request<Block | null>({ action: "get", blockId: id });
       return block ? { block, outline: remote.outline, machine: remote.machine } : null;
     });
+    // Every other outline, opened only when this read needs one: a note whose links are all here opens nothing (PIE-1610).
+    let everyOther: Promise<{ name: string; store: OutlinerStore }[]> | undefined;
+    const others = () => everyOther ??= Promise.all(this.names().filter(n => n !== from).map(async name => ({ name, store: await this.open(name) })));
+    const here = { name: from, store: local };
     if (request.action === "blocks.authored-links") {
-      const stores = await Promise.all([from, ...this.names().filter(n => n !== from)].map(async name => ({ name, store: await this.open(name) })));
       const locations = new Map<string, { outline: string; machine?: string }>();
       const owner = local.get(request.ownerBlockId);
       const remoteBlocks = new Map<string, Block>();
@@ -131,7 +134,8 @@ export class OutlineLinks {
           remotePages.set(page.displayAddress, (await this.read(from, { id: request.id, action: "pages.resolve", address: page.displayAddress }))!.result as import("./types").PageAddressResolution);
         }
       }
-      return { result: readAuthoredLinks({
+      let elsewhere = false;
+      const readWith = (stores: readonly { name: string; store: OutlinerStore }[]) => readAuthoredLinks({
         referenceValues: id => local.referenceValues(id),
         resourceProviders: local.resourceProviders,
         resources: local.resources,
@@ -145,19 +149,22 @@ export class OutlineLinks {
             const block = entry.store.get(id);
             if (block) { if (entry.name !== from || outline) locations.set(id, { outline: entry.name }); return block; }
           }
-          return remoteBlocks.get(`${outline ?? ""}:${id}`) ?? null;
+          const remote = remoteBlocks.get(`${outline ?? ""}:${id}`) ?? null;
+          if (!remote) elsewhere = true;
+          return remote;
         },
         resolvePageAddress: address => {
           if (remotePages.has(address)) return remotePages.get(address)!;
           const q = qualifiedReference(address);
           const entry = stores.find(s => s.name === (q.outline ?? from));
-          if (!entry) return { address, normalizedAddress: normalizePageAddress(address).normalizedAddress, status: "missing" };
+          if (!entry) { elsewhere = true; return { address, normalizedAddress: normalizePageAddress(address).normalizedAddress, status: "missing" }; }
           return { ...entry.store.resolvePageAddress(q.target), ...(q.outline ? { outline: q.outline } : {}) };
         },
-      }, request.ownerBlockId) };
+      }, request.ownerBlockId);
+      const first = readWith([here]);
+      return { result: elsewhere ? readWith([here, ...await others()]) : first };
     }
     if (request.action === "transclusions.read") {
-      const stores = await Promise.all([from, ...this.names().filter(n => n !== from)].map(async name => ({ name, store: await this.open(name) })));
       const locations = new Map<string, { outline: string; machine?: string }>();
       const result = await readTransclusionsAsync(async id => {
         const page = embeddedPageAddress(id);
@@ -169,10 +176,17 @@ export class OutlineLinks {
           return resolved.block ?? null;
         }
         const q = qualifiedReference(id);
-        for (const { name, store } of stores) {
-          if (q.outline && q.outline !== name) continue;
+        const look = ({ name, store }: { name: string; store: OutlinerStore }) => {
+          if (q.outline && q.outline !== name) return null;
           const block = store.get(q.target);
-          if (block) { locations.set(id, { outline: name }); return block; }
+          if (block) locations.set(id, { outline: name });
+          return block;
+        };
+        const nearby = look(here);
+        if (nearby) return nearby;
+        for (const entry of await others()) {
+          const block = look(entry);
+          if (block) return block;
         }
         if (BLOCK_ID_PATTERN.test(q.target) && (!q.outline || !this.names().includes(q.outline))) {
           const found = (await contexts(q.target, q.outline)).find(r => r !== null);
@@ -188,7 +202,8 @@ export class OutlineLinks {
         }
         const page = embeddedPageAddress(node.blockId);
         if (page !== null && (node.status === "missing" || node.status === "fragment-missing")) {
-          const q = qualifiedReference(page), store = stores.find(s => s.name === (q.outline ?? from))?.store;
+          const q = qualifiedReference(page);
+          const store = !q.outline || q.outline === from ? local : this.names().includes(q.outline) ? await this.open(q.outline) : undefined;
           if (store) {
             const prefix = q.outline ? `${q.outline}:` : "";
             const literal = node.fragmentId ? [`${q.target}^${node.fragmentId}`, `${q.target} ^${node.fragmentId}`]

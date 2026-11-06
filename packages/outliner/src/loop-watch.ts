@@ -234,6 +234,9 @@ export class Turns {
     });
   }
 
+  /** Whether anyone is waiting for a turn. */
+  get waiting(): boolean { return this.first.length > 0 || this.last.length > 0; }
+
   /** `key`'s turn took `ms` of the loop (its handling and what it set off). */
   charge(key: TurnKey, ms: number, action?: unknown): void {
     if (!(ms > 0)) return;

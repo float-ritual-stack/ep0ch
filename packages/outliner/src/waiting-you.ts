@@ -13,6 +13,8 @@ const NEEDS = "needs NOT work-stage=done NOT work-stage=superseded";
  * its text, kept per text (PIE-1413: every door asks after every change, and parsing pie's long notes took ~350 ms).
  */
 const openCalls = textMemo((text: string): readonly { reason: string; line: number; at: number; label: string }[] => {
+  // Most notes have no such heading: the words decide that without parsing the note (PIE-1610, a first read over pie's).
+  if (!/Decisions for Evan|NEEDS A GO/i.test(text)) return [];
   const headings = markdownSourceTokens(text).filter(h => h.token.type === "heading");
   const calls = new Set<number>();
   for (let i = 0; i < headings.length; i++) {
@@ -26,6 +28,8 @@ const openCalls = textMemo((text: string): readonly { reason: string; line: numb
     .map(item => Object.freeze({ reason: item.text.replace(/^\s*[-+*]\s+\[ \]\s*/, ""), line: item.span.startLine, at: item.span.start, label: item.text })));
 }, 1_024);
 
+const titleOf = textMemo((text: string) => firstLineWithoutPropertyTokens(text) ?? "Untitled", 1_024);
+
 export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
   // Every scope (PIE-1277): a `- [ ] … [needs::sysop: …]` on line 30 of a long note is an ask too, opened at its line.
   // NOT reads the note's own header at any scope, so a body line's `[work-stage::done]` never hides the note.
@@ -33,7 +37,7 @@ export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
   const rows: WaitingAsk[] = [];
   for (const b of blocks) {
     const values = (key: string) => b.properties.filter(p => p.key === key).map(p => p.value);
-    const base = { properties: b.properties, block: b.id, title: firstLineWithoutPropertyTokens(b.text) ?? "Untitled", by: b.actorId ?? b.author, revision: b.revision };
+    const base = { properties: b.properties, block: b.id, title: titleOf(b.text), by: b.actorId ?? b.author, revision: b.revision };
     const needs = values("needs").filter(v => /^sysop(?:\s*:|$)/i.test(v));
     const settled = values("work-stage").some(v => v === "done" || v === "superseded");
     if (!settled && needs.length) {

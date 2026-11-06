@@ -3,7 +3,7 @@
 // question again, and the door's reads queued behind those passes for seconds. A question that leaves machinery out
 // (every reader's default, PIE-867) can't see a stamped note, so QueryWatches skips it for such a change unless the
 // note is one it lists or names: this says which questions those are, and whether a change was to a stamped note.
-import { DEFAULT_MACHINERY, isMachinery } from "@ep0ch/outline-core/machinery";
+import { DEFAULT_MACHINERY, isMachinery, MACHINE_KEY } from "@ep0ch/outline-core/machinery";
 import { isMachineryBlindRead } from "./actions";
 import { normalizeBlockSearchQuery, queryReach } from "./block-query";
 import type { ChangedNotes, QueryWatches } from "./query-watches";
@@ -14,20 +14,31 @@ import { parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtua
 /** Which notes are stamped, as of each one's last change: a stamp put on or taken off is a change anyone may see. */
 const seen = new WeakMap<object, Map<string, boolean>>();
 
+/** What was stamped when this service first looked: one read of the outline's stamped notes, by the property index. */
+export function seedMachinery(store: Pick<OutlinerStore, "database">): Map<string, boolean> {
+  let known = seen.get(store);
+  if (!known) {
+    seen.set(store, known = new Map());
+    const stamped = store.database.query(`
+      SELECT p.block_id AS id FROM block_properties p JOIN blocks b ON b.id = p.block_id
+      WHERE p.scope = 'block' AND p.key = ? AND trim(p.value) <> '' AND b.effective_deleted_root_id IS NULL
+    `).all(MACHINE_KEY) as { id: string }[];
+    for (const { id } of stamped) known.set(id, true);
+  }
+  return known;
+}
+
 /**
  * A committed change, with whether it stays among stamped notes: its note carries `[machine::…]` after it and did
  * before. A note stamped or unstamped by the change moves in or out of what a question that hides machinery lists and
  * counts, so that change is an ordinary one. What was stamped before is known from the outline as it was at the first
  * change this service saw (one read of its notes) and every change since; the first change's own note counts as plain.
  */
-export function machineryChange(store: Pick<OutlinerStore, "get" | "liveBlocks">, change: ChangedNotes | undefined): ChangedNotes | undefined {
+export function machineryChange(store: Pick<OutlinerStore, "get" | "database">, change: ChangedNotes | undefined): ChangedNotes | undefined {
   if (!change?.blockId) return change;
   const block = store.get(change.blockId), now = !!block && isMachinery(block.properties);
-  let known = seen.get(store);
-  if (!known) {
-    seen.set(store, known = new Map());
-    for (const note of store.liveBlocks()) if (note.id !== change.blockId && isMachinery(note.properties)) known.set(note.id, true);
-  }
+  const first = !seen.has(store), known = seedMachinery(store);
+  if (first) known.delete(change.blockId);
   const before = known.get(change.blockId);
   known.set(change.blockId, now);
   // A create had no before: a new stamped note was never visible. A trash or a restore takes the note's whole subtree
@@ -102,7 +113,7 @@ export function asksMachinery(store: Pick<OutlinerStore, "get">, request: Record
  * A change event on its way to the subscribers: the watched questions hear it (a content change with whether it stays
  * among stamped notes), and one that does is said `hidden`, so a door's lists that leave machinery out skip it.
  */
-export function watchesHear(store: Pick<OutlinerStore, "get" | "liveBlocks">, watches: Pick<QueryWatches, "changed">, event: OutlinerEvent): OutlinerEvent {
+export function watchesHear(store: Pick<OutlinerStore, "get" | "database">, watches: Pick<QueryWatches, "changed">, event: OutlinerEvent): OutlinerEvent {
   if (event.domain !== "content" && event.domain !== "view" && event.domain !== "resource-catalog") return event;
   const touched = event.domain === "content" ? machineryChange(store, event.change) : undefined;
   watches.changed(touched);

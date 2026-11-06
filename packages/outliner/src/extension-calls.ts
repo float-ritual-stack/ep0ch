@@ -1,3 +1,4 @@
+import { isMachinery } from "@ep0ch/outline-core/machinery";
 import { runbookPlan } from "./runbook";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { runnableFences, isRunbook } from "@ep0ch/outline-core/runbook";
@@ -665,12 +666,15 @@ export class ExtensionCalls {
       // A line keeps its watch while its extension still serves it: a handler's `query`, or a script that asks.
       if (!call || !extension || !(extension.script || extension.manifest.handlers?.some(handler => handler.key === call.handlerKey && handler.query))) this.options.lines?.forgetLine(blockId, callKey);
     }
-    const readers = new Set<string>();
-    for (const key of changed) {
-      for (const row of this.store.queryBlocks({ where: `text~"${key}::"`, limit: 200 }).blocks) readers.add(row.id);
-    }
+    // One walk of the outline for all of them: a query a handler held pie's host 900 ms at every open (PIE-1610).
+    const needles = changed.map(key => `${key.toLowerCase()}::`);
+    const readers = !needles.length ? [] : this.store.liveBlocks().filter(block => {
+      if (isMachinery(block.properties)) return false;
+      const text = block.text.toLowerCase();
+      return needles.some(needle => text.includes(needle));
+    }).map(block => block.id);
     // A pass on open runs only what is out of date or never ran, so lines already drawn cost a look.
-    for (const id of [...readers].slice(0, 500)) {
+    for (const id of readers.slice(0, 500)) {
       const block = this.store.get(id);
       if (block && mayHaveHandlerLines(block.text)) void this.refreshOutput(id, "open").catch(() => {});
     }

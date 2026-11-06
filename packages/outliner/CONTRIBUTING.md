@@ -464,6 +464,15 @@ One host serves every client of every outline on one event loop, and a client gi
   cached by what it read (`propertyDependencyStamp`), never by `store.sequence`, which every write moves. Work a request
   does after a wait is named from the stall itself (`<action> after a wait`, PIE-1567): what's left after the named work
   is shared among the requests waiting then.
+- A restart (PIE-1610): `warmRecent` in `outline-host.ts` opens what was written in the last three days as soon as the
+  host listens, one outline at a time, its graph read, its extensions' pages written and a door's first asks asked once
+  (`warmReads`, `outline-warm.ts`), each next outline after the doors already in have been answered (`quiet`). A request for an outline
+  waits for that outline; an extension's own process goes straight through. The log says `Outline "pie" warmed in N ms`;
+  a new thing every door asks first and is slow only once goes in `warmReads`.
+- A question that names keys is answered through the property index (`queryCandidates` in `graph-questions.ts`, outline-core's
+  `propertyCandidates`): only the blocks carrying them are asked, in the outline's order (`liveOrder`, once per graph), with no walk.
+  A new query atom that holds for a block by its properties says so there; left out, the question walks every note, as before.
+- A link read opens another outline only when the note needs one (`outline-links.ts`).
 - The log says who was queued: `queued_minute` is a minute's actor × action counts over a second, and `slow_request` has
   `who`. After a deploy: `ssh float-2 journalctl --user -u outliner-host --since -10min | bun scripts/host-queue-minutes.ts --check`.
 - Slow outside calls (GitHub, a model, an extension) are awaited or made by the client, never waited for synchronously.
@@ -473,6 +482,9 @@ One host serves every client of every outline on one event loop, and a client gi
 - `bun scripts/bench-host-queue.ts` (PIE-1546) says whether a door's request queues over a second, by the host's own log:
   three doors with their watches and note opens, agents and machinery writing, then an EchoNet toss's reads, a slow
   machine in `.remote/` and a restart, one phase each. `--outliner <dir>` runs another checkout's host for a before.
+  `--copy <file.sqlite>` serves a snapshot (what only the real shape shows: `extensions/`, `user-extensions/` and
+  `extension-schedules.json` beside it come along; its host has no programs on its PATH), and `--others <n>` adds outlines
+  with doors of their own.
 - `bun run bench:host` (`scripts/bench-host-fairness.ts`, PIE-1413) is the guard under bulk work: a pie-shaped
   fictional outline (or `--copy` a private copy) with a real door on the Desk (the door's `scripts/bench-door-desk.ts`:
   a board tile and a live query tile, the person reading and saving through the same connection), a watching door, the

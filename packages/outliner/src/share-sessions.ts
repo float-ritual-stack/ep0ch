@@ -166,7 +166,8 @@ export class ShareSessions {
   /** The active sessions, soonest to end first; with `all`, the recently ended ones too. */
   list(all = false): StoredShare[] {
     return this.current().filter((session) => all || session.state === "active")
-      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
+      // ISO times sort as text, and this runs every second (`localeCompare` was tens of ms a sweep, PIE-1610).
+      .sort((a, b) => a.expiresAt < b.expiresAt ? -1 : a.expiresAt > b.expiresAt ? 1 : 0);
   }
 
   /** Ends one session now. An ended one stays ended; an id nobody has is refused with where the ids are. */
