@@ -14,18 +14,19 @@ import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 import type { Msg } from "./board";
 import { authorName, whoOf, USER, type Actor } from "./socket";
-import { ActionRefused, actionSet, def, keyName, type ArgsOfSet } from "./surface/actions";
-import { Gesture } from "./surface/selection";
+import { ActionRefused, actionSet, def, exactKeyName, keyName, type ArgsOfSet } from "./surface/actions";
+import { Gesture, wordIn } from "./surface/selection";
+import { lineCompletionHooks } from "./surface/line-hooks";
 import { stateDir } from "./state";
 import { width } from "./style";
 import { pageRows } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
-import { nextGraphemeEnd, previousGraphemeStart } from "@ep0ch/outline-core/graphemes";
+import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
-import { modeBinding, type ModeKey } from "./surface/modes";
-import { keyTable, movedInTable } from "./surface/keymap";
+import type { ModeKey } from "./surface/modes";
+import { effective, keyTable, movedInTable } from "./surface/keymap";
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
 export const PATCH_FLASH_MS = 2500;
@@ -67,6 +68,18 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
 export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image" | "attach";
 
 /**
+ * What wraps a selection when typed over it (PIE-1607), as VS Code's Markdown does, with its closer: the inner text stays
+ * selected, so `[[`, `((` and `**` are the key twice. Not `<` and `$` (VS Code's too): no Blockdown form uses them, and typing
+ * one over a word mostly means to replace it.
+ */
+const WRAPS: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "`": "`", "*": "*", "_": "_", "~": "~" };
+/** A motion's rows: its keys, and the same with the selection following. */
+const go = (to: string, words: string, move: string[], select: string[]): ModeKey[] => [
+  ...move.map(key => ({ key, action: "draft.go", args: { to }, label: `go ${words}`, says: `move the cursor ${words}` })),
+  ...select.map(key => ({ key, action: "draft.go", args: { to, extend: true }, label: `select ${words}`, says: `select from the cursor ${words}` })),
+];
+
+/**
  * The draft's keys (PIE-1542): one table every place a person types reads (a note's edit, a comment, the composer, an
  * inspector field, the power bar, a line field), with the person's keymap applied, so a rebind works in each and the hint
  * row says the key that works. Typing, the arrows, the esc ladder and the line motions (ctrl+a ctrl+e ctrl+k) are the
@@ -83,6 +96,33 @@ export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a p
   { key: "ctrl+l", action: "edit.follow", label: "open link", says: "open the link the cursor is on, beside the edit" },
   { key: "alt+c", action: "draft.copy", label: "copy", says: "copy the selected text" },
   { key: "super+c", action: "draft.copy", label: "copy", says: "copy the selected text" },
+  // A Mac editor's keys (PIE-1607), each with a twin that arrives where a terminal takes the cmd chord for itself or has no
+  // Kitty keys to report it: docs/UI-GRAMMAR.md's "The keys of a draft" says which. Wherever cmd is a twin of ctrl or alt.
+  { key: "super+s", action: "edit.save", label: "save", says: "save or send what's written" },
+  { key: "super+z", action: "draft.undo", label: "undo", says: "take back the last change in what you're writing" },
+  { key: "super+Z", action: "draft.redo", label: "redo", says: "put back the change you undid" },
+  { key: "super+x", action: "draft.cut", label: "cut", says: "cut the selected text to the clipboard" },
+  { key: "alt+x", action: "draft.cut", label: "cut", says: "cut the selected text to the clipboard" },
+  ...go("line-start", "to the line's start", ["super+left"], ["super+shift+left", "shift+home", "alt+H"]),
+  ...go("line-end", "to the line's end", ["super+right"], ["super+shift+right", "shift+end", "alt+E"]),
+  ...go("doc-start", "to the beginning of the text", ["super+up", "ctrl+home", "alt+<"], ["super+shift+up", "ctrl+shift+home", "alt+{"]),
+  ...go("doc-end", "to the end of the text", ["super+down", "ctrl+end", "alt+>"], ["super+shift+down", "ctrl+shift+end", "alt+}"]),
+  ...go("word-back", "back a word", ["alt+left", "ctrl+left", "alt+b"], ["alt+shift+left", "ctrl+shift+left", "alt+B"]),
+  ...go("word-forward", "forward a word", ["alt+right", "ctrl+right", "alt+f"], ["alt+shift+right", "ctrl+shift+right", "alt+F"]),
+  ...["super+a", "alt+S"].map(key => ({ key, action: "draft.select", args: { what: "all" }, label: "select all", says: "select the whole text" })),
+  ...["super+l", "alt+L"].map(key => ({ key, action: "draft.select", args: { what: "line" }, label: "select line", says: "select the cursor's line; again takes in the next line" })),
+  ...["super+d", "alt+W"].map(key => ({ key, action: "draft.select", args: { what: "word" }, label: "select word", says: "select the word the cursor is on" })),
+  { key: "alt+up", action: "draft.line", args: { op: "up" }, label: "line up", says: "move the line, or the selected lines, up" },
+  { key: "alt+down", action: "draft.line", args: { op: "down" }, label: "line down", says: "move the line, or the selected lines, down" },
+  { key: "alt+shift+up", action: "draft.line", args: { op: "copy-up" }, label: "copy line up", says: "copy the line, or the selected lines, above itself" },
+  { key: "alt+shift+down", action: "draft.line", args: { op: "copy-down" }, label: "copy line down", says: "copy the line, or the selected lines, below itself and go to the copy" },
+  ...["super+K", "alt+D"].map(key => ({ key, action: "draft.line", args: { op: "delete" }, label: "delete line", says: "delete the line, or the selected lines" })),
+  ...["alt+backspace", "ctrl+backspace"].map(key => ({ key, action: "draft.erase", args: { to: "word-back" }, label: "erase word", says: "erase the word before the cursor" })),
+  ...["alt+delete", "ctrl+delete"].map(key => ({ key, action: "draft.erase", args: { to: "word-forward" }, label: "erase next word", says: "erase the word after the cursor" })),
+  ...["super+backspace", "ctrl+u"].map(key => ({ key, action: "draft.erase", args: { to: "line-start" }, label: "erase to line start", says: "erase from the cursor to the line's start" })),
+  { key: "super+delete", action: "draft.erase", args: { to: "line-end" }, label: "erase to line end", says: "erase from the cursor to the line's end" },
+  // Typed over a selection, these wrap it instead of replacing it (`Draft.binding`); with nothing selected they're text.
+  ...Object.keys(WRAPS).map(key => ({ key, action: "draft.wrap", args: { with: key }, label: "wraps", says: `wrap the selected text in ${key}${WRAPS[key]}; typed twice, in ${key}${key}${WRAPS[key]}${WRAPS[key]}` })),
 ]);
 /** What a table key asks of the draft's host (its session runs the host's action); the rest are the draft's own actions. */
 type DraftActionName = Parameters<typeof DRAFT_ACTIONS.run>[0];
@@ -165,6 +205,7 @@ export class Draft {
     this.anchor = this.placeOf(slot.start);
     const end = this.placeOf(slot.end);
     this.row = end.row; this.col = end.col; this.follow = true;
+    this.markTypesOver();
   }
   moveSnippet(by: number) {
     this.settle();
@@ -465,6 +506,7 @@ export class Draft {
     this.status.discard.clear(); this.undoArmed = 0;
     this.status.say("");
     if (this.text !== before) this.wrote(by, "the insert");
+    if (selection) this.markTypesOver();
   }
 
   /**
@@ -518,7 +560,7 @@ export class Draft {
       queueMicrotask(() => { if (this.pasting) { this.pasted(USER); this.redraw?.(); } });
     }
     // The keys that run an action, from the one key table (DRAFT_KEYS, the person's keymap applied).
-    const bound = modeBinding(DRAFT_KEYS, k);
+    const bound = this.binding(k);
     // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
     if (bound?.action === "draft.copy") return "copy";
     // A cmd (super) key nothing binds never types; one the table binds (a rebind to cmd+z) runs below.
@@ -527,7 +569,7 @@ export class Draft {
     this.status.discard.clear(); this.undoArmed = 0;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (chord && k.kind === "char" && k.ctrl && k.ch === "e") return "editor";
-    if (bound) return this.run(bound.action, k, armed);
+    if (bound) return this.run(bound.action, k, armed, bound);
     if (k.kind === "char" && k.ctrl) {
       // ctrl+x ctrl+e: $EDITOR (bash's chord). ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
       if (k.ch === "x") { this.ctrlX = true; this.status.say(`ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); return "keep"; }
@@ -628,10 +670,20 @@ export class Draft {
   }
 
   /**
+   * The row of the key table `k` presses here, by its exact name (cmd+shift+← isn't alt+←, as it is on a screen), or
+   * undefined. A wrap key is a wrap only over a selection the person made; otherwise it's the character.
+   */
+  binding(k: Key): ModeKey | undefined {
+    if (k.kind === "mouse") return undefined;
+    const name = exactKeyName(k), row = name ? effective(DRAFT_KEYS).find(r => r.key === name) : undefined;
+    return row?.action === "draft.wrap" && (!this.selection() || this.typesOver()) ? undefined : row;
+  }
+
+  /**
    * A key the table bound to `action`: the host's part (save, insert, reload, a picture, a link) comes back as what it
    * asks of its host; the draft's own actions run here. ctrl+shift+z is redo (the Kitty keyboard protocol tells shift apart).
    */
-  private run(action: string, k: Key, armed: boolean): DraftAction {
+  private run(action: string, k: Key, armed: boolean, bound?: ModeKey): DraftAction {
     const host = HOST_PART[action];
     if (host === "follow" && !this.linkAtCursor()) {
       this.status.say("no link here · ctrl+l on a [[page]], ((reference)) or [text](url) opens it beside the edit");
@@ -639,7 +691,10 @@ export class Draft {
     }
     if (host) return host;
     const name = action === "draft.undo" && "shift" in k && k.shift ? "draft.redo" : action;
-    void DRAFT_ACTIONS.run(name as DraftActionName, name === "draft.undo" && armed ? { past: true } : {}, this, USER).catch(e => { this.status.say(e instanceof Error ? e.message : String(e)); });
+    const refused = (e: unknown) => { this.status.say(e instanceof Error ? e.message : String(e)); };
+    // A refusal (alt+x with nothing selected) is said, whether the action throws at once or later.
+    try { void Promise.resolve(DRAFT_ACTIONS.run(name as DraftActionName, (name === "draft.undo" && armed ? { past: true } : bound?.args ?? {}) as never, this, USER)).catch(refused); }
+    catch (e) { refused(e); }
     return "keep";
   }
 
@@ -1023,6 +1078,122 @@ export class Draft {
     return true;
   }
 
+  /**
+   * The selection is one the door filled in for typing over (a snippet's slot, a completion's example value, a prefilled
+   * line), not one the person made: a wrap key typed there replaces it as any key does. Moving either end makes it theirs.
+   */
+  private filled: string | null = null;
+  markTypesOver() { this.filled = this.selectionKey(); }
+  private selectionKey() { return this.anchor ? `${this.anchor.row}:${this.anchor.col}:${this.row}:${this.col}` : null; }
+  private typesOver() { return this.filled !== null && this.filled === this.selectionKey(); }
+
+  /** The last column of line `row` (UTF-16, as every column in a draft is). */
+  private endOf(row: number) { return this.offsetOf(row + 1, 0) - this.offsetOf(row, 0) - 1; }
+
+  /** Where a motion lands from the cursor. Word motions step over to the next line at a line's edge, as an editor's do. */
+  private landing(to: DraftGo): { row: number; col: number } {
+    const { row, col } = this, last = this.lines.length - 1;
+    switch (to) {
+      case "line-start": return { row, col: 0 };
+      case "line-end": return { row, col: this.endOf(row) };
+      case "doc-start": return { row: 0, col: 0 };
+      case "doc-end": return { row: last, col: this.endOf(last) };
+      case "word-back":
+        for (let r = row, c = col; r >= 0; r--, c = r >= 0 ? this.endOf(r) : 0) { const at = wordStartBefore(this.lines[r]!, c); if (at !== null) return { row: r, col: at }; }
+        return { row: 0, col: 0 };
+      case "word-forward":
+        for (let r = row, c = col; r <= last; r++, c = 0) { const at = wordEndAfter(this.lines[r]!, c); if (at !== null) return { row: r, col: at }; }
+        return { row: last, col: this.endOf(last) };
+    }
+  }
+
+  /** The cursor goes `to`; `extend` keeps or starts a selection from where it was. */
+  go(to: DraftGo, extend = false) { const p = this.landing(to); this.place(p.row, p.col, extend); }
+
+  /** The word under the cursor, its line (again: the next line too) or the whole text selected. */
+  selectWhat(what: "word" | "line" | "all") {
+    if (what === "all") { this.place(0, 0); this.place(this.lines.length - 1, Infinity, true); return; }
+    if (what === "word") { const w = wordIn(this.line, this.col); this.place(this.row, w.start); this.place(this.row, w.end, true); return; }
+    const s = this.selection(), first = s ? s[0].row : this.row, last = !s ? this.row : s[1].col === this.endOf(s[1].row) && s[0].col === 0 ? s[1].row + 1 : s[1].row;
+    this.place(first, 0);
+    this.place(Math.min(last, this.lines.length - 1), Infinity, true);
+  }
+
+  /** The whole lines a line key acts on: the selection's (one ending at a line's very start leaves that line out), else the cursor's. */
+  private wholeLines(): [number, number] {
+    const s = this.selection();
+    if (!s) return [this.row, this.row];
+    return [s[0].row, s[1].col === 0 && s[1].row > s[0].row ? s[1].row - 1 : s[1].row];
+  }
+
+  /** The lines at the cursor moved a line up or down, the cursor and the selection with them. How many rows they moved. */
+  moveLines(by: -1 | 1): number {
+    const [a, b] = this.wholeLines(), L = this.lines;
+    if (a + by < 0 || b + by > L.length - 1) return 0;
+    const moving = L.splice(a, b - a + 1);
+    L.splice(a + by, 0, ...moving);
+    this.row += by;
+    if (this.anchor) this.anchor.row += by;
+    return by;
+  }
+
+  /** The lines at the cursor written again above (`up`: the cursor stays on the upper) or below them (it goes to the copy). */
+  copyLines(where: "up" | "down") {
+    const [a, b] = this.wholeLines(), n = b - a + 1;
+    this.lines.splice(b + 1, 0, ...this.lines.slice(a, b + 1));
+    if (where === "down") { this.row += n; if (this.anchor) this.anchor.row += n; }
+  }
+
+  /** The lines at the cursor taken out; the cursor stays at its column on what comes up to its row. */
+  deleteLines() {
+    const [a, b] = this.wholeLines();
+    this.anchor = null;
+    this.lines.splice(a, b - a + 1);
+    if (!this.lines.length) this.lines.push("");
+    this.row = Math.min(a, this.lines.length - 1);
+    this.col = Math.min(this.col, this.endOf(this.row));
+  }
+
+  /** The selection, else from the cursor back or on to `to`, taken out. Word-back is what ctrl+w always erased: the word and the spaces after it. */
+  erase(to: "word-back" | "word-forward" | "line-start" | "line-end", by: Actor = USER): boolean {
+    this.settle();
+    this.record(USER, "a change");
+    const before = this.text;
+    if (!this.selection()) {
+      this.anchor = { row: this.row, col: this.col };
+      if (to === "line-start") this.col = 0;
+      else if (to === "line-end") this.col = this.endOf(this.row);
+      else if (to === "word-forward") { const p = this.landing("word-forward"); this.row = p.row; this.col = p.col; }
+      else if (this.col > 0) this.col = wordEraseStart(this.line, this.col);
+      else if (this.row > 0) { this.row--; this.col = this.endOf(this.row); }
+    }
+    this.deleteSelection();
+    this.goal = null;
+    if (this.text === before) return false;
+    this.wrote(by, "the erase");
+    return true;
+  }
+
+  /** The selection between `open` and its closer, the same text left selected, so the key again wraps again. One undo step. */
+  wrap(open: string, by: Actor = USER) {
+    const s = this.selection();
+    if (!s) throw new ActionRefused("nothing is selected in the draft · select text (shift+arrows, a drag, draft.place extend=true), then type [ or ( to wrap it");
+    this.settle();
+    this.record(USER, "a change");
+    const close = [...open].reverse().map(c => WRAPS[c] ?? c).join("");
+    const forward = this.anchor!.row === s[0].row && this.anchor!.col === s[0].col, text = this.text;
+    const a = this.offsetOf(s[0].row, s[0].col), b = this.offsetOf(s[1].row, s[1].col);
+    this.lines = (text.slice(0, a) + open + text.slice(a, b) + close + text.slice(b)).split("\n");
+    const start = this.placeOf(a + open.length), end = this.placeOf(b + open.length);
+    this.anchor = forward ? start : end;
+    const cursor = forward ? end : start;
+    this.row = cursor.row; this.col = cursor.col; this.goal = null;
+    this.wrote(by, "the wrap");
+  }
+
+  /** Where a cut goes: the door's clipboard; a line field's own (a masked answer's) where it says otherwise. */
+  clip(text: string) { lineCompletionHooks.copy?.(text); }
+
   /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
   place(row: number, col: number, extend = false) {
     this.follow = true;
@@ -1142,6 +1313,11 @@ export const whenPut = (at: number) => {
 // ── the draft's actions: keys, clicks and `act` all run these ───────────────
 
 export type DraftActionArgs = ArgsOfSet<typeof DRAFT_ACTIONS>;
+/** Where `draft.go` takes the cursor. */
+export type DraftGo = "line-start" | "line-end" | "doc-start" | "doc-end" | "word-back" | "word-forward";
+const DRAFT_GOES = ["line-start", "line-end", "doc-start", "doc-end", "word-back", "word-forward"] as const;
+/** The keys a table row of these names, for an action's def (the row's own words say what each does). */
+const rowKeys = (action: string, args: Record<string, unknown> = {}) => DRAFT_KEYS.filter(r => r.action === action && Object.entries(args).every(([k, v]) => r.args?.[k] === v)).map(r => r.key).join(" ");
 
 /**
  * What the draft does besides typing, as actions: Enter's list continuation, Tab and Shift+Tab, a click or a
@@ -1195,6 +1371,79 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       { act: "draft.place line=9 extend=true", does: "selects from the cursor to the end of line 9" },
     ],
     run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
+  }),
+  "draft.go": def({
+    summary: "move the draft's cursor: to the line's start or end, the text's beginning or end, or a word back or forward; extend=true selects from where it was. Word motions step over to the next line at a line's edge",
+    keys: rowKeys("draft.go"), touches: "draft", draft: "type", replay: "safe",
+    args: { to: { type: "string", about: `one of: ${DRAFT_GOES.join(", ")}` }, extend: { type: "boolean", optional: true, about: "select from the cursor to there" } },
+    examples: [
+      { act: "draft.go to=line-end extend=true", does: "selects from the cursor to the end of its line, as cmd+shift+→ does" },
+      { act: "draft.go to=doc-start", does: "puts the cursor at the beginning of the text" },
+    ],
+    run({ to, extend }, d) {
+      if (!(DRAFT_GOES as readonly string[]).includes(to)) throw new ActionRefused(`draft.go takes to=${DRAFT_GOES.join("|")}, not ${to} · draft.go to=line-end extend=true`);
+      d.go(to as DraftGo, !!extend);
+      return { line: d.row + 1, col: d.col + 1, selected: d.selectedText()?.length ?? 0 };
+    },
+  }),
+  "draft.select": def({
+    summary: "select the word under the cursor, its line (again: the next line too) or the whole text",
+    keys: rowKeys("draft.select"), touches: "draft", draft: "type", replay: "safe",
+    args: { what: { type: "string", about: "word, line or all" } },
+    examples: [{ act: "draft.select what=line", does: "selects the cursor's line; run again it takes in the next line" }],
+    run({ what }, d) {
+      if (what !== "word" && what !== "line" && what !== "all") throw new ActionRefused(`draft.select takes what=word|line|all, not ${what} · draft.select what=line`);
+      d.selectWhat(what);
+      return { text: d.selectedText() ?? "" };
+    },
+  }),
+  "draft.line": def({
+    summary: "act on the cursor's line or the selected lines: op=up or down moves them, copy-up or copy-down writes them again, delete takes them out. One undo step each",
+    keys: rowKeys("draft.line"), touches: "draft", draft: "type", replay: "ask",
+    args: { op: { type: "string", about: "up, down, copy-up, copy-down or delete" } },
+    examples: [
+      { act: "draft.line op=up", does: "moves the cursor's line, or the selected lines, up one line" },
+      { act: "draft.line op=copy-down", does: "writes the line again below itself and goes to the copy" },
+    ],
+    run({ op }, d, actor) {
+      const was = d.text;
+      if (op === "up" || op === "down") d.moveLines(op === "up" ? -1 : 1);
+      else if (op === "copy-up" || op === "copy-down") d.copyLines(op === "copy-up" ? "up" : "down");
+      else if (op === "delete") d.deleteLines();
+      else throw new ActionRefused(`draft.line takes op=up|down|copy-up|copy-down|delete, not ${op} · draft.line op=up`);
+      d.follow = true; d.goal = null;
+      if (d.text !== was) d.wrote(actor, op === "delete" ? "the line's delete" : op === "up" || op === "down" ? "the line's move" : "the line's copy");
+      return { line: d.row + 1, changed: d.text !== was };
+    },
+  }),
+  "draft.erase": def({
+    summary: "erase from the cursor to: word-back, word-forward, line-start or line-end; the selection instead, if any. One undo step",
+    keys: rowKeys("draft.erase"), touches: "draft", draft: "type", replay: "ask",
+    args: { to: { type: "string", about: "word-back, word-forward, line-start or line-end" } },
+    examples: [{ act: "draft.erase to=word-back", does: "erases the word before the cursor, as alt+backspace does" }],
+    run({ to }, d, actor) {
+      if (to !== "word-back" && to !== "word-forward" && to !== "line-start" && to !== "line-end") throw new ActionRefused(`draft.erase takes to=word-back|word-forward|line-start|line-end, not ${to} · draft.erase to=word-back`);
+      return { erased: d.erase(to, actor) };
+    },
+  }),
+  "draft.cut": def({
+    summary: "take the selected text out, returned. The person's goes on their clipboard (OSC 52; an agent's never), as draft.copy's does. One undo step",
+    keys: "cmd+x alt+x", touches: "draft", draft: "type", replay: "ask",
+    args: {},
+    run(_, d, actor) {
+      const text = d.selectedText();
+      if (!text) throw new ActionRefused("nothing is selected in the draft · select text (shift+arrows, a drag), then cmd+x or alt+x");
+      if (actor.kind === "user") d.clip(text);
+      d.erase("line-end", actor);
+      return { text, chars: [...text].length };
+    },
+  }),
+  "draft.wrap": def({
+    summary: `wrap the selected text: with=[[ makes [[text]], with=** makes **text**, the text left selected. Typing ${Object.keys(WRAPS).join(" ")} over a selection does it a key at a time. One undo step`,
+    keys: `${Object.keys(WRAPS).join(" ")}, over a selection; click, the hint's wraps`, touches: "draft", draft: "type", replay: "ask",
+    args: { with: { type: "string", about: "what opens it; the closer is its mirror" } },
+    examples: [{ act: "draft.wrap with=[[", does: "turns the selected text into a [[page]] link" }],
+    run({ with: open }, d, actor) { d.wrap(open, actor); return { text: d.selectedText() ?? "", line: d.row + 1 }; },
   }),
   "draft.scroll": def({
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: [{ keys: "wheel", does: "over the text, or over the preview" }],

@@ -439,9 +439,11 @@ const NAMED: Record<string, string> = {
   "alt+↑": "alt+up", "alt+↓": "alt+down", "alt+up": "alt+up", "alt+down": "alt+down",
   hover: "hover", click: "click", "right-click": "click", "ctrl-click": "click", "alt-click": "click", drag: "drag", wheel: "wheel",
 };
+/** A key held with modifiers by its exact name (`exactKeyName`): `super+shift+left`, `ctrl+home`. */
+const HELD_NAME = /^(?:ctrl\+)?(?:alt\+)?(?:super\+)?(?:shift\+)?(?:left|right|up|down|home|end|pgup|pgdn|delete|backspace)$/;
 /** Whether `s` is a key's one name (what `keyName` gives): a screen's key map names its keys so. */
 export const isKeyName = (s: unknown): s is string =>
-  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super|hyper)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
+  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super|hyper)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || HELD_NAME.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
 /** Words that are a mouse gesture: in a hint, what follows them is what's clicked, not more keys. */
 const MOUSE = new Set(["click", "drag", "wheel"]);
 
@@ -470,6 +472,23 @@ export function keyName(k: Key): string | null {
   }
 }
 
+/**
+ * The key with every modifier held, for a draft's key table (PIE-1607): `super+shift+left`, `alt+shift+up`, `ctrl+home`,
+ * `super+backspace`. Modifiers in one order (ctrl, alt, super, shift). `keyName` keeps a screen's looser reading (cmd+← is
+ * alt+←, ctrl+← is ←), so nothing outside a draft moves. Null for a paste, a mouse side button and the rest `keyName` names alone.
+ */
+export function exactKeyName(k: Key): string | null {
+  if ("pasted" in k && k.pasted) return null;
+  const held = (o: { ctrl?: true; alt?: true; super?: true; shift?: true }, base: string) => `${o.ctrl ? "ctrl+" : ""}${o.alt ? "alt+" : ""}${o.super ? "super+" : ""}${o.shift ? "shift+" : ""}${base}`;
+  switch (k.kind) {
+    case "alt-left": case "alt-right": case "alt-up": case "alt-down": return held({ ...k, ...(k.super ? {} : { alt: true as const }) }, k.kind.slice(4));
+    case "alt-backspace": return held({ ...k, alt: true }, "backspace");
+    case "back": case "forward": return null;
+    case "up": case "down": case "left": case "right": case "home": case "end": case "pgup": case "pgdn": case "delete": case "backspace": return held(k, k.kind);
+    default: return keyName(k);
+  }
+}
+
 const SHOWN: Record<string, string> = { enter: "⏎", backspace: "⌫", left: "←", right: "→", up: "↑", down: "↓", "shift+tab": "shift+tab" };
 /**
  * A key's name as a keycap shows it (a tile menu's row): `ctrl+w x` is `^W x`, `enter` is `⏎`, `alt+left` is `alt+←`.
@@ -479,8 +498,8 @@ export function keyCaption(name: string): string {
   return name.split(" ").map(k => {
     const ctrl = /^ctrl\+(.)$/u.exec(k);
     if (ctrl) return `^${ctrl[1]!.toUpperCase()}`;
-    const mod = /^(alt|shift|ctrl)\+(.+)$/.exec(k);
-    return mod && SHOWN[mod[2]!] ? `${mod[1]}+${SHOWN[mod[2]!]}` : SHOWN[k] ?? k;
+    const mod = /^((?:(?:alt|shift|ctrl|super)\+)+)(.+)$/.exec(k);
+    return mod && SHOWN[mod[2]!] ? `${mod[1]}${SHOWN[mod[2]!]}` : SHOWN[k] ?? k;
   }).join(" ");
 }
 
@@ -491,6 +510,14 @@ function wordKeys(w: string): string[] | null {
   if (NAMED[lower]) return [NAMED[lower]!];
   if (/^\^[A-Za-z\]\[\\]$/.test(w)) return [`ctrl+${w[1]!.toLowerCase()}`];
   // super+ and cmd+ (the Mac's name for it) are one key: `super+c`.
+  const many = /^((?:(?:ctrl|alt|shift|super|cmd)\+){2,})(.+)$/i.exec(w);
+  if (many) {
+    // Several held (cmd+shift+left, PIE-1607): one spelling, ctrl alt super shift, as `exactKeyName` gives it.
+    const held = many[1]!.toLowerCase().replace(/cmd/g, "super"), named = NAMED[many[2]!.toLowerCase()];
+    if (named) return [`${["ctrl", "alt", "super", "shift"].filter(m => held.includes(`${m}+`)).map(m => `${m}+`).join("")}${named}`];
+    if ([...many[2]!].length !== 1 || held.includes("ctrl+")) return null;
+    return [`${held.includes("super+") ? "super" : "alt"}+${many[2]!.toUpperCase()}`];
+  }
   const mod = /^(ctrl|alt|shift|super|cmd)\+(.+)$/i.exec(w);
   if (mod) {
     const m = mod[1]!.toLowerCase().replace("cmd", "super"), rest = mod[2]!;
@@ -585,6 +612,14 @@ export function keyOfName(n: string): Key | null {
   if ([...n].length === 1) return { kind: "char", ch: n };
   const m = /^(ctrl|alt|super|hyper)\+(.)$/u.exec(n);
   if (m) return m[1] === "ctrl" ? { kind: "char", ch: m[2]!, ctrl: true } : { kind: m[1] as "alt" | "super" | "hyper", ch: m[2]! };
+  const held = HELD_NAME.exec(n) && /^((?:(?:ctrl|alt|super|shift)\+)*)(\w+)$/.exec(n);
+  if (held && held[1]) {
+    const on = (m: string) => held[1]!.includes(`${m}+`), base = held[2]!, arrow = ["left", "right", "up", "down"].includes(base);
+    const mods = { ...(on("shift") ? { shift: true as const } : {}), ...(on("ctrl") ? { ctrl: true as const } : {}) };
+    if (arrow && (on("alt") || on("super"))) return { kind: `alt-${base}`, ...mods, ...(on("super") ? { super: true as const } : {}) } as Key;
+    if (base === "backspace" && on("alt")) return { kind: "alt-backspace", ...mods } as Key;
+    return { kind: base, ...mods, ...(on("alt") ? { alt: true as const } : {}), ...(on("super") ? { super: true as const } : {}) } as Key;
+  }
   return NAMED_KEY[n] ?? (PLAIN.has(n) ? { kind: n } as Key : null);
 }
 

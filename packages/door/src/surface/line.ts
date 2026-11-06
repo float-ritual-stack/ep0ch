@@ -8,7 +8,6 @@ import { Draft, DRAFT_KEYS } from "../edit";
 import { LineRow } from "../draft-view";
 import { keyName } from "./actions";
 import { movedInTable } from "./keymap";
-import { modeBinding } from "./modes";
 import { INPUT_CURSOR, paint, bg, C, fg, headOf, RESET, tailFrom, width } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -22,6 +21,8 @@ export { lineCompletionHooks, type LineCompletion };
 
 /** The line's own ctrl motions (start, end, cut to the end, clear, the word before, cut); the table's keys come first. */
 const LINE_MOTIONS = new Set(["a", "e", "k", "u", "w", "x"]);
+/** What the draft's key table does in one line too (PIE-1607): a move of lines isn't, and save, insert and the like are the caller's. */
+const LINE_ACTIONS = new Set(["draft.go", "draft.select", "draft.erase", "draft.cut", "draft.wrap"]);
 const LINE_KEYS = new Set<Key["kind"]>(["char", "paste", "backspace", "delete", "left", "right", "home", "end", "alt-backspace"]);
 
 export class LineField extends Draft {
@@ -45,7 +46,7 @@ export class LineField extends Draft {
   constructor(text = "", prefilled = false, o: { complete?: LineCompletion; id?: string } = {}) {
     super(o.id ?? "line", 0, text.replace(/\r\n?|\n/g, " "));
     this.fresh = prefilled && !!text;
-    if (this.fresh) { this.place(0, 0); this.place(0, this.text.length, true); }
+    if (this.fresh) { this.place(0, 0); this.place(0, this.text.length, true); this.markTypesOver(); }
     this.complete = o.complete ?? {};
     this.completionHost = this.complete === false ? null : lineCompletionHooks.ambient?.() ?? null;
   }
@@ -71,20 +72,25 @@ export class LineField extends Draft {
     return took;
   }
 
+  /** A cut goes where this field's copy goes. */
+  override clip(text: string) { this.copy(text); }
+
   private edit(k: Key): boolean {
-    if (modeBinding(DRAFT_KEYS, k)?.action === "draft.copy") {
+    if (this.binding(k)?.action === "draft.copy") {
       const text = this.selectedText();
       if (!text) return false;
       this.copy(text); return true;
     }
     // The edit control's key table (DRAFT_KEYS, the keymap applied): undo and redo are the line's; the table's other
     // actions (save, insert, a picture) are the caller's.
-    const bound = modeBinding(DRAFT_KEYS, k);
+    const bound = this.binding(k);
     if (bound?.action === "draft.undo" || bound?.action === "draft.redo") {
       this.fresh = false;
       this.history(bound.action === "draft.redo" || ("shift" in k && !!k.shift) ? "redo" : "undo");
       return true;
     }
+    // The line's own ctrl motions stay its own (ctrl+u clears it).
+    if (bound && LINE_ACTIONS.has(bound.action) && !(k.kind === "char" && k.ctrl)) { this.fresh = false; this.key(k); return true; }
     if (k.kind === "char" && k.ctrl) {
       if (!LINE_MOTIONS.has(k.ch)) {
         const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");

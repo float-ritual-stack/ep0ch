@@ -51,6 +51,7 @@ export const marks: Record<string, string[]> = {
   // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
   proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[resolve]", "[dismiss]"],
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
+  "edit-keys": ["editing · Seed order list", "- sow the early peas in the long bed", "[copy]"],
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
   hints: ["source: select wire", "select wire", "HintCard"],
   // The tree's row for the note it follows: the outline is scrolled to show it (the root, above, is off a 60-row screen

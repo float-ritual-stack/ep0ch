@@ -127,6 +127,7 @@ export const SEED = {
   overscroll: "The long row of runner beans",
   halfWritten: "A note left half-written",
   labels: "Jar labels",
+  editKeys: "Seed order list",
   logBeans: "Bean row log",
   logCompost: "Compost bay log",
   logShed: "Shed door log",

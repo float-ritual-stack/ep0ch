@@ -9800,7 +9800,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.newline": forwardDraft("draft.newline"),
   "draft.indent": forwardDraft("draft.indent"),
   "draft.outdent": forwardDraft("draft.outdent"),
-  "draft.place": forwardDraft("draft.place"),
+  "draft.place": forwardDraft("draft.place"), "draft.go": forwardDraft("draft.go"), "draft.select": forwardDraft("draft.select"), "draft.line": forwardDraft("draft.line"), "draft.erase": forwardDraft("draft.erase"), "draft.cut": forwardDraft("draft.cut"), "draft.wrap": forwardDraft("draft.wrap"),
   "draft.scroll": { ...forwardDraft("draft.scroll"), keys: modeActionKeys(ATTACHED_KEYS, "draft.scroll") },
   "draft.preview": { ...forwardDraft("draft.preview"), keys: modeActionKeys(ATTACHED_KEYS, "draft.preview"), confirms: true, says: out => out.preview ? "opened the edit preview" : "closed the edit preview" },
   "draft.paste": forwardDraft("draft.paste"),

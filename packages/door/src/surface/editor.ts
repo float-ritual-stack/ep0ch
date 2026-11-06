@@ -1,5 +1,4 @@
 import { draftView, type DraftFrame } from "../draft-view";
-import { wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { PositionRows } from "../reader-position";
 // The one edit control: a Draft (src/edit.ts) drawn in the same frame, with the same keys and the same
@@ -318,7 +317,7 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
     ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
     ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
     ...(o.place ? row("ctrl+o", "comment.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
-    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? bound("draft.copy", "copy") : []),
+    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), ...bound("draft.wrap", "wraps")] : []),
     ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? bound("edit.reload", o.reload) : []),
     ...bound("draft.pick", "insert"), ...row("tab", "draft.indent", "indent"), ...row("shift+tab", "draft.outdent", "out"), ...bound("draft.preview", "preview"),
   ]);
@@ -435,10 +434,7 @@ export function editorLineKey(d: Draft, k: Key, copy: (text: string) => void): b
   if (k.kind === "char" && k.ctrl) {
     if (k.ch === "u") { d.splice(0, d.text.length, ""); return true; }
     if (k.ch === "w") {
-      const selection = d.selection();
-      const end = selection?.[1].col ?? d.col;
-      const start = selection?.[0].col ?? wordEraseStart(d.text, end);
-      d.splice(start, end, ""); return true;
+      d.erase("word-back"); return true;
     }
     if (k.ch === "x") {
       const text = d.selectedText();

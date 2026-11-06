@@ -54,3 +54,19 @@ export function snippetSection(deskOf: MakeDesk): Section {
     },
   };
 }
+
+/** The editing keys (PIE-1607): the edit open with a phrase lit, ready for its keys. */
+export function editKeysSection(deskOf: MakeDesk): Section {
+  return {
+  key: "edit-keys", need: "edit with the keys a Mac editor's hands know: select to a line's edge, move a line, go to the text's ends, wrap a selection, in every place a person types", part: "the one key table, DRAFT_KEYS, read by Draft.binding through exactKeyName: draft.go, draft.select, draft.line, draft.erase, draft.cut, draft.wrap, every key beside a twin that arrives where a terminal takes the cmd chord (UI-GRAMMAR, The keys of a draft); the selection is the theme's focus.selection, a clear blue that's never the cursor's cyan", files: "src/edit.ts, src/kbd.ts, src/surface/actions.ts, src/surface/line.ts, src/draft-view.ts, src/theme.ts, test/edit-keys.test.ts",
+  aside: "the edit is open with \"early peas\" lit: type [ twice and it's [[early peas]], still lit; ( \" ' ` * _ ~ { wrap the same, ** by the key twice, with=[[ or with=** by act · cmd+shift+←/→ select to the line's edge from the cursor (shift+Home, shift+End, alt+H, alt+E) · alt+↑ alt+↓ move the line or the selected lines, alt+shift+↑↓ copy them, alt+D (cmd+shift+k) deletes them · cmd+↑↓, ctrl+Home, ctrl+End or alt+< alt+> go to the text's ends; alt+{ alt+} select to them · alt+←→ (Ghostty sends alt+b alt+f) go by word, with shift select by word, alt+W selects the word, alt+L the line, alt+S all · alt+backspace, alt+delete erase a word, cmd+backspace or ctrl+u to the line's start · alt+x (cmd+x) cuts · the same in a comment and the power bar's line, where alt+←→ stay its scope (ctrl+←→ or alt+shift+←→ there) · the keys window (?) lists and rebinds each",
+  stage(n, show) {
+    const r = new ReaderPane();
+    return deskOf({ title: "showcase · editing keys", panes: [r] }, show, [[r, n.editKeys]], d => {
+      void d.press(r, NOTE_ACTIONS, "edit")
+        .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3, col: 10 }))
+        .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3, col: 20, extend: true }));
+    });
+  },
+};
+}

@@ -70,6 +70,12 @@ export function wordStartBefore(line: string, column: number): number | null {
   return previous;
 }
 
+/** The end of the word `column` is in or before: where a Mac's option+→ lands (a draft's alt+→); null with no word after it. */
+export function wordEndAfter(line: string, column: number): number | null {
+  for (const w of words.segment(line)) if (w.isWordLike && w.index + w.segment.length > column) return w.index + w.segment.length;
+  return null;
+}
+
 /** The start of the next word after `column`: where alt+→ lands. */
 export function wordStartAfter(line: string, column: number): number | null {
   for (const w of words.segment(line)) if (w.isWordLike && w.index > column) return w.index;
