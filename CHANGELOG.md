@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Who wrote a note always says the machine and client (PIE-1605)
+
+- **Outliner CLI:** `--actor loki` is recorded as `loki/cli@float-box`, the shape the mod's writes have. A full id is kept as given.
+- **`ep0ch record` and the Deploy rows:** the session's persona is recorded as `loki/ep0ch@float-box`.
+- **Reading it:** `ep0ch revisions` shows `by loki (cli@float-box)`; bylines still name the persona first. `by:loki` finds every id with that persona and a whole id only itself; `[invoke-from::loki]` holds them all to its limits. `activity --actor` matches the recorded id exactly, so a bare `loki` finds only old rows.
+- **Run:** `ep0ch install --apply` (CLI and door code). Old rows stay as they were.
+
 ### A status message shows whole (PIE-1598)
 
 - **The room the bar has:** a flash like `back to the door` or `sent ctrl+] to pty2` is no longer cut to about 14 characters. In a narrow door it's cut only when the bar is full, and `status.bar.items` says so.

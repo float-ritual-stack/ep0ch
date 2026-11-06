@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
+import { composeActor, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { isMachineName, MACHINE_NAME_PATTERN, outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { resolveOutlinesFolder } from "./paths";
 
@@ -52,6 +53,17 @@ export function canonicalLocalMachineName(raw?: string): string {
 
 /** This machine's name as the host serving `outlines` gives it (the configured one, else its host name's). */
 export const localMachineName = (outlines?: string) => configuredMachineName(process.env, outlines) ?? hostMachineName();
+
+/**
+ * The actor id a command line's `--actor` is recorded as (PIE-1605): who wrote it always says which client on which
+ * machine. A bare persona rides on this machine's `cli` (`loki/cli@float-box`), as the mod's rides on
+ * `claude-code@float-box`. Anything else already says where it came from and is kept as given (`loki/claude-code@float-2`,
+ * `claude-code@float-2`, `mcp:…`, `ext:…`).
+ */
+export const cliActorId = (actor: string): string => {
+  const given = actor.trim();
+  return PERSONA_PATTERN.test(given) ? composeActor({ persona: given, principal: `cli@${canonicalLocalMachineName()}` }) : given;
+};
 
 /**
  * The other names this machine went by, once it has one: the names the file had before, and its host name's. Old URIs

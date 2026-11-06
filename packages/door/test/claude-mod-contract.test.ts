@@ -77,13 +77,13 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       expect(first.actor).toContain("planter/");
       await agent("edit", { ref: id, expectedRevision: first.revision, text: "Pear tree\nPruned." });
       const history = await board.request("block.revisions", { blockId: id, latest: true }) as import("@ep0ch/outline-core/protocol").BlockRevisions;
-      expect(history.revisions[0]).toMatchObject({ actorId: "pruner", revision: first.revision + 1 });
+      expect(history.revisions[0]).toMatchObject({ actorId: expect.stringMatching(/^pruner\/cli@/), revision: first.revision + 1 });
       const newest = (await call("outline_read", { ref: id })).record;
-      expect(newest).toMatchObject({ revision: first.revision + 1, actor: "pruner", author: "agent" });
+      expect(newest).toMatchObject({ revision: first.revision + 1, actor: expect.stringMatching(/^pruner\/cli@/), author: "agent" });
       const shown = await run(["ep0ch", "show", "--json", id], { env });
       expect(shown.exitCode, shown.stderr).toBe(0);
-      expect(JSON.parse(shown.stdout)[0]).toMatchObject({ actor: "pruner", revision: newest.revision });
-      expect(await agent("read", { ref: id })).toMatchObject({ actorId: "pruner", revision: newest.revision });
+      expect(JSON.parse(shown.stdout)[0]).toMatchObject({ actor: newest.actor, revision: newest.revision });
+      expect(await agent("read", { ref: id })).toMatchObject({ actorId: newest.actor, revision: newest.revision });
       await board.request("update", { blockId: id, text: "Pear tree\nWatered.", expectedRevision: newest.revision, mutation: { author: "user" } });
       expect((await call("outline_read", { ref: id })).record).toMatchObject({ actor: null, author: "user", revision: newest.revision + 1 });
       expect((await agent("read", { ref: id })).actorId).toBeUndefined();

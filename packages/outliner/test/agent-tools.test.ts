@@ -38,7 +38,7 @@ async function setup(extraEnv: Record<string, string> = {}) {
     rmSync(root, { recursive: true, force: true });
   });
   // The real Jev is never asked (src/figure-fit.ts): a test that wants a suggestion turns it on, with a fake endpoint.
-  const cliEnv = { ...isolatedEnv(env), OUTLINER_FIGURE_FIT: "off", ...extraEnv };
+  const cliEnv = { ...isolatedEnv(env), OUTLINER_FIGURE_FIT: "off", EP0CH_MACHINE_NAME: "garden-box", ...extraEnv };
   /** One `agent` operation as the mod runs it: JSON on stdin, as the garden agent. */
   const agent = async (operation: string, input: unknown, actor = "garden-agent") => {
     const child = Bun.spawn(["bun", "src/cli.ts", "agent", operation, "--stdin", "--actor", actor, "--session", "s-9"], {
@@ -230,8 +230,8 @@ test("edit writes the whole text, a section or an addition as the agent, and ret
 
   const edited = store.get(note.id)!;
   expect(edited.revision).toBe(appended.json.revision);
-  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--limit", "5"])).stdout);
-  expect(activity.entries.map((e: any) => [e.block.id, e.author, e.actorId, e.sessionId])).toEqual([[note.id, "agent", "garden-agent", "s-9"]]);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent/cli@garden-box", "--limit", "5"])).stdout);
+  expect(activity.entries.map((e: any) => [e.block.id, e.author, e.actorId, e.sessionId])).toEqual([[note.id, "agent", "garden-agent/cli@garden-box", "s-9"]]);
 });
 
 test("edit refuses dropping a [page::] or a linked anchor unless allowStructural", async () => {
@@ -294,7 +294,7 @@ test("create puts a block under a parent at a position, as the agent", async () 
   const created = await agent("create", { parent: `((${list.id}))`, text: "Open the greenhouse", position: 0 });
   expect(created.exitCode).toBe(0);
   const block = store.get(created.json.id)!;
-  expect(block).toMatchObject({ parentId: list.id, author: "agent", actorId: "garden-agent" });
+  expect(block).toMatchObject({ parentId: list.id, author: "agent", actorId: "garden-agent/cli@garden-box" });
   expect(store.children(list.id).map(child => child.text)).toEqual(["Open the greenhouse", "Water the seedlings"]);
   expect((await agent("create", { parent: list.id, text: "  " })).exitCode).toBe(1);
 });
@@ -337,12 +337,12 @@ test("a comment, a reply and resolving the thread are the agent's", async () => 
   const note = store.create("Order more twine before May");
   const comment = await agent("comment", { ref: note.id, quote: "twine", body: "Jute or sisal?" });
   expect(comment.exitCode).toBe(0);
-  expect(comment.json).toMatchObject({ author: "agent", actorId: "garden-agent", blockId: note.id, lifecycle: "open" });
+  expect(comment.json).toMatchObject({ author: "agent", actorId: "garden-agent/cli@garden-box", blockId: note.id, lifecycle: "open" });
   const thread = store.get(comment.json.thread)!;
-  expect(thread).toMatchObject({ author: "agent", actorId: "garden-agent" });
+  expect(thread).toMatchObject({ author: "agent", actorId: "garden-agent/cli@garden-box" });
 
   const reply = await agent("reply", { thread: comment.json.thread, body: "Jute, it composts." }, "helper-agent");
-  expect(reply.json).toMatchObject({ thread: comment.json.thread, author: "agent", actorId: "helper-agent" });
+  expect(reply.json).toMatchObject({ thread: comment.json.thread, author: "agent", actorId: "helper-agent/cli@garden-box" });
   const resolved = await agent("resolve-thread", { thread: comment.json.thread, resolved: true });
   expect(resolved.json).toMatchObject({ thread: comment.json.thread, lifecycle: "resolved" });
 
@@ -357,7 +357,7 @@ test("the CLI's comment records an agent author with --author agent --actor, and
   const asAgent = await cli(["comment", "--id", note.id, "--expected", String(note.revision), "--request-id", "c-1", "--whole", "--text", "Try linseed.", "--author", "agent", "--actor", "garden-agent"]);
   expect(asAgent.exitCode).toBe(0);
   const record = JSON.parse(asAgent.stdout).annotations[0];
-  expect(record).toMatchObject({ source: "agent", block: { author: "agent", actorId: "garden-agent" } });
+  expect(record).toMatchObject({ source: "agent", block: { author: "agent", actorId: "garden-agent/cli@garden-box" } });
   const asPerson = await cli(["comment", "--id", note.id, "--expected", String(note.revision), "--request-id", "c-2", "--whole", "--text", "Fine."]);
   expect(JSON.parse(asPerson.stdout).annotations[0]).toMatchObject({ source: "user", block: { author: "user" } });
   const noActor = await cli(["comment", "--id", note.id, "--expected", String(note.revision), "--request-id", "c-3", "--whole", "--text", "x", "--author", "agent"]);
@@ -376,8 +376,8 @@ test("changes since a time or cursor, narrowed by author or actor", async () => 
 
   const all = await agent("changes", { since: start });
   expect(all.json.entries.map((e: any) => e.id)).toEqual(expect.arrayContaining([mine.id, note.id, other.id]));
-  const byActor = await agent("changes", { since: start, actor: "garden-agent" });
-  expect(byActor.json.entries.map((e: any) => [e.id, e.actorId])).toEqual([[note.id, "garden-agent"]]);
+  const byActor = await agent("changes", { since: start, actor: "garden-agent/cli@garden-box" });
+  expect(byActor.json.entries.map((e: any) => [e.id, e.actorId])).toEqual([[note.id, "garden-agent/cli@garden-box"]]);
   const people = await agent("changes", { since: start, author: "user" });
   expect(people.json.entries.map((e: any) => e.id)).toContain(mine.id);
   expect(people.json.entries.map((e: any) => e.id)).not.toContain(note.id);
@@ -508,8 +508,8 @@ test("assign-id stamps the next work id on a note as its page address, attribute
   expect(after.text).toContain("[work-id::GDN-001]");
   expect(after.text).not.toContain("[page::");
   expect(done.json.revision).toBe(after.revision);
-  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--limit", "5"])).stdout);
-  expect(activity.entries.map((e: any) => [e.block.id, e.actorId, e.sessionId])).toEqual([[note.id, "garden-agent", "s-9"]]);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent/cli@garden-box", "--limit", "5"])).stdout);
+  expect(activity.entries.map((e: any) => [e.block.id, e.actorId, e.sessionId])).toEqual([[note.id, "garden-agent/cli@garden-box", "s-9"]]);
   const again = await agent("assign-id", { ref: "[[GDN-001]]", revision: after.revision });
   expect(again.json).toMatchObject({ outcome: "unchanged", workId: "GDN-001" });
   const stale = await agent("assign-id", { ref: store.create("Other").id, revision: 99 });
@@ -530,8 +530,8 @@ test("move puts a note under a parent or beside a sibling, attributed; it refuse
   expect(under.json).toMatchObject({ outcome: "applied", id: stray.id, parentId: day.id, position: 0, previousParentId: null });
   expect(store.children(day.id).map(b => b.id)).toEqual([stray.id, first.id, second.id]);
   expect(store.get(kid.id)!.parentId).toBe(stray.id); // what is under it goes with it
-  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--kinds", "move", "--limit", "5"])).stdout);
-  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId, e.sessionId])).toEqual([["move", stray.id, "garden-agent", "s-9"]]);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent/cli@garden-box", "--kinds", "move", "--limit", "5"])).stdout);
+  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId, e.sessionId])).toEqual([["move", stray.id, "garden-agent/cli@garden-box", "s-9"]]);
 
   const after = await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, after: first.id });
   expect(after.json).toMatchObject({ outcome: "applied", position: 1 });
@@ -578,8 +578,8 @@ test("a system note moves like any note, attributed, and its refusals name what 
   const secondRun = store.create("Deploy two");
   expect((await agent("move", { ref: secondRun.id, revision: store.require(secondRun.id).revision, parent: deploys.id })).json.outcome).toBe("applied");
   expect(store.get(run.id)!.parentId).toBe(deploys.id);
-  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--kinds", "move", "--limit", "10"])).stdout);
-  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toContainEqual(["move", snapshot.id, "garden-agent"]);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent/cli@garden-box", "--kinds", "move", "--limit", "10"])).stdout);
+  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toContainEqual(["move", snapshot.id, "garden-agent/cli@garden-box"]);
 
   // Trash moves anywhere but into itself, and the service still finds it.
   const trash = JSON.parse((await cli(["list", "--filter", "system-view=trash", "--fields", "id"])).stdout).blocks[0].id;
@@ -603,8 +603,8 @@ test("trash puts a note away against the revision read, restore brings it back; 
   const done = await agent("trash", { ref: dup.id, revision: dup.revision });
   expect(done.json).toMatchObject({ outcome: "applied", id: dup.id, children: 1 });
   expect(store.get(dup.id)!.deletedAt).toBeDefined();
-  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--kinds", "delete", "--limit", "5"])).stdout);
-  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toEqual([["delete", dup.id, "garden-agent"]]);
+  const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent/cli@garden-box", "--kinds", "delete", "--limit", "5"])).stdout);
+  expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toEqual([["delete", dup.id, "garden-agent/cli@garden-box"]]);
   expect((await agent("trash", { ref: dup.id, revision: dup.revision })).json.outcome).toBe("unchanged");
 
   for (const note of [dup, inside]) {
@@ -697,7 +697,7 @@ test("view-order reads a view's hand-set order and puts members first, by id or 
   expect(placed.exitCode).toBe(0);
   expect(placed.json.order.map((o: any) => o.title)).toEqual(["Mend the net", "Sow the leeks", "Dig the bed"]);
   expect(placed.json.order[1]).toMatchObject({ id: leeks.id, workId });
-  const moves = store.recentEditActivity({ author: "agent", kinds: ["move"], actorId: "garden-agent" });
+  const moves = store.recentEditActivity({ author: "agent", kinds: ["move"], actorId: "garden-agent/cli@garden-box" });
   // Only what changed place is recorded: the leeks were second before and after.
   expect(moves.entries.map(e => e.block.id)).toEqual([jobs[2]!.id]);
 
@@ -736,7 +736,7 @@ test("an agent reads a Resource with its open threads, comments on it by its [fi
   expect(resourceId).toBeTruthy();
   expect(said.json).toMatchObject({ lifecycle: "open" });
   const read = await agent("read", { ref: `resource:${resourceId}` });
-  expect(read.json).toMatchObject({ kind: "resource", text: first, threads: [{ thread: said.json.thread, quote, body: "Why on boot?", anchored: true, actorId: "garden-agent" }] });
+  expect(read.json).toMatchObject({ kind: "resource", text: first, threads: [{ thread: said.json.thread, quote, body: "Why on boot?", anchored: true, actorId: "garden-agent/cli@garden-box" }] });
   expect(read.json.revision).toBeGreaterThan(0);
   // The file is rewritten and the quote is gone: the thread is still read, as it read when written, no longer anchored.
   writeFileSync(file, "## Summary\n\nRewritten.\n");
@@ -1173,7 +1173,7 @@ test("the host replaces a section from its own component boundaries", async () =
 test("a read says who last wrote the note, not who made it: the person's tick on an agent's note reads as theirs (PIE-1386)", async () => {
   const { store, agent } = await setup();
   const made = await agent("create", { parent: "root", text: "Allow the gate? [needs::sysop: the gate]\n- [ ] allow this once\n- [ ] deny" });
-  expect((await agent("read", { ref: made.json.id })).json).toMatchObject({ author: "agent", actorId: "garden-agent" });
+  expect((await agent("read", { ref: made.json.id })).json).toMatchObject({ author: "agent", actorId: "garden-agent/cli@garden-box" });
   const note = store.get(made.json.id)!;
   store.update(note.id, note.text.replace("- [ ] allow", "- [x] allow"), note.revision, { author: "user" });
   const read = (await agent("read", { ref: made.json.id })).json;
