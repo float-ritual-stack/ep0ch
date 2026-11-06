@@ -306,6 +306,7 @@ export const ACTIONS = {
   "reader.view": { copy: true, async: true },
   "references.backlinks": { read: true, watch: true, whole: true },
   "references.resolve": { ext: "read" },
+  "references.soft": { read: true },
   "resource-sources.create": { event: (_, { result }) => ({ domain: "resource-catalog", sourceId: resultId(result, "Resource source") }) },
   "resource-sources.get": {},
   "resource-sources.list": {},

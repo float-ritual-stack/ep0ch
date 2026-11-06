@@ -1182,10 +1182,17 @@ not count (the property parser's literal ranges); indented lines are prose.
 It is provider-agnostic: a matcher supplies the property key, the key grammar
 and the claim filter. A resolver parses its block once per read and reads each
 ancestor only through its subject line and preamble. Resource projections are
-its first caller; PIE-408's soft links must reuse it rather than add a second
-resolver, and so does `resolvePath` (outline-core's `resolve-path.ts`) for a bare
-`{{key}}`. Its current shape is narrower than soft links will need: it resolves
-a **line, not an offset**. Reshape it (offsets) when soft links arrive.
+its first caller; PIE-408's soft links (`src/soft-links.ts`) reuse it for a pull
+request's project, and so does `resolvePath` (outline-core's `resolve-path.ts`)
+for a bare `{{key}}`. It resolves a **line**: a soft link names the line it's on.
+
+**Soft links** (PIE-408) are what a note says by convention: a property's value, a
+date, `PR#n`, a ticket key. outline-core's `soft-links.ts` recognizes them, with no
+list of keys that link (`[soft-link-ignore::a, b]` notes leave keys out); the
+service answers where each lands (`references.soft`): one note, a chooser, or what
+could be made. A target's backlinks list them under the `mention` kind ("Soft
+mentions"), read from the notes that hold its words (newest 1,000), never the
+reference index, and `links:` and a record's `backlinks` stay explicit.
 
 Provider lines (`jira::`, `jira:: --comments`, floatty's `- jira:: --comments`,
 `jira:: KEY --full`) are recognized by `parsePropertyDirectiveLines` in

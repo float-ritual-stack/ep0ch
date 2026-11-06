@@ -23,7 +23,9 @@ import {
   resolveNavigationDestination,
 } from "./navigation-routes";
 import { isWorkIdAddress, type TicketPrefixes } from "./work-ids";
-import { authoredResourceReferenceOccurrences } from "./resource-references";
+import { authoredResourceReferenceOccurrences, resourcePropertyKeys } from "./resource-references";
+import { softLinkTokens } from "@ep0ch/outline-core/soft-links";
+import type { SoftLinkAnswer } from "./soft-links";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type {
   Block,
@@ -326,6 +328,12 @@ export async function resolveOutlinerLinkTarget(
     const at = target.kind === "page" && target.fragmentId && resolveFragment(resolution.block.text, target.fragmentId).status === "resolved";
     return { block: resolution.block, outline: resolution.outline, machine: resolution.machine, ...(at ? { fragmentId: target.fragmentId } : {}) };
   }
+  // A date with no page of its own lands on that day's note (`[day::…]`), as a soft link's does (PIE-408).
+  if (target.kind === "page" && /^\d{4}-\d{2}-\d{2}$/.test(target.value)) {
+    const soft = await requester.request<SoftLinkAnswer>({ action: "references.soft", name: { kind: "date", day: target.value } });
+    const only = soft.status === "resolved" ? soft.candidates[0]?.block : undefined;
+    if (only) return { block: only };
+  }
   if (target.kind === "work") {
     throw new Error(`Work ID address is unresolved: ${target.value}`);
   }
@@ -588,6 +596,12 @@ function genericLinkSpans(
         uri: outlinerLinkUri("work", reference.address),
       });
     }
+  }
+  // A soft link (PIE-408) the words alone can place: a value's page, a date's. A pull request needs its note's context,
+  // which a span of text doesn't have, so it stays text here (the door follows it, by the service's answer).
+  for (const token of softLinkTokens(text, { ignore: resourcePropertyKeys() })) {
+    if (token.kind === "pr") continue;
+    spans.push({ start: token.start, end: token.end, uri: outlinerLinkUri("page", token.kind === "date" ? token.day : token.value) });
   }
   for (const match of text.matchAll(BLOCK_ID_TOKEN_PATTERN)) {
     const range = { start: match.index, end: match.index + match[0].length };

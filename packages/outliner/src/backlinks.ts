@@ -6,6 +6,8 @@ import {
   type BacklinkFacetRules,
 } from "./backlink-facets";
 import { normalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { maskOutputRegions } from "@ep0ch/outline-core/output-region";
+import { softLinkTokens } from "@ep0ch/outline-core/soft-links";
 import { MACHINE_KEY } from "@ep0ch/outline-core/machinery";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import {
@@ -42,7 +44,37 @@ export interface BacklinkRelationInput {
   facetRules?: BacklinkFacetRules;
   targetOutline?: string;
   valuesOf?: (id: string) => readonly SiteValue[];
+  /** What counts as a soft mention of the target (PIE-408); left out, only what's linked by its own syntax is read. */
+  soft?: SoftMentionsOf;
 }
+
+/** The target as soft links name it. */
+export interface SoftMentionsOf {
+  /** Its page addresses and aliases, normalized: a property's value that says one mentions it. */
+  addresses: ReadonlySet<string>;
+  /** The days it is the note of (its address is a date, or its `[day::…]`). */
+  days: ReadonlySet<string>;
+  /** Keys whose values aren't links. */
+  ignore: readonly string[];
+  /** Whether `PR#number` written at this place lands on the target. */
+  prLands(number: number, blockId: string, line: number): boolean;
+}
+
+/** The soft links in `source` that land on the target, as occurrences. */
+function softOccurrences(source: Block, soft: SoftMentionsOf): (OutlinerReferenceOccurrence & { target: undefined })[] {
+  const text = maskOutputRegions(source.text);
+  return softLinkTokens(text, { ignore: soft.ignore }).flatMap(token => {
+    if (token.kind === "value" && !soft.addresses.has(normalizePageAddress(token.value).normalizedAddress)) return [];
+    if (token.kind === "date" && !soft.days.has(token.day)) return [];
+    if (token.kind === "pr" && !soft.prLands(token.number, source.id, text.slice(0, token.start).split("\n").length - 1)) return [];
+    const address = token.kind === "value" ? token.value : token.kind === "date" ? token.day : `PR#${token.number}`;
+    return [{ kind: "page" as const, address, normalizedAddress: normalizePageAddress(address).normalizedAddress, start: token.start, end: token.end, soft: true as const, target: undefined, ...(token.key ? { propertyKey: token.key } : {}) }];
+  });
+}
+
+/** Written by convention rather than by a link's own syntax: a soft link, or a ticket key bare in the note's text. */
+const isSoftOccurrence = (occurrence: BacklinkRelationOccurrence) =>
+  occurrence.kind !== "property" && (occurrence.soft === true || (occurrence.kind === "work-id" && occurrence.propertyKey === undefined));
 
 export function normalizeBacklinkQuery(query: BacklinkQuery): BacklinkQuery {
   if (!query.targetBlockId.trim()) throw new Error("Backlink target block ID cannot be empty");
@@ -52,6 +84,7 @@ export function normalizeBacklinkQuery(query: BacklinkQuery): BacklinkQuery {
   return {
     targetBlockId: query.targetBlockId.trim(),
     ...(query.includeDeleted ? { includeDeleted: true } : {}),
+    ...(query.explicit ? { explicit: true } : {}),
     limit: query.limit,
   };
 }
@@ -193,7 +226,7 @@ function backlinkSource(
     ...(source.effectiveDeletedRootId
       ? { deletedRootId: source.effectiveDeletedRootId }
       : {}),
-    facets: backlinkSourceFacets(source, target, blocksById, facetRules),
+    facets: backlinkSourceFacets(source, target, blocksById, facetRules, occurrences.every(isSoftOccurrence)),
   };
 }
 
@@ -257,30 +290,29 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
     throw new Error(`Backlink target mismatch: ${query.targetBlockId}`);
   }
 
-  const matches: BacklinkSource[] = [];
+  // Each its own budget (PIE-408): a hub's soft mentions never crowd its links out of the answer.
+  const linked: BacklinkSource[] = [], mentions: BacklinkSource[] = [];
+  const rules = input.facetRules ?? DEFAULT_BACKLINK_FACET_RULES;
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
     if (isMachinerySource(source)) continue;
-    const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id))
+    const explicit = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id))
       .filter((occurrence) => occurrence.target === input.target.id && (!("outline" in occurrence) || !occurrence.outline || occurrence.outline === input.targetOutline));
+    const soft = input.soft && source.id !== input.target.id ? softOccurrences(source, input.soft) : [];
+    const occurrences = [...explicit, ...soft].sort((left, right) => left.start - right.start);
     if (occurrences.length === 0) continue;
-    matches.push(backlinkSource(
-      source,
-      input.target,
-      occurrences,
-      input.blocksById,
-      input.facetRules ?? DEFAULT_BACKLINK_FACET_RULES,
-    ));
-    if (matches.length > query.limit) break;
+    (occurrences.every(isSoftOccurrence) ? mentions : linked).push(backlinkSource(source, input.target, occurrences, input.blocksById, rules));
+    if (linked.length > query.limit && (!input.soft || mentions.length > query.limit)) break;
   }
 
-  const truncated = matches.length > query.limit;
+  const truncated = linked.length > query.limit || mentions.length > query.limit;
+  const matches = [...linked.slice(0, query.limit), ...mentions.slice(0, query.limit)];
   return {
     targetBlockId: input.target.id,
     ...(input.target.effectiveDeletedRootId
       ? { targetDeletedRootId: input.target.effectiveDeletedRootId }
       : {}),
-    sources: truncated ? matches.slice(0, query.limit) : matches,
+    sources: matches,
     completeness: truncated
       ? { kind: "truncated", limit: query.limit }
       : { kind: "complete" },

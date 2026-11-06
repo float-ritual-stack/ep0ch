@@ -3567,9 +3567,8 @@ export class OutlinerServer {
           }) });
           break;
         }
-        case "references.resolve":
-          result = wired(action, this.store.resolveBlockReferences(request.text));
-          break;
+        case "references.resolve": result = wired(action, this.store.resolveBlockReferences(request.text)); break;
+        case "references.soft": result = wired(action, this.store.softLink(request.name, { ...(request.blockId ? { blockId: request.blockId } : {}), ...(request.line !== undefined ? { line: request.line } : {}) })); break;
         case "callouts.types":
           result = wired(action, this.calloutTypes());
           break;

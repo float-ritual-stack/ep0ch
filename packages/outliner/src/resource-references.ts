@@ -309,6 +309,10 @@ export function providerKeyOccurrences(
     .map((match) => ({ key: match[0], start: match.index, end: match.index + match[0].length }));
 }
 
+/** Every key `isResourcePropertyKey` says yes to, for a client that reads them without the provider table. */
+export const resourcePropertyKeys = (providers: readonly ResourceDirectiveProvider[] = table): string[] =>
+  ["file", "web", "app", "raw-capture", "before-rewrite", ...providers.flatMap(provider => [provider.propertyKey])];
+
 /** Whether `key`'s value names a Resource (`[file::…]`, `[web::…]`, `[jira::PC-7]`), never an outline link (PIE-874). */
 export function isResourcePropertyKey(key: string, providers: readonly ResourceDirectiveProvider[] = table): boolean {
   return key === "file" || key === "web" || key === "app" || key === "raw-capture" || key === "before-rewrite" || !!resourceDirectiveProvider(key, providers);

@@ -1,0 +1,158 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
+import { OutlinerStore } from "../src/store";
+import { readBlockRecords } from "../src/block-records";
+import { linkSoftWords, softPageAddresses } from "../src/publish-soft-links";
+import { resolveOutlinerLinkTarget } from "../src/outliner-links";
+
+const cleanups: Array<() => void> = [];
+afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
+function store(): OutlinerStore {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-soft-links-"));
+  const result = new OutlinerStore(join(directory, "outliner.sqlite"));
+  cleanups.push(() => { result.close(); rmSync(directory, { recursive: true, force: true }); });
+  return result;
+}
+
+const landed = (answer: { status: string; candidates: { block?: { id: string }; create?: unknown }[] }) =>
+  [answer.status, answer.candidates.map(c => c.block?.id ?? c.create)];
+
+describe("where a soft link lands", () => {
+  test("a value lands on its page, in any case; none offers a stub and makes nothing", () => {
+    const s = store();
+    const page = s.create("Agent labour [page::Agent-Labour]");
+    expect(landed(s.softLink({ kind: "value", value: "agent-labour" }, {}))).toEqual(["resolved", [page.id]]);
+    expect(landed(s.softLink({ kind: "value", value: "no such" }, {}))).toEqual(["missing", [{ address: "no such" }]]);
+    expect(s.resolvePageAddress("no such").status).toBe("missing");
+  });
+
+  test("a date lands on that day's note: the date's page, or the note that says it is that day's", () => {
+    const s = store();
+    const log = s.create("Build log [day::2026-11-05]");
+    expect(landed(s.softLink({ kind: "date", day: "2026-11-05" }, {}))).toEqual(["resolved", [log.id]]);
+    const page = s.create("2026-11-05 [page::2026-11-05]");
+    expect(landed(s.softLink({ kind: "date", day: "2026-11-05" }, {}))).toEqual(["ambiguous", [page.id, log.id]]);
+    expect(landed(s.softLink({ kind: "date", day: "2026-11-06" }, {}))).toEqual(["missing", [{ address: "2026-11-06" }]]);
+  });
+
+  test("PR#125 is the nearest project's; two different destinations, and a chooser when one scope has two", () => {
+    const s = store();
+    const floatty = s.create("Floatty [type::project] [page::floatty]");
+    const hub = s.create("Hub [type::project] [page::hub]");
+    const hers = s.create("PR#125 fix the ribbon", floatty.id);
+    const his = s.create("PR#125 fix the kettle", hub.id);
+    s.create("PR#1250 not this one", hub.id);
+    const under = s.create("Notes [project::floatty]\nsaw PR#125 here");
+    expect(landed(s.softLink({ kind: "pr", number: 125 }, { blockId: under.id, line: 1 }))).toEqual(["resolved", [hers.id]]);
+    const nested = s.create("A child with PR#125", s.create("Parent [project::hub]").id);
+    // Under the project's own page, that's the project.
+    const home = s.create("Saw PR#125 here", hub.id);
+    expect(landed(s.softLink({ kind: "pr", number: 125 }, { blockId: home.id, line: 0 }))).toEqual(["resolved", [his.id]]);
+    expect(landed(s.softLink({ kind: "pr", number: 125 }, { blockId: nested.id, line: 0 }))).toEqual(["resolved", [his.id]]);
+    const both = s.create("Title\n[project::floatty] and [project::hub] on PR#125");
+    expect(landed(s.softLink({ kind: "pr", number: 125 }, { blockId: both.id, line: 1 }))).toEqual(["ambiguous", [hers.id, his.id]]);
+    // Nearest first, within a block: the line above at the same indent wins.
+    const lines = s.create("Title [project::floatty]\nproject:: hub\nPR#125");
+    expect(landed(s.softLink({ kind: "pr", number: 125 }, { blockId: lines.id, line: 2 }))).toEqual(["resolved", [his.id]]);
+  });
+
+  test("a project's PR that isn't there offers to make it under that project; no project offers a page", () => {
+    const s = store();
+    s.create("Floatty [page::floatty]");
+    const under = s.create("Notes [project::floatty]\nPR#9");
+    expect(landed(s.softLink({ kind: "pr", number: 9 }, { blockId: under.id, line: 1 }))).toEqual(["missing", [{ address: "PR#9", under: "floatty" }]]);
+    expect(landed(s.softLink({ kind: "pr", number: 9 }, {}))).toEqual(["missing", [{ address: "PR#9" }]]);
+  });
+});
+
+describe("soft mentions", () => {
+  const kinds = (c: { sources: { blockId: string; facets?: { kind: string; kindLabel: string } }[] }) => Object.fromEntries(c.sources.map(x => [x.blockId, x.facets?.kind]));
+
+  test("a value, a date and a PR show on the target in their own group, and change no text", () => {
+    const s = store();
+    const page = s.create("Agent labour [page::agent-labour]");
+    const soft = s.create("Thoughts [thread::agent-labour]");
+    const line = s.create("Other\nthread:: Agent-Labour");
+    const linked = s.create("Explicit [[agent-labour]]");
+    const unrelated = s.create("Other [thread::agent-labour-2]");
+    const answer = s.queryBacklinks({ targetBlockId: page.id, limit: 50 });
+    expect(kinds(answer)).toEqual({ [soft.id]: "mention", [line.id]: "mention", [linked.id]: "note" });
+    expect(answer.sources.find(x => x.blockId === soft.id)!.facets!.kindLabel).toBe("Soft mentions");
+    expect(answer.sources.some(x => x.blockId === unrelated.id)).toBe(false);
+    expect(s.get(soft.id)!.revision).toBe(1);
+  });
+
+  test("a day's note lists the dates that land on it", () => {
+    const s = store();
+    const log = s.create("Build log [day::2026-11-05]");
+    const ctx = s.create("Note\nctx:: 2026-11-05 @ 4:31 AM");
+    const prose = s.create("We met on 2026-11-05 at the shed");
+    expect(kinds(s.queryBacklinks({ targetBlockId: log.id, limit: 50 }))).toEqual({ [ctx.id]: "mention", [prose.id]: "mention" });
+  });
+
+  test("a project's PR note lists its own mentions, not the other project's", () => {
+    const s = store();
+    const floatty = s.create("Floatty [type::project] [page::floatty]"), hub = s.create("Hub [type::project] [page::hub]");
+    const hers = s.create("PR#125 ribbon", floatty.id), his = s.create("PR#125 kettle", hub.id);
+    const a = s.create("About [project::floatty]\nsee PR#125"), b = s.create("About [project::hub]\nsee [PR::125]");
+    expect(kinds(s.queryBacklinks({ targetBlockId: hers.id, limit: 50 }))).toEqual({ [a.id]: "mention" });
+    expect(kinds(s.queryBacklinks({ targetBlockId: his.id, limit: 50 }))).toEqual({ [b.id]: "mention" });
+  });
+
+  test("a bare ticket key is a mention; a key written as a property's value or a link stays a link", () => {
+    const s = store();
+    s.configureWorkIdPrefix("PIE");
+    let ticket = s.create("Fix the gate");
+    ticket = s.allocateWorkId(ticket.id, ticket.revision).block;
+    const bare = s.create("Saw PIE-001 today"), prop = s.create("Note [ticket::PIE-001]"), link = s.create("Note [[PIE-001]]");
+    const answer = kinds(s.queryBacklinks({ targetBlockId: ticket.id, limit: 50 }));
+    expect(answer[bare.id]).toBe("mention");
+    expect(answer[prop.id]).not.toBe("mention");
+    expect(answer[link.id]).not.toBe("mention");
+  });
+
+  test("a key a note excludes neither links nor mentions; a machinery note never mentions", () => {
+    const s = store();
+    const page = s.create("high [page::high]");
+    s.create("Task [priority::high]");
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toHaveLength(1);
+    s.create("Keys that aren't links [soft-link-ignore::priority]");
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toHaveLength(0);
+    expect(s.resolveBlockReferences("").softLinkIgnore).toContain("priority");
+    s.create("Tool's [machine::run] [thread::high]");
+    expect(s.queryBacklinks({ targetBlockId: page.id, limit: 50 }).sources).toHaveLength(0);
+  });
+
+  test("soft mentions never crowd the links out, and a note's record and links: stay explicit", () => {
+    const s = store();
+    const page = s.create("Hub [page::hub]");
+    for (let i = 0; i < 5; i++) s.create(`Soft ${i} [area::hub]`);
+    const linked = s.create("Real [[hub]]");
+    const answer = s.queryBacklinks({ targetBlockId: page.id, limit: 2 });
+    expect(answer.sources.map(x => x.facets!.kind).filter(k => k === "mention")).toHaveLength(2);
+    expect(answer.sources.some(x => x.blockId === linked.id)).toBe(true);
+    expect(answer.completeness.kind).toBe("truncated");
+    const [record] = readBlockRecords(s, [page.id]).records;
+    expect(record!.backlinks).toEqual([linked.id]);
+  });
+});
+
+describe("other clients", () => {
+  test("a published page links a value and a date where its page is published, and leaves the rest as words", () => {
+    const pages = new Map([["seed-swap", "a"], ["2026-03-14", "b"], ["unpublished", "c"]]);
+    const entries = new Map([["a", "/p/a"], ["b", "/p/b"]]);
+    const link = (label: string, target: string | undefined) => `[${label}](${target})`;
+    expect(linkSoftWords("On 2026-03-14 [thread::seed-swap] and [zone::unpublished] and PR#12", pages, entries, link, () => false))
+      .toBe("On [2026-03-14](/p/b) [thread::[seed-swap](/p/a)] and [zone::unpublished] and PR#12");
+    expect(softPageAddresses("[thread::Seed-Swap] 2026-03-14 PR#12")).toEqual(["seed-swap", "2026-03-14"]);
+  });
+
+  test("Detail's links name a value's and a date's page, and a date with no page lands on that day's note", async () => {
+    const s = store();
+    const log = s.create("Build log [day::2026-11-05]");
+    const requester = { request: async (r: any) => r.action === "references.soft" ? s.softLink(r.name, {}) : s.resolvePageAddress(r.address) };
+    expect(await resolveOutlinerLinkTarget(requester as never, { kind: "page", value: "2026-11-05" })).toMatchObject({ block: { id: log.id } });
+  });
+});

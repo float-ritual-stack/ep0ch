@@ -989,7 +989,7 @@ export async function droppedLinkedStructure(client: WorkToolsClient, blockId: s
   const dropped = droppedStructure(before, next);
   const lost = [...dropped.pages];
   if (dropped.anchors.length) {
-    const backlinks = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: blockId, limit: 1000 } });
+    const backlinks = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: blockId, limit: 1000, explicit: true } });
     const ids = backlinks.sources.filter(source => !source.deletedRootId && source.blockId !== blockId).map(source => source.blockId);
     // The group's own notes too: a link it adds to an anchor it drops is a link left dangling.
     const written = [...(group?.written ?? [])].filter(id => id !== blockId && group?.text(id) !== undefined);

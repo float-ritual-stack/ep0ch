@@ -1,3 +1,4 @@
+import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { grammarWarning } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
@@ -98,6 +99,9 @@ export function hostSend(path: string, action: string, params: Record<string, un
  * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
  * or blocks.query `fields`), or compact (`preview`, from views.read `format: "tree"`).
  */
+/** A place a soft link could land: the note, or what following it would make. */
+export interface SoftLinkChoice { label: string; context?: string; note?: Msg; create?: { address: string; under?: string } }
+
 export interface WireBlock {
   id: string; parentId?: string | null; position?: number; text?: string; title?: string; preview?: string; revision?: number;
   author?: string; actorId?: string;
@@ -705,6 +709,17 @@ export class SocketBoard implements Board {
   /** How the service reads every `((…))` in `text`: status, title, label, fragment (the Detail's own resolver). */
   async resolveReferences(text: string): Promise<ReferenceResolution[]> {
     return (await this.request("references.resolve", { text })).references;
+  }
+
+  /** Where a soft link lands (PIE-408): the service's answer for what it names, from the block and line it's written on. */
+  async softLink(name: SoftLinkName, at: { blockId?: string; line?: number } = {}): Promise<{ status: "resolved" | "ambiguous" | "missing"; words: string; candidates: SoftLinkChoice[] }> {
+    const r = await this.request("references.soft", { name, ...at });
+    return { status: r.status, words: r.words, candidates: r.candidates.map(({ block, ...c }) => ({ ...c, ...(block ? { note: toMsg(block) } : {}) })) };
+  }
+
+  /** Keys whose values aren't soft links here (the outline's `[soft-link-ignore::…]` notes and its Resource keys). */
+  async softLinkIgnore(): Promise<string[]> {
+    return (await this.request("references.resolve", { text: "" })).softLinkIgnore ?? [];
   }
 
   /** Which prefixes make a bare key a Work ID here (#429): the configured one and every prefix in use. */

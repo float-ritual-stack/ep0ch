@@ -159,6 +159,8 @@ export const SEED = {
   marginaliaNotebook: "Marginalia notebook",
   recentReplies: "Recent replies",
   frost: "Before the first frost",
+  softLinks: "Soft links, as you write them",
+  softPage: "Seed swap",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
   completionPlace: "Sowing calendar, completion practice",

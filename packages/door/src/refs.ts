@@ -21,6 +21,8 @@ import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
+import { softLinkTokens, softName, type SoftLinkName } from "@ep0ch/outline-core/soft-links";
+import { isMediaLine } from "@ep0ch/outline-core/media-line";
 import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
@@ -143,6 +145,18 @@ export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes
   return c?.value ?? null;
 }
 
+const softIgnoreBy = new WeakMap<object, Map<string, Cached<{ keys: string[]; ms: number }>>>();
+/** How long a list of keys stands after a change before it's asked again: a rule note is rare, a note's every draw isn't. */
+const SOFT_IGNORE_MS = 60_000;
+/**
+ * Keys whose values aren't soft links here (PIE-408), as the service says them: a note that lists one can appear at any
+ * edit, so it's asked again at most once a minute of changes. Empty until answered, where a value then draws as a link for a moment.
+ */
+export function softLinkIgnoreOf(src: Source | null | undefined): readonly string[] {
+  return ask(softIgnoreBy, src, "ignore", async b => ({ keys: await b.softLinkIgnore(), ms: Date.now() }),
+    c => configChangedSince(c.at) || (anyChangeSince(c.at) && Date.now() - (c.value?.ms ?? 0) > SOFT_IGNORE_MS))?.value?.keys ?? [];
+}
+
 const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();
 /** The workspace's Work-ID prefix: a string, null when none is configured (or unknown), undefined until asked. */
 export function workIdPrefix(src: Source | null | undefined): string | null | undefined {
@@ -245,6 +259,8 @@ export type LinkTarget = {
    * `at` and `atLabel` light that line), or says it is computed. `problem` is why it has no value.
    */
   value?: { expression: string; words: string; problem?: string; route: string };
+  /** A soft link (PIE-408): what it names and where it's written; the service says where it lands when it's followed. */
+  soft?: { name: SoftLinkName; block?: string; line?: number };
   /** A `#tag` (PIE-800), its value as the service's parser read it (`garden/beds`): it opens the notes carrying the tag. */
   tag?: string;
   query?: string;
@@ -458,6 +474,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // The `{{ }}` of the text, where the scan finds them, paired with the service's answers (none until it has answered).
   const { answer, current } = site ? siteRead(site.block, noteText, src, !!site.draft, site.call) : { answer: null, current: true };
   const pairs = answer ? pairValues(text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(p => p.value) : [];
+  // Where `text` starts in the note, in lines: what a soft link's context is walked from.
+  const cut = text === noteText ? 0 : noteText.indexOf(text), noteLine = cut > 0 ? noteText.slice(0, cut).split("\n").length - 1 : 0;
   let lineStart = 0;
   return lines.map((line, i) => {
     const from = lineStart;
@@ -482,6 +500,13 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     for (const tag of tags) for (const m of line.matchAll(tag.re)) {
       const start = m.index! + m[1]!.length;
       spans.push({ start, end: start + tag.raw.length, draw: () => mark({ text: tag.raw, missing: false }, { tag: tag.value, label: tag.raw }) });
+    }
+    // A soft link (PIE-408): a value, a date, a pull request, written by convention. Drawn without asking anyone; the
+    // service says where it lands when it's followed, from the note and line it's on.
+    // A picture line's chips are its layout, read from the line as written, never links.
+    if (src) for (const t of softLinkTokens(line, { code: codeSpanRanges(line), ignore: softLinkIgnoreOf(src), literalProperties: !!literal.properties || isMediaLine(line) })) {
+      const { start, end } = t, words = line.slice(start, end);
+      spans.push({ start, end, draw: () => mark({ text: words, missing: false }, { soft: { name: softName(t), ...(site?.block ? { block: site.block } : {}), line: noteLine + i }, label: words }) });
     }
     const built = valueLinkOccurrences(line, answer?.values ?? [], code);
     const links = linkOccurrences(line, code).filter(l => !built.some(b => b.start < l.end && l.start < b.end));

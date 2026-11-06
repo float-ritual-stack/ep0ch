@@ -510,6 +510,25 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   ].join("\n"));
   await make(notes.listDemo.id, "Wash the seed trays\nBleach and rinse; they dry on the bench.");
   await make(notes.listDemo.id, "Label the dahlia tubers\nTwo to a box, the name on the lid.");
+  // Soft links (PIE-408): a note written by convention, with no brackets, and where each of its words lands.
+  notes.softPage = await make(notes.root.id, `${SEED.softPage} [page::seed-swap]\nThe note [thread::seed-swap] lands on. Who mentions it, in their own group:\n\n::backlinks\n::`);
+  await make(notes.root.id, "Plot log [day::2026-03-14]\nThat day's note: a date lands here.");
+  const elmRow = await make(notes.root.id, "Elm Row [type::project] [page::elm-row]");
+  const riverside = await make(notes.root.id, "Riverside [type::project] [page::riverside]");
+  await make(elmRow.id, "PR#12 mend the gate");
+  await make(riverside.id, "PR#12 paint the shed");
+  notes.softLinks = await make(notes.root.id, [
+    SEED.softLinks,
+    "",
+    "Asked again about the swap table [thread::seed-swap], no brackets anywhere.",
+    "",
+    "ctx:: 2026-03-14 @ 4:31 AM",
+    `The latch is ${WORK_PREFIX}-001. A value with no page yet: [zone::north-fence].`,
+    "[project::elm-row] holds PR#12.",
+    "",
+    "On the fence: [project::elm-row] and [project::riverside] both have PR#12.",
+  ].join("\n"));
+  await make(notes.root.id, "Keys that aren't links [soft-link-ignore::soil-ph, rota]\nA value under one of these keys stays text: [rota::Tuesday]. Any other key's value links.");
   // Tags as links (PIE-800): a note whose #tags open the notes carrying them, and those notes (one under a nested tag).
   notes.frost = await make(notes.root.id, [
     `${SEED.frost}`,

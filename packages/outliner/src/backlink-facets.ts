@@ -23,6 +23,8 @@ export interface BacklinkFacetRules {
   readonly kindLabels: Readonly<Record<string, string>>;
   /** Kind for a page whose `dayProperty` or whole page address is an ISO date. */
   readonly dayPageKind: string;
+  /** Kind of a source that only mentions the target by convention (PIE-408): its own group, so hubs and day pages stay quiet. */
+  readonly softMentionKind: string;
   /** Kind when neither the source nor its page declares a type or day. */
   readonly fallbackKind: string;
   /** Stage properties, first declared wins. */
@@ -42,9 +44,11 @@ export const DEFAULT_BACKLINK_FACET_RULES: BacklinkFacetRules = {
   kindLabels: {
     comment: "Comment",
     "day-page": "Day page",
+    mention: "Soft mentions",
     note: "Note",
   },
   dayPageKind: "day-page",
+  softMentionKind: "mention",
   fallbackKind: "note",
   stageProperties: ["work-stage", "outbox", "stage", "status"],
   stageBuckets: {
@@ -200,9 +204,11 @@ export function backlinkSourceFacets(
   target: Block,
   blocksById: ReadonlyMap<string, Block>,
   rules: BacklinkFacetRules = DEFAULT_BACKLINK_FACET_RULES,
+  soft = false,
 ): BacklinkSourceFacets {
-  const { kind, stage } = sourceKindAndStage(source, blocksById, rules);
+  const { kind: own, stage } = sourceKindAndStage(source, blocksById, rules);
   const comment = commentFacet(source, blocksById, rules);
+  const kind = soft ? rules.softMentionKind : own;
   return {
     kind,
     kindLabel: rules.kindLabels[kind] ?? humanizeBacklinkKind(kind),

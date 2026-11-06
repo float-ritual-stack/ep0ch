@@ -493,7 +493,7 @@ export class ExtensionWrites {
     }
     const here = this.deps.here?.();
     // Every link to it: the notes the backlink index knows, and the group's own (the blocks it writes and makes).
-    const backlinks = this.store.queryBacklinks({ targetBlockId: from.id, limit: 1000 });
+    const backlinks = this.store.queryBacklinks({ targetBlockId: from.id, limit: 1000, explicit: true });
     if (backlinks.completeness.kind !== "complete") throw new Error(`${action} moves ^${anchor}, but more notes link to "${fromTitle}" than can be repointed in one step; ${nothing}`);
     const linking = new Set([...backlinks.sources.filter((source) => !source.deletedRootId).map((source) => source.blockId), ...updates.keys()]);
     let repointed = 0;
