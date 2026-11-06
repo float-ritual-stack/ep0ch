@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { noteFile, type NoteIdentity } from "@ep0ch/outline-core/header-line";
-import { boardFor, selectionOf, selectNotes, selects, timeoutFlag, type Out } from "./notes-cli";
+import { boardFor, selectionOf, selectNotes, selects, bulkTimeout, type Out } from "./notes-cli";
 import { connectFigures, figureAscii } from "./graphs";
 import { noteFigures } from "./page-results";
 import { liveSettled } from "./live";
@@ -207,7 +207,7 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
     if (at >= 0 && (args[at + 1] === undefined || (args[at + 1]!.startsWith("--") && args[at + 1] !== "-"))) { io.err(`ep0ch: ${f} needs a value`); return 2; }
   }
   const value = (f: string) => { const at = args.indexOf(f); return at >= 0 ? args[at + 1] : undefined; };
-  const timeoutMs = timeoutFlag(args);
+  const timeoutMs = bulkTimeout(args);
   if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
   const format = (value("--format") ?? "md") as ExportOptions["format"];
   const again = (change: (a: string[]) => string[]) => `ep0ch ${change(argsIn).map(a => (/^[\w@%+=:,./()-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(" ")}`;

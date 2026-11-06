@@ -422,6 +422,19 @@ describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
     } finally { await slow.close(); }
   }, 120_000);
 
+  test("EP0CH_REQUEST_TIMEOUT_MS is the wait for a live figure's answer too, not only the board's (PIE-1597)", async () => {
+    const errand = await board.createBlock(null, "Fetch the twine [type::errand]");
+    const page = await board.createBlock(null, "Errand list\n::graph-check\n---\ntitle: errands (live)\nquery: \"type=errand\"\n---\n::");
+    // Longer than the 10 s a figure gets by default, shorter than the wait the export was told.
+    const slow = await relay(async action => { if (action === "site.answer") await Bun.sleep(11_000); });
+    try {
+      const out = directory();
+      const r = await run(["export", page.id, "--out", out], { ...scratch.env, EP0CH_SOCKET: slow.path, EP0CH_REQUEST_TIMEOUT_MS: "30000" });
+      expect(r.code).toBe(0);
+      expect(readFileSync(join(out, readdirSync(out)[0]!), "utf8")).toContain("Fetch the twine");
+    } finally { await slow.close(); await board.trash(page.id); await board.trash(errand.id); }
+  }, 60_000);
+
   test("mirror exports every remaining note when a deletion shifts the second page", async () => {
     let deleted = "";
     const proxy = await relay(async (action, reply) => {

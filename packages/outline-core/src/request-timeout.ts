@@ -1,9 +1,9 @@
-// How long a client waits for the host's answer: the caller's default (short, for a keypress), unless whoever runs it
-// says longer. EP0CH_REQUEST_TIMEOUT_MS is that say for a batch reader on a loaded box (PIE-1597): the door's SocketBoard
-// CLI and the outliner's client read it here, so the two agree. A request's own explicit wait is untouched.
+// How long a batch reader waits for the host's answer on a loaded box (PIE-1597): EP0CH_REQUEST_TIMEOUT_MS, read only at
+// the bulk command lines (`ep0ch export`, `find`, `mirror`, the outliner CLI), each of which hands the wait to its client.
+// An interactive client never reads it: a keypress keeps its short wait with the variable set.
 
-/** `EP0CH_REQUEST_TIMEOUT_MS` when it is a positive number of milliseconds, else `fallback`. */
-export function requestTimeoutMs(env: Readonly<Record<string, string | undefined>>, fallback: number): number {
+/** `EP0CH_REQUEST_TIMEOUT_MS` when it is a positive number of milliseconds, else undefined: the client's own default. */
+export function requestTimeoutMs(env: Readonly<Record<string, string | undefined>>): number | undefined {
   const ms = Number(env.EP0CH_REQUEST_TIMEOUT_MS);
-  return Number.isFinite(ms) && ms > 0 ? ms : fallback;
+  return Number.isFinite(ms) && ms > 0 ? ms : undefined;
 }

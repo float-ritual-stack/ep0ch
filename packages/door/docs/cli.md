@@ -619,9 +619,10 @@ records (as find --json), keys sorted. --out <dir> writes <title>-<id8>.md
 (or -), stdout. --manifest adds manifest.json: the export time, the outline,
 the selection, the files it wrote and leftOut extension pages
 
---timeout <seconds>: how long to wait for each answer on a busy machine (15 by default; a timed-out export
-says the command to run). EP0CH_REQUEST_TIMEOUT_MS, in milliseconds, says the same for a script's `ep0ch` and `outliner`
-commands (the outliner's 3 seconds, 30 to another machine, is why a script reader needs it); the flag wins. A door's keypress and a request with its own wait never read it. find and mirror take the flag too.
+--timeout <seconds>: how long to wait for each answer and for live figures on a busy machine (15 and 10 seconds by
+default; a timed-out export says the command to run). find and mirror take the flag too. EP0CH_REQUEST_TIMEOUT_MS, in
+milliseconds, says the same for a script's `ep0ch export`, `find`, `mirror` and every `outliner` CLI command (3 seconds, 30
+to another machine); the flag wins. A door, Tree and Detail never read it: a keypress keeps its short wait.
 
 ## mirror
 

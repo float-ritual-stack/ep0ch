@@ -523,7 +523,7 @@ replaces the folder's `.ep0ch`.
 ssh forward per machine, shared by every client: outline-core's `ensureForward` (`src/machine.ts`) with the
 outliner's I/O (`src/machine-forward.ts`); `createOutlinerClient` starts it before a request finds nobody there and
 before each watcher (re)connect. `EP0CH_SOCKET` names a host's socket outright. The outline is named the same way. Remote mode gives requests a network-appropriate deadline and never starts a host or makes a
-local database. `EP0CH_REQUEST_TIMEOUT_MS` raises the deadline for a batch reader (outline-core's `request-timeout.ts`, which the door's CLI reads too); a request's own wait is untouched.
+local database. `EP0CH_REQUEST_TIMEOUT_MS` raises the deadline for a batch reader: the outliner CLI and the door's bulk commands read it (outline-core's `request-timeout.ts`) and hand it to their client. Tree, Detail and a request's own wait never see it.
 
 Remote Tree and Detail registrations own their Herdr topology. They publish the
 rendering host's hostname, pane, terminal, workspace, tab, coordinates,

@@ -646,7 +646,8 @@ function endsAsking(lines: readonly string[], i: number): boolean {
   if (!words || /^(\*\*|__|\*|_)[^*_].*\1$/.test(words)) return false;
   const next = lines[i + 1];
   if (next !== undefined && next.slice(leadOf(next).quote.length).trim() && !leadOf(next).marker && !HEADING.test(next)) return false;
-  return /\?["'”)*_]*$/.test(proseOf(splitPoints(words, { clauses: false }).at(-1)!).trim());
+  // Its own words first: a sentence cut from inside a quotation no longer knows it was quoted.
+  return /\?["'”)*_]*$/.test(proseOf(splitPoints(proseOf(words), { clauses: false }).at(-1) ?? "").trim());
 }
 
 /**
@@ -682,6 +683,10 @@ export function asksEvan(line: string): boolean {
   return /\bEvan\b/.test(words) && (/\?/.test(words) || /\b(?:decide|decision|should we|needs? (?:your|his)|approve|confirm|pick|choose|sign off)\b/i.test(words));
 }
 
+/** A quotation: double quotes, or single quotes around a question; an apostrophe has a letter on both sides, so `isn't` opens and closes nothing. */
+const SINGLE_QUOTED = String.raw`(?:[^'’\n]|(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}]))*`;
+const QUOTATION = new RegExp(String.raw`"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{N}])['‘]${SINGLE_QUOTED}\?${SINGLE_QUOTED}['’](?![\p{L}\p{N}])`, "gu");
+
 /**
  * A line's own words: a link's address, a bare URL, a code span and a reference target are never its punctuation, and a
  * quotation is someone else's (PIE-1597; single quotes only around a question, and never an apostrophe's).
@@ -689,7 +694,7 @@ export function asksEvan(line: string): boolean {
 export const proseOf = (line: string): string =>
   line.replace(/(`+)[\s\S]*?\1/g, " ").replace(/\]\([^)]*\)/g, "]").replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>]*[^\s<>?.,;:!)]/gi, " ")
     .replace(/\(\([^)|]*(?:\|([^)]*))?\)\)/g, (_, label) => label ?? " ").replace(/\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (_, page, label) => label ?? page)
-    .replace(/"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{N}])['‘][^'’\n]*\?[^'’\n]*['’](?![\p{L}\p{N}])/gu, " ");
+    .replace(QUOTATION, " ");
 
 /**
  * The findings for a write's answer, each worded as a gate. With `before` (the text the write changed), a finding the

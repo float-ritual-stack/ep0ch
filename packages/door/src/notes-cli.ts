@@ -34,7 +34,7 @@ import { readMissing } from "./outlines";
 import { sh } from "./setup/links";
 import { summarySegments } from "./props";
 import { projectionsPending, resourceChanged } from "./projection";
-import { DEFAULT_REQUEST_TIMEOUT_MS, previewTitle, SocketBoard, type IndexBlock, type WireParams } from "./socket";
+import { previewTitle, SocketBoard, type IndexBlock, type WireParams } from "./socket";
 import { matchWords } from "./board";
 import { matchFacts, PROPERTY_QUERY_SCOPES, type PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { readState } from "./state";
@@ -214,10 +214,14 @@ function flag(args: string[], name: string): string | undefined | { error: strin
 const without = (args: string[], valued: string[], bare: string[]) =>
   args.filter((a, i) => !valued.includes(a) && !valued.includes(args[i - 1] ?? "") && !bare.includes(a));
 
-/** The wait a bulk read's `--timeout <seconds>` asks for, in milliseconds (none given: undefined); or why it can't be read. */
-export function timeoutFlag(args: readonly string[]): number | undefined | { error: string } {
+/**
+ * The wait a bulk read was told, resolved once, in milliseconds: `--timeout <seconds>`, else EP0CH_REQUEST_TIMEOUT_MS,
+ * else undefined (each wait's own default); or why the flag can't be read. Only commands that are bulk reads ask: `wait`'s
+ * `--timeout` means something else.
+ */
+export function bulkTimeout(args: readonly string[], env: Readonly<Record<string, string | undefined>> = process.env): number | undefined | { error: string } {
   const at = args.indexOf("--timeout");
-  if (at < 0) return undefined;
+  if (at < 0) return requestTimeoutMs(env);
   const seconds = Number(args[at + 1]);
   return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : { error: "--timeout takes seconds to wait for each answer, as in --timeout 120" };
 }
@@ -236,8 +240,7 @@ export async function boardFor(args: string[], command?: readonly string[], time
   // A read of a name the host doesn't have says where it is; it never makes one (PIE-938).
   const missing = await readMissing({ outline: target.outline, path: target.path, ...(target.machine ? { machine: target.machine } : {}), ...(command ? { command } : {}) });
   if (missing) return { error: missing };
-  // A command's own `--timeout` (only one that names it: `wait`'s means something else), else the environment's.
-  const board = new SocketBoard(target.path, timeoutMs ?? requestTimeoutMs(process.env, DEFAULT_REQUEST_TIMEOUT_MS), target.outline) as NotesBoard;
+  const board = new SocketBoard(target.path, timeoutMs, target.outline) as NotesBoard;
   const machine = target.machine;
   if (machine) board.prepare = async () => forwardSaying(machine, await forwardTo(machine));
   board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
@@ -385,7 +388,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   const lines = args.includes("--lines"), json = args.includes("--json"), recent = args.includes("--recent"), idsOut = args.includes("--ids");
   if (Number(lines) + Number(json) + Number(idsOut) > 1) { io.err("ep0ch: find prints --ids, --lines or --json: one of them"); return 2; }
   for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const timeoutMs = timeoutFlag(args);
+  const timeoutMs = bulkTimeout(args);
   if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
   const picked = selectionOf(args);
   if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 2; }

@@ -428,6 +428,10 @@ test("a ? inside quotes, a plain blockquote or a fence isn't an ask; one outside
   expect(rules(note('Evan: "anything the crew should take a deeper look at…?"'))).not.toContain("question");
   expect(rules(note("Evan: “anything the crew should look at?”"))).not.toContain("question");
   expect(rules(note("Evan said 'which bed comes first?' on Friday."))).not.toContain("question");
+  expect(rules(note("Evan said 'why isn't it ready?' on Friday."))).not.toContain("question");
+  expect(rules(note("Evan said ‘why isn’t it ready?’ on Friday."))).not.toContain("question");
+  expect(rules(note("The sign reads 'Is it open? Why isn't it?'"))).not.toContain("question");
+  expect(rules(note("'Tis the bed's turn, Evan, isn't it?"))).toContain("question");
   expect(rules(note('The sign on the shed reads "who left the gate open?"'))).not.toContain("question");
   expect(rules(note('Evan asked "should we pick the east bed?" and we did.'))).not.toContain("question");
   // Asked outside the quote, the line still asks.

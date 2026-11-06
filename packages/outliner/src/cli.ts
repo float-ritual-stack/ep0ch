@@ -10,6 +10,7 @@ import { closeSync, existsSync, openSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { requestTimeoutMs } from "@ep0ch/outline-core/request-timeout";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 import { normalizePropertyQueryScope, parsePropertyFilterClause } from "./block-query";
 import {
@@ -897,7 +898,7 @@ async function runAgentCommand(args: string[]): Promise<number> {
 }
 
 const [command = "", ...rest] = process.argv.slice(2);
-const client = createOutlinerClient(paths);
+const client = createOutlinerClient(paths, { timeoutMs: requestTimeoutMs(process.env) });
 let request: RequestInput | null = null;
 let directResult: unknown;
 /** A refusal's runnable fix, said under the service's reason (`new --near` on a note that's gone). */

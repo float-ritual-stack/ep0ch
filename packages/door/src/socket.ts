@@ -71,9 +71,6 @@ function traced<T>(p: Promise<T>): Promise<T> {
 }
 export const hostsIdle = (): Promise<void> => (hostTraffic.waiting ? new Promise(r => whenIdle.push(r)) : Promise.resolve());
 
-/** How long a board waits for an answer unless it's told otherwise. */
-export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-
 /**
  * A request to the outline host itself (`outlines.*`, or `ping` for the host), on a short connection of
  * its own. The host answers the first line of a connection and hands the rest to one outline, so these
@@ -497,7 +494,7 @@ export class SocketBoard implements Board {
    * `outline`: the outline this board reads on an outline host. Every request line and the subscribe
    * line name it, and `info()` refuses a service that can't route by name.
    */
-  constructor(readonly path = DEFAULT_SOCKET, private readonly timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, readonly outline?: string) {}
+  constructor(readonly path = DEFAULT_SOCKET, private readonly timeoutMs = 15_000, readonly outline?: string) {}
 
   /** With no subscription to say so: the requests' connection was said lost, and nothing has answered since. */
   private lostSaid = false;

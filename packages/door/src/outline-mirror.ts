@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, join } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { exportFiles, readRecords } from "./export";
-import { boardFor, timeoutFlag, type Out } from "./notes-cli";
+import { boardFor, bulkTimeout, type Out } from "./notes-cli";
 
 export const MIRROR_USAGE = `  ep0ch mirror <dir> [--once] [--timeout <seconds>] [--ws <name>] [--machine <ssh-name>]
                                    export every live note as source in its tree, then follow changes;
@@ -24,7 +24,7 @@ export async function mirrorCommand(argsIn: string[], io: Out = { out: console.l
   }
   const rest = args.filter((arg, i) => !valued.includes(arg) && !valued.includes(args[i - 1] ?? "") && arg !== "--once" && arg !== "--here");
   if (rest.length !== 1 || rest[0]!.startsWith("--")) { io.err(MIRROR_USAGE); return 2; }
-  const dir = rest[0]!, once = args.includes("--once"), timeoutMs = timeoutFlag(args);
+  const dir = rest[0]!, once = args.includes("--once"), timeoutMs = bulkTimeout(args);
   if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
   const board = await boardFor(args, argsIn, timeoutMs);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }

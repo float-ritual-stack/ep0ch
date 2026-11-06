@@ -2,7 +2,6 @@ import { meetRules } from "./client-code";
 import { createConnection, type Socket } from "node:net";
 import { requireCompatible } from "./service-compatibility";
 import { forwardFor } from "./machine-forward";
-import { requestTimeoutMs } from "@ep0ch/outline-core/request-timeout";
 import type { OutlinerRequestProblem, OutlinerServiceStatus } from "./types";
 import type {
   OutlinerClientRegistration,
@@ -34,11 +33,12 @@ export interface OutlinerClientEndpoint {
   unnamed?: string;
 }
 
-export function createOutlinerClient(endpoint: OutlinerClientEndpoint, env: Readonly<Record<string, string | undefined>> = process.env): OutlinerClient {
+/** `timeoutMs`: a batch reader's wait (the CLI's, from EP0CH_REQUEST_TIMEOUT_MS); left out, the short default a keypress needs. */
+export function createOutlinerClient(endpoint: OutlinerClientEndpoint, o: { timeoutMs?: number } = {}): OutlinerClient {
   const machine = endpoint.machine, outlines = endpoint.outlinesFolder;
   return new OutlinerClient(
     endpoint.socket,
-    requestTimeoutMs(env, endpoint.mode === "remote" ? REMOTE_REQUEST_TIMEOUT_MS : LOCAL_REQUEST_TIMEOUT_MS),
+    o.timeoutMs ?? (endpoint.mode === "remote" ? REMOTE_REQUEST_TIMEOUT_MS : LOCAL_REQUEST_TIMEOUT_MS),
     endpoint.outline,
     // A client without a name would reach the host's default outline, or none: refuse instead.
     !endpoint.outline ? endpoint.unnamed ?? "No outline is named for this folder" : undefined,
