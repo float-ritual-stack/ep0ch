@@ -12,6 +12,17 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Files dropped into a comment or an edit become pictures, found by name when the folder never arrived (PIE-1589).** A paste of nothing but image files is kept in `media/` and drawn; `ctrl+z` gives back what you dropped. macOS's bare names are looked up in the folders your notes name with `[drop-folder::<folder>]`, and what can't be found stays as written and says so. A macOS name's narrow no-break space now matches either way round.
 - **A chip in a comment or reply is words (PIE-1589).** Only a mark's heading and metadata line carry its properties, so a quoted `[orient::all]` no longer orients sessions, a quoted `[page::x]` no longer refuses the reply, and a comment that's only a chip or a picture keeps it. The agent tools' review points it out on comments and replies. The property index rebuilds itself on the next host start.
+### Published pages keep their bold and their tables (PIE-1590)
+
+- **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
+- **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
+
+### An artifact deploy attaches its name by itself (PIE-1588)
+
+- **No hand step in Hetzner:** `ep0ch artifact deploy` adds the name through Vercel's API, appends the TXT Vercel asks for to `_vercel`, sets the CNAME, asks Vercel to verify and records the deployment.
+- **Any of your domains:** `--domain` and `[domain::]` take a label under `ep0ch.sh` or a full name. A name on Vercel's nameservers needs no TXT and no Hetzner step; one on someone else's DNS says the records to add.
+- **A missing name isn't a failed deploy:** the card reads live at the address the app answers at, says what the name still needs ("Vercel wants this DNS record: …") and the command that finishes it. Errors stopped blaming the login.
+- **Run:** `ep0ch install --apply`, then `ep0ch artifact deploy ep0ch-artifacts/<repo> --ws pie --machine float-2` for each name still waiting.
 
 ### Pictures in notes size the way you set them (PIE-1583)
 

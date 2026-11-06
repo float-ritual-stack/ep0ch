@@ -208,6 +208,21 @@ test("a repo line on a published page links its live site and says its state; wh
   expect(await (await get("/p/desk-sites?view=md")).text()).toContain("*repo: [moth-garden](https://moth-garden.example.test)* `ep0ch-artifacts/moth-garden`");
 });
 
+test("a repo whose name is missing: live at the address it answers at, why only for the owner (PIE-1588)", async () => {
+  const { store, get, workspace } = await setup();
+  mkdirSync(join(workspace, "..", ".artifacts"), { recursive: true });
+  writeFileSync(join(workspace, "..", ".artifacts", "deployments.json"), JSON.stringify([{ name: "moth-garden", repo: "ep0ch-artifacts/moth-garden", where: "vercel", url: "https://moth-garden.vercel.app", commit: "abc123", deployedAt: "2026-10-01T00:00:00.000Z", reason: "package.json has a build script", wanted: { name: "moth-garden.ep0ch.sh", said: "Vercel wants this DNS record: _vercel.ep0ch.sh. 300 IN TXT tok3n" } }]));
+  const note = store.create("Desk sites [publish::public:desk-sites]\n[artifact::ep0ch-artifacts/moth-garden]");
+  const html = await (await get("/p/desk-sites?view=html")).text();
+  expect(html).toContain("live at <a href=\"https://moth-garden.vercel.app\"");
+  expect(html).toContain("isn&#39;t attached: Vercel wants this DNS record");
+  expect(html).toContain("<code>ep0ch artifact deploy ep0ch-artifacts/moth-garden</code>");
+  expect(html).not.toContain("deploy failed");
+  const shared = await (await get(`/share/p/${note.id}?view=html`, "public")).text();
+  expect(shared).toContain("moth-garden.vercel.app");
+  expect(shared).not.toContain("Vercel wants");
+});
+
 test("a picture fence on a published page is its picture, at the size its fence writes (PIE-1583)", async () => {
   const { store, get } = await setup();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 30"><rect width="90" height="30" fill="#123"/><text>row of beans</text></svg>`;

@@ -512,7 +512,19 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // Drawn as pictures on the card, by name, never a path.
     expect(surf().said(sent.body)).toContain("▣");
     await board.trash(sent.id);
+    // The comment in a tile of its own takes a drop the same way.
+    ch("C");
+    await until(() => surf().session?.mode === "compose", "another comment open");
+    await (app as any).dispatch.press("comment.place", { place: "tile" });
+    await until(() => (S().stages.get(S().sel).top.describe().panes as any[]).some(t => t.kind === "comment"), "the comment in its tile");
+    const inTile = surf().session.composer;
+    press({ kind: "paste", text: "seed-packet.webp" });
+    await until(() => inTile.text.includes("[img::"), "the picture dropped in the tile", 5000);
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !surf().session, "sent from its tile");
+    for (const t of await board.comments(surf().msg.id)) if (t.body.includes("[img::") && t.start === null && !t.body.includes("the notice")) await board.trash(t.id);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    expect(S().focus).not.toBe("stage");
   }, 20_000);
 
   test("session: a half-written floating comment, moved and sized, comes back after a handover as it sat: its words, place, size and cursor", async () => {

@@ -38,7 +38,9 @@ export function lineAddresses(text: string, prefix: string, ids: string[]): Map<
   let offset = 0;
   text.split("\n").forEach((line, at) => {
     // An empty quote line separates paragraphs; a marker would make it content.
-    if (quoteDepth(line).content.trim() && !code.has(at) && !/^[\s|:=-]+$/.test(line)) add(at, `line:${offset}`);
+    // A table's delimiter row, quoted or not, takes no marker either: one would make it a row of text and undo the table.
+    const content = quoteDepth(line).content;
+    if (content.trim() && !code.has(at) && !/^[\s|:=-]+$/.test(content)) add(at, `line:${offset}`);
     offset += line.length + 1;
   });
   for (const ref of [...blockReferenceOccurrences(text), ...pageAddressReferences(text)]) {
@@ -70,13 +72,13 @@ export function placeAnchor(text: string, index: number, inCode = /^ {4}|^\t/.te
   const sentinel = anchorSentinel(index);
   const end = text.indexOf("\n");
   const head = end < 0 ? text : text.slice(0, end);
+  // The line's own construct, under any quote and list markers it opens with.
+  const inner = head.replace(/^\s*(?:(?:>[ \t]?)|(?:[-*+]|\d{1,9}[.)])[ \t]+)*/, "");
   // A table cell may hold an empty span; a separate sentinel paragraph would split the table.
-  if ((/^\s*\|/.test(head) || /\|[ \t]*$/.test(head)) && !/^\s*\|?[\s:|-]+$/.test(head)) {
+  if ((/^\s*\|/.test(head) || /\|[ \t]*$/.test(head)) && !/^\s*\|?[\s:|-]+$/.test(inner)) {
     const at = /\|[ \t]*$/.exec(head)?.index ?? head.length;
     return `${text.slice(0, at)}${BARE_URL_END.test(head.slice(0, at)) ? " " : ""}${sentinel}${text.slice(at)}`;
   }
-  // The line's own construct, under any quote and list markers it opens with.
-  const inner = head.replace(/^\s*(?:(?:>[ \t]?)|(?:[-*+]|\d{1,9}[.)])[ \t]+)*/, "");
   if (!head.trim() || inCode || OWN_LINE.test(inner)) return `${sentinel}\n\n${text}`;
   // Before a heading's closing hashes and a hard break, which anything after them would turn into text.
   const closing = /^#{1,6}[ \t]/.test(inner) ? /(?:[ \t]+#+)?(?:\\|[ \t]+)?$/ : /(?:\\|[ \t]+)?$/;
