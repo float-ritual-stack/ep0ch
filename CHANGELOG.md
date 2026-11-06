@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Published pages keep their bold and their tables (PIE-1590)
+
+- **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
+- **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
+
 ### An artifact deploy attaches its name by itself (PIE-1588)
 
 - **No hand step in Hetzner:** `ep0ch artifact deploy` adds the name through Vercel's API, appends the TXT Vercel asks for to `_vercel`, sets the CNAME, asks Vercel to verify and records the deployment.
