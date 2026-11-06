@@ -20,6 +20,7 @@ import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draf
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
 import type { ElementEdit } from "./surface/element-editor";
+import { replyKey } from "./surface/reader-keys";
 import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
@@ -1092,7 +1093,7 @@ export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">
     const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
     return note;
   } });
-  return { ...target, place: `note-reply:${parent.id}`, back: "R brings the reply back", what: `the reply to “${subject(parent)}”` };
+  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”` };
 }
 
 // ── unsent drafts on disk ─────────────────────────────────────────────────────

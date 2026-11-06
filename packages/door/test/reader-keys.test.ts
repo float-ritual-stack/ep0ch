@@ -10,7 +10,8 @@ import "../src/app";
 import { READER_GUARDS, READER_KEYS, READER_OWN_KEYS, readerBinding, sessionStart, STEP_KEYS, READING_KEYS, type ReaderGuard } from "../src/surface/reader-keys";
 import { NOTE_ACTIONS, NoteSurface, type OpenHow, type SurfaceHost } from "../src/surface/note";
 import { keymapPath, reloadKeymap, setKeys } from "../src/surface/keymap";
-import { declaredKeys, keyOfName } from "../src/surface/actions";
+import { declaredKeys, keyCaption, keyOfName } from "../src/surface/actions";
+import { noteReplyTarget } from "../src/draft-session";
 import { bindings, conflicts } from "../src/surface/key-catalog";
 import type { Key } from "../src/term";
 
@@ -108,6 +109,13 @@ describe("the reader's keys, as the person's keymap and terminal give them", () 
     expect(s.key({ kind: "alt", ch: "j" }, h)).toBe(true);
     for (let i = 0; i < 100 && s.scroll !== 3; i++) await Bun.sleep(5);
     expect(s.scroll).toBe(3);
+  });
+
+  test("a reply put aside says the key that brings it back: the reply's binding, moved or not (Codex, #1314)", () => {
+    const back = () => noteReplyTarget({ id: "71111111-2222-4333-8444-555555555555", text: "Stake the beans", properties: [] } as any, { newNote: async () => ({}) } as any).back;
+    expect(back()).toBe("r brings the reply back");
+    setKeys("note.reply", ["alt+y"]);
+    expect(back()).toBe(`${keyCaption("alt+y")} brings the reply back`);
   });
 
   test("a key the person moves a reader action to is the reader's: an extension's line key doesn't take it", () => {

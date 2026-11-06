@@ -1118,7 +1118,7 @@ An action is one thing an extension can do, declared once, so every client binds
 the door as an `ActionDef` named `ext.<id>.<action>` with its key and click (the door's PIE-512: a
 handler line's actions as keys and `[w ward]` controls under the line, a tile's in its tile kind),
 `outliner ext act` from a shell, and `extensions.act` for agents. Detail doesn't bind extension
-actions yet; `R` is its path today.
+actions yet; `r` is its path today (the door's reader has `R`).
 
 ```json
 { "id": "ward", "label": "Ward off the next omen", "on": "handler:fancy-horror", "key": "w", "effects": "write" }

@@ -182,8 +182,12 @@ export const READER_OWN_KEYS: { has(key: string): boolean } = {
   has: key => readerRows().some(row => row.key === (key === " " ? "space" : key)) || key in READER_SAYS || "vVyYhl".includes(key),
 };
 
-/** The key that fetches or runs again in a reader, the keymap applied: what an age line, a run-again control and a refusal name. */
-export const runAgainKey = (): string => keyCaption((effective(READER_KEYS).find(row => row.action === "projection.refresh") ?? READER_KEYS.find(row => row.action === "projection.refresh")!).key);
+/** The key that runs `action` in a reader, the keymap applied, as words on screen name it. */
+const keyOfAction = (action: string): string => keyCaption((effective(READER_KEYS).find(row => row.action === action) ?? READER_KEYS.find(row => row.action === action)!).key);
+/** The key that fetches or runs again: what an age line, a run-again control and a refusal name. */
+export const runAgainKey = (): string => keyOfAction("projection.refresh");
+/** The key that writes a reply: what a reply put aside says brings it back. */
+export const replyKey = (): string => keyOfAction("note.reply");
 
 // ── the reader's hint rows (PIE-1293): rows of the table, as the hint row names them ──
 const rowsOf = (action: string, keys: readonly string[]) => keys.map(key => READER_KEYS.find(row => row.key === key && row.action === action)!);

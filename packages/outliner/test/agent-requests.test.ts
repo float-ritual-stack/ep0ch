@@ -416,6 +416,26 @@ test("an outline a host opens gets the same start: old @name lines baselined, cu
   expect(store.agentRequests(crashed.id)[0]).toMatchObject({ status: "failed", message: "interrupted by a restart: ask again" });
 });
 
+test("a reason stored before the door's run-again key moved reads with no key: nothing tells a person to press r (Codex, #1314)", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-agents-old-words-")));
+  const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });
+  cleanups.push(async () => { store.close(); rmSync(root, { recursive: true, force: true }); });
+  const put = (title: string, status: "waiting" | "failed", message: string, requestedBy: string) => {
+    const block = store.create(`${title}\n@tidy please`);
+    store.putAgentRequest({ blockId: block.id, requestKey: requestLines(block.text, null)[0]!.requestKey, agent: "tidy", extensionId: "tidy", request: "please", status, message, requestedBy, requestedAt: new Date().toISOString() });
+    return block.id;
+  };
+  const held = put("Held", "waiting", "held: budget: all 2 wakes in this chain are spent · r to send", "agent:fern");
+  const stopped = put("Stopped", "waiting", "the service stopped before @tidy answered: r asks it", "user");
+  const crashed = put("Crashed", "failed", "interrupted by a restart: r asks again", "user");
+  const own = put("Its own words", "failed", "the r to send button is broken", "user");
+  expect(store.heldAgentRequests().map(row => row.message)).toEqual(["held: budget: all 2 wakes in this chain are spent · ask again to send"]);
+  expect(store.agentRequests(held)[0]!.message).toBe("held: budget: all 2 wakes in this chain are spent · ask again to send");
+  expect(store.agentRequests(stopped)[0]!.message).toBe("the service stopped before @tidy answered: ask it again");
+  expect(store.agentRequests(crashed)[0]!.message).toBe("interrupted by a restart: ask again");
+  expect(store.agentRequests(own)[0]!.message).toBe("the r to send button is broken");
+});
+
 test("taking an answered line out and putting it back (undo) doesn't ask again (B18)", async () => {
   const { store, client, create, agentOf, counted } = await setup();
   const calls = await counted("count");
