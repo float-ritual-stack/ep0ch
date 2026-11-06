@@ -1,4 +1,4 @@
-import { parseActor, parseSessionId } from "@ep0ch/outline-core/attribution";
+import { actorNamed, parseActor, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { parseRuleCap, ruleWriter } from "@ep0ch/outline-core/rules";
 import type { Block, MutationProvenance } from "./types";
 import { blockDisplayTitle } from "./references";
@@ -76,8 +76,7 @@ export function parseGrant(block: Block): InvocationGrant | null {
 /** Whether a grant's `invoke-from` names this writer. */
 export function grantFromMatches(grant: InvocationGrant, actor: MutationProvenance | undefined): boolean {
   const writer = ruleWriter(actor);
-  const id = actor?.actorId?.trim().toLowerCase().split("@", 1)[0];
-  return grant.from.some((from) => from === "all" || (from === writer) || ((from === "agent" || from === "agents") && writer === "agent") || (!!id && from === id));
+  return grant.from.some((from) => from === "all" || (from === writer) || ((from === "agent" || from === "agents") && writer === "agent") || actorNamed(actor?.actorId, from));
 }
 
 export const grantToMatches = (grant: InvocationGrant, agent: string): boolean => grant.to.includes("all") || grant.to.includes(agent.toLowerCase());

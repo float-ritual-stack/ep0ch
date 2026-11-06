@@ -95,6 +95,17 @@ function eachWriter(actorId: string | undefined | null, fn: (id: string) => stri
 /** The name a filter or mention compares: `loki` for `mcp:loki/claude-code@float-2`, `daddy` for the old `mcp:daddy`. */
 export const actorHandle = (actorId: string | undefined | null): string => parseActor(actorId).handle.toLowerCase();
 
+/**
+ * Whether `name` names this writer, ignoring case. A bare name is a persona (or a client with no persona) and finds every
+ * id it holds, wherever it wrote from: `loki` is `loki`, `loki/cli@float-box` and `mcp:loki/claude.ai`. Anything
+ * longer is one id, and finds only itself.
+ */
+export function actorNamed(actorId: string | undefined | null, name: string): boolean {
+  const id = (actorId ?? "").trim().toLowerCase(), wanted = name.trim().toLowerCase();
+  if (!id || !wanted) return false;
+  return id === wanted || (PERSONA_PATTERN.test(wanted) && actorHandle(id) === wanted);
+}
+
 /** The `created-by` value a scratch outline's root note carries: `loki/claude-code@float-2`, or the principal alone. */
 export const createdByOf = (o: { persona?: string; principal: string }): string => composeActor(o);
 

@@ -112,6 +112,16 @@ test("by: and revision ask who wrote a note last and how often it was saved, so 
   expect(await asked("by:agent")).toEqual([]);
   await client.request<Block>({ action: "update", blockId: changed.id, text: "The orchard map, by the gardener", expectedRevision: changed.revision, mutation: { author: "agent", actorId: "gardener" } } as never);
   expect(await asked("by:gardener")).toEqual(["The orchard map, by the gardener"]);
+  // PIE-1605: a bare persona finds every id with that persona; a whole id finds only itself.
+  const shed = await client.request<Block>({ action: "create", text: "The orchard shed key", author: "agent", provenance: { actorId: "gardener/cli@potting-shed" } } as never);
+  const barn = await client.request<Block>({ action: "create", text: "The orchard barn key", author: "agent", provenance: { actorId: "gardener/claude-code@barn" } } as never);
+  const pond = await client.request<Block>({ action: "create", text: "The orchard pond key", author: "agent", provenance: { actorId: "pruner/cli@potting-shed" } } as never);
+  expect(pond.id).toBeDefined();
+  expect((await asked("by:gardener")).sort()).toEqual(["The orchard barn key", "The orchard map, by the gardener", "The orchard shed key"]);
+  expect((await asked("by:GARDENER")).sort()).toEqual(["The orchard barn key", "The orchard map, by the gardener", "The orchard shed key"]);
+  expect(await asked("by:gardener/cli@potting-shed")).toEqual(["The orchard shed key"]);
+  expect(await asked("by:gardener/cli@barn")).toEqual([]);
+  expect(barn.id).not.toBe(shed.id);
   await expect(asked("by:")).rejects.toThrow("names no writer");
 });
 
