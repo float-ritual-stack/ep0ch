@@ -570,11 +570,13 @@ test("away machines answer links from a read-only copy while silent forwards tim
   await far.create("orchard");
   const source = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: `Orchard chores\n((${target.id}))` });
   const pear = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: "Prune the pear" });
-  const index = await ok<{ blocks: { updatedAt: string }[] }>(far.socketPath, { action: "tree.index", outline: "orchard" });
-  const asOf = new Date(Math.max(...index.blocks.map(b => Date.parse(b.updatedAt)))).toISOString();
   const database = new Database(layoutOf(farRoot).database("orchard"), { readonly: true });
   database.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", "orchard.sqlite")]);
   database.close();
+  // The newest change the copy holds: a host's own first writes (its extensions' pages) may land after these two notes.
+  const copy = new Database(join(mirrorRoot, "laptop", "orchard.sqlite"), { readonly: true });
+  const asOf = new Date(Date.parse((copy.query("SELECT max(updated_at) AS newest FROM blocks").get() as { newest: string }).newest)).toISOString();
+  copy.close();
   const before = readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"));
   const layout = layoutOf(root);
   mkdirSync(layout.remoteDir, { recursive: true });

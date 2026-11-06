@@ -1,3 +1,4 @@
+import { heldBy } from "./loop-watch";
 import { commandLine } from "@ep0ch/outline-core/component-block";
 import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
@@ -378,7 +379,8 @@ export class ExtensionPages {
 
   /** Writes the hub and the pages again from the folders, and seeds demos not yet seeded. One at a time. */
   sync(): Promise<void> {
-    const next = this.queue.then(() => this.syncOnce()).then(
+    // A pass of the loop first: this follows a registry load, and on a host's first look at pie the two are a long hold together.
+    const next = this.queue.then(() => new Promise<void>(resolve => setImmediate(resolve))).then(() => heldBy(`open ${this.options.outline?.() ?? "outline"}: extension pages`, () => this.syncOnce())).then(
       () => { this.problem = undefined; },
       (error) => { this.problem = error instanceof Error ? error.message : String(error); },
     );

@@ -30,6 +30,7 @@ import type { ChecklistStatus } from "./types";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type PartAt, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
+import { inLiveOrder, queryCandidates, structuralVersion } from "./graph-questions";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -3787,11 +3788,7 @@ export class OutlinerStore {
   private valueReferences = new Map<string, { answer: ReturnType<typeof answerSite>; versions: string[]; sequence: number; minute: number }>();
   private valueReferenceIds: Set<string> | undefined;
 
-  private valueReferenceVersion(id: string): string {
-    const block = this.get(id);
-    // Moves preserve edit revisions; a structural read also depends on place and ordered membership.
-    return JSON.stringify([block?.revision, block?.parentId, block?.position, block?.effectiveDeletedRootId, this.children(id).map(child => child.id)]);
-  }
+  private valueReferenceVersion(id: string): string { return structuralVersion(this.database, id); }
 
   /** The outline as `refreshValueReferences` last checked it: nothing has changed since, so nothing is stale. */
   private valueReferencesChecked?: string;
@@ -3802,20 +3799,26 @@ export class OutlinerStore {
     // is current until a write (its deps, `anyChange`) or the minute turns (`clock`).
     const checked = `${this.sequence}:${(this.database.query("PRAGMA data_version").get() as { data_version: number }).data_version}:${Math.floor(Date.now() / 60_000)}`;
     if (this.valueReferencesChecked === checked) return;
-    this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id));
-    for (const id of this.valueReferenceIds) {
-      const block = this.get(id);
-      if (!block) { this.valueReferences.delete(id); this.valueReferenceIds.delete(id); continue; }
-      // A note in Trash links nowhere and is never answered; a restore reads it again.
-      if (block.effectiveDeletedRootId) { this.valueReferences.delete(id); continue; }
-      const cached = this.valueReferences.get(id);
-      if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
-      const answer = answerSite(this, { blockId: id });
-      replaceReferenceIndex(this.database, id, block.text, answer.values);
-      this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
-    }
+    for (const id of this.valueReferenceNotes()) this.refreshValueReference(id);
     // Marked once the pass is done: an answer that reads backlinks asks again inside it, and must meet the cycle there.
     this.valueReferencesChecked = checked;
+  }
+
+  private valueReferenceNotes(): Set<string> { return this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id)); }
+
+  /** A host warming an outline: the first pass over its value-reading notes, a pass of the loop between each (PIE-1610). */
+  async warmValueReferences(pass: () => Promise<void>): Promise<void> { for (const id of [...this.valueReferenceNotes()]) { this.refreshValueReference(id); await pass(); } }
+
+  private refreshValueReference(id: string): void {
+    const block = this.get(id);
+    if (!block) { this.valueReferences.delete(id); this.valueReferenceIds?.delete(id); return; }
+    // A note in Trash links nowhere and is never answered; a restore reads it again.
+    if (block.effectiveDeletedRootId) { this.valueReferences.delete(id); return; }
+    const cached = this.valueReferences.get(id);
+    if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) return;
+    const answer = answerSite(this, { blockId: id });
+    replaceReferenceIndex(this.database, id, block.text, answer.values);
+    this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
   }
 
   referenceValues(id: string) {
@@ -4588,7 +4591,7 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown; propertyScope?: PropertyQueryScope } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown; propertyScope?: PropertyQueryScope; /** Many ids (a rule's baseline): read them from the graph, not a statement each (PIE-1610). */ overGraph?: boolean } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
     const { text, subtreeRootId, this: thisId } = narrow;
     // Which chips the query reads (a rule's `[property-scope::]`, as a view's): left out, the header's.
     const scope = narrow.propertyScope ?? "block";
@@ -4606,10 +4609,12 @@ export class OutlinerStore {
     const terms = typeof text === "string" ? searchTextTerms(text) : [];
     return this.database.transaction(() => {
       if (typeof subtreeRootId === "string") this.require(subtreeRootId);
+      const graph = narrow.overGraph ? this.loadGraph() : null, read = (id: string) => graph ? graph.byId.get(id) ?? null : this.getFromCurrentRead(id);
+      const candidates = graph ? queryCandidates(this.database, graph, filters, where) : undefined;
       const under = (block: Block) => {
         if (typeof subtreeRootId !== "string") return true;
         const seen = new Set<string>();
-        for (let at: Block | null = block; at && !seen.has(at.id); at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) {
+        for (let at: Block | null = block; at && !seen.has(at.id); at = at.parentId ? read(at.parentId) : null) {
           if (at.id === subtreeRootId) return true;
           seen.add(at.id);
         }
@@ -4617,13 +4622,14 @@ export class OutlinerStore {
       };
       return {
         blockIds: (ids as string[]).filter(id => {
-          const saved = this.getFromCurrentRead(id);
+          if (candidates && draft?.id !== id && !candidates.has(id)) return false;
+          const saved = read(id);
           const block = saved && draft?.id === id ? { ...saved, text: draft.text, properties: draft.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))) } : saved;
           if (!block || block.effectiveDeletedRootId) return false;
-          const records = scope === "block" || draft?.id === id ? block.properties : this.questionRecordsFromCurrentRead(block);
+          const records = scope === "block" || draft?.id === id ? block.properties : graph ? graph.propertyRecordsByBlock.get(id) ?? [] : this.questionRecordsFromCurrentRead(block);
           return matchesFilters(records, filters, scope) &&
             terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
-            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, records, scope));
+            (!test || test({ ...block, childProperties: () => (graph ? (graph.byParent.get(id) ?? []).filter(child => !child.effectiveDeletedRootId) : this.childrenFromCurrentRead(id)).map((child) => child.properties) }, records, scope));
         }),
       };
     }).deferred();
@@ -5434,9 +5440,9 @@ export class OutlinerStore {
     const where = options.where ? compileQueryExpression(options.where, options.now, this.queryRelations(graph)) : null;
     const contextFilters = [...(options.filters ?? []), ...(options.where ? positivePropertyFilters(options.where) : [])];
     const evidenceAt = options.now ?? Date.now();
-    const visit = (block: Block, depth: number): boolean => {
+    const candidates = queryCandidates(this.database, graph, options.filters, options.where, options.now);
+    const consider = (block: Block, depth: number): boolean => {
       const effectivelyDeleted = Boolean(block.effectiveDeletedRootId);
-      if (deletedMode === "active" && effectivelyDeleted) return false;
       let deletionMatches: boolean;
       switch (deletedMode) {
         case "active":
@@ -5452,6 +5458,7 @@ export class OutlinerStore {
       const propertyRecords = graph.propertyRecordsByBlock.get(block.id) ?? [];
       const matches =
         deletionMatches &&
+        (!candidates || candidates.has(block.id)) &&
         (!options.filters?.length ||
           matchesFilters(propertyRecords, options.filters, propertyScope)) &&
         (!options.machinery || machineryAllows(options.machinery, isMachinery(block.properties))) &&
@@ -5489,13 +5496,19 @@ export class OutlinerStore {
           return true;
         }
       }
-
+      return false;
+    };
+    const visit = (block: Block, depth: number): boolean => {
+      if (deletedMode === "active" && block.effectiveDeletedRootId) return false;
+      if (consider(block, depth)) return true;
       for (const child of graph.byParent.get(block.id) ?? []) {
         if (visit(child, depth + 1)) return true;
       }
       return false;
     };
 
+    // Who could match is known and it's the whole live outline: those few in outline order, with no walk of the rest.
+    if (candidates && deletedMode === "active" && !options.subtreeRootId) return inLiveOrder(graph, candidates).some(({ block, depth }) => consider(block, depth)), blocks;
     if (options.subtreeRootId) {
       const root = graph.byId.get(options.subtreeRootId);
       if (root) visit(root, 0);
@@ -5773,9 +5786,7 @@ export class OutlinerStore {
   private requireCaptureInboxFromCurrentRead(): Block {
     const inboxes = this.captureInboxesFromCurrentRead();
     if (inboxes.length !== 1) {
-      throw new Error(
-        `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
-      );
+      throw new Error(`Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`);
     }
     return inboxes[0]!;
   }
@@ -5783,9 +5794,7 @@ export class OutlinerStore {
   private ensureInbox(): void {
     const inboxes = this.database.transaction(() => this.captureInboxesFromCurrentRead()).deferred();
     if (inboxes.length > 1) {
-      throw new Error(
-        `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
-      );
+      throw new Error(`Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`);
     }
     if (inboxes.length === 1) return;
     this.create("Inbox [type::inbox] [system-view::inbox]", null, "system");
@@ -5802,24 +5811,13 @@ export class OutlinerStore {
       parseBookmarksRoot(roots[0]!);
       return;
     }
-    this.create(
-      "Bookmarks [type::virtual-branch] [system-view::bookmarks] [query::type=bookmark] [limit::1000] [summary-properties::target,bookmark-created]",
-      null,
-      "system",
-    );
+    this.create("Bookmarks [type::virtual-branch] [system-view::bookmarks] [query::type=bookmark] [limit::1000] [summary-properties::target,bookmark-created]", null, "system");
   }
 
   private ensureTrashView(): void {
-    const existing = this.queryBlocks({
-      filters: [{ key: "system-view", value: "trash" }],
-      limit: 1,
-    }).blocks[0];
-    if (existing) return;
-    this.create(
-      "Trash [type::virtual-branch] [system-view::trash] [query::deleted=true] [limit::200]",
-      null,
-      "system",
-    );
+    // By the property index, the value by the shared rule: a query here read the whole outline at every open (PIE-1610).
+    if ((this.database.query("SELECT p.value FROM block_properties p JOIN blocks b ON b.id = p.block_id WHERE p.scope = 'block' AND p.key = 'system-view' AND b.effective_deleted_root_id IS NULL").all() as { value: string }[]).some(row => propertyValueHolds(row.value, "trash"))) return;
+    this.create("Trash [type::virtual-branch] [system-view::trash] [query::deleted=true] [limit::200]", null, "system");
   }
 
   private seed(): void {
@@ -5887,19 +5885,19 @@ export class OutlinerStore {
     return row ? row.block_id : undefined;
   }
 
-  private canonicalWorkIdReservationsFromCurrentRead(): Array<{
-    workId: string;
-    prefix: string;
-    number: number;
-  }> {
-    const rows = this.database.query(
-      "SELECT work_id FROM reserved_work_ids ORDER BY work_id",
-    ).all() as Array<{ work_id: string }>;
-    return rows.flatMap((row) => {
+  private canonicalWorkIdReservationsFromCurrentRead(): Array<{ workId: string; prefix: string; number: number }> {
+    // Every read that resolves a reference asks: one read per change, as the prefixes (PIE-1610).
+    const held = this.reservationsHeld, key = this.changeKey();
+    if (held?.key === key) return held.reservations;
+    const rows = this.database.query("SELECT work_id FROM reserved_work_ids ORDER BY work_id").all() as Array<{ work_id: string }>;
+    const reservations = rows.flatMap((row) => {
       const parsed = parseWorkId(row.work_id);
       return parsed && parsed.workId === row.work_id ? [parsed] : [];
     });
+    this.reservationsHeld = { key, reservations };
+    return reservations;
   }
+  private reservationsHeld?: { key: string; reservations: Array<{ workId: string; prefix: string; number: number }> };
 
   private workIdAllocatorStatusFromCurrentRead(): WorkIdAllocatorStatus {
     const allocator = this.workIdAllocatorFromCurrentRead();

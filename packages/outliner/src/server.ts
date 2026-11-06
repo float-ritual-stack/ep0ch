@@ -392,7 +392,7 @@ export class OutlinerServer {
   private knownExtensions = new Set<string>();
   /** The host's outlines folder, when hosted: this machine's name is read from it. */
   private readonly outlinesFolder?: string;
-  private readonly turns = new Turns();
+  readonly turns = new Turns();
   /**
    * The service asking itself: a job's own reads and writes (Jev's records, a search's tally, a script's calls, the
    * in-process publisher, a write's structure check). Each request waits its turn on the loop as a client's does
@@ -401,7 +401,7 @@ export class OutlinerServer {
    * itself something that takes a turn; `handle` stays for answers that must be synchronous (a watch's evaluation,
    * the draft router's guard).
    */
-  private readonly own = {
+  readonly own = {
     request: async <T>(input: RequestInput | ({ action: string } & Record<string, unknown>)): Promise<T> => {
       // A request's own reads and writes go as its asker's (a backfill's keep as the backfill's); a timer's as `own`.
       const key = turnOwner.getStore() ?? "own";
@@ -511,7 +511,7 @@ export class OutlinerServer {
         }
         this.knownExtensions = present;
         this.extensionRules?.rebaseline();
-        this.extensionCalls?.registryChanged();
+        heldBy(`open ${this.outline?.name ?? "outline"}: handler lines`, () => this.extensionCalls?.registryChanged());
         // Clients read the list again on the event: its resource providers are current by then.
         void this.refreshResourceProviders().finally(() => {
           if (!this.stopping) this.broadcast({ id: crypto.randomUUID(), domain: "extensions", action: "extensions.changed", sequence: this.store.sequence });
@@ -850,14 +850,14 @@ export class OutlinerServer {
     this.extensionSync.use(this.resourceProviders.map((entry) => entry.provider.slice(4)));
   }
 
-  startHosted(): void {
+  startHosted(): Promise<void> {
     if (this.running) throw new Error("Outliner service is already started");
     this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => heldBy("background changes fan-out", () => this.publishChanges(undefined, changes));
     this.hosted = true;
     // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches. Its
     // snapshot links still end on time.
-    if (this.readOnly) { if (this.copy) this.snapshots.start(); return; }
+    if (this.readOnly) { if (this.copy) this.snapshots.start(); return Promise.resolve(); }
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
     const name = this.outline?.name ?? "outline";
@@ -867,8 +867,8 @@ export class OutlinerServer {
     heldBy(`open ${name}: rules`, () => this.extensionRules.start());
     heldBy(`open ${name}: routing`, () => { this.routing.ensureHub(); seedArtifactRule(this.store); });
     this.extensionSchedules.start();
-    // Its resource providers once its folders are read (and again on every reload).
-    void this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders());
+    // Its resource providers once its folders are read (and again on every reload); answered when that and its pages are done.
+    return this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders()).then(() => this.syncExtensionPages(false)).catch(() => {});
   }
 
   /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */

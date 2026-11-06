@@ -1,5 +1,6 @@
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
+import { warmHolds, warmReads } from "./outline-warm";
 import { LokiLeases } from "./loki-leases";
 import { UploadTokens } from "./upload-tokens";
 import { SHORTCUT_NAME } from "./send-to-ep0ch-shortcut";
@@ -67,13 +68,23 @@ export interface HostedOutline {
   promptDirectory: string;
   store: OutlinerStore;
   server: OutlinerServer;
+  /** Its extensions' folders first read and their pages written. */
+  settled: Promise<void>;
 }
+
+/** How lately an outline was written for a restart to open it unasked. */
+const WARM_RECENT_MS = 3 * 24 * 60 * 60 * 1000;
+const WARM_SETTLE_MS = 2_000;
+const WARM_QUIET_MS = 500;
+const WARM_WAIT_MS = 6_000;
 
 export interface OutlineHostOptions {
   /** The outlines folder (`resolveOutlinesFolder`). */
   outlinesFolder: string;
   /** Where requests without `outline` go (tests and scripts that hold one outline). It must already exist; the host never creates it. */
   defaultOutline?: string;
+  /** Open what was in use lately as soon as the host listens, one at a time, instead of on the first request of each (the service; never a test's host). */
+  warmRecent?: boolean;
   /** Shared by every outline: Herdr's panes are one machine-wide fact. */
   herdrRegistry?: HerdrRuntimeRegistry;
   /** `OUTLINER_PROMPT_DIR`: one prompt folder for every outline, used as is. */
@@ -210,6 +221,9 @@ export class OutlineHost {
   private readonly relayProtocols = new Map<string, { protocol: number; at: number }>();
   private readonly opened = new Map<string, HostedOutline>();
   private readonly opening = new Map<string, Promise<HostedOutline>>();
+  /** What `warmRecent` hasn't finished, and which of them a request has asked for. */
+  private readonly warming = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>();
+  private readonly warmAsked = new Set<string>();
   /** Outlines whose files are being moved away or written; they must not open meanwhile. */
   private readonly busy = new Set<string>();
   private readonly connections = new Set<Socket>();
@@ -261,9 +275,88 @@ export class OutlineHost {
       // After start, a listener fault is the host's own: report it; the process decides to exit.
       listener.on("error", error => (this.options.onListenerError ?? (fault => this.log(`Outline host listener failed: ${fault.message}`)))(error));
       this.listener = listener;
+      if (this.options.warmRecent) this.warmRecent();
     } catch (error) {
       await this.close().catch(() => undefined);
       throw error;
+    }
+  }
+
+  /** Outlines written lately, newest first: the ones doors are about to ask for. */
+  private recentNames(): string[] {
+    const changed = (path: string) => lstatOrUndefined(path)?.mtimeMs ?? 0;
+    const since = Date.now() - WARM_RECENT_MS;
+    return this.names()
+      .filter(name => (lstatOrUndefined(this.layout.database(name))?.size ?? 0) > 0)
+      .map(name => ({ name, at: Math.max(changed(this.layout.database(name)), changed(`${this.layout.database(name)}-wal`)) }))
+      .filter(({ at }) => at >= since).sort((a, b) => b.at - a.at).map(({ name }) => name);
+  }
+
+  /**
+   * A restart (PIE-1610): doors reconnect at once, every one asking whole-outline questions of every cold outline, each
+   * open holding the loop while the rest wait (float-2, Nov 6: 16 s). So what was in use is opened now, one at a time, an
+   * outline someone is waiting for first: its open, graph, extensions' pages and a door's first asks (`outline-warm.ts`). A
+   * request for one waits for that (`warmGate`, from `route` and link reads), never past WARM_WAIT_MS, and then it opens
+   * cold as ever. A door waits well: it says it's reconnecting until `events.subscribe` answers, with no timeout, and reads
+   * after that. An extension's own process goes straight through. One outline's failure is that outline's: its first
+   * request says why, as ever.
+   */
+  private warmRecent(): void {
+    const queue = this.recentNames();
+    for (const name of queue) this.warming.set(name, Promise.withResolvers<void>());
+    void (async () => {
+      while (queue.length && !this.closing) {
+        const at = Math.max(0, queue.findIndex(name => this.warmAsked.has(name)));
+        const name = queue.splice(at, 1)[0]!;
+        await this.warm(name).catch(error => {
+          this.log(`Outline "${name}" did not warm: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        await this.quiet();
+      }
+      for (const [name, gate] of this.warming) { this.warming.delete(name); gate.resolve(); }
+    })();
+  }
+
+  /** Waits for an outline `warmRecent` hasn't finished, for a while. */
+  private async warmGate(name: string): Promise<void> {
+    const gate = this.warming.get(name);
+    if (!gate) return;
+    this.warmAsked.add(name);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([gate.promise, new Promise<void>(resolve => { timer = setTimeout(resolve, WARM_WAIT_MS); })]);
+    clearTimeout(timer);
+  }
+
+  private async warm(name: string): Promise<void> {
+    if (this.closing) return;
+    const started = performance.now();
+    let outline: HostedOutline, settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      outline = await this.open(name);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      warmHolds(name, outline.store);
+      // Bounded: a resource provider that hangs must not keep doors out, nor hold the next outline's turn.
+      settled = await Promise.race([outline.settled.then(() => true), new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), WARM_SETTLE_MS); })]);
+      clearTimeout(timer);
+      if (settled) await warmReads(name, outline.store, outline.server.own.request);
+    } finally {
+      this.warming.get(name)?.resolve();
+      this.warming.delete(name);
+    }
+    this.log(`Outline "${name}" warmed in ${Math.round(performance.now() - started)} ms${settled ? "" : " (stopped waiting for its extensions)"}`);
+  }
+
+  /**
+   * Doors that got in first have their burst answered before the next outline's open holds the loop: requests take one
+   * turn a pass, so a hold every pass keeps them queued however short it is. Not for long: the next outline's doors are waiting too.
+   */
+  private async quiet(): Promise<void> {
+    const until = performance.now() + WARM_QUIET_MS;
+    let still = 0;
+    while (still < 2 && performance.now() < until) {
+      await new Promise<void>(resolve => setTimeout(resolve, 25));
+      still = [...this.opened.values()].some(outline => outline.server.turns.waiting) ? 0 : still + 1;
     }
   }
 
@@ -710,10 +803,10 @@ export class OutlineHost {
         }
         return undefined;
       });
-      server.setLinkReader(request => (this.links ??= new OutlineLinks(() => this.names(), async name => (await this.open(name)).store, this.outlinesFolder)).read(name, request));
-      server.startHosted();
+      server.setLinkReader(request => (this.links ??= new OutlineLinks(() => this.names(), async name => { await this.warmGate(name); return (await this.open(name)).store; }, this.outlinesFolder)).read(name, request));
+      const settled = server.startHosted();
       if (this.closing) throw new Error("The outline host is stopping");
-      const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server };
+      const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server, settled };
       this.opened.set(name, outline);
       try { await this.options.onOpen?.(outline); }
       catch (error) { this.log(`Outline "${name}": ${error instanceof Error ? error.message : String(error)}`); }
@@ -872,6 +965,7 @@ export class OutlineHost {
       fail(new Error("Name the outline: every request to the outline host carries `outline: <name>` (see `ep0ch outline list`)"));
       return;
     }
+    if (request?.grant === undefined && request?.relayed === undefined) await this.warmGate(name);
     let outline: HostedOutline;
     try {
       outline = await this.open(name);

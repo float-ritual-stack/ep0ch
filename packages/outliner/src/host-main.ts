@@ -49,6 +49,7 @@ try {
   const host = new OutlineHost({
     outlinesFolder,
     defaultOutline,
+    warmRecent: true,
     herdrRegistry,
     promptDirectory: process.env.OUTLINER_PROMPT_DIR,
     // The listener is the host: without it nothing is served, so exit for systemd to restart.

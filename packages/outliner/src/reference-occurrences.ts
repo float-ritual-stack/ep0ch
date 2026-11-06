@@ -1,3 +1,4 @@
+import { textMemo } from "./text-memo";
 import type { SiteValue } from "@ep0ch/outline-core/site";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import {Lexer, type Token} from "marked";
@@ -62,8 +63,11 @@ export function protectedMarkdownRanges(text: string): TextRange[] {
   return [...protectedCodeRanges(text), ...markdownLinkRanges(text)];
 }
 
-/** The Markdown links and images of `text` (where a reference or Work ID is the link's text, not a link of its own). */
-function markdownLinkRanges(text: string): TextRange[] {
+/**
+ * The Markdown links and images of `text` (where a reference or Work ID is the link's text, not a link of its own), kept per
+ * text: a backlinks read asks of every source, and the inline lexer was most of it on pie (PIE-1610). Never change what it answers.
+ */
+const markdownLinkRanges = textMemo((text: string): TextRange[] => {
   const ranges: TextRange[] = [];
   for (const match of text.matchAll(/!?\[[^\]\n]*\]\([^)\n]*\)/g)) {
     ranges.push({ start: match.index, end: match.index + match[0].length });
@@ -83,7 +87,7 @@ function markdownLinkRanges(text: string): TextRange[] {
   };
   visit(text,Lexer.lexInline(text),0);
   return ranges;
-}
+});
 
 /** Where page-link syntax is: each `[[…]]` whole, its brackets counted (outline-core), and a `[[` left open to its line's end. */
 export function pageSyntaxRanges(text: string): TextRange[] {
