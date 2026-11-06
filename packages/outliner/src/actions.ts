@@ -65,7 +65,8 @@ export interface ActionDecl<R = OutlinerRequest> {
   /**
    * A read the async path answers that may run for seconds off the loop (a script's drawing): it starts after what its
    * connection sent before it, and nothing the connection sends after waits for it (server.ts `accept`, PIE-1546: a
-   * door's what-changed tile held its status bar and its saves behind a 1-6 s render).
+   * door's what-changed tile held its status bar and its saves behind a 1-6 s render). The reads `OutlineLinks` may
+   * answer over a link to another machine are too: a laptop's round trips held a door's whole note open behind them.
    */
   detached?: true;
   /** The change event a successful answer broadcasts, or null when nothing changed; left out, none. */
@@ -292,7 +293,7 @@ export const ACTIONS = {
   "pages.follow": { event: (_, { result }) => { const r = result as PageAddressFollowResult; return r.created ? content(r.block?.id) : null; } },
   "pages.remove": { event: onBlock },
   "pages.rename": { event: onBlock },
-  "pages.resolve": { read: true },
+  "pages.resolve": { read: true, detached: true },
   "ping": { read: true },
   "properties.catalog": { ext: "read", whole: true },
   "properties.inventory": { ext: "read", whole: true },
@@ -305,7 +306,7 @@ export const ACTIONS = {
   "reader.report": { copy: true, async: true },
   "reader.view": { copy: true, async: true },
   "references.backlinks": { read: true, watch: true, whole: true },
-  "references.resolve": { ext: "read" },
+  "references.resolve": { ext: "read", detached: true },
   "references.soft": { read: true },
   "references.soft-scope": { read: true },
   "resource-sources.create": { event: (_, { result }) => ({ domain: "resource-catalog", sourceId: resultId(result, "Resource source") }) },
@@ -363,7 +364,7 @@ export const ACTIONS = {
   "template.props": { read: true },
   "template.stamp": { event: (_, { result }) => { const stamped = (result as TemplateStampResult).stamped; return stamped.length ? content(stamped[0]!.id) : null; } },
   "template.use": { read: true, watch: true },
-  "transclusions.read": { read: true },
+  "transclusions.read": { read: true, detached: true },
   "trash.purge": { event: onBlock },
   "trash.restore": { event: onBlock },
   "tree.focus": { whole: true },

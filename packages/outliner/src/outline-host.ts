@@ -1,4 +1,5 @@
 import { OutlineLinks } from "./outline-links";
+import { heldBy } from "./loop-watch";
 import { LokiLeases } from "./loki-leases";
 import { UploadTokens } from "./upload-tokens";
 import { SHORTCUT_NAME } from "./send-to-ep0ch-shortcut";
@@ -687,7 +688,7 @@ export class OutlineHost {
     }
     let store: OutlinerStore;
     try {
-      store = new OutlinerStore(database, { workspaceRoot });
+      store = heldBy(`open ${name}: store`, () => new OutlinerStore(database, { workspaceRoot }));
     } catch (error) {
       throw new Error(`Outline "${name}" could not be opened: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }

@@ -1,6 +1,7 @@
 import type { DoorEvent } from "@ep0ch/outline-core/door-open";
 import { cellBlockId } from "@ep0ch/outline-core/figure-live";
 import { displayTitleOfText } from "./references";
+import { heldBy } from "./loop-watch";
 import { createHash } from "node:crypto";
 import {
   builtInSpec,
@@ -648,8 +649,10 @@ export class ExtensionRules {
     }
     const fresh = rules.filter((rule) => !this.matching.has(rule.key));
     if (!fresh.length) return;
-    const blocks = this.store.liveBlocks();
-    for (const rule of fresh) this.recompute(rule, blocks);
+    heldBy("rules baseline", () => {
+      const blocks = this.store.liveBlocks();
+      for (const rule of fresh) this.recompute(rule, blocks);
+    });
   }
 
   /** What a trigger rule matches now, across the outline, with nothing run: its baseline. */
