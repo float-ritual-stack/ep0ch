@@ -38,8 +38,8 @@ export const showIn = (desk: { paneNamed(name: string): unknown }, m: { id: stri
 };
 
 /**
- * How much longer every wait may take than written: EP0CH_TEST_SLACK (default 1), a multiplier `scripts/agent-env
- * --test` sets to 2 when the machine's load at start is over 6 (PIE-1504), so a red under load means the change
+ * How much longer every wait may take than written: EP0CH_TEST_SLACK (default 1), a multiplier box-test sets to 2 and
+ * `scripts/agent-env --test` sets to 2 when the machine's load at start is over 6 (PIE-1504), so a red under load means the change
  * broke something, never that the box was busy. Read at each call: a test may set it for one wait.
  */
 export const testSlack = () => {
@@ -50,7 +50,7 @@ export const testSlack = () => {
 /**
  * What a file's setup may take to start its host and seed the showcase: a cold seed writes hundreds of notes, and on a
  * box at load 20 a limit of 30 s went red with nothing broken (PIE-1576). It doesn't scale with EP0CH_TEST_SLACK:
- * box-test sets none, and this is already the busy box's number. A setup that can't finish still fails at this limit.
+ * this is already the busy box's number. A setup that can't finish still fails at this limit.
  */
 export const SEEDED_SETUP_MS = 120_000;
 

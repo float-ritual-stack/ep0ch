@@ -17,13 +17,25 @@ test("until waits EP0CH_TEST_SLACK times as long; unset, empty or nonsense means
   };
   try {
     expect([testSlack(), (process.env.EP0CH_TEST_SLACK = "", testSlack()), (process.env.EP0CH_TEST_SLACK = "x", testSlack()), (process.env.EP0CH_TEST_SLACK = "0", testSlack()), (process.env.EP0CH_TEST_SLACK = "2.5", testSlack())])
-      .toEqual([was ? testSlack() : 1, 1, 1, 1, 2.5]);
+      .toEqual([Number(was) || 1, 1, 1, 1, 2.5]);
     expect(await timing(undefined, 60)).toBeGreaterThanOrEqual(55);
     expect(await timing("4", 60)).toBeGreaterThanOrEqual(235);
   } finally {
     if (was === undefined) delete process.env.EP0CH_TEST_SLACK; else process.env.EP0CH_TEST_SLACK = was;
   }
 });
+
+// PIE-1611: the preload clears the person's EP0CH_* settings, and for a while this one with them: agent-env's and
+// box-test's slack never reached a door test, whatever the load.
+test("a run's EP0CH_TEST_SLACK reaches its tests, past the preload", async () => {
+  const dir = scratchDir("slack-seen-"), file = join(dir, "slack-seen.test.ts");
+  writeFileSync(file, `import { test, expect } from "bun:test";\ntest("seen", () => { expect(process.env.EP0CH_TEST_SLACK).toBe("3"); });\n`);
+  try {
+    const run = Bun.spawn([process.execPath, "test", file], { cwd: join(import.meta.dir, ".."), env: { ...process.env, EP0CH_TEST_SLACK: "3" }, stdout: "ignore", stderr: "pipe" });
+    const [code, said] = await Promise.all([run.exited, new Response(run.stderr).text()]);
+    expect({ code, said: code ? said : "" }).toEqual({ code: 0, said: "" });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 30_000);
 
 test("scratchDir removes its prefix's dirs whose test process is gone, and keeps live, unmarked, other-namespace and other dirs", async () => {
   const prefix = `ep0ch-prune-check-${process.pid}-`;
