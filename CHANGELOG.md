@@ -10,13 +10,6 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### The door keeps up while notes change under it (PIE-1606)
-
-- **One frame scheduler:** a burst of outline changes paints at most a frame at a time and rests the loop, so keys and the host's answers no longer wait behind paints. Keys, clicks, `act`, terminal output and transitions keep their pace.
-- **Asked less:** soft-link scope is a watched read, and the board and what-changed tiles look up only what changed.
-- **Run:** `ep0ch install --apply` (PROTOCOL 311).
-
-<<<<<<< HEAD
 ### pie's host stays quick under agent writes, and its log names who waited (PIE-1546, PIE-1567)
 
 - **Fewer waits:** reading comments no longer scans every note; opening a note no longer waits on a sleeping laptop; three doors asking the same question after a restart get one answer.
@@ -34,7 +27,6 @@ are its record. The outliner's entries from then are kept below, under
 - **`ep0ch ext act`, `ext remove` and scheduled runs** wait for their action instead of saying "timed out" at 3 s while it went on.
 - **The 4:00 AM nightly** runs `box-test --alone`: other box-test runs wait for it, and say so.
 - **Run:** `ep0ch install --apply` on float-box for the nightly script.
-=======
 ### The editing keys you reach for work in every draft, and a selection is plain to see (PIE-1607)
 
 - **Mac keys in every place you type:**
@@ -54,7 +46,6 @@ are its record. The outliner's entries from then are kept below, under
 - **A storm of changes:** a frame an outline change asks for now rests the door's loop first, three times the last frame's length (at most 250 ms), so painting takes about a quarter of the loop on a board of many lanes. A terminal tile's output, a transition, a key, a click and an agent's action keep a frame's pace.
 - **Asked less per change:** soft links' scope is a question the service watches, not a request on the first frame after every change; a change no longer counts the what-changed list twice or scans every lane's rows.
 - **Run:** `ep0ch install --apply` (door and host: `references.soft-scope` is now a watched read).
->>>>>>> origin/main
 
 ### Who wrote a note always says the machine and client (PIE-1605)
 
