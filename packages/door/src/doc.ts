@@ -1097,7 +1097,10 @@ export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number,
   const size = entry.state === "ready" ? entry : entry.state === "loading" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null;
   let image: DocImage | undefined;
   if (size && env.graphics) {
-    const box = isHero ? heroBox(size, hero!, W, Math.min(hero!.height ?? env.maxImageRows, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
+    // `[fit::cover]` at full width with its height written is cut to that box, as a header is (a card's cover, PIE-1595).
+    const box = isHero ? heroBox(size, hero!, W, Math.min(hero!.height ?? env.maxImageRows, env.maxImageRows), env.cellW, env.cellH)
+      : spec.fit === "cover" && spec.size === "full" && spec.height ? heroBox(size, spec, W, Math.min(spec.height, env.maxImageRows), env.cellW, env.cellH)
+      : imageBox(size, spec, W, env);
     if (entry.state === "ready") image = { line: 0, media: entry, ...(hero ? { look: hero.pixels } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
     for (let r = 0; r < box.rows; r++) lines.push("");
     // An SVG's links (PIE-1555): each <a href> a press over the cells it covers, under the picture, as a link in the text is.

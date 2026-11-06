@@ -14,6 +14,7 @@ import { asksPerItem, cellBlockId, CHILDREN_QUERY, figureQuestion, itemField, li
 import { recordProperties, valuesOf } from "@ep0ch/outline-core/block-record";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { frontMatterLines } from "@ep0ch/outline-core/header-line";
+import { cardCover, withoutMediaLines } from "@ep0ch/outline-core/media-line";
 import { bodyMatch, matchWords } from "@ep0ch/outline-core/property-match";
 import { VIEW, checkValue } from "@ep0ch/outline-core/component-schema";
 import { viewWords } from "@ep0ch/outline-core/view-spec";
@@ -270,9 +271,11 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       const match = bodyMatch(block);
       const label = (displayTitleOfText(block.text) ?? block.id) + (match ? ` · ${matchWords(match, false)}` : "");
       const front = frontMatterLines(block.text);
-      const body = block.text.split("\n").filter((_, i) => !front.has(i)).join("\n").trim().split("\n");
+      // A card's body is its words: its picture is the cover, and a media line's source is nobody's to read (PIE-1595).
+      const body = withoutMediaLines(block.text).split("\n").filter((_, i) => !front.has(i)).join("\n").trim().split("\n");
       const cells = columns.map(key => rowValue(block, key, label, body)).map(cell => typeof cell === "object" && cell.link === (table.aboutBlocks?.[i] ?? table.blocks[i]) && table.rowRevisions?.[i] ? { ...cell, revision: table.rowRevisions[i]! } : cell);
-      const cover = viewWords(p.cover).map(key => valuesOf(block, key).join(", ")).find(Boolean);
+      // A gallery or a feed falls back on the note's header picture.
+      const cover = cardCover(block.text, viewWords(p.cover).map(key => ({ key, values: valuesOf(block, key) })), layout === "gallery" || layout === "feed");
       return { id: block.id, label, cells, bind: `((${block.id}))`, body: body.slice(0, bodyLines),
         detail: columns.flatMap((key, i) => key === "title" || !listCellText(cells[i]!) ? [] : [`${key}: ${listCellText(cells[i]!)}`]).join(" · "),
         ...(cover ? { cover } : {}), preview: { block: block.id },

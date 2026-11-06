@@ -2319,7 +2319,7 @@ export class NoteSurface {
       const last = bodyText.length - 1, results = outline ? (width: number) => renderCollection({ props: { of: `((${m.id}))` }, key: "^view" }, m.id, width, this.listEnv, (to, text) => tagged(drawn, to, text)) : null;
       const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
-      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, press: (act, text) => tagged(drawn, { role: "control", label: text, press: { act, block: m.id, line: 0 } }, text), markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
+      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, press: (act, text) => tagged(drawn, { role: "control", label: text, press: { act, block: m.id, line: 0 } }, text), markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: (node, width) => pictureRows(node, width, env, drawn), headings: headingStylesOf(src) }, bodyText);
       for (const [line, ps] of regions) {
         const replace = ps.filter(({ p }) => p.output?.component?.placement === "replace");
         if (!replace.length) continue;
@@ -2527,7 +2527,7 @@ export class NoteSurface {
       current: () => this.listHost().current(),
       row: (key, row, to, x, group) => tagged(drawn, { ...to, listRow: { key, row, group } }, x),
       control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
-      ...(preview ? { preview } : {}),
+      ...(preview ? { preview } : {}), image: (node, width) => pictureRows(node, width, env, drawn),
       seen: info => blocks.push(info),
     };
     const doc = drawIn("note", presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), env, {

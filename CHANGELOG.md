@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A gallery card shows its note's header picture (PIE-1595)
+
+- **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.
+- **A feed row holds it as a thumbnail,** beside its title and body.
+- **A card's body is its words:** `body:` no longer prints a picture's line as text, and `body: 0` leaves the title and summary chips.
+
 ### The desk's undo is a step, and who has your keys is one fact (PIE-1592)
 
 - **ctrl+z takes back the step you made, on the desk you made it.** Screen, drawer, glass and groups all undo from one record of steps: each says which desks it touched, whose it is, what takes it back and where your keys go.

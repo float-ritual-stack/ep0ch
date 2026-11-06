@@ -84,7 +84,7 @@ import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, FIGURE_SIZING,
 import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
 import { ASK_AGENT, COMPLETION_PLACE, SOWING_WEEKS, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
-import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, picturesText, placeArtifacts, PLOT_ART, PLOT_BANNER, PLOT_CARDS, PLOT_CARD_NOTES } from "./seed/media";
+import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, shelfCards, heroText, imagesText, picturesText, placeArtifacts, PLOT_ART, PLOT_BANNER, PLOT_CARDS, PLOT_CARD_NOTES } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIR_LIST, FORM_REPAIRS, FORM_WATERING, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
@@ -839,6 +839,9 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.lineAsksAll = await make(notes.root.id, `${SEED.lineAsksAll} [type::virtual-branch] [query::club-ask] [property-scope::all]`);
   notes.gallery = await make(notes.root.id, galleryText());
   for (const card of galleryCards()) await make(notes.gallery.id, card);
+  // The ::view's shelf (PIE-1595), held by a note of its own so the gallery extension's cards stay its children.
+  notes.shelf = await make(notes.root.id, `${SEED.shelf}\nThe notes the gallery section's covers come from.`);
+  for (const card of shelfCards()) await make(notes.shelf.id, card);
   // The saved view remains the one question; the installed workbench extension presents its live answer three ways.
   notes.workbench = await make(notes.root.id, `${SEED.workbench} [type::virtual-branch] [query::type=chore] [group::stage] [sort::due] [direction::asc] [columns::stage,due,area]\nworkbench::\nEdit a chore's stage or due date, or change this note's query. The table, cards and list follow the same answer.`);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.

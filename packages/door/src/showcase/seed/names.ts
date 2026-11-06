@@ -55,6 +55,7 @@ export const SEED = {
   dashboardEmbed: "!((Plot at a glance))",
   artifacts: "Toys on the desk",
   gallery: "Seed packet gallery",
+  shelf: "Seed shelf",
   workbench: "Garden collection workbench",
   machineryPeople: "Written by people",
   machineryTools: "Written by tools",
