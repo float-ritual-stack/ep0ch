@@ -61,7 +61,7 @@ Before a PR claims a change works:
      ep0ch-core skill). Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the
      root, the root `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`).
    - **The nightly run on main** is `scripts/nightly-main`, started by the float-box user timer `ep0ch-nightly.timer`
-     at 04:00: `box-test --alone --each all` on origin/main's head (alone: it holds every slot, so its time limits read the code, not who else was on the box), a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
+     at 04:00: `box-test --alone --each all` on origin/main's head (`--alone` holds every slot: no other box-test run goes beside it), a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
      one high ticket in pie naming every red file.
    - **The test-time budget** (PIE-1422) is `scripts/test-budget.json`: summed seconds per package and per test file,
      read from the JUnit each box-test run writes, so more shards or `--parallel` can't hide growth. box-test prints the
@@ -78,7 +78,7 @@ Before a PR claims a change works:
      showcase's `test/showcase/*.test.ts` included (`sh scripts/test-each.sh --list` names them): a file that loads
      only because another loaded a module first passes in one process and fails alone (#204).
    - **A focused run under load waits longer, never goes red for it** (PIE-1504): `scripts/agent-env --test` sets
-     `EP0CH_TEST_SLACK=2` when float-box's load at start is over 6, and the tests' `until` (the door's
+     `EP0CH_TEST_SLACK=2` when float-box's load at start is over 6 (box-test always does: its files run eight at once), and the tests' `until` (the door's
      `test/scratch.ts`, the outliner's `test/script-harness.ts`) scales every deadline by it. Each run leaves one row
      in `~/.agent-env/test-runs.tsv` (when, worktree, files, seconds, slot wait, exit, load): read it before calling a
      red "flaky".

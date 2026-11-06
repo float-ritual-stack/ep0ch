@@ -254,9 +254,9 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const source = `Orchard\n- cherries\n@tidy earlier\nFruit to wrap:\n- apples\n\n  more apples\n\n- pears\n${instruction}\n${instruction}\n@tidy yo\n`;
     await stage.dispatch.press("draft.paste", { text: source }, tile);
     // What the ask says when it doesn't land: its status and the draft's text.
-    await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 30_000)
+    await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 8000)
       .catch(e => { throw new Error(`${e.message}: ${JSON.stringify({ status: d.askStatus(instruction), yo: d.askStatus("@tidy yo"), text: d.text })}`); });
-    await until(() => d.askStatus(instruction).includes("rewrote 2 items as callouts") && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 30_000);
+    await until(() => d.askStatus(instruction).includes("rewrote 2 items as callouts") && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 8000);
     expect(d.text).toContain("- cherries\n@tidy earlier\nFruit to wrap:\n");
     expect(d.text).toContain(instruction + "\n" + instruction);
     expect((await board.get(d.blockId))!.text).toBe("");
@@ -271,7 +271,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await stage.dispatch.press("edit.close", { discard: true }, tile);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
-  }, 70_000);
+  }, 60_000);
 
 
   test("a macro starts with its key and stops by mouse without recording the agent", async () => {

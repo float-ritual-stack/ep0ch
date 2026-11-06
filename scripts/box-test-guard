@@ -5,8 +5,8 @@
 #   one run per worktree   a lock keyed by the worktree (BOX_WT) refuses a second run while one is going there, naming
 #                          its pid, commit and age and the command that stops it; BOX_REPLACE=1 stops the old run first.
 #   a cap on runs          BOX_SLOTS flock slots; a run past the cap waits and says so.
-#   a run alone            BOX_ALONE=1 takes every slot, lowest first, so nothing else runs beside it (the nightly: its
-#                          time limits read the code, not who else was on the box; Nov 6, PIE-1600).
+#   no run beside it       BOX_ALONE=1 takes every slot, lowest first, so no other box-test run goes beside it (the nightly;
+#                          Nov 6, PIE-1600). Focused agent-env runs and builders still may.
 #   nothing outlives it    the run is a process group of its own, killed whole on every way out (exit, INT, TERM, HUP,
 #                          the ssh that started it dying, the timeout), then anything still tied to the run dir
 #                          (its environment or working folder) is killed too and a survivor is reported.

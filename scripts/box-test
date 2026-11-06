@@ -24,7 +24,7 @@
 #             logged-in claude, which boxd injects). The door's files run in parallel (`--parallel`): one per vCPU
 #             on boxd, TEST_EACH_JOBS on float-box.
 #   --each    the door's files each alone too (test:each), one per vCPU at once on boxd, TEST_EACH_JOBS on float-box.
-#   --alone   float-box: wait for the runs ahead, then hold every slot, so nothing else runs beside this one (the nightly).
+#   --alone   float-box: wait for the runs ahead, then hold every slot, so no other box-test run goes beside this one (the nightly).
 #   --replace stop this worktree's running run (float-box) and start this one instead of being refused.
 #   --keep    leave the fork (boxd) or the run dir (float-box) afterwards, and say how to reach and remove it.
 #
@@ -151,7 +151,7 @@ if [ $target = float-box ]; then
   home_line="mkdir -p $dir/home; export HOME=$dir/home; "
   for p in "${pkgs[@]}"; do [ "$p" = claude-mod ] && home_line=""; done
   # with-secrets groups: an empty folder of the run's, even when HOME stays (claude-mod), so no test host reads a real key.
-  run="${home_line}mkdir -p $dir/secrets; export WITH_SECRETS_DIR=$dir/secrets; for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
+  run="${home_line}mkdir -p $dir/secrets; export WITH_SECRETS_DIR=$dir/secrets; for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done; export EP0CH_TEST_SLACK=2"
   run+="; cd $dir/ep0ch && git checkout -q --detach $sha && nice -n 10 bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
   for p in "${pkgs[@]}"; do
     # The host's fairness under bulk writes (PIE-1413): a timed run, after the suites, measured on its own.

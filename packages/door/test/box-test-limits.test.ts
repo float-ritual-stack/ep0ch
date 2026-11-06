@@ -74,7 +74,8 @@ beforeAll(() => {
   // A run that has started: marks itself, leaves a daemon outside its process group, waits for its go file.
   writeFileSync(join(seed, "packages/outline-core/t.sh"), [
     "#!/bin/sh",
-    'echo $$ >> "$FIX_OUT/$FIX_TAG.started"',
+    'echo $ >> "$FIX_OUT/$FIX_TAG.started"',
+    'echo "${EP0CH_TEST_SLACK:-none}" > "$FIX_OUT/$FIX_TAG.slack"',
     `setsid sh -c 'echo $$ >> "$FIX_OUT/$FIX_TAG.daemons"; exec sleep 600' </dev/null >/dev/null 2>&1 &`,
     'while [ ! -e "$FIX_OUT/$FIX_TAG.go" ]; do sleep 0.2; done',
     // Its JUnit, as bun test writes one for box-test's --reporter-outfile (PIE-1422): a slow file and a quick one.
@@ -147,6 +148,8 @@ describe("scripts/box-test limits", () => {
     const alone = box(worktree("wt-solo2"), "solo2", ["--alone"]);
     await until("the alone run to say it waits", () => alone.text.err.includes("waiting for the box"), 120_000);
     expect(alone.started()).toBe(false);
+    // A box-test run is loaded by design, so the tests' waits get the slack a focused run on a busy box gets (PIE-1504).
+    expect(lines(join(out, "solo1.slack"))).toEqual(["2"]);
     a.go();
     expect(await a.p.exited).toBe(0);
     await until("the alone run to start", alone.started, 120_000);
