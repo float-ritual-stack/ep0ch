@@ -352,6 +352,8 @@ const RuleMatchSchema = Type.Object(
     property: Type.Optional(Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_.-]*(=[^\\]\\r\\n]{1,200})?$" })),
     /** A query in the saved views' grammar (`type=meeting AND status=open`). */
     query: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+    /** Which chips `property` and `query` read: `all` for a `[key::value]` on any line too, as `[property-scope::all]` on a view (a ticked step's no longer matches). */
+    propertyScope: Type.Optional(Type.Union([Type.Literal("line"), Type.Literal("inline"), Type.Literal("all")])),
     /** A saved view's block id: its query. */
     view: Type.Optional(Type.String({ pattern: BLOCK_ID_SCHEMA_PATTERN })),
     /** Only blocks under this one. */

@@ -198,6 +198,7 @@ const durationText = (ms: number) => ms % 3_600_000 === 0 ? `${ms / 3_600_000}h`
 function extensionRule(extension: LoadedExtension, rule: ExtensionRule): RuleEntry {
   const match: RuleMatch = {
     ...(rule.match.property || rule.match.query ? { query: rule.match.property ?? rule.match.query } : {}),
+    ...(rule.match.propertyScope ? { propertyScope: rule.match.propertyScope } : {}),
     ...(rule.match.view ? { view: rule.match.view.toLowerCase() } : {}),
     ...(rule.match.under ? { under: rule.match.under.toLowerCase() } : {}),
     ...(rule.match.text ? { text: rule.match.text } : {}),

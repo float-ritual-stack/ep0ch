@@ -1,0 +1,34 @@
+{
+  "contract": 2,
+  "id": "asks",
+  "version": 1,
+  "name": "Asks",
+  "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them.",
+  "run": ["bun", "asks.ts"],
+  "demo": "demo",
+  "actions": [
+    { "id": "settle", "label": "Mark the lines that ask for a decision", "on": "block", "effects": "write", "deadline": "60s" },
+    { "id": "clear", "label": "Take off the marks a tick, a reply or done answered", "on": "block", "effects": "write", "deadline": "30s" },
+    { "id": "reply", "label": "Take off the marks a comment answered", "on": "block", "effects": "write", "deadline": "30s" }
+  ],
+  "rules": [
+    {
+      "id": "settle",
+      "description": "Asks the write review about a note an agent wrote, a minute after it was last saved, and marks what it finds",
+      "match": { "query": "NOT type=annotation NOT type=annotation-reply NOT type=peer-message NOT type=draft-proposal NOT type=snapshot NOT type=virtual-branch NOT type=jev-run NOT type=review-finding NOT machine NOT demo NOT from NOT ext.page NOT asks=off NOT status=done NOT work-stage=done NOT work-stage=superseded NOT outbox=done" },
+      "on": { "start": "settle", "change": "settle", "quiet": "1m", "from": ["agent"] }
+    },
+    {
+      "id": "clear",
+      "description": "Takes a mark off when its line is ticked, you reply under it, or the note reaches done",
+      "match": { "query": "asks.derived", "propertyScope": "all" },
+      "on": { "change": "clear", "stop": "clear", "quiet": "2s" }
+    },
+    {
+      "id": "reply",
+      "description": "Takes a mark off when you comment on its line, or on the whole note",
+      "match": { "query": "type=annotation OR type=annotation-reply" },
+      "on": { "start": "reply", "quiet": "2s", "from": ["user"] }
+    }
+  ]
+}

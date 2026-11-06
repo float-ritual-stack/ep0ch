@@ -273,9 +273,8 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     // title, where a `- [ ]` reads first. A sentence in a paragraph is buried wherever the paragraph is.
     if (!/\[needs::\s*sysop/i.test(text)) {
       const body = lines.flatMap((l, i) => i > (header?.line ?? -1) && l.trim() ? [i] : []);
-      const top = new Set(body.slice(0, SHAPE_LIMITS.topLines));
       // At the top: a "- [ ]" in the first lines, or the first sentence of the first line. Anything else is buried.
-      const atTop = (i: number, sentence: string) => (top.has(i) && /^[ \t>]*[-*+][ \t]+\[ \][ \t]/.test(lines[i]!)) ||
+      const atTop = (i: number, sentence: string) => topBox(lines, i, header?.line ?? -1) ||
         (i === body[0] && splitPoints(lines[i]!.replace(/^[ \t>]*(?:[-*+]|\d+[.)])?[ \t]*/, ""), { clauses: false })[0]?.trim() === sentence.trim());
       const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksAt(lines, i)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
       if (buried >= 0) {
@@ -685,6 +684,14 @@ export const answeredBox = (line: string): boolean => {
   const box = new RegExp(`^(?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-*+]|\\d+[.)])[ \\t]+(${STEP_BOX})`).exec(line)?.[1];
   return !!box && boxStatus(box) !== "todo";
 };
+
+/** Line `i` is an open `- [ ]` in the top of the note, its first lines under the title `titleLine`: where an ask is filed. */
+export function topBox(lines: readonly string[], i: number, titleLine: number): boolean {
+  if (!/^[ \t>]*[-*+][ \t]+\[ \][ \t]/.test(lines[i] ?? "")) return false;
+  let seen = 0;
+  for (let k = titleLine + 1; k <= i; k++) if (lines[k]!.trim() && ++seen > SHAPE_LIMITS.topLines) return false;
+  return true;
+}
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */
 export function asksEvan(line: string): boolean {

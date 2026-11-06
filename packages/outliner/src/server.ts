@@ -62,7 +62,7 @@ import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate } from "./template-stamp";
 import { keepSuggestion, readKeep, SuggestionWrites } from "./jev-suggestions";
 import { asksFor } from "./jev-asks";
-import { answerSuggestions } from "./jev-service";
+import { answerAsks, answerSuggestions } from "./jev-service";
 import type { RecordCache } from "./records";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
@@ -2351,9 +2351,7 @@ export class OutlinerServer {
       if (response.ok && beside.length) await recordTwin(own, answer, { title: input.title, outcome: "filed-anyway", item: (response.result as RoadmapItemCreateReceipt).workId, ...(actorId ? { actorId } : {}) });
       return response;
     }
-    if (request.action === "search.picks") {
-      return this.answered(request, { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) });
-    }
+    if (request.action === "search.picks") return this.answered(request, { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) });
     if (request.action === "search.picked") {
       // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
       if (this.readOnly) throw new Error("This outline is read-only.");
@@ -2362,6 +2360,7 @@ export class OutlinerServer {
       this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
       return this.answered(request, { kept: picks.length });
     }
+    if (request.action === "blocks.asks") return this.answered(request, await answerAsks(this.store, request.blockId, this.promptDirectory));
     if (request.action === "suggestions.asks" || request.action === "suggestions.stamp") return this.answered(request, answerSuggestions(this.store, asksFor(this.store.workspaceRoot), request));
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request

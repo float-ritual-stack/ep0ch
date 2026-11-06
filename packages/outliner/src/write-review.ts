@@ -15,12 +15,12 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, proseOf, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, proseOf, RUBRIC_OF, shapeNext, splitPoints, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
 import { askJev as askJevRequest, JEV_MODEL, jevKey, NOT_CONFIGURED, type JevAsked, type JevOptions, type JevReading } from "./jev";
-import type { QuestionFacet } from "@ep0ch/outline-core/protocol";
+import type { AskReading, QuestionFacet } from "@ep0ch/outline-core/protocol";
 
 /** A Noul at or over this reads as yes; under `NO` as no (the skill's starting thresholds). */
 export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS };
@@ -164,6 +164,34 @@ export async function askJevQuestions(state: Record<string, unknown>, questions:
     return await askJevRequest(state, questions, (await loadWriteReviewPrompt(o.promptDirectory)).revisions, { ...o, apiKey });
   } catch (e) {
     return { unavailable: `Jev: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * The write review's `asks` judgment on a whole note, kept rather than shaped into a receipt (PIE-1612, `blocks.asks`):
+ * the same candidates, prompt and thresholds. A line that can't ask (a quotation, someone's `>` block, as `asksAt` has it) or can't
+ * hold a chip (a heading, a table row) reads `no` whatever Jev says. Never throws: `jev` says why when it couldn't be asked, with no lines.
+ */
+export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ jev: string; lines: AskReading[] }> {
+  if ((o.env ?? process.env).OUTLINER_FIGURE_FIT === "off") return { jev: "off", lines: [] };
+  const lines = text.split("\n"), candidates = askCandidates(text).slice(0, MAX_ASKS);
+  if (!candidates.length) return { jev: "not asked: no line may ask", lines: [] };
+  try {
+    const request = reviewRequest(text, [], candidates, {}, await loadWriteReviewPrompt(o.promptDirectory), { title: false, opening: false });
+    const asked = await askJevQuestions(request.state, Object.fromEntries(Object.entries(request.questions).filter(([id]) => id.startsWith("asks::"))), { timeoutMs: 15_000, ...o });
+    if (!("answers" in asked)) return { jev: asked.unavailable, lines: [] };
+    const title = headerLine(text).line;
+    return {
+      jev: "asked",
+      lines: candidates.flatMap(i => {
+        const noul = asked.answers[`asks::L${i}`]?.noul;
+        if (!unit(noul)) return [];
+        const reads = !asksAt(lines, i, "yes") || HEADING.test(lines[i]!) || /^[ \t>]*\|/.test(lines[i]!) ? "no" as const : noul >= REVIEW_THRESHOLDS.yes ? "yes" as const : noul >= REVIEW_THRESHOLDS.no ? "unsure" as const : "no" as const;
+        return [{ line: i, text: lines[i]!, noul, reads, top: topBox(lines, i, title) }];
+      }),
+    };
+  } catch (e) {
+    return { jev: `Jev: ${(e as Error).message}`, lines: [] };
   }
 }
 
