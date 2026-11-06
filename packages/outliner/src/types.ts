@@ -1912,7 +1912,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "template.props"; of: string }
   | { id: string; action: "blocks.census" }
   /** Each block's link facets (kind, stage, dates), as an Outlink's target carries them: the links model's children and query rows (PIE-693). Reads only. */
-  | { id: string; action: "blocks.facets"; blockIds: string[] }
+  | { id: string; action: "blocks.facets"; blockIds: string[] } | { id: string; action: "blocks.asks"; blockId: string }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
   /** Per-outline local MCP access. Default is none; read/propose/full allow local MCP reads, and propose/full also the write tools (as proposals, or applied). */
   | { id: string; action: "mcp.access.status" }

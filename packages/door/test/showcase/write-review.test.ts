@@ -44,6 +44,8 @@ describe.skipIf(!outliner)("showcase: write review at 177 columns (PIE-1541)", (
     const page = () => stage().pane("page").surface;
     const lines = () => h.screen().split("\n");
     // The page tile's rows: the problem's words in the title column, every one of them, before the note's title.
+    // "followe" can be drawn by the wall first; on a busy box the page's table lands a moment later.
+    await until(() => lines().some(l => /┊\s+title\s+note\s+passage/.test(l)), "the page tile's table", 15_000);
     const head = lines().findIndex(l => /┊\s+title\s+note\s+passage/.test(l));
     expect(head).toBeGreaterThan(0);
     const left = lines()[head]!.indexOf("title"), noteAt = lines()[head]!.indexOf("note", left);
