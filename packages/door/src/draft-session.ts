@@ -450,11 +450,13 @@ export class DraftSession {
     const gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
     try { for (const { k, replay } of held) if (!gone || inserts(k)) replay(k); } finally { this.replaying = false; }
     // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
+    const reloads = !d.note || d.note === said;
     if (!d.note) this.status.say(said);
     if (off.length) this.status.say(`${off.join(", ")} didn't apply: the table they were for ${lost} · ${d.note}`);
     // What to do first: a narrow line cuts its end, never this.
     if (back.length) this.status.say(`${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again${d.note ? ` · ${d.note}` : ""}`);
-    if (said === this.reloadSaid) this.reloadSaid = d.note;
+    // The line is still the reload's, for a newer change to retire (`changedTo`), only when no replayed key spoke over it.
+    if (said === this.reloadSaid) this.reloadSaid = reloads ? d.note : null;
     this.env.redraw?.();
   }
 

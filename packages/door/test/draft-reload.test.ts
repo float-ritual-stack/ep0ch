@@ -191,6 +191,18 @@ describe("the session owns the reload (a fake target)", () => {
     expect(d.note).toBe("");
   });
 
+  test("what a replayed key said is its own: a newer change doesn't take it for the reload's line", async () => {
+    const { s, d, read, press } = changed();
+    press(ctrl("r"));
+    press({ kind: "paste", text: Array.from({ length: 1000 }, (_, i) => `row ${i}`).join("\n") });
+    read.open({ loaded: msg("n", "Sowing\npeas", 2) });
+    await settled(d);
+    expect(d.note).toContain("ctrl+z undoes");
+    const said = d.note;
+    s.changedTo(3);
+    expect(d.note).toBe(said);
+  });
+
   test("a new change elsewhere leaves anything else on the line alone", () => {
     const { s, d } = changed();
     d.status.say("esc again keeps it here");
