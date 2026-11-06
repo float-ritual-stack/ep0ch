@@ -1925,7 +1925,7 @@ export class App implements Ctx {
       id: h.index === -1 ? "overflow" : `strip-${h.index}`, text: h.index === -1 ? `+${this.statusHidden.length}` : h.index === -2 ? "‹" : "›", place: "left", click: { action: h.action, args: h.args }, alt: { action: "status.bar.edit" },
     } }));
     const msg = this.statusBoxes.find(h => h.item.id === "message");
-    this.messageSaid = message ? { text: message, cut: !!this.message && (!msg || width(message) > msg.to - msg.from), ...(msg ? { from: msg.from, to: msg.to } : {}), click: { action: "status.log" } } : null;
+    this.messageSaid = message ? { text: message, cut: !msg || width(message) > msg.to - msg.from, ...(msg ? { from: msg.from, to: msg.to } : {}), click: { action: "status.log" } } : null;
     return STATUS_INK + pad(row.text.replaceAll(RESET, RESET + STATUS_INK), cols) + RESET;
   }
 }

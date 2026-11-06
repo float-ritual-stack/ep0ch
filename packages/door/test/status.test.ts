@@ -554,6 +554,18 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); }
   });
 
+  test("status.bar.items says when the bar cut the update notice it draws with no flash up, by what was drawn against its room (PIE-1598)", async () => {
+    const notice = "the link to the allotment society's machine has an update waiting: run the install on both ends";
+    (app as any).linkLabel = notice;
+    try {
+      app.flash("");
+      size.cols = 44; bar();
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toMatchObject({ text: notice, cut: true });
+      size.cols = 220; bar();
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toMatchObject({ text: notice, cut: false });
+    } finally { (app as any).linkLabel = ""; size.cols = 220; }
+  });
+
   test("the power-bar action stays reachable through the status strip at 177 and 44 columns", async () => {
     try {
       for (const cols of [177, 44]) {
