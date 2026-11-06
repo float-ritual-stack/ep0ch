@@ -100,7 +100,7 @@ export function decide(grants: readonly InvocationGrant[], actor: MutationProven
     chain: { ...newChain(agent), origin: "agent" }, refund() {} };
   const usable = grants.filter(g => !g.problem && grantFromMatches(g, actor) && grantToMatches(g, agent));
   const denied = usable.find(g => g.deny);
-  if (denied) return { wake: false, denied: true, why: `invoke-deny: “${denied.title}” denies ${who} → @${agent} · r to send` };
+  if (denied) return { wake: false, denied: true, why: `invoke-deny: “${denied.title}” denies ${who} → @${agent} · ask again to send` };
   const limits = [DEFAULT_GRANT, ...usable];
   const maxHops = Math.min(chain.ceiling?.maxHops ?? Infinity, ...limits.map(g => g.maxHops));
   const budget = Math.min(chain.ceiling?.budget ?? Infinity, ...limits.map(g => g.budget ?? Infinity));
@@ -112,7 +112,7 @@ export function decide(grants: readonly InvocationGrant[], actor: MutationProven
     const capped = limits.find(g => g.cap !== undefined && today.count(g.id) >= g.cap);
     if (capped) why = `cap: “${capped.title}” is capped at ${capped.cap}/day, and it's used up today`;
   }
-  if (why) return { wake: false, why: `${why} · r to send` };
+  if (why) return { wake: false, why: `${why} · ask again to send` };
   chain.spent.n++;
   for (const g of limits) today.spend(g.id);
   return { wake: true, grant: usable[0] ?? DEFAULT_GRANT,

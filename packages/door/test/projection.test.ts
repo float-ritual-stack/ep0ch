@@ -385,17 +385,17 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     await until(() => frame().includes("Jira ACME-14 · Label printer drops the last line"), "the other ticket", 10_000);
     await until(() => frame().includes("│ Steps for moving the depot to the new supplier."), "the ticket's body", 10_000);
     expect(frame()).toContain("In progress · A. Person · Spring 2 · High · Task · rollout, vendor");
-    expect(frame()).toMatch(/fetched just now · r refresh/);
+    expect(frame()).toMatch(/fetched just now · R refresh/);
     // The door only reads: the fetching is the service's, asked for by the read.
     expect([...new Set(board.sent.filter(a => a.startsWith("resource")))]).toEqual(["resources.projection.read"]);
     const blocks = await board.children(n.call.id);
     expect(blocks.map(m => m.author)).toEqual(["ext:jira", "ext:jira"]);
   }, 30_000);
 
-  test("r fetches the tickets again and the preview repaints with Jira's new text; the person's lines stay theirs", async () => {
+  test("R fetches the tickets again and the preview repaints with Jira's new text; the person's lines stay theirs", async () => {
     writeFileSync(ticketsFile, JSON.stringify({ ...SHOWCASE_TICKETS, "ACME-12": { ...SHOWCASE_TICKETS["ACME-12"]!, title: "Rollout checklist, now with dates", status: "Review", updatedAt: new Date().toISOString() } }));
     BV.at(b, "preview");
-    key(char("r"));
+    key(char("R"));
     await until(() => frame().includes("Jira ACME-12 · Rollout checklist, now with dates"), "the refreshed ticket", 10_000);
     expect(frame()).toContain("Review · A. Person");
     expect(board.sent).toContain("resources.projection.refresh");

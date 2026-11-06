@@ -10,7 +10,8 @@ import "../src/app";
 import { READER_GUARDS, READER_KEYS, READER_OWN_KEYS, readerBinding, sessionStart, STEP_KEYS, READING_KEYS, type ReaderGuard } from "../src/surface/reader-keys";
 import { NOTE_ACTIONS, NoteSurface, type OpenHow, type SurfaceHost } from "../src/surface/note";
 import { keymapPath, reloadKeymap, setKeys } from "../src/surface/keymap";
-import { declaredKeys, keyOfName } from "../src/surface/actions";
+import { declaredKeys, keyCaption, keyOfName } from "../src/surface/actions";
+import { noteReplyTarget } from "../src/draft-session";
 import { bindings, conflicts } from "../src/surface/key-catalog";
 import type { Key } from "../src/term";
 
@@ -20,10 +21,13 @@ const reader = (...hold: ReaderGuard[]) => (g: ReaderGuard) => hold.includes(g);
 const run = (name: string, ...hold: ReaderGuard[]) => { const r = readerBinding(key(name), reader(...hold)); return r && { action: r.action, args: r.args ?? {} }; };
 
 describe("the reader's key table", () => {
-  test("r resolves a proposal that can be resolved, and fetches the tickets again otherwise: the guard picks", () => {
-    expect(run("r", "note", "outline", "resolvable")).toEqual({ action: "proposal.resolve", args: {} });
-    expect(run("r", "note", "outline")).toEqual({ action: "projection.refresh", args: {} });
-    expect(run("r", "note")).toBeUndefined();
+  test("r writes a reply whatever is in view; R resolves a proposal that can be resolved, and fetches the tickets again otherwise: the guard picks", () => {
+    expect(run("r", "note", "outline", "resolvable")).toEqual({ action: "note.reply", args: {} });
+    expect(run("r", "note", "outline")).toEqual({ action: "note.reply", args: {} });
+    expect(run("r")).toBeUndefined();
+    expect(run("R", "note", "outline", "resolvable")).toEqual({ action: "proposal.resolve", args: {} });
+    expect(run("R", "note", "outline")).toEqual({ action: "projection.refresh", args: {} });
+    expect(run("R", "note")).toBeUndefined();
   });
 
   test("esc lets go of the element, then of a focus mark, then of a zoom; with none of them, it isn't the reader's", () => {
@@ -56,7 +60,7 @@ describe("the reader's key table", () => {
 
   test("the keys window lists each reader key with what picks it, and finds no fight among them", () => {
     const all = bindings(), reader = all.filter(b => b.scope === "note" && b.from === "table");
-    expect(reader.find(b => b.key === "r" && b.action === "proposal.resolve")?.does).toContain("when");
+    expect(reader.find(b => b.key === "R" && b.action === "proposal.resolve")?.does).toContain("when");
     expect(reader.every(b => b.layer === "tile")).toBe(true);
     expect(conflicts(all).filter(g => g.some(b => b.scope === "note" && b.from === "table"))).toEqual([]);
   });
@@ -67,11 +71,13 @@ describe("the reader's key table", () => {
       for (const a of [r.action, ...(r.runs ?? [])]) { const d = NOTE_ACTIONS.def(a as never); if (d) expect([a, declaredKeys(d.keys).has(k)]).toEqual([a, true]); }
     }
     expect(sessionStart(key("C"))).toBe("comment");
+    expect(sessionStart(key("r"))).toBe("note-reply");
+    expect(sessionStart(key("R"))).toBeNull();
     expect(sessionStart(key("ctrl+e"))).toBe("external");
     expect(sessionStart(key("j"))).toBeNull();
     expect(STEP_KEYS.every(r => READER_KEYS.includes(r as never))).toBe(true);
-    expect(READING_KEYS.map(r => r.key)).toEqual(["f", "M", "R", "t", "i", "z", "u", "C", "m"]);
-    for (const k of ["r", "A", "X", "K", "W", "[", "~", " "]) expect(READER_OWN_KEYS.has(k)).toBe(true);
+    expect(READING_KEYS.map(r => r.key)).toEqual(["f", "M", "r", "t", "i", "z", "u", "C", "m"]);
+    for (const k of ["r", "R", "A", "X", "K", "W", "[", "~", " "]) expect(READER_OWN_KEYS.has(k)).toBe(true);
     expect(READER_OWN_KEYS.has("w")).toBe(false);
   });
 });
@@ -103,6 +109,13 @@ describe("the reader's keys, as the person's keymap and terminal give them", () 
     expect(s.key({ kind: "alt", ch: "j" }, h)).toBe(true);
     for (let i = 0; i < 100 && s.scroll !== 3; i++) await Bun.sleep(5);
     expect(s.scroll).toBe(3);
+  });
+
+  test("a reply put aside says the key that brings it back: the reply's binding, moved or not (Codex, #1314)", () => {
+    const back = () => noteReplyTarget({ id: "71111111-2222-4333-8444-555555555555", text: "Stake the beans", properties: [] } as any, { newNote: async () => ({}) } as any).back;
+    expect(back()).toBe("r brings the reply back");
+    setKeys("note.reply", ["alt+y"]);
+    expect(back()).toBe(`${keyCaption("alt+y")} brings the reply back`);
   });
 
   test("a key the person moves a reader action to is the reader's: an extension's line key doesn't take it", () => {

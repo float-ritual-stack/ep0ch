@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
   afterAll(async () => { app?.heldAsks.stop(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
   test("the service says what is held and why; the door's copy and the status bar's count follow", async () => {
-    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "cap: “One wake” is capped at 1/day, and it's used up today · r to send", by: "agent:loki", line: 2 });
+    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "cap: “One wake” is capped at 1/day, and it's used up today · ask again to send", by: "agent:loki", line: 2 });
     expect(await board.heldAsks()).toHaveLength(1);
   }, 60_000);
 });

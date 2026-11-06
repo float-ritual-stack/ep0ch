@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### In the reader, r writes a reply and R fetches again (PIE-1599)
+
+- **`r` replies:** in every reader, whatever is in view, as it already did in the EchoNet reader and a thread list.
+- **`R` is the machine's turn:** fetches tickets, runs or asks a line again, sends a held request, resolves a proposal.
+- **The waiting list moved with it:** its rows say `[R resolve]` and `[R send]`. Lists keep `r` to reload, and Detail keeps its own `r`.
+
 ### A gallery card shows its note's header picture (PIE-1595)
 
 - **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.

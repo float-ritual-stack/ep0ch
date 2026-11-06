@@ -128,8 +128,8 @@ describe.skipIf(!outliner)("one activation for ⏎, a click and act, on a scratc
     expect(s.describe().links.filter((l: any) => l.selected).map((l: any) => l.page)).toEqual(["Seed ledger"]);
   }, 30_000);
 
-  test("r is the key table's: its row picks, with no branch after the table", () => {
-    const r = READER_KEYS.find(row => row.key === "r" && row.action === "proposal.resolve")!;
+  test("R is the key table's: its row picks, with no branch after the table", () => {
+    const r = READER_KEYS.find(row => row.key === "R" && row.action === "proposal.resolve")!;
     expect(r.pick).toBe("resolve");
   });
 });

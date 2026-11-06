@@ -1,5 +1,5 @@
 // PIE-956 (S6): a generated region (a handler's output, a component, `::use`, a materialized `[!output]` callout) draws
-// as the note's own content, and `r` with no position never runs every line. Against a scratch service with the
+// as the note's own content, and `R` with no position never runs every line. Against a scratch service with the
 // outliner's example extensions in the scratch outline's own `extensions/` folder; fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync } from "node:fs";
@@ -89,7 +89,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       await until(() => /Horoscope virgo · ran (just now|\d+ s ago|\d+ min ago)/.test(lines().join("\n")), "the row behind the mark", 5000);
       const open = lines().find(l => l.includes("Horoscope virgo · ran"))!;
       expect(open).toContain("[keep]");
-      expect(open).toContain("[r run again]");
+      expect(open).toContain("[R run again]");
       expect(s.describe().elements!.current!.label).toBe("Horoscope virgo");     // the mark is the [ ] position
       s.click(0, row, host);
       await until(() => !lines().join("\n").includes("run again"), "closed again", 5000);
@@ -240,42 +240,42 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
     }, 60_000);
   });
 
-  describe("r with no position (PIE-956)", () => {
+  describe("R with no position (PIE-956)", () => {
     test("before the note's lines are read r asks the service nothing: it can't know what would run", async () => {
       const note = await board.createBlock(null, "Omens\nhoroscope:: virgo\n\nfancy-horror:: virgo");
       forgetProjectionAnswers();
       const s = new NoteSurface();
       s.show((await board.get(note.id))!, host);
       refreshes = []; flashes.length = 0;
-      s.key(char("r"), host);
+      s.key(char("R"), host);
       await until(() => flashes.some(f => f.includes("reading what this note runs")), "the refusal said", 5000);
       expect(refreshes).toEqual([]);
     }, 40_000);
 
-    test("a note with two lines that run: r runs neither, says which there are, and asks nothing of the service", async () => {
+    test("a note with two lines that run: R runs neither, says which there are, and asks nothing of the service", async () => {
       const { s } = await reader("Omens\nhoroscope:: virgo\n\nSome prose between.\n\nfancy-horror:: virgo", /Virgo, \d{4}/);
       s.letGo();
       refreshes = []; flashes.length = 0;
-      s.key(char("r"), host);
+      s.key(char("R"), host);
       await until(() => flashes.some(f => /2 lines run/.test(f)), "the refusal said", 5000);
       expect(flashes.find(f => /2 lines run/.test(f))).toMatch(/Horoscope|horoscope/);
       expect(flashes.find(f => /2 lines run/.test(f))).toContain("nothing ran");
       expect(refreshes).toEqual([]);
     }, 40_000);
 
-    test("with [ ] on one of them r runs that line only; a note with one such line runs it with no position", async () => {
+    test("with [ ] on one of them R runs that line only; a note with one such line runs it with no position", async () => {
       const two = await reader("Omens\nhoroscope:: virgo\n\nfancy-horror:: virgo", /Virgo, \d{4}/);
       let tries = 0;
       while (two.s.describe().elements?.current?.label !== "Horoscope virgo" && tries++ < 30) { two.s.key(char("["), host); two.lines(); }
       refreshes = []; flashes.length = 0;
-      two.s.key(char("r"), host);
+      two.s.key(char("R"), host);
       await until(() => flashes.some(f => f.includes("horoscope:: virgo ran")), "the run", 15_000);
       expect(refreshes).toHaveLength(1);
       expect(refreshes[0]![1]).toBe(1);                              // the line index of `horoscope:: virgo`
       const one = await reader("Just one\nhoroscope:: leo", /Leo, \d{4}/);
       one.s.letGo();
       refreshes = []; flashes.length = 0;
-      one.s.key(char("r"), host);
+      one.s.key(char("R"), host);
       await until(() => flashes.some(f => f.includes("horoscope:: leo ran")), "the one line run", 15_000);
       expect(refreshes).toHaveLength(1);
       expect(refreshes[0]![1]).toBe(1);

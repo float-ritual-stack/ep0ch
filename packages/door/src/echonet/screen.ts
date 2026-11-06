@@ -23,7 +23,7 @@ import { C, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ActionRefused, actionSet, def, keyCaption } from "../surface/actions";
 import { hintKey, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { FOCUS_PART } from "../desk/desk";
-import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
+import type { HeaderInfo, OpenHow, SessionKind, SurfaceHost } from "../surface/note";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago, bbsDate, waiting, waitingText } from "../text";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -599,6 +599,11 @@ export class EchoReader extends ReaderPane {
     if (to < 0) throw new ActionRefused("this is the first message");
     if (to >= this.list.length) throw new ActionRefused(`end of ${this.area.tag.toUpperCase()}: no more messages`);
     return this.read(this.area, this.list, to, desk, actor);
+  }
+
+  /** A message's r is echo.reply (its reply is netmail or a post), never the note reply the desk would start first. */
+  override refuses(kind: SessionKind): string | null {
+    return kind === "note-reply" && this.message ? "an EchoNet copy takes its reply by echo.reply" : super.refuses(kind);
   }
 
   override key(k: Key, desk: DeskApi): boolean {

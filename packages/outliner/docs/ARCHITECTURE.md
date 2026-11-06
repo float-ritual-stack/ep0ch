@@ -1805,7 +1805,7 @@ An extension may declare `agents[]`. [`src/agent-requests.ts`](../src/agent-requ
 line; it has no write path of its own. A reply shows under the line, in the
 same projection slot as extension output (event `extensions.agent`). A
 person's line runs once per wording; a line an agent or an import wrote waits for
-`r`, so agents can't loop; `r` asks again, recording who pressed it as
+`R` (Detail's `r`), so agents can't loop; that key asks again, recording who pressed it as
 `requestedBy`. One guard in `DraftPatchRouter` refuses any agent's patch that
 writes or rewords an `@name` line, whoever routes it. A door holding the live
 draft calls `drafts.touch`, so a request typed there runs before any save. At

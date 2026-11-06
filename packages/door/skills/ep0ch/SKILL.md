@@ -191,7 +191,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   person's command (`tile.agent policy=free tile=<tile>`); it is theirs to change: you can only tighten a tile, never
   loosen one. An `open` that names no tile skips limited tiles. Their own keys are never limited.
 - Yolo is the person's hand-over (`agents.yolo`; `ep0ch where` says `YOLO is on`): the door's guards lift, and so do
-  the service's: the outline's MCP access reads `full`, you may apply or dismiss any proposal, your `r` releases a line
+  the service's: the outline's MCP access reads `full`, you may apply or dismiss any proposal, your `R` releases a line
   waiting for a person, and an edit that drops a linked `^anchor` goes through. You're still attributed, revision
   checks and undo hold, and you can't turn it on (you may turn it off). It ends when their door does.
 - Your `select.copy` (and `copy`, `draft.copy`) returns the text to you and never touches the person's
@@ -341,7 +341,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   it affects, and writes nothing. `access.apply` is the person's and refused to you: what agents may reach is theirs to set.
 - **What waits on the person** (PIE-614): terminal tiles report status with OSC 7501. `peek` gives each terminal's
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
-  done as seen (`status.seen`) is theirs; yours is refused. The list also holds the requests held for the person's `r`
+  done as seen (`status.seen`) is theirs; yours is refused. The list also holds the requests held for the person's `R`
   (`peek` rows with `kind: held`; `held.open` shows the note, `held.send` is theirs and refused to you): an `@name` line you
   or an extension wrote wakes by default. Loop guards (repeat, hops, budget, cap) hold it; an `[invoke-deny::]`
   note leaves it unsent with a reason outside the held queue. `[invoke-from::]` / `[invoke-to::]` notes narrow limits.

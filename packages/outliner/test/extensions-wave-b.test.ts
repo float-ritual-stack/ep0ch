@@ -297,7 +297,7 @@ test("effects: a spend handler runs once when a person writes it, waits for r wh
   expect(store.extensionOutputs(mine.id)).toEqual([]);
   const theirs = await create("costly:: theirs", undefined, { author: "agent", actorId: "claude-test" });
   const waiting = await projection(theirs.id, "output", (p) => p.status === "not-run");
-  expect(waiting.reason).toContain("r runs it");
+  expect(waiting.reason).toContain("run it from its line");
   await Bun.sleep(150);
   expect(store.extensionOutputs(theirs.id)).toEqual([]);
   // A person's later save of that note (another line) doesn't spend on the agent's line.

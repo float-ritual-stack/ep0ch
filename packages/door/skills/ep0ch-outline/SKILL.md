@@ -866,9 +866,9 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
 
 1. **Data** (`moon:: 2026-10-26`, `jira:: PC-1234`): the service fetches a record into a real block the
    extension owns, with namespaced properties (`[moon.phase::Full Moon]`), and refreshes it. The door and
-   Detail show it under the line; `r` fetches it again.
+   Detail show it under the line; `R` in the door's reader (`r` in Detail) fetches it again.
 2. **Inline output** (`horoscope:: virgo`): Markdown the service runs and keeps per line, shown under it and
-   never written into the note unless someone **keeps** it (`[keep]`, `ext.<id>.keep`). `r` runs it again.
+   never written into the note unless someone **keeps** it (`[keep]`, `ext.<id>.keep`). `R` in the door's reader (`r` in Detail) runs it again.
 3. **Rich component** (`fancy-horror:: virgo`): data plus a view built from the shared primitives (card, box,
    row, stack, text, badge, stat, bar, table, checklist, sparkline, image) that every client draws, with actions
    (`[w ward]` in the door: its key, a click, or `act ext.fancy-horror.ward block=<id>`). Its state lives in
@@ -913,13 +913,13 @@ comment sets a tag rule off, and a lane's query on the tag lists the comment (a 
 not a note's `status`, so a lane that asks `status=new` also wants `OR (type=annotation annotation-status=open)`).
 
 Scope it with `rule-under` unless they want it everywhere. The examples to copy for code: `meeting-card`
-(decorate), `done-stamp` (on), `shout` (a text pattern). `R` in the door shows a note as written; `peek` lists a
+(decorate), `done-stamp` (on), `shout` (a text pattern). `~` in the door shows a note as written; `peek` lists a
 reader's `decorations`. The contract: packages/outliner `docs/extensions/README.md#rules-when-a-block-matches`.
 
 An extension can also declare **agents** a person addresses while they write: a line `@tidy` (after an
 optional bullet) runs once that ask is quiet, even while the person types elsewhere. Its answer lands attributed
 in a fold under the ask and in a tile beside it; plain answers stream as they are written. The door shows the
-request's state under the line; `r` on it asks again.
+request's state under the line; `R` on it asks again (`r` in Detail).
 
 All four kinds work end to end in the door and the service (PIE-507, PIE-512): the door binds whatever
 `extensions.list` says, and an extension added or removed shows up or goes away without a restart.

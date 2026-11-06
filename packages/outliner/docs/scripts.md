@@ -532,7 +532,7 @@ Each of these cost someone an hour.
 - **`ep0ch show <note>` draws handler output through the door's note surface.** It loads the outline's
   extensions before drawing, so a cold CLI can inspect a render script without opening a door. `--source`
   still prints only the authored text. The draw waits up to three seconds for live answers.
-- **Run a render script in the door to insert its line.** The power bar's Run row, its name and `ext.<id>.run` insert `name:: slot=value…` at the note cursor. A reader saves it and draws the live output; an open draft keeps it as one unsaved edit. Open a note first. Buttons and service calls still run the script as an action with a run record. To draw an existing line again, use `projection.refresh` (the door's `r` on the note).
+- **Run a render script in the door to insert its line.** The power bar's Run row, its name and `ext.<id>.run` insert `name:: slot=value…` at the note cursor. A reader saves it and draws the live output; an open draft keeps it as one unsaved edit. Open a note first. Buttons and service calls still run the script as an action with a run record. To draw an existing line again, use `projection.refresh` (the door's `R` on the note).
 - **A render drawing has no write functions.** Run it as an action (a button or `of=`) when it needs to change things.
 - **`text()` and `console.log` are for run notes.** A render shows only what it returns.
 - **`function () { this }` loses `this`.** Use arrows.

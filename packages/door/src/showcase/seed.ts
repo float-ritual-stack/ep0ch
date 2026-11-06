@@ -526,7 +526,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.swap.id, "Ana: runner beans to swap [type::offer] [status::waiting]\nTwo jars, saved from last year's best row.");
   await make(notes.swap.id, "Ben: took the leek seedlings [type::offer] [status::done]\nThank you, they're in.", SEED_AGENT);
   await make(notes.swap.id, "Cal: labels and a pencil [type::offer] [status::active]\nI'll write the labels on the day.");
-  // A thread three deep, its replies stamped replyTo as R writes them (PIE-944): eight answers to the question, the fifth with
+  // A thread three deep, its replies stamped replyTo as r writes them (PIE-944): eight answers to the question, the fifth with
   // two answers of its own, the second of those the note the thread panel is opened on, with two replies under it.
   notes.thread = await make(notes.root.id, `${SEED.thread}\nFor the new bed by the water butt, about a dozen.`);
   const answer = (parent: Msg, text: string, by?: Actor) => make(parent.id, `${text}\n[replyTo::${parent.id}]`, by);
@@ -673,7 +673,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.dashboard = await make(notes.root.id, dashboardText());
   notes.dashboardEmbed = await make(notes.root.id, `!((${notes.dashboard.id}))`);
   notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));
-  notes.replies = await make(notes.root.id, `${SEED.replies} [thread::orchard]\n\nR writes beside this message. Save keeps the reply; Esc closes it. Select words and press R to quote.\n\n${Array.from({ length: 35 }, (_, i) => `Orchard row ${i + 1}: leave the small apples for the birds.`).join("\n")}`);
+  notes.replies = await make(notes.root.id, `${SEED.replies} [thread::orchard]\n\nr writes beside this message. Save keeps the reply; Esc closes it. Select words and press r to quote.\n\n${Array.from({ length: 35 }, (_, i) => `Orchard row ${i + 1}: leave the small apples for the birds.`).join("\n")}`);
   notes.snapshot = await make(notes.root.id, `${SEED.snapshot}\n\nUse the power bar (ctrl+k), > outline.snapshot, to copy a one-time snapshot link. The link expires in 15 minutes; ep0ch share revoke ends it sooner. It includes private notes.\n\nFrom a shell on this machine:\n\n\`\`\`sh\nep0ch outline snapshot showcase --out /tmp/showcase.sqlite\nsqlite3 -readonly /tmp/showcase.sqlite 'select count(*) from blocks;'\n\`\`\`\n\nWith a publisher running: ep0ch outline snapshot showcase --link prints a curl command. Fetch it, then run the same query. A finished download uses the link once; a headers-only preview or an interrupted download leaves it usable until expiry. A second finished fetch is refused. Share the curl command in a code block to avoid chat link previews. The snapshot record logs each attempt without its token. Add ?gz=1 for gzip.\n\nRemote MCP clients receive a notifications/tools/list_changed notification on the authenticated event stream, including when they reconnect after a gateway deploy. A listening client can refresh its tools without restarting the chat app.\n`);
   notes.upload = await make(notes.root.id, SEED.upload);
   // The note first (its card needs it), then its text: an arrival's card as the watcher writes one (PIE-1370), embedded,
