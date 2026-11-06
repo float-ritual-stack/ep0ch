@@ -768,6 +768,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   for (const [key, line] of LOGS) notes[key] = await make(notes.root.id, `${SEED[key]}\n${line} 0`);
   const labels = await board.request("create", { parentId: notes.root.id, text: LABELS_BEFORE, author: "agent", provenance: { actorId: "cowboy", taskId: "via:yolo" } });
   notes.labels = await board.update(labels.id, LABELS, labels.revision!);
+  notes.editKeys = await make(notes.root.id, `${SEED.editKeys}\n\n- sow the early peas in the long bed\n- thin the carrots\n- water the seedlings at dusk\n\nSee the planting calendar for dates.`);
   {
     // Through the gateway's own write path, at propose: a patch that becomes a proposal, and a comment.
     const { actorOf, applyWrite } = await import("../mcp-writes");

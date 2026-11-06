@@ -297,6 +297,9 @@ export class RawRows {
       }
       const cx = vi === at.vi ? at.cp - r.start : -1;
       if (cx >= cells.length) cells.push(" ");
+      // The line break is selected too (the selection goes on below this line): one lit cell after its text, so a blank line
+      // in the selection, and where each line ends, can be seen. Not past the row's width.
+      else if (sel && sel[0].row <= r.line && sel[1].row > r.line && rows[vi + 1]?.line !== r.line && r.indent + width(cells.join("")) < w1) { cells.push(" "); s1 = cells.length; }
       const glow = lit.map(f => ({
         from: (f.a.row < r.line ? 0 : f.a.row === r.line ? f.a.cp : Infinity) - r.start,
         to: (f.b.row > r.line ? Infinity : f.b.row === r.line ? f.b.cp : -1) - r.start,

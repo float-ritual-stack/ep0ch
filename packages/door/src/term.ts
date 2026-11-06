@@ -40,8 +40,12 @@ export type Key =
    * PIE-699): `ch` is the base key (`=`, not `+`). The App takes it before any tile, a terminal tile's included.
    */
   | { kind: "hyper"; ch: string }
-  /** `shift`: held with an arrow, Home or End (CSI 1;2 A…D H F): a draft selects as the cursor moves. Elsewhere it's the key. */
-  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "alt-backspace" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete"; shift?: true }
+  /**
+   * `shift`: held with an arrow, Home or End (CSI 1;2 A…D H F): a draft selects as the cursor moves. Elsewhere it's the key.
+   * `ctrl`, `alt`, `super`: held with it (PIE-1607). Only a draft's key table reads them (`exactKeyName`); everywhere else
+   * ctrl+← is still ← and alt+Home still Home.
+   */
+  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "alt-backspace" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete"; shift?: true; ctrl?: true; alt?: true; super?: true }
   /**
    * Enter. `shift`, `ctrl`: held with it, as only a terminal speaking the Kitty keyboard protocol can say (src/kbd.ts).
    * It's Enter wherever nothing reads them; in a draft Shift+Enter is a plain line break, as alt+enter.
@@ -51,8 +55,9 @@ export type Key =
    * alt+← and alt+→ (CSI 1;3 D/C, CSI 1;9 D/C, or ESC before the arrow); `back` and `forward` are the mouse's
    * side buttons (8 and 9). Readers go back and forward on them (PIE-453); they're keys, acting where the keys go.
    * alt+↑ and alt+↓ (CSI 1;3 A/B …) move a card up or down its lane's hand-set order (card.reorder).
+   * cmd with an arrow is read as alt with it (`super`, so a draft's key table can tell them apart, as it can `shift`, `ctrl`).
    */
-  | { kind: "alt-left" | "alt-right" | "alt-up" | "alt-down" | "back" | "forward" }
+  | { kind: "alt-left" | "alt-right" | "alt-up" | "alt-down" | "back" | "forward"; shift?: true; ctrl?: true; super?: true }
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down" | "wheel-left" | "wheel-right"; button: number; x: number; y: number; mods?: number }
   /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
@@ -460,7 +465,7 @@ export class KeyDecoder {
       if (p[0] === "\x1b" && (p[1] === "\x7f" || p[1] === "\x08")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-backspace" }); continue; }
       // Alt+letter or digit arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
       // sequences, so an ESC before one of them keeps its old meaning.
-      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9?/]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
+      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9?/<>{}]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
         const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);

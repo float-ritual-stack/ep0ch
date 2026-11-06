@@ -101,12 +101,12 @@ export function reportKey(r: KeyReport): Key | null {
   if (r.event === 3) return null;
   const kp = KEYPAD[r.code];
   if (typeof kp === "object") {
-    // Shift moves a draft's selection with an arrow, Home or End; alt (or the old meta) moves by word or card.
-    const shift = !!(r.mods & SHIFT), alt = !!(r.mods & (ALT | SUPER));
+    // Shift moves a draft's selection; alt (or the old meta, cmd) with an arrow moves by word or card. The other modifiers
+    // ride along for a draft's key table (`exactKeyName`, PIE-1607): cmd+shift+← is CSI 1;10 D, and everywhere else it's what it was.
+    const held = { ...(r.mods & SHIFT ? { shift: true as const } : {}), ...(r.mods & CTRL ? { ctrl: true as const } : {}) };
     const dir = kp.kind === "up" || kp.kind === "down" || kp.kind === "left" || kp.kind === "right";
-    if (alt && dir) return { kind: `alt-${kp.kind}` } as Key;
-    if (shift && (dir || kp.kind === "home" || kp.kind === "end")) return { ...kp, shift: true } as Key;
-    return kp;
+    if (r.mods & (ALT | SUPER) && dir) return { kind: `alt-${kp.kind}`, ...held, ...(r.mods & SUPER ? { super: true as const } : {}) } as Key;
+    return { ...kp, ...held, ...(r.mods & ALT ? { alt: true as const } : {}), ...(r.mods & SUPER ? { super: true as const } : {}) } as Key;
   }
   if (typeof kp === "number") r = { ...r, code: kp, shifted: undefined };
   const m = r.mods & 15, shift = !!(m & SHIFT), alt = !!(m & ALT), ctrl = !!(m & CTRL);
@@ -117,7 +117,7 @@ export function reportKey(r: KeyReport): Key | null {
     case 13: return alt ? { kind: "alt-enter" } : { kind: "enter", ...(shift ? { shift: true as const } : {}), ...(ctrl ? { ctrl: true as const } : {}) };
     case 27: return { kind: "esc" };
     case 9: return shift ? { kind: "backtab" } : { kind: "tab" };
-    case 8: case 127: return { kind: alt ? "alt-backspace" : "backspace" };
+    case 8: case 127: return { kind: alt ? "alt-backspace" : "backspace", ...(ctrl ? { ctrl: true as const } : {}), ...(m & SUPER ? { super: true as const } : {}) };
   }
   if (r.code < 32 || (r.code >= 0xe000 && r.code <= 0xf8ff) || r.code > 0x10ffff) return null;   // PUA: keypad and modifier keys
   const plain = String.fromCodePoint(r.code);

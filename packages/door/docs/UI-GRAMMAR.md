@@ -388,6 +388,27 @@ book-spines section runs all of it.
 | lane | A saved view shown as a board column: a query tile in the board's columns | `QueryPane` (`src/desk/query.ts`) | virtual branch |
 | card | One block in a lane | lane items | branch root row |
 
+### The keys of a draft (PIE-1607)
+
+One table, `DRAFT_KEYS` (`src/edit.ts`), read by every place a person types through `Draft.binding`: rows by exact name (`exactKeyName`: `super+shift+left`), while a screen keeps its looser reading (`keyName`: cmd+← is alt+←, ctrl+← is ←). What a terminal does with each chord decides its twin. Checked against Ghostty's and kitty's default bindings; Rex passes what the terminal around it sends; over ssh and tmux the bytes pass (tmux needs `extended-keys on`, or the alt-letter and alt-arrow twins).
+
+| To do | Mac's key | What the terminal does with it | Twin that arrives everywhere |
+|---|---|---|---|
+| select to line edge | cmd+shift+←→ | arrives under Kitty keys (`CSI 1;10 D/C`); nothing without them | shift+Home shift+End (fn+shift+←→), alt+H alt+E |
+| go to line edge | cmd+←→ | Ghostty sends ctrl+a ctrl+e (same result) | Home End, ctrl+a ctrl+e |
+| go to the text's ends | cmd+↑↓ | Ghostty takes it (jump to prompt); kitty passes it on the door's alternate screen | ctrl+Home ctrl+End, alt+< alt+> |
+| select to the text's ends | cmd+shift+↑↓ | Ghostty takes it (jump to prompt) | ctrl+shift+Home ctrl+shift+End, alt+{ alt+} |
+| word back, forward | option+←→ | Ghostty sends alt+b alt+f (same result); Mac OS may take ctrl+←→ | alt+b alt+f, ctrl+←→ |
+| select by word | option+shift+←→ | arrives (`CSI 1;4`); kitty takes ctrl+shift+←→ for tabs, Ghostty too on Linux | alt+B alt+F |
+| move, copy lines | option+↑↓, option+shift+↑↓ | arrive (`CSI 1;3`, `CSI 1;4`) | themselves |
+| delete lines | cmd+shift+k | arrives under Kitty keys | alt+D |
+| select word, line, all | cmd+d, cmd+l, cmd+a | Ghostty takes cmd+d (split) and cmd+a (select all) | alt+W, alt+L, alt+S |
+| erase word | option+⌫, option+⌦ | arrive | themselves |
+| erase to line start | cmd+⌫ | Ghostty sends ctrl+u (same result) | ctrl+u |
+| cut, save, undo, redo | cmd+x, cmd+s, cmd+z, cmd+shift+z | arrive under Kitty keys | alt+x, ctrl+s, ctrl+z, ctrl+y |
+
+Wrap keys are the table's too: `( [ { " ' \` * _ ~` over a selection the person made wrap it and leave it selected; over one the door filled in for typing over (a slot, an example value, a prefilled line) they replace it. In the power bar's line alt+←→ and alt+b alt+f stay its scope. ctrl+x stays the $EDITOR chord in a draft and cut in a line; ctrl+w stays ^W in a draft and the word before in a line.
+
 ### Reading and editing (the note surface)
 
 | Canonical | Meaning | Code | Tree/Detail |
