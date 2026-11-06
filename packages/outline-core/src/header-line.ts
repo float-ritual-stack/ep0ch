@@ -85,22 +85,6 @@ export function headerLine(text: string, literal: readonly LiteralRange[] = []):
   return { line, offset, end: offset + source.length, kept: before.length, prose: before, dashes, chips, tags, body: [bodyTitle, ...lines.slice(line + 1)].join("\n") };
 }
 
-/** A mark's generated heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`, or its kind alone. */
-export const MARK_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
-
-const MARK_TYPES: ReadonlySet<string> = new Set(["annotation", "annotation-reply"]);
-
-/**
- * The line a mark's own words start on (PIE-1589): a comment or reply is its generated heading, the store's
- * `[type::annotation]` or `[type::annotation-reply]` line, then what was written, with no blank line between. Null when
- * the text isn't a mark.
- */
-export function markBodyLine(text: string): number | null {
-  const lines = text.split("\n", 2);
-  if (!MARK_HEADING.test(lines[0]!)) return null;
-  return propertyTokensInLine(lines[1] ?? "").some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim())) ? 2 : null;
-}
-
 /** A thematic break: `---`, `***` or `___` (three or more) alone on a line. */
 const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t\r]*$/;
 const LIST_LINE = /^[ \t]*[-*+][ \t]+/;
@@ -111,11 +95,9 @@ const listProperty = (line: string) => { const rest = line.replace(LIST_LINE, ""
 /**
  * The title and its first paragraph, bounded by the first blank line (PIE-684), a rule line (`---`) or a list item
  * that carries no property (`- #a - #b`, `- one`): those begin the body, so tags written under a rule are body text
- * (PIE-970). A bulleted line with properties (`- [a::b]`, `- re:: why`) stays in front matter. A mark's is its heading
- * and metadata line alone: what follows is someone's words about a note, and a chip quoted there stays words (PIE-1589).
+ * (PIE-970). A bulleted line with properties (`- [a::b]`, `- re:: why`) stays in front matter.
  */
 export function frontMatterLines(text: string): Set<number> {
-  if (markBodyLine(text) !== null) return new Set([0, 1]);
   const lines = text.split("\n");
   const start = lines.findIndex(line => line.trim() !== "");
   const found = new Set<number>();

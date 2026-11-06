@@ -3,7 +3,7 @@ import { normalizeRetainedResourceRevisionRef } from "./resources";
 import { getProperty } from "./properties";
 import { parseProperties, stripProperties } from "@ep0ch/outline-core/property-parse";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
-import { ANNOTATION_EDITED_KEY, annotationProperties, annotationPropertyProblem, isMarkLifecycle, isMarkType, MARK_HEADING, markBodyLine } from "@ep0ch/outline-core/annotation-marks";
+import { ANNOTATION_EDITED_KEY, annotationProperties, annotationPropertyProblem, isMarkLifecycle, isMarkType, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
 import type {
   BlockProperty,
   AnnotationAnchor,
@@ -821,10 +821,6 @@ export const ANNOTATION_HEADING = MARK_HEADING;
 
 export function extractAnnotationBody(text: string): string {
   const lines = text.split(/\r?\n/);
-  // The store's own lines are the heading and the metadata line: all after them is what was written, a line that is
-  // only a chip or a picture too (PIE-1589).
-  const written = markBodyLine(text);
-  if (written !== null) return lines.slice(written).join("\n").trim();
   let bodyStart = ANNOTATION_HEADING.test(lines[0] ?? "") ? 1 : 0;
   while (bodyStart < lines.length) {
     const line = lines[bodyStart]!;

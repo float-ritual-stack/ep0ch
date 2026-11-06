@@ -40,12 +40,6 @@ export const boxExtension: NonNullable<MarkedExtension["extensions"]>[number] = 
 /** Keep Marked's inline parsing, but use Blockdown's strike delimiter. */
 export const blockdownMarked: MarkedExtension = {
   extensions: [boxExtension],
-  hooks: {
-    // The sentinels that ride through a render (a page's anchors, marks, steps, components) draw as nothing, so they say
-    // nothing about emphasis: `**Roof on:**` closes though an anchor follows it. Punctuation, one for one, because a closer
-    // after punctuation needs punctuation or a space next, and a space before a closer would stop `**word<mark>**` closing.
-    emStrongMask: source => source.replace(/[-]/g, "."),
-  },
   tokenizer: {
     lheading(source) {
       // Marked tries setext headings before the paragraph's extension boundary.

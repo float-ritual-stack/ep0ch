@@ -1399,15 +1399,6 @@ function headerLine(text, literal = []) {
   return { line, offset, end: offset + source.length, kept: before.length, prose: before, dashes, chips, tags, body: [bodyTitle, ...lines.slice(line + 1)].join(`
 `) };
 }
-var MARK_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
-var MARK_TYPES = new Set(["annotation", "annotation-reply"]);
-function markBodyLine(text) {
-  const lines = text.split(`
-`, 2);
-  if (!MARK_HEADING.test(lines[0]))
-    return null;
-  return propertyTokensInLine(lines[1] ?? "").some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim())) ? 2 : null;
-}
 var RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t\r]*$/;
 var LIST_LINE = /^[ \t]*[-*+][ \t]+/;
 var BARE_PROPERTY = new RegExp(String.raw`^(?:${PROPERTY_KEY_SOURCE})::`);
@@ -1416,8 +1407,6 @@ var listProperty = (line) => {
   return propertyTokensInLine(rest).length > 0 || BARE_PROPERTY.test(rest);
 };
 function frontMatterLines(text) {
-  if (markBodyLine(text) !== null)
-    return new Set([0, 1]);
   const lines = text.split(`
 `);
   const start = lines.findIndex((line) => line.trim() !== "");
@@ -1727,13 +1716,17 @@ var BASE_HEADING_STYLE = style("", {});
 // packages/outline-core/src/annotation-marks.ts
 var ANNOTATION_EDITED_KEY = "annotation-edited";
 var ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
+var MARK_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
+var MARK_TYPES = new Set(["annotation", "annotation-reply"]);
 function markTitleLine(text) {
-  const body = markBodyLine(text);
-  if (body === null)
-    return null;
   const lines = text.split(`
 `);
-  for (let i = body;i < lines.length; i++) {
+  if (!MARK_HEADING.test(lines[0]))
+    return null;
+  const meta = lines[1] ?? "";
+  if (!propertyTokensInLine(meta).some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim())))
+    return null;
+  for (let i = 2;i < lines.length; i++) {
     const words = withoutPropertyTokens(lines[i]).replace(/\s+/g, " ").trim();
     if (words)
       return { line: i, text: words };

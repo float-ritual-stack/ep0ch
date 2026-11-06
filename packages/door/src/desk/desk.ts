@@ -45,7 +45,7 @@ import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from 
 import { readLinks } from "../links";
 import { agentRefusal as draftRefusal } from "../draft-session";
 import { retitle, titleWords } from "@ep0ch/outline-core/header-line";
-import { outlineChanged } from "../refs";
+import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
@@ -2688,9 +2688,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A desk never entered (a showcase stage not opened yet) has no Ctx: its tiles read fresh when it is entered.
     if (!this.ctx) return;
     for (const p of this.panes.values()) {
-      // A plain reader hears only what concerns it (readerHears: a pinned one waiting for its page hears every change); a reader
-      // of its own kind (the brief counting its days) hears everything, as any tile does.
-      if (skip?.(p) || (p instanceof ReaderPane && p.onEvent === ReaderPane.prototype.onEvent && !readerHears(p, e))) continue;
+      if (skip?.(p)) continue;
       (p.onEvent as ((d: DeskApi, e?: OutlineEvent) => void) | undefined)?.call(p, this, e);
     }
     if (e.action === "reset") return void this.fillColumns();
@@ -8174,25 +8172,6 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
   // The desk's tiles are the person's own: anything goes. A screen of a fixed shape needs its tiles and named containers.
   if (!spec.layouts && (!want.every(n => have.has(n)) || !wantKeys.every(k => haveKeys.has(k)))) return { ...(o as SavedDesk), root: undefined as never };
   return o as SavedDesk;
-}
-
-/**
- * Whether a change concerns what reader `r` shows beyond its note's own text (which `staleOn` reads again): its comment
- * threads (a comment or a reply on it), or an edit of its note that can move a quoted passage (PIE-399: only what a
- * change can touch is refreshed). Without a change record (a reset), anything may have.
- */
-export function readerHears(r: Pick<ReaderPane, "msg" | "comments"> & Partial<Pick<ReaderPane, "pinPage">>, e: OutlineEvent): boolean {
-  const c = e.change, m = r.msg;
-  if (!c || r.pinPage) return true;   // pinned to a page: any change may be the page arriving, or its address moving
-  if (!m) return false;
-  const id = c.blockId;
-  if (c.kind === "annotate") return m.id === c.parentId || (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
-  // An extension's agent answers a thread by writing its reply block (`@margin`'s "working" line, its edits each
-  // minute, the answer that replaces it): a plain create or edit under the thread, with no `annotate` record (PIE-1452).
-  const inThread = (x: string | null | undefined) => !!x && (r.comments ?? []).some(t => t.id === x || t.replies.some(y => y.id === x));
-  if (c.kind === "create") return m.id === c.parentId || inThread(c.parentId);
-  if (c.kind === "edit" && inThread(id)) return true;
-  return !!id && m.id === id && c.kind === "edit";
 }
 
 /** What a tile was made for when it's a new note's (PIE-591): its note, and the note it was made from; else null. */

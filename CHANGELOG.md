@@ -10,15 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### A comment keeps what you dropped and said (PIE-1589)
+### Tiles stay current as their notes change, and none polls on its own (PIE-1593)
 
-- **Files dropped into a comment or an edit become pictures, found by name when the folder never arrived.** A paste of nothing but image files is kept in `media/` and drawn; `ctrl+z` gives back what you dropped. macOS's bare names are looked up in the folders your notes name with `[drop-folder::<folder>]`, and what can't be found stays as written and says so. A macOS name's narrow no-break space now matches either way round.
-- **A chip in a comment or reply is words.** Only a mark's heading and metadata line carry its properties, so a quoted `[orient::all]` no longer orients sessions, a quoted `[page::x]` no longer refuses the reply, and a comment that's only a chip or a picture keeps it. The agent tools' review points it out on comments and replies. The property index rebuilds itself when the host restarts.
-
-### Published pages keep their bold and their tables (PIE-1590)
-
-- **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
-- **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
+- **Welcome, the brief and the screen list ask only when the host says their answer moved:** a write elsewhere asks them nothing. They were asking again on every change.
+- **A river column, a reader's comments, last callers and who's online wait one pause:** 300 ms, where they had 700, 800 and 1500 ms, and who's online had none.
+- **A Library column shows a new top-level note, and a #tag column a newly tagged one:** both stayed as they were until reopened.
+- **Last callers and who's online skip a tool's bookkeeping:** a stamped note's change no longer wakes them, so such a row shows at the next ordinary change.
+- **A repo card's deploy is the one read still on a period:** a deploy is outside the outline, so nothing can say how it went.
 
 ### An artifact deploy attaches its name by itself (PIE-1588)
 

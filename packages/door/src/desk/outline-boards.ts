@@ -4,7 +4,7 @@ import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machi
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { watchedOn } from "../watched";
-import { outlineChanged } from "../refs";
+import { outlineHeard } from "../search-schedule";
 import { forwardSaying, forwardTo } from "../machine";
 import { readMissing } from "../outlines";
 import { SocketBoard, type OutlineEvent } from "../socket";
@@ -19,7 +19,7 @@ export class OutlineBoards {
   peek(address: NoteAddress): Ctx | undefined { return this.ready.get(`${address.outline}@${address.machine ?? ""}`); }
   watch(board: SocketBoard, hear: (event: OutlineEvent) => void): () => void {
     let listeners = this.listeners.get(board);
-    if (!listeners) { listeners = new Set(); this.listeners.set(board, listeners); board.subscribe(e => { outlineChanged(e.change?.blockId ? [e.change.blockId] : null, e.action === "reset"); for (const f of this.listeners.get(board) ?? []) f(e); }); }
+    if (!listeners) { listeners = new Set(); this.listeners.set(board, listeners); board.subscribe(e => { outlineHeard(e); for (const f of this.listeners.get(board) ?? []) f(e); }); }
     listeners.add(hear);
     return () => { listeners.delete(hear); };
   }

@@ -34,8 +34,8 @@ export interface PropertyRecord extends BlockProperty {
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-// A mark's words aren't its front matter (PIE-1589); rebuild indexes that gave it the chips quoted in them.
-export const PROPERTY_PARSER_VERSION = 17;
+// Box bodies are note content; rebuild indexes that treated their rule lines as component YAML.
+export const PROPERTY_PARSER_VERSION = 16;
 
 interface PropertyMatch {
   match: RawPropertyToken;

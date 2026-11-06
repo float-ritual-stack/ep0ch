@@ -482,51 +482,6 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
   // PIE-847: a handover (a deploy, `ep0ch session restart`) brings a comment being written back as it sat. The session
   // section's half-written comment, moved and sized, its cursor moved; put aside as a handover puts it and the reader
   // reading again, as a new daemon has it; then opened again by the steps the checkpoint keeps, run as a restore runs them.
-  test("dropped files (PIE-1589): a comment takes three pictures macOS pasted as bare names, finds each by the outline's [drop-folder::], keeps them in media/ and sends them; a name it can't find stays and says what to do", async () => {
-    (app as any).lastInput = 0;
-    await app.act({ action: "section", args: { name: "comment-tile" }, as: "test-agent" });
-    const surf = () => (S().stages.get(S().sel).top as any).pane("reader").surface;
-    await until(() => !!surf()?.msg, "the whole note open");
-    if (S().focus !== "stage") press({ kind: "enter" });
-    if (surf().session) { for (let i = 0; i < 3 && surf().session; i++) press({ kind: "esc" }); }
-    ch("C");
-    await until(() => surf().session?.mode === "compose", "a comment open");
-    const d = surf().session.composer;
-    for (const c of "The winter shelf") ch(c);
-    // Written first, the words the person had stay; a name each, as the terminal pasted them.
-    press({ kind: "paste", text: "seed-packet.webp\nallotment-dusk.jpg \nno-such-plot.png" });
-    await until(() => d.text.includes("[img::"), "the dropped pictures", 5000);
-    const lines: string[] = d.lines;
-    expect(lines[0]!.endsWith("The winter shelf")).toBe(true);
-    const media = join((await board.info()).workspace, "media") + "/";
-    expect(lines[1]!.startsWith(`[img::${media}`) && lines[1]!.endsWith(".webp]")).toBe(true);
-    expect(lines[2]!.startsWith(`[img::${media}`) && lines[2]!.endsWith(".jpg]")).toBe(true);
-    expect(lines[3]).toBe("no-such-plot.png");
-    expect(d.note).toContain("no-such-plot.png");
-    expect(d.note).toContain("isn't in ");
-    press({ kind: "char", ch: "s", ctrl: true });
-    await until(() => !surf().session, "sent");
-    await until(() => (surf().comments as any[]).some(c => c.body.includes("no-such-plot.png")), "the thread with its pictures");
-    const sent = (surf().comments as any[]).find(c => c.body.includes("no-such-plot.png"));
-    expect(sent.body).toContain(`[img::${media}`);
-    // Drawn as pictures on the card, by name, never a path.
-    expect(surf().said(sent.body)).toContain("▣");
-    await board.trash(sent.id);
-    // The comment in a tile of its own takes a drop the same way.
-    ch("C");
-    await until(() => surf().session?.mode === "compose", "another comment open");
-    await (app as any).dispatch.press("comment.place", { place: "tile" });
-    await until(() => (S().stages.get(S().sel).top.describe().panes as any[]).some(t => t.kind === "comment"), "the comment in its tile");
-    const inTile = surf().session.composer;
-    press({ kind: "paste", text: "seed-packet.webp" });
-    await until(() => inTile.text.includes("[img::"), "the picture dropped in the tile", 5000);
-    press({ kind: "char", ch: "s", ctrl: true });
-    await until(() => !surf().session, "sent from its tile");
-    for (const t of await board.comments(surf().msg.id)) if (t.body.includes("[img::") && t.start === null && !t.body.includes("the notice")) await board.trash(t.id);
-    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
-    expect(S().focus).not.toBe("stage");
-  }, 20_000);
-
   test("session: a half-written floating comment, moved and sized, comes back after a handover as it sat: its words, place, size and cursor", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "session" }, as: "test-agent" });

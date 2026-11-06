@@ -4,13 +4,9 @@
 // over an image, so the clipboard is read on this machine: pbpaste's cousins on macOS, wl-paste or xclip on Linux.
 import { createHash } from "node:crypto";
 import { extensionOfBytes } from "@ep0ch/outline-core/file-magic";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
-import { basename, extname, isAbsolute, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute, join } from "node:path";
 import { resolveMediaPath } from "./media";
-import type { SocketBoard } from "./socket";
-import { def } from "./surface/actions";
-import type { On } from "./surface/note";
 
 /** The picture formats a paste takes: what the reader draws. */
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic"]);
@@ -88,69 +84,6 @@ export function droppedImage(text: string): string | null {
   try { return statSync(r.path).isFile() ? r.path : null; } catch { return null; }
 }
 
-/** A line of a paste as a shell would read it: its words, quoted or with escaped characters; null with a quote left open. */
-function shellWords(line: string): string[] | null {
-  const words: string[] = [];
-  let word = "", inWord = false, quote = "";
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]!;
-    if (quote) { if (c === quote) quote = ""; else word += c; continue; }
-    if (c === " " || c === "\t") { if (inWord) words.push(word); word = ""; inWord = false; continue; }
-    inWord = true;
-    if (c === "'" || c === '"') quote = c;
-    else if (c === "\\" && i + 1 < line.length) word += line[++i];
-    else word += c;
-  }
-  if (quote) return null;
-  if (inWord) words.push(word);
-  return words;
-}
-
-const isImageName = (name: string) => IMAGE_EXT.has(extname(name).toLowerCase());
-const isPathWord = (word: string) => /^(?:\/|~\/)/.test(word);
-const MOST_DROPPED_LINES = 50;
-
-/**
- * The image files a paste names and nothing else, as a drop on a terminal writes them (PIE-1589): paths, quoted or with
- * escaped spaces, several on a line or a line each, or bare names a line each (what macOS's file copy leaves on the
- * clipboard: the folder never reaches the door). Null for any other paste. Reads no file.
- */
-export function droppedFiles(text: string): string[] | null {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
-  if (!lines.length || lines.length > MOST_DROPPED_LINES) return null;
-  const files: string[] = [];
-  for (const line of lines) {
-    const words = shellWords(line);
-    if (!words) return null;
-    if (words.every(word => isPathWord(word) && isImageName(word))) { files.push(...words); continue; }
-    // One file with spaces its terminal left as they are, unless a word is another file: images mixed with anything stay text.
-    if (words.slice(0, -1).some(isImageName) || words.slice(1).some(word => word.includes("/"))) return null;
-    const whole = words.join(" ");
-    // A path, or a name that starts as a file's name does.
-    if (!isImageName(whole) || !(isPathWord(whole) || (/^[\p{L}\p{N}]/u.test(whole) && !whole.includes("/")))) return null;
-    files.push(whole);
-  }
-  return files;
-}
-
-const sameName = (name: string) => name.normalize("NFC").replace(/\u202f/g, " ");
-
-/**
- * A file `droppedFiles` read: the path when it's on this machine, else (a bare name, another machine's path) the file of
- * that name in `folders`, the first that holds one; else null.
- */
-export function findDropped(file: string, folders: readonly string[]): string | null {
-  if (isPathWord(file)) { const here = droppedImage(file); if (here) return here; }
-  const name = sameName(basename(file));
-  for (const folder of folders) {
-    let names: string[];
-    try { names = readdirSync(folder); } catch { continue; }
-    const found = names.find(n => sameName(n) === name);
-    if (found && droppedImage(join(folder, found))) return join(folder, found);
-  }
-  return null;
-}
-
 /** The kind of picture `b` is, by its first bytes: its file extension (a PNG when they say none). */
 const extOf = (b: Buffer): string => extensionOfBytes(b) ?? ".png";
 
@@ -172,45 +105,3 @@ export function keepImage(folder: string, image: Buffer | string, now = new Date
 
 /** The media line for a kept picture: brackets in its path are the line's own grammar's to read. */
 export const imageLine = (path: string) => `[img::${path}]`;
-
-/** The folders this outline's notes name for dropped files: `[drop-folder::<folder>]` on any note. */
-async function dropFolders(board: Pick<SocketBoard, "request">): Promise<string[]> {
-  const { blocks } = await board.request("blocks.query", { query: { where: "drop-folder", limit: 50 } });
-  return [...new Set(blocks.flatMap(b => (b.properties ?? []).filter(p => p.key === "drop-folder").map(p => p.value.trim())))];
-}
-
-/** Their one action, in the reader's set beside `draft.image`. */
-export const dropActions = {
-  "draft.drop": def({
-    summary: "turn what was just pasted before the cursor into pictures, when it is nothing but image files (PIE-1589): a file dropped on the terminal pastes its path, or on macOS a bare name; each found here (its path, else its name in a folder a note names with [drop-folder::<folder>]) is copied into the outline's folder (media/) and becomes an [img::<path>] line, one undo step that gives the paste back. What it can't find stays as written, and is said. Any other paste stays as it is",
-    keys: "a paste of nothing but image files, in an edit or a comment",
-    touches: "draft", draft: "type", replay: "ask",
-    args: { text: { type: "string", about: "the paste, as it sits before the cursor" } },
-    examples: [
-      { act: "draft.drop text=\"plot at dusk.png\"", does: "after draft.paste of the same text: finds it in the outline's [drop-folder::] folders and makes it a picture" },
-    ],
-    async run({ text }: { text: string }, { surface, host }: On, actor) {
-      const d = surface.writingDraft, files = droppedFiles(text);
-      if (!d || !files) return { pictures: 0 };
-      const info = await host.ctx.board.info().catch(() => null);
-      // Pictures live in the outline's folder: the words stay, whole, in a draft on an outline elsewhere.
-      if (!info || info.host !== hostname()) { d.status.say(`the outline is on ${info?.host ?? "another machine"}: what you dropped stays as text, and a picture goes into an outline on this machine`); host.redraw(); return { pictures: 0 }; }
-      const here = files.map(file => findDropped(file, []));
-      // Only a file that isn't where it's named asks the outline where else to look.
-      const folders = here.every(Boolean) ? [] : await dropFolders(host.ctx.board).catch(() => [] as string[]);
-      const found = here.map((path, i) => path ?? findDropped(files[i]!, folders));
-      const missing = files.filter((_, i) => !found[i]);
-      const lookIn = folders.length ? `isn't in ${folders.join(", ")} or on this machine` : "isn't on this machine: a note carrying [drop-folder::<folder>] says where dropped names are looked up";
-      if (missing.length === files.length) { d.status.say(`${missing.join(", ")} ${lookIn}`); host.redraw(); return { pictures: 0, missing }; }
-      if (surface.writingDraft !== d || d.busy) return { pictures: 0 };
-      let lines: string[];
-      try { lines = found.map((path, i) => path ? imageLine(keepImage(info.workspace, path)) : files[i]!); }
-      catch (e) { d.status.say((e as Error).message); host.redraw(); return { pictures: 0 }; }
-      if (!d.replaceTyped(text, lines, actor)) return { pictures: 0 };
-      const pictures = files.length - missing.length;
-      d.status.say(`${pictures === 1 ? "a picture" : `${pictures} pictures`} kept in media/ · ctrl+z gives back what you dropped${missing.length ? ` · ${missing.join(", ")} ${lookIn}` : ""}`);
-      host.redraw();
-      return { pictures, missing };
-    },
-  }),
-};

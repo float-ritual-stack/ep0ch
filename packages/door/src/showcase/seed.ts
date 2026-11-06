@@ -656,8 +656,6 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.swapDay = await make(notes.root.id, `${SEED.swapDay} [page::${SEED.swapDay}]\nBring seeds in paper envelopes, labelled with what and when.`);
   notes.margin = await make(notes.root.id, MARGIN);
   notes.wholeNote = await make(notes.root.id, WHOLE_NOTE);
-  // Where a name macOS pasted without its folder is looked up (draft.drop, PIE-1589).
-  await make(notes.wholeNote.id, `Pictures of the plots [drop-folder::${SHOWCASE_ASSETS}]\nDropped names are looked up in this folder.`);
   notes.errand = await make(notes.root.id, ERRAND);
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   const slotTarget = await make(notes.root.id, "Seed spacing\nLeave two fingers between the beans.");

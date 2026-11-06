@@ -85,7 +85,8 @@ import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { outlineChanged } from "../search-schedule";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -151,13 +152,14 @@ import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
+import { AskAgain, heardBy, type Notes } from "../search-schedule";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
 import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
-import { clipboardImage, dropActions, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
+import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
 import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
@@ -658,6 +660,10 @@ const NO_COMMENT = "no comment is being written here; C on selected words (or pa
 /** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
 const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr", T: "thread.tldr" };
 
+/** A reader's comment notes: the note, its threads and their replies (what a comment list's reads say it read). */
+export const commentNotes = (r: { msg: { id: string } | null; comments?: readonly { id: string; replies: readonly { id: string }[] }[] | null }): Notes =>
+  id => !!id && (id === r.msg?.id || !!r.comments?.some(t => t.id === id || t.replies.some(x => x.id === id)));
+
 export class NoteSurface {
   msg: Msg | null = null;
   private rereadNote(m: Msg): Msg {
@@ -1017,7 +1023,6 @@ export class NoteSurface {
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
-  private commentTimer: Timer | null = null;
   /** Why the whole note behind a list row couldn't be read; empty while reading or once read. */
   unread = "";
   /**
@@ -3265,7 +3270,7 @@ export class NoteSurface {
         else if (cmd === "editor") void this.runKey("edit.external", {}, host);
         else if (cmd === "pick") void this.runKey("draft.pick", {}, host);
         else if (cmd === "follow") void this.runKey("edit.follow", {}, host);
-        else if (cmd === "image" || cmd === "drop") void (cmd === "drop" ? this.runKey("draft.drop", { text: s.dropped }, host) : this.runKey("draft.image", {}, host));
+        else if (cmd === "image") void this.runKey("draft.image", {}, host);
         else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
         else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
         // Esc closes an unchanged edit; esc, esc on changed text puts it aside as unsent (never dropped), and says where.
@@ -3295,8 +3300,7 @@ export class NoteSurface {
     this.endPreviewDraft();
     this.drafting?.dispose();
     // A comment read an event asked for (onEvent) doesn't go out for a reader that's gone.
-    if (this.commentTimer) clearTimeout(this.commentTimer);
-    this.commentTimer = null;
+    this.commentsAgain?.cancel();
   }
 
   /**
@@ -3538,13 +3542,22 @@ export class NoteSurface {
     } catch (e) { if (strict) throw e; /* comments are extra; the note still reads */ }
   }
 
-  /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
-  onEvent(host: SurfaceHost) {
-    if (this.replyLinks) void this.openReplyLinks(host, USER, true).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
+  /**
+   * Outline changed: a comment on this note may have been added, answered or resolved anywhere. Its notes are the note
+   * and its threads and their replies: a comment is made under the note, an extension's agent writes its reply as a
+   * plain block under the thread (`@margin`'s "working" line, PIE-1452), an edit names the reply it edits.
+   */
+  onEvent(host: SurfaceHost, e?: OutlineEvent) {
+    const hears = !e || heardBy(e, commentNotes(this));
+    if (hears && this.replyLinks) void this.openReplyLinks(host, USER, true).catch(err => host.ctx.flash(String(err), undefined, errorDetails(err)));
     if (!this.msg) return;
-    if (this.commentTimer) clearTimeout(this.commentTimer);
-    this.commentTimer = setTimeout(() => void this.loadComments(host), 700);
+    this.commentsHost = host;
+    this.commentsAgain ??= new AskAgain<void>({ read: () => this.loadComments(this.commentsHost!), show() {}, notes: commentNotes(this) });
+    if (e) this.commentsAgain.heard(e); else this.commentsAgain.soon();
   }
+  private commentsAgain: AskAgain<void> | null = null;
+  /** Comments are read through the host of the event that last reached this surface (a tile's host is made per call). */
+  private commentsHost: SurfaceHost | null = null;
 
   private commentEnv(host: SurfaceHost, actor: Actor = host.actor ?? USER): CommentEnv {
     return {
@@ -3555,7 +3568,7 @@ export class NoteSurface {
       external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
       follow: () => void this.runKey("edit.follow", {}, host),
-      image: dropped => void (dropped === undefined ? this.runKey("draft.image", {}, host) : this.runKey("draft.drop", { text: dropped }, host)),
+      image: () => void this.runKey("draft.image", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
       redraw: () => host.redraw(),
@@ -11973,7 +11986,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return foldResult(surface, p);
     },
   }),
-  ...figureActions, ...dropActions,
+  ...figureActions,
   "select": def({
     summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: [{ keys: "drag", does: "select" }, { keys: "double-click", does: "selects a word" }, { via: "a triple click" }, { keys: "v then h j k l", does: "select with the keys" }],
     touches: "nothing", replay: "safe",

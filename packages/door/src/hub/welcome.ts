@@ -30,6 +30,7 @@ import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
+import { AskAgain } from "../search-schedule";
 import { USER, type Actor, type OutlineEvent, type SocketBoard, mutationFor } from "../socket";
 import { C, chip, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, type Key, type TermInfo } from "../term";
@@ -68,15 +69,18 @@ export function orderWelcome(list: readonly Msg[], ids: readonly string[] = []):
 
 /** The Welcome view: the saved view whose query is `welcome` (the oldest, should there be more), or null. */
 export async function welcomeView(board: SocketBoard): Promise<Msg | null> {
-  return (await board.query(`type=virtual-branch query=${WELCOME_QUERY}`, 10, "created", "asc", true))[0] ?? null;
+  return (await board.query(...VIEW_QUESTION))[0] ?? null;
 }
+/** The two questions the welcome notes are read by; the host watches both, so a note tagged or renamed anywhere moves an answer. */
+const VIEW_QUESTION = [`type=virtual-branch query=${WELCOME_QUERY}`, 10, "created", "asc", true] as const;
+const NOTES_QUESTION = [WELCOME_KEY, WELCOME_LIMIT, "created", "asc", true] as const;
 
 /**
  * Every note with a block-scoped `welcome` property (the service's filter: has the key, any value), in the Welcome
  * view's hand-set order, and that view (null: there's none yet, so they're by title).
  */
 export async function findWelcome(board: SocketBoard): Promise<{ notes: Msg[]; view: Msg | null }> {
-  const [notes, view] = await Promise.all([board.query(WELCOME_KEY, WELCOME_LIMIT, "created", "asc", true), welcomeView(board)]);
+  const [notes, view] = await Promise.all([board.query(...NOTES_QUESTION), welcomeView(board)]);
   const ids = view ? (await board.request("virtual.occurrences.order", { viewId: view.id })).blockIds : [];
   return { notes: orderWelcome(notes, ids), view };
 }
@@ -167,8 +171,6 @@ const logoLines = new WeakMap<Cell[][], { cols: number; lines: string[] }>();
 // ── the tiles ───────────────────────────────────────────────────────────────────────────────────────────
 
 type ListRow = { i: number } | { more: number };
-/** Changes that never make a note a welcome note or stop it being one. */
-const QUIET = new Set(["annotate", "reorder", "move", "draft"]);
 /** What `welcome.select` and `welcome.read` answer. */
 export type Shown = { id: string; title: string; welcome: string | null; n: number | null; of: number };
 /** A click target in the band: rows `y0`..`y1`, columns `from`..`to`, and the action it presses. */
@@ -208,7 +210,9 @@ export class WelcomeList implements Pane {
   detail: WelcomeDetail | null = null;
   private view = new RowView();
   private rows: ListRow[] = [];
-  private reload: Timer | null = null;
+  private again: AskAgain<{ found: { notes: Msg[]; view: Msg | null } | null; problem: string; fallback: Msg | null }> | null = null;
+  /** The next answer is the first read: the detail takes its first note. */
+  private first = false;
   private hits: BandHit[] = [];
 
   /** The place of the welcome note the detail shows, or -1 (another note, alt+⏎'s, or nothing). */
@@ -299,14 +303,30 @@ export class WelcomeList implements Pane {
 
   /** Read the welcome notes again. The detail keeps what it shows unless that was the first read or the fallback. */
   async load(desk: DeskApi, first = false) {
-    try {
-      const found = await findWelcome(desk.ctx.board);
-      this.items = found.notes;
-      this.orderView = found.view;
-      this.problem = "";
-    } catch (e) {
-      this.problem = `couldn't ask the outline for welcome notes: ${e instanceof Error ? e.message : String(e)}`;
-    }
+    this.first ||= first;
+    const board = desk.ctx.board;
+    this.again ??= new AskAgain({
+      read: async () => {
+        // Asked here so a read that lost its question still says why, with the fallback's own answer beside it.
+        const found = await findWelcome(board).then(f => ({ found: f, problem: "" }), e => ({ found: null, problem: `couldn't ask the outline for welcome notes: ${e instanceof Error ? e.message : String(e)}` }));
+        const some = found.found ? found.found.notes.length : (this.items ?? []).length;
+        const page = some || found.problem ? null : await board.resolvePage(welcomeFallback()).catch(() => null);
+        return { ...found, fallback: page?.status === "resolved" && page.block ? page.block : null };
+      },
+      show: ({ found, problem, fallback }) => this.take(found, problem, fallback, desk),
+      // The hand-set order is the view's own: the host's questions can't see it (`virtual.occurrences.order` isn't watched).
+      // And while there are none, any change may be the fallback page arriving.
+      notes: id => !this.items?.length || id === this.orderView?.id,
+      told: board.watched && { by: board.watched, answers: () => [board.queryShown(...NOTES_QUESTION), board.queryShown(...VIEW_QUESTION)] },
+    });
+    await this.again.now();
+  }
+
+  private take(found: { notes: Msg[]; view: Msg | null } | null, problem: string, fallback: Msg | null, desk: DeskApi) {
+    const first = this.first;
+    this.first = false;
+    if (found) { this.items = found.notes; this.orderView = found.view; }
+    this.problem = problem;
     const items = this.items ?? [], d = this.detail;
     const shown = d?.msg ?? null;
     const keep = shown && !first && shown.id !== this.fallback?.id && !d?.holdsKeys;
@@ -314,24 +334,14 @@ export class WelcomeList implements Pane {
       this.fallback = null;
       if (d && (!keep || !shown) && !d.holdsKeys && !d.editing) d.hold(items[0]!, desk);
     } else if (!this.problem) {
-      try {
-        const r = await desk.ctx.board.resolvePage(welcomeFallback());
-        this.fallback = r.status === "resolved" && r.block ? r.block : null;
-      } catch { this.fallback = null; }
+      this.fallback = fallback;
       if (d && this.fallback && (!shown || shown.id === this.fallback.id || first) && !d.holdsKeys && !d.editing) d.hold(this.fallback, desk);
     }
     desk.redraw();
   }
 
-  /** A note tagged, untagged, renamed, trashed or restored anywhere: the list is asked again (once per burst). */
-  onEvent(desk: DeskApi, e?: OutlineEvent) {
-    // Without a change record (a reset) it could be anything, so it's asked too. A comment, a move or a draft doesn't
-    // change which notes carry the property, or their titles; a hand-set order does when it's the Welcome view's.
-    if (e?.change && QUIET.has(e.change.kind) && !(e.change.kind === "reorder" && (!this.orderView || e.change.blockId === this.orderView.id))) return;
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => { this.reload = null; void this.load(desk); }, 300);
-  }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+  onEvent(_desk: DeskApi, e?: OutlineEvent) { if (e) this.again?.heard(e); }
+  dispose() { this.again?.cancel(); }
 
   /**
    * Show the welcome note at place `i` (from 0) in the detail, as `actor`. The person's pick by digit, tab or ⏎ in

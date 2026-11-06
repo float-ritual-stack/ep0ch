@@ -135,8 +135,7 @@ export function onTerminal(key: string, has = true) {
 /** `~`, backslash-escaped spaces, and macOS screenshot names (a narrow no-break space before AM/PM). */
 export function resolveMediaPath(raw: string): { path: string; exists: boolean } {
   const p = raw.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " ").replace(/^~(?=\/)/, homedir());
-  // A macOS screenshot name has a narrow no-break space before AM or PM: found either way round.
-  const candidates = [p, p.replace(/ (AM|PM)(?=\.\w+$)/, "\u202f$1"), p.replace(/\u202f/g, " ")];
+  const candidates = [p, p.replace(/ (AM|PM)(?=\.\w+$)/, " $1")];
   for (const c of candidates) { try { statSync(c); return { path: c, exists: true }; } catch { /* next */ } }
   return { path: p, exists: false };
 }

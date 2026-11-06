@@ -16,6 +16,7 @@ import { subject, type Msg } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
+import { AskAgain } from "../search-schedule";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow } from "../style";
 import { wrap } from "../text";
@@ -398,9 +399,9 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "comment-tile", need: "write a comment and still see the whole note: on the whole note or on selected words, in a tile of its own that docks, its text and preview scrolling under the wheel, its pictures drawn",
-    part: "the comment editor (PIE-846): one way in, C on selected words (as a c, or the selection's [Comment c]) writes on them, C with nothing selected or the byline's [comment] writes on the whole note (comment.note: the service's block-comment with no passage; its thread sits at the top of the note, its card on the margin's first row); the composer's fifth place, tile (comment.place place=tile, ctrl+o): AttachedTilePane, a tile beside the reader drawing that reader's own comment session through renderEditor, which moves, sizes and docks (tile.dock, ^W p) as any tile; the wheel over a box scrolls its text, or its preview (draft.scroll preview=true), and typing never scrolls the note out from under it; img:: in a comment drawn as the reader draws it, in the preview and the posted thread (snippetDoc with pictures, threadPanel's images); a paste of nothing but image files becomes those pictures (draft.drop, src/paste-image.ts)",
+    part: "the comment editor (PIE-846): one way in, C on selected words (as a c, or the selection's [Comment c]) writes on them, C with nothing selected or the byline's [comment] writes on the whole note (comment.note: the service's block-comment with no passage; its thread sits at the top of the note, its card on the margin's first row); the composer's fifth place, tile (comment.place place=tile, ctrl+o): AttachedTilePane, a tile beside the reader drawing that reader's own comment session through renderEditor, which moves, sizes and docks (tile.dock, ^W p) as any tile; the wheel over a box scrolls its text, or its preview (draft.scroll preview=true), and typing never scrolls the note out from under it; img:: in a comment drawn as the reader draws it, in the preview and the posted thread (snippetDoc with pictures, threadPanel's images)",
     files: "src/desk/attached-tile.ts, src/surface/note.ts (comment.note, commentOnNote, composerTile, composerPointer, threadPanel, isWholeNote), src/comment.ts (writeNote), src/draft-session.ts (the note target), src/surface/editor.ts (wheelTarget, previewRows), src/surface/composer.ts (the tile place), src/desk/desk.ts (attachedTile)",
-    aside: "a comment on the whole note, half written, in its own tile in the note's place beside it (the links tile on the right never moves) · type in it, ctrl+s sends it and the tile closes, the note's room back as it was · ctrl+g then ← → ↑ ↓, or the tile's last row, puts it on that side of the note; drag the border between them (or ^W < >) to size it, and it keeps that size round the note · ctrl+o puts it back in the note · m, then ctrl+o: the thread list there too, r writes a reply in it · the thread at the top of the note is on the whole note, a picture in it (drawn under Kitty graphics) · C with nothing selected, or the [comment] after the date, starts another · the wheel over a long comment scrolls it, and over its preview (ctrl+p) the preview · drop files on the terminal, or paste seed-packet.webp: each is found (its path, or its name in a [drop-folder::] folder), kept in media/ and drawn, and ctrl+z gives back what you dropped",
+    aside: "a comment on the whole note, half written, in its own tile in the note's place beside it (the links tile on the right never moves) · type in it, ctrl+s sends it and the tile closes, the note's room back as it was · ctrl+g then ← → ↑ ↓, or the tile's last row, puts it on that side of the note; drag the border between them (or ^W < >) to size it, and it keeps that size round the note · ctrl+o puts it back in the note · m, then ctrl+o: the thread list there too, r writes a reply in it · the thread at the top of the note is on the whole note, a picture in it (drawn under Kitty graphics) · C with nothing selected, or the [comment] after the date, starts another · the wheel over a long comment scrolls it, and over its preview (ctrl+p) the preview",
     stage(n, show) {
       // Beside the note's links: the comment's tile takes its room from the note alone, wherever it goes round it.
       const r = new ReaderPane();
@@ -1640,7 +1641,27 @@ export class Showcase implements Screen {
   private problem = "";
   /** The outline was reset under this door: its notes are read again once the new seed is whole. */
   private reseeding = false;
-  private rereadTimer: Timer | null = null;
+  /** While reseeding: the notes read again once the outline has been quiet a moment, and taken when every one is there. */
+  private reseedAsk: AskAgain<Awaited<ReturnType<typeof loadShowcase>>> | null = null;
+  private get reseedAsking() {
+    return this.reseedAsk ??= new AskAgain({
+      read: () => loadShowcase(this.ctx.board),
+      show: s => {
+        if (this.disposed || !this.reseeding) return;
+        // Not whole yet: the seed's next write reads again.
+        if (!s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
+        this.reseeding = false;
+        this.notes = s.notes;
+        this.problem = "";
+        this.openStage();
+        this.ctx.flash("the showcase was reset · its notes read again");
+        this.ctx.redraw();
+      },
+      // A read that failed tries again by itself.
+      fail: () => { if (!this.disposed && this.reseeding) this.reseedAsking.soon(); },
+      notes: "any",
+    });
+  }
   /** `ctx.reconnects` when the root was last checked. */
   private reconnectsSeen = 0;
   private disposed = false;
@@ -1686,26 +1707,7 @@ export class Showcase implements Screen {
     this.problem = "The showcase outline was reset; its notes are read again once it is seeded.";
     if (kept.length) this.ctx.flash(`the showcase was reset · an unsaved draft is copied to ${kept.join(", ")}`, 6000);
     this.ctx.redraw();
-    this.reread();
-  }
-
-  /** While reseeding: read the notes again once the outline has been quiet a moment, and take them when every one is there. */
-  private reread() {
-    if (this.rereadTimer) clearTimeout(this.rereadTimer);
-    this.rereadTimer = setTimeout(() => {
-      this.rereadTimer = null;
-      loadShowcase(this.ctx.board).then(s => {
-        if (this.disposed || !this.reseeding) return;
-        // Not whole yet: the seed's next write reads again. A read that failed tries again by itself.
-        if (!s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
-        this.reseeding = false;
-        this.notes = s.notes;
-        this.problem = "";
-        this.openStage();
-        this.ctx.flash("the showcase was reset · its notes read again");
-        this.ctx.redraw();
-      }, () => { if (!this.disposed && this.reseeding) this.reread(); });
-    }, 500);
+    this.reseedAsking.soon();
   }
 
   /** The stage of section `i`, built once and kept, so an edit or a layout survives moving between sections. */
@@ -1754,7 +1756,7 @@ export class Showcase implements Screen {
 
   render(ctx: Ctx): Frame {
     if ((ctx.reconnects ?? 0) !== this.reconnectsSeen) { this.reconnectsSeen = ctx.reconnects ?? 0; void this.recheck(); }
-    else if (this.reseeding && !this.rereadTimer) this.reread();
+    else if (this.reseeding && !this.reseedAsking.waiting) this.reseedAsking.soon();
     const { cols, rows } = ctx.t;
     const H = rows - 1;
     const canvas = new Canvas(cols, H);
@@ -1861,11 +1863,11 @@ export class Showcase implements Screen {
   scriptsLost() { for (const f of this.stages.values()) f.scriptsLost(); }
   onEvent(e: OutlineEvent) {
     for (const f of this.stages.values()) f.onEvent(e);
-    if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();
+    if (this.reseeding) this.reseedAsking.heard(e);
   }
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
-  dispose() { this.disposed = true; for (const f of this.stages.values()) f.dispose(); if (this.rereadTimer) clearTimeout(this.rereadTimer); }
+  dispose() { this.disposed = true; for (const f of this.stages.values()) f.dispose(); this.reseedAsk?.cancel(); }
   /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
   noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
   /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */
