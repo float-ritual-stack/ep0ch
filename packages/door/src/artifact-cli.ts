@@ -16,7 +16,7 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
   }
   const words = args.filter((a,i) => !valued.includes(a) && !valued.includes(args[i-1] ?? "") && a !== "--json");
   if (!verb || !["put", "ls", "show", "versions", "snapshot", "rm", "import", "deploy", "dns", "backfill", "lease"].includes(verb) || words.length > 1 || (verb !== "ls" && verb !== "import" && verb !== "backfill" && verb !== "lease" && !words[0])) {
-    io.err("ep0ch artifact put <file-or-folder> [--name <name>] | lease [<name>] [--ws <outline>] [--json] | deploy <repo> [--domain <name>] | dns <name> --to vercel|float-2 | backfill [catalogue] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
+    io.err("ep0ch artifact put <file-or-folder> [--name <name>] | lease [<name>] [--ws <outline>] [--json] | deploy <repo> [--domain <label or full name>] | dns <name> --to vercel|float-2 | backfill [catalogue] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
   }
   const board = ["import", "deploy", "dns", "backfill", "lease"].includes(verb!) || value("--ws") ? await boardFor(args) : await artifactHost(value("--machine"));
   if ("error" in board) { io.err(board.error); return 1; }

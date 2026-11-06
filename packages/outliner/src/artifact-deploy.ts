@@ -13,6 +13,8 @@ import type { MutationProvenance } from "./types";
 export interface Deployment {
   name: string; repo: string; where: "float-2" | "vercel" | "unknown"; url: string;
   commit: string; contentHash?: string; deployedAt: string; reason: string;
+  /** The name this deployment was to answer at and doesn't yet, and why: `url` is where the app answers meanwhile. */
+  wanted?: { name: string; said: string };
 }
 
 /** The repo `input` names (artifactRepoRef's grammar, or a bare name in ep0ch-artifacts), refused unless it may deploy. */
@@ -53,27 +55,57 @@ async function artifactProgram(program: Program, args: string[], cwd?: string, s
       throw new Error("Vercel login failed; run vercel login on the outline host and run the artifact command again.");
     if (program === "vercel" && args[0] === "inspect" && /can't find the deployment|deployment.*not found/i.test(err))
       throw new Error("no Vercel deployment for that domain");
-    throw new Error(`${program} ${args[0] ?? ""} exited ${code}; check its login on the outline host and run the artifact command again.`);
+    // The status alone: the rest of what it says stays out of notes, as above.
+    const status = program === "vercel" && args[0] === "api" ? /\((\d{3})\)/.exec(err)?.[1] : undefined;
+    if (status) throw new Error(`Vercel answered ${status} to ${args[1]}; run vercel api ${args[1]} on the outline host to see why.`);
+    throw new Error(`${program} ${args[0] ?? ""} exited ${code}; run it on the outline host to see why, then run the artifact command again.`);
   }
   return out.trimEnd();
 }
 
-export async function artifactDns(name: string, to: "vercel" | "float-2") {
-  if (artifactRepo(name).name !== name) throw new Error("Use a bare name: ep0ch artifact dns <name> --to vercel|float-2.");
+const ZONE = "ep0ch.sh";
+/** The name in the zone Hetzner holds for us, or undefined for any other domain's (nested ones too: one rrset, one label). */
+const zoneLabel = (host: string) => host.endsWith(`.${ZONE}`) && !host.slice(0, -ZONE.length - 1).includes(".") ? host.slice(0, -ZONE.length - 1) : undefined;
+/** What Vercel asks for before it serves a name: a TXT, from its own answer. */
+export interface VercelOwnership { domain: string; value: string }
+
+/**
+ * Point a name at Vercel or float-2, and write the TXT Vercel wants when it names one: the only place artifacts touch DNS.
+ * `name` is a label under ep0ch.sh or a full name; a name on any other domain isn't ours to write, so it answers manual.
+ * The TXT is appended (add-records) beside every other name's at `_vercel`, never replacing them.
+ */
+export async function artifactDns(name: string, to: "vercel" | "float-2", ownership?: VercelOwnership) {
   if (to !== "vercel" && to !== "float-2") throw new Error("Use ep0ch artifact dns <name> --to vercel|float-2.");
+  const full = name.includes(".");
+  if (!full && artifactRepo(name).name !== name) throw new Error("Use a bare name: ep0ch artifact dns <name> --to vercel|float-2.");
+  const host = full ? name : `${name}.${ZONE}`;
   const type = to === "vercel" ? "CNAME" : "A", value = to === "vercel" ? "cname.vercel-dns.com." : "2.28.99.29";
-  const record = `${name}.ep0ch.sh. 300 IN ${type} ${value}`;
+  const record = `${host}. 300 IN ${type} ${value}`;
+  const txt = ownership && `${ownership.domain}. 300 IN TXT "${ownership.value}"`;
+  const wanted = `${to === "vercel" ? "Vercel wants this DNS record" : "Add this record by hand"}: ${txt ? `${txt} and ${record}` : record}.`;
+  const manual = { outcome: "manual" as const, record, ...(txt ? { txt } : {}) };
+  const label = zoneLabel(host);
+  if (!label) return { ...manual, said: `${wanted} ${host} isn't in the ${ZONE} zone: add it where its domain's DNS is, then run the command again.` };
   const groups = await artifactProgram("with-secrets", ["--list"]);
-  if (!groups.split(/\s+/).includes("hetzner-dns")) return { outcome: "manual", record, said: `No hetzner-dns secrets group. Add this record by hand: ${record}. Run with-secrets --add hetzner-dns HCLOUD_TOKEN to store a token with DNS rights, then run ep0ch artifact dns ${name} --to ${to}.` };
-  const rrsets = JSON.parse(await artifactProgram("hcloud", ["zone", "rrset", "list", "ep0ch.sh", "-o", "json"], undefined, "hetzner-dns")) as { name: string; type: string; records: { value: string }[] }[];
-  const same = rrsets.find(r => r.name === name && r.type === type);
-  if (same?.records.length === 1 && same.records[0]!.value === value) return { outcome: "up-to-date", record };
-  for (const conflict of rrsets.filter(r => r.name === name && (type === "CNAME" || r.type === "CNAME") && r.type !== type))
-    await artifactProgram("hcloud", ["zone", "rrset", "delete", "ep0ch.sh", name, conflict.type], undefined, "hetzner-dns");
+  if (!groups.split(/\s+/).includes("hetzner-dns")) return { ...manual, said: `${wanted} No hetzner-dns secrets group: run with-secrets --add hetzner-dns HCLOUD_TOKEN to store a token with DNS rights, or add it by hand, then run the command again${ownership ? "" : ` (ep0ch artifact dns ${label} --to ${to})`}.` };
+  const rrsets = JSON.parse(await artifactProgram("hcloud", ["zone", "rrset", "list", ZONE, "-o", "json"], undefined, "hetzner-dns")) as { name: string; type: string; records: { value: string }[] }[];
+  let wrote = false;
+  if (ownership) {
+    const at = ownership.domain.slice(0, -ZONE.length - 1);
+    // Listed values come back quoted; add-records quotes what it's given.
+    if (!rrsets.find(r => r.name === at && r.type === "TXT")?.records.some(r => r.value.replace(/^"|"$/g, "") === ownership.value)) {
+      await artifactProgram("hcloud", ["zone", "rrset", "add-records", "--record", ownership.value, ZONE, at, "TXT"], undefined, "hetzner-dns");
+      wrote = true;
+    }
+  }
+  const same = rrsets.find(r => r.name === label && r.type === type);
+  if (same?.records.length === 1 && same.records[0]!.value === value) return { outcome: wrote ? "updated" as const : "up-to-date" as const, record };
+  for (const conflict of rrsets.filter(r => r.name === label && (type === "CNAME" || r.type === "CNAME") && r.type !== type))
+    await artifactProgram("hcloud", ["zone", "rrset", "delete", ZONE, label, conflict.type], undefined, "hetzner-dns");
   await artifactProgram("hcloud", same
-    ? ["zone", "rrset", "set-records", "ep0ch.sh", name, type, "--record", value]
-    : ["zone", "rrset", "create", "ep0ch.sh", "--name", name, "--type", type, "--ttl", "300", "--record", value], undefined, "hetzner-dns");
-  return { outcome: "updated", record };
+    ? ["zone", "rrset", "set-records", ZONE, label, type, "--record", value]
+    : ["zone", "rrset", "create", ZONE, "--name", label, "--type", type, "--ttl", "300", "--record", value], undefined, "hetzner-dns");
+  return { outcome: "updated" as const, record };
 }
 
 export function deployedArtifacts(artifacts: ArtifactStore): Deployment[] {
@@ -161,7 +193,8 @@ export function artifactRepoInfo(artifacts: ArtifactStore, store: OutlinerStore,
   if (deploying.get(artifacts.root)?.has(ref.repo)) return info({ ...base, state: "deploying" });
   if (status === "failed" && (!record || Date.parse(record.deployedAt) < Date.parse(run!.at) || Number.isNaN(Date.parse(record.deployedAt))))
     return info({ ...base, state: "failed", said: runNote!.text.split("\n").find(line => line.startsWith(STOPPED))?.slice(STOPPED.length) ?? "its last run failed", command });
-  if (record) return info({ ...base, state: "live" });
+  // A name that isn't attached is a missing name: the app is live at `url`, and `said` is what the name still needs.
+  if (record) return info({ ...base, state: "live", ...(record.wanted ? { said: `${record.wanted.name} isn't attached: ${record.wanted.said}`, command } : {}) });
   return info({ ...base, state: "not-deployed", ...(pending ? { said: pending.reason } : {}), command });
 }
 async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: ReturnType<typeof artifactRepo>, requestedBy?: MutationProvenance, domain?: string) {
@@ -169,10 +202,7 @@ async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: Retu
   const source = store.queryBlocks({ filters: [{ key: "artifact" }], propertyScope: "all", limit: 1000 }).blocks.find(note =>
     parsePropertyRecords(note.text).some(p => p.key === "artifact" && artifactRepoRef(p.value)?.repo === repo.repo));
   domain ??= source && parsePropertyRecords(source.text).find(p => p.key === "domain" && p.scope === "block")?.value;
-  if (domain) {
-    domain = domain.replace(/\.ep0ch\.sh$/, "");
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(domain)) throw new Error("Use --domain <name> or [domain::<name>] with an ep0ch.sh subdomain label.");
-  }
+  if (domain) domain = artifactHost(domain);
   const parent = process.env.EP0CH_ARTIFACT_DEPLOYS ?? join(homedir(), "artifact-deploys");
   mkdirSync(parent, { recursive: true });
   const folder = join(parent, repo.name);
@@ -190,8 +220,10 @@ async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: Retu
   let deployment = deployedArtifacts(artifacts).find(row => row.name === repo.name && row.commit === commit && row.where === choice.where);
   const target = choice.where === "vercel" ? await vercelTarget(artifacts, repo, domain) : undefined;
   const remoteExists = !!target?.exists && (await vercelDeployments(commit, target.project)).some(d => d.state === "READY");
-  let unchanged = !!deployment && (!target || deployment.url === `https://${target.domain}.ep0ch.sh`) && (choice.where === "vercel" ? remoteExists : existsSync(join(artifacts.live, repo.name)) && deployment.contentHash === artifacts.contentHash(repo.name));
+  let unchanged = !!deployment && (!target || deployment.url === `https://${target.host}`) && (choice.where === "vercel" ? remoteExists : existsSync(join(artifacts.live, repo.name)) && deployment.contentHash === artifacts.contentHash(repo.name));
   let dns: Awaited<ReturnType<typeof artifactDns>> | undefined;
+  let name: NameStep | undefined;
+  let served: string | undefined;
   if (!unchanged) {
     if (choice.where === "float-2") {
       const publish = files.filter(file => !file.split("/").some(part => part.startsWith(".")) && !/^(?:README(?:\..*)?|LICENSE(?:\..*)?|package(?:-lock)?\.json|bun\.lock[b]?|yarn\.lock|pnpm-lock\.yaml)$/i.test(file));
@@ -201,23 +233,24 @@ async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: Retu
       }));
       await artifacts.put(repo.name, contents, { compile: true, rejectErrors: true });
     } else {
-      unchanged = remoteExists && target!.assigned;
       if (!remoteExists) {
         await artifactProgram("vercel", ["link", "--yes", "--project", target!.project], folder);
-        await artifactProgram("vercel", ["deploy", "--prod", "--yes", "--meta", `ep0chCommit=${commit}`], folder);
+        served = await artifactProgram("vercel", ["deploy", "--prod", "--yes", "--meta", `ep0chCommit=${commit}`], folder);
       }
-      if (!target!.assigned) {
-        await artifactProgram("vercel", ["domains", "add", `${target!.domain}.ep0ch.sh`, target!.project], folder);
-        dns = await artifactDns(target!.domain, "vercel");
-      }
+      // From here the app is up: whatever goes wrong with its name is a missing name, not a failed deploy.
+      const step: NameStep = name = await attachVercelName(target!.project, target!.host, target!.known).catch((error: Error) => ({ attached: false as const, said: error.message }));
+      dns = step.dns;
+      const before = deployedArtifacts(artifacts).find(row => row.name === repo.name);
+      unchanged = remoteExists && (step.attached ? step.already : before?.commit === commit && before.wanted?.name === target!.host && before.wanted.said === step.said);
     }
-    deployment = { ...repo, ...choice, commit, deployedAt: new Date().toISOString(), url: choice.where === "float-2" ? `https://artifacts.ep0ch.sh/${repo.name}/` : `https://${target!.domain}.ep0ch.sh` };
+    const url = choice.where === "float-2" ? `https://artifacts.ep0ch.sh/${repo.name}/` : name!.attached ? `https://${target!.host}` : await answersAt(target!.project, target!.host, served);
+    deployment = { ...repo, ...choice, commit, deployedAt: new Date().toISOString(), url, ...(name && !name.attached ? { wanted: { name: target!.host, said: name.said } } : {}) };
     if (choice.where === "float-2") deployment.contentHash = artifacts.contentHash(repo.name);
     rememberDeployment(artifacts, deployment);
   }
   const outcome = unchanged ? "up-to-date" : "deployed";
   const catalogue = registerArtifact(store, deployment!, requestedBy);
-  const text = `Artifact ${repo.name}: ${outcome} [type::artifact-run] [repo::${repo.repo}] [status::${outcome}]\n\nCommit: ${commit}\nWhere: ${choice.where}\nURL: ${deployment!.url}\nWhy: ${choice.reason}\n${unchanged ? "Up to date, nothing done." : "Deployed."}${dns ? `\nDNS: ${dns.record} (${dns.outcome})${"said" in dns ? `\n${dns.said}` : ""}` : ""}`;
+  const text = `Artifact ${repo.name}: ${outcome} [type::artifact-run] [repo::${repo.repo}] [status::${outcome}]\n\nCommit: ${commit}\nWhere: ${choice.where}\nURL: ${deployment!.url}\nWhy: ${choice.reason}\n${unchanged ? "Up to date, nothing done." : "Deployed."}${dns ? `\nDNS: ${dns.record} (${dns.outcome})` : ""}${deployment!.wanted ? `\n${deployment!.wanted.name} isn't attached: ${deployment!.wanted.said}` : ""}`;
   // A save that changes nothing checks again: the same answer is the newest run's, refreshed, not one more note per edit.
   const last = store.queryBlocks({ where: `type=artifact-run repo=${repo.repo}`, sort: "created desc", limit: 1 }).blocks[0];
   const run = store.changes.run(store.changes.attribution({ action: "artifacts.deploy", actor: DEPLOY_ACTOR, requestedBy }), () =>
@@ -338,7 +371,7 @@ async function vercelTarget(artifacts: ArtifactStore, repo: ReturnType<typeof ar
   let exists = false;
   if (remembered || requested) {
     try {
-      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", remembered?.url ?? `https://${requested}.ep0ch.sh`, "--json"])) as { id: string };
+      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", remembered?.url ?? `https://${requested}`, "--json"])) as { id: string };
       const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`])) as { name: string };
       project = info.name;
       exists = true;
@@ -354,16 +387,69 @@ async function vercelTarget(artifacts: ArtifactStore, repo: ReturnType<typeof ar
       next = page.pagination.next;
     } while (!exists && next);
   }
-  const domains: string[] = [];
-  if (exists) {
-    let next: number | null = null;
-    do {
-      const page: { domains: { name: string }[]; pagination: { next: number | null } } = JSON.parse(await artifactProgram("vercel", ["api", `/v9/projects/${encodeURIComponent(project)}/domains?limit=100${next ? `&until=${next}` : ""}`]));
-      domains.push(...page.domains.map(d => d.name));
-      next = page.pagination.next;
-    } while (next);
+  const domains = exists ? await projectDomains(project) : [];
+  const rememberedHost = remembered?.url.match(/^https:\/\/([^/]+)\/?$/)?.[1];
+  const host = requested ?? remembered?.wanted?.name ?? domains.find(d => d.name.endsWith(`.${ZONE}`))?.name
+    // A recorded address is a name to keep when it's ours or the project's: an imported record may hold a homepage or a one-off URL.
+    ?? (rememberedHost && (rememberedHost.endsWith(`.${ZONE}`) || domains.some(d => d.name === rememberedHost && !d.name.endsWith(".vercel.app"))) ? rememberedHost : undefined) ?? `${repo.name}.${ZONE}`;
+  return { project, exists, host, known: domains.find(d => d.name === host) };
+}
+
+/** A project's domain as Vercel's API answers it; `verification` is what an unverified one still wants. */
+interface ProjectDomain { name: string; verified: boolean; verification?: { type: string; domain: string; value: string }[] }
+async function projectDomains(project: string): Promise<ProjectDomain[]> {
+  const domains: ProjectDomain[] = [];
+  let next: number | null = null;
+  do {
+    const page: { domains: ProjectDomain[]; pagination: { next: number | null } } = JSON.parse(await artifactProgram("vercel", ["api", `/v9/projects/${encodeURIComponent(project)}/domains?limit=100${next ? `&until=${next}` : ""}`]));
+    domains.push(...page.domains);
+    next = page.pagination.next;
+  } while (next);
+  return domains;
+}
+
+/** A --domain or [domain::]: a label is a name under ep0ch.sh, anything with a dot is a full name on any domain the team holds. */
+function artifactHost(domain: string): string {
+  const host = domain.includes(".") ? domain : `${domain}.${ZONE}`;
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$/.test(host)) throw new Error("Use --domain <name> or [domain::<name>] with a label under ep0ch.sh or a full name, in lower case.");
+  return host;
+}
+
+type NameStep = { attached: true; already: boolean; dns?: Awaited<ReturnType<typeof artifactDns>> } | { attached: false; said: string; dns?: Awaited<ReturnType<typeof artifactDns>> };
+const VERIFY_TRIES = 6;
+
+/**
+ * Give the project this name, as far as Vercel's answers say it needs (PIE-1588): add it, write the TXT it asks for and the
+ * address, then ask it to verify. A name it calls verified and pointed needs nothing, which is how one under a team-held
+ * domain on Vercel's nameservers goes through with no TXT and no Hetzner step; no list of domains here decides that.
+ */
+async function attachVercelName(project: string, host: string, known?: ProjectDomain): Promise<NameStep> {
+  const at = `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(host)}`;
+  const state = known ?? JSON.parse(await artifactProgram("vercel", ["api", `/v10/projects/${encodeURIComponent(project)}/domains`, "-X", "POST", "-f", `name=${host}`])) as ProjectDomain;
+  const pointed = async () => !(JSON.parse(await artifactProgram("vercel", ["api", `/v6/domains/${encodeURIComponent(host)}/config`])) as { misconfigured?: boolean }).misconfigured;
+  if (state.verified && await pointed()) return { attached: true, already: !!known };
+  const dns = await artifactDns(host, "vercel", state.verified ? undefined : state.verification?.find(v => v.type === "TXT"));
+  const wrote = dns.outcome !== "manual";
+  // A record just written takes a moment to reach Vercel; one we didn't write gets one ask, for the person who added it by hand.
+  const verified = state.verified || await askVerify(at, wrote ? VERIFY_TRIES : 1);
+  if (!wrote) return verified && await pointed() ? { attached: true, already: false, dns } : { attached: false, said: dns.said!, dns };
+  return verified ? { attached: true, already: false, dns } : { attached: false, said: `Vercel hasn't seen the record yet: ${dns.record} is set, and the TXT is at _vercel. Run the deploy again in a few minutes.`, dns };
+}
+
+async function askVerify(at: string, tries: number): Promise<boolean> {
+  const wait = Number(process.env.EP0CH_VERCEL_VERIFY_WAIT_MS ?? 10_000);
+  for (let attempt = 1; ; attempt++) {
+    // It answers 400 while the record isn't there, and that's the answer being waited on.
+    const answer = await artifactProgram("vercel", ["api", `${at}/verify`, "-X", "POST"]).catch(() => null);
+    if (answer && (JSON.parse(answer) as { verified?: boolean }).verified) return true;
+    if (attempt >= tries) return false;
+    await Bun.sleep(wait);
   }
-  const rememberedDomain = remembered?.url.match(/^https:\/\/([a-z0-9-]+)\.ep0ch\.sh\/?$/)?.[1];
-  const domain = requested ?? domains.find(d => d.endsWith(".ep0ch.sh"))?.replace(/\.ep0ch\.sh$/, "") ?? rememberedDomain ?? repo.name;
-  return { project, exists, domain, assigned: domains.includes(`${domain}.ep0ch.sh`) };
+}
+
+/** Where the app answers when `wanted` doesn't: another verified name of the project's, its vercel.app name, else this deploy's own URL. */
+async function answersAt(project: string, wanted: string, served?: string): Promise<string> {
+  const verified = (await projectDomains(project).catch(() => [])).filter(d => d.verified && d.name !== wanted).map(d => d.name);
+  const name = verified.find(d => !d.endsWith(".vercel.app")) ?? verified[0];
+  return name ? `https://${name}` : served?.startsWith("https://") ? served : `https://${project}.vercel.app`;
 }
