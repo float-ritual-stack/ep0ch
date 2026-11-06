@@ -55,7 +55,8 @@ export function queryCandidates(database: Database, graph: Graph, filters: reado
   if (!known) carriersByGraph.set(graph, known = new Map());
   const held = known;
   const carriers = (key: string, value?: string): ReadonlySet<string> => {
-    // What a value test holds for is an item of it, in any case: its text is in the row's, and SQLite's lower() only knows ASCII.
+    // What a value test holds for is an item of it, in any case: its text is in the row's. SQLite's lower() only knows ASCII, so
+    // a wanted value past ASCII asks by key, and a row past ASCII is always kept (a Kelvin sign folds to k): the predicate decides.
     const wanted = value?.trim().toLowerCase().replace(/\/\*$/, "");
     const needle = wanted && /^[\x00-\x7f]+$/.test(wanted) ? wanted : undefined;
     const name = needle === undefined ? key : `${key}\0${needle}`;
@@ -65,7 +66,7 @@ export function queryCandidates(database: Database, graph: Graph, filters: reado
       const keys = key === "tag" ? ["tag", "tags"] : [key];
       const rows = keys.flatMap(one => (needle === undefined
         ? database.query("SELECT block_id AS id FROM block_properties WHERE scope IN ('block', 'line', 'inline') AND key = ?").all(one)
-        : database.query("SELECT block_id AS id FROM block_properties WHERE scope IN ('block', 'line', 'inline') AND key = ? AND instr(lower(value), ?) > 0").all(one, needle)) as { id: string }[]);
+        : database.query("SELECT block_id AS id FROM block_properties WHERE scope IN ('block', 'line', 'inline') AND key = ? AND (instr(lower(value), ?) > 0 OR value GLOB '*[^ -~]*')").all(one, needle)) as { id: string }[]);
       held.set(name, ids = new Set(rows.map(row => row.id)));
     }
     return ids;

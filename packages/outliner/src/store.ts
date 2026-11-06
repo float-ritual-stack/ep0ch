@@ -5815,8 +5815,8 @@ export class OutlinerStore {
   }
 
   private ensureTrashView(): void {
-    // By the property index: a query here read the whole outline at every open (PIE-1610).
-    if (this.database.query("SELECT 1 FROM block_properties p JOIN blocks b ON b.id = p.block_id WHERE p.scope = 'block' AND p.key = 'system-view' AND p.value = 'trash' AND b.effective_deleted_root_id IS NULL LIMIT 1").get()) return;
+    // By the property index, the value by the shared rule: a query here read the whole outline at every open (PIE-1610).
+    if ((this.database.query("SELECT p.value FROM block_properties p JOIN blocks b ON b.id = p.block_id WHERE p.scope = 'block' AND p.key = 'system-view' AND b.effective_deleted_root_id IS NULL").all() as { value: string }[]).some(row => propertyValueHolds(row.value, "trash"))) return;
     this.create("Trash [type::virtual-branch] [system-view::trash] [query::deleted=true] [limit::200]", null, "system");
   }
 

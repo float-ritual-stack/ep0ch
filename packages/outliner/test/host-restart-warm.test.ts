@@ -24,6 +24,8 @@ function garden(store: OutlinerStore) {
   store.create("Pond [type::Pond] [tags::water, soil] [season::Été]");
   store.create("Quiet one [machine::record] [type::bed]");
   store.create("Plain note about the bed, no chips");
+  // A Kelvin sign: JavaScript folds it to k, SQLite's lower() leaves it.
+  store.create("Thermometer [unit::\u212Aelvin]");
   store.create("Long bed [kind::raised bed] [kinds::[raised bed, low bed]]");
   const trashed = store.create("Trashed bed [type::bed]");
   store.delete(trashed.id);
@@ -43,13 +45,14 @@ test("a question through the property index holds the same notes, in the same or
     const questions = [
       "type=bed", "type=BED", "type=raised", "type=project OR type=box", "type=bed AND cost > 20", "cost < 20 OR owner=Moss",
       "area=north/*", "area=north", "due=2031-03-05", "due=2031-03-04", "due <= 2031-03-04", "needs", "tag=soil", "tag=water",
-      "season=été", "season=ÉTÉ", "type=bed NOT work-stage=done", "(needs NOT work-stage=done) OR type=box", "owner=moss type=project", "kind=\"raised bed\"", "kinds=\"low bed\"", "KIND=\"RAISED BED\"", "nosuchkey", "type=nosuchvalue", "revision >= 2", "type=bed revision >= 1",
+      "season=été", "season=ÉTÉ", "unit=kelvin", "type=bed NOT work-stage=done", "(needs NOT work-stage=done) OR type=box", "owner=moss type=project", "kind=\"raised bed\"", "kinds=\"low bed\"", "KIND=\"RAISED BED\"", "nosuchkey", "type=nosuchvalue", "revision >= 2", "type=bed revision >= 1",
     ];
     for (const scope of ["block", "all"] as const) for (const where of questions) {
       const through = store.queryBlocks({ where, propertyScope: scope, limit: 100 }).blocks;
       const walking = store.queryBlocks({ where: walked(where), propertyScope: scope, limit: 100 }).blocks;
       expect(through.map(block => [block.id, block.depth])).toEqual(walking.map(block => [block.id, block.depth]));
     }
+    expect(store.queryBlocks({ where: "unit=kelvin", limit: 100 }).blocks).toHaveLength(1);
     // Machinery and the Trash, as a walk leaves them.
     const beds = (machinery: "hide" | "show") => store.queryBlocks({ where: "type=bed", machinery, limit: 100 }).blocks.map(block => block.text.split(" [")[0]);
     expect(beds("hide")).toEqual(["Bed one", "Bed two", "Under the box"]);
@@ -72,7 +75,7 @@ test("a rule's baseline over the graph holds what asking note by note holds", ()
     const shed = garden(store);
     const ids = store.liveBlocks().map(block => block.id);
     for (const [where, narrow] of [
-      ["type=bed", {}], ["needs", { propertyScope: "all" as const }], ["needs", {}], ["cost > 20", {}], ["NOT type=bed", {}], [undefined, { subtreeRootId: shed.id }], ["type=bed", { subtreeRootId: shed.id }], ["child:type=project", {}],
+      ["type=bed", {}], ["needs", { propertyScope: "all" as const }], ["needs", {}], ["cost > 20", {}], ["NOT type=bed", {}], [undefined, { subtreeRootId: shed.id }], ["type=bed", { subtreeRootId: shed.id }], ["child:type=project", {}], ["unit=kelvin", {}],
     ] as const) {
       const statements = store.matchQuery(where, ids, narrow).blockIds;
       expect(store.matchQuery(where, ids, { ...narrow, overGraph: true }).blockIds).toEqual(statements);
@@ -93,6 +96,23 @@ test("opening an outline reads none of it: the graph waits for the first whole-o
       expect(store.queryBlocks({ where: "system-view=trash", machinery: "show", limit: 5 }).blocks).toHaveLength(1);
     } finally { store.close(); }
   } finally { done(); }
+});
+
+test("a Trash view however its value is written is the Trash view: opening makes no second one", () => {
+  for (const written of ["Trash", "TRASH", "[trash, archive]"]) {
+    const { root, done } = scratch("trash-view");
+    const path = join(root, "outline.sqlite");
+    const trashViews = (store: OutlinerStore) => store.database.query("SELECT block_id FROM block_properties WHERE scope = 'block' AND key = 'system-view' AND lower(value) LIKE '%trash%'").all();
+    try {
+      const first = new OutlinerStore(path);
+      const { block_id } = trashViews(first)[0] as { block_id: string };
+      const view = first.require(block_id);
+      first.update(view.id, view.text.replace("[system-view::trash]", `[system-view::${written}]`), view.revision);
+      first.close();
+      const store = new OutlinerStore(path);
+      try { expect(trashViews(store)).toHaveLength(1); } finally { store.close(); }
+    } finally { done(); }
+  }
 });
 
 test("a statement past Bun's first 20 stays prepared", () => {
