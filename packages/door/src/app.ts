@@ -54,6 +54,7 @@ import { loadScreenNotes, SCREEN_TYPE, watchedScreens } from "./desk/screen-note
 import { invalidatePropertyErrors } from "./props";
 import { referenceWords } from "./refs";
 import { AskAgain, outlineHeard } from "./search-schedule";
+import { FRAME_MS, FramePace } from "./frame-pace";
 import { componentsChanged } from "./component-schemas";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
@@ -480,7 +481,6 @@ export function agentActor(as?: string): Actor {
 }
 
 /** A frame: no screen paints more often than this, and no hover report is handled more often (App.redraw, App.key). */
-const FRAME_MS = 16;
 /** After an Esc that closed something over a terminal the person types in, a second Esc this soon is that one again, never the program's (PIE-1431). */
 export const ESC_SPENT_MS = 600;
 
@@ -704,8 +704,8 @@ export class App implements Ctx {
     this.reportStatus();
     this.openEvents.start();
     this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
-    this.waitingAsks.subscribe(() => this.redraw());
-    this.heldAsks.subscribe(() => this.redraw());
+    this.waitingAsks.subscribe(() => this.redraw(true));
+    this.heldAsks.subscribe(() => this.redraw(true));
     // A source that came or went (an extension added or removed) is asked, or dropped, by the open bar at once.
     onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
@@ -735,11 +735,11 @@ export class App implements Ctx {
     this.offResize();
     this.offStatus();
     if (this.timer) clearInterval(this.timer);
-    if (this.paintTimer) clearTimeout(this.paintTimer);
+    this.pace.cancel();
     if (this.hoverTimer) clearTimeout(this.hoverTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
     if (this.reportTimer) clearTimeout(this.reportTimer);
-    this.timer = null; this.paintTimer = null; this.publishTimer = null; this.reportTimer = null;
+    this.timer = null; this.publishTimer = null; this.reportTimer = null;
     this.openEvents.close();
     this.waitingAsks.stop();
     unbindExtensions(this.board);
@@ -838,7 +838,7 @@ export class App implements Ctx {
     return clients ? { ok: true, message: this.session.reload() } : this.session.upgrade();
   }
   /** Paint now (a restore: the screen it opened is drawn at once, so its tiles adopt their programs). */
-  flush(): void { if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; } if (!this.closed) this.paint(true); }
+  flush(): void { this.pace.cancel(); if (!this.closed) this.paint(true); }
   /**
    * The frame skipped while nobody saw the screen (a session with no terminal attached), drawn now: before a control
    * command reads it (peek, snap, an act whose rows come from the last frame) and when a terminal attaches.
@@ -846,7 +846,7 @@ export class App implements Ctx {
   catchUp(): void {
     // What a control command reads is the settled screen, never a transition's frames (PIE-958).
     const snapped = this.stack.at(-1)?.settle?.() === true;
-    if (this.skipped || this.paintTimer || snapped) this.flush();
+    if (this.skipped || this.pace.waiting || snapped) this.flush();
   }
   /** A frame was due while nobody saw the screen, and wasn't rendered. */
   private skipped = false;
@@ -1041,7 +1041,8 @@ export class App implements Ctx {
     this.redraw();
   }
 
-  event(e: OutlineEvent) {
+  event(e: OutlineEvent) { this.pace.hearing(() => this.heard(e)); }
+  private heard(e: OutlineEvent) {
     this.heldAsks.heard(e);
     this.waitingAsks.heard(e);
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
@@ -1298,6 +1299,7 @@ export class App implements Ctx {
    * the action before it runs, a refusal says why, and anything it says while it lands is "an agent (<id>) · …".
    */
   async act(req: ActRequest): Promise<unknown> {
+    this.pace.actedAt = Date.now();
     const actor = agentActor(req.as);
     const who = agentLabel(actor);
     return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
@@ -1339,7 +1341,7 @@ export class App implements Ctx {
     this.closed = true; this.screensAsk.cancel();
     this.offResize();
     if (this.timer) clearInterval(this.timer);
-    if (this.paintTimer) clearTimeout(this.paintTimer);
+    this.pace.cancel();
     if (this.publishTimer) clearTimeout(this.publishTimer);
     this.offStatus();
     if (this.reportTimer) clearTimeout(this.reportTimer);
@@ -1681,7 +1683,7 @@ export class App implements Ctx {
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
   private statusChanged() {
     const s = this.stack.at(-1);
-    if (s && !this.paintTimer && this.timeShown() !== this.shownTime) this.paintStatus(s);
+    if (s && !this.pace.waiting && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
@@ -1706,23 +1708,20 @@ export class App implements Ctx {
    *
    * Asked while a frame is being drawn (a render that redraws itself), it never paints inside that paint: the frame
    * timer paints once, a frame after it ends (`paint`, PIE-1315).
+   * `rest`: an outline change asked for it, and it rests the loop first (src/frame-pace.ts, PIE-1606).
    */
-  redraw() {
+  redraw(rest = false) {
     this.redraws++; notePressRedraw();
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.keying || this.batching) this.speed.asked();
     if (this.batching) { this.wanted = true; return; }
     this.changed = true;
-    if (this.paintTimer) return;
-    const since = Date.now() - this.lastPaint;
-    if (since >= FRAME_MS) return this.paint();
-    this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS - since);
+    this.pace.ask(this.lastInput, () => this.paint(), rest);
   }
   /** Repaints asked for, painted or folded into another (the parity pass counts them). */
   private redraws = 0;
   redrawsAsked(): number { return this.redraws; }
-  private lastPaint = 0;
-  private paintTimer: Timer | null = null;
+  readonly pace = new FramePace();
   /** A frame is being drawn now (drawFrame): a paint asked meanwhile waits for the frame timer (PIE-1315). */
   private painting = false;
   private batching = 0;
@@ -1740,7 +1739,7 @@ export class App implements Ctx {
       finally {
         if (--this.batching === 0 && this.wanted && !this.closed) {
           this.wanted = false;
-          if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; }
+          this.pace.cancel();
           this.paint();
         }
       }
@@ -1755,17 +1754,18 @@ export class App implements Ctx {
     // inside the paint. It's the frame timer's, one frame after this one ends, however many ask meanwhile.
     if (this.painting) {
       this.changed = true;
-      this.paintTimer ??= setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS);
+      this.pace.next(() => this.paint());
       return;
     }
     // Nobody sees it (a session with no terminal attached and no live feed): rendered when someone looks (catchUp).
-    if (!force && !this.openEvents.seen && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
+    if (!force && !this.openEvents.seen && this.display.unseen?.()) { this.skipped = true; this.pace.end(false); return; }
     this.skipped = false;
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);
     this.changed = false;
     this.painting = true;
-    try { withStrips(this.strips.state, () => this.drawFrame(), true, this.overflow.hoveredStrip()); } finally { this.painting = false; paintingScroll(false); this.lastPaint = Date.now(); }
+    this.pace.begin();
+    try { withStrips(this.strips.state, () => this.drawFrame(), true, this.overflow.hoveredStrip()); } finally { this.painting = false; paintingScroll(false); this.pace.end(); }
   }
 
   private drawFrame() {

@@ -177,7 +177,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       try {
         await until(() => shows(restored, "river") === s.briefing.id, "the saved river reopens");
         // An idle door paints synchronously: Back must update the column's kept root before that paint.
-        (app as any).lastPaint = 0;
+        (app as any).pace.lastPaint = 0;
         await restored.dispatch.act({ action: "back", tile: "river" }, USER);
         await until(() => shows(restored, "river") === s.testing.id, "Back survives reopening the river", 1000);
       } finally { app.pop(); restored.dispose(); }

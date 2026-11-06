@@ -274,3 +274,15 @@ describe.skipIf(!outliner)("what changed", () => {
     } finally { reader.close(); }
   }, 20_000);
 });
+
+test("at the row bound, a tool's note that pushes out a counted one says the count moved (PIE-1606)", () => {
+  const list = new WhatChanged();
+  const change = (i: number, machinery = false) => ({ change: { kind: "edit", blockId: `note-${i}`, sequence: i + 1, recordedAt: new Date(0).toISOString(), actor: { author: "agent", actorId: "scribe" }, machinery } }) as any;
+  for (let i = 0; i < 2000; i++) list.heard(change(i));
+  expect(list.count()).toBe(2000);
+  let told = 0;
+  list.subscribe(() => { told += 1; });
+  list.heard(change(2000, true));
+  expect(list.count()).toBe(1999);
+  expect(told).toBe(1);
+});

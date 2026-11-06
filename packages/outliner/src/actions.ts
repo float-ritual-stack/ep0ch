@@ -308,7 +308,7 @@ export const ACTIONS = {
   "references.backlinks": { read: true, watch: true, whole: true },
   "references.resolve": { ext: "read", detached: true },
   "references.soft": { read: true },
-  "references.soft-scope": { read: true },
+  "references.soft-scope": { read: true, watch: true, whole: true },
   "resource-sources.create": { event: (_, { result }) => ({ domain: "resource-catalog", sourceId: resultId(result, "Resource source") }) },
   "resource-sources.get": {},
   "resource-sources.list": {},

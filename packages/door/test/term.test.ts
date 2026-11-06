@@ -130,7 +130,7 @@ describe("a trackpad's wheel reports", () => {
     let top = 0;
     app.push({ title: "reader", render: () => { renders++; const end = performance.now() + 20; while (performance.now() < end) { /* a long note's render */ } return { lines: [`row ${top}`] }; }, key(k: any) { if (k.kind === "mouse") { top++; app.redraw(); } } } as any);
     try {
-      (app as any).lastPaint = 0;
+      (app as any).pace.lastPaint = 0;
       const before = { paints, renders };
       batch(() => { for (let i = 0; i < 100; i++) key({ kind: "mouse", action: "wheel-down", button: 0, x: 1, y: 1 }); });
       expect(top).toBe(100);

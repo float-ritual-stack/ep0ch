@@ -78,7 +78,7 @@ import { type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
-import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
+import { withSchemaParams, drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
 import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
@@ -7050,16 +7050,14 @@ export class NoteSurface {
   }
 
   /** Read the service's answer for the panel again (`site.sources`); a failed read is said in the panel, never thrown. */
-  private async readSources(P: SourcesPanel, host: SurfaceHost) {
+  private readSources(P: SourcesPanel, host: SurfaceHost) { return P.reading = this.readSourcesNow(P, host); }
+  private async readSourcesNow(P: SourcesPanel, host: SurfaceHost) {
     P.loading = true;
     try {
       const was = P.answer?.sources[P.open ?? -1]?.key;
       P.answer = await host.ctx.board.siteSources(P.block);
       const { schemas } = await host.ctx.board.request("components.schemas", {});
-      for (const source of P.answer.sources) if (source.query.editable) {
-        const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
-        for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
-      }
+      withSchemaParams(P.answer, schemas);
       P.error = null;
       if (was !== undefined) { const i = P.answer.sources.findIndex(s => s.key === was); P.open = i < 0 ? null : i; }
       P.sel = Math.min(P.sel, Math.max(0, P.answer.sources.length - 1));
@@ -7288,6 +7286,7 @@ export class NoteSurface {
    */
   private async sourceFor(host: SurfaceHost, which: string | undefined): Promise<{ s: SourceEntry; P: SourcesPanel | null; block: string; revision: number }> {
     const m = this.requireNote(), P = this.sourcesMode?.panel.block === m.id ? this.sourcesMode.panel : null;
+    await P?.reading;   // what a change just made is still being read: a field opened now holds the revision after it
     const a = (which !== undefined || !P?.answer) ? (P?.answer ?? await host.ctx.board.siteSources(m.id)) : P.answer;
     const s = which !== undefined ? (/^\d+$/.test(which) ? a.sources[Number(which) - 1] : a.sources.find(x => x.key === which)) : a.sources[P?.open ?? -1];
     if (!s) throw new ActionRefused(which !== undefined ? `no source ${which}: this note's are ${a.sources.map((x, i) => `${i + 1} ${x.name}`).join(", ") || "none"}` : "open one source first (⏎ on it), or name it: source=<its number in sources.open's list>");

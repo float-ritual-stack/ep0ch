@@ -1392,16 +1392,14 @@ for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"
   const outlines = join(home, "outlines");
   for (const dir of [bin, join(outlines, ".host"), join(home, ".config/secrets"), join(repo, "packages/door/src")]) mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(repo, "packages/door/src/main.ts"), "");
-  let connector: ReturnType<typeof import("@ep0ch/outliner/link").connectLink> | undefined;
+  let connector: ReturnType<typeof import("@ep0ch/outliner/link").connectLink> | undefined, port = 0;
   if (kind === "link") {
     const { createServer } = await import("node:net");
     const listener = createServer();
     await new Promise<void>(resolve => listener.listen(0, "127.0.0.1", resolve));
-    const port = (listener.address() as import("node:net").AddressInfo).port;
+    port = (listener.address() as import("node:net").AddressInfo).port;
     await new Promise<void>(resolve => listener.close(() => resolve()));
     writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "serve", port, machines: ["garden"] }));
-    const { connectLink } = await import("@ep0ch/outliner/link");
-    connector = connectLink({ server: `http://127.0.0.1:${port}`, machine: "garden", key: "fictional-key", host: join(home, "unused-host.sock"), log() {} });
   }
   writeFileSync(join(home, ".config/secrets/link-garden.env"), "LINK_KEY=fictional-key\n", { mode: 0o600 });
   symlinkSync(join(import.meta.dir, "../scripts"), join(repo, "packages/door/scripts"));
@@ -1459,8 +1457,14 @@ if (process.env.TEST_LINK_ENTRY && !existsSync(home + '/service-down') && ['boot
     expect(existsSync(join(home, "loaded"))).toBe(true);
     if (!pass && kind === "link") {
       expect(lines.join('\n')).toContain("machine link verified");
-      const { linkStates } = await import("@ep0ch/outliner/link");
+      // The connector dials once the install has said the link is running, so its port is bound: the wait is one handshake.
+      // Dialing from before the install, its backoff (1, 3, 7, 15 s) left no dial inside this wait when the service came up
+      // just after the 7 s one, as a loaded box does (PIE-1611).
+      const { connectLink, linkStates } = await import("@ep0ch/outliner/link");
+      const said: string[] = [];
+      connector = connectLink({ server: `http://127.0.0.1:${port}`, machine: "garden", key: "fictional-key", host: join(home, "unused-host.sock"), log(line) { said.push(line); } });
       await until(() => linkStates(outlines).length === 1, "installed link accepts the connector");
+      expect(said.filter(line => line.startsWith("link down"))).toEqual([]);
     }
     if (pass) expect(lines.join('\n')).toContain("already installed and running");
   }

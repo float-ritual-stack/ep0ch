@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 310;
+export const PROTOCOL = 311;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 39;
 
@@ -223,6 +223,8 @@ export const WATCHABLE_ACTIONS = [
   "blocks.query", "views.read", "blocks.authored-links", "references.backlinks", "query.matches", "site.answer", "template.use",
   // The door's lists that were read again after every change (PIE-1546).
   "waiting.list", "callouts.types", "headings.styles", "styles.list",
+  // What soft links are drawn with, asked on the first frame after every change (PIE-1606).
+  "references.soft-scope",
 ] as const;
 
 // The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the
