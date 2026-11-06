@@ -11,7 +11,8 @@ import { READER_GUARDS, READER_KEYS, READER_OWN_KEYS, readerBinding, sessionStar
 import { NOTE_ACTIONS, NoteSurface, type OpenHow, type SurfaceHost } from "../src/surface/note";
 import { keymapPath, reloadKeymap, setKeys } from "../src/surface/keymap";
 import { declaredKeys, keyCaption, keyOfName } from "../src/surface/actions";
-import { noteReplyTarget } from "../src/draft-session";
+import { keepUnsent, noteReplyTarget, unshelve } from "../src/draft-session";
+import { unsentEntries } from "../src/unsent";
 import { bindings, conflicts } from "../src/surface/key-catalog";
 import type { Key } from "../src/term";
 
@@ -116,6 +117,16 @@ describe("the reader's keys, as the person's keymap and terminal give them", () 
     expect(back()).toBe("r brings the reply back");
     setKeys("note.reply", ["alt+y"]);
     expect(back()).toBe(`${keyCaption("alt+y")} brings the reply back`);
+  });
+
+  test("the reader's line for a kept reply names the reply's binding too, moved or not (PIE-1603)", () => {
+    const id = "71111111-2222-4333-8444-555555555556", line = () => unsentEntries(id, 1, { text: "Stake the beans" }, () => "today")[0]!.text;
+    keepUnsent({ key: `note-reply:${id}`, text: "re:: Stake the beans\n\nCanes first.", base: 0, at: Date.now(), copy: null });
+    try {
+      expect(line()).toBe("■ your reply from today is kept here · r brings it back");
+      setKeys("note.reply", ["alt+y"]);
+      expect(line()).toBe(`■ your reply from today is kept here · ${keyCaption("alt+y")} brings it back`);
+    } finally { unshelve(`note-reply:${id}`); }
   });
 
   test("a key the person moves a reader action to is the reader's: an extension's line key doesn't take it", () => {

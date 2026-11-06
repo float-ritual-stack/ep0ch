@@ -305,6 +305,74 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
   });
 
 
+  test("replies, by the person's keys: esc twice keeps the reply where it was written, on the screen and in the drawer, and r brings it back (PIE-1603)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "replies" }, as: "reply-check" });
+    await until(() => screen().includes("Replies at the orchard"), "reply demo");
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "replies")).top as Desk;
+    const user = { kind: "user" } as const, said = () => plain((app as any).message as string);
+    const painted = () => { (app as any).paint(); return h.painted.map(plain).join("\n"); };
+    screen();
+    press({ kind: "enter" });
+    await until(() => S().focus === "stage", "the keys in the section");
+    await until(() => plain(screen()).includes("r reply"), "the hint row naming r");
+    const before = (await board.children(seeded.notes.replies.id)).length;
+    /** The whole round in the reader that has the keys. */
+    const round = async (rd: ReaderPane, layer: Desk, name: string, words: string) => {
+      const keep = async () => {
+        ch("r");
+        await until(() => !!rd.surface.draft, "the reply opening");
+        press({ kind: "paste", text: words });
+        press({ kind: "esc" });
+        expect(rd.surface.draft!.note).toContain("esc again keeps it here");
+        press({ kind: "esc" });
+        await until(() => !rd.surface.draft, "the reply closing");
+        expect(said()).toContain("kept here · r brings the reply back · a copy is at");
+      };
+      await keep();
+      // Said where it was written, as every kept draft is, until it comes back.
+      expect(painted()).toMatch(/■ your reply from .* is kept here · r brings it back/);
+      ch("r");
+      await until(() => !!rd.surface.draft, "the reply again");
+      expect(rd.surface.draft!.text).toContain(words);
+      expect(rd.surface.draft!.note).toBe("brought back your reply from today · ctrl+s saves · esc twice drops it");
+      expect(painted()).not.toContain("is kept here");
+      // Left as it came back, esc twice lets it go, and the border says so first: the next reply starts empty.
+      press({ kind: "esc" });
+      expect(rd.surface.draft!.note).toContain("esc again lets this kept draft go");
+      press({ kind: "esc" });
+      await until(() => !rd.surface.draft, "the reply let go");
+      ch("r");
+      await until(() => !!rd.surface.draft, "a new reply");
+      expect(rd.surface.draft!.text).not.toContain(words);
+      press({ kind: "esc" });
+      await until(() => !rd.surface.draft, "the empty reply closing");
+      // The kept line's [let it go] takes it off the note, its copy staying.
+      await keep();
+      await layer.dispatch.press("unsent.dismiss", { kind: "note-reply" }, name);
+      expect(said()).toContain("let go of the reply · its copy stays at");
+      expect(painted()).not.toContain("is kept here");
+    };
+    try {
+      await round(desk.pane("reader") as ReaderPane, desk, "reader", "Bring baskets for the windfalls.");
+      // The drawer's reader: a reader of its own on the same note, the keys in it.
+      await desk.dispatch.act({ action: "tile.open", tile: "reader", args: { kind: "reader", name: "drawn", note: seeded.notes.replies.id } }, user);
+      await until(() => (desk.pane("drawn") as ReaderPane | undefined)?.surface.msg?.id === seeded.notes.replies.id, "the second reader");
+      await desk.dispatch.act({ action: "tile.drawer", tile: "drawn" }, user);
+      (app as any).paint();
+      await app.dispatch.act({ action: "host.enter" }, user);
+      const layer = app.drawer.desk!, drawn = layer.pane("drawn") as ReaderPane;
+      await layer.dispatch.act({ action: "tile.focus", tile: "drawn" }, user);
+      expect(layer.focusName()).toBe("drawn");
+      await round(drawn, layer, "drawn", "Bring the long ladder.");
+      expect((await board.children(seeded.notes.replies.id)).length).toBe(before);
+    } finally {
+      if (app.drawer.entered) await app.dispatch.act({ action: "host.leave", args: { quiet: true } }, user);
+      if (app.drawer.desk?.pane("drawn")) await app.drawer.desk.dispatch.act({ action: "tile.close", tile: "drawn" }, user);
+      for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+    }
+  }, 20_000);
+
   test("reading line stays on its bullet while scrolling and steps without skipping bullets", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });

@@ -7,13 +7,15 @@ import { diffLines } from "diff";
 import { UNSENT_NOTE } from "./authored";
 import { subject, type Msg } from "./board";
 import { keepCopy } from "./edit";
+import { replyKey } from "./surface/reader-keys";
 import { unsent, unshelveIf, type Unsent } from "./draft-session";
 import { compareDraft, dayOf, onDay, startedWords, takeBackSpans, verdictWords, type Hunk, type Verdict } from "./unsent-compare";
 
 export { takeBackSpans };
 
-/** What can be put aside on a note, and its place key's prefix. */
-export type UnsentKind = "edit" | "comment" | "child" | "card";
+/** What can be put aside on a note, each its place key's prefix, in the order the reader lists them. */
+export const UNSENT_KINDS = ["edit", "comment", "child", "card", "note-reply"] as const;
+export type UnsentKind = typeof UNSENT_KINDS[number];
 /** A control on a kept-draft line (each an action: `unsent.<op>`). */
 export type UnsentOp = "diff" | "copy" | "dismiss" | "add" | "keep" | "show";
 /** The words drawn for each control. `diff` reads "[show them]" when the comparison found new lines (see `unsentLabel`). */
@@ -30,8 +32,10 @@ export const OLD_UNSENT_DAYS = 3;
  */
 export interface UnsentEntry { kind: UnsentKind; place: string; u: Unsent; stale: boolean; old: boolean; text: string; ops: UnsentOp[]; verdict: Verdict | null; pending: boolean }
 
-const WHAT: Record<UnsentKind, string> = { edit: "edit", comment: "comment", child: "note under this", card: "new card" };
-const BACK: Record<UnsentKind, string> = { edit: "e brings it back", comment: "C brings it back, on selected words or the whole note", child: "N on the card brings it back", card: "n in this lane brings it back" };
+const WHAT: Record<UnsentKind, string> = { edit: "edit", comment: "comment", child: "note under this", card: "new card", "note-reply": "reply" };
+/** A kind as a control or a flash names it: "the kept note", "let go of the reply". */
+export const keptName = (kind: UnsentKind): string => kind === "child" ? "note" : kind === "note-reply" ? "reply" : kind;
+const BACK: Record<UnsentKind, string> = { edit: "e brings it back", comment: "C brings it back, on selected words or the whole note", child: "N on the card brings it back", card: "n in this lane brings it back", get "note-reply"() { return `${replyKey()} brings it back`; } };
 
 /** What the lines of a note are drawn against: its text now, how to read an edit's starting text, or a verdict a view carries. */
 export interface UnsentContext {
@@ -63,7 +67,7 @@ function editOps(v: Verdict | null, pending: boolean): UnsentOp[] {
  */
 export function unsentEntries(id: string, revision: number | undefined, ctx: UnsentContext, day: (at: number) => string = dayOf, now = Date.now()): UnsentEntry[] {
   const out: UnsentEntry[] = [];
-  for (const kind of ["edit", "comment", "child", "card"] as const) {
+  for (const kind of UNSENT_KINDS) {
     const place = `${kind}:${id}`, u = unsent(place);
     if (!u) continue;
     const stale = kind === "edit" && revision !== undefined && u.base !== revision;

@@ -111,7 +111,7 @@ export const FIELD_KEYS: readonly ModeKey[] = [rk("enter", "edit.save", "saves")
 export const CHILDREN_KEYS: readonly ModeKey[] = [rk("enter", "edit.save", "save"), rk("ctrl+s", "edit.save", "save"), rk("esc", "edit.close", "keeps")];
 /** Writing a reply: save, the ways out, scrolling the message and quoting from it. */
 export const replyHint = (dirty: boolean): string => {
-  const own = hintOf([rk("ctrl+s", "edit.save", "saves"), rk("esc", "edit.close", dirty ? "twice discards" : "discards"), { ...rk("pgup", "scroll", "scroll message"), click: false }, { ...rk("pgdn", "scroll", "scroll message"), click: false }]);
+  const own = hintOf([rk("ctrl+s", "edit.save", "saves"), rk("esc", "edit.close", dirty ? "twice puts it aside" : "closes"), { ...rk("pgup", "scroll", "scroll message"), click: false }, { ...rk("pgdn", "scroll", "scroll message"), click: false }]);
   return [own, "select then " + hintOf([rk('"', "note.quote", "quotes")])].join(" · ");
 };
 /** A selected figure: its rows, esc out of it and, when it has tabs, the tab keys. */

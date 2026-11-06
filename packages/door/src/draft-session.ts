@@ -57,6 +57,8 @@ export interface DraftTarget {
   readonly what: string;
   /** Saved, sent or created. */
   readonly verb: "save" | "send" | "create";
+  /** How it's named when it comes back, when its verb's words don't fit ("your reply", "ctrl+s saves"). */
+  readonly returns?: { what: string; does: string };
   /** The block it edits in place: held on the service while open (`drafts.hold`), and what the agent rule keys on. */
   readonly blockId?: string;
   /** The note it's written about (the edited note, the commented one, the parent, the view): `((` and `[[` search from there. */
@@ -542,7 +544,8 @@ export class DraftSession {
     d.undos = (u.history?.undos ?? []).map(step => ({ ...step, open: false }));
     d.redos = u.history?.redos ?? [];
     d.patches = u.history?.patches ?? [];
-    this.status.say(`brought back your ${this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit"} from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`);
+    const { what, does } = this.target.returns ?? { what: this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit", does: `${this.target.verb}s` };
+    this.status.say(`brought back your ${what} from ${dayOf(u.at)} · ctrl+s ${does} · esc twice drops it`);
     return true;
   }
 
@@ -1093,7 +1096,7 @@ export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">
     const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
     return note;
   } });
-  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”` };
+  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”`, returns: { what: "reply", does: "saves" } };
 }
 
 // ── unsent drafts on disk ─────────────────────────────────────────────────────

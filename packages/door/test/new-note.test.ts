@@ -191,7 +191,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect((await board.children(parent.id))[0]!.text).toContain("> Keep the ripe pears.");
   });
 
-  test("r writes a temporary reply beside the message, saves its relationship and discards on Esc", async () => {
+  test("r writes a temporary reply beside the message, saves its relationship and keeps it on Esc twice", async () => {
     const parent = (await board.newNote("Orchard report [thread::orchard]\n\n" + "The pears are ready.\n".repeat(60), undefined)).note;
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
@@ -214,11 +214,18 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect(reader.surface.msg!.id).toBe(parent.id);
     key(char("r"));
     await until(() => !!reader.surface.draft, "second reply");
-    key({ kind: "paste", text: "Discard this." });
+    key({ kind: "paste", text: "Keep this." });
     key({ kind: "esc" });
     expect(reader.surface.draft).not.toBeNull();
     key({ kind: "esc" });
-    await until(() => !reader.surface.draft, "reply discarded");
+    await until(() => !reader.surface.draft, "reply kept");
+    expect((await board.children(parent.id)).map(m => m.id)).toEqual(replies.map(m => m.id));
+    key(char("r"));
+    await until(() => !!reader.surface.draft, "reply back");
+    expect(reader.surface.draft!.text).toContain("Keep this.");
+    key({ kind: "esc" });
+    key({ kind: "esc" });
+    await until(() => !reader.surface.draft, "reply let go");
     expect((await board.children(parent.id)).map(m => m.id)).toEqual(replies.map(m => m.id));
   }, 15_000);
 
