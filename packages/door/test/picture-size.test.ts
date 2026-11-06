@@ -74,17 +74,123 @@ describe("a picture fence in a list item", () => {
 });
 
 describe("two fences that read alike", () => {
-  test("a resize drawn before a fence was inserted above it is refused, never written on the other one", async () => {
-    const both = `Beds\n\n\`\`\`svg\n${A}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\``;
-    const { s, h } = await reader(both);
+  const twins = `Beds\n\n\`\`\`svg\n${A}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\``;
+  const fakeBoard = (h: SurfaceHost, now: () => Msg, saved: string[]) => {
+    (h.ctx.board as any).get = async () => now();
+    (h.ctx.board as any).update = async (_: string, text: string, revision: number) => { saved.push(text); return { ...note(text), revision: revision + 1 }; };
+  };
+
+  test("a resize drawn before another picture went in above lands on the same twin", async () => {
+    const { s, h } = await reader(twins);
     const saved: string[] = [];
-    // Someone puts a fence above the second: line 6 is now that one, and reads the same as the line drawn there.
-    const moved = { ...note(`Beds\n\n\`\`\`svg\n${svg("#512")}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\``), revision: 3 };
-    (h.ctx.board as any).get = async () => moved;
-    (h.ctx.board as any).update = async (_: string, text: string) => { saved.push(text); return { ...note(text), revision: 4 }; };
-    const drawn = s.imagesIn(note(both))[1]!;
-    await expect(s.changeImage(drawn, { height: "12" }, "height 12 rows", h, { kind: "user" } as any)).rejects.toThrow(/changed since it was drawn/);
+    // Someone puts a fence above: the line drawn for the second twin is now the first twin, reading exactly the same.
+    const moved = `Beds\n\n\`\`\`svg\n${svg("#512")}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\`\n\n\`\`\`svg\n${A}\n\`\`\``;
+    fakeBoard(h, () => ({ ...note(moved), revision: 3 }), saved);
+    await s.changeImage(s.imagesIn(note(twins))[1]!, { height: "12" }, "height 12 rows", h, { kind: "user" } as any);
+    expect(saved).toHaveLength(1);
+    const fences = saved[0]!.split("\n").filter(l => l.startsWith("```svg"));
+    expect(fences).toEqual(["```svg", "```svg", "```svg height=12"]);
+  });
+
+  test("the twins resize one at a time: a resize leaves the other twin who it is", async () => {
+    const { s, h } = await reader(twins);
+    const saved: string[] = [];
+    let now = twins;
+    (h.ctx.board as any).get = async () => ({ ...note(now), revision: 2 + saved.length });
+    (h.ctx.board as any).update = async (_: string, text: string) => { now = text; saved.push(text); return { ...note(text), revision: 2 + saved.length }; };
+    const [first, second] = s.imagesIn(note(twins));
+    await s.changeImage(second!, { height: "12" }, "height 12 rows", h, { kind: "user" } as any);
+    await s.changeImage(first!, { height: "8" }, "height 8 rows", h, { kind: "user" } as any);
+    await s.changeImage(second!, { height: "14" }, "height 14 rows", h, { kind: "user" } as any);
+    expect(now.split("\n").filter(l => l.startsWith("```svg"))).toEqual(["```svg height=8", "```svg height=14"]);
+  });
+
+  test("a twin that went in while the door hadn't redrawn: said, nothing written (which twin is it now?)", async () => {
+    const { s, h } = await reader(twins);
+    const saved: string[] = [];
+    fakeBoard(h, () => ({ ...note(`${twins}\n\n\`\`\`svg\n${A}\n\`\`\``), revision: 3 }), saved);
+    await expect(s.changeImage(s.imagesIn(note(twins))[1]!, { height: "12" }, "height 12 rows", h, { kind: "user" } as any)).rejects.toThrow(/changed since it was drawn/);
     expect(saved).toEqual([]);
+  });
+
+  test("an undo follows its picture past an insert above it", async () => {
+    const { s, h } = await reader(twins);
+    let now = twins, revision = 2;
+    (h.ctx.board as any).get = async () => ({ ...note(now), revision });
+    (h.ctx.board as any).update = async (_: string, text: string) => { now = text; revision += 1; return { ...note(text), revision }; };
+    await s.changeImage(s.imagesIn(note(twins))[1]!, { height: "12" }, "height 12 rows", h, { kind: "user" } as any);
+    now = `First\n\n\`\`\`svg\n${svg("#512")}\n\`\`\`\n\n${now}`; revision += 1;
+    await s.undoImage(h, { kind: "user" } as any);
+    expect(now.split("\n").filter(l => l.startsWith("```svg"))).toEqual(["```svg", "```svg", "```svg"]);
+  });
+});
+
+describe("one step, stopping at the full fit (PIE-1584)", () => {
+  const live = async (text: string, w = 90) => {
+    const r = await reader(text, w);
+    const saved: string[] = [];
+    (r.h.ctx.board as any).get = async () => note(text);
+    (r.h.ctx.board as any).update = async (_: string, t: string) => { saved.push(t); return { ...note(t), revision: 3 }; };
+    return { ...r, saved };
+  };
+  const USER = { kind: "user" } as any;
+
+  test("[+] at the fit says so and leaves the source alone: height=24 is a 1422x800 fence's fit at 87 columns", async () => {
+    for (let w = 86; w <= 92; w++) {
+      const { s, h, v, saved, draw } = await live(fenced("svg height=24"), w);
+      const p = v.placements![0]!, d = (s as any).drawn;
+      if (d.w - d.bx - (s as any).bxRight !== 87) continue;
+      expect(p.rows).toBe(24);
+      said.length = 0;
+      await expect(s.act("image.size", { n: 1, by: 1 }, h, USER)).rejects.toThrow(/as big as it gets/);
+      expect(saved).toEqual([]);
+      expect(said.at(-1)).toMatch(/as big as it gets/);
+      draw();
+      return;
+    }
+    throw new Error("no width gave a body of 87 columns");
+  });
+
+  test("[-] from the fit steps down from what's drawn", async () => {
+    const { s, h, saved } = await live(fenced("svg height=24"));
+    await s.act("image.size", { n: 1, by: -1 }, h, USER);
+    expect(saved[0]).toContain("```svg height=22");
+  });
+
+  test("an [img::] line capped by the reader's rows: [+] that changes nothing stops too", async () => {
+    const tall = `Beds\n\n[img::${dir}/tall.svg] [size::50%]\n\nafter`;
+    await Bun.write(`${dir}/tall.svg`, `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="4000"><rect width="400" height="4000" fill="#123"/></svg>`);
+    const { s, h, saved } = await live(tall);
+    await expect(s.act("image.size", { n: 1, by: 1 }, h, USER)).rejects.toThrow(/as big as it gets/);
+    expect(saved).toEqual([]);
+  });
+});
+
+describe("the same words read everywhere", () => {
+  const USER = { kind: "user" } as any;
+  test("to= on a fence writes size=, and that size is what draws (PIE-1584 said it was dead: it isn't)", async () => {
+    const { s, h } = await reader(fenced("svg"));
+    const saved: string[] = [];
+    (h.ctx.board as any).get = async () => note(fenced("svg"));
+    (h.ctx.board as any).update = async (_: string, t: string) => { saved.push(t); return { ...note(t), revision: 3 }; };
+    await s.act("image.size", { n: 1, to: "26" }, h, USER);
+    expect(saved[0]).toContain("```svg size=26");
+    const { v } = await reader(saved[0]!);
+    expect(v.placements![0]).toMatchObject({ cols: 26, rows: 7 });
+  });
+
+  test("a digest draws a fence as the reader does, and its [+] names it by who it is", async () => {
+    const small = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="90" viewBox="0 0 360 90"><rect width="360" height="90" fill="#123"/></svg>`;
+    const text = `Beds\n\n\`\`\`svg\n${small}\n\`\`\`\n\n\`\`\`svg\n${small}\n\`\`\``;
+    const { s, h, v } = await reader(text);
+    const body = new NoteSurface();
+    body.show(note(text), h);
+    body.digest(note(text), 90, h);
+    for (let i = 0; i < 100 && (body as any).digested.doc.images.length < 2; i++) { await Bun.sleep(20); body.digest(note(text), 90, h); }
+    expect((body as any).digested.doc.images.map((i: { cols: number }) => i.cols)).toEqual([v.placements![0]!.cols, v.placements![1]!.cols]);
+    const ids = s.imagesIn(note(text)).map(x => x.id);
+    const links = (body as any).elems.flatMap((e: any) => e.link?.image ? [e.link.image.id] : []);
+    expect(links).toEqual(ids);
   });
 });
 

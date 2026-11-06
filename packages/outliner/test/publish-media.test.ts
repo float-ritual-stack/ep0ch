@@ -276,6 +276,41 @@ test("a repo whose name is missing: live at the address it answers at, why only 
   expect(shared).not.toContain("Vercel wants");
 });
 
+test("an unsized picture fence on a page is its own width, capped at the page, as the door draws it (PIE-1594)", async () => {
+  const { store, get } = await setup();
+  const wide = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="90" viewBox="0 0 360 90"><rect width="360" height="90" fill="#123"/></svg>`;
+  const boxOnly = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 30"><rect width="90" height="30" fill="#123"/></svg>`;
+  store.create(`Plot plan [publish::public:plot-own]\n\n\`\`\`svg\n${wide}\n\`\`\`\n\n\`\`\`svg\n${boxOnly}\n\`\`\`\n\n\`\`\`svg size=full\n${boxOnly}\n\`\`\``);
+  const html = await (await get("/p/plot-own?view=html")).text();
+  const styles = [...html.matchAll(/<img src="data:image\/svg\+xml;base64,[^"]+"[^>]*style="([^"]*)"/g)].map(m => m[1]!);
+  expect(styles).toHaveLength(3);
+  expect(styles[0]).toContain("width:min(100%,360px)");
+  expect(styles[1]).toContain("width:min(100%,90px)");
+  // Asked for all of it, it says so.
+  expect(styles[2]).toContain("width:100%");
+});
+
+test("a script's drawing on a page is its picture, at its own width or what its line writes, as the door draws it (PIE-1594)", async () => {
+  const { store, client, get } = await setup();
+  const drawn = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="90" viewBox="0 0 360 90"><rect width="360" height="90" fill="#123"/></svg>`;
+  store.create(`Plot banner [script::plot-page-banner] [mode::render] [publish::public]\n\`\`\`js\nreturn view.image({ alt: "the banner", svg: ${JSON.stringify(drawn)} });\n\`\`\``);
+  const page = store.create("Plot [publish::public:plot-drawn]\nplot-page-banner:: [layout::hero]\n\nplot-page-banner::\n\nplot-page-banner:: [height::4]");
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "resources.projection.read", blockId: page.id, materialize: true });
+  // Three lines of one call share one output: what's waited for is the page holding all three pictures.
+  let styles: string[] = [];
+  for (let i = 0; i < 100 && styles.length < 3; i++) {
+    if (i) await Bun.sleep(25);
+    styles = [...(await (await get("/p/plot-drawn?view=html")).text()).matchAll(/<img src="data:image\/svg\+xml;base64,[^"]+"[^>]*style="([^"]*)"/g)].map(m => m[1]!);
+  }
+  expect(styles).toHaveLength(3);
+  expect(styles[0]).toContain("width:100%");
+  expect(styles[1]).toContain("width:min(100%,360px)");
+  // As wide as its four rows make it: a banner 360×90 at 5rem tall.
+  expect(styles[2]).toContain("width:min(100%,20.00rem)");
+  expect(styles[2]).toContain("max-height:5.00rem");
+});
+
 test("a picture fence on a published page is its picture, at the size its fence writes (PIE-1583)", async () => {
   const { store, get } = await setup();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 30"><rect width="90" height="30" fill="#123"/><text>row of beans</text></svg>`;

@@ -27,9 +27,12 @@ describe("showcase: pictures", () => {
     const draw = (w = 96) => reader().render(w, 300, false, d);
     const keys = () => (draw().placements ?? []).map(p => p.key);
     // The header (the render line's svg, [layout::hero]), three cards, three mermaid diagrams, the svg fence, the svg file.
-    try { await until(() => keys().some(k => k.startsWith("hero")) && keys().length >= 9, "the header and eight pictures placed", 20_000); }
+    try { await until(() => keys().some(k => k.startsWith("hero")) && keys().length >= 10, "the header and nine pictures placed", 20_000); }
     catch (e) { console.log(keys()); throw e; }
     const text = draw().lines.map(visible);
+    // The render line that's the header says so once; an inline line drawing the same banner is a picture of its own (PIE-1594).
+    expect(text.filter(l => l.includes("▀ header")), text.join("\n")).toHaveLength(1);
+    expect(text.some(l => l.includes("▣ banner: Diagrams of the plot")), text.join("\n")).toBe(true);
     for (const said of ["▀ header · banner: Diagrams of the plot", "▣ mermaid diagram: flowchart, 5 nodes", "▣ mermaid diagram: sequence, 3 participants", "▣ mermaid diagram: state, 3 states", "▣ svg picture: 360×90", "Bean row", "Winter cover"]) {
       expect(text.some(l => l.includes(said)), `${said}\n${text.join("\n")}`).toBe(true);
     }
@@ -51,7 +54,20 @@ describe("showcase: pictures", () => {
     const book = hits.find(r => r.link.page === "Allotment notebook")!;
     expect(book, JSON.stringify(hits)).toBeDefined();
     const host = reader().host(d);
+    // Alt- and middle-click reach it as any link: a fresh open, on the release the rest of the reader's clicks take.
+    const opened: { title?: string; fresh?: boolean }[] = [];
+    {
+      const fresh = { ...host, freshClick: true, navigate: (m: { text?: string }, how?: { fresh?: boolean }) => { opened.push({ fresh: how?.fresh }); } };
+      reader().surface.press(book.from, book.row, fresh as any);
+      expect(opened).toEqual([]);
+      reader().surface.release(book.from, book.row, fresh as any);
+      for (let i = 0; i < 100 && !opened.length; i++) await Bun.sleep(20);
+      expect(opened[0]).toEqual({ fresh: true });
+    }
+    await act("open", { id: h.seeded.notes.pictures.id }, "reader");
+    await until(() => keys().some(k => k.startsWith("hero")), "the pictures note again, its header drawn");
     reader().surface.press(book.from, book.row, host);
+    reader().surface.release(book.from, book.row, host);
     const showing = async () => JSON.stringify(await act("layout.get"));
     for (let i = 0; i < 100 && !(await showing()).includes('"title":"Allotment notebook"'); i++) await Bun.sleep(50);
     expect(await showing()).toContain('"title":"Allotment notebook"');
@@ -89,6 +105,22 @@ describe("showcase: pictures", () => {
     await act("image.size", { line: at.line, height: "6" }, "reader");
     expect(await source()).toContain("```svg height=6");
     await expect(act("image.hero", { line: at.line }, "reader")).rejects.toThrow(/picture fence/);
+
+    // A script's drawing (PIE-1594) is a picture like the rest: images lists it, a step writes its own line, the header's stays.
+    {
+      const drawings = (await act("images", {}, "reader")).images.filter((x: { drawing?: boolean }) => x.drawing);
+      expect(drawings.map((x: { layout?: string }) => x.layout ?? "inline")).toEqual(["hero", "inline"]);
+      const [header, inline] = drawings as { picture: string; height?: number }[];
+      expect(inline!.height).toBe(4);
+      await act("image.size", { picture: inline!.picture, by: 1 }, "reader");
+      expect(await source()).toContain("plot-banner:: [height::6]");
+      expect(await source()).toContain("plot-banner:: [layout::hero]\n");
+      await act("image.size", { picture: header!.picture, height: "8" }, "reader");
+      expect(await source()).toContain("plot-banner:: [layout::hero] [height::8]");
+      await act("image.undo", {}, "reader");
+      await act("image.undo", {}, "reader");
+      expect(await source()).toContain("plot-banner:: [height::4]");
+    }
 
     // The made-up icat asked, was answered, and drew: one placement in its tile, under its own key.
     const t = icat();

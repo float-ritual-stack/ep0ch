@@ -53,6 +53,10 @@ export interface MediaSpec {
   blur?: number; bleed?: "full" | "measure"; heightShare?: number; tint?: number; fade?: number; title?: "below" | "over"; scroll?: "scroll" | "pinned";
   /** A picture drawn from a fence (parsePictureFence), its language; a file's image has none. */
   fence?: PictureFence;
+  /** A picture a script drew (picture.ts drawingSpec). */
+  drawn?: boolean;
+  /** A drawing's own size in pixels, where its file isn't read for it: the published page's (picture.ts pictureWidthCss). */
+  own?: { width: number; height: number };
   problems: string[];
 }
 /** A point in an image, as fractions of it across and down. */
@@ -192,7 +196,7 @@ export function imageSource(src: string): string {
  */
 export function imagePrimitiveSpec(node: ImagePrimitive): MediaSpec {
   const spec: MediaSpec = { kind: "img", path: node.src ? imageSource(node.src) : "", problems: [] };
-  if (!spec.path) spec.problems.push(node.svg !== undefined ? "an svg picture is drawn where its markup is read (the door), not served from a file" : `${node.src} isn't a file: ref this can read (file:/absolute/path)`);
+  if (!spec.path) spec.problems.push(node.svg !== undefined ? "an svg picture is drawn where its markup is read (the door, a page), not served from a file" : `${node.src} isn't a file: ref this can read (file:/absolute/path)`);
   if (node.size !== undefined) {
     const size = parseSize(String(node.size));
     if (size) spec.size = size; else spec.problems.push(`size ${node.size} isn't a size (cells, N% or full)`);
@@ -213,7 +217,7 @@ export function noteMediaLines(text: string): Map<number, MediaSpec> {
     const spec = structure[at] === -1 ? parseMediaLine(line) : null;
     if (!spec) return;
     // The first `[layout::hero]` is the header; a later one is an image like any other, as the door reads it.
-    if (spec.layout === "hero") { if (hero) delete spec.layout; hero = true; }
+    if (spec.layout === "hero") { if (hero) { spec.problems.push("another image is the header already"); delete spec.layout; } hero = true; }
     out.set(at, spec);
   });
   return out;

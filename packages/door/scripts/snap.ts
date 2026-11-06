@@ -52,7 +52,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "picture-identity" || scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -81,6 +81,58 @@ if (scenario === "box") {
   app.push(new MainMenu());
   app.push(openScreen("detail", { note: note.id, persist: false }));
   await snap("body", 1500);
+  app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "picture-identity") {
+  // PIE-1594, the walk. SNAP_COLS sets the width (80, 160). Two fences alike, resized one at a time after a third went in
+  // above them; [+] at the full fit; a script's header and the same drawing inline. Reads what's on screen and the source.
+  const svg = (fill: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1422 800" width="1422" height="800"><rect width="1422" height="800" fill="${fill}"/><circle cx="711" cy="400" r="240" fill="#4fb3c7"/></svg>`;
+  const fence = (body: string, words = "") => `\`\`\`svg${words}\n${body}\n\`\`\``;
+  const rows = () => emu.text();
+  const source = async (id: string) => (await board.read(id))!.text.split("\n").filter(l => /^```svg|::/.test(l)).join(" | ");
+  const clickNth = (text: string, n: number) => {
+    const ys = rows().flatMap((l, y) => l.includes(text) ? [y] : []);
+    const y = ys.at(n);
+    if (y === undefined) throw new Error(`no ${text} #${n} on screen:\n${rows().join("\n")}`);
+    const x = rows()[y]!.indexOf(text) + 1;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+  };
+  const said = (name: string) => console.log(`${name}: ${rows().map(l => l.trim().replace(/^[║│]\s*/, "")).filter(l => /(svg picture|banner|header|as big)/.test(l)).join(" / ")}`);
+  const small = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 90" width="360" height="90"><rect width="360" height="90" fill="#101826"/></svg>`;
+  board.subscribe(e => app.event(e));
+  const twins = await board.createBlock(null, `Twin beds\n\n${fence(small)}\n\n${fence(small)}\n\nafter`);
+  app.push(new MainMenu()); app.push(openScreen("detail", { note: twins.id, persist: false }));
+  await snap("twins-first", 2000); said("twins first"); console.log("  source:", await source(twins.id));
+  const now = (await board.read(twins.id))!;
+  await board.update(twins.id, now.text.replace("Twin beds\n\n", `Twin beds\n\n${fence(small)}\n\n`), now.revision!, USER);
+  await snap("twins-three", 1500); said("a third above"); console.log("  source:", await source(twins.id));
+  clickNth("[+]", 2); await snap("twins-third+", 900); said("[+] on the last"); console.log("  source:", await source(twins.id));
+  clickNth("[+]", 1); await snap("twins-second+", 900); said("[+] on the middle"); console.log("  source:", await source(twins.id));
+  clickNth("[-]", 2); await snap("twins-third-", 900); said("[−] on the last"); console.log("  source:", await source(twins.id));
+  app.pop();
+
+  const fit = await board.createBlock(null, `Full bed\n\n${fence(svg("#123"))}\n\nafter`);
+  app.push(openScreen("detail", { note: fit.id, persist: false }));
+  await snap("fit-first", 2000); said("unsized, at its fit"); console.log("  source:", await source(fit.id));
+  clickNth("[+]", 0); await snap("fit+", 900); console.log("  said:", rows().find(l => l.includes("as big")) ?? "(nothing)"); said("[+] at the fit"); console.log("  source:", await source(fit.id));
+  clickNth("[-]", 0); await snap("fit-", 900); said("[−] from the fit"); console.log("  source:", await source(fit.id));
+  clickNth("[+]", 0); await snap("fit-back", 900); said("[+] back"); console.log("  source:", await source(fit.id));
+  clickNth("[+]", 0); await snap("fit-stop", 900); console.log("  said:", rows().find(l => l.includes("as big")) ?? "(nothing)"); console.log("  source:", await source(fit.id));
+  app.pop();
+
+  const { SHOWCASE_ASSETS } = await import("../src/showcase/seed/media");
+  const fileHero = await board.createBlock(null, `File header\n[img::${SHOWCASE_ASSETS}/plot-plan.svg] [layout::hero]\n\nwords`);
+  app.push(openScreen("detail", { note: fileHero.id, persist: false }));
+  await snap("filehero-first", 2000); said("file header"); clickNth("[-]", 0); await snap("filehero-", 900); said("[−] on the file header"); console.log("  source:", await source(fileHero.id));
+  app.pop();
+
+  const plot = await board.createBlock(null, "Plot\n\nthe note the banner sits under");
+  await board.createBlock(plot.id, ["Plot banner [script::plot-banner] [mode::render]", "```js", `return view.image({ alt: "banner", svg: ${JSON.stringify(svg("#2a1a10"))} });`, "```"].join("\n"));
+  const both = await board.createBlock(plot.id, "Header and inline\nplot-banner:: [layout::hero]\n\nwords\n\nplot-banner::\n\nmore words");
+  app.push(openScreen("detail", { note: both.id, persist: false }));
+  await snap("script-first", 3500); said("header + inline"); console.log("  source:", await source(both.id), `· ${emu.placements.size} placement(s)`);
+  clickNth("[-]", 0); await snap("script-header-", 2000); said("[−] on the header"); console.log("  source:", await source(both.id));
+  clickNth("[-]", -1); await snap("script-inline-", 2000); said("[−] on the inline"); console.log("  source:", await source(both.id));
   app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "pictures") {

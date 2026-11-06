@@ -8,6 +8,7 @@
 
 import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, imagePrimitiveSpec, noteMediaLines, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
+import { drawingLayout, pictureWidthCss, ROW_REM, svgOwnSize } from "@ep0ch/outline-core/picture";
 import type { ArtifactDeployState } from "@ep0ch/outline-core/artifacts";
 import { propertyPictureAt } from "@ep0ch/outline-core/picture-address";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
@@ -49,12 +50,8 @@ export async function componentImageAt(client: Pick<OutlinerClient, "request">, 
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 
-/** A width as the page draws it: a terminal cell is about a character wide. */
-function width(spec: MediaSpec): string | undefined {
-  if (spec.layout === "hero" || spec.size === "full") return "100%";
-  if (!spec.size) return undefined;
-  return "percent" in spec.size ? `${spec.size.percent}%` : `min(100%,${spec.size.cells}ch)`;
-}
+/** A width as the page draws it: picture.ts decides, a terminal cell being about a character wide. */
+const width = pictureWidthCss;
 
 /**
  * An image as HTML: dark behind it until it loads, held a little below full brightness unless `[dim::]` says how much
@@ -73,7 +70,7 @@ export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, c
   const styles: string[] = [];
   const w = width(spec);
   if (w) styles.push(`width:${w}`);
-  if (spec.height) styles.push(`max-height:${(spec.height * 1.25).toFixed(2)}rem`, `object-fit:${spec.fit ?? "contain"}`);
+  if (spec.height) styles.push(`max-height:${(spec.height * ROW_REM).toFixed(2)}rem`, `object-fit:${spec.fit ?? "contain"}`);
   else if (spec.layout === "hero") styles.push("max-height:40vh", `object-fit:${spec.fit ?? "cover"}`);
   if (spec.focus) styles.push(`object-position:${Math.round(spec.focus.x * 100)}% ${Math.round(spec.focus.y * 100)}%`);
   styles.push(`filter:brightness(${spec.dim !== undefined ? Math.round((1 - spec.dim) * 100) / 100 : 0.9})`);
@@ -149,6 +146,12 @@ export const MEDIA_STYLE = `
 .artifact iframe{display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light}
 `;
 
+/** An SVG as an `<img>`'s source: an image runs no script and loads nothing, whoever wrote it. */
+const svgSrc = (svg: string) => `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+/** A script's drawing on a page (PIE-1594), written on `source`: its picture, laid out as the door lays it out. */
+export const drawingHtml = (node: { svg?: string; alt?: string; caption?: boolean; size?: string | number; height?: number; fit?: "cover" | "contain" }, source: string | undefined): string =>
+  mediaHtml({ ...drawingLayout(node, source, "svg picture"), own: svgOwnSize(node.svg ?? "") ?? undefined, ...(node.alt ? { alt: node.alt } : {}) }, svgSrc(node.svg ?? ""), undefined, node.caption !== false);
+
 /** A picture fence's SVG, from its language and text; null when it doesn't draw (the fence stays its source). */
 export type FenceSvg = (fence: PictureFence, source: string) => string | null;
 /** What draws the picture fences of `texts`: an svg fence's own text; pele (loaded only for a page holding a mermaid fence), its colours its own, links off. */
@@ -175,8 +178,7 @@ function drawNotePictures(text: string, components: string[], own: Map<number, D
     if (!spec?.fence || components.length >= MAX_PUBLISHED_COMPONENTS || [...own].some(([at, c]) => at <= f.start && f.start < c.end)) continue;
     const drawn = svg(spec.fence, lines.slice(f.start + 1, f.end).join("\n"));
     if (!drawn) continue;
-    const src = `data:image/svg+xml;base64,${Buffer.from(drawn).toString("base64")}`;
-    components.push(mediaHtml({ ...spec, alt: spec.path, ...(spec.size || spec.height ? {} : { size: "full" as const }) }, src, undefined, false));
+    components.push(mediaHtml({ ...spec, alt: spec.path, own: svgOwnSize(drawn) ?? undefined }, svgSrc(drawn), undefined, false));
     own.set(f.start, { end: f.end + 1, markdown: componentSentinel(components.length - 1) });
   }
 }

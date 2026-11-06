@@ -11,7 +11,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { ARTIFACT_KIND_LABELS, brightness, fileName, heroBox, imageBox, media, noteMediaLines, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap } from "./text";
@@ -27,7 +27,7 @@ import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-cor
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
-import { fencePicture, fencePictureOf, PICTURE_SCALE, pictureLinks, pictureLinkTarget, pictureRoom, type PictureLink } from "./diagrams";
+import { fencePicture, fencePictureOf, pictureLinks, pictureLinkTarget, pictureRoom, type PictureLink } from "./diagrams";
 import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
@@ -176,11 +176,10 @@ export interface DocEnv {
    */
   callout?: (line: number, block: CalloutBlock) => ((text: string) => string) | null;
   /**
-   * The reader draws the note's header image itself (PIE-532), above the title: the first `[layout::hero]` image's
-   * line is then only its caption, and `Doc.hero` names it. Without it (a river column, an embed, `ep0ch show`) the
-   * header image is drawn where it is written, the full width, cropped to at most `maxImageRows`.
+   * The body line of the header image the reader draws itself (PIE-532), above the title: that line is then only its
+   * caption, and `Doc.hero` names it. Without it (a river column, an embed, `ep0ch show`) the header image is drawn where
+   * it is written, the full width, cropped to at most `maxImageRows`.
    */
-  hero?: boolean;
   heroLine?: number;
   /**
    * Tag `text` as a control of the image on body line `line` (its caption's − + ◂ ▸ ▀), so a click runs that
@@ -236,7 +235,7 @@ export interface Doc {
   trims: Map<number, DocTrim>;
   /** The code blocks, quotes and callouts drawn, in reading order: what the copy control copies. */
   blocks: DocBlock[];
-  /** The header image (`env.hero`): the first `[layout::hero]` image, drawn by the reader above the title. */
+  /** The header image (`env.heroLine`): drawn by the reader above the title. */
   hero?: DocMedia & { media: Media };
   /**
    * Backgrounds the look draws under rows (PIE-673, PIE-675): every other list item's zebra stripe, a box's surface.
@@ -317,22 +316,6 @@ const indentOf = (l: string) => l.length - l.trimStart().length;
 
 
 /**
- * The media lines of a body (PIE-532), by line: the one scan the reader draws from and the image actions read (not
- * inside a fence or a figure). The first `[layout::hero]` is the header; a later one says it isn't.
- */
-export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
-  const block = noteStructure(src), out = new Map<number, MediaSpec>();
-  let hero = false;
-  src.forEach((l, i) => {
-    const spec = block[i] === -1 ? parseMediaLine(l) : null;
-    if (!spec) return;
-    if (spec.layout === "hero") { if (hero) { spec.problems.push("another image is the header already"); delete spec.layout; } hero = true; }
-    out.set(i, spec);
-  });
-  return out;
-}
-
-/**
  * The fold points of a body, computed from its source text (before links are presented, so a link's
  * title arriving later never renames a fold). Headings and list markers inside a fence or a figure are
  * text; a media line or a transclusion isn't a fold point. `anchors[i]` is line i's stable anchor, if any.
@@ -343,7 +326,7 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   const calloutList = calloutBlocks(src);
   const inCallout = src.map((_, i) => calloutList.some(c => i > c.line && i < c.end));
   const content = src.map((l, i) => inCallout[i] ? quoted[i]!.content : l);
-  const block = noteStructure(src), images = mediaLines(src);
+  const block = noteStructure(src), images = noteMediaLines(src.join("\n"));
   // Scan each quoted body in its own scope: an unfinished fence ends with its callout.
   for (const c of calloutList) {
     const off = c.line + 1;
@@ -429,7 +412,7 @@ export function childEnv(env: DocEnv, { off, end, width }: { off: number; end: n
     componentLine: env.componentLine && (line => env.componentLine!(line + off)),
     figures: env.figures && { ...env.figures, fullWidth: width, seen: f => env.figures!.seen?.({ ...f, line: f.line === undefined ? undefined : f.line + off }) },
     // Only the note's own first line can supply its header, never a child's first line.
-    hero: false, heroLine: env.heroLine !== undefined && inside(env.heroLine) ? env.heroLine - off : -1,
+    heroLine: env.heroLine !== undefined && inside(env.heroLine) ? env.heroLine - off : -1,
     after: env.after && ((n, w) => n < 0 ? [] : env.after!(n + off, w)),
     task: env.task && ((n, box) => env.task!(n + off, box)),
     use: env.use && ((call, n, w) => env.use!(call, n + off, w)),
@@ -459,7 +442,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // still find it. A line of code or of a figure keeps its text (`mask = flags ^bit`).
   const raw = body.split("\n"), rawStructure = noteStructure(raw);
   const src = raw.map((l, i) => (rawStructure[i] === -1 ? withoutFragmentAnchor(l) : l));
-  const mediaAt = mediaLines(src);
+  const mediaAt = noteMediaLines(src.join("\n"));
   const source: number[] = [], heads: Doc["heads"] = [], parts: DocPart[] = [];
   const figurePart = (info: FigureInfo | undefined, line: number, rows: number) => parts.push({ kind: "figure", row: out.length, line, col: Math.max(16, info?.cols ?? W) - 3, figure: info?.key, rows, cols: info?.cols ?? W, full: info?.size.width === "full" });
   const trims = new Map<number, DocTrim>(), blocks: DocBlock[] = [];
@@ -787,12 +770,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const said = (head: string, ...more: string[]) => fg(C.dark) + pad(ellipsize(more.reduce((t, m) => (vwidth(`${t} · ${m}`) <= W ? `${t} · ${m}` : t), head), W), W) + RESET;
       if (picture && picture.state === "drawing") { out.push(said(`◌ ${picture.label}`, "drawing")); continue; }
       if (picture && picture.state === "ready") {
-        // The size its fence writes (PIE-1583); left out, its own width in cells (laid out for the body, its words the
-        // terminal's size), never past the body.
+        // The size its fence writes (PIE-1583); left out, its own (picture.ts imageBox).
         const layout = pictureFenceSpec(fence.fence.info)!;
-        const entry = media(picture.path, "img"), own = entry.state !== "error" && entry.width ? Math.ceil(entry.width / PICTURE_SCALE / env.cellW) : W;
-        const spec: MediaSpec = { ...layout, path: picture.path, ...(layout.size || layout.height ? {} : { size: { cells: Math.max(1, Math.min(W, own)) } }) };
-        const drawn = mediaRows(spec, W, env, fence.start, entry);
+        const entry = media(picture.path, "img");
+        const drawn = mediaRows({ ...layout, path: picture.path }, W, env, fence.start, entry);
         if (drawn.entry.state === "error") failed = drawn.entry.reason;
         else {
           // It is an image as an [img::] line is: an element, its caption's row its `[ ]` position.
@@ -849,7 +830,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const entry = media(spec.path, spec.kind);
       const ref: DocMedia = { path: entry.path, kind: spec.kind, row: out.length, line: i, spec };
       mediaRefs.push(ref);
-      if (env.heroLine !== undefined ? i === env.heroLine : spec.layout === "hero" && env.hero) {
+      if (i === env.heroLine) {
         hero = { ...ref, media: entry };
         out.push(caption(entry, spec, W, env, i, true));
         continue;
@@ -1075,15 +1056,6 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(parts.length ? { parts } : {}), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z };
 }
 
-/** Rows `cols` cells of `m` take, its aspect kept. */
-const rowsFor = (m: { width: number; height: number }, cols: number, env: DocEnv) => Math.max(1, Math.round((cols * env.cellW * m.height) / m.width / env.cellH));
-const colsFor = (m: { width: number; height: number }, rows: number, env: DocEnv) => Math.max(1, Math.round((rows * env.cellH * m.width) / m.height / env.cellW));
-
-/**
- * Where an image goes in a body `W` wide: its width from `[size::…]` (cells, a share of the body, or all of it) or
- * from `[height::…]`, else about half its own pixels (a small image isn't blown up to the full width); its aspect
- * kept, inside both when both are written, at most `maxImageRows` tall; then placed by `[align::…]`.
- */
 /**
  * A media line's rows `W` wide (PIE-532): the picture's box, kept dark while it loads (its rows come from its header, so
  * nothing moves when it arrives), then its caption (row `caption`). `image`: the picture to place, at `line` of these
@@ -1137,57 +1109,12 @@ export function linkCells(lines: string[], at: number, box: { col: number; cols:
   }
 }
 
-export function imageBox(m: { width: number; height: number }, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {
-  const s = spec.size;
-  let cols = s === "full" ? W : s && "percent" in s ? Math.round((W * s.percent) / 100) : s ? s.cells
-    : spec.height ? colsFor(m, spec.height, env) : Math.max(Math.min(W, 24), Math.round((m.width / env.cellW) * 0.5));
-  cols = Math.max(1, Math.min(W, cols));
-  let rows = rowsFor(m, cols, env);
-  const most = Math.min(env.maxImageRows, spec.height ?? Infinity);
-  if (rows > most) { rows = Math.max(1, most); cols = Math.max(1, Math.min(W, colsFor(m, rows, env))); }
-  const col = spec.align === "center" ? Math.floor((W - cols) / 2) : spec.align === "right" ? W - cols : 0;
-  return { col, cols, rows };
-}
-
-/**
- * Where a header image goes in a width of `W` cells, at most `cap` rows tall: the full width, the whole image, when it
- * fits under the cap; taller, cropped to fill the cap around its middle (`[fit::cover]`, the default), or shown whole
- * in the middle of the cap's rows (`[fit::contain]`).
- */
-export function heroBox(m: { width: number; height: number }, spec: MediaSpec, W: number, cap: number, cellW: number, cellH: number): { col: number; cols: number; rows: number; crop?: { x: number; y: number; w: number; h: number } } {
-  const own = Math.max(1, Math.round((W * cellW * m.height) / m.width / cellH)), most = Math.max(1, cap);
-  // A height its line sets (PIE-1361: the header's edge dragged down) is the height, cropped to fill; else at most its own.
-  const asked = spec.fit !== "contain" && (spec.height !== undefined || spec.heightShare !== undefined);
-  if (own <= most && !(asked && own < most)) return { col: 0, cols: W, rows: own };
-  if (spec.fit === "contain") {
-    const cols = Math.max(1, Math.min(W, Math.round((most * cellH * m.width) / m.height / cellW)));
-    return { col: Math.floor((W - cols) / 2), cols, rows: most };
-  }
-  const crop = coverCrop(m, W * cellW, most * cellH, spec.focus);
-  return { col: 0, cols: W, rows: most, ...(crop ? { crop } : {}) };
-}
-
-/**
- * The part of `m` (as fractions of it) that fills a box `pxW` × `pxH` pixels with its aspect kept, around `focus`
- * (`[hero-focus::x,y]`; its middle when there's none), kept inside the image.
- */
-export function coverCrop(m: { width: number; height: number }, pxW: number, pxH: number, focus: Focus = { x: 0.5, y: 0.5 }): { x: number; y: number; w: number; h: number } | undefined {
-  const box = pxW / pxH, own = m.width / m.height;
-  const at = (f: number, span: number) => Math.max(0, Math.min(1 - span, f - span / 2));
-  if (Math.abs(box - own) / own < 0.01) return undefined;
-  if (own > box) { const w = box / own; return { x: at(focus.x, w), y: 0, w, h: 1 }; }
-  const h = own / box;
-  return { x: 0, y: at(focus.y, h), w: 1, h };
-}
-
 /** One control on an image's caption: the reader's tag, in the controls' colour. */
 const imageControl = (env: DocEnv, line: number) => (c: ImageControl, text: string) => fg(C.cyan) + env.image!(line, c, text) + fg(C.dark);
-/** The rows control a picture's caption carries (a header image's, a picture fence's); nothing when the reader tags no controls. */
-function sizeControls(env: DocEnv, line: number): string {
-  if (!env.image) return "";
-  const ctl = imageControl(env, line);
-  return ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows`;
-}
+/** The rows control a picture's caption carries (a header image's, a picture fence's, a script's drawing), tagged by `ctl`. */
+export const rowsControls = (ctl: (c: ImageControl, text: string) => string): string => ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows`;
+/** rowsControls for a body line; nothing when the reader tags no controls. */
+const sizeControls = (env: DocEnv, line: number): string => env.image ? rowsControls(imageControl(env, line)) : "";
 
 /**
  * An image's caption: what it is (its name, size in pixels, alt text, the layout written), what's wrong with what's

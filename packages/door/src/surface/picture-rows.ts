@@ -1,12 +1,12 @@
 // A view's pictures in a reader (PIE-827): an `image` primitive laid out as a note's image line is, and placed where the
 // view put it; a script's own SVG drawing (PIE-1555) made into a file first, its links the reader's elements.
-import { fencePicture, PICTURE_SCALE, pictureLinks, pictureLinkTarget, pictureRoom } from "../diagrams";
-import { mediaRows, type Doc, type DocEnv } from "../doc";
+import { fencePicture, pictureLinks, pictureLinkTarget, pictureRoom } from "../diagrams";
+import { mediaRows, rowsControls, type Doc, type DocEnv, type ImageControl } from "../doc";
 import { ActionRefused } from "@ep0ch/outline-core/action-line";
 import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { sourceLines } from "@ep0ch/outline-core/code-ranges";
-import { heroPropStep, imagePrimitiveSpec, media, parseMediaLine, pictureFenceSpec, type ImagePrimitive, type MediaSpec } from "../media";
-import { C, ellipsize, fg, RESET } from "../style";
+import { drawingLayout, drawingSpec, imagePrimitiveSpec, locatePicture, media, picturesIn, pictureStep, rewritePicture, type Drawing, type ImagePrimitive, type MediaAttr, type MediaSpec, type Picture, type PictureStep, type StepRoom } from "../media";
+import { C, ellipsize, fg, RESET, width as vwidth } from "../style";
 import { tagInto as tagged } from "./blockdown-context";
 import type { ImageRef, LinkTarget as Link } from "../refs";
 
@@ -16,7 +16,7 @@ import type { ImageRef, LinkTarget as Link } from "../refs";
  * carries a zero-width tag naming the picture, so wherever the view puts it (a card, a box, one side of a row)
  * placePictures finds it; its caption is a link to the file, so `[ ]` stops on it and ⏎ opens it, as on a note's image.
  */
-export function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, drawn: Link[]): string[] {
+export function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, drawn: Link[], own?: DrawingControls): string[] {
   // A script's own drawing (PIE-1555, `svg` in place of `src`): made into an SVG file once by its content, as a ```svg
   // fence is (src/diagrams.ts), then drawn as that file. Its alt text says it until it's ready, or why it can't be.
   let spec = node.svg === undefined ? imagePrimitiveSpec(node) : null;
@@ -27,13 +27,13 @@ export function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, dr
       const why = !made ? "" : made.state === "drawing" ? " · drawing" : ` · ✗ ${made.reason}`;
       return [fg(made?.state === "error" ? C.lred : C.dark) + ellipsize(`${made ? "◌" : "▣"} ${what}${why}`, width) + RESET];
     }
-    const entry = media(made.path, "img"), own = entry.state !== "error" && entry.width ? Math.ceil(entry.width / PICTURE_SCALE / env.cellW) : width;
-    spec = { ...imagePrimitiveSpec({ ...node, svg: undefined, src: made.path }), ...(node.size === undefined ? { size: { cells: Math.max(1, Math.min(width, own)) } } : {}) };
+    spec = drawingLayout(node, own?.ref.source, made.path);
+    delete spec.layout;
   }
   // Its links (an SVG's <a href>) are the reader's elements, as a link in the text is.
   const r = mediaRows(spec!, width, { ...env, image: undefined, tag: (to, text) => tagged(drawn, to, text) }, -1);
   // A script's drawing is named by what it says it is, not by the file it was made into.
-  if (node.svg !== undefined) r.lines[r.caption] = fg(C.dark) + ellipsize(`▣ ${node.alt?.trim() || "svg picture"}`, width) + RESET;
+  if (node.svg !== undefined) r.lines[r.caption] = drawingCaption("▣", node, width, own, r.entry.path, drawn);
   const lines = [...r.lines];
   // One cell says where it goes: the rest of its row stays what the view tagged it (a card's row, so a click picks the card).
   if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ") + " ".repeat(r.image.cols - 1);
@@ -42,6 +42,71 @@ export function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, dr
   // A file's caption opens the file; a script's drawing has no file a person keeps.
   if (node.svg === undefined) lines[r.caption] = tagged(drawn, { media: r.entry.path }, lines[r.caption]!);
   return lines;
+}
+
+/** What a caption control of an image does, said as its element's label. */
+export const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : "open" in c ? "open it on its web page" : "share" in c ? "share it with a link" : c.hero ? "make it the header" : "not the header";
+/** Picture `p` of note `m` as the reader names it. */
+export const imageRefTo = (m: { id: string }, p: Picture): ImageRef => ({ block: m.id, id: p.id, kind: p.kind, line: p.line, source: p.source, path: p.spec.path });
+
+/**
+ * A note's pictures (picture.ts), read once per text and service answer: the reader asks every draw. While the service
+ * reads a change again (`loaded` false) what a render line last drew stands, if it's still that line: a step on a script's
+ * header changes its words, not its drawing, so the header never drops out for a frame.
+ */
+export class NotePictures {
+  private read: { text: string; projections: readonly unknown[]; drawings: Drawing[]; pictures: Picture[] } | null = null;
+  of(text: string, projections: Parameters<typeof drawingsOf>[0], loaded: boolean): Picture[] {
+    const was = this.read;
+    if (was?.text === text && (was.projections === projections || (!was.projections.length && !projections.length))) return was.pictures;
+    const lines = text.split("\n"), named = (src: string[] | undefined, line: number) => src?.[line]?.split("::")[0]?.trim();
+    const before = was?.text.split("\n");
+    const drawings = loaded ? drawingsOf(projections) : (was?.drawings ?? []).filter(d => named(before, d.line) === named(lines, d.line));
+    this.read = { text, projections, drawings, pictures: picturesIn(text, drawings) };
+    return this.read.pictures;
+  }
+}
+
+/** A note's header, the one place that decides it (picture.ts): a script's drawing as the file it was made into. Null while that isn't made yet, or when it has none. */
+export function headerRef(m: { id: string }, pictures: readonly Picture[]): (ImageRef & { spec: MediaSpec }) | null {
+  const p = pictures.find(x => x.header), spec = p && (p.kind === "drawing" ? madeDrawing(p) : p.spec);
+  return p && spec ? { ...imageRefTo(m, p), path: spec.path, spec } : null;
+}
+
+/** The line edits that lay out these pictures, each found by who it is in `text`; `stale`'s refusal when one can't be told. */
+export function pictureEdits(text: string, changes: readonly { id: string; kind: Picture["kind"]; set: Partial<Record<MediaAttr, string | null>> }[], stale: () => Error) {
+  return changes.flatMap(x => {
+    const at = locatePicture(text, x.id);
+    if (!at) throw stale();
+    const after = rewritePicture(x.kind, at.source, x.set);
+    if (after === null) throw new ActionRefused("that line isn't an image any more");
+    return after === at.source ? [] : [{ line: at.line, before: at.source, after, picture: x.id }];
+  });
+}
+
+/** What a script's drawing is on its render line: `ref`, and `control` tagging a caption control as the reader's. */
+export interface DrawingControls { ref: ImageRef; control: (c: ImageControl, text: string) => string }
+
+/** Note `m`'s drawing on note line `line`, for its caption: its ref and its controls, tagged as a media line's are. */
+export function drawingControls(m: { id: string }, pictures: readonly Picture[], line: number, drawn: Link[]): DrawingControls | undefined {
+  const p = pictures.find(x => x.kind === "drawing" && x.line === line);
+  if (!p) return undefined;
+  const ref = imageRefTo(m, p);
+  return { ref, control: (control, text) => tagged(drawn, { role: "image", label: imageControlLabel(control), image: { ...ref, control } }, text) };
+}
+
+/** One step for `ref` (picture.ts pictureStep), from how it's drawn now or, not drawn, its file's pixels. */
+export function stepOf(ref: ImageRef & { spec: MediaSpec }, by: number, now: DrawnImage | undefined, pictures: readonly Picture[], room: Omit<StepRoom, "px" | "drawn">): PictureStep {
+  const shown = now && "cols" in now ? now : null, drawing = ref.kind === "drawing" ? pictures.find(p => p.id === ref.id) : undefined, made = drawing ? madeDrawing(drawing) : null;
+  const entry = shown ? null : made ? media(made.path, "img") : ref.kind !== "drawing" && !ref.spec.fence && ref.spec.kind === "img" ? media(ref.path, "img") : null;
+  return pictureStep({ kind: ref.kind, spec: ref.spec, header: ref.spec.layout === "hero" }, by, { ...room, drawn: shown, px: shown?.px ?? (entry && entry.state !== "error" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null) });
+}
+
+/** A script's drawing's caption: what it says it is; on a render line, an element holding its rows control. `path`: what was drawn. */
+export function drawingCaption(mark: string, node: ImagePrimitive, width: number, own: DrawingControls | undefined, path: string, drawn: Link[]): string {
+  const controls = own ? rowsControls((c, text) => fg(C.cyan) + own.control(c, text) + fg(C.dark)) : "";
+  const text = ellipsize(`${mark} ${node.alt?.trim() || "svg picture"}`, Math.max(4, width - vwidth(controls)));
+  return fg(C.dark) + (own ? tagged(drawn, { media: path, image: own.ref, label: node.alt?.trim() || "svg picture" }, text) : text) + controls + RESET;
 }
 
 /** The pictures extension views drew in `doc` (pictureRows), each placed where its tag landed. */
@@ -60,36 +125,27 @@ export function placePictures(doc: Doc, drawn: readonly Link[]): void {
 /** The room a script's header picture is laid out in: a wide reader's (an svg ignores it; it names the cache file). */
 const HERO_ROOM = pictureRoom(160, 9, 18);
 
-/** The first `svg` image primitive in a view, depth first: a script's drawing. */
+/** The first `svg` image primitive in a view, depth first: a script's drawing. Not a card's cover (`caption: false`): that's the card's. */
 export function viewSvg(view: unknown): { svg: string; alt?: string } | null {
   if (!view || typeof view !== "object") return null;
   const n = view as { type?: unknown; svg?: unknown; alt?: unknown; children?: unknown };
-  if (n.type === "image" && typeof n.svg === "string") return { svg: n.svg, ...(typeof n.alt === "string" ? { alt: n.alt } : {}) };
+  if (n.type === "image" && typeof n.svg === "string" && (view as { caption?: unknown }).caption !== false) return { svg: n.svg, ...(typeof n.alt === "string" ? { alt: n.alt } : {}) };
   for (const c of Array.isArray(n.children) ? n.children : []) { const found = viewSvg(c); if (found) return found; }
   return null;
 }
 
+/** A note's script drawings, from the service's answer for it: the render lines whose script returned an svg image. */
+export function drawingsOf(projections: readonly { anchor: { line: number }; output?: { component?: { view?: unknown } | null } | null }[]): Drawing[] {
+  return projections.flatMap(p => { const d = viewSvg(p.output?.component?.view); return d ? [{ line: p.anchor.line, ...d }] : []; });
+}
+
 /**
- * The header a render line draws (PIE-1555): a `name::` line that carries `[layout::hero]` (and the hero line's other
- * properties, `[height::…]`, `[fit::…]`, `[dim::…]`) and whose script returns an svg image is the note's header picture,
- * as a `[img::…] [layout::hero]` line is: its SVG made into a cached file, its spec read from the line's properties.
- * Null while the line has no answer yet, or its picture isn't made yet (a redraw follows).
+ * A script's drawing as the file it was made into (PIE-1555), so it's a picture like any other: its spec read from its
+ * line (the hero line's `[height::…]`, `[fit::…]`, `[dim::…]`). Null while the file isn't made yet (a redraw follows).
  */
-export function scriptHero(m: { id: string; text: string }, projections: readonly { kind?: string; anchor: { line: number }; output?: { component?: { view?: unknown } | null } | null }[]): { ref: ImageRef & { spec: MediaSpec }; svg: string } | null {
-  const lines = m.text.split("\n");
-  for (const p of projections) {
-    const source = lines[p.anchor.line] ?? "";
-    if (!/\[layout::hero\]/i.test(source)) continue;
-    const drawn = viewSvg(p.output?.component?.view);
-    if (!drawn) continue;
-    const made = fencePicture("svg", drawn.svg, HERO_ROOM);
-    if (made?.state !== "ready") return null;
-    // The hero properties written on the render line, read by the media line's own grammar.
-    const tokens = source.match(/\[[A-Za-z-]+::[^\]]*\]/g) ?? [];
-    const spec = parseMediaLine(`[img::${made.path}] ${tokens.join(" ")}`) ?? { kind: "img" as const, path: made.path, problems: [], layout: "hero" as const };
-    return { ref: { block: m.id, line: p.anchor.line, source, path: made.path, spec: { ...spec, path: made.path, ...(drawn.alt ? { alt: drawn.alt } : {}) } }, svg: drawn.svg };
-  }
-  return null;
+export function madeDrawing(p: Picture): MediaSpec | null {
+  const made = fencePicture("svg", p.svg ?? "", HERO_ROOM);
+  return made?.state === "ready" ? drawingSpec(p.source, made.path, p.spec.alt) : null;
 }
 
 /**
@@ -112,21 +168,15 @@ export function heroLinkSpans(path: string, box: { col: number; cols: number; ro
   return out;
 }
 
-/** The widths + and - step an image through, as shares of the reader (100 is `full`). */
-const SIZE_STEPS = [25, 33, 50, 66, 75, 100];
-/** The width one step bigger or smaller than `size` in a body `W` cells wide (`share`: how wide it's drawn now, %); null past the last step. */
-export function sizeStep(size: MediaSpec["size"], W: number, share: number | null, by: number): string | null {
-  const now = size === "full" ? 100 : size && "percent" in size ? size.percent : size ? (size.cells / W) * 100 : share ?? 50;
-  const next = by > 0 ? SIZE_STEPS.find(p => p > now + 1) : SIZE_STEPS.findLast(p => p < now - 1);
-  return next === undefined ? null : next === 100 ? "full" : `${next}%`;
-}
+/** How an image is drawn now: its cells, where it sits and its file's pixels, or the header's rows. */
+export type DrawnImage = { cols: number; rows: number; col: number; px: { width: number; height: number } } | { header: number };
 /** How each image is drawn now, by its note line: its cells and where it sits, or the header's rows. */
-export function drawnImagesOf(d: { doc: Doc; lines: readonly number[] } | null, hero: { line: number; full: number } | null): Map<number, { cols: number; rows: number; col: number } | { header: number }> {
-  const out = new Map<number, { cols: number; rows: number; col: number } | { header: number }>();
+export function drawnImagesOf(d: { doc: Doc; lines: readonly number[] } | null, hero: { line: number; full: number } | null): Map<number, DrawnImage> {
+  const out = new Map<number, DrawnImage>();
   if (hero) out.set(hero.line, { header: hero.full });
   for (const x of d?.doc.media ?? []) {
     const im = x.image !== undefined ? d!.doc.images[x.image] : undefined, line = d!.lines[x.line];
-    if (im && line !== undefined) out.set(line, { cols: im.cols, rows: im.rows, col: im.col });
+    if (im && line !== undefined) out.set(line, { cols: im.cols, rows: im.rows, col: im.col, px: { width: im.media.width, height: im.media.height } });
   }
   return out;
 }
@@ -137,22 +187,6 @@ export const notArtifact = <T extends { spec: MediaSpec }>(ref: T): T => {
   if (ref.spec.fence) throw new ActionRefused("that's a picture fence: it takes a size, a height and a place (image.size, image.align); a header is an [img::] line");
   return ref;
 };
-
-/** The picture fences of a body (PIE-1583), by their opening line: images as its media lines are. */
-export const pictureFences = (lines: readonly string[]): [number, MediaSpec][] =>
-  noteCodeFences(lines).filter(f => f.closed).flatMap(f => { const spec = pictureFenceSpec(f.fence.info); return spec ? [[f.start, spec] as [number, MediaSpec]] : []; });
-
-/**
- * The rows a picture fence takes one step bigger or smaller, by the header's steps, from the rows it is drawn at now
- * (`rows` when it isn't drawn), or null when a step would change nothing: as wide as the body (`body` cells) or as tall
- * as the reader lets it (`most` rows), or at the smallest step.
- */
-export function fenceRowStep(now: { cols: number; rows: number } | { header: number } | undefined, rows: number, by: number, most: number, body: number): string | null {
-  const drawn = now && "rows" in now ? now : null, at = drawn?.rows ?? rows;
-  if (by > 0 && drawn && (at >= most || drawn.cols >= body)) return null;
-  const next = heroPropStep("height", String(at), by);
-  return next === String(at) ? null : next;
-}
 
 /**
  * The fence a selection with no words in it is over, read from the doc as drawn: a picture draws none, so its text as

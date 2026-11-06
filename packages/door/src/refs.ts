@@ -1,4 +1,5 @@
 import { expandsEmbeds } from "./embed-policy";
+import type { PictureKind } from "@ep0ch/outline-core/picture";
 import { anyChangeSince, changeClock, changedSince, configChangedSince, outlineChanged, type Notes } from "./search-schedule";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
@@ -328,10 +329,10 @@ export type LinkTarget = {
 };
 
 /**
- * An image line as the reader drew it: the note, the line's index in the note and how it read (a change is checked
- * against that line), the file it names, and on a caption's control, which change it makes.
+ * A picture as the reader drew it: the note, who it is (`id`, picture.ts: a change finds it by that, wherever it is now),
+ * its line's index and how it read then, the file it names, and on a caption's control, which change it makes.
  */
-export interface ImageRef { block: string; line: number; source: string; path: string; control?: ImageControl }
+export interface ImageRef { block: string; id: string; kind: PictureKind; line: number; source: string; path: string; control?: ImageControl }
 
 /**
  * A callout as the reader drew it: the note, its header's note line and how that line read (a change is checked
