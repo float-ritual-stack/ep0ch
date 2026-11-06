@@ -410,10 +410,10 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(await act("tile.type", { text: "true\\n" })).toMatchObject({ name: "shell" });
     await expect(act("tile.type", { text: "x" }, "middle")).rejects.toThrow("middle is a reader tile: tile.type is for a terminal tile; here: shell");
     // The person typing in it: an agent's is refused there (the actor rule), said on the status bar.
-    D.focus = D.idNamed("shell"); D.ptyIn = D.panes.get(D.focus);
+    D.focus = D.idNamed("shell"); D.doorKeys.typeIn(D, D.panes.get(D.focus));
     await expect(act("tile.type", { text: "x" }, "shell")).rejects.toThrow("the person is typing in shell");
     expect((app as any).message).toContain("tile.type refused");
-    D.ptyIn = null; D.focus = D.idNamed("middle");
+    D.doorKeys.stopTyping(D); D.focus = D.idNamed("middle");
     // open: by name, id, number, a block id it shows; the person's focus never moves for an agent's.
     const focus = D.focus;
     expect(await act("open", { id: notes.beans.id }, "side")).toMatchObject({ name: "side", id: notes.beans.id });
