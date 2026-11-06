@@ -3,6 +3,7 @@
 // Inbox) and opens it in edit mode through the reader's own edit; a missing [[page]] followed is offered, then made;
 // `[page::x]` alone on the first line titles itself on ⏎ and on save. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { unsent } from "../src/draft-session";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
@@ -227,6 +228,28 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     key({ kind: "esc" });
     await until(() => !reader.surface.draft, "reply let go");
     expect((await board.children(parent.id)).map(m => m.id)).toEqual(replies.map(m => m.id));
+  }, 15_000);
+
+  test("a reply holding only line breaks under its re:: line closes on one esc, with nothing kept (PIE-1603)", async () => {
+    const parent = (await board.newNote("Hedge report\n\nThe hawthorn is in leaf.", undefined)).note;
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    const reader = new MessageReader([parent], 0);
+    app.push(reader);
+    reader.render(app);
+    key(char("r"));
+    await until(() => !!reader.surface.draft, "reply draft", 1500);
+    key({ kind: "enter" });
+    key({ kind: "esc" });
+    await until(() => !reader.surface.draft, "the empty reply closing");
+    expect(unsent(`note-reply:${parent.id}`)).toBeNull();
+    expect(reader.render(app).lines.join("\n")).not.toContain("is kept here");
+    key(char("r"));
+    await until(() => !!reader.surface.draft, "a new reply");
+    expect(reader.surface.draft!.text).toBe("re:: Hedge report\n\n");
+    expect(reader.surface.draft!.restored).toBeNull();
+    key({ kind: "esc" });
+    await until(() => !reader.surface.draft, "the untouched reply closing");
   }, 15_000);
 
   test("+ on the main menu: a note at the top of the Inbox, opened to be written; ⏎ titles a lone [page::x], ctrl+s saves it", async () => {

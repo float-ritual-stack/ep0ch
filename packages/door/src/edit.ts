@@ -209,8 +209,10 @@ export class Draft {
     return linkOccurrences(this.text).find(l => l.start <= at && at <= l.end) ?? null;
   }
   get dirty() { return this.text !== this.original; }
-  /** Nothing written: it started empty and holds only spaces and line breaks (Enter in a new note, PIE-1449). Esc closes it as unchanged. */
-  get blank() { return !this.original.trim() && !this.text.trim(); }
+  /** The text it opened on is only a frame the door wrote (a reply's `re::` line): the person has written nothing until there's more than it. */
+  framed = false;
+  /** Nothing written: it started empty or framed and holds only that, spaces and line breaks (Enter in a new note, PIE-1449). Esc closes it as unchanged. */
+  get blank() { const now = this.text.trim(); return (this.framed || !this.original.trim()) && (!now || now === this.original.trim()); }
   /** Changed, and more than blank: what close, leave and discard keep or write. */
   get written() { return this.dirty && !this.blank; }
   /** The text the draft started from (a kept edit keeps it: "add them" and the comparison read its own changes from it). */

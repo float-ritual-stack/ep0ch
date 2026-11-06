@@ -57,6 +57,8 @@ export interface DraftTarget {
   readonly what: string;
   /** Saved, sent or created. */
   readonly verb: "save" | "send" | "create";
+  /** The text it opens on is only a frame the door wrote (a reply's `re::` line), so nothing is written until there's more. */
+  readonly framed?: boolean;
   /** How it's named when it comes back, when its verb's words don't fit ("your reply", "ctrl+s saves"). */
   readonly returns?: { what: string; does: string };
   /** The block it edits in place: held on the service while open (`drafts.hold`), and what the agent rule keys on. */
@@ -186,6 +188,7 @@ export class DraftSession {
     s.draft.titlesPages = target.verb !== "send";
     // Only an edit the person opened can be one opened by mistake: an agent's they typed into is theirs to put aside.
     s.draft.straysClose = target.place.startsWith("edit:") && by.kind !== "agent";
+    s.draft.framed = !!target.framed;
     if (by.kind !== "agent" && !s.restore()) {
       // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
       const h = histories.get(target.place);
@@ -1096,7 +1099,7 @@ export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">
     const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
     return note;
   } });
-  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”`, returns: { what: "reply", does: "saves" } };
+  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”`, framed: true, returns: { what: "reply", does: "saves" } };
 }
 
 // ── unsent drafts on disk ─────────────────────────────────────────────────────
