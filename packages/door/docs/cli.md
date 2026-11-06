@@ -317,7 +317,7 @@ the door on a private copy, or on the showcase outline (scripts/try-it.sh)
 ep0ch find [<words>… [--lexical] | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
 ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all] [--machinery hide|only|show]] [--view <id>] [--under <id>]
 [--sort <key> [--direction asc|desc]] [--updated-after|--updated-before|--created-after|--created-before <date>]
-[--ids | --lines | --json]
+[--ids | --lines | --json] [--timeout <seconds>]
 ```
 
 notes: with words, the service's ranked search, tree.search (the ranker
@@ -601,7 +601,7 @@ The web client's /sessions page does the same
 
 ```text
 ep0ch export [--all | <id>…] [--query "<expression>"] [--view <id>] [--under <id>] [<date flags>]
-[--children] [--format md|json] [--out <dir>|-] [--split] [--resolve-links] [--manifest] [--source]
+[--children] [--format md|json] [--out <dir>|-] [--split] [--resolve-links] [--manifest] [--source] [--timeout <seconds>]
 ```
 
 notes out as files: the notes named (((id)) or bare ids, as find --ids
@@ -619,15 +619,20 @@ records (as find --json), keys sorted. --out <dir> writes <title>-<id8>.md
 (or -), stdout. --manifest adds manifest.json: the export time, the outline,
 the selection, the files it wrote and leftOut extension pages
 
+--timeout <seconds>: how long to wait for each answer and for live figures on a busy machine (15 and 10 seconds by
+default; a timed-out export says the command to run). find and mirror take the flag too. EP0CH_REQUEST_TIMEOUT_MS, in
+milliseconds, says the same for a script's `ep0ch export`, `find`, `mirror` and every `outliner` CLI command (3 seconds, 30
+to another machine); the flag wins. A door, Tree and Detail never read it: a keypress keeps its short wait.
+
 ## mirror
 
 ```text
-ep0ch mirror <dir> [--once] [--ws <name>] [--machine <ssh-name>]
+ep0ch mirror <dir> [--once] [--timeout <seconds>] [--ws <name>] [--machine <ssh-name>]
 ```
 
 export every live note as source in its tree, then follow changes;
 --once writes one pass and exits. manifest.json records asOf,
-sequence and leftOut. Restarted hosts reconnect and catch up
+sequence and leftOut. Restarted hosts reconnect and catch up. --timeout as export's
 
 ## library
 

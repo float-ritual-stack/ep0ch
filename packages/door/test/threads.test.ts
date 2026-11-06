@@ -9,7 +9,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { boardScreen } from "./board-view";
-import { Desk, readerHears } from "../src/desk/desk";
+import { Desk } from "../src/desk/desk";
+import { heardBy } from "../src/search-schedule";
+import { commentNotes } from "../src/refs";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
@@ -356,7 +358,8 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
 describe("a reader hears an extension's answer in its thread, without a service (PIE-1452)", () => {
   const note = { id: "5eed0000-1111-4222-8333-666666666666", text: "Shed jobs\nOil the chain.", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, properties: [] };
   const thread = { id: "c0ffee00-1111-4222-8333-666666660000", author: "sam", body: "@margin write the plan", quote: "", at: 0, open: true, lifecycle: "open" as const, start: null, end: null, replies: [{ id: "c0ffee00-1111-4222-8333-66666666aaaa", author: "ext:marginalia", body: "⋯ working", at: 0 }] };
-  const reader = { msg: note, comments: [thread] } as never;
+  const reader = commentNotes({ msg: note, comments: [thread] });
+  const readerHears = (notes: typeof reader, e: never) => heardBy(e, notes);
   const change = (kind: string, blockId: string, parentId?: string) => ({ domain: "content", action: "ext.marginalia.agent.margin", sequence: 1, change: { kind, blockId, ...(parentId ? { parentId } : {}), actor: { author: "agent", actorId: "ext:marginalia" } } }) as never;
 
   test("the working reply being made, rewritten and replaced reaches the reader; another note's blocks do not", () => {

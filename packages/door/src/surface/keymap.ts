@@ -237,17 +237,34 @@ export function keysNow(action: string, keys: Keys | undefined): Keys | undefine
   if (!mine.length) return keys;
   const rows: KeyRow[] = typeof keys === "string" ? [{ keys, does: "" }] : [...(keys ?? [])];
   const whole = mine.find(e => !Object.keys(e.args).length);
-  const declared = declaredKeys(keys);
-  const kept: KeyRow[] = !whole ? rows : rows.flatMap((r): KeyRow[] => {
+  const declared = declaredKeys(keys), gone = replacedKeys(action, mine);
+  const stays = (k: string) => !gone.has(k) && (!whole || whole.keys.includes(k));
+  const kept: KeyRow[] = rows.flatMap((r): KeyRow[] => {
     if (!("keys" in r)) return [r];
     const ks = [...declaredKeys(r.keys)].filter(k => !GESTURE_NAMES.has(k));
-    if (ks.every(k => whole.keys.includes(k))) return [r];
-    const left = ks.filter(k => whole.keys.includes(k));
+    if (ks.every(stays)) return [r];
+    const left = ks.filter(stays);
     return left.length ? [{ keys: left.map(keyCaption).join(" "), does: r.does }] : [];
   });
   const yours: KeyRow[] = mine.flatMap(e => e.keys.filter(k => e !== whole || !declared.has(k)).map(k => ({ keys: keyCaption(k), does: Object.keys(e.args).length ? `yours: ${shownLine("", e.args).trim()}` : "yours (keybindings.json)" })));
   const out = [...yours, ...kept];
   return out.length ? out : undefined;
+}
+/**
+ * The keys of `action` that entries with arguments took away, as `effective` does for the tables: a row of a binding the
+ * file names whose key the file no longer lists, and no other row of the action still has.
+ */
+function replacedKeys(action: string, mine: readonly KeymapEntry[]): Set<string> {
+  const named = mine.filter(e => Object.keys(e.args).length), gone = new Set<string>(), live = new Set<string>();
+  if (!named.length) return gone;
+  for (const t of keyTables()) for (const r of t.rows) {
+    if (r.action !== action || isMouse(r.key)) continue;
+    const id = bindingId(r.action, r.args ?? {}), e = rebindable(t.rows, r) ? named.find(x => x.id === id) : undefined;
+    const key = t.prefix === "ctrl+w " ? `ctrl+w ${r.key === " " ? "space" : r.key}` : t.prefix + r.key;
+    (e && !e.keys.includes(key) ? gone : live).add(key);
+  }
+  for (const k of live) gone.delete(k);
+  return gone;
 }
 const GESTURE_NAMES = new Set(["click", "drag", "wheel", "hover", "sideways"]);
 

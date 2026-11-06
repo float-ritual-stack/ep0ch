@@ -1,9 +1,9 @@
 {
   "contract": 2,
   "id": "done-stamp",
-  "version": 1,
+  "version": 2,
   "name": "Done stamp",
-  "description": "Stamps the date on a note when its status becomes done, and takes it off if it reopens.",
+  "description": "Stamps the date on a note when it becomes done (status, work-stage or outbox), and takes it off if it reopens.",
   "run": ["bun", "done-stamp.ts"],
   "actions": [
     { "id": "stamp", "label": "Stamp the date it was done", "on": "block", "effects": "write" },
@@ -12,8 +12,8 @@
   "rules": [
     {
       "id": "stamp",
-      "description": "Stamps [done-at::] on a block that becomes status=done, and takes it off when it stops being done",
-      "match": { "property": "status=done" },
+      "description": "Stamps [done-at::] on a block that becomes done by any of these keys, and takes it off when none of them holds",
+      "match": { "query": "status=done OR work-stage=done OR outbox=done" },
       "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }
     }
   ]

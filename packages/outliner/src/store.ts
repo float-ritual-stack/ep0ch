@@ -517,7 +517,7 @@ interface AgentRequestDbRow {
 function agentRequestRow(row: AgentRequestDbRow): AgentRequestRow {
   return {
     blockId: row.block_id, requestKey: row.request_key, agent: row.agent, extensionId: row.extension_id, request: row.request,
-    status: row.status, message: row.message, reply: row.reply, proposalId: row.proposal_id, requestedBy: row.requested_by,
+    status: row.status, message: row.message?.replace(/ · r to send$/, " · ask again to send").replace(/: r asks again$/, ": ask again").replace(/: r asks it$/, ": ask it again") ?? null, reply: row.reply, proposalId: row.proposal_id, requestedBy: row.requested_by, // the replaces: reasons stored when they named Detail's r (PIE-1599)
     requestedAt: row.requested_at, answeredAt: row.answered_at,
   };
 }

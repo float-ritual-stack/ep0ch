@@ -503,6 +503,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(outbox.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
     expect(shelf.rows.map((r: any) => r.text)).toEqual(["Ask Ana about the bean seed", "Write to the allotment society about the gate", "Order the fruit-cage netting", "Copy the letters' titles", "Copy this note", "Put a link to this shelf in my draft"]);
     // The links tile's rows are the same set of actions: by tile.
+    await untilAsync(async () => (await blocks("links"))[0].rows.some((r: any) => r.text === "Wash the seed trays"), "the links tile's rows", 8000);
     expect((await blocks("links"))[0].rows.map((r: any) => r.text)).toEqual(expect.arrayContaining(["Wash the seed trays", "Label the dahlia tubers"]));
     // An agent's pick and filter are its own: drawn in its tint on the list, never moving the person's selection.
     const read = await app.act({ action: "list.pick", tile: "reader", args: { list: "^outbox", n: 2 }, as: "test-agent" }) as any;

@@ -57,8 +57,13 @@ export function modeHint(keys: readonly ModeKey[], describe: (action: string) =>
   }), HINT_STRIP())[0]!.text;
 }
 
+/**
+ * The keys `action` has built in, for its def to declare: never with the keymap applied, since a def is read as its module
+ * loads and `builtInKeys` takes what it declares as what the binding always had, so a rebind would look like no change
+ * and its row would drop out of every hint. What the keymap does to them is `keysNow`'s, when they're read.
+ */
 export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: string): string | undefined {
-  const keys = [...new Set(tables.flatMap(table => effective(table).filter(row => row.action === action).map(row => row.key)))];
+  const keys = [...new Set(tables.flatMap(table => table.filter(row => row.action === action).map(row => row.key)))];
   return keys.length ? keys.map(keyCaption).join(", ") : undefined;
 }
 

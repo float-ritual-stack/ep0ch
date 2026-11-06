@@ -11,7 +11,8 @@ import { DraftSession } from "../src/draft-session";
 import { editHint } from "../src/surface/editor";
 import { Inspector } from "../src/surface/inspector";
 import { LineField } from "../src/surface/line";
-import { reloadKeymap } from "../src/surface/keymap";
+import { keysNow, reloadKeymap } from "../src/surface/keymap";
+import { LISTVIEW_ACTIONS } from "../src/surface/list-actions";
 import { wordIn } from "../src/surface/selection";
 import { pasteKeys, type Key } from "../src/term";
 
@@ -87,6 +88,21 @@ describe("the edit control's keys are one table the keymap rebinds (PIE-1542)", 
       const hint = editHint(new Draft("test", 0, ""), { save: "send", place: "floating" }).replace(/\x1b\[[\d;]*m/g, "");
       expect(hint).toContain("alt+o floating");
       expect(hint).not.toContain("^O floating");
+    } finally { rebind({}); }
+  });
+
+  test("an action's keys say what a rebind with arguments replaced: list.step by=1 on alt+9 lists alt+9, not j or ↓, and k and ↑ stay", () => {
+    const shown = () => JSON.stringify(keysNow("list.step", LISTVIEW_ACTIONS.def("list.step")!.keys));
+    expect(shown()).toContain("j");
+    rebind({ "list.step by=1": ["alt+9"] });
+    try {
+      const rows = keysNow("list.step", LISTVIEW_ACTIONS.def("list.step")!.keys) as { keys: string; does: string }[];
+      const first = rows.find(r => r.does === "the next or previous row")!.keys.split(" ");
+      expect(first).not.toContain("j");
+      expect(first).not.toContain("↓");
+      expect(first).toContain("k");
+      expect(first).toContain("↑");
+      expect(rows.some(r => r.keys.includes("9") && r.does.startsWith("yours"))).toBe(true);
     } finally { rebind({}); }
   });
 

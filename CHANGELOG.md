@@ -20,12 +20,25 @@ are its record. The outliner's entries from then are kept below, under
 - **Header links read the click.** Alt- and middle-click on a link in a header's SVG open it fresh, on release like any link.
 - **Run:** `ep0ch install --apply` (door code and the publisher).
 
+### In the reader, r writes a reply and R fetches again (PIE-1599)
+
+- **`r` replies:** in every reader, whatever is in view, as it already did in the EchoNet reader and a thread list.
+- **`R` is the machine's turn:** fetches tickets, runs or asks a line again, sends a held request, resolves a proposal.
+- **The waiting list moved with it:** its rows say `[R resolve]` and `[R send]`. Lists keep `r` to reload, and Detail keeps its own `r`.
+
 ### A gallery card shows its note's header picture (PIE-1595)
 
 - **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.
 - **A feed row holds it as a thumbnail,** beside its title and body.
 - **A card's body is its words:** `body:` no longer prints a picture's line as text, and `body: 0` leaves the title and summary chips.
 
+### Tiles stay current as their notes change, and none polls on its own (PIE-1593)
+
+- **Welcome, the brief and the screen list ask only when the host says their answer moved:** a write elsewhere asks them nothing. They were asking again on every change.
+- **A river column, a reader's comments, last callers and who's online wait one pause:** 300 ms, where they had 700, 800 and 1500 ms, and who's online had none.
+- **A Library column shows a new top-level note, and a #tag column a newly tagged one:** both stayed as they were until reopened.
+- **Last callers and who's online skip a tool's bookkeeping:** a stamped note's change no longer wakes them, so such a row shows at the next ordinary change.
+- **A repo card's deploy is the one read still on a period:** a deploy is outside the outline, so nothing can say how it went.
 ### The desk's undo is a step, and who has your keys is one fact (PIE-1592)
 
 - **ctrl+z takes back the step you made, on the desk you made it.** Screen, drawer, glass and groups all undo from one record of steps: each says which desks it touched, whose it is, what takes it back and where your keys go.

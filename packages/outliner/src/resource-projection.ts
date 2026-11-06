@@ -291,7 +291,7 @@ function storedProjection(
     return {
       ...keyed,
       status: "not-registered",
-      reason: `${key} isn't fetched yet; saving the ${base.propertyKey}:: line or opening the note fetches it, and r fetches it now.`,
+      reason: `${key} isn't fetched yet; saving the ${base.propertyKey}:: line or opening the note fetches it, or fetch it now from its line.`,
     };
   }
   const description = source.resources.describe(lookup.resourceId, false);
@@ -308,7 +308,7 @@ function storedProjection(
       status: "not-fetched",
       reason: description.remoteStatus?.lastError
         ? `Nothing fetched yet; the last fetch failed: ${bounded(description.remoteStatus.lastError)}`
-        : `Nothing fetched yet; r fetches it now.`,
+        : `Nothing fetched yet; fetch it now from its line.`,
     };
   }
   const validator = document.sourceSnapshot.revision.revision;

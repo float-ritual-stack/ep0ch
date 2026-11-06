@@ -14,6 +14,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
 // The layout (widen, hold, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
+import { AskAgainAt } from "../search-schedule";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
@@ -195,13 +196,11 @@ export class RiverColumn extends ReaderPane {
   private editDrag = false;
   /** The keys came here just now (a click that focuses it only focuses it). */
   private justFocused = false;
-  private reload: Timer | null = null;
   private gen = 0;
   /** The listed notes the filter's property clauses hold for (`query.matches`), and which ask it is. */
   private matched: Set<string> | null = null;
   private asked = 0;
   /** Which load is the latest: an older one's answer, back after it, is dropped. */
-  private loads = 0;
   private desk: DeskApi | null = null;
 
   constructor(public source: Source, public filter: Clause[] = []) { super(false); }
@@ -273,24 +272,43 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     const b = desk.ctx.board;
     indexOf(b).refresh(b, () => desk.redraw());
-    // The replies shown under a note are read again with it, so a reply edited elsewhere never reads as it was.
-    const ask = ++this.loads;
-    // The selected card keeps the selection wherever it is now (a reply added above it in place, PIE-1551), as a card
-    // the person just moved does; else the same row, within what's listed (sel counts replies shown in place).
-    const done = (items: Msg[]) => { const was = this.flat()[this.sel]?.m.id; void this.fold.reread(id => b.children(id)).then(() => took(items, was)); };
-    const took = (items: Msg[], selected?: string) => { if (this.loads !== ask) return; const was = this.followMoved ?? selected; this.followMoved = null;
-      this.items = items; this.error = undefined; const rows = this.flat(), at = was ? rows.findIndex(r => r.m.id === was) : -1;
-      this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, rows.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
-    const fail = (e: Error) => { this.error = e.message; desk.redraw(); };
-    if (this.source.kind === "roots") b.roots().then(done, fail);
-    else if (this.source.kind === "tag") b.byProp(this.source.key, this.source.value).then(done, fail);
-    else {
-      const id = this.source.id;
-      // The column's surface gets the new text too; an open draft is only marked "changed elsewhere".
-      b.get(id).then(m => { if (this.loads !== ask) return; this.root = m; if (m) this.surface.refresh(m); this.showSelected(desk); desk.redraw(); }, () => {});
-      b.children(id).then(done, fail);
-    }
+    void this.again.at(desk).now();
   }
+  private readonly again = new AskAgainAt<DeskApi, { items: Msg[]; selected?: string }>(desk => {
+    const b = desk.ctx.board;
+    return {
+      read: async turn => {
+        const source = this.source;
+        let items: Msg[];
+        if (source.kind === "roots") items = await b.roots();
+        else if (source.kind === "tag") items = await b.byProp(source.key, source.value);
+        else {
+          // The column's surface gets the new text too; an open draft is only marked "changed elsewhere".
+          void b.get(source.id).then(m => { if (!turn.alive()) return; this.root = m; if (m) this.surface.refresh(m); this.showSelected(desk); desk.redraw(); }, () => {});
+          items = await b.children(source.id);
+        }
+        // The replies shown under a note are read again with it, so a reply edited elsewhere never reads as it was.
+        const selected = this.flat()[this.sel]?.m.id;
+        await this.fold.reread(id => b.children(id));
+        return { items, ...(selected ? { selected } : {}) };
+      },
+      // The selected card keeps the selection wherever it is now (a reply added above it in place, PIE-1551), as a card
+      // the person just moved does; else the same row, within what's listed (sel counts replies shown in place).
+      show: ({ items, selected }) => {
+        const was = this.followMoved ?? selected;
+        this.followMoved = null;
+        this.items = items; this.error = undefined;
+        const rows = this.flat(), at = was ? rows.findIndex(r => r.m.id === was) : -1;
+        this.sel = at >= 0 ? at : Math.min(this.sel, Math.max(0, rows.length - 1));
+        this.showSelected(desk); void this.match(desk); desk.redraw();
+      },
+      fail: e => { this.error = e instanceof Error ? e.message : String(e); desk.redraw(); },
+      // Its notes: a card it lists, a new one under a card it lists (a comment written from its own [comment], PIE-1551),
+      // the note a block column is, the Library's top level. A #tag column's new note is the host's to say.
+      notes: id => id === null ? this.source.kind === "roots" : (this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id),
+      told: b.watched && { by: b.watched, answers: () => this.source.kind === "tag" ? [b.byPropShown(this.source.key, this.source.value)] : [] },
+    };
+  });
 
   /** In the Library and a #tag the surface shows the selected note (what e, C and m act on); a block column's, its own. */
   private showSelected(desk: DeskApi) {
@@ -750,18 +768,14 @@ export class RiverColumn extends ReaderPane {
   override onEvent(desk: DeskApi, e?: OutlineEvent) {
     this.desk = desk;
     this.gen++;
-    super.onEvent(desk);
+    super.onEvent(desk, e);
     if (!e) return;
     if (e.action === "reconnected") this.surface.retry(this.host(desk));
     if (e.action === "reset") { this.load(desk); indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw(), true); return; }
-    // A block the column lists, or a new one under a note it lists (a comment written from its own [comment] is a
-    // child the column has never seen: its parent is what the column shows, PIE-1551).
-    const lists = (id: string | null | undefined) => !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id));
-    const shows = lists(e.blockId) || lists(e.change?.parentId);
-    if (shows) { if (this.reload) clearTimeout(this.reload); this.reload = setTimeout(() => { this.reload = null; this.load(desk); }, 800); }
+    this.again.at(desk).heard(e);
     indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw());
   }
-  override dispose() { if (this.reload) clearTimeout(this.reload); super.dispose(); }
+  override dispose() { this.again.cancel(); super.dispose(); }
 
   // ── what the column's actions do ──
 

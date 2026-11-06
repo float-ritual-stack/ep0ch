@@ -5,7 +5,7 @@ export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, notArtifact, NotePictures, pictureEdits, pictureRows, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
-import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, type ReaderGuard, type ReaderKey } from "./reader-keys";
+import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
@@ -80,12 +80,12 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, pageView, pageOf, presentLinks, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -151,6 +151,7 @@ import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
+import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
 import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
@@ -546,10 +547,10 @@ function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
   const a = extensionNamed(x.extension)?.actions.find(y => y.name === x.action);
   return a ? a.label.toLowerCase() : x.action;
 }
-/** The keys an extension's line answers to while it's the current element: its actions' (the reader's own stay its own), and r. */
+/** The keys an extension's line answers to while it's the current element: its actions' (the reader's own stay its own), and run again. */
 function extKeys(x: NonNullable<LinkTarget["ext"]>, hostKeys: string): string {
   const own = (extensionNamed(x.extension)?.actions ?? []).filter(a => a.on === `handler:${x.handler}` && a.key && handlerKeyAction(x.extension, x.handler, a.key, hostKeys) === a);
-  return [...own.map(a => `${a.key} ${a.id}`), "r again"].join(" · ");
+  return [...own.map(a => `${a.key} ${a.id}`), `${runAgainKey()} again`].join(" · ");
 }
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
@@ -1017,7 +1018,6 @@ export class NoteSurface {
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
-  private commentTimer: Timer | null = null;
   /** Why the whole note behind a list row couldn't be read; empty while reading or once read. */
   unread = "";
   /**
@@ -3216,7 +3216,7 @@ export class NoteSurface {
   }
 
   private replyFrame(host?: SurfaceHost): EditFrame {
-    return { look: host?.look?.values ?? this.lastLook?.values, title: `reply · ${subject(this.replyParent!)}`, status: [], pick: true, follow: true,
+    return { look: host?.look?.values ?? this.lastLook?.values, title: `reply · ${subject(this.replyParent!)}`, status: [], draftStatus: { state: false, said: this.draft?.note || null }, pick: true, follow: true,
       preview: (text, w, links) => this.snippetDoc(text, w, host, links),
     };
   }
@@ -3299,9 +3299,7 @@ export class NoteSurface {
   dispose() {
     this.endPreviewDraft();
     this.drafting?.dispose();
-    // A comment read an event asked for (onEvent) doesn't go out for a reader that's gone.
-    if (this.commentTimer) clearTimeout(this.commentTimer);
-    this.commentTimer = null;
+    this.commentsAgain?.cancel();
   }
 
   /**
@@ -3550,13 +3548,15 @@ export class NoteSurface {
     } catch (e) { if (strict) throw e; /* comments are extra; the note still reads */ }
   }
 
-  /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
-  onEvent(host: SurfaceHost) {
-    if (this.replyLinks) void this.openReplyLinks(host, USER, true).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
+  /** Outline changed: a comment on this note (`commentNotes`) may have been added, answered or resolved anywhere. */
+  onEvent(host: SurfaceHost, e?: OutlineEvent) {
+    if (this.replyLinks && (!e || heardBy(e, "any"))) void this.openReplyLinks(host, USER, true).catch(err => host.ctx.flash(String(err), undefined, errorDetails(err)));
     if (!this.msg) return;
-    if (this.commentTimer) clearTimeout(this.commentTimer);
-    this.commentTimer = setTimeout(() => void this.loadComments(host), 700);
+    this.commentsHost = host;
+    const again = this.commentsAgain ??= new AskAgain<void>({ read: () => this.loadComments(this.commentsHost!), show() {}, notes: commentNotes(this) });
+    if (e) again.heard(e); else again.soon();
   }
+  private commentsAgain: AskAgain<void> | null = null; private commentsHost: SurfaceHost | null = null;   // the host the last event came through (a tile's is made per call)
 
   private commentEnv(host: SurfaceHost, actor: Actor = host.actor ?? USER): CommentEnv {
     return {
@@ -4433,9 +4433,9 @@ export class NoteSurface {
       case "undo": return this.undoKey(host);
       case "enter": return this.enterKey(!!row.args?.fresh, host);
       case "resolve": {
-        // With several proposals in view, none current and none named by the binding, r asks which (PIE-1533): [ ] goes to one's [resolve], r again resolves it.
+        // With several proposals in view, none current and none named by the binding, the key asks which (PIE-1533): [ ] goes to one's [resolve], the key again resolves it.
         const t = row.args?.block || row.args?.id ? null : this.resolveTarget();
-        if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · r again resolves this one · ] then r offers the next`); host.redraw(); return true; }
+        if (t && "several" in t) { this.setElem(t.first); host.ctx.flash(`${t.several.length} proposals in view · ${row.key} again resolves this one · ] then ${row.key} offers the next`); host.redraw(); return true; }
         void this.runKey("proposal.resolve", (row.args ?? {}) as never, host);
         return true;
       }
@@ -4523,7 +4523,7 @@ export class NoteSurface {
 
   /**
    * An extension line's action as the person (a key, a click, ⏎ on its head or a control): the line's own action
-   * (EXT_ACTIONS), or `r` (run it again, ask the agent again) through projection.refresh.
+   * (EXT_ACTIONS), or `R` (run it again, ask the agent again) through projection.refresh.
    */
   pressExt(action: string, x: NonNullable<Link["ext"]>, host: SurfaceHost): Promise<unknown> {
     if (action === RUN_AGAIN) return this.runKey("projection.refresh", { block: x.block, line: x.line }, host, true);
@@ -4701,8 +4701,8 @@ export class NoteSurface {
   }
 
   /**
-   * The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
-   * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `r`
+   * The block `R` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
+   * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `R`
    * runs none of them and says which there are: a stray key never asks an agent again or runs a script (PIE-956).
    */
   refreshTarget(): { block: string; line?: number } {
@@ -4716,7 +4716,7 @@ export class NoteSurface {
     if (!projectionsLoaded(m, this.src) && mayHaveProjections(m.text)) throw new ActionRefused("reading what this note runs · press again in a moment, or put [ ] on a line first");
     const runs = projectionsOf(m, this.src).filter(p => p.kind && p.kind !== "data");
     if (runs.length === 1) return { block: m.id, line: runs[0]!.anchor.line };
-    if (runs.length > 1) throw new ActionRefused(`${this.runsWords(runs)} here: nothing ran · press ${RUN_AGAIN_KEY} with [ ] on one, or click its ${REGION_MARK} mark and its run again`);
+    if (runs.length > 1) throw new ActionRefused(`${this.runsWords(runs)} here: nothing ran · press ${runAgainKey()} with [ ] on one, or click its ${REGION_MARK} mark and its run again`);
     return { block: m.id };
   }
   /** The lines that run, in the words a refusal names them by: `3 lines run (kids, kids, @tidy)`. */
@@ -8772,7 +8772,7 @@ export class NoteSurface {
   }
 
   /**
-   * What `r` resolves (PIE-1533): the current proposal, else the one shown, else the only one whose [resolve] is in view.
+   * What `R` resolves (PIE-1533): the current proposal, else the one shown, else the only one whose [resolve] is in view.
    * Several in view: `several`, and the [resolve] to offer: the first below the current element (] walked on), else the first.
    */
   resolveTarget(): { id: string } | { several: string[]; first: Element } | null {
@@ -9643,7 +9643,7 @@ const PROPOSAL_DEFS = {
 /** The reader and a reader-free id call run the same proposal actions. */
 export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>()("proposal", PROPOSAL_DEFS);
 
-/** What `r` with no line runs: `refreshTarget`'s answer, or its refusal said on the person's status bar (the key's own is quiet). */
+/** What `R` with no line runs: `refreshTarget`'s answer, or its refusal said on the person's status bar (the key's own is quiet). */
 function refreshOf(surface: NoteSurface, host: SurfaceHost, actor: Actor): { block: string; line?: number } {
   try { return surface.refreshTarget(); } catch (e) { if (e instanceof ActionRefused && actor.kind === "user") host.ctx.flash(e.message, undefined, errorDetails(e)); throw e; }
 }
@@ -10323,8 +10323,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.reply": def({
     summary: "write a reply beside this message; Save creates a child with replyTo and the message's thread, Esc closes without posting",
-    keys: "R", touches: "nothing", replay: "ask",
-    menu: { label: "reply to this note", group: "note", key: "R" },
+    keys: readerKeys("note.reply", { keys: "click", does: "on the note menu's reply" }), touches: "nothing", replay: "ask",
+    menu: { label: "reply to this note", group: "note", key: "r" },
     args: { text: { type: "string", optional: true, about: "reply text; an agent supplies this and creates the note without opening an editor" } },
     examples: [
       { act: "note.reply", does: "opens a reply beside this note for the person to write" },
@@ -11756,7 +11756,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ on }, { surface, host }) {
       const m = surface.requireNote();
       surface.raw = on ?? !surface.raw;
-      host.ctx.flash(surface.raw ? "raw: the note as written · R draws the rules' decorations again" : "decorated: what the rules draw · R shows the note as written");
+      host.ctx.flash(`${surface.raw ? "raw: the note as written" : "decorated: what the rules draw"} · ${keyCaption(READER_KEYS.find(r => r.action === "decor.raw")!.key)} ${surface.raw ? "draws the rules' decorations again" : "shows the note as written"}`);
       host.redraw();
       return { raw: surface.raw, decorations: surface.raw ? 0 : decorationsOf(m, surface.src).length };
     },

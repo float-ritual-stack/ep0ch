@@ -1,5 +1,6 @@
 import type { ArtifactDeployState, ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { artifactKind, artifactTitle, type ArtifactKind, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { outsideAfter } from "./search-schedule";
 
 /** `deploy`: what the repo the line names is doing (PIE-1060), as the service's deploy records answer. */
 export interface ArtifactFacts { kind: ArtifactKind | null; title: string; state: "reading" | "ready" | "missing"; reason?: string; warning?: string; deploy?: ArtifactDeployState }
@@ -9,7 +10,7 @@ export interface ArtifactReader { scope: object; read(name: string): Promise<Art
 const RECHECK_MS = 5000;
 /** How often a repo's card asks again when no deploy is under way: a save's deploy shows within this. */
 const REPO_RECHECK_MS = 6000;
-interface Entry { title?: string; reason?: string; warning?: string; deploy?: ArtifactDeployState; at: number; reading: boolean; changed?: () => void }
+interface Entry { title?: string; reason?: string; warning?: string; deploy?: ArtifactDeployState; at: number; reading: boolean; changed?: () => void; wake?: () => void }
 const byScope = new WeakMap<object, Map<string, Entry>>();
 
 export function artifactFacts(spec: Pick<MediaSpec, "path" | "alt">, reader?: ArtifactReader): ArtifactFacts {
@@ -30,7 +31,9 @@ export function artifactFacts(spec: Pick<MediaSpec, "path" | "alt">, reader?: Ar
       entry.reading = false; entry.at = Date.now(); entry.changed?.();
       // A repo's card is asked again while it's drawn: a save's deploy starts after the note is quiet and ends in a run
       // note elsewhere, so nothing else redraws it. Often while one is under way, so it turns live (or failed) by itself.
-      if (entry.deploy) setTimeout(() => entry.changed?.(), entry.deploy.state === "deploying" ? RECHECK_MS + 50 : REPO_RECHECK_MS).unref?.();
+      // A deploy is outside the outline: no note and no watched question says how it went, so this one read stays periodic.
+      entry.wake?.();
+      if (entry.deploy) entry.wake = outsideAfter(entry.deploy.state === "deploying" ? RECHECK_MS + 50 : REPO_RECHECK_MS, () => entry.changed?.());
     });
     e = entry;
   }

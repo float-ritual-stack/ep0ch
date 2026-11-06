@@ -29,8 +29,8 @@ export function heldFacts(a: HeldAsk, n: number): Record<string, unknown> {
   return { n, kind: "held", block: a.blockId, line: a.line, agent: a.agent, title: a.title, request: a.request, why: a.why, by: a.by, since: a.at };
 }
 
-/** A held row's send, at its right end: a click on it is `r`. */
-const SEND = " [r send]";
+/** A held row's send, at its right end: a click on it is `R`. */
+const SEND = " [R send]";
 
 type Entry = { kind: "program"; row: WaitingRow } | { kind: "held"; row: HeldAsk } | { kind: "ask"; row: WaitingAsk };
 
@@ -39,7 +39,7 @@ const WAITING_KEYS: readonly ModeKey[] = [
   { key: "j", action: "status.pick", args: { by: 1 }, label: "pick" }, { key: "k", action: "status.pick", args: { by: -1 }, label: "pick" },
   { key: "enter", action: "status.go", label: "opens" }, { key: "alt+enter", action: "ask.open", args: { fresh: true }, label: "beside" },
   { key: "x", action: "status.seen", label: "clear/seen" }, { key: "A", action: "ask.proposal", args: { op: "apply" }, label: "apply" },
-  { key: "X", action: "ask.proposal", args: { op: "dismiss" }, label: "dismiss" }, { key: "r", action: "ask.proposal", args: { op: "resolve" }, label: "resolve/send" },
+  { key: "X", action: "ask.proposal", args: { op: "dismiss" }, label: "dismiss" }, { key: "R", action: "ask.proposal", args: { op: "resolve" }, label: "resolve/send" },
 ];
 
 export class WaitingYouPane implements Pane {
@@ -73,7 +73,7 @@ export class WaitingYouPane implements Pane {
     if (e.kind === "held") return SEND;
     if (e.kind !== "ask") return "";
     if (e.row.kind === "decision") return " [x clear]";
-    return e.row.kind === "proposal" ? proposalOps(e.row).map(op => op === "apply" ? " [A apply]" : op === "resolve" ? " [r resolve]" : " [X dismiss]").join("") : "";
+    return e.row.kind === "proposal" ? proposalOps(e.row).map(op => op === "apply" ? " [A apply]" : op === "resolve" ? " [R resolve]" : " [X dismiss]").join("") : "";
   }
   render(w: number, h: number, focused: boolean): PaneView {
     this.width = w;
@@ -121,11 +121,11 @@ export class WaitingYouPane implements Pane {
     if (!e) return false;
     const args = { n: this.at + 1 };
     if (k.kind === "enter" || k.kind === "alt-enter") { this.run(desk, this.openAction(this.at), { ...args, ...(e.kind !== "program" && k.kind === "alt-enter" ? { fresh: true } : {}) }); return true; }
-    if (ch(k) === "r" && e.kind === "held") { this.run(desk, "held.send", args); return true; }
+    if (ch(k) === "R" && e.kind === "held") { this.run(desk, "held.send", args); return true; }
     if (ch(k) === "x" && e.kind === "program") { this.run(desk, "status.seen", args); return true; }
     if (e.kind === "ask") {
       if (ch(k) === "x" && e.row.kind === "decision") { this.run(desk, "ask.clear", args); return true; }
-      if ((ch(k) === "A" || ch(k) === "X" || ch(k) === "r") && e.row.kind === "proposal") { this.run(desk, "ask.proposal", { ...args, op: ch(k) === "A" ? "apply" : ch(k) === "r" ? "resolve" : "dismiss" }); return true; }
+      if ((ch(k) === "A" || ch(k) === "X" || ch(k) === "R") && e.row.kind === "proposal") { this.run(desk, "ask.proposal", { ...args, op: ch(k) === "A" ? "apply" : ch(k) === "R" ? "resolve" : "dismiss" }); return true; }
     }
     return false;
   }
@@ -140,7 +140,7 @@ export class WaitingYouPane implements Pane {
     if (e?.kind === "ask" && e.row.kind === "proposal" && x >= this.width - this.controls(e).length) {
       let end = this.width;
       for (const op of [...proposalOps(e.row)].reverse()) {
-        end -= op === "apply" ? " [A apply]".length : op === "resolve" ? " [r resolve]".length : " [X dismiss]".length;
+        end -= op === "apply" ? " [A apply]".length : op === "resolve" ? " [R resolve]".length : " [X dismiss]".length;
         if (x >= end) { this.run(desk, "ask.proposal", { n: n + 1, op }); break; }
       }
       return true;
@@ -242,10 +242,10 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "held.send": def({
-    summary: "send a held request (n: its row in the list, as peek numbers it, or id=<the note's id>; left out, the selected row): ask its agent now, as the person who pressed r (the line's own `r`). An agent's is refused: a held request waits for a person",
-    keys: "r, a click on a held row's [r send]",
+    summary: "send a held request (n: its row in the list, as peek numbers it, or id=<the note's id>; left out, the selected row): ask its agent now, as the person who pressed R (the line's own `R`). An agent's is refused: a held request waits for a person",
+    keys: "R, a click on a held row's [R send]",
     touches: "nothing", replay: "ask", says: r => `asked @${r.agent} (${r.title})`,
-    personAlways: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
+    personAlways: "a request an agent or an extension wrote waits for a person's R: an agent's is refused, as the line's own R is",
     args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
     examples: [
       { act: "held.send n=1", does: "sends the first held request: its agent is asked now" },
@@ -284,7 +284,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "ask.proposal": def({
-    summary: "apply, resolve or dismiss an open proposal", keys: [{ keys: "A", does: "apply" }, { keys: "r", does: "resolve" }, { keys: "X", does: "dismiss" }, { via: "row controls" }],
+    summary: "apply, resolve or dismiss an open proposal", keys: [{ keys: "A", does: "apply" }, { keys: "R", does: "resolve" }, { keys: "X", does: "dismiss" }, { via: "row controls" }],
     touches: "nothing", replay: "ask",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, op: { type: "string", about: "apply, resolve or dismiss" } },
     examples: [

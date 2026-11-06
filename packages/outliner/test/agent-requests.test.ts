@@ -231,7 +231,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "done", patche
   await client.request({ action: "update", blockId: old.id, text: `${current.text}\nmore`, expectedRevision: current.revision, mutation: PERSON });
   await Bun.sleep(300);
   expect(store.agentRequests(old.id)).toEqual([]);
-  expect((await agentOf(old.id, (p) => p.status === "not-run")).reason).toBe("r asks @slow");
+  expect((await agentOf(old.id, (p) => p.status === "not-run")).reason).toBe("waits for a person to ask @slow");
 
   // A note with no @ lines yet, never read: the person's first request in it is new, and runs.
   const plain = await create("Plain note\nsome  words");
@@ -262,7 +262,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "
   await agentOf(note.id, (p) => p.status === "ready");
   expect(store.get(note.id)!.text).toBe("x\n@sneaky again\n@sneaky");
   const again = store.agentRequests(note.id).find((row) => row.request === "again");
-  expect(again).toMatchObject({ status: "waiting", message: "held: @sneaky is already in this chain (@sneaky → @sneaky), so a repeat is held · r to send" });
+  expect(again).toMatchObject({ status: "waiting", message: "held: @sneaky is already in this chain (@sneaky → @sneaky), so a repeat is held · ask again to send" });
 
   await writeAgent("tardy", `await Bun.sleep(400);
 process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "words", replacement: "WORDS" }] } }));`);
@@ -335,7 +335,7 @@ test("a chain of woken asks stops at a repeat and at its hop limit, each held wi
   expect(store.get(note.id)!.text).toBe("start\n@ping back\n@pong next\n@ping go");
   const back = store.agentRequests(note.id).find((r) => r.request === "back")!;
   expect(back).toMatchObject({ agent: "ping", status: "waiting", requestedBy: "agent:ext:pong" });
-  expect(back.message).toBe("held: @ping is already in this chain (@ping → @pong → @ping), so a repeat is held · r to send");
+  expect(back.message).toBe("held: @ping is already in this chain (@ping → @pong → @ping), so a repeat is held · ask again to send");
 
   // A pair can narrow the default: the writer wakes the agent, and what that agent writes is held.
   await writeAgent("first", patching("seed", "@second next"));
@@ -391,8 +391,8 @@ test("notes from before agent requests keep their @name lines old; restarts say 
   expect(calls()).toEqual([]);
   expect(store.agentRequests(old.id)).toEqual([]);
 
-  expect(store.agentRequests(crashed.id)[0]).toMatchObject({ status: "failed", message: "interrupted by a restart: r asks again" });
-  expect(store.agentRequests(waiting.id)[0]).toMatchObject({ status: "waiting", message: "the service stopped before @count answered: r asks it", requestedBy: "user" });
+  expect(store.agentRequests(crashed.id)[0]).toMatchObject({ status: "failed", message: "interrupted by a restart: ask again" });
+  expect(store.agentRequests(waiting.id)[0]).toMatchObject({ status: "waiting", message: "the service stopped before @count answered: ask it again", requestedBy: "user" });
   await client.request({ action: "resources.projection.refresh", blockId: waiting.id, line: 1 });
   expect(calls()).toEqual(["run please"]);
 });
@@ -413,7 +413,27 @@ test("an outline a host opens gets the same start: old @name lines baselined, cu
     rmSync(root, { recursive: true, force: true });
   });
   expect(store.agentRequestBaseline(old.id)).toEqual(requestLines(old.text, null).map((line) => line.requestKey));
-  expect(store.agentRequests(crashed.id)[0]).toMatchObject({ status: "failed", message: "interrupted by a restart: r asks again" });
+  expect(store.agentRequests(crashed.id)[0]).toMatchObject({ status: "failed", message: "interrupted by a restart: ask again" });
+});
+
+test("a reason stored before the door's run-again key moved reads with no key: nothing tells a person to press r (Codex, #1314)", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-agents-old-words-")));
+  const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });
+  cleanups.push(async () => { store.close(); rmSync(root, { recursive: true, force: true }); });
+  const put = (title: string, status: "waiting" | "failed", message: string, requestedBy: string) => {
+    const block = store.create(`${title}\n@tidy please`);
+    store.putAgentRequest({ blockId: block.id, requestKey: requestLines(block.text, null)[0]!.requestKey, agent: "tidy", extensionId: "tidy", request: "please", status, message, requestedBy, requestedAt: new Date().toISOString() });
+    return block.id;
+  };
+  const held = put("Held", "waiting", "held: budget: all 2 wakes in this chain are spent · r to send", "agent:fern");
+  const stopped = put("Stopped", "waiting", "the service stopped before @tidy answered: r asks it", "user");
+  const crashed = put("Crashed", "failed", "interrupted by a restart: r asks again", "user");
+  const own = put("Its own words", "failed", "the r to send button is broken", "user");
+  expect(store.heldAgentRequests().map(row => row.message)).toEqual(["held: budget: all 2 wakes in this chain are spent · ask again to send"]);
+  expect(store.agentRequests(held)[0]!.message).toBe("held: budget: all 2 wakes in this chain are spent · ask again to send");
+  expect(store.agentRequests(stopped)[0]!.message).toBe("the service stopped before @tidy answered: ask it again");
+  expect(store.agentRequests(crashed)[0]!.message).toBe("interrupted by a restart: ask again");
+  expect(store.agentRequests(own)[0]!.message).toBe("the r to send button is broken");
 });
 
 test("taking an answered line out and putting it back (undo) doesn't ask again (B18)", async () => {

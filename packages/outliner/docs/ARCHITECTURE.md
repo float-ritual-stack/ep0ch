@@ -523,7 +523,7 @@ replaces the folder's `.ep0ch`.
 ssh forward per machine, shared by every client: outline-core's `ensureForward` (`src/machine.ts`) with the
 outliner's I/O (`src/machine-forward.ts`); `createOutlinerClient` starts it before a request finds nobody there and
 before each watcher (re)connect. `EP0CH_SOCKET` names a host's socket outright. The outline is named the same way. Remote mode gives requests a network-appropriate deadline and never starts a host or makes a
-local database.
+local database. `EP0CH_REQUEST_TIMEOUT_MS` raises the deadline for a batch reader: the outliner CLI and the door's bulk commands read it (outline-core's `request-timeout.ts`) and hand it to their client. Tree, Detail and a request's own wait never see it.
 
 Remote Tree and Detail registrations own their Herdr topology. They publish the
 rendering host's hostname, pane, terminal, workspace, tab, coordinates,
@@ -1805,7 +1805,7 @@ An extension may declare `agents[]`. [`src/agent-requests.ts`](../src/agent-requ
 line; it has no write path of its own. A reply shows under the line, in the
 same projection slot as extension output (event `extensions.agent`). A
 person's line runs once per wording; a line an agent or an import wrote waits for
-`r`, so agents can't loop; `r` asks again, recording who pressed it as
+`R` (Detail's `r`), so agents can't loop; that key asks again, recording who pressed it as
 `requestedBy`. One guard in `DraftPatchRouter` refuses any agent's patch that
 writes or rewords an `@name` line, whoever routes it. A door holding the live
 draft calls `drafts.touch`, so a request typed there runs before any save. At

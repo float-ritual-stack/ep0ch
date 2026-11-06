@@ -291,7 +291,7 @@ export class AgentRequests {
    * are old, so its first unrelated save doesn't run them.
    */
   start(): void {
-    this.store.interruptAgentRequests("interrupted by a restart: r asks again", new Date(this.now).toISOString());
+    this.store.interruptAgentRequests("interrupted by a restart: ask again", new Date(this.now).toISOString());
     this.store.seedAgentRequestBaselines((text) => requestLines(text, null).map((line) => line.requestKey));
   }
 
@@ -308,11 +308,11 @@ export class AgentRequests {
         if (line && bound && !this.store.agentRequests(blockId).some((row) => row.requestKey === requestKey)) {
           this.store.putAgentRequest({
             blockId, requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request, status: "waiting",
-            message: `the service stopped before @${line.agent} answered: r asks it`, requestedBy: "user", requestedAt: new Date(this.now).toISOString(),
+            message: `the service stopped before @${line.agent} answered: ask it again`, requestedBy: "user", requestedAt: new Date(this.now).toISOString(),
           });
         }
       } catch {
-        // The store is closing: the line stays as written, and r asks.
+        // The store is closing: the line stays as written, and a person asks.
       }
     }
     this.timers.clear();
@@ -1185,10 +1185,10 @@ export class AgentRequests {
           },
         };
         if (!row) {
-          return { ...base, status: "not-run" as const, reason: scheduled ? `@${candidate.agent} answers once the line is quiet` : `r asks @${candidate.agent}` };
+          return { ...base, status: "not-run" as const, reason: scheduled ? `@${candidate.agent} answers once the line is quiet` : `waits for a person to ask @${candidate.agent}` };
         }
         if (row.status === "running") return { ...base, status: "not-run" as const, fetching: true, reason: row.message ?? `@${candidate.agent} is working on it` };
-        if (row.status === "waiting") return { ...base, status: "not-run" as const, reason: row.message ?? `r asks @${candidate.agent}` };
+        if (row.status === "waiting") return { ...base, status: "not-run" as const, reason: row.message ?? `waits for a person to ask @${candidate.agent}` };
         if (row.status === "failed") return { ...base, status: "unavailable" as const, reason: row.message ?? "it failed", fetchError: row.message ?? "it failed" };
         const at = row.answeredAt ?? row.requestedAt;
         return {

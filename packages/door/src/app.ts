@@ -50,9 +50,10 @@ import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { describeModules, hostDoorModules, releaseDoorModules, runningModules, unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
-import { loadScreenNotes, screenNotesShown, watchedScreens } from "./desk/screen-notes";
+import { loadScreenNotes, SCREEN_TYPE, watchedScreens } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
-import { outlineChanged, referenceWords } from "./refs";
+import { referenceWords } from "./refs";
+import { AskAgain, outlineHeard } from "./search-schedule";
 import { componentsChanged } from "./component-schemas";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
@@ -89,7 +90,6 @@ import { DoorReporter, onStatusChange, statusHolders, waitingCounts, waitingOnYo
 const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHost; standing: boolean }>()("note", { "button.press": NOTE_ACTIONS.def("button.press")!, "button.slot": NOTE_ACTIONS.def("button.slot")! });
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
-const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
 
 export interface Frame {
   lines: string[]; placements?: Placement[];
@@ -655,7 +655,8 @@ export class App implements Ctx {
   /** `now`: the clock the status bar reads (a test's fake one). */
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
-    board.watched?.listen(() => { const now = screenNotesShown(board); if (this.screensSeen && now !== undefined && now !== this.screensShown && !this.screensLoading) this.screensSoon(); });
+    // Once the door has read its screens: the first read is the start's, and a moved answer before it has nothing to bring up to date.
+    this.screensAsk = new AskAgain<void>({ read: async () => { if (this.screensSeen) await this.loadScreens(); }, show() {}, told: board.watched && { by: board.watched, answers: () => [board.byPropShown?.("type", SCREEN_TYPE, 500)] } });
     this.started = now();
     this.speed = new SpeedMeter(now);
     // A Claude session running twice (PIE-1369): this machine's sessions and the outline's machine's, read while someone looks.
@@ -728,7 +729,7 @@ export class App implements Ctx {
    * later file (PIE-1412).
    */
   retire(): void {
-    this.closed = true;
+    this.closed = true; this.screensAsk.cancel();
     releaseDoorModules(this); this.hover.dispose();
     stopCompletion(this.board);
     this.offResize();
@@ -1064,17 +1065,13 @@ export class App implements Ctx {
     if (e.change?.kind !== "draft") {
       // Live figures and inline ::links aren't asked again here: their reads are watched, and the service says
       // when an answer changed (src/watched.ts).
-      // A change record names its block: only the links, pages and embeds that show it are asked again.
-      // A move or trash takes a subtree along, and an event without a record could be anything.
+      // A change record names its block: only the links, pages and embeds that show it are asked again (search-schedule's clock).
+      outlineHeard(e);
       const c = e.change;
-      // A block made under a note changes what is drawn beside it (a proposal, PIE-725): the note is named too.
-      if (c) outlineChanged(c.blockId && SCOPED.has(c.kind) ? [c.blockId, ...(c.kind === "create" && c.parentId ? [c.parentId] : [])] : null);
-      else if (e.action === "reconnected") outlineChanged([], true);   // the missed changes were replayed first
-      else outlineChanged(null, e.action === "reset");
       // Resource events aren't in the change feed, so none were replayed: projections are read again, and the
       // extensions (a restarted service may serve others) are listed again.
       if (!c && (e.action === "reconnected" || e.action === "reset")) { this.reconnects++; resourceChanged(null); void this.loadExtensions(); }
-      if (!c && (e.action === "reconnected" || e.action === "reset")) { this.screensSoon(); void this.statusNote.refresh(this.statusItems()); }
+      if (!c && (e.action === "reconnected" || e.action === "reset")) { this.screensAsk.heard(e); void this.statusNote.refresh(this.statusItems()); }
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
@@ -1176,10 +1173,11 @@ export class App implements Ctx {
   }
   private screensLoading: Promise<void> | null = null;
   private screensAgain = false;
-  private screensShown = "";   // the screen notes as last read (screenNotesShown): the watched answer moving past them reads them again
+  /** A screen note changed: the host says (its answer moved), a reset or a reconnect says it could have. */
+  private readonly screensAsk: AskAgain<void>;
   private async readScreens(): Promise<void> {
     try {
-      const r = await loadScreenNotes(watchedScreens(this.board, shown => { this.screensShown = shown; }));
+      const r = await loadScreenNotes(watchedScreens(this.board));
       // A save or delete of this door's landed meanwhile: read again rather than take an older answer.
       if (r.stale) { this.screensAgain = true; return; }
       const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} gone` : ""].filter(Boolean);
@@ -1194,12 +1192,6 @@ export class App implements Ctx {
   }
   private screensSeen = false;
   private screensWrong = "";
-  private screensTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Read the screen notes again shortly: a burst of changes reads them once. */
-  private screensSoon() {
-    if (this.screensTimer) return;
-    this.screensTimer = setTimeout(() => { this.screensTimer = null; void this.loadScreens(); }, 300);
-  }
 
   /**
    * The App's dispatcher (PIE-514): the host layer's actions, the shell's and the extensions', on every screen, then
@@ -1344,7 +1336,7 @@ export class App implements Ctx {
     // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
     for (const s of this.holders()) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
     this.keepPlaces();
-    this.closed = true;
+    this.closed = true; this.screensAsk.cancel();
     this.offResize();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);

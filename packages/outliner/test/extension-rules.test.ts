@@ -229,6 +229,43 @@ test("done-stamp: start stamps, stop unstamps, attributed to the extension with 
   expect((await list()).rules.find((entry) => entry.key === "ext:done-stamp/stamp")).toMatchObject({ matching: 1, lastRun: { when: "stop" } });
 });
 
+test("done-stamp stamps every done key its manifest names, and one still done keeps its stamp when another stops (PIE-1597)", async () => {
+  const { create, update, store, extensionsFolder, list } = await setup();
+  cpSync(join(REPO_EXTENSIONS, "done-stamp"), join(extensionsFolder, "done-stamp"), { recursive: true });
+  await until("done-stamp", async () => (await list(true)).rules.some((rule) => rule.key === "ext:done-stamp/stamp"));
+  const STAMP = /\[done-at::\d{4}-\d\d-\d\d\]/;
+  for (const [from, to] of [["[work-stage::doing]", "[work-stage::done]"], ["[outbox::next]", "[outbox::done]"]] as const) {
+    const job = await create(`Order the seed trays ${from}`);
+    await update(job.id, (text) => text.replace(from, to));
+    await until(`the stamp on ${to}`, () => STAMP.test(store.get(job.id)!.text));
+    await update(job.id, (text) => text.replace(to, from));
+    await until(`the stamp off ${to}`, () => !store.get(job.id)!.text.includes("done-at"));
+  }
+  const both = await create("Fix the gate [status::todo] [outbox::next]");
+  await update(both.id, (text) => text.replace("[status::todo]", "[status::done]").replace("[outbox::next]", "[outbox::done]"));
+  await until("the stamp on both", () => STAMP.test(store.get(both.id)!.text));
+  await update(both.id, (text) => text.replace("[outbox::done]", "[outbox::next]"));
+  await Bun.sleep(2500);
+  expect(store.get(both.id)!.text).toMatch(STAMP);
+  // A ticket the store stamped already gets no second write (work-stage-follows.ts owns a roadmap item's).
+  const ticket = await create("GDN-7 Plant the hedge [type::roadmap-item] [work-stage::doing]");
+  await update(ticket.id, (text) => text.replace("[work-stage::doing]", "[work-stage::done]"));
+  const stamped = await until("the ticket's stamp", () => STAMP.test(store.get(ticket.id)!.text) && store.get(ticket.id)!);
+  await until("the rule's run on the ticket", async () => (await list()).rules.find((rule) => rule.key === "ext:done-stamp/stamp")?.lastRun?.blockId === ticket.id);
+  expect(store.get(ticket.id)!.revision).toBe(stamped.revision);
+  expect(store.get(ticket.id)!.text.match(/done-at/g)).toHaveLength(1);
+});
+
+test("done-stamp stamps the day on this machine's clock, as a ticket's done-at and due=today read it (PIE-1597)", async () => {
+  const child = Bun.spawn(["bun", "done-stamp.ts"], {
+    cwd: join(REPO_EXTENSIONS, "done-stamp"), stdin: "pipe", stdout: "pipe", env: { ...process.env, TZ: "America/Toronto" },
+  });
+  child.stdin.write(JSON.stringify({ operation: "act", input: { action: "stamp", target: { blockId: "b", revision: 1 }, context: { block: { text: "Water the leeks [status::done]", properties: [{ key: "status", values: ["done"] }] }, now: "2026-03-12T02:30:00.000Z" } } }));
+  child.stdin.end();
+  const answer = JSON.parse(await new Response(child.stdout).text());
+  expect(answer.value.writes[0].text).toBe("Water the leeks [status::done] [done-at::2026-03-11]");
+});
+
 test("a call sees its block and children as records: repeats and lists as values, a property further down as a field, never a key-to-value map", async () => {
   const { create, extensionsFolder, client } = await setup();
   writeExtension(extensionsFolder, "see", {

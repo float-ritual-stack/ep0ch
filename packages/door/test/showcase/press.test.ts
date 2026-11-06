@@ -580,7 +580,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const pane = () => screen().split("\n").filter(l => l.includes("║")).map(l => l.split("║")[1]!.trim());
     const under = () => { const i = pane().findIndex(l => l === "ttt-board::"); return i < 0 ? [] : pane().slice(i + 1, i + 5); };
     await until(() => /\[[\dxo]\]/.test(under().join("\n")), "the board under its line in the edit");
-    expect(screen()).not.toContain("[r run again]");
+    expect(screen()).not.toContain("[R run again]");
     // Typing around it leaves it: a new line above it moves its line down, and the drawing goes with it.
     await app.dispatch.act({ action: "draft.place", args: { line: 1, col: 1 } }, USER);
     press({ kind: "enter" });

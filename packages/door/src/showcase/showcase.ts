@@ -16,6 +16,7 @@ import { subject, type Msg } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
+import { AskAgain } from "../search-schedule";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow } from "../style";
 import { wrap } from "../text";
@@ -457,7 +458,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "proposals", need: "show an intentional suggestion after an agent patch was refused, beside the note it targets, and apply, resolve or dismiss it", part: "the proposal beside its note (PIE-725): a patch that cannot apply is refused; only an intentional suggestion or a queued delivery makes a proposal block under the note, never a line in its text, so the note's revision stays and the next writer doesn't lose too; the service lists the open ones with the line each follows (draft.proposals.list), the reader draws each as an embed of it there (proposalsBeside, the embed's [apply] [dismiss], A, X: proposal.apply, proposal.dismiss), and the same open patch from the same agent is returned again (deduped: true)", files: "outliner src/draft-patch-router.ts (propose, proposalsBeside), src/embeds.ts (proposalsBeside), src/surface/note.ts (besideRegions), outliner src/detail-embeds.ts",
-    aside: "@fern and @moss patched the guide's sowing line at one revision: @fern's landed, @moss's was refused; @moss then deliberately offered the proposal after the guide's last line, its text and revision as @fern left them · ] to its source line, then A applies it anyway, r asks the outline agent to resolve its intent against the current note, or X dismisses it (any agent may, attributed) · @moss's retry of the same patch came back as this proposal, deduped, not a second copy · Detail draws it in the same place (outliner src/detail-embeds.ts) · an agent can dismiss by id without a reader: proposal.dismiss id=<proposal>, or outline_proposal_dismiss ref=<proposal> from the mod, MCP or host API; proposal.resolve block=<proposal> and outline_proposal_resolve ask the same tidy agent, preserving unrelated changes; conflicting readings stay open with a reason; the resolved edit carries its author and an undo receipt · tiles inside a mounted screen answer to their unique name or tile=<mount>/<tile>",
+    aside: "@fern and @moss patched the guide's sowing line at one revision: @fern's landed, @moss's was refused; @moss then deliberately offered the proposal after the guide's last line, its text and revision as @fern left them · ] to its source line, then A applies it anyway, R asks the outline agent to resolve its intent against the current note, or X dismisses it (any agent may, attributed) · @moss's retry of the same patch came back as this proposal, deduped, not a second copy · Detail draws it in the same place (outliner src/detail-embeds.ts) · an agent can dismiss by id without a reader: proposal.dismiss id=<proposal>, or outline_proposal_dismiss ref=<proposal> from the mod, MCP or host API; proposal.resolve block=<proposal> and outline_proposal_resolve ask the same tidy agent, preserving unrelated changes; conflicting readings stay open with a reason; the resolved edit carries its author and an undo receipt · tiles inside a mounted screen answer to their unique name or tile=<mount>/<tile>",
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · proposals", panes: [r], names: ["guide"] }, show, [[r, n.race]]);
@@ -578,7 +579,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "status", need: "show what a program in a terminal tile says it's doing (working, blocked on you, done, failed); report the door's own to its terminal", part: "program status (OSC 7501, PIE-614): outline-core's one reader and writer (records, ids, lifetimes, limits); each terminal tile's TileStatus, read through its emulator's OSC handler and answering the feature query, its glyph on the tile's header and tab, the drawer's chip, the status bar's count; the waiting-on-you list (a tile kind: host.waiting, alt+w, a click on the count; status.go, status.seen); DoorReporter (doorReport, held a few seconds) to the door's own terminal", files: "outline-core/src/program-status.ts, src/desk/program-status.ts, src/desk/waiting-you.ts, src/desk/pty.ts, outliner src/program-status-emit.ts, claude-mod hooks/claude-status.ts",
-    aside: "decisions, open proposals and unchecked calls appear above held requests and programs: select previews, Enter opens, alt+Enter opens beside; x clears a decision with a comment, A applies a proposal, X dismisses it; tick a call in its note to clear it · a held request is listed before the programs (‼ in the status bar): an agent's first @tidy line wakes by default, spending the showcase's daily cap; its next ask in 'Reply to the seed swap thread' waits for your r · ⏎ or a click on its row opens the note, r sends the request, as r on the line does (an agent can open it, never send it) · the deploy on the left is a script writing OSC 7501 to its terminal: building, pushing, then blocked on a permission until you answer y in it (click in it, y ⏎); its header's glyph, the status bar's ◆ and the list on the right follow it · ⏎ or a click on a row goes to that terminal, x marks it seen; being in the tile clears its done · alt+w opens the same list in your drawer, on any screen · the Claude mod reports Claude's own (a permission dialog, a question, done), ep0ch install --apply, ep0ch backup run, scripts/box-test and scripts/agent-env --test report theirs; the door tells its own terminal (Ghostty, Rex, Tern, Herdr) only what a person away needs, in words that say who, where and what: a tile blocked on you, a failure, a long job's done, the same few seconds after it holds (working and idle never leave the door); Herdr, which shows a sidebar, gets each tile as a child too (EP0CH_PROGRAM_STATUS=children says so for another, root for none, 0 for off)",
+    aside: "decisions, open proposals and unchecked calls appear above held requests and programs: select previews, Enter opens, alt+Enter opens beside; x clears a decision with a comment, A applies a proposal, X dismisses it; tick a call in its note to clear it · a held request is listed before the programs (‼ in the status bar): an agent's first @tidy line wakes by default, spending the showcase's daily cap; its next ask in 'Reply to the seed swap thread' waits for your R · ⏎ or a click on its row opens the note, R sends the request, as R on the line does (an agent can open it, never send it) · the deploy on the left is a script writing OSC 7501 to its terminal: building, pushing, then blocked on a permission until you answer y in it (click in it, y ⏎); its header's glyph, the status bar's ◆ and the list on the right follow it · ⏎ or a click on a row goes to that terminal, x marks it seen; being in the tile clears its done · alt+w opens the same list in your drawer, on any screen · the Claude mod reports Claude's own (a permission dialog, a question, done), ep0ch install --apply, ep0ch backup run, scripts/box-test and scripts/agent-env --test report theirs; the door tells its own terminal (Ghostty, Rex, Tern, Herdr) only what a person away needs, in words that say who, where and what: a tile blocked on you, a failure, a long job's done, the same few seconds after it holds (working and idle never leave the door); Herdr, which shows a sidebar, gets each tile as a child too (EP0CH_PROGRAM_STATUS=children says so for another, root for none, 0 for off)",
     stage(_n, show) {
       const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
       return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
@@ -958,14 +959,14 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "output-regions", need: "draw what a script, handler or agent generates as the note's own content, with its controls behind one mark", part: "the output-region rule: regionRows/regionTail (src/output-region.ts) behind extensionRegion, useRegion and the [!output] callout branch of renderDoc; the gutter mark, its click and `[ ]` stop in NoteSurface; outline-core's output-region.ts grammar", files: "src/output-region.ts, src/projection.ts, src/template-use.ts, src/doc.ts, src/surface/note.ts, outline-core src/output-region.ts",
-    aside: "a written timeline beside three generated regions in prose (a script's table, a ::= sentence, a written output region): flush with the text, no box or header · each has one dim ≡ in the margin: [ ] on it, or a click, shows its name, when it ran, keep and run again as one dim row; a second click lets go · hover isn't offered: the door asks the terminal for button events, not motion · r with no [ ] position runs nothing when a note has several lines that run, and says which · edit a word inside the written region and it is yours: its script's next output waits as a proposal · S opens Sources: its tile hint row says its bound keys once. Esc closes it from Sources or the reader beside it; Left returns from one source to the list. Its placement chip opens the comment box's menu: inline, floating, split, popup or tile. Beside/below sets a split's direction; drag its divider to size it. A wide Sources float or tile shows Query, Transform and Result side by side. Zoom the note, then float Sources and a comment: drag their grips past either side of the text column, or ctrl+g then shift+arrows to size them up to the tile border. The note keeps its text width. Enter opens the table, c downloads CSV and J JSON (also clickable); published pages use the same answer. The timeline describes itself as Written in the note · 5 items, with its text once and no Query or Result folds",
+    aside: "a written timeline beside three generated regions in prose (a script's table, a ::= sentence, a written output region): flush with the text, no box or header · each has one dim ≡ in the margin: [ ] on it, or a click, shows its name, when it ran, keep and run again as one dim row; a second click lets go · hover isn't offered: the door asks the terminal for button events, not motion · R with no [ ] position runs nothing when a note has several lines that run, and says which · edit a word inside the written region and it is yours: its script's next output waits as a proposal · S opens Sources: its tile hint row says its bound keys once. Esc closes it from Sources or the reader beside it; Left returns from one source to the list. Its placement chip opens the comment box's menu: inline, floating, split, popup or tile. Beside/below sets a split's direction; drag its divider to size it. A wide Sources float or tile shows Query, Transform and Result side by side. Zoom the note, then float Sources and a comment: drag their grips past either side of the text column, or ctrl+g then shift+arrows to size them up to the tile border. The note keeps its text width. Enter opens the table, c downloads CSV and J JSON (also clickable); published pages use the same answer. The timeline describes itself as Written in the note · 5 items, with its text once and no Query or Result folds",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · regions in prose", panes: [a, b], names: ["notes", "source"], layout: ([x, y]) => row(0.55, x!, y!) }, show, [[a, n.outputRegions], [b, n.scripts]]);
     },
   },
   {
-    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
+    key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, R or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
       const r = new ReaderPane(), th = repliesTile();
@@ -1564,7 +1565,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "replies", need: "reply while the message stays visible, quote its words and follow the conversation", part: "NoteSurface's reader mode and shared split, the new-note editor and DraftSession child target, and the links model", files: "src/surface/note.ts, src/draft-session.ts, src/links.ts",
-    aside: 'R replies · wheel over the message or PgUp/PgDn scrolls it while the draft keeps its place · ctrl+s saves · Esc twice discards typed text · select and R quotes · t opens replies, b shows links, T the full list · ~ toggles raw decoration',
+    aside: 'r replies · wheel over the message or PgUp/PgDn scrolls it while the draft keeps its place · ctrl+s saves · Esc twice discards typed text · select and r quotes · t opens replies, b shows links, T the full list · ~ toggles raw decoration',
     stage(n, show) {
       const a = new ReaderPane();
       return deskOf({ title: "showcase · replies", panes: [a], names: ["reader"], layout: ([x]) => leaf(x!) }, show, [[a, n.replies]]);
@@ -1640,7 +1641,25 @@ export class Showcase implements Screen {
   private problem = "";
   /** The outline was reset under this door: its notes are read again once the new seed is whole. */
   private reseeding = false;
-  private rereadTimer: Timer | null = null;
+  /** While reseeding: the notes read again once the outline has been quiet a moment (a failed read tries again), and taken when every one is there. */
+  private reseedAsk: AskAgain<Awaited<ReturnType<typeof loadShowcase>>> | null = null;
+  private get reseedAsking() {
+    return this.reseedAsk ??= new AskAgain({
+      read: () => loadShowcase(this.ctx.board),
+      show: s => {
+        if (this.disposed || !this.reseeding) return;
+        if (!s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
+        this.reseeding = false;
+        this.notes = s.notes;
+        this.problem = "";
+        this.openStage();
+        this.ctx.flash("the showcase was reset · its notes read again");
+        this.ctx.redraw();
+      },
+      fail: () => { if (!this.disposed && this.reseeding) this.reseedAsking.soon(); },
+      notes: "any",
+    });
+  }
   /** `ctx.reconnects` when the root was last checked. */
   private reconnectsSeen = 0;
   private disposed = false;
@@ -1686,26 +1705,7 @@ export class Showcase implements Screen {
     this.problem = "The showcase outline was reset; its notes are read again once it is seeded.";
     if (kept.length) this.ctx.flash(`the showcase was reset · an unsaved draft is copied to ${kept.join(", ")}`, 6000);
     this.ctx.redraw();
-    this.reread();
-  }
-
-  /** While reseeding: read the notes again once the outline has been quiet a moment, and take them when every one is there. */
-  private reread() {
-    if (this.rereadTimer) clearTimeout(this.rereadTimer);
-    this.rereadTimer = setTimeout(() => {
-      this.rereadTimer = null;
-      loadShowcase(this.ctx.board).then(s => {
-        if (this.disposed || !this.reseeding) return;
-        // Not whole yet: the seed's next write reads again. A read that failed tries again by itself.
-        if (!s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
-        this.reseeding = false;
-        this.notes = s.notes;
-        this.problem = "";
-        this.openStage();
-        this.ctx.flash("the showcase was reset · its notes read again");
-        this.ctx.redraw();
-      }, () => { if (!this.disposed && this.reseeding) this.reread(); });
-    }, 500);
+    this.reseedAsking.soon();
   }
 
   /** The stage of section `i`, built once and kept, so an edit or a layout survives moving between sections. */
@@ -1754,7 +1754,7 @@ export class Showcase implements Screen {
 
   render(ctx: Ctx): Frame {
     if ((ctx.reconnects ?? 0) !== this.reconnectsSeen) { this.reconnectsSeen = ctx.reconnects ?? 0; void this.recheck(); }
-    else if (this.reseeding && !this.rereadTimer) this.reread();
+    else if (this.reseeding && !this.reseedAsking.waiting) this.reseedAsking.soon();
     const { cols, rows } = ctx.t;
     const H = rows - 1;
     const canvas = new Canvas(cols, H);
@@ -1861,11 +1861,11 @@ export class Showcase implements Screen {
   scriptsLost() { for (const f of this.stages.values()) f.scriptsLost(); }
   onEvent(e: OutlineEvent) {
     for (const f of this.stages.values()) f.onEvent(e);
-    if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();
+    if (this.reseeding) this.reseedAsking.heard(e);
   }
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
-  dispose() { this.disposed = true; for (const f of this.stages.values()) f.dispose(); if (this.rereadTimer) clearTimeout(this.rereadTimer); }
+  dispose() { this.disposed = true; for (const f of this.stages.values()) f.dispose(); this.reseedAsk?.cancel(); }
   /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
   noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
   /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */

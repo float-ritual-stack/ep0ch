@@ -916,10 +916,17 @@ export class SocketBoard implements Board {
     return this.watched.read<Msg[]>("blocks.query", this.byPropQuestion(key, value, limit), (r: { blocks: WireBlock[] }) => r.blocks.map(b => toMsg(b)), "", { held: true }).value;
   }
 
-  async query(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
+  private queryQuestion(q: string, limit: number, sort: string, direction: "asc" | "desc", list: boolean) {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
-    const r = await this.request("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) });
+    return { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) };
+  }
+  async query(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
+    const r = await this.request("blocks.query", this.queryQuestion(q, limit, sort, direction, list));
     return r.blocks.map(b => toMsg(b));
+  }
+  /** `query` as a question the service watches: its answer as it stands (undefined until the first is in), moving when the service says it changed. */
+  queryShown(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Msg[] | undefined {
+    return this.watched.read<Msg[]>("blocks.query", this.queryQuestion(q, limit, sort, direction, list), (r: { blocks: WireBlock[] }) => r.blocks.map(b => toMsg(b)), "", { held: true }).value;
   }
 
   /**

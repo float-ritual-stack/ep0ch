@@ -18,12 +18,13 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { listMove, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
+import { AskAgainAt } from "../search-schedule";
 import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ActionRefused, actionSet, def, keyCaption } from "../surface/actions";
 import { hintKey, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { FOCUS_PART } from "../desk/desk";
-import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
+import type { HeaderInfo, OpenHow, SessionKind, SurfaceHost } from "../surface/note";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago, bbsDate, waiting, waitingText } from "../text";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -122,7 +123,17 @@ export class EchoAreas implements Pane {
   /** The other outlines' boards, by name; the door's own is its ctx's. */
   private boards = new Map<string, SocketBoard>();
   private unwatches = new Map<string, () => void>();
-  private reload: Timer | null = null;
+  /** Any outline it reads changing counts its areas again, once per burst; the outlines that burst touched. */
+  private readonly ask = new AskAgainAt<DeskApi, void>(desk => ({
+    read: () => this.load(desk),
+    show: () => {
+      const r = this.reader, shown = r?.area?.outline;
+      if (shown && this.touched.has(shown)) r!.reread(desk);
+      this.touched.clear();
+    },
+    notes: "any",
+  }));
+  private touched = new Set<string>();
   private desk: DeskApi | null = null;
   private loading: Promise<void> | null = null;
   /** A change came in while it was reading: it reads again once that read is done. */
@@ -231,18 +242,14 @@ export class EchoAreas implements Pane {
   }
 
   /** Any outline it reads changed: count again (once per burst), and read the message shown again when it's there. */
-  changed(_e: OutlineEvent | undefined, outline: string | null) {
+  changed(e: OutlineEvent | undefined, outline: string | null) {
     const desk = this.desk;
     if (!desk) return;
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => {
-      this.reload = null;
-      void this.load(desk);
-      const r = this.reader;
-      if (outline !== null && r?.area?.outline === outline) r.reread(desk);
-    }, 400);
+    if (outline !== null) this.touched.add(outline);
+    const ask = this.ask.at(desk);
+    if (e) ask.heard(e); else ask.soon();
   }
-  onEvent(desk: DeskApi) { this.desk = desk; this.changed(undefined, null); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) { this.desk = desk; this.changed(e, null); }
 
   /** Pick area `i`: its messages are listed beside. */
   async pick(i: number, desk: DeskApi): Promise<Area> {
@@ -322,7 +329,7 @@ export class EchoAreas implements Pane {
 
   dispose() {
     this.disposed = true;
-    if (this.reload) clearTimeout(this.reload);
+    this.ask.cancel();
     for (const off of this.unwatches.values()) off();
     this.unwatches.clear();
     this.boards.clear();
@@ -599,6 +606,11 @@ export class EchoReader extends ReaderPane {
     if (to < 0) throw new ActionRefused("this is the first message");
     if (to >= this.list.length) throw new ActionRefused(`end of ${this.area.tag.toUpperCase()}: no more messages`);
     return this.read(this.area, this.list, to, desk, actor);
+  }
+
+  /** A message's r is echo.reply (its reply is netmail or a post), never the note reply the desk would start first. */
+  override refuses(kind: SessionKind): string | null {
+    return kind === "note-reply" && this.message ? "an EchoNet copy takes its reply by echo.reply" : super.refuses(kind);
   }
 
   override key(k: Key, desk: DeskApi): boolean {

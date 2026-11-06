@@ -24,7 +24,7 @@ Morning plan
 
 ## Good to know
 
-- **Agents can't set each other off.** A `@tidy` line an agent wrote lands held (`held: <agent> may not wake @tidy · r to send`) until a person presses `r`.
+- **Agents can't set each other off.** A `@tidy` line an agent wrote lands held (`held: <agent> may not wake @tidy · ask again to send`) until a person asks again (the door's `R`, Detail's `r`).
 - **Counts are real.** The formatter's message names actual changes, such as `fixed nesting in 3 items, trimmed 1 line`.
 - **Repeated asks share one run,** and each spelling of the line gets the result.
 - **Edits are attributed:** `author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in the change feed.

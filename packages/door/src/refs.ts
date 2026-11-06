@@ -1,5 +1,6 @@
 import { expandsEmbeds } from "./embed-policy";
 import type { PictureKind } from "@ep0ch/outline-core/picture";
+import { anyChangeSince, changeClock, changedSince, configChangedSince, outlineChanged, type Notes } from "./search-schedule";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { C, fg, drawEllipsized, ellipsize } from "./style";
@@ -54,30 +55,12 @@ export const drawShortId = (id: string) => id.length > 12 ? drawEllipsized(id, 9
 
 // ── what changed: a cached answer is asked again only when a change could have altered it ──────────
 
-let tick = 0, allAt = 0, anyAt = 0, configAt = 0;
-const changedAt = new Map<string, number>();
 /**
- * The outline changed. `ids`: the blocks a change record names (an edit, a create), so only answers
- * about them are asked again (plus the ones any change can alter: missing pages, views, failures).
- * null: anything may have changed (a move or trash takes a subtree along; a reset; a service without
- * change records). `config`: the workspace may differ too (a reconnect), so its Work-ID prefix is re-read.
+ * A reader's comment notes: the note, its threads and their replies. A comment is made under the note, an extension's
+ * agent writes its reply as a plain block under the thread (`@margin`'s "working" line, PIE-1452), an edit names the reply.
  */
-export function outlineChanged(ids: readonly string[] | null, config = false) {
-  tick++; anyAt = tick;
-  if (config) configAt = tick;
-  if (!ids || changedAt.size > 5000) { allAt = tick; changedAt.clear(); }
-  for (const id of ids ?? []) { changedAt.delete(id); changedAt.set(id, tick); }
-}
-/** Now, for an answer being asked: later changes make it stale. */
-export const changeClock = () => tick;
-/** Did a block in `ids` (or everything) change after `at`? */
-export function changedSince(at: number, ids: Iterable<string>): boolean {
-  if (allAt > at) return true;
-  for (const id of ids) if ((changedAt.get(id) ?? 0) > at) return true;
-  return false;
-}
-/** Did anything change after `at`? */
-export const anyChangeSince = (at: number) => anyAt > at;
+export const commentNotes = (r: { msg: { id: string } | null; comments?: readonly { id: string; replies: readonly { id: string }[] }[] | null }): Notes =>
+  id => !!id && (id === r.msg?.id || !!r.comments?.some(t => t.id === id || t.replies.some(x => x.id === id)));
 /** Everything is asked again (a reset, or tests). Answers stay visible until re-read. */
 export function invalidateReferences() { outlineChanged(null, true); }
 
@@ -92,7 +75,7 @@ function ask<T>(by: WeakMap<object, Map<string, Cached<T>>>, src: Source | null 
   if (!cache) by.set(src.board, (cache = new Map()));
   const hit = cache.get(key);
   if (hit && (hit.asking || !stale(hit))) return hit;
-  const at = tick, c = cache;
+  const at = changeClock(), c = cache;
   const entry: Cached<T> = { value: hit?.value ?? null, error: hit?.error, at, asking: true };
   cache.set(key, entry);
   if (cache.size > 500) cache.delete(cache.keys().next().value!);
@@ -156,7 +139,7 @@ const scopeBy = new WeakMap<object, Map<string, Cached<TicketPrefixes>>>();
  */
 export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes | null {
   // Configuration, as the prefix is: asked again after a reconnect or reset (a prefix first used since shows then).
-  const c = ask(scopeBy, src, "scope", b => b.ticketPrefixes(), c => configAt > c.at || (!!c.error && anyChangeSince(c.at)));
+  const c = ask(scopeBy, src, "scope", b => b.ticketPrefixes(), c => configChangedSince(c.at) || (!!c.error && anyChangeSince(c.at)));
   return c?.value ?? null;
 }
 
@@ -164,7 +147,7 @@ const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();
 /** The workspace's Work-ID prefix: a string, null when none is configured (or unknown), undefined until asked. */
 export function workIdPrefix(src: Source | null | undefined): string | null | undefined {
   // Configuration, not content: asked again after a reconnect or reset, or after a change when it failed.
-  const c = ask(prefixBy, src, "prefix", b => b.workIdPrefix(), c => configAt > c.at || (!!c.error && anyChangeSince(c.at)));
+  const c = ask(prefixBy, src, "prefix", b => b.workIdPrefix(), c => configChangedSince(c.at) || (!!c.error && anyChangeSince(c.at)));
   if (!c) return null;
   return c.value !== null || !c.asking ? c.value : undefined;
 }

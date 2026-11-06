@@ -16,6 +16,7 @@
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
 // the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.
 import { MACHINERY_MODES, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { requestTimeoutMs } from "@ep0ch/outline-core/request-timeout";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
@@ -48,7 +49,7 @@ import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
   ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all] [--machinery hide|only|show]] [--view <id>] [--under <id>]
              [--sort <key> [--direction asc|desc]] [--updated-after|--updated-before|--created-after|--created-before <date>]
-             [--ids | --lines | --json]
+             [--ids | --lines | --json] [--timeout <seconds>]
                                    notes: with words, the service's ranked search, tree.search (the ranker
                                    Goto, the door's / and (( use, asked from no note; at most 30), re-ordered
                                    by Jev when it's set up: each row its Score (2.7/3) and a last line saying
@@ -213,8 +214,20 @@ function flag(args: string[], name: string): string | undefined | { error: strin
 const without = (args: string[], valued: string[], bare: string[]) =>
   args.filter((a, i) => !valued.includes(a) && !valued.includes(args[i - 1] ?? "") && !bare.includes(a));
 
+/**
+ * The wait a bulk read was told, resolved once, in milliseconds: `--timeout <seconds>`, else EP0CH_REQUEST_TIMEOUT_MS,
+ * else undefined (each wait's own default); or why the flag can't be read. Only commands that are bulk reads ask: `wait`'s
+ * `--timeout` means something else.
+ */
+export function bulkTimeout(args: readonly string[], env: Readonly<Record<string, string | undefined>> = process.env): number | undefined | { error: string } {
+  const at = args.indexOf("--timeout");
+  if (at < 0) return requestTimeoutMs(env);
+  const seconds = Number(args[at + 1]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : { error: "--timeout takes seconds to wait for each answer, as in --timeout 120" };
+}
+
 /** The board of the outline the rule names, its protocol checked; or why not. */
-export async function boardFor(args: string[], command?: readonly string[]): Promise<NotesBoard | { error: string }> {
+export async function boardFor(args: string[], command?: readonly string[], timeoutMs?: number): Promise<NotesBoard | { error: string }> {
   // Only the flags that name an outline: a search word with a `/` isn't a socket path.
   // `--here`: this machine's host, over EP0CH_MACHINE and a .ep0ch's machine (the remote MCP gateway's only outlines).
   const named = [...["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; }), ...(args.includes("--here") ? ["--here"] : [])];
@@ -227,7 +240,7 @@ export async function boardFor(args: string[], command?: readonly string[]): Pro
   // A read of a name the host doesn't have says where it is; it never makes one (PIE-938).
   const missing = await readMissing({ outline: target.outline, path: target.path, ...(target.machine ? { machine: target.machine } : {}), ...(command ? { command } : {}) });
   if (missing) return { error: missing };
-  const board = new SocketBoard(target.path, undefined, target.outline) as NotesBoard;
+  const board = new SocketBoard(target.path, timeoutMs, target.outline) as NotesBoard;
   const machine = target.machine;
   if (machine) board.prepare = async () => forwardSaying(machine, await forwardTo(machine));
   board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
@@ -375,6 +388,8 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   const lines = args.includes("--lines"), json = args.includes("--json"), recent = args.includes("--recent"), idsOut = args.includes("--ids");
   if (Number(lines) + Number(json) + Number(idsOut) > 1) { io.err("ep0ch: find prints --ids, --lines or --json: one of them"); return 2; }
   for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
+  const timeoutMs = bulkTimeout(args);
+  if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
   const picked = selectionOf(args);
   if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 2; }
   const sel = picked.selection;
@@ -382,7 +397,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? args[treeAt + 1]! : undefined;
-  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here", "--lexical"]);
+  const words = without(picked.rest, ["--ws", "--machine", "--timeout", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here", "--lexical"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
   const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
@@ -392,7 +407,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   if (tree && (recent || words.length || asked)) { io.err(`ep0ch: find --tree takes no ${given.join(", ")} (a root id at most); without it: ${instead()}`); return 2; }
   const unknown = words.find(w => w.startsWith("--"));
   if (unknown) { io.err(`ep0ch: find doesn't take ${unknown}\n${NOTES_USAGE}`); return 2; }
-  const board = await boardFor(args, argsIn);
+  const board = await boardFor(args, argsIn, timeoutMs);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     if (tree) {

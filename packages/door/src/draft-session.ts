@@ -20,6 +20,7 @@ import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draf
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
 import type { ElementEdit } from "./surface/element-editor";
+import { replyKey } from "./surface/reader-keys";
 import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
@@ -219,6 +220,8 @@ export class DraftSession {
    */
   /** A submit is on its way to its target: keys wait for it (`key`). */
   private submitting = false;
+  /** What the last reload said on the line: a newer change retires it (`changedTo`). */
+  private reloadSaid: string | null = null;
   /** Keys and pastes that came during a reload, in order, each with its host's key path. */
   private heldKeys: { k: Key; replay: (k: Key) => void }[] = [];
   /** The reload took away or changed the table the held keys were typed in: how, in words. */
@@ -413,12 +416,12 @@ export class DraftSession {
     d.rebase(read.loaded);
     this.hold?.revise(d.base);
     const loaded = `loaded revision ${d.base}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
-    if (d.text === was) { this.status.say(loaded); return; }
+    if (d.text === was) { this.reloadSaid = this.status.say(loaded); return; }
     // Rich edit stays in its cell over the new text, or says it can't: nothing typed goes into a table's syntax (PIE-1560).
     // Anywhere else the cursor waits at the end: the same place whether a key came before the read answered or after.
     const landed = rich ? rich.landIn(cell) : (d.place(d.lines.length - 1, d.lines.at(-1)!.length), "kept");
     this.tableLost = landed === "gone" ? "is gone" : landed === "changed" ? "changed" : null;
-    this.status.say(this.tableLost ? `the table ${this.tableLost}, so rich edit closed and what you type gets its own line · ${loaded}` : loaded);
+    this.reloadSaid = this.status.say(this.tableLost ? `the table ${this.tableLost}, so rich edit closed and what you type gets its own line · ${loaded}` : loaded);
   }
 
   /**
@@ -448,10 +451,13 @@ export class DraftSession {
     const gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
     try { for (const { k, replay } of held) if (!gone || inserts(k)) replay(k); } finally { this.replaying = false; }
     // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
+    const reloads = !d.note || d.note === said;
     if (!d.note) this.status.say(said);
     if (off.length) this.status.say(`${off.join(", ")} didn't apply: the table they were for ${lost} · ${d.note}`);
     // What to do first: a narrow line cuts its end, never this.
     if (back.length) this.status.say(`${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again${d.note ? ` · ${d.note}` : ""}`);
+    // The line is still the reload's, for a newer change to retire (`changedTo`), only when no replayed key spoke over it.
+    if (said === this.reloadSaid) this.reloadSaid = reloads ? d.note : null;
     this.env.redraw?.();
   }
 
@@ -460,7 +466,10 @@ export class DraftSession {
    * Never during a save or a reload, which answer that themselves; never for an older read arriving late.
    */
   changedTo(revision: number) {
-    if (this.open && !this.status.saving && this.status.phase !== "reloading" && revision > this.draft.base) this.status.changedElsewhere = true;
+    if (!this.open || this.status.saving || this.status.phase === "reloading" || revision <= this.draft.base) return;
+    this.status.changedElsewhere = true;
+    // What the last reload said ("loaded revision N") is no longer the news; its copy is still on `savedCopy`.
+    if (this.status.note === this.reloadSaid) this.status.say("");
   }
 
   /**
@@ -1084,7 +1093,7 @@ export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">
     const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
     return note;
   } });
-  return { ...target, place: `note-reply:${parent.id}`, back: "R brings the reply back", what: `the reply to “${subject(parent)}”` };
+  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”` };
 }
 
 // ── unsent drafts on disk ─────────────────────────────────────────────────────

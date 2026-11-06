@@ -393,6 +393,48 @@ describe.skipIf(!outliner)("mirror interrupted snapshots and forwards", () => {
     } };
   }
 
+  // PIE-1597: on a loaded box a bulk read is slower than a keypress should wait; the reader says how long it will wait.
+  test("a bulk read waits as long as --timeout or EP0CH_REQUEST_TIMEOUT_MS says, and a timed-out export says how to wait longer", async () => {
+    const slow = await relay(async action => { if (action === "blocks.query" || action === "blocks.records") await Bun.sleep(300); });
+    const via = { ...scratch.env, EP0CH_SOCKET: slow.path };
+    try {
+      const short = { ...via, EP0CH_REQUEST_TIMEOUT_MS: "100" };
+      const out = directory();
+      const timedOut = await run(["export", "--all", "--out", out], short);
+      expect(timedOut.code).toBe(1);
+      expect(plain(timedOut.err)).toContain("timed out");
+      expect(plain(timedOut.err)).toContain(`export --all --out ${out} --timeout 120`);
+      // The flag is in seconds and wins over the environment.
+      const given = await run(["export", "--all", "--out", out, "--timeout", "30"], short);
+      expect(given.err).toMatch(/\d+ files in/);
+      expect(given.code).toBe(0);
+      expect((await run(["find", "--query", "Orchard", "--ids"], short)).code).toBe(1);
+      const found = await run(["find", "--query", "type=none", "--ids", "--timeout", "30"], short);
+      expect(found.err).not.toContain("timed out");
+      const mirrored = await run(["mirror", directory(), "--once", "--timeout", "30"], short);
+      expect(mirrored.code).toBe(0);
+      // Asked of the environment alone, without the flag.
+      expect((await run(["export", "--all", "--out", directory()], { ...via, EP0CH_REQUEST_TIMEOUT_MS: "30000" })).code).toBe(0);
+      // A wait that can't be read is refused with what it takes, not taken for a word.
+      const bad = await run(["export", "--all", "--timeout", "soon"], via);
+      expect(bad.code).toBe(2);
+      expect(plain(bad.err)).toContain("--timeout takes seconds");
+    } finally { await slow.close(); }
+  }, 120_000);
+
+  test("EP0CH_REQUEST_TIMEOUT_MS is the wait for a live figure's answer too, not only the board's (PIE-1597)", async () => {
+    const errand = await board.createBlock(null, "Fetch the twine [type::errand]");
+    const page = await board.createBlock(null, "Errand list\n::graph-check\n---\ntitle: errands (live)\nquery: \"type=errand\"\n---\n::");
+    // Longer than the 10 s a figure gets by default, shorter than the wait the export was told.
+    const slow = await relay(async action => { if (action === "site.answer") await Bun.sleep(11_000); });
+    try {
+      const out = directory();
+      const r = await run(["export", page.id, "--out", out], { ...scratch.env, EP0CH_SOCKET: slow.path, EP0CH_REQUEST_TIMEOUT_MS: "30000" });
+      expect(r.code).toBe(0);
+      expect(readFileSync(join(out, readdirSync(out)[0]!), "utf8")).toContain("Fetch the twine");
+    } finally { await slow.close(); await board.trash(page.id); await board.trash(errand.id); }
+  }, 60_000);
+
   test("mirror exports every remaining note when a deletion shifts the second page", async () => {
     let deleted = "";
     const proxy = await relay(async (action, reply) => {

@@ -64,7 +64,7 @@ export class LineWatches {
         const dropped = event.changes.some(change => change.dropped);
         if (dropped) {
           // The service let go of the oldest watch: release the line's others too, and remember why.
-          this.lost.set(key, `live updates paused: the host watches at most ${WATCH_LIMITS.perService} questions at once and this note's was the oldest. Save the note, or press r on the line, to watch it again`);
+          this.lost.set(key, `live updates paused: the host watches at most ${WATCH_LIMITS.perService} questions at once and this note's was the oldest. Save the note, or run the line again, to watch it again`);
           this.release(key);
         }
         this.hooks.changed(blockId, dropped);

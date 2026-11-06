@@ -15,7 +15,8 @@ import type { DeskApi } from "../src/desk/panes";
 import { Draft } from "../src/edit";
 import { completerFor, completionKey } from "../src/surface/completer";
 import type { Key } from "../src/term";
-import { FakeSearchClock, RELOAD_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS, useSearchClock } from "../src/search-schedule";
+import { AskAgain, FakeSearchClock, heardBy, RELOAD_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS, useSearchClock } from "../src/search-schedule";
+import { Watched } from "../src/watched";
 import { hostTraffic, SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -25,6 +26,121 @@ const never = <T>() => new Promise<T>(() => {});
 let clock: FakeSearchClock, put: () => void;
 beforeEach(() => { clock = new FakeSearchClock(); put = useSearchClock(clock); });
 afterEach(() => put());
+
+describe("asking again (PIE-1593): a tile names its read and its notes", () => {
+  const edit = (blockId: string, parentId?: string | null) => ({ change: { kind: "edit", blockId, ...(parentId !== undefined ? { parentId } : {}) } });
+  const repeat = (spec: Partial<ConstructorParameters<typeof AskAgain<number>>[0]> = {}) => {
+    let n = 0;
+    const shown: number[] = [];
+    return { shown, again: new AskAgain<number>({ read: async () => ++n, show: a => shown.push(a), ...spec }), asked: () => n };
+  };
+  const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+
+  test("what a change touched: its block, or the parent before or after; a draft never; no note named could be anything", () => {
+    const mine = (id: string | null) => id === "mine";
+    expect(heardBy(edit("mine"), mine)).toBe(true);
+    expect(heardBy(edit("other"), mine)).toBe(false);
+    expect(heardBy(edit("child", "mine"), mine)).toBe(true);
+    expect(heardBy({ change: { kind: "move", blockId: "child", parentId: "there", previousParentId: "mine" } }, mine)).toBe(true);
+    expect(heardBy({ change: { kind: "draft", blockId: "mine" } }, mine)).toBe(false);
+    expect(heardBy({ action: "reset" }, mine)).toBe(true);
+    expect(heardBy({ action: "reconnected" }, mine)).toBe(true);
+    // The top level has a name too: the Library's notes.
+    expect(heardBy({ change: { kind: "create", blockId: "new", parentId: null } }, id => id === null)).toBe(true);
+    // "any" leaves out a tool's bookkeeping; a tile that names the note still hears it.
+    expect(heardBy({ ...edit("record"), hidden: true }, "any")).toBe(false);
+    expect(heardBy(edit("record"), "any")).toBe(true);
+    expect(heardBy({ ...edit("mine"), hidden: true }, mine)).toBe(true);
+  });
+
+  test("a burst is one read, after the one pause; another note's change asks nothing", async () => {
+    const r = repeat({ notes: id => id === "mine" });
+    r.again.heard(edit("other"));
+    expect(clock.pending).toBe(0);
+    r.again.heard(edit("mine"));
+    clock.advance(RELOAD_PAUSE_MS - 1);
+    r.again.heard(edit("mine"));
+    clock.advance(RELOAD_PAUSE_MS - 1);
+    expect(r.asked()).toBe(0);
+    clock.advance(1);
+    await settle();
+    expect(r.asked()).toBe(1);
+    expect(r.shown).toEqual([1]);
+  });
+
+  test("latest wins: an answer a newer ask replaced is never shown, and put away nothing runs", async () => {
+    const answers: ((v: number) => void)[] = [], shown: number[] = [];
+    const again = new AskAgain<number>({ read: () => new Promise(r => answers.push(r)), show: a => shown.push(a), notes: "any" });
+    void again.now();
+    void again.now();
+    answers[1]!(2);
+    answers[0]!(1);
+    await settle();
+    expect(shown).toEqual([2]);
+    again.heard(edit("x"));
+    again.cancel();
+    expect(clock.runOut()).toBe(false);
+    void again.now();
+    again.cancel();
+    answers[2]!(3);
+    await settle();
+    expect(shown).toEqual([2]);
+  });
+
+  test("a failed read says so, and doesn't stop the next one", async () => {
+    const failed: unknown[] = [], shown: number[] = [];
+    let n = 0;
+    const again = new AskAgain<number>({ read: async () => { if (++n === 1) throw new Error("down"); return n; }, show: a => shown.push(a), fail: e => failed.push(e), notes: "any" });
+    await again.now();
+    expect(failed.length).toBe(1);
+    again.heard(edit("x"));
+    clock.runOut();
+    await settle();
+    expect(shown).toEqual([2]);
+  });
+
+  test("told by the host: no pause and no event asks, an answer moving asks once, at once", async () => {
+    let value = "a";
+    const w = new Watched({ async send(_a, p: any = {}) { return { generation: p.generation ?? 0, value }; } });
+    const question = () => w.read("blocks.query", { query: { where: "x" } }, (r: any) => ({ value: r.value }), "", { held: true }).value;
+    const r = repeat({ told: { by: w, answers: () => [question()] } });
+    await w.settled();
+    // The first answer is what the first read waits for.
+    expect(r.asked()).toBe(0);
+    r.again.heard(edit("anything"));
+    expect(clock.pending).toBe(0);
+    value = "b";
+    const key = (w as any).entries.values().next().value.key;
+    w.changed([{ key, generation: 1 }]);
+    await w.settled();
+    await settle();
+    expect(r.asked()).toBe(1);
+    expect(clock.pending).toBe(0);
+    // A reset or a reconnect could be anything: it pauses like any change.
+    r.again.heard({ action: "reset" });
+    expect(clock.pending).toBe(1);
+    r.again.cancel();
+    w.stop();
+  });
+
+  test("told by the host: a first answer after a failed read asks again", async () => {
+    let value: string | undefined;
+    const w = new Watched({ async send(_a, p: any = {}) { return { generation: p.generation ?? 0, value }; } });
+    const question = () => w.read("blocks.query", { query: { where: "y" } }, (r: any) => r.value).value;
+    let n = 0;
+    const again = new AskAgain<number>({ read: async () => { if (++n === 1) throw new Error("not yet"); return n; }, show() {}, told: { by: w, answers: () => [question()] } });
+    await again.now();
+    expect(n).toBe(1);
+    value = "there";
+    const key = (w as any).entries.values().next().value.key;
+    w.changed([{ key, generation: 1 }]);
+    await w.settled();
+    await settle();
+    expect(n).toBe(2);
+    again.cancel();
+    w.stop();
+  });
+});
 
 describe("the schedule", () => {
   test("a pause runs once typing stops, and only the newest", () => {
