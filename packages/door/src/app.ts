@@ -640,8 +640,8 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
-  /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
-  private messageCut = false;
+  /** The status bar's message as last drawn, whole (PIE-1598): `cut` when it didn't fit its row, so it's said whole above the bar (withWhole). */
+  private messageSaid: { text: string; cut: boolean; from?: number; to?: number; click: ActRequest } | null = null;
   /** Where that whole message was last drawn, its top row and how many: a click on them opens the message log. */
   private whole = { top: 0, rows: 0 };
   /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
@@ -1839,7 +1839,7 @@ export class App implements Ctx {
     const bar = this.statusBar(s, cols);
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
     // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
-    const whole = this.messageCut && this.message ? referenceWords(this.message) : "";
+    const whole = this.messageSaid?.cut && this.message ? referenceWords(this.message) : "";
     // Above the screen's own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays there to click.
     const at = Math.max(1, Math.min(chromeAt, lines.length));
     if (whole) lines = [...withWhole(lines.slice(0, at), whole, cols, this.messageWarning), ...lines.slice(at)];
@@ -1901,7 +1901,7 @@ export class App implements Ctx {
 
   private describeStatusItems() {
     const actions = this.dispatch.list().actions;
-    return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), items: [...this.statusNote.items(this.statusItems()), ...this.statusBoxes.filter(h => h.item.id === "overflow").map(h => h.item)].map(item => {
+    return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), message: this.messageSaid, items: [...this.statusNote.items(this.statusItems()), ...this.statusBoxes.filter(h => h.item.id === "overflow").map(h => h.item)].map(item => {
       const hit = this.statusBoxes.find(h => h.item.id === item.id);
       const describe = (req: ActRequest | undefined) => req ? { ...req, definition: actions.find(a => a.name === req.action) } : undefined;
       // As drawn: a narrow bar's short words (PIE-1213), and whether it went into the +N chip.
@@ -1925,7 +1925,7 @@ export class App implements Ctx {
       id: h.index === -1 ? "overflow" : `strip-${h.index}`, text: h.index === -1 ? `+${this.statusHidden.length}` : h.index === -2 ? "‹" : "›", place: "left", click: { action: h.action, args: h.args }, alt: { action: "status.bar.edit" },
     } }));
     const msg = this.statusBoxes.find(h => h.item.id === "message");
-    this.messageCut = !!this.message && (!msg || width(message) > msg.to - msg.from);
+    this.messageSaid = message ? { text: message, cut: !msg || width(message) > msg.to - msg.from, ...(msg ? { from: msg.from, to: msg.to } : {}), click: { action: "status.log" } } : null;
     return STATUS_INK + pad(row.text.replaceAll(RESET, RESET + STATUS_INK), cols) + RESET;
   }
 }
