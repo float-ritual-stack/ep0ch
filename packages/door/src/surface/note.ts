@@ -2536,7 +2536,7 @@ export class NoteSurface {
       ...(preview ? { preview } : {}), image: (node, width) => pictureRows(node, width, env, drawn),
       seen: info => blocks.push(info),
     };
-    const doc = drawIn("note", presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), env, {
+    const doc = drawIn("note", presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id, lines } : undefined), env, {
       literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
       linkBlocks: this.listEnv, componentLine: line => lines[line]!,
       callout: this.calloutHook(m, lines, points, drawn),

@@ -105,6 +105,13 @@ describe("soft links in the reader", () => {
     expect((await board.resolvePage("no-page-yet")).status).toBe("resolved");
   }, 20_000);
 
+  test("a hidden metadata line doesn't move the walk: PR#125 under a body's project: line is that project's, not the title's", async () => {
+    n.hidden = await create(null, "Plans [project::floatty]\n[zone::x]\n\nproject:: garden-club\nthen PR#125 last.");
+    await open(n.hidden.id, "then PR#125");
+    click("PR#125 last");
+    await until(() => shown() === n.cp.id, "the nearer project's PR");
+  }, 20_000);
+
   test("two projects in one scope ask, never guess: the chooser opens the one picked, by mouse", async () => {
     await open(n.both.id, "PR#125");
     click("PR#125");

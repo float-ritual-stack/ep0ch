@@ -417,7 +417,7 @@ export function referenceWords(text: string): string {
  * Each is an element: ⏎ or a click shows the line the value is written on. Without `site`, or while the answer is on its
  * way, a placeholder stays as typed. `draft`: the text is the note's unsaved one.
  */
-export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall }, literal: { properties?: boolean } = {}): string {
+export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall; /** Each drawn line's line in the note (a reader hides metadata and folds): where a soft link's context is walked from. */ lines?: readonly number[] }, literal: { properties?: boolean } = {}): string {
   embeds = expandsEmbeds(embeds);
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
@@ -506,7 +506,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     // A picture line's chips are its layout, read from the line as written, never links.
     if (src) for (const t of softLinkTokens(line, { code: codeSpanRanges(line), ignore: softLinkIgnoreOf(src), literalProperties: !!literal.properties || isMediaLine(line) })) {
       const { start, end } = t, words = line.slice(start, end);
-      spans.push({ start, end, draw: () => mark({ text: words, missing: false }, { soft: { name: softName(t), ...(site?.block ? { block: site.block } : {}), line: noteLine + i }, label: words }) });
+      spans.push({ start, end, draw: () => mark({ text: words, missing: false }, { soft: { name: softName(t), ...(site?.block ? { block: site.block } : {}), line: site?.lines?.[i] ?? noteLine + i }, label: words }) });
     }
     const built = valueLinkOccurrences(line, answer?.values ?? [], code);
     const links = linkOccurrences(line, code).filter(l => !built.some(b => b.start < l.end && l.start < b.end));

@@ -519,6 +519,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(riverside.id, "PR#12 paint the shed");
   notes.softLinks = await make(notes.root.id, [
     SEED.softLinks,
+    "[thread::seed-swap]",
     "",
     "Asked again about the swap table [thread::seed-swap], no brackets anywhere.",
     "",
