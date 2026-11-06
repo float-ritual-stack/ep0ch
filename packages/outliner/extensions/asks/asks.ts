@@ -3,7 +3,7 @@
 // mark beside it. `clear` and `reply`: a tick, a reply or done takes a marked chip off. Each line is written once: a
 // record under this extension's page remembers it, so a chip you removed never comes back.
 import { outline } from "./outline";
-import { aboutLines, chippedLines, hashOf, isAnswered, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, type Anchor, type Mark } from "./asks-line";
+import { aboutLines, chippedLines, hashOf, isAnswered, isClosed, isRecord, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, type Anchor, type Mark } from "./asks-line";
 
 interface Block { id: string; revision: number; text: string; parentId?: string | null; properties?: { key: string; value: string }[] }
 interface Reading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
@@ -12,13 +12,24 @@ interface Request {
   input: {
     action: "settle" | "clear" | "reply";
     target: { blockId: string; revision: number };
-    args?: { dry?: string };
+    args?: { dry?: string; sure?: string };
     requestedBy?: { author: "user" | "agent"; actorId?: string };
   };
 }
 
 const { input } = (await Bun.stdin.json()) as Request;
 const done = (message: string, extra: Record<string, unknown> = {}) => process.stdout.write(JSON.stringify({ ok: true, value: { message, ...extra } }));
+
+/** A message holds at most this (the service refuses more); the whole list goes in `answer`, for whoever asked. */
+const MESSAGE = 500;
+/** The list as far as a message holds it, cut at a line, with how many more; whole in `answer`. */
+const listed = (head: string, said: readonly string[]) => {
+  const whole = [head, ...said].join("\n");
+  if (whole.length <= MESSAGE) return { message: whole, answer: whole };
+  let message = head, shown = 0;
+  while (shown < said.length && `${message}\n${said[shown]}\n+${said.length} more`.length <= MESSAGE) message += `\n${said[shown++]}`;
+  return { message: `${message}\n+${said.length - shown} more`, answer: whole };
+};
 
 const prop = (block: Block, key: string) => block.properties?.find(p => p.key === key)?.value;
 /** What this extension wrote on a note, by each line's hash: how many lines sat under it when it last looked. */
@@ -36,18 +47,21 @@ async function patch(block: { id: string; revision: number; text: string }, next
   return outcome;
 }
 
-async function settle(note: string, dry: boolean): Promise<void> {
+async function settle(note: string, dry: boolean, sure: boolean): Promise<void> {
+  const block = await outline<Block>({ action: "get", blockId: note });
+  if (isClosed(block.properties)) return done("left out: the note is closed");
+  if (isRecord(block.properties)) return done("left out: the note is a record");
   const read = await outline<{ revision: number; text: string; jev: string; lines: Reading[] }>({ action: "blocks.asks", blockId: note }, { timeoutMs: 110_000 });
   if (read.jev !== "asked") return done(`not asked: ${read.jev}`);
   const lines = read.text.split("\n");
   const chipped = chippedLines(read.text);
-  const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || l.reads === "unsure").filter(l => !chipped.has(l.line));
+  const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || (l.reads === "unsure" && !sure)).filter(l => !chipped.has(l.line));
   if (!wanted.length) return done("nothing asks here");
   const seen = await records(note);
   const fresh = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)));
   if (!fresh.length) return done("already marked once");
   const said = fresh.map(l => `L${l.line + 1} ${l.reads === "yes" ? "needs" : "maybe-needs"} (${l.noul.toFixed(2)}): ${wordsOf(lines[l.line]!)}`);
-  if (dry) return done(`would write ${fresh.length}\n${said.join("\n")}`);
+  if (dry) { const { message, answer } = listed(`would write ${fresh.length}`, said); return done(message, { answer }); }
   const made = fresh.map(l => ({ under: linesUnder(lines, l.line), hash: hashOf(lines[l.line]!), words: wordsOf(lines[l.line]!) }));
   for (const l of fresh) lines[l.line] = withMark(lines[l.line]!, l.reads as "yes" | "unsure");
   const outcome = await patch({ id: note, revision: read.revision, text: read.text }, lines.join("\n"));
@@ -56,11 +70,9 @@ async function settle(note: string, dry: boolean): Promise<void> {
   for (const r of made) {
     await outline({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${r.words} [machine::asks] [ext.generated::asks] [asks.note::${note}] [asks.line::${r.hash}] [asks.under::${r.under}]` });
   }
-  done(`${outcome === "proposed" ? "proposed" : "wrote"} ${fresh.length}${outcome === "proposed" ? ": you were typing there" : ""}\n${said.join("\n")}`);
+  const { message, answer } = listed(`${outcome === "proposed" ? "proposed" : "wrote"} ${fresh.length}${outcome === "proposed" ? ": you were typing there" : ""}`, said);
+  done(message, { answer });
 }
-
-const isDone = (block: Block) => (block.properties ?? []).some(p => (
-  (p.key === "status" && p.value === "done") || (p.key === "outbox" && p.value === "done") || (p.key === "work-stage" && (p.value === "done" || p.value === "superseded"))));
 
 async function takeOff(block: Block, which: (mark: Mark, lines: readonly string[]) => boolean, why: string): Promise<void> {
   const lines = block.text.split("\n");
@@ -72,7 +84,7 @@ async function takeOff(block: Block, which: (mark: Mark, lines: readonly string[
 
 async function clear(note: string): Promise<void> {
   const block = await outline<Block>({ action: "get", blockId: note });
-  if (isDone(block)) return takeOff(block, () => true, "the note is done");
+  if (isClosed(block.properties)) return takeOff(block, () => true, "the note is done");
   const seen = await records(note), person = input.requestedBy?.author === "user";
   const replied = (i: number, lines: readonly string[]) => person && linesUnder(lines, i) > (seen.get(hashOf(lines[i]!))?.under ?? 0);
   // An agent's own lines under its ask are no reply: they count as already there, so your next save isn't taken for one.
@@ -100,6 +112,6 @@ async function reply(mark: string): Promise<void> {
   return takeOff(at, ({ line }, lines) => about(line, lines), "you commented on it");
 }
 
-if (input.action === "settle") await settle(input.target.blockId, input.args?.dry === "yes");
+if (input.action === "settle") await settle(input.target.blockId, input.args?.dry === "yes", input.args?.sure === "yes");
 else if (input.action === "clear") await clear(input.target.blockId);
 else await reply(input.target.blockId);

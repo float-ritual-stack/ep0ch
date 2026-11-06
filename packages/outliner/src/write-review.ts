@@ -15,6 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
+import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, proseOf, RUBRIC_OF, shapeNext, splitPoints, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
@@ -104,7 +105,8 @@ function askCandidates(text: string): number[] {
   const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line;
   return lines.flatMap((line, i) => {
     if (i <= title || structure[i] !== -1 || answeredBox(line)) return [];
-    const words = proseOf(line);
+    // A chip's words are no ask: `[type::decision]` alone on a line is a property.
+    const words = stripPropertyTokens(proseOf(line));
     return /\?/.test(words) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(words) ? [i] : [];
   });
 }
@@ -169,31 +171,64 @@ export async function askJevQuestions(state: Record<string, unknown>, questions:
   }
 }
 
+/** Questions beside "does it ask?" over a whole note (`readAsks`), each one judgment: a yes to any says the line is no open ask. The state's facts are `around` and the note's own. */
+const NOT_OPEN = { record: "askRecord", settled: "askSettled", other: "askOther" } as const;
+/** How much of a neighbouring line `around` sends. */
+const AROUND = 200;
+
+/** Where line `i` sits, as a person reading it sees: its heading, the item it's under and the lines either side. Only what's there. */
+function aroundLine(lines: readonly string[], i: number, title: number) {
+  const clip = (line: string) => stripPropertyTokens(line).trim().slice(0, AROUND);
+  const depth = /^[ \t]*/.exec(lines[i]!)![0].length;
+  const near = (step: 1 | -1) => { for (let k = i + step; k > title && k < lines.length; k += step) if (lines[k]!.trim()) return clip(lines[k]!); return ""; };
+  let heading = "", parent = "";
+  for (let k = i - 1; k > title; k--) {
+    const line = lines[k]!;
+    if (!heading && HEADING.test(line)) heading = clip(line).replace(/^#+[ \t]*/, "");
+    if (!parent && !heading && /^[ \t]*(?:[-*+]|\d+[.)])[ \t]/.test(line) && /^[ \t]*/.exec(line)![0].length < depth) parent = clip(line);
+  }
+  const before = near(-1), after = near(1);
+  return { ...(heading ? { heading } : {}), ...(parent ? { parent } : {}), ...(before ? { before } : {}), ...(after ? { after } : {}) };
+}
+
 /**
  * The write review's `asks` judgment on a whole note, kept rather than shaped into a receipt (PIE-1612, `blocks.asks`):
- * the same candidates, prompt and thresholds. A line that can't ask (a quotation, someone's `>` block, as `asksAt` has it) or can't
- * hold a chip (a heading, a table row) reads `no` whatever Jev says. Never throws: `jev` says why when it couldn't be asked, with no lines.
+ * the same candidates, prompt and thresholds, with what a person would see of each line beside it (PIE-1620), so a log
+ * entry, an answered question or an agent's own checklist reads as what it is. The truth table, in code: a line that
+ * can't ask (a quotation, someone's `>` block, as `asksAt` has it) or can't hold a chip (a heading, a table row) reads
+ * `no` whatever Jev says, as does one Jev says yes to any of `NOT_OPEN`; else "does it ask?" by the thresholds.
+ * `answered` is the lines someone has already answered, left out unasked. Never throws: `jev` says why when it couldn't
+ * be asked, with no lines.
  */
-export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ jev: string; lines: AskReading[] }> {
+export async function readAsks(text: string, o: ReviewOptions & { answered?: () => ReadonlySet<number> } = {}): Promise<{ jev: string; lines: AskReading[] }> {
   if ((o.env ?? process.env).OUTLINER_FIGURE_FIT === "off") return { jev: "off", lines: [] };
-  const lines = text.split("\n"), candidates = askCandidates(text);
-  if (!candidates.length) return { jev: "not asked: no line may ask", lines: [] };
+  const lines = text.split("\n"), maybe = askCandidates(text);
+  if (!maybe.length) return { jev: "not asked: no line may ask", lines: [] };
   try {
+    const answered = o.answered?.(), candidates = answered ? maybe.filter(i => !answered.has(i)) : maybe;
+    if (!candidates.length) return { jev: "not asked: every line that may ask is older than its answer", lines: [] };
     const prompt = await loadWriteReviewPrompt(o.promptDirectory), title = headerLine(text).line;
+    const kind = parsePropertyRecords(text).find(p => p.scope === "block" && p.key === "type")?.value;
     const out: AskReading[] = [];
     // Every candidate, a batch at a time: a request stays the size the write review sends, and a long note's ninth question is read.
     for (let at = 0; at < candidates.length; at += MAX_ASKS * ASK_BATCHES) {
       const batches = Array.from({ length: ASK_BATCHES }, (_, k) => candidates.slice(at + k * MAX_ASKS, at + (k + 1) * MAX_ASKS)).filter(batch => batch.length);
       for (const asked of await Promise.all(batches.map(batch => {
         const request = reviewRequest(text, [], batch, {}, prompt, { title: false, opening: false });
-        return askJevQuestions(request.state, Object.fromEntries(Object.entries(request.questions).filter(([id]) => id.startsWith("asks::"))), { timeoutMs: 15_000, ...o });
+        const questions: Record<string, unknown> = Object.fromEntries(Object.entries(request.questions).filter(([id]) => id.startsWith("asks::")));
+        for (const i of batch) for (const [id, key] of Object.entries(NOT_OPEN)) {
+          questions[`${id}::L${i}`] = { type: "noul", instructions: prompt[key].replaceAll("{line}", `asks.L${i}`).replaceAll("{around}", `around.L${i}`) };
+        }
+        const state = { ...request.state, ...(kind ? { kind } : {}), around: Object.fromEntries(batch.map(i => [`L${i}`, aroundLine(lines, i, title)])) };
+        return askJevQuestions(state, questions, { timeoutMs: 15_000, ...o });
       }))) {
         // One batch unanswered: nothing is said, and the next settle reads the note whole.
         if (!("answers" in asked)) return { jev: asked.unavailable, lines: [] };
         for (const [id, answer] of Object.entries(asked.answers)) {
           const i = Number(/^asks::L(\d+)$/.exec(id)?.[1] ?? NaN), noul = answer.noul;
           if (!Number.isInteger(i) || !unit(noul)) continue;
-          const reads = !asksAt(lines, i, "yes") || HEADING.test(lines[i]!) || /^[ \t>]*\|/.test(lines[i]!) ? "no" as const : noul >= REVIEW_THRESHOLDS.yes ? "yes" as const : noul >= REVIEW_THRESHOLDS.no ? "unsure" as const : "no" as const;
+          const notOpen = Object.keys(NOT_OPEN).some(q => { const n = asked.answers[`${q}::L${i}`]?.noul; return unit(n) && n >= REVIEW_THRESHOLDS.yes; });
+          const reads = notOpen || !asksAt(lines, i, "yes") || HEADING.test(lines[i]!) || /^[ \t>]*\|/.test(lines[i]!) ? "no" as const : noul >= REVIEW_THRESHOLDS.yes ? "yes" as const : noul >= REVIEW_THRESHOLDS.no ? "unsure" as const : "no" as const;
           out.push({ line: i, text: lines[i]!, noul, reads, top: topBox(lines, i, title) });
         }
       }
@@ -204,7 +239,6 @@ export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ j
   }
 }
 
-/** Jev's answers about the parts of `text` this write changed, or why it couldn't be asked. Never throws. */
 async function askJev(text: string, sections: readonly Section[], asks: readonly number[], schemas: readonly ComponentSchema[], ask: { title: boolean; opening: boolean }, o: ReviewOptions): Promise<Asked | { unavailable: string }> {
   try {
     const request = reviewRequest(text, sections, asks, kitOptions(schemas), await loadWriteReviewPrompt(o.promptDirectory), ask);

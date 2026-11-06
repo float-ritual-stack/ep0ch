@@ -101,3 +101,20 @@ export function linePatches(before: string, after: readonly string[]): { observe
   const lines = before.split("\n"), ranges = sourceLines(before);
   return lines.flatMap((line, i) => line === after[i] ? [] : [{ observed: line, replacement: after[i]!, range: { start: ranges[i]!.start, end: ranges[i]!.start + line.length } }]);
 }
+
+/** What closes a note, or parks it (`later`: nobody is waiting): each key with the value that does, or none for any value. `settle` leaves these out and `clear` takes marks off them. */
+const DONE: readonly (readonly [key: string, value?: string])[] = [
+  ["status", "done"], ["status", "closed"], ["status", "answered"], ["status", "decided"], ["status", "resolved"], ["status", "shipped"], ["status", "complete"], ["status", "verified"],
+  ["work-stage", "done"], ["work-stage", "superseded"], ["work-stage", "later"], ["outbox", "done"], ["answered"],
+];
+/**
+ * Notes that record what happened, or have their own way to you, so a line in them isn't waiting on a mark: a session's
+ * permission ask (the dialog and its own `[needs::]` are its ask), a verifier's proof, a day's log, what landed, and a
+ * capability or design note (the waiting list reads its "Decisions for Evan" itself).
+ */
+const RECORDS = new Set(["permission-ask", "proof", "implementation-proof", "validated", "landed", "merge", "build-log", "log-entry", "release-notes", "artifact-run", "artifact-deployment", "capability", "design", "decision"]);
+
+type Property = { key: string; value?: string; values?: string[] };
+const valuesOf = (p: Property) => p.values ?? (p.value === undefined ? [] : [p.value]);
+export const isClosed = (properties: readonly Property[] = []) => properties.some(p => DONE.some(([key, value]) => p.key === key && (value === undefined || valuesOf(p).includes(value))));
+export const isRecord = (properties: readonly Property[] = []) => properties.some(p => p.key === "type" && valuesOf(p).some(v => RECORDS.has(v)));

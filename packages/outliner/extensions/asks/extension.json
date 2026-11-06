@@ -1,14 +1,15 @@
 {
   "contract": 2,
   "id": "asks",
-  "version": 1,
+  "version": 2,
   "name": "Asks",
   "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them.",
   "run": ["bun", "asks.ts"],
   "demo": "demo",
   "actions": [
     { "id": "settle", "label": "Mark the lines that ask for a decision", "on": "block", "effects": "write", "deadline": "2m",
-      "args": [{ "name": "dry", "type": "choice", "options": ["no", "yes"], "default": "no", "label": "Dry run", "description": "yes: say what it would write, and write nothing" }] },
+      "args": [{ "name": "dry", "type": "choice", "options": ["no", "yes"], "default": "no", "label": "Dry run", "description": "yes: say what it would write, and write nothing" },
+        { "name": "sure", "type": "choice", "options": ["no", "yes"], "default": "no", "label": "Sure ones only", "description": "yes: leave the unsure lines unmarked, as a run over past notes does" }] },
     { "id": "clear", "label": "Take off the marks a tick, a reply or done answered", "on": "block", "effects": "write", "deadline": "30s" },
     { "id": "reply", "label": "Take off the marks a comment answered", "on": "block", "effects": "write", "deadline": "30s" }
   ],
@@ -16,7 +17,7 @@
     {
       "id": "settle",
       "description": "Asks the write review about a note an agent wrote, a minute after it was last saved, and marks what it finds",
-      "match": { "query": "NOT type=annotation NOT type=annotation-reply NOT type=peer-message NOT type=draft-proposal NOT type=snapshot NOT type=virtual-branch NOT type=jev-run NOT type=review-finding NOT machine NOT demo NOT from NOT ext.page NOT asks=off NOT status=done NOT work-stage=done NOT work-stage=superseded NOT outbox=done" },
+      "match": { "query": "NOT type=annotation NOT type=annotation-reply NOT type=peer-message NOT type=draft-proposal NOT type=snapshot NOT type=virtual-branch NOT type=jev-run NOT type=review-finding NOT machine NOT demo NOT from NOT ext.page NOT asks=off" },
       "on": { "start": "settle", "change": "settle", "quiet": "1m", "from": ["agent"] }
     },
     {
