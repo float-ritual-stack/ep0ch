@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### pie's host stays quick under agent writes, and its log names who waited (PIE-1546, PIE-1567)
+
+- **Fewer waits:** reading comments no longer scans every note; opening a note no longer waits on a sleeping laptop; three doors asking the same question after a restart get one answer.
+- **The lane:** each `slow_request` says who was queued, and a `queued_minute` line counts them by actor × action each minute. A stall names its work after an await.
+- **Check it:** `ssh float-2 journalctl --user -u outliner-host --since -10min | bun packages/outliner/scripts/host-queue-minutes.ts --check`.
+- **Run:** `ep0ch install --apply`.
+
+### A graph-compare written like a table is caught at write time (PIE-1608)
+
+- **The receipt warns:** a `::graph-compare` with `headers:` and `rows:` gets "fix before you call this done" naming `columns:` and `- label: a | b` rows. A compare that draws its child notes isn't told it has none.
+
+### Main's nightly reds, and the nightly runs alone (PIE-1600, PIE-1601)
+
+- **The drawer chip** shows its ⟳ and "(from …)" again on a wide bar.
+- **`ep0ch ext act`, `ext remove` and scheduled runs** wait for their action instead of saying "timed out" at 3 s while it went on.
+- **The 4:00 AM nightly** runs `box-test --alone`: other box-test runs wait for it, and say so.
+- **Run:** `ep0ch install --apply` on float-box for the nightly script.
 ### The editing keys you reach for work in every draft, and a selection is plain to see (PIE-1607)
 
 - **Mac keys in every place you type:**
