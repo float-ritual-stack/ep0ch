@@ -2,7 +2,7 @@
 // through `act`. The harness (harness.ts) seeds a scratch outline and opens the screen on it.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { App } from "../../src/app";
-import { outlineChanged } from "../../src/refs";
+import { outlineChanged } from "../../src/search-schedule";
 import { type Seeded } from "../../src/showcase/seed";
 import { Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";

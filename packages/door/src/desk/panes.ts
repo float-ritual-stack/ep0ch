@@ -19,7 +19,7 @@ import { subject, type Caller, type Msg } from "../board";
 import type { Rect, Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
-import { authorName, USER, type Activity, type Actor } from "../socket";
+import { authorName, USER, type Activity, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
@@ -32,7 +32,7 @@ import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
 import { prop } from "../props";
-import { SearchSchedule } from "../search-schedule";
+import { AskAgainAt, heardBy, SearchSchedule } from "../search-schedule";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { wide?: { row: number; col: number; cols: number }[]; frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -559,7 +559,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     if (this.outlineWatching === ctx.board) return;
     this.offOutlineEvents?.(); this.outlineWatching = ctx.board;
     if (ctx.board !== desk.ctx.board) this.offOutlineEvents = outlineBoards(desk.ctx).watch(ctx.board, e => {
-      this.surface.onEvent(this.host(desk));
+      this.surface.onEvent(this.host(desk), e);
       if (this.surface.staleOn(e)) this.reread(desk);
       desk.redraw();
     });
@@ -750,10 +750,10 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
-  onEvent(desk: DeskApi) {
-    this.surface.onEvent(this.host(desk));
+  onEvent(desk: DeskApi, e?: OutlineEvent) {
+    this.surface.onEvent(this.host(desk), e);
     // Pinned to a page: the outline changed, so ask again (it may have arrived, or moved to another note).
-    if (!this.pinPage) return;
+    if (!this.pinPage || (e && !heardBy(e, "any"))) return;
     this.pageAsk.pause(() => void this.resolvePin(desk));
   }
   /** The draft, comment session or property panel holding the reader's keys, or null while reading. */
@@ -894,16 +894,17 @@ export class ActivityPane implements Pane {
   private drawnItems: number[] = [];
   private sel = 0;
   private view = new RowView();
-  private timer: Timer | null = null;
+  /** Who edited what: any change may be a new row. */
+  private readonly again = new AskAgainAt<DeskApi, Activity[]>(desk => ({ read: () => desk.ctx.board.activity(60), show: r => { this.rows = r; desk.redraw(); }, notes: "any" }));
   title() { return "last callers · live"; }
   hint() { return modeHint(ACTIVITY_KEYS, () => undefined); }
   list(): Activity[] { return this.rows ?? []; }
   get selected() { return this.sel; }
   pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }
-  reload(desk: DeskApi) { this.load(desk); }
-  init(desk: DeskApi) { this.load(desk); }
-  private load(desk: DeskApi) { desk.ctx.board.activity(60).then(r => { this.rows = r; desk.redraw(); }, () => {}); }
-  onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(desk), 1500); }
+  reload(desk: DeskApi) { void this.again.at(desk).now(); }
+  init(desk: DeskApi) { void this.again.at(desk).now(); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) { const again = this.again.at(desk); if (e) again.heard(e); else again.soon(); }
+  dispose() { this.again.cancel(); }
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.rows) return { lines: [dim("listening…")] };
     const drawn = this.rows.flatMap((r, i) => {
@@ -937,7 +938,10 @@ export class WhoPane implements Pane {
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
   init(desk: DeskApi) { this.load(desk); }
-  onEvent(desk: DeskApi) { this.load(desk); }
+  /** Who's on and what they read: any change may be someone arriving. */
+  private readonly again = new AskAgainAt<DeskApi, void>(desk => ({ read: async () => this.load(desk), show() {}, notes: "any" }));
+  onEvent(desk: DeskApi, e?: OutlineEvent) { const again = this.again.at(desk); if (e) again.heard(e); else again.soon(); }
+  dispose() { this.again.cancel(); }
   /** The callers as last read, as who.refresh answers them. */
   rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
   load(desk: DeskApi) {

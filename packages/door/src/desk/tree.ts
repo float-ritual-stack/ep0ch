@@ -28,7 +28,7 @@ import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
-import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
+import { EVERY_CHANGE, heardBy, RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { readView, type ViewRead } from "../views";
 import { listMove, RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -441,7 +441,7 @@ export class TreePane implements Pane {
    * keeps the copy read when the tree opened (a note saved here, in Detail or by an agent read as it was). A draft changes none.
    */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
-    if (e?.change?.kind === "draft") return;
+    if (e && !heardBy(e, EVERY_CHANGE)) return;
     const lists = this.touches(e);
     if (!lists && !this.panels.size) return;
     if (lists) this.due = lists === "all" || this.due === "all" ? "all" : new Set([...(this.due ?? []), ...lists]);

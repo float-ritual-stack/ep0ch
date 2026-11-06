@@ -1,15 +1,12 @@
 // What an outline declares in its notes and the door draws by (PIE-538 callout types, PIE-599 heading styles): one
 // list a connection asks the service for in the background and keeps. On a connection with watched reads (a
 // SocketBoard) the service says when the list changed (PIE-1546: it was asked again after every change, a tool's
-// bookkeeping included); elsewhere it's asked again after the outline changes (at most once a second). Until the answer
+// bookkeeping included); elsewhere it's asked again after the outline changes (once per burst). Until the answer
 // lands the built-ins (or the last answer) stand. Each kind is one `outlineList`.
-import { anyChangeSince, changeClock } from "./refs";
+import { anyChangeSince, AskAgain, changeClock } from "./search-schedule";
 import type { Watched } from "./watched";
 
-/** How soon after an answer a change asks again: a burst of edits makes one more question, not one each. */
-const AGAIN_MS = 1000;
-
-interface Kept<R> { registry: R; raw: string; problems: string[]; at: number; when: number; asking: boolean; waking?: boolean; answer?: Promise<unknown> }
+interface Kept<R> { registry: R; raw: string; problems: string[]; at: number; asking: boolean; src: ListSource; again: AskAgain<{ items: unknown[]; problems: string[] }>; answer?: Promise<unknown> }
 
 /** A source a reader has: its connection, and what repaints when an answer changes the list. */
 export interface ListSource { board: unknown; redraw(): void }
@@ -67,23 +64,26 @@ export function outlineList<T, R extends object>(ask: (board: any) => (() => Pro
     if (src && b && w) return shownBy(b, src, w).registry;
     const question = b && ask(b);
     if (!src || !b || !question) return builtin;
-    const hit = keptBy.get(b);
-    if (hit && (hit.asking || !anyChangeSince(hit.at) || Date.now() - hit.when < AGAIN_MS)) {
-      // A change inside the second after an answer: one redraw once it's over asks again.
-      if (!hit.asking && !hit.waking && anyChangeSince(hit.at)) { hit.waking = true; setTimeout(() => { hit.waking = false; src.redraw(); }, AGAIN_MS).unref?.(); }
-      return hit.registry;
-    }
-    const at = changeClock(), entry: Kept<R> = { registry: hit?.registry ?? builtin, raw: hit?.raw ?? "[]", problems: hit?.problems ?? [], at, when: Date.now(), asking: true };
-    keptBy.set(b, entry);
-    entry.answer = question().then(
-      r => {
-        const raw = JSON.stringify(r.items), same = raw === entry.raw;
-        keptBy.set(b, { registry: same ? entry.registry : build(r.items), raw, problems: r.problems, at, when: Date.now(), asking: false });
-        if (!same) src.redraw();
+    const hit = keptBy.get(b) ?? startKept(b, question, src);
+    hit.src = src;
+    // What's asked at draw time: the clock says something changed since this answer, so one read for the burst.
+    if (!hit.asking && !hit.again.waiting && anyChangeSince(hit.at)) hit.again.soon();
+    return hit.registry;
+  };
+  const startKept = (b: object, question: () => Promise<{ items: T[]; problems: string[] }>, src: ListSource): Kept<R> => {
+    const kept: Kept<R> = { registry: builtin, raw: "[]", problems: [], at: changeClock(), asking: true, src, again: new AskAgain<{ items: unknown[]; problems: string[] }>({
+      read: () => { kept.at = changeClock(); kept.asking = true; return question(); },
+      show: r => {
+        kept.asking = false;
+        const raw = JSON.stringify(r.items), same = raw === kept.raw;
+        kept.problems = r.problems;
+        if (!same) { kept.raw = raw; kept.registry = build(r.items as T[]); kept.src.redraw(); }
       },
-      () => keptBy.set(b, { ...entry, asking: false, when: Date.now() }),
-    );
-    return entry.registry;
+      fail: () => { kept.asking = false; },
+    }) };
+    keptBy.set(b, kept);
+    kept.answer = kept.again.now();
+    return kept;
   };
   let gen = 0;
   const genOf = new WeakMap<R, number>();
@@ -103,7 +103,7 @@ export function outlineList<T, R extends object>(ask: (board: any) => (() => Pro
         if (kept && question) kept.fresh = question().then(r => { kept.registry = build(r.items); kept.problems = r.problems; kept.src.redraw(); }, () => {});
         return;
       }
-      const k = keptBy.get(board); if (k && !k.asking) { k.at = -Infinity; k.when = 0; }
+      const k = keptBy.get(board); if (k && !k.asking) k.answer = k.again.now();
     },
   };
 }

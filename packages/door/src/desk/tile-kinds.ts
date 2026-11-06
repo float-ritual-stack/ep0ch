@@ -10,7 +10,7 @@ import { primitiveLines } from "../components";
 import type { Placement } from "../kitty";
 import { listOpenTarget } from "../refs";
 import { pressOn, wheelRows, type RowPress } from "../scroll";
-import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
+import { EVERY_CHANGE, heardBy, RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, type ActionSet } from "../surface/actions";
 import { nameKinds, type Dispatcher } from "../surface/dispatch";
@@ -539,11 +539,10 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
   invalidate() { this.asked = ""; this.desk?.redraw(); }
   /** The outline changed: ask again once the burst is over (what the drawing read isn't known here; the service draws it cheaply). */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
-    // A tool's bookkeeping a drawing never asked for and never read can't change it (PIE-1546).
+    // A tool's bookkeeping a drawing never asked for and never read can't change it (PIE-1546): a note it read is one
+    // changed, or one a note was made, moved or trashed under (its children may be what it drew).
     const read = this.frame?.read;
-    // (A note it read is one changed, or one a note was made, moved or trashed under: its children may be what it drew.)
-    const touched = [e?.blockId, e?.change?.parentId, e?.change?.previousParentId];
-    if (e?.hidden && read && !read.machinery && !touched.some(id => id && read.ids.includes(id))) return;
+    if (e && !heardBy(e, read && !read.machinery ? id => !e.hidden || (!!id && read.ids.includes(id)) : EVERY_CHANGE)) return;
     this.schedule.pause(() => { const [c, r] = this.asked.split("x").map(Number); if (c && r) this.refresh(desk, c, r); });
   }
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {

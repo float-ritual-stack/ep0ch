@@ -5,7 +5,7 @@
 // read and recorded as whoever made it. Nothing here parses a checklist.
 import type { Msg } from "./board";
 import type { Source } from "./props";
-import { changeClock, changedSince } from "./refs";
+import { changeClock, changedSince } from "./search-schedule";
 import type { Actor, ChecklistRead, ChecklistStep, StepChange, StepStatus } from "./socket";
 import { boxStatus, CHECKLIST_MARKS, STEP_BOX, statusWord } from "@ep0ch/outline-core/checklist-marks";
 import { withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";

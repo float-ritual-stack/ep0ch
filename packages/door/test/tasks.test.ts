@@ -14,7 +14,7 @@ import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
-import { outlineChanged as outlineChangedForTest } from "../src/refs";
+import { outlineChanged as outlineChangedForTest } from "../src/search-schedule";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import { connectFigures } from "../src/graphs";
