@@ -60,7 +60,7 @@ if [ -e "$ARTIFACT_FIXTURE/deployed-commit" ] && [ "$(cat "$ARTIFACT_FIXTURE/dep
 project) printf '{"projects":[{"name":"moth-garden"}],"pagination":{"next":null}}';;
 link) if [ -e "$ARTIFACT_FIXTURE/mapped-project" ]; then test "$4" = lantern; fi;;
 deploy) test ! -e "$ARTIFACT_FIXTURE/fail-vercel"; cp "$ARTIFACT_FIXTURE/commit" "$ARTIFACT_FIXTURE/deployed-commit"; printf 'deployed\\n' >> "$ARTIFACT_FIXTURE/deploys"; printf 'https://moth-garden.example.test';;
-inspect) test "$3" = --json; host=\${2#https://}; name=\${host%%.*}; if { [ "$name" = moon ] || [ "$name" = glow ]; } && { [ ! -e "$ARTIFACT_FIXTURE/added-domain" ] || [ "$(cat "$ARTIFACT_FIXTURE/added-domain")" != "$host" ]; }; then printf "Error: Can't find the deployment" >&2; exit 1; fi; if [ "$name" = kalku-run ] && [ -e "$ARTIFACT_FIXTURE/missing-deployment" ]; then printf "Error: Can't find the deployment %s under the context evan-schultzs-projects\\n" "$host" >&2; exit 1; fi; if [ "$name" = plastik-kraft ] && [ -e "$ARTIFACT_FIXTURE/login-failure" ]; then printf 'Error: You are not logged in (401)\\n' >&2; exit 1; fi; printf '{"id":"%s","createdAt":1700000000000}' "$name";;
+inspect) test "$3" = --json; host=\${2#https://}; name=\${host%%.*}; if [ "$name" = lantern ]; then if [ "$host" != lantern.ep0ch.sh ]; then printf "Error: Can't find the deployment" >&2; exit 1; fi; printf '{"id":"served-lantern","createdAt":1700000000000}'; exit 0; fi; if { [ "$name" = moon ] || [ "$name" = glow ]; } && { [ ! -e "$ARTIFACT_FIXTURE/added-domain" ] || [ "$(cat "$ARTIFACT_FIXTURE/added-domain")" != "$host" ]; }; then printf "Error: Can't find the deployment" >&2; exit 1; fi; if [ "$name" = kalku-run ] && [ -e "$ARTIFACT_FIXTURE/missing-deployment" ]; then printf "Error: Can't find the deployment %s under the context evan-schultzs-projects\\n" "$host" >&2; exit 1; fi; if [ "$name" = plastik-kraft ] && [ -e "$ARTIFACT_FIXTURE/login-failure" ]; then printf 'Error: You are not logged in (401)\\n' >&2; exit 1; fi; printf '{"id":"%s","createdAt":1700000000000}' "$name";;
 api) case "$2" in
 /v10/projects/*/domains) test "$3" = -X; test "$4" = POST; test "$5" = -f; host=\${6#name=}; printf '%s' "$host" > "$ARTIFACT_FIXTURE/added-domain"; rm -f "$ARTIFACT_FIXTURE/verified-domain"; if [ -e "$ARTIFACT_FIXTURE/refuse-domain" ]; then printf 'Error: Cannot add this domain. (409)' >&2; exit 1; fi; case "$host" in *.vercelheld.example) touch "$ARTIFACT_FIXTURE/verified-domain"; printf '{"name":"%s","verified":true}' "$host";; *) printf '{"name":"%s","verified":false,"verification":[{"type":"TXT","domain":"_vercel.%s","value":"vc-domain-verify=%s,tok3n","reason":"pending_domain_verification"}]}' "$host" "\${host#*.}" "$host";; esac;;
 /v9/projects/*/domains/*/verify) test "$3" = -X; test "$4" = POST; printf x >> "$ARTIFACT_FIXTURE/verify-asks"; if [ -e "$ARTIFACT_FIXTURE/verify-slow" ] && [ "$(wc -c < "$ARTIFACT_FIXTURE/verify-asks")" -lt 3 ]; then printf 'Error: the TXT record is not there yet. (400)' >&2; exit 1; fi; if [ -e "$ARTIFACT_FIXTURE/verify-never" ] || { [ ! -e "$ARTIFACT_FIXTURE/txt-records" ] && [ ! -e "$ARTIFACT_FIXTURE/hand-added" ]; }; then printf 'Error: the TXT record is not there yet. (400)' >&2; exit 1; fi; touch "$ARTIFACT_FIXTURE/verified-domain"; printf '{"name":"%s","verified":true}' "$(cat "$ARTIFACT_FIXTURE/added-domain")";;
@@ -69,7 +69,7 @@ api) case "$2" in
   other=""; if [ -e "$ARTIFACT_FIXTURE/other-name" ]; then other='{"name":"moth-garden.vercelheld.example","verified":true},'; fi
   printf '{"domains":[%s%s{"name":"moth-garden.vercel.app","verified":true}],"pagination":{"next":null}}' "$added" "$other"; fi;;
 /v6/domains/*/config) host=\${2#/v6/domains/}; host=\${host%/config}; case "$host" in *.vercelheld.example) printf '{"misconfigured":false}';; *) if [ -e "$ARTIFACT_FIXTURE/custom-domain" ] || [ -e "$ARTIFACT_FIXTURE/hand-added" ] || [ -e "$ARTIFACT_FIXTURE/dns" ]; then printf '{"misconfigured":false}'; else printf '{"misconfigured":true}'; fi;; esac;;
-/v13/deployments/*) name=\${2##*/}; project="$name"; if [ "$name" = moon ] || [ "$name" = glow ]; then project=moth-garden; fi; if [ -e "$ARTIFACT_FIXTURE/mapped-project" ] && [ "$name" = kalku-run ]; then name=moth-garden; project=lantern; fi; printf '{"name":"%s","createdAt":1700000000000,"meta":{"githubCommitOrg":"ep0ch-artifacts","githubCommitRepo":"%s","githubCommitSha":"abc123"}}' "$project" "$name";;
+/v13/deployments/*) name=\${2##*/}; project="$name"; if [ "$name" = served-lantern ]; then name=moth-garden; project=lantern; fi; if [ "$name" = moon ] || [ "$name" = glow ]; then project=moth-garden; fi; if [ -e "$ARTIFACT_FIXTURE/mapped-project" ] && [ "$name" = kalku-run ]; then name=moth-garden; project=lantern; fi; printf '{"name":"%s","createdAt":1700000000000,"meta":{"githubCommitOrg":"ep0ch-artifacts","githubCommitRepo":"%s","githubCommitSha":"abc123"}}' "$project" "$name";;
 *) exit 8;;
 esac;;
 *) exit 8;;
@@ -239,6 +239,22 @@ test.each([false, true])("existing domains keep their project without domain or 
   expect(readFileSync(join(root, "deploys"), "utf8")).toBe("deployed\n");
   expect(existsSync(join(root, "added-domain"))).toBe(false);
   expect(existsSync(join(root, "dns"))).toBe(false);
+});
+
+test("with no record, a --domain finds the project already serving that name instead of starting another", async () => {
+  const { root, cli, paths } = await fixture(true);
+  writeFileSync(join(root, "custom-domain"), "");
+  for (const domain of ["lantern", "lantern.ep0ch.sh"]) {
+    const result = await cli("deploy", "moth-garden", "--domain", domain);
+    expect(result.err).toBe(""); expect(result.code).toBe(0);
+    expect(JSON.parse(result.out).url).toBe("https://lantern.ep0ch.sh");
+    const calls = callsOf(root);
+    expect(calls.some(call => call.startsWith("vercel inspect https://lantern.ep0ch.sh --json"))).toBe(true);
+    expect(calls.filter(call => call.startsWith("vercel link")).every(call => call.includes("--project lantern"))).toBe(true);
+    expect(calls.some(call => call.startsWith("vercel api /v10/projects/"))).toBe(false);
+    rmSync(join(paths.outlines, ".artifacts", "deployments.json"), { force: true });
+    rmSync(join(root, "calls"));
+  }
 });
 
 test("the CLI domain overrides the note domain, and saved notes use their domain", async () => {

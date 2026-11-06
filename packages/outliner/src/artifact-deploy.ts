@@ -371,7 +371,7 @@ async function vercelTarget(artifacts: ArtifactStore, repo: ReturnType<typeof ar
   let exists = false;
   if (remembered || requested) {
     try {
-      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", remembered?.url ?? `https://${requested}.ep0ch.sh`, "--json"])) as { id: string };
+      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", remembered?.url ?? `https://${requested}`, "--json"])) as { id: string };
       const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`])) as { name: string };
       project = info.name;
       exists = true;
