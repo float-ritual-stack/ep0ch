@@ -1297,7 +1297,8 @@ export class App implements Ctx {
   person(): Whereabouts {
     const s = this.stack.at(-1);
     const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor(), ...this.keyLayers() });
-    const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
+    const fact = { layer: this.drawer.keysLayer(), wayOut: this.drawer.wayOut(s) };
+    const w: Whereabouts = this.agentsYolo ? { ...w0, ...fact, yolo: true } : { ...w0, ...fact };
     // The power bar holds their keys while it's open.
     // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
     const free = !w.busy || !!w.navHold;

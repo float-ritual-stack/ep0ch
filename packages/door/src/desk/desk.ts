@@ -1939,6 +1939,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.spec.stays && this.running().length) { kept.desk = this; return "keep"; }
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
+    this.steps.forget(this);
     unwatchTileKinds(this);
     // Return places still name neighbours here; carrying a tile away removes its pane from this desk.
     for (const id of this.panes.keys()) this.keepTrailPlace(id);

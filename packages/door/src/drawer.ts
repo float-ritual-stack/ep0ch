@@ -1,4 +1,4 @@
-import { DoorKeys, keysThrough, wayOut, type WayOut } from "./desk/keys-fact";
+import { DoorKeys, keysThrough, wayOut, type KeysLayer, type WayOut } from "./desk/keys-fact";
 import { StepRecord } from "./desk/step-record";
 import type { Reveal } from "./reveal";
 // One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
@@ -1305,8 +1305,8 @@ export class AgentDrawer {
     // The fill runs to the edge and no further: a row that fits registers no cut-short value (PIE-1499).
     canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
     // Whether a program has the person's keys, or has exited, is the owner's answer (App.person's `program`, PIE-1563), read, not asked again.
-    const program = this.entered ? this.host.person?.()?.program : undefined;
-    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited, !!program?.exited)}${fg(C.dark)}` + RESET, cols - 2);
+    const keysAre = this.entered ? this.host.person?.() : undefined, program = keysAre?.program;
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited, !!program?.exited, keysAre?.wayOut === "group")}${fg(C.dark)}` + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
   }
@@ -1429,6 +1429,8 @@ export class AgentDrawer {
     return true;
   }
 
+  /** The layer the person's keys are in, as the keys fact has it. */
+  keysLayer(): KeysLayer { return !this.entered ? "screen" : this.glassHasKeys() ? "glass" : this.liftIn !== null ? "lift" : "drawer"; }
   /** What ctrl+] does now, for the whole door: the one rule (desk/keys-fact.ts) over where the keys are. */
   wayOut(screen: Screen | undefined): WayOut {
     const inDrawer = this.entered, top = tilesOf(screen);

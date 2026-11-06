@@ -34,16 +34,8 @@ export function wayOut(f: { inDrawer: boolean; desk: DeskWay; drawerUp: boolean;
 /** The glass tile the person went into, and where the keys go back to. */
 export interface GlassKeys { keys: string; focus: string | null; tile: string }
 
-/** The fact as a reader takes it: which desk, which tile, typing or not, and the way out. */
-export interface KeysFact {
-  /** The layer they are in: the screen, the drawer, a glass tile, or a drawer tile lifted with the drawer down. */
-  layer: "screen" | "drawer" | "glass" | "lift";
-  /** The tile that has them, by its address through mounted desks, or null. */
-  tile: string | null;
-  typing: boolean;
-  /** What ctrl+] does now. */
-  wayOut: WayOut;
-}
+/** The layer the person's keys are in: the screen, the drawer, a glass tile, or a drawer tile lifted with the drawer down. */
+export type KeysLayer = "screen" | "drawer" | "glass" | "lift";
 
 export class DoorKeys<Lift = unknown> {
   /** The host layer's answer: the screen slot, or the drawer. */
