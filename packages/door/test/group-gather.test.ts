@@ -271,6 +271,19 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await mine("tile.focus", {}, "tree");
   }, 30_000);
 
+  test("r in a reader in a group writes a reply there, as on a screen (PIE-1599)", async () => {
+    await fresh();
+    const note = await board.createBlock(null, "A letter from the potting shed");
+    const g = (await act("tile.group", { with: "activity", where: "down" }, "reader")).name;
+    await me("open", { id: note.id }, `${g}/reader`);
+    await mine("tile.focus", {}, `${g}/reader`);
+    await until(() => { render(); return inner(g, "reader")?.showing?.id === note.id; }, "the note in the group's reader");
+    key({ kind: "char", ch: "r" });
+    await until(() => render().lines.join("\n").includes("editing"), "the reply in the group");
+    key({ kind: "esc" });
+    await until(() => !render().lines.join("\n").includes("editing"), "the reply closed");
+  });
+
   test("^W i moves the tile into the only group, or asks which; in a group it takes the tile back out; a group's last tile spills it", async () => {
     await fresh();
     const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).name;
