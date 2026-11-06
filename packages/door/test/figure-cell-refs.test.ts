@@ -2,7 +2,7 @@
 // again when its note changes, by its short id as by its whole one. A scratch host; made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { drawNote } from "../src/notes-cli";
-import { outlineChanged } from "../src/refs";
+import { outlineChanged } from "../src/search-schedule";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
 

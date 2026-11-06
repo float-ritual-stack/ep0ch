@@ -75,7 +75,7 @@ test("only placement applies note opens", () => {
         const effect = /\/desk\/(?:builtin-tiles|settings)\.ts$/.test(file) && (name === "take" || name === "start" || name === "startReader")
           || file.endsWith("/river/column.ts") && (name === "take" || name === "host")
           || file.endsWith("/showcase/showcase.ts") && name === "stage"
-          || file.endsWith("/hub/welcome.ts") && name === "load";
+          || file.endsWith("/hub/welcome.ts") && name === "take";
         const allowed = landing ? file.endsWith("/desk/screen-layout.ts") && (name === "placement" || name === "landing")
           : file.endsWith("/desk/desk.ts") && ["applyPlacement", "placeOpen", "previewLanding"].includes(name ?? "") || effect;
         const phase = (method === "placeOpen" || method === "previewLanding") && declaredIn.endsWith("/desk/desk.ts");

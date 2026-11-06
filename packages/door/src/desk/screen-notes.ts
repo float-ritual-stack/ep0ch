@@ -104,13 +104,9 @@ function unregister(name: string) { writes++; forgetScreen(name); notes.delete(n
 
 /**
  * Where the door's loadScreenNotes reads (PIE-1546): the watched question, so the service says when a screen note
- * changed and nothing else in the outline reads them again (only a reconnect does). `read` is told what was read.
+ * changed and nothing else in the outline reads them again (only a reconnect does).
  */
-export const watchedScreens = (board: SocketBoard, read: (shown: string) => void): Pick<ScreenStore, "byProp"> => !board.watched ? board : {
-  byProp: async (key, value, limit) => { const found = await board.byPropWatched(key, value, limit); read(screenNotesShown(board) ?? ""); return found; },
-};
-/** The screen notes (ids and revisions) as the service last answered the watched question, or undefined before it has. */
-export const screenNotesShown = (board: SocketBoard): string | undefined => board.byPropShown?.("type", SCREEN_TYPE, 500)?.map(n => `${n.id}@${n.revision}`).join(",");
+export const watchedScreens = (board: SocketBoard): Pick<ScreenStore, "byProp"> => !board.watched ? board : { byProp: (key, value, limit) => board.byPropWatched(key, value, limit) };
 
 /**
  * Read every screen note and register each (the door's start, a screen note changed, a reconnect): what came and

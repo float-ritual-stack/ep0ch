@@ -85,7 +85,7 @@ import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, pageView, pageOf, presentLinks, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -151,6 +151,7 @@ import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
+import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
 import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
@@ -1017,7 +1018,6 @@ export class NoteSurface {
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
-  private commentTimer: Timer | null = null;
   /** Why the whole note behind a list row couldn't be read; empty while reading or once read. */
   unread = "";
   /**
@@ -3294,9 +3294,7 @@ export class NoteSurface {
   dispose() {
     this.endPreviewDraft();
     this.drafting?.dispose();
-    // A comment read an event asked for (onEvent) doesn't go out for a reader that's gone.
-    if (this.commentTimer) clearTimeout(this.commentTimer);
-    this.commentTimer = null;
+    this.commentsAgain?.cancel();
   }
 
   /**
@@ -3538,13 +3536,15 @@ export class NoteSurface {
     } catch (e) { if (strict) throw e; /* comments are extra; the note still reads */ }
   }
 
-  /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
-  onEvent(host: SurfaceHost) {
-    if (this.replyLinks) void this.openReplyLinks(host, USER, true).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
+  /** Outline changed: a comment on this note (`commentNotes`) may have been added, answered or resolved anywhere. */
+  onEvent(host: SurfaceHost, e?: OutlineEvent) {
+    if (this.replyLinks && (!e || heardBy(e, commentNotes(this)))) void this.openReplyLinks(host, USER, true).catch(err => host.ctx.flash(String(err), undefined, errorDetails(err)));
     if (!this.msg) return;
-    if (this.commentTimer) clearTimeout(this.commentTimer);
-    this.commentTimer = setTimeout(() => void this.loadComments(host), 700);
+    this.commentsHost = host;
+    const again = this.commentsAgain ??= new AskAgain<void>({ read: () => this.loadComments(this.commentsHost!), show() {}, notes: commentNotes(this) });
+    if (e) again.heard(e); else again.soon();
   }
+  private commentsAgain: AskAgain<void> | null = null; private commentsHost: SurfaceHost | null = null;   // the host the last event came through (a tile's is made per call)
 
   private commentEnv(host: SurfaceHost, actor: Actor = host.actor ?? USER): CommentEnv {
     return {

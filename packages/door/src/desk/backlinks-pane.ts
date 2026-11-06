@@ -3,7 +3,7 @@ import { waitingText } from "../text";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { outlineBoards, readTarget } from "./outline-boards";
-import { SearchSchedule } from "../search-schedule";
+import { EVERY_CHANGE, heardBy, SearchSchedule } from "../search-schedule";
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
 // (src/links.ts): its Outlinks, its Resources, its Backlinks and its
 // Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
@@ -412,7 +412,7 @@ export class BacklinksPane implements Pane {
 
   /** Something changed in the outline: the list is asked again (once per burst), its selection kept. A draft isn't a change to what links here. */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
-    if (!this.target || e?.change?.kind === "draft") return;
+    if (!this.target || (e && !heardBy(e, EVERY_CHANGE))) return;
     this.search.pause(() => void this.load(this.target, desk, true));
   }
   dispose() { this.search.cancel(); }

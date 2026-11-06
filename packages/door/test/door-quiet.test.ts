@@ -110,7 +110,7 @@ test.skipIf(!outliner)("the waiting asks come back by themselves after the servi
 test.skipIf(!outliner)("a tool's bookkeeping still tells what looks things up (a view that shows machinery, embedded) that something changed", async () => {
   await door();
   try {
-    const { anyChangeSince, changeClock } = await import("../src/refs");
+    const { anyChangeSince, changeClock } = await import("../src/search-schedule");
     const at = changeClock();
     app.event({ domain: "content", action: "create", sequence: 1, blockId: "rec-1", hidden: true, change: { kind: "create", blockId: "rec-1", parentId: records } } as any);
     expect(anyChangeSince(at)).toBe(true);

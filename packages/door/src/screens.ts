@@ -1864,7 +1864,7 @@ export class MessageReader implements Screen {
 
   onEvent(e: OutlineEvent, ctx: Ctx) {
     const m = this.surface.msg, host = this.host(ctx);
-    this.surface.onEvent(host);
+    this.surface.onEvent(host, e);
     if (e.action === "reconnected") this.surface.retry(host);
     if (!m) return;
     if (this.surface.staleOn(e)) this.surface.reread(host);

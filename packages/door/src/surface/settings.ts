@@ -19,7 +19,7 @@ import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
 import { ATTACHED_PLACES, attachedPlaceOf, moveFloat, type AttachedSide } from "./attached";
 import { writeState } from "../state";
 import { partyOf, UndoHistory } from "../steps";
-import { outlineChanged } from "../refs";
+import { outlineChanged } from "../search-schedule";
 import type { Key } from "../term";
 import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";

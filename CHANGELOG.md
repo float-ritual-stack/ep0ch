@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Tiles stay current as their notes change, and none polls on its own (PIE-1593)
+
+- **Welcome, the brief and the screen list ask only when the host says their answer moved:** a write elsewhere asks them nothing. They were asking again on every change.
+- **A river column, a reader's comments, last callers and who's online wait one pause:** 300 ms, where they had 700, 800 and 1500 ms, and who's online had none.
+- **A Library column shows a new top-level note, and a #tag column a newly tagged one:** both stayed as they were until reopened.
+- **Last callers and who's online skip a tool's bookkeeping:** a stamped note's change no longer wakes them, so such a row shows at the next ordinary change.
+- **A repo card's deploy is the one read still on a period:** a deploy is outside the outline, so nothing can say how it went.
 ### The desk's undo is a step, and who has your keys is one fact (PIE-1592)
 
 - **ctrl+z takes back the step you made, on the desk you made it.** Screen, drawer, glass and groups all undo from one record of steps: each says which desks it touched, whose it is, what takes it back and where your keys go.
