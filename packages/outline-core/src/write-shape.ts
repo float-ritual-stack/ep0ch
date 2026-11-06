@@ -15,6 +15,7 @@ import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { figureRow } from "./figure-markdown";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
+import { isMediaLine } from "./media-line";
 import { parsePropertyRecords } from "./property-parse";
 import { BLOCK_ID_SOURCE } from "./addressable-resource";
 
@@ -46,7 +47,7 @@ export const SHAPE_LIMITS = {
   vocabulary: 20,
 } as const;
 
-export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time";
+export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time" | "comment-chip";
 
 /**
  * Evan's rubric for a note an agent wrote (Oct 29), which every finding is filed under, code's and Jev's alike, so the
@@ -61,7 +62,7 @@ export type Rubric = typeof RUBRIC[number];
 
 /** The rubric item each of code's rules measures. */
 export const RUBRIC_OF: Record<ShapeRule, Rubric> = {
-  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time",
+  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time", "comment-chip": "context",
 };
 
 /** One edit of a ready fix, as outline_patch takes it: the exact text seen, and what replaces it. */
@@ -88,7 +89,8 @@ export interface ShapeFinding {
 export interface ShapeFacet { key: string; value: string; count?: number; values?: number }
 
 /**
- * `note`: a note or a block (the default); `comment`: a margin comment, which has no title and asks nothing of Evan.
+ * `note`: a note or a block (the default); `comment`: a margin comment or reply, which has no title and asks nothing of
+ * Evan, and whose chips are only words.
  * `facets`: the outline's property values, so a number typed before one is told to be a live count. `asks`: the lines
  * (0-based) Jev judged to ask Evan something, used instead of the word heuristic when given; `titleIsContent`: Jev
  * judged a short title with several clauses to be the content rather than its name. `now`: the clock a time written
@@ -167,6 +169,9 @@ function paragraphs(text: string, comment: boolean): Paragraph[] {
   return out;
 }
 
+/** The tokens a comment's words use to show something rather than to set it. */
+const COMMENT_SHOWS: ReadonlySet<string> = new Set(["file", "web", "img", "video", "artifact"]);
+
 /** The measure of `text`, and every rule it breaks. `comment` text is measured for walls alone. */
 export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
   const found: ShapeFinding[] = [];
@@ -212,6 +217,19 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
         rule: "wall", key: `wall:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
         say: `line ${p.line + 1} is ${sentences > SHAPE_LIMITS.sentences ? `a paragraph of ${sentences} sentences (keep one to ${SHAPE_LIMITS.sentences})` : `${sentences === 1 ? "one sentence" : `a paragraph of ${sentences} sentences`} of ${p.text.length} characters (keep a paragraph under ${SHAPE_LIMITS.paragraphChars})`}: split it, or make it a list, a callout or a figure${patch ? " (the patch makes it a list)" : tooLong(lines, p)}`,
         ...(patch ? { patch } : {}),
+      });
+    }
+  }
+
+  // A chip in a comment's or reply's words sets nothing (PIE-1589): only a note's own header does. A media line or a
+  // Resource (`[img::…]`, `[file::…]`) is what the comment shows, and stays as written.
+  if (comment) {
+    for (const chip of parsePropertyRecords(text)) {
+      if (chip.syntax !== "bracket" || COMMENT_SHOWS.has(chip.key) || isMediaLine(lines[chip.line] ?? "")) continue;
+      found.push({
+        rule: "comment-chip", key: `comment-chip:${chip.raw}`, line: chip.line + 1,
+        say: `\`${chip.raw}\` in a comment is words: it sets nothing on the comment or its note. In a code span it reads as quoted; to carry it, use \`properties\` on the comment or write it on a note's first line`,
+        patch: [{ observed: chip.raw, replacement: `\`${chip.raw}\`` }],
       });
     }
   }

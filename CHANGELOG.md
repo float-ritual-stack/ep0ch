@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A comment keeps what you dropped and said (PIE-1589)
+
+- **Files dropped into a comment or an edit become pictures, found by name when the folder never arrived.** A paste of nothing but image files is kept in `media/` and drawn; `ctrl+z` gives back what you dropped. macOS's bare names are looked up in the folders your notes name with `[drop-folder::<folder>]`, and what can't be found stays as written and says so. A macOS name's narrow no-break space now matches either way round.
+- **A chip in a comment or reply is words.** Only a mark's heading and metadata line carry its properties, so a quoted `[orient::all]` no longer orients sessions, a quoted `[page::x]` no longer refuses the reply, and a comment that's only a chip or a picture keeps it. The agent tools' review points it out on comments and replies. The property index rebuilds itself when the host restarts.
+
 ### Published pages keep their bold and their tables (PIE-1590)
 
 - **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
