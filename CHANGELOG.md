@@ -15,6 +15,7 @@ are its record. The outliner's entries from then are kept below, under
 - **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.
 - **A feed row holds it as a thumbnail,** beside its title and body.
 - **A card's body is its words:** `body:` no longer prints a picture's line as text, and `body: 0` leaves the title and summary chips.
+
 ### A comment keeps what you dropped and said (PIE-1589)
 
 - **Files dropped into a comment or an edit become pictures, found by name when the folder never arrived.** A paste of nothing but image files is kept in `media/` and drawn; `ctrl+z` gives back what you dropped. macOS's bare names are looked up in the folders your notes name with `[drop-folder::<folder>]`, and what can't be found stays as written and says so. A macOS name's narrow no-break space now matches either way round.
