@@ -1239,7 +1239,10 @@ export async function replyTo(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");
-  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, undefined, record.block.id)) }), thread: annotationId, reply: record.block.id };
+  const read = await warned(client, body, undefined, record.block.id);
+  // The house rules on a reply's words, as on a comment's (PIE-1270, PIE-1589).
+  const warnings = [...(read.warnings ?? []), ...shapeWarnings(body, undefined, { kind: "comment" })];
+  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...read, ...(warnings.length ? { warnings } : {}) }), thread: annotationId, reply: record.block.id };
 }
 
 /**

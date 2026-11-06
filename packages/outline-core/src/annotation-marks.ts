@@ -12,7 +12,8 @@
 // A **highlight** is an annotation with no body. It's drawn as a span (`place: span`) on its words; an annotation
 // with a body is drawn as a span too, and as a card in the margin (`place: margin`). Pure: no I/O.
 
-import { propertyTokensInLine, withoutPropertyTokens } from "./property-grammar";
+import { markBodyLine, MARK_HEADING } from "./header-line";
+import { withoutPropertyTokens } from "./property-grammar";
 import { RULE_TONES, type RuleTone } from "./rules";
 
 /** The store's own key for when a comment or reply was edited after it was posted (an ISO time; PIE-763's `annotations.update`). */
@@ -78,10 +79,7 @@ export function annotationPropertyProblem(props: Readonly<Record<string, string 
   return null;
 }
 
-/** A mark's generated heading line: `Comment on “…”`, `Highlight on “…”`, `Question on “…”`, or its kind alone. */
-export const MARK_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
-
-const MARK_TYPES: ReadonlySet<string> = new Set(["annotation", "annotation-reply"]);
+export { markBodyLine, MARK_HEADING };
 
 /**
  * A mark's title (a highlight, comment, question or reply): its own words, never the generated heading, whose quote is
@@ -91,11 +89,10 @@ const MARK_TYPES: ReadonlySet<string> = new Set(["annotation", "annotation-reply
  * store's `[type::annotation]` or `[type::annotation-reply]` line.
  */
 export function markTitleLine(text: string): { line: number; text: string } | null {
+  const body = markBodyLine(text);
+  if (body === null) return null;
   const lines = text.split("\n");
-  if (!MARK_HEADING.test(lines[0]!)) return null;
-  const meta = lines[1] ?? "";
-  if (!propertyTokensInLine(meta).some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim()))) return null;
-  for (let i = 2; i < lines.length; i++) {
+  for (let i = body; i < lines.length; i++) {
     const words = withoutPropertyTokens(lines[i]!).replace(/\s+/g, " ").trim();
     if (words) return { line: i, text: words };
   }

@@ -10,6 +10,9 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+- **Files dropped into a comment or an edit become pictures, found by name when the folder never arrived (PIE-1589).** A paste of nothing but image files is kept in `media/` and drawn; `ctrl+z` gives back what you dropped. macOS's bare names are looked up in the folders your notes name with `[drop-folder::<folder>]`, and what can't be found stays as written and says so. A macOS name's narrow no-break space now matches either way round.
+- **A chip in a comment or reply is words (PIE-1589).** Only a mark's heading and metadata line carry its properties, so a quoted `[orient::all]` no longer orients sessions, a quoted `[page::x]` no longer refuses the reply, and a comment that's only a chip or a picture keeps it. The agent tools' review points it out on comments and replies. The property index rebuilds itself on the next host start.
+
 ### Pictures in notes size the way you set them (PIE-1583)
 
 - **Smaller or bigger:** a picture's caption has `[-][+]`, and a key or `act` does the same. The size is saved in the note as `height=N` on an svg or mermaid fence or `[size::N%]` on an `[img::]` line, so it reopens at that size, published pages included.

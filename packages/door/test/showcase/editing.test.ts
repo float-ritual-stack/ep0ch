@@ -271,14 +271,23 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
     const d = ([...desk().panes.values()].find((p: any) => p.editing) as any).surface.draft;
     const before = d.text;
-    // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it): typed in as
-    // text, as every paste is; ctrl+v on it makes it the picture.
+    // A file dropped on the terminal arrives as a paste of its path (quoted, as some terminals send it): written first,
+    // as every paste is, then the picture (PIE-1589). A path in words is text, and ctrl+v on it makes it the picture.
     press({ kind: "end" });
     const dropped = `'${join(SHOWCASE_ASSETS, "seed-packet.webp")}'`;
     press({ kind: "paste", text: dropped });
+    await until(() => d.text.includes("[img::"), "the dropped picture", 5000);
+    expect(d.text).not.toContain(dropped);
+    // ctrl+z gives back what was dropped; the file stays in media/.
+    press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.text).toContain(dropped);
+    press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.text).toBe(before);
+    press({ kind: "end" });
+    press({ kind: "paste", text: `see ${dropped}` });
     expect(d.lines[d.row].endsWith(dropped)).toBe(true);
     press({ kind: "char", ch: "v", ctrl: true });
-    await until(() => d.text.includes("[img::"), "the dropped picture", 5000);
+    await until(() => d.text.includes("[img::"), "the picture ctrl+v made", 5000);
     expect(d.text).not.toContain(dropped);
     const row = d.lines.findIndex((l: string) => l.startsWith("[img::"));
     expect(row).toBe(d.row);                                              // on its own line, the cursor after it
