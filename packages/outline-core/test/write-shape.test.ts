@@ -1,3 +1,6 @@
+import { componentBrief } from "../src/component-schema";
+import { FIGURE_COMPONENT_SCHEMAS } from "../src/component-schemas-figures";
+import { figureRowShape } from "../src/figure-props";
 import { expect, test } from "bun:test";
 import { answeredBox, asksAt, FIX_BEFORE_DONE, SHAPE_LIMITS, sentenceCount, shapeNext, shapeWarnings, writeShape } from "../src/write-shape";
 
@@ -460,4 +463,49 @@ test("a chip in a comment's words is told, with a code span as the fix; what a c
     expect(writeShape(words, { kind: "comment" }).map(f => f.rule)).toEqual([]);
   }
   expect(writeShape("Seed order [orient::all]\n\nWords.").some(f => f.rule === "comment-chip")).toBe(false);
+});
+
+// PIE-1608: the compare's schema says its rows' shape; a write in table shape, or with none, is told it.
+test("a graph-compare without rows it can draw is told the shape its schema says", () => {
+  const compare = (...body: string[]) => ["Beds", "", "Raised or bags.", "", "::graph-compare", ...body, "::"].join("\n");
+  // First in its note's body, a compare draws its child notes as rows too (figureProps' block).
+  const first = (...body: string[]) => ["Beds [kind::plan]", "[stage::now]", "", "::graph-compare", ...body, "::"].join("\n");
+  const said = (text: string) => writeShape(text).filter(f => f.rule === "figure-rows").map(f => f.say);
+  const shape = figureRowShape("compare")!;
+
+  const [table] = said(compare("---", "headers: [Thing, Raised, Bags]", "rows: [[cost, £60, £12]]", "---"));
+  expect(table).toContain("the ::graph-compare on line 5 has `headers:`, `rows:` in its YAML");
+  expect(table).toContain(`\`${shape.namedBy}:\``);
+  expect(table).toContain(`\`${shape.row}\``);
+  expect(said(compare("---", "columns: [Raised, Bags]", "---"))[0]).toContain("has no rows to draw");
+  // Written rows, with a stray YAML `rows:` beside them: drawn, but the YAML's are never read.
+  expect(said(compare("---", "rows: [[cost, £60, £12]]", "---", "- cost: £60 | £12"))[0]).toContain("has `rows:` in its YAML");
+  expect(said(compare("---", "rows: body", "---"))[0]).toContain("has no rows to draw");
+
+  expect(said(first("---", "headers: [Thing, Raised]", "rows: [[cost, £60]]", "---"))[0]).toContain("the ::graph-compare on line 4 has `headers:`, `rows:` in its YAML");
+  expect(said(first("---", "rows: body", "---"))[0]).toContain("has no rows to draw");
+
+  for (const fine of [
+    first("---", "columns: [Raised, Bags]", "---"),
+    first(),
+    compare("---", "columns: [Raised, Bags]", "---", "- cost: £60 | £12"),
+    compare("- cost: £60 | £12"),
+    compare("---", "entries: [{ label: cost, cells: [£60, £12] }]", "---"),
+    compare("---", "rows: children", "---"),
+    compare("---", "rows: body", "---", "- cost: £60 | £12"),
+    ["Beds", "", "```", "::graph-compare", "---", "headers: [Thing, Raised]", "---", "::", "```"].join("\n"),
+    ["Beds", "", "::graph-table", "---", "headers: [Thing, Raised]", "rows: [[cost, £60]]", "---", "::"].join("\n"),
+  ]) expect(said(fine)).toEqual([]);
+  expect(writeShape(compare("---", "headers: [Thing, Raised]", "---"), { kind: "comment" }).filter(f => f.rule === "figure-rows")).toEqual([]);
+});
+
+test("the compare's own example and brief say the shape, and the example passes the check", () => {
+  const schema = FIGURE_COMPONENT_SCHEMAS.find(s => s.id === "graph-compare")!;
+  const brief = componentBrief(schema);
+  expect(brief).toContain(`Rows: \`${schema.rowShape!.row}\``);
+  const example = brief.slice(brief.indexOf("::graph-compare"), brief.lastIndexOf("::") + 2);
+  expect(example).toContain("columns: [");
+  expect(example).toMatch(/^- .+: .+ \| .+$/m);
+  expect(example).not.toContain("headers:");
+  expect(writeShape(`Beds\n\n${example}`).filter(f => f.rule === "figure-rows")).toEqual([]);
 });

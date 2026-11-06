@@ -36,6 +36,7 @@ interface Kind {
   kind: string; title: string; intro: string; props: PropSchema[];
   /** The rows under the YAML, as a variation writes them. */
   rows?: string;
+  rowShape?: ComponentSchema["rowShape"];
   example: Record<string, string>; sweep: string[]; grids?: [string, string][]; space?: string[];
   where?: string;
 }
@@ -47,6 +48,7 @@ function figure(k: Kind): ComponentSchema {
     props: [...k.props, ...CONTENT_SIZE_PROPS.map(p => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })), ...(!k.props.some(p => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat") ? [LIMIT] : []), 
       // Every live figure's question reads sort and direction (figure-live's liveAsk); a figure that doesn't say its own takes the shared ones.
       ...(k.props.includes(QUERY) ? [SORT, DIRECTION].filter(d => !k.props.some(p => p.key === d.key)) : []), yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
+    ...(k.rowShape ? { rowShape: k.rowShape } : {}),
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
   };
 }
@@ -174,6 +176,7 @@ const FIGURES: Kind[] = [
     kind: "compare", title: "Compare", intro: "Two or three columns of rows, aligned by their label, so \"A against B\" reads across instead of as two notes or a wide table. A cell is the text between `|`s, a bold row is the accent, an italic one recedes. Under 60 columns the block stacks: each row is its label, then one line per column.",
     props: [TITLE, yaml("columns", "list", "the column names (two or three)", { samples: ["[Raised beds, Grow bags]", "[A, B, C]"] })],
     rows: "- cost: £60 of boards | £12 a bag\n- drainage: good on clay | fine\n- **lasts: ten years | two seasons**",
+    rowShape: { row: "- label: a | b", namedBy: "columns" },
     example: { title: "beds", columns: "[Raised beds, Grow bags]" }, sweep: ["columns"],
   },
   {
