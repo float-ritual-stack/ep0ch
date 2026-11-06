@@ -115,7 +115,8 @@ export class WhatChanged extends OutlineStore {
     writeState(SEEN_FILE, { ...all, [this.outline]: this.seenTo });
   }
 
-  private add(c: Change) {
+  /** Takes a change in; the row it pushed out, if any. */
+  private add(c: Change): ChangedRow | undefined {
     if (!c.blockId || c.kind === "draft" || c.sequence <= this.seenTo || isOwn(c)) return;
     const prev = this.rows.get(c.blockId);
     if (prev && prev.sequence >= c.sequence) return;
@@ -140,18 +141,20 @@ export class WhatChanged extends OutlineStore {
       }
       const drop = oldestSeen ?? (this.rows.size > KEEP * 10 ? oldest : undefined);
       if (drop) this.rows.delete(drop.blockId);
+      return drop;
     }
+    return undefined;
   }
 
   /** A live (or replayed) event from the service. A `reset` empties the list: the feed no longer reaches back. */
   heard(e: OutlineEvent) {
     if (e.action === "reset") { this.rows.clear(); this.notify(); return; }
     if (!e.change) return;
-    // Only this note's row can move the count: a storm of changes doesn't count every row twice per change (PIE-1606).
+    // Only this note's row and one it pushed out can move the count: a storm of changes doesn't count every row twice per change (PIE-1606).
     const id = e.change.blockId, counted = (r: ChangedRow | undefined) => !!r && !r.seen && (this.showMachinery || !held(r));
     const before = id ? counted(this.rows.get(id)) : false;
-    this.add(e.change);
-    if (id && counted(this.rows.get(id)) !== before) this.notify();
+    const dropped = this.add(e.change);
+    if ((id && counted(this.rows.get(id)) !== before) || counted(dropped)) this.notify();
   }
 
   /** The ids of the notes not yet seen (taken just before the person's look marks them). */
