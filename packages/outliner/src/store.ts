@@ -1,3 +1,5 @@
+import { heldBy } from "./loop-watch";
+import { noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
 import { workIdPrefixesInUse } from "./work-id-prefixes";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { createRequestedBlock } from "./create-request";
@@ -710,6 +712,7 @@ function boundedTreeLabel(text: string): string {
 const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
 /** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
 const compareBinary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const emptyGraph = (): LoadedGraph => ({ byId: new Map(), byParent: new Map(), propertyRecordsByBlock: new Map(), lineTasksByBlock: new Map(), settledBlockRecords: new Map(), deletedDescendantCountByRoot: new Map() });
 /** A write that touched more blocks than this (an import, a reorder of a long list) has the graph read whole again. */
 const GRAPH_PATCH_LIMIT = 400;
 
@@ -921,7 +924,7 @@ export class OutlinerStore {
       this.configureTransactions();
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       const created = this.prepareDatabase(path) === "created";
-      this.noteGraphWrites();
+      noteGraphWrites(this.database);
       this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
       this.outlineInstanceId = this.instance.id;
       this.changes = new ChangeFeed(this.database, () => this.sequence);
@@ -5261,7 +5264,8 @@ export class OutlinerStore {
     if (this.graph?.version === version && dirty.length === 0) return this.graph.graph;
     if (dirty.length) this.database.run("DELETE FROM temp.graph_dirty");
     const patchable = this.graph?.version === version && dirty.length <= GRAPH_PATCH_LIMIT && !dirty.includes("*");
-    const graph = patchable ? this.patchGraph(this.graph!.graph, dirty) : this.readGraph();
+    const why = !this.graph ? "first, or after a failed write" : this.graph.version !== version ? "another connection wrote" : dirty.includes("*") ? "a purge" : `${dirty.length} notes written`;
+    const graph = patchable ? this.patchGraph(this.graph!.graph, dirty) : heldBy(`whole graph: ${why}`, () => this.readGraph());
     this.graph = { version, graph };
     for (const id of this.treeLabels.keys()) if (!graph.byId.has(id)) this.treeLabels.delete(id);
     return graph;
@@ -5274,35 +5278,23 @@ export class OutlinerStore {
     return `${changes.changes}:${version.data_version}`;
   }
 
-  /** Notes, per connection, which blocks a write touched: what `loadGraph` reads again (TEMP, never in the file). */
-  private noteGraphWrites(): void {
-    const note = (id: string) => `INSERT OR IGNORE INTO graph_dirty (block_id) VALUES (${id});`; // never temp.graph_dirty: macOS SQLite refuses a qualified name in a trigger
-    this.database.exec(`
-      CREATE TEMP TABLE IF NOT EXISTS graph_dirty (block_id TEXT PRIMARY KEY) WITHOUT ROWID;
-      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_insert AFTER INSERT ON main.blocks BEGIN ${note("NEW.id")} END;
-      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_update AFTER UPDATE ON main.blocks BEGIN ${note("NEW.id")} ${note("OLD.id")} END;
-      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_delete AFTER DELETE ON main.blocks BEGIN ${note("'*'")} END;
-      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_insert AFTER INSERT ON main.block_properties BEGIN ${note("NEW.block_id")} END;
-      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_update AFTER UPDATE ON main.block_properties BEGIN ${note("NEW.block_id")} ${note("OLD.block_id")} END;
-      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_delete AFTER DELETE ON main.block_properties BEGIN ${note("OLD.block_id")} END;
-    `);
-  }
-
   /**
    * Reserve the writer before reading: a deferred read-to-write upgrade can fail without waiting for busy_timeout.
    * Read-only snapshots explicitly use deferred; repositories sharing this connection inherit immediate writes.
-   * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the
-   * graph may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then.
+   * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the graph
+   * may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then, if it wrote: a read
+   * of a gone note undoes nothing, and a whole read again holds pie's host 760 ms on float-2 (PIE-1610).
    */
   private configureTransactions(): void {
     const transaction = this.database.transaction.bind(this.database);
     const store = this;
     type Run = (...args: unknown[]) => unknown;
     const guarded = (run: Run): Run => function (this: unknown, ...args: unknown[]) {
+      const before = store.changeKey();
       try {
         return run.apply(this, args);
       } catch (error) {
-        store.graph = undefined;
+        if (store.changeKey() !== before) store.graph = undefined;
         throw error;
       }
     };
@@ -5316,24 +5308,30 @@ export class OutlinerStore {
 
   private readGraph(): LoadedGraph {
     const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at, id").all() as BlockRow[];
-    const propertyRows = this.database
-      .query(
-        "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties ORDER BY block_id, ordinal",
-      )
-      .all() as PropertyRow[];
-    const graph: LoadedGraph = { byId: new Map(), byParent: new Map(), propertyRecordsByBlock: new Map(), lineTasksByBlock: new Map(), settledBlockRecords: new Map(), deletedDescendantCountByRoot: new Map() };
+    const propertyRows = this.database.query(`SELECT ${PROPERTY_COLUMNS} FROM block_properties ORDER BY block_id, ordinal`).all() as PropertyRow[];
+    const graph = emptyGraph();
     this.graphBlocks(graph, rows, propertyRows);
     this.graphFamilies(graph);
     return graph;
+  }
+
+  /** The graph read in slices, for a host opening an outline nobody reads yet. Another connection's commit meanwhile moves `data_version` past this one, so the next read reads again. */
+  async readGraphInSlices(pass: () => Promise<void>): Promise<void> {
+    if (this.graph) return;
+    const version = (this.database.query("PRAGMA data_version").get() as { data_version: number }).data_version;
+    this.database.run("DELETE FROM temp.graph_dirty");
+    const graph = emptyGraph();
+    await readGraphRowsInSlices<BlockRow, PropertyRow>(this.database, pass, (rows, properties) => this.graphBlocks(graph, rows, properties));
+    await pass();
+    this.graphFamilies(graph);
+    this.graph ??= { version, graph };
   }
 
   /** The graph with the blocks `ids` read again: their rows, properties and line tasks, and their places when they moved. */
   private patchGraph(old: LoadedGraph, ids: readonly string[]): LoadedGraph {
     const marks = ids.map(() => "?").join(", ");
     const rows = this.database.query(`SELECT * FROM blocks WHERE id IN (${marks})`).all(...ids) as BlockRow[];
-    const propertyRows = this.database
-      .query(`SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id IN (${marks}) ORDER BY block_id, ordinal`)
-      .all(...ids) as PropertyRow[];
+    const propertyRows = this.database.query(`SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id IN (${marks}) ORDER BY block_id, ordinal`).all(...ids) as PropertyRow[];
     const graph: LoadedGraph = {
       byId: new Map(old.byId), byParent: old.byParent, propertyRecordsByBlock: new Map(old.propertyRecordsByBlock),
       lineTasksByBlock: new Map(old.lineTasksByBlock), settledBlockRecords: new Map(old.settledBlockRecords), deletedDescendantCountByRoot: old.deletedDescendantCountByRoot,
