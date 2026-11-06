@@ -5,6 +5,8 @@
 #   one run per worktree   a lock keyed by the worktree (BOX_WT) refuses a second run while one is going there, naming
 #                          its pid, commit and age and the command that stops it; BOX_REPLACE=1 stops the old run first.
 #   a cap on runs          BOX_SLOTS flock slots; a run past the cap waits and says so.
+#   a run alone            BOX_ALONE=1 takes every slot, lowest first, so nothing else runs beside it (the nightly: its
+#                          time limits read the code, not who else was on the box; Nov 6, PIE-1600).
 #   nothing outlives it    the run is a process group of its own, killed whole on every way out (exit, INT, TERM, HUP,
 #                          the ssh that started it dying, the timeout), then anything still tied to the run dir
 #                          (its environment or working folder) is killed too and a survivor is reported.
@@ -17,7 +19,7 @@
 set -uo pipefail
 
 dir=${BOX_DIR:?} key=${BOX_WT:?} sha=${BOX_SHA:-unknown} label=${BOX_WT_LABEL:-$key}
-replace=${BOX_REPLACE:-0} slots=${BOX_SLOTS:?} max=${BOX_MAX:-7200} keep=${BOX_KEEP:-0} host=${BOX_HOST:-float-box}
+replace=${BOX_REPLACE:-0} alone=${BOX_ALONE:-0} slots=${BOX_SLOTS:?} max=${BOX_MAX:-7200} keep=${BOX_KEEP:-0} host=${BOX_HOST:-float-box}
 locks=${BOX_LOCKS:-/tmp/ep0ch-boxlocks-$(id -un)}
 case $slots$max in *[!0-9]*|"") echo "box-test: EP0CH_BOX_SLOTS and EP0CH_BOX_MAX are whole numbers" >&2; exit 2;; esac
 [ "$slots" -ge 1 ] || { echo "box-test: EP0CH_BOX_SLOTS is at least 1" >&2; exit 2; }
@@ -136,7 +138,7 @@ if ! flock -n "$wtfd"; then
     exit 3
   fi
 fi
-mine_info=
+mine_info=()
 put "$wtinfo" pid=$$ dir="$dir" sha="$sha" start="$(now)" state=waiting run=0
 echo "$$" > "$dir/pid"
 
@@ -174,7 +176,7 @@ reap() {
     fi
   fi
   if [ "$keep" = 1 ]; then touch "$dir/kept"; say "kept $host:$dir (--keep: swept after 24 hours without activity)"; else rm -rf -- "$dir"; fi
-  [ -n "$mine_info" ] && rm -f "$mine_info"
+  [ ${#mine_info[@]} -gt 0 ] && rm -f "${mine_info[@]}"
   rm -f "$wtinfo" 2>/dev/null
 }
 on_exit() { local c=$?; [ $code = 0 ] && code=$c; reap; exit $code; }
@@ -193,12 +195,18 @@ fi
 sweep
 
 # ── a slot: at most BOX_SLOTS runs at once on this machine ──
-got=0 told=0 last=0
+got=() told=0 last=0 want=1 closes=""
+[ "$alone" = 1 ] && want=$slots
 while :; do
   for i in $(seq 1 "$slots"); do
+    case " ${got[*]} " in *" $i "*) continue;; esac
     exec {sfd}>"$locks/slot-$i.lock"
-    if flock -n "$sfd"; then got=$i; break 2; fi
-    exec {sfd}>&-
+    if flock -n "$sfd"; then
+      got+=("$i") closes+=" $sfd>&-"
+      [ ${#got[@]} -ge "$want" ] && break 2
+    else
+      exec {sfd}>&-
+    fi
   done
   t=$(now)
   if [ $((t - last)) -ge 30 ] || [ $told = 0 ]; then
@@ -207,18 +215,22 @@ while :; do
       st=$(get "$locks/slot-$i.info" start)
       if [[ $st =~ ^[0-9]+$ ]]; then ahead=$((ahead + 1)); [ "$st" -lt "$oldest" ] && oldest=$st; fi
     done
-    say "waiting for a slot: $ahead run(s) ahead, oldest $(age "$oldest") (EP0CH_BOX_SLOTS=$slots)"
+    if [ "$alone" = 1 ]; then say "waiting for the box: $ahead run(s) ahead, oldest $(age "$oldest")"
+    else say "waiting for a slot: $ahead run(s) ahead, oldest $(age "$oldest") (EP0CH_BOX_SLOTS=$slots)"; fi
     told=1 last=$t
   fi
   sleep 3
 done
-mine_info=$locks/slot-$got.info
-put "$mine_info" pid=$$ start="$(now)" sha="$sha" worktree="$label"
+for i in "${got[@]}"; do
+  mine_info+=("$locks/slot-$i.info")
+  put "$locks/slot-$i.info" pid=$$ start="$(now)" sha="$sha" worktree="$label"
+done
 put "$wtinfo" pid=$$ dir="$dir" sha="$sha" start="$(now)" state=running run=0
-[ $told = 1 ] && say "got slot $got/$slots"
+[ $told = 1 ] && { [ "$alone" = 1 ] && say "got the box" || say "got slot ${got[0]}/$slots"; }
 
 # ── the run: a session of its own, under the timeout, with the lock fds closed so a survivor never holds a slot ──
-setsid timeout -k 30 "$max" bash "$dir/run.sh" </dev/null {wtfd}>&- {sfd}>&- {dirfd}>&- &
+# (eval: one close per slot held, whose numbers are known only now.)
+eval "setsid timeout -k 30 \"\$max\" bash \"\$dir/run.sh\" </dev/null {wtfd}>&- {dirfd}>&- $closes &"
 runpid=$!
 put "$wtinfo" pid=$$ dir="$dir" sha="$sha" start="$(now)" state=running run="$runpid"; echo "$runpid" > "$dir/runpid"
 wait "$runpid"; c=$?

@@ -61,7 +61,7 @@ Before a PR claims a change works:
      ep0ch-core skill). Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the
      root, the root `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`).
    - **The nightly run on main** is `scripts/nightly-main`, started by the float-box user timer `ep0ch-nightly.timer`
-     at 04:00: `box-test --each all` on origin/main's head, a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
+     at 04:00: `box-test --alone --each all` on origin/main's head (alone: it holds every slot, so its time limits read the code, not who else was on the box), a row in `~/.local/state/ep0ch/nightly/nightly.tsv`, and on red
      one high ticket in pie naming every red file.
    - **The test-time budget** (PIE-1422) is `scripts/test-budget.json`: summed seconds per package and per test file,
      read from the JUnit each box-test run writes, so more shards or `--parallel` can't hide growth. box-test prints the

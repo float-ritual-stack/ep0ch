@@ -141,6 +141,25 @@ describe("scripts/box-test limits", () => {
     expect(await c.p.exited).toBe(0);
   }, 360_000);
 
+  test("--alone waits for the runs ahead and then has the box: a run started meanwhile waits for it (PIE-1600)", async () => {
+    const a = box(worktree("wt-solo1"), "solo1");
+    await until("the first run to start", a.started);
+    const alone = box(worktree("wt-solo2"), "solo2", ["--alone"]);
+    await until("the alone run to say it waits", () => alone.text.err.includes("waiting for the box"), 120_000);
+    expect(alone.started()).toBe(false);
+    a.go();
+    expect(await a.p.exited).toBe(0);
+    await until("the alone run to start", alone.started, 120_000);
+    const later = box(worktree("wt-solo3"), "solo3");
+    await until("the later run to say it waits", () => later.text.err.includes("waiting for a slot"), 120_000);
+    expect(later.started()).toBe(false);
+    alone.go();
+    expect(await alone.p.exited).toBe(0);
+    await until("the later run to start", later.started, 120_000);
+    later.go();
+    expect(await later.p.exited).toBe(0);
+  }, 360_000);
+
   test("a killed run leaves nothing: its group, its daemon outside the group and its dir are gone", async () => {
     const r = box(worktree("wt-c"), "c1");
     await until("the run to start", r.started);
