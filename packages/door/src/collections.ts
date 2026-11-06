@@ -8,7 +8,7 @@ import type { LinkBlocksEnv } from "./links";
 import { listOpenTarget, type LinkTarget } from "./refs";
 import { ListView, PERSON, listRowsOf } from "./surface/list-view";
 import { tabStrip, type Tab } from "./surface/chip-rows";
-import { BOLD, C, fg, RESET, width as textWidth } from "./style";
+import { BOLD, C, fg, RESET, visible, width as textWidth } from "./style";
 import { rowLines } from "./text";
 
 // A changed query has no first answer yet. Keep the list and its input mounted while that answer arrives.
@@ -44,7 +44,11 @@ export function renderCollection(spec: ViewSpec, note: string | undefined, width
     return blocks?.row ? blocks.row(key, r.id, to, text, r.group) : tag?.(to, text) ?? text;
   };
   const drawing = view.draw({ primitive: answer.view, cols: Math.max(8, width - 4), focused: entered || current, selection: true, tag: row,
-    ...(blocks?.preview && Number(answer.config.body) > 0 ? { body: (row, cols) => blocks.preview!(row.id, cols, true).slice(0, Number(answer.config.body)) } : {}),
+    ...(blocks?.preview && Number(answer.config.body) > 0 ? { body: (row, cols) => {
+      const lines = blocks.preview!(row.id, cols, true);
+      return lines.slice(Math.max(0, lines.findIndex(line => visible(line).trim()))).slice(0, Number(answer.config.body));
+    } } : {}),
+    ...(blocks?.image ? { image: blocks.image } : {}),
     link: (id, text, revision) => tag?.({ block: id, role: "row", revision, figure }, text) ?? text,
     header: (by, text) => press("list.sort", { by }, text),
     lane: (lane, text) => press("list.layout", { lane }, text),

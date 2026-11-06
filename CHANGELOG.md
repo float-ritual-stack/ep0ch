@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A gallery card shows its note's header picture (PIE-1595)
+
+- **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.
+- **A feed row holds it as a thumbnail,** beside its title and body.
+- **A card's body is its words:** `body:` no longer prints a picture's line as text, and `body: 0` leaves the title and summary chips.
+
 ### Tiles stay current as their notes change, and none polls on its own (PIE-1593)
 
 - **Welcome, the brief and the screen list ask only when the host says their answer moved:** a write elsewhere asks them nothing. They were asking again on every change.

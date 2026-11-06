@@ -191,8 +191,23 @@ export const galleryText = (dir = SHOWCASE_ASSETS) => [
   "",
   "gallery::",
   "",
+  "",
   `pic:: ${dir}/evening-beds.jpg`,
+  "",
+  "## Covers from the shelf",
+  "",
+  "A ::view in gallery or feed draws each note's [layout::hero] picture as its card's cover, cropped to the card; a feed row holds it as a thumbnail. cover= names a property to read first, and body=0 keeps the card to its title and summary.",
+  "",
+  '::view{query="shelf=seed-cards" layout="gallery, feed" summary-properties="title, bed" sort="title asc" body=0} ^covers',
+  "::",
 ].join("\n");
+
+/** The shelf a `::view` draws in the gallery section (PIE-1595): each note's header picture is its card's cover. */
+export const shelfCards = (dir = SHOWCASE_ASSETS) => [
+  `Beetroot on the bench [shelf::seed-cards] [bed::north]\n\n[img::${dir}/allotment-notice.png] [layout::hero] [alt::the notice by the bench]\n\n- Sow March to July.\n- Thin to a hand apart.`,
+  `The plot at dusk, from the gate [shelf::seed-cards] [bed::south]\n\n[img::${dir}/allotment-dusk.jpg] [layout::hero] [hero-focus::0.5,0.7] [alt::the plot at dusk]\n\n- After the watering.\n- Thin to a hand apart.`,
+  `The beds, evening [shelf::seed-cards] [bed::east]\n\n[img::${dir}/evening-beds.jpg] [layout::hero] [alt::the beds in the evening]\n\n- The shed lit.\n- Thin to a hand apart.`,
+];
 
 /** The gallery's cards: made-up notes, each naming its cover picture. */
 export const galleryCards = (dir = SHOWCASE_ASSETS) => [

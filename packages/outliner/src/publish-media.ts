@@ -6,11 +6,16 @@
 // shown note names.
 //
 
-import { noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
-import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, parseMediaLine, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
+import { noteCodeFences } from "@ep0ch/outline-core/component-block";
+import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, imagePrimitiveSpec, noteMediaLines, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
 import type { ArtifactDeployState } from "@ep0ch/outline-core/artifacts";
+import { propertyPictureAt } from "@ep0ch/outline-core/picture-address";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import type { DrawnComponent } from "./publish-live";
+import type { OutlinerClient } from "./client";
+import { validatePrimitive, viewImages } from "./component-primitives";
+import type { ResourceProjectionReadResult } from "./resource-projection";
+import type { BlockReadCollection } from "./types";
 
 /**
  * Where line `line` of note `blockId` serves its image, below the page's base; with `image`, the `image`th image
@@ -22,21 +27,24 @@ export const MEDIA_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 /** `/p/<id>/artifact/<line>` (outline-core's artifactPagePath): the block and the line, or null. */
 export const ARTIFACT_PATH = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/artifact\/(\d{1,6})$/;
 
-/** The media lines of a note's text, by line (none inside a fence or a component): the door's reading of it too. */
-export function noteMediaLines(text: string): Map<number, MediaSpec> {
-  const lines = text.split("\n"), structure = noteStructure(lines), out = new Map<number, MediaSpec>();
-  let hero = false;
-  lines.forEach((line, at) => {
-    const spec = structure[at] === -1 ? parseMediaLine(line) : null;
-    if (!spec) return;
-    // The first `[layout::hero]` is the header; a later one is an image like any other, as the door reads it.
-    if (spec.layout === "hero") { if (hero) delete spec.layout; hero = true; }
-    out.set(at, spec);
-  });
-  return out;
-}
+export { fileName, noteMediaLines };
 
-export { fileName };
+/**
+ * The `image`th picture line `line` of note `blockId` draws: its component's image primitive (PIE-827), as its kept view
+ * says now; with no component there, the `image`th picture a property on that line names, a chip or a bare line (a card's `cover:`, PIE-1595).
+ */
+export async function componentImageAt(client: Pick<OutlinerClient, "request">, blockId: string, line: number, image: number): Promise<MediaSpec | undefined> {
+  try {
+    const read = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId });
+    const view = read.projections.find((projection) => projection.kind === "component" && projection.anchor.line === line)?.output?.component?.view;
+    if (view !== undefined) { const node = viewImages(validatePrimitive(view))[image]; return node ? imagePrimitiveSpec(node) : undefined; }
+    const block = (await client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
+    const path = propertyPictureAt(block?.text ?? "", line, image);
+    return path ? { kind: "img", path, problems: [] } : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);

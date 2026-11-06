@@ -1,5 +1,5 @@
 {
-  "revision": "b4ca749b446e78b4d86916a7745d2a3fac67d27e",
+  "revision": "9ecbf0e964cb9a1562340656923e0b4959f34656",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -379,7 +379,7 @@
     "packages/outliner/src/detail-controller.ts": 4671,
     "packages/outliner/src/detail-pi-preview.ts": 2420,
     "packages/outliner/src/detail-pi.ts": 2042,
-    "packages/outliner/src/publish.ts": 3381,
+    "packages/outliner/src/publish.ts": 3370,
     "packages/outliner/src/resource-catalog.ts": 4936,
     "packages/outliner/src/server.ts": 4441,
     "packages/outliner/src/store.ts": 6483,

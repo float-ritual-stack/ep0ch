@@ -36,6 +36,7 @@ import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
 import { C, drawEllipsized, fg, pad, RESET, selectedRow, width } from "./style";
+import type { ImagePrimitive } from "@ep0ch/outline-core/media-line";
 
 export { blockGroups, LINK_BLOCK_KINDS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS as DEFAULT_LINK_GROUPS, blockGroups, LINK_GROUPS as CORE_LINK_GROUPS, type LinkBlockSpec, type LinkGroupName as CoreLinkGroupName } from "@ep0ch/outline-core/link-blocks";
@@ -672,6 +673,8 @@ export interface LinkBlocksEnv {
   control?(key: string, text: string): string;
   /** Block `id` drawn `width` wide, as the reader draws an embed of it. */
   preview?(id: string, width: number, bodyOnly?: boolean): string[];
+  /** A picture on a card (its cover), drawn as the reader draws a note's picture. */
+  image?(node: ImagePrimitive, width: number): string[];
   seen?(info: ListHandle<any>): void;
 }
 /**
