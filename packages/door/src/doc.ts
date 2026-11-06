@@ -1259,7 +1259,8 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
   for (const x of said) {
     const ink = fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : x.startsWith("●") ? C.lgreen : x.startsWith("run: ") ? C.cyan : C.dark);
     // Why a repo isn't live and the command that fixes it are read whole, wrapped on a narrow card; the rest is cut.
-    const whole = deploy && /^(?:✗|●|run: )/.test(x) ? wrap(x, inner).slice(0, 4) : [ellipsize(x, inner)];
+    // A missing name's line holds the DNS records to add, so it gets the room they need.
+    const whole = deploy && /^(?:✗|●|○|run: )/.test(x) ? wrap(x, inner).slice(0, x.startsWith("○") ? 12 : 4) : [ellipsize(x, inner)];
     for (const part of whole) out.push(row(ink + part));
   }
   edge(out.length);
@@ -1275,7 +1276,9 @@ function deployLines(d: ArtifactDeployState): string[] {
     : d.state === "failed" ? `✗ deploy failed: ${d.said ?? "its last run failed"}`
     : d.state === "refused" ? `✗ ${d.said ?? "this repo can't deploy"}`
     : `○ not deployed${d.said ? `: ${d.said}` : " yet"}`;
-  return [state, ...(d.state === "failed" && d.url ? [`● still live at ${d.url}`] : []), ...(d.command && d.state !== "live" && d.state !== "deploying" ? [`run: ${d.command}`] : []), ...(d.run ? [`last run: ${d.run.title}${when}`] : [])];
+  // Live with `said`: the app answers at `url` and a name it should have is missing, with what the name needs.
+  const missing = d.state === "live" && d.said ? [`○ ${d.said}`] : [];
+  return [state, ...missing, ...(d.state === "failed" && d.url ? [`● still live at ${d.url}`] : []), ...(d.command && (d.state !== "live" || d.said) && d.state !== "deploying" ? [`run: ${d.command}`] : []), ...(d.run ? [`last run: ${d.run.title}${when}`] : [])];
 }
 
 /**

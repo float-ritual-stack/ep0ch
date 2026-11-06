@@ -15,6 +15,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
 - **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
 
+### An artifact deploy attaches its name by itself (PIE-1588)
+
+- **No hand step in Hetzner:** `ep0ch artifact deploy` adds the name through Vercel's API, appends the TXT Vercel asks for to `_vercel`, sets the CNAME, asks Vercel to verify and records the deployment.
+- **Any of your domains:** `--domain` and `[domain::]` take a label under `ep0ch.sh` or a full name. A name on Vercel's nameservers needs no TXT and no Hetzner step; one on someone else's DNS says the records to add.
+- **A missing name isn't a failed deploy:** the card reads live at the address the app answers at, says what the name still needs ("Vercel wants this DNS record: …") and the command that finishes it. Errors stopped blaming the login.
+- **Run:** `ep0ch install --apply`, then `ep0ch artifact deploy ep0ch-artifacts/<repo> --ws pie --machine float-2` for each name still waiting.
+
 ### Pictures in notes size the way you set them (PIE-1583)
 
 - **Smaller or bigger:** a picture's caption has `[-][+]`, and a key or `act` does the same. The size is saved in the note as `height=N` on an svg or mermaid fence or `[size::N%]` on an `[img::]` line, so it reopens at that size, published pages included.
