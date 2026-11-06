@@ -10,6 +10,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, ChangeFeedPage, VisibleBlockCollection } from "../src/types";
 import { asksBackfill } from "../src/asks-backfill";
+import { aboutLines, withMark } from "../extensions/asks/asks-line";
 
 const REPO_EXTENSIONS = join(import.meta.dir, "..", "extensions");
 const AGENT = { author: "agent" as const, actorId: "builder" };
@@ -92,8 +93,9 @@ test("the table: a sure ask gets a needs chip on its line, an unsure one its own
   const text = await t.marked(note.id, 2);
   const lines = text.split("\n");
   expect(lines[1]).toBe("- [ ] Should the fence be cedar or larch?");
-  expect(lines[5]).toBe("- Should the shed face south or east, Evan? [needs::sysop: Should the shed face south or east, Evan?] [asks.derived::review]");
-  expect(lines[6]).toBe("- Maybe we could move the beans, what do you think? [maybe-needs::sysop] [asks.derived::review]");
+  expect(lines[5]).toBe(withMark("- Should the shed face south or east, Evan?", "yes"));
+  expect(lines[5]).toStartWith("- Should the shed face south or east, Evan? [needs::sysop: Should the shed face south or east, Evan?] [asks.derived::");
+  expect(lines[6]).toStartWith("- Maybe we could move the beans, what do you think? [maybe-needs::sysop] [asks.derived::");
   expect(lines[7]).toBe("- Should idle plots get a cover crop?");
   expect(lines[8]).toBe("> She asked: should the shed be painted?");
   // The write is the extension's, and the waiting list reads it at its line; the maybe lane stays out of it.
@@ -111,7 +113,7 @@ test("a person's save never marks; each line is marked once, so a chip you took 
   await t.settled();
   expect(t.store.require(mine.id).text).not.toContain("asks.derived");
   // Taken off by hand, then an agent saves the note again: the same words aren't marked a second time.
-  await t.edit(note.id, text => text.replace(/ \[needs::[^\]]*\] \[asks\.derived::review\]/, ""));
+  await t.edit(note.id, text => text.replace(/ \[needs::[^\]]*\] \[asks\.derived::[^\]]*\]/, ""));
   const before = t.asked.length;
   await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
   await until("the review asked again", () => t.asked.length > before);
@@ -137,7 +139,7 @@ test("a hand-written chip is never added to or taken off; ticking takes off only
   const text = await t.marked(note.id, 1);
   expect(text).toContain("- [x] Should the shed have a window? [needs::sysop: window or not]");
   expect(text).toContain("- [x] Should the fence be cedar or larch?\n");
-  expect(text).toContain("- [ ] Should the hedge go? [needs::sysop: Should the hedge go?] [asks.derived::review]");
+  expect(text).toContain(withMark("- [ ] Should the hedge go?", "yes"));
 });
 
 test("a reply under the line clears it for a person, not an agent; lines already under it or an agent's don't count", async () => {
@@ -209,9 +211,101 @@ test("ep0ch review asks: a dry run prints and writes nothing; --write writes; a 
   expect(t.store.require(old.id).text).toBe(before);
   lines.length = 0;
   expect(await asksBackfill(board, { since: "30d", write: true }, io)).toBe(0);
-  expect(t.store.require(old.id).text).toContain("[asks.derived::review]");
+  expect(t.store.require(old.id).text).toContain("[asks.derived::");
   lines.length = 0;
   expect(await asksBackfill(board, { since: "30d", write: true }, io)).toBe(0);
   expect(lines.join("\n")).toContain("0 written");
   expect(await asksBackfill(board, { since: "soon", write: false }, io)).toBe(2);
+});
+
+// Review of #1330: each of these went wrong in a note like these.
+
+const comment = async (t: Awaited<ReturnType<typeof setup>>, id: string, quote: string | undefined, start?: number) => {
+  const fresh = t.store.require(id);
+  const at = start ?? (quote ? fresh.text.indexOf(quote) : 0);
+  await t.client.request({ action: "annotations.batch", requestId: crypto.randomUUID(), operations: [{ operationId: "o", type: "block-comment", input: { blockId: id, expectedRevision: fresh.revision, body: "Yes.", source: "user", ...(quote ? { passage: { quote, start: at } } : {}) } }] } as never);
+};
+
+test("a comment on part of one ask clears that ask alone, though its words are in another too", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\n\n- Should the shed face south?\n- Should the shed have a window?");
+  await t.marked(note.id, 2);
+  await comment(t, note.id, "shed", t.store.require(note.id).text.indexOf("the shed face") + 4);
+  const text = await t.marked(note.id, 1);
+  expect(text).toContain("- Should the shed face south?\n");
+  expect(text).toContain("- Should the shed have a window? [needs::");
+});
+
+test("a comment on a checklist item clears that item's ask, not the note's", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\nMore text.\nEven more text.\n\n- [ ] Should the shed face south? ^a1b2c3\n- [ ] Should the hedge be low?");
+  const marked = await t.marked(note.id, 2);
+  // An anchor at the end of its line stays at the end: the mark goes before it.
+  expect(marked).toContain("[asks.derived::");
+  expect(marked).toMatch(/Should the shed face south\? \[needs::[^\]]*\] \[asks\.derived::[^\]]*\] \^a1b2c3\n/);
+  // A list-item anchor is what a comment resolves to once its quote is gone.
+  const lines = marked.split("\n");
+  const about = aboutLines({ kind: "list-item", itemId: "a1b2c3" }, marked)!;
+  expect(lines.flatMap((_, i) => about(i, lines) ? [i] : [])).toEqual([6]);
+  expect(aboutLines({ kind: "dom-range" }, marked)).toBeNull();
+  const fresh = t.store.require(note.id);
+  await t.client.request({ action: "annotations.batch", requestId: "item", operations: [{ operationId: "o", type: "block-comment", input: { blockId: note.id, expectedRevision: fresh.revision, body: "South.", source: "user", passage: { quote: "shed", start: fresh.text.indexOf("the shed") + 4, itemId: "a1b2c3" } } }] } as never);
+  const text = await t.marked(note.id, 1);
+  expect(text).toContain("Should the hedge be low? [needs::");
+  expect(text).toContain("- [ ] Should the shed face south? ^a1b2c3\n");
+});
+
+test("while Evan types in that passage, the marks wait as a proposal, and the run says so", async () => {
+  const t = await setup();
+  const note = await t.write("Yard [asks::off]\n\nSome text.\n\n- Should the shed face south?");
+  const connected = Promise.withResolvers<void>();
+  const watcher = t.client.watch({
+    client: { clientId: "door", role: "observer", contextId: "door" }, onConnect: connected.resolve,
+    onEvent: async (event: { domain: string; draft?: { kind: string; requestId: string } }) => {
+      if (event.domain !== "draft" || !event.draft) return;
+      const answer = event.draft.kind === "read" ? { text: note.text, revision: note.revision } : { applied: false, reason: "the person is typing in that passage" };
+      await t.client.request({ action: "drafts.answer", requestId: event.draft.requestId, clientId: "door", answer } as never).catch(() => undefined);
+    },
+  } as never);
+  cleanups.push(() => watcher.stop());
+  await connected.promise;
+  await t.client.request({ action: "drafts.hold", blockId: note.id, clientId: "door", revision: note.revision } as never);
+  const answer = await t.client.request<{ message?: string }>({ action: "extensions.act", extension: "asks", extensionAction: "settle", blockId: note.id, mutation: AGENT } as never);
+  expect(answer.message).toContain("proposed 1");
+  expect(t.store.require(note.id).text).not.toContain("asks.derived");
+  const proposals = await t.client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=draft-proposal", limit: 5 } });
+  expect(proposals.blocks.length).toBe(1);
+}, 20_000);
+
+test("a note reaching done leaves a fenced example of a mark as written", async () => {
+  const t = await setup();
+  const example = "- An example? [needs::sysop: An example?] [asks.derived::abc123]";
+  const note = await t.write(`Yard\n\nSome text.\n\n- Should the shed face south?\n\n\`\`\`text\n${example}\n\`\`\``);
+  await t.marked(note.id, 2);
+  await t.edit(note.id, text => text.replace("Yard", "Yard [status::done]"));
+  const text = await t.marked(note.id, 1);
+  expect(text).toContain(example);
+  expect(text).toContain("- Should the shed face south?\n");
+});
+
+test("a chip is ours by more than sitting beside the mark: a chip written between doesn't move what comes off", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\nMore text.\nEven more text.\n\n- [ ] Should the shed face south?\n- [ ] Should the hedge be low?");
+  await t.marked(note.id, 2);
+  await t.edit(note.id, text => text
+    .replace(/(Should the shed face south\? \[needs::[^\]]*\]) /, "$1 [priority::high] ")
+    .replace(/(Should the hedge be low\? \[needs::[^\]]*\]) /, "$1 [needs::sysop: mine, by hand] "));
+  await t.settled();
+  await t.edit(note.id, text => text.replaceAll("- [ ] Should", "- [x] Should"));
+  const text = await t.marked(note.id, 0);
+  expect(text).toContain("- [x] Should the shed face south? [priority::high]\n");
+  expect(text).toEndWith("- [x] Should the hedge be low? [needs::sysop: mine, by hand]");
+});
+
+test("a ninth question is read too, each request to Jev at most eight lines", async () => {
+  const t = await setup();
+  const asks = Array.from({ length: 12 }, (_, i) => `- Should the shed have ${i + 1} doors?`);
+  const note = await t.write(`Yard\n\nSome text.\n\n${asks.join("\n")}`);
+  await t.marked(note.id, 12);
+  expect(Math.max(...t.asked.map(a => Object.keys(a).length))).toBeLessThanOrEqual(8);
 });

@@ -4,7 +4,7 @@ Once a note an agent wrote goes quiet, the lines in it that ask you for a decisi
 
 ```text
 - Should the shed face south or east?                         ← an agent wrote this, a minute ago
-- Should the shed face south or east? [needs::sysop: Should the shed face south or east?] [asks.derived::review]
+- Should the shed face south or east? [needs::sysop: Should the shed face south or east?] [asks.derived::1x2y3z]
                                                               ← written by ext:asks, once
 ```
 
@@ -28,10 +28,11 @@ Once a note an agent wrote goes quiet, the lines in it that ask you for a decisi
 ## Good to know
 
 - **Only after an agent's save.** A note you alone wrote is never marked, and a chip goes on a line once, however often it's saved.
-- **A chip you wrote is yours.** Only one with `[asks.derived::review]` beside it is ever taken off.
+- **A chip you wrote is yours.** Only the chip an `[asks.derived::…]` on its line names is taken off; if you edit that chip's words it's yours too.
+- **A comment answers what it's on:** the line its words are on, a checklist item's line, or, on the whole note, every mark.
 - **Left out:** comments, proposals, snapshots, views, tool bookkeeping, EchoNet copies (`[from::…]`) and notes already done.
 - **Jev can't be asked?** Nothing is written; the rule's last run says why and the next save tries again.
-- **While you're typing there,** it comes as a proposal beside the note instead.
+- **While you're typing there,** it comes as a proposal beside the note instead; dismiss it and that line isn't asked about again.
 - **What it remembers:** a `[machine::asks]` record under this page for each line it marked.
 
 ## Over past notes

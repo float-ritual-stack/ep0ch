@@ -33,6 +33,8 @@ export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS }
 export const REVIEW_SIZES = { kitRows: 3, kitProse: 400, dense: 300, denseUnit: 200, mixed: 400 };
 /** Sections a review asks Jev about, and how much of each it sends. */
 const MAX_SECTIONS = 8, MAX_SECTION = 1500, MAX_ASKS = 8;
+/** `readAsks`: how many requests of MAX_ASKS lines it has out at once. */
+const ASK_BATCHES = 4;
 
 export interface ReviewFinding {
   /** Code's rule (`stacked`, `count`, …) or Jev's judgment (`kit`, `dense`, `mixed`, `context`, `argues`, `unclear`). */
@@ -174,22 +176,29 @@ export async function askJevQuestions(state: Record<string, unknown>, questions:
  */
 export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ jev: string; lines: AskReading[] }> {
   if ((o.env ?? process.env).OUTLINER_FIGURE_FIT === "off") return { jev: "off", lines: [] };
-  const lines = text.split("\n"), candidates = askCandidates(text).slice(0, MAX_ASKS);
+  const lines = text.split("\n"), candidates = askCandidates(text);
   if (!candidates.length) return { jev: "not asked: no line may ask", lines: [] };
   try {
-    const request = reviewRequest(text, [], candidates, {}, await loadWriteReviewPrompt(o.promptDirectory), { title: false, opening: false });
-    const asked = await askJevQuestions(request.state, Object.fromEntries(Object.entries(request.questions).filter(([id]) => id.startsWith("asks::"))), { timeoutMs: 15_000, ...o });
-    if (!("answers" in asked)) return { jev: asked.unavailable, lines: [] };
-    const title = headerLine(text).line;
-    return {
-      jev: "asked",
-      lines: candidates.flatMap(i => {
-        const noul = asked.answers[`asks::L${i}`]?.noul;
-        if (!unit(noul)) return [];
-        const reads = !asksAt(lines, i, "yes") || HEADING.test(lines[i]!) || /^[ \t>]*\|/.test(lines[i]!) ? "no" as const : noul >= REVIEW_THRESHOLDS.yes ? "yes" as const : noul >= REVIEW_THRESHOLDS.no ? "unsure" as const : "no" as const;
-        return [{ line: i, text: lines[i]!, noul, reads, top: topBox(lines, i, title) }];
-      }),
-    };
+    const prompt = await loadWriteReviewPrompt(o.promptDirectory), title = headerLine(text).line;
+    const out: AskReading[] = [];
+    // Every candidate, a batch at a time: a request stays the size the write review sends, and a long note's ninth question is read.
+    for (let at = 0; at < candidates.length; at += MAX_ASKS * ASK_BATCHES) {
+      const batches = Array.from({ length: ASK_BATCHES }, (_, k) => candidates.slice(at + k * MAX_ASKS, at + (k + 1) * MAX_ASKS)).filter(batch => batch.length);
+      for (const asked of await Promise.all(batches.map(batch => {
+        const request = reviewRequest(text, [], batch, {}, prompt, { title: false, opening: false });
+        return askJevQuestions(request.state, Object.fromEntries(Object.entries(request.questions).filter(([id]) => id.startsWith("asks::"))), { timeoutMs: 15_000, ...o });
+      }))) {
+        // One batch unanswered: nothing is said, and the next settle reads the note whole.
+        if (!("answers" in asked)) return { jev: asked.unavailable, lines: [] };
+        for (const [id, answer] of Object.entries(asked.answers)) {
+          const i = Number(/^asks::L(\d+)$/.exec(id)?.[1] ?? NaN), noul = answer.noul;
+          if (!Number.isInteger(i) || !unit(noul)) continue;
+          const reads = !asksAt(lines, i, "yes") || HEADING.test(lines[i]!) || /^[ \t>]*\|/.test(lines[i]!) ? "no" as const : noul >= REVIEW_THRESHOLDS.yes ? "yes" as const : noul >= REVIEW_THRESHOLDS.no ? "unsure" as const : "no" as const;
+          out.push({ line: i, text: lines[i]!, noul, reads, top: topBox(lines, i, title) });
+        }
+      }
+    }
+    return { jev: "asked", lines: out.sort((a, b) => a.line - b.line) };
   } catch (e) {
     return { jev: `Jev: ${(e as Error).message}`, lines: [] };
   }

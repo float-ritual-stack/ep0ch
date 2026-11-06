@@ -7,7 +7,7 @@
   "run": ["bun", "asks.ts"],
   "demo": "demo",
   "actions": [
-    { "id": "settle", "label": "Mark the lines that ask for a decision", "on": "block", "effects": "write", "deadline": "60s",
+    { "id": "settle", "label": "Mark the lines that ask for a decision", "on": "block", "effects": "write", "deadline": "2m",
       "args": [{ "name": "dry", "type": "choice", "options": ["no", "yes"], "default": "no", "label": "Dry run", "description": "yes: say what it would write, and write nothing" }] },
     { "id": "clear", "label": "Take off the marks a tick, a reply or done answered", "on": "block", "effects": "write", "deadline": "30s" },
     { "id": "reply", "label": "Take off the marks a comment answered", "on": "block", "effects": "write", "deadline": "30s" }
