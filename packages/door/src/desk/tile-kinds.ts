@@ -513,6 +513,9 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
   private frame: ServiceFrame | null = null;
   private error: string | null = null;
   private asked = "";
+  private drawing = false;
+  private drawAgain = false;
+  private disposed = false;
   /** The one list its view holds, when it does: the person's pick, each agent's own, the typed filter. */
   readonly list = new ListView<ListViewRow>("service");
   private listNode: ListPrimitive | null = null;
@@ -530,10 +533,27 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
   }
   /** Ask the service again (an event, or the size changed). */
   refresh(desk: DeskApi, cols: number, rows: number) {
+    if (this.disposed) return;
     this.asked = `${cols}x${rows}`;
     this.desk = desk;
-    this.render_({ kind: this.kind, state: this.state, cols, rows, desk }).then(f => { this.frame = f; this.error = null; desk.redraw(); }, e => { this.error = e instanceof Error ? e.message : String(e); desk.redraw(); });
+    // One drawing at a time (PIE-1602): each is a worker on the service, up to its whole budget, so a change while one
+    // draws asks once more when it ends, and an older answer never lands over a newer one.
+    if (this.drawing) { this.drawAgain = true; return; }
+    this.drawing = true;
+    void this.render_({ kind: this.kind, state: this.state, cols, rows, desk })
+      .then(f => { this.frame = f; this.error = null; }, e => { this.error = e instanceof Error ? e.message : String(e); })
+      .finally(() => {
+        this.drawing = false;
+        if (this.disposed) return;
+        desk.redraw();
+        if (!this.drawAgain) return;
+        this.drawAgain = false;
+        const [c, r] = this.asked.split("x").map(Number);
+        if (c && r) this.refresh(desk, c, r);
+      });
   }
+  /** Closed: a waiting refresh is dropped, and a drawing still out asks for nothing after it (a redraw, the next drawing). */
+  dispose() { this.disposed = true; this.drawAgain = false; this.schedule.cancel(); }
   init(desk: DeskApi) { this.desk = desk; }
   /** Its args changed (the drawer's changes.open on the tab there already): the next frame asks the service again. */
   invalidate() { this.asked = ""; this.desk?.redraw(); }
@@ -549,7 +569,8 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     // Asked once, and again when the room changed for a frame drawn to fit it (lines); a view is laid out here at any
     // width, so a tile drawn at two sizes in turn (a peek beside its own frame) never asks twice for it.
     if (!this.asked || (this.asked !== `${w}x${h}` && this.frame?.view === undefined)) this.refresh(desk, w, h);
-    if (this.error) return { lines: ["", `  the service couldn't draw ${this.kind}: ${this.error}`] };
+    // Its reason reads whole however narrow the tile: a cut-off says so here (PIE-1602).
+    if (this.error) return { lines: ["", ...wrap(`the service couldn't draw ${this.kind}: ${this.error}`, Math.max(1, w - 2)).map(line => `  ${line}`)] };
     if (!this.frame) return { lines: ["", `  asking the service for ${this.kind}…`] };
     if (this.frame.view === undefined) { this.listNode = null; this.rowAt = []; return { lines: (this.frame.lines ?? []).slice(0, h) }; }
     this.listNode = null;

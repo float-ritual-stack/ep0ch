@@ -204,7 +204,8 @@ export class ScriptRuns {
     const bound = input.hidden === undefined ? undefined : bind(this.store, { ...input.site, blockId: input.blockId, hidden: input.hidden }, Date.now);
     const site = this.bind(source, { blockId: bound?.site.this?.id ?? input.blockId, line: input.line, props: { ...bound?.site.props, ...props } }, onRead, visibleId);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
+    // Past its budget, this is all its line or tile says: nothing about the script is wrong but the time it took.
+    const timer = setTimeout(() => controller.abort(new Error(`drawing took too long: it ran past its ${input.deadlineMs / 1000} s budget and was stopped`)), input.deadlineMs);
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
     try {
       const select = <B extends { id: string }>(blocks: B[], where?: string) => {
@@ -251,7 +252,7 @@ export class ScriptRuns {
       onRead(linked.moduleIds);
       const result = await runScript(linked.code, api, signal, undefined, site.globals, { jsx: isJsxLanguage(source.language), modules: linked.modules });
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
-      if (!result.ok) throw new Error(`${result.error.message}\n${RENDER_ERROR}`);
+      if (!result.ok) throw new Error(controller.signal.aborted ? result.error.message : `${result.error.message}\n${RENDER_ERROR}`);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}), ...(machinery ? { machinery: true as const } : {}) };
     } catch (error) {
