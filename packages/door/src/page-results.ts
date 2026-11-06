@@ -3,22 +3,18 @@
 // live figure go its results as Markdown, from the rows the reader draws (graphs.ts figureResults, outline-core's
 // figure-results.ts), never a question of their own.
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { figureBlockLine } from "@ep0ch/outline-core/figure-props";
 import { RESULTS_BUDGET, RESULTS_CAP, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
-import { titleLine } from "./board";
 import { figureResults, figureSource, graphKind, withFigureBoard, type FigureSource } from "./graphs";
 import { liveSettled } from "./live";
-import { metadataLines } from "./props";
 import type { SocketBoard } from "./socket";
 import { bodySite, MAX_USE_DEPTH, useRequest, type UseSite } from "./template-use";
 
 /** The `::graph-*` figures in `text` (outside code fences): each one's kind, its lines (from 0, inclusive), and its source as the reader reads it. */
 export function noteFigures(text: string, note: string): { kind: string; from: number; to: number; source: FigureSource }[] {
   const lines = text.split("\n");
-  // The note's figure block, as the reader finds it (surface/note.ts readableSource): the first line with text below
-  // the title and its property lines.
-  const start = Math.max(0, titleLine(text).line) + 1, meta = metadataLines(text, null);
-  const blockLine = lines.findIndex((l, i) => i >= start && !meta.has(i) && l.trim());
+  const blockLine = figureBlockLine(text);
   return componentBlocks(lines).flatMap(c => {
     const kind = graphKind(c);
     return kind ? [{ kind, from: c.start, to: c.end, source: figureSource(lines.slice(c.start + 1, c.end), note, c.start === blockLine, c.attrs) }] : [];

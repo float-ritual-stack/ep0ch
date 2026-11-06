@@ -467,12 +467,14 @@ test("a chip in a comment's words is told, with a code span as the fix; what a c
 
 // PIE-1608: the compare's schema says its rows' shape; a write in table shape, or with none, is told it.
 test("a graph-compare without rows it can draw is told the shape its schema says", () => {
-  const compare = (...body: string[]) => ["Beds", "", "::graph-compare", ...body, "::"].join("\n");
+  const compare = (...body: string[]) => ["Beds", "", "Raised or bags.", "", "::graph-compare", ...body, "::"].join("\n");
+  // First in its note's body, a compare draws its child notes as rows too (figureProps' block).
+  const first = (...body: string[]) => ["Beds [kind::plan]", "[stage::now]", "", "::graph-compare", ...body, "::"].join("\n");
   const said = (text: string) => writeShape(text).filter(f => f.rule === "figure-rows").map(f => f.say);
   const shape = figureRowShape("compare")!;
 
   const [table] = said(compare("---", "headers: [Thing, Raised, Bags]", "rows: [[cost, £60, £12]]", "---"));
-  expect(table).toContain("the ::graph-compare on line 3 has `headers:`, `rows:` in its YAML");
+  expect(table).toContain("the ::graph-compare on line 5 has `headers:`, `rows:` in its YAML");
   expect(table).toContain(`\`${shape.namedBy}:\``);
   expect(table).toContain(`\`${shape.row}\``);
   expect(said(compare("---", "columns: [Raised, Bags]", "---"))[0]).toContain("has no rows to draw");
@@ -480,7 +482,12 @@ test("a graph-compare without rows it can draw is told the shape its schema says
   expect(said(compare("---", "rows: [[cost, £60, £12]]", "---", "- cost: £60 | £12"))[0]).toContain("has `rows:` in its YAML");
   expect(said(compare("---", "rows: body", "---"))[0]).toContain("has no rows to draw");
 
+  expect(said(first("---", "headers: [Thing, Raised]", "rows: [[cost, £60]]", "---"))[0]).toContain("the ::graph-compare on line 4 has `headers:`, `rows:` in its YAML");
+  expect(said(first("---", "rows: body", "---"))[0]).toContain("has no rows to draw");
+
   for (const fine of [
+    first("---", "columns: [Raised, Bags]", "---"),
+    first(),
     compare("---", "columns: [Raised, Bags]", "---", "- cost: £60 | £12"),
     compare("- cost: £60 | £12"),
     compare("---", "entries: [{ label: cost, cells: [£60, £12] }]", "---"),

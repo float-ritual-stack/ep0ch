@@ -13,7 +13,7 @@ import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { figureRow } from "./figure-markdown";
-import { figureRowsProblem, figureSource, graphKind } from "./figure-props";
+import { figureBlockLine, figureRowsProblem, figureSource, graphKind } from "./figure-props";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
 import { isMediaLine } from "./media-line";
@@ -258,7 +258,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     for (const c of componentBlocks(lines)) {
       const kind = c.end > c.start ? graphKind(c) : null;
       const body = kind ? lines.slice(c.start + 1, c.end) : [];
-      const problem = kind && figureRowsProblem(kind, figureSource(body));
+      const problem = kind && figureRowsProblem(kind, figureSource(body, undefined, c.start === figureBlockLine(text)));
       if (problem) found.push({ rule: "figure-rows", key: `figure-rows:${c.name}:${excerpt(body.join(" "), 40)}`, line: c.start + 1, say: `the ::${c.name} on line ${c.start + 1} ${problem}` });
     }
 

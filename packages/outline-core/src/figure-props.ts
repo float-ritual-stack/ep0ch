@@ -16,6 +16,8 @@ import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
 import { pageLinkRanges } from "./link-syntax";
 import { closest } from "./tool-args";
 import { headerLine } from "./header-line";
+import { metadataLines } from "./block-tags";
+import { noteTitleLine } from "./property-parse";
 import type { SiteLink } from "./site";
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
@@ -47,6 +49,12 @@ export interface FigureSource {
   chain?: SiteLink[];
   /** The props of the call that draws it (a `::use`'s, `props.*` in the figure's Site), under its own call-site args. */
   props?: Record<string, string[]>;
+}
+
+/** The line of a note's figure block, as the reader finds it: the first line with text below the title and its property lines (-1: none). */
+export function figureBlockLine(text: string): number {
+  const start = Math.max(0, noteTitleLine(text).line) + 1, meta = metadataLines(text, null);
+  return text.split("\n").findIndex((l, i) => i >= start && !meta.has(i) && l.trim());
 }
 
 /** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */
@@ -120,7 +128,8 @@ export const figureRowShape = (kind: string) => FIGURE_COMPONENT_SCHEMAS.find(s 
 /**
  * What's wrong with a figure's rows, for a figure whose schema says their shape (PIE-1608): none it can draw, or a YAML
  * `rows:` it never reads (graph-table's form, which looks alike), with the shape to write. null when they're fine, and
- * for `rows: children`, whose rows the text alone can't tell.
+ * when its rows may be child notes the text alone can't tell: `rows: children`, or the note's figure block (`src.block`,
+ * as figureProps reads them) with nothing wrong in its YAML.
  */
 export function figureRowsProblem(kind: string, src: FigureSource): string | null {
   const shape = figureRowShape(kind);
@@ -131,6 +140,7 @@ export function figureRowsProblem(kind: string, src: FigureSource): string | nul
   if (!inYaml && (parseFigureMarkdown(src.markdown ?? []).rows.length || figureItemCount(kind, yaml))) return null;
   const known = figureKeys(kind);
   const foreign = Object.keys(yaml).filter(key => key === "rows" ? inYaml : !known.includes(key)).map(key => `\`${key}:\``);
+  if (!foreign.length && src.block && yaml.rows !== "body") return null;
   return `${foreign.length ? `has ${foreign.join(", ")} in its YAML, which it doesn't draw` : "has no rows to draw"}: write \`${shape.namedBy}:\` in the YAML and one \`${shape.row}\` per row after the closing \`---\``;
 }
 
