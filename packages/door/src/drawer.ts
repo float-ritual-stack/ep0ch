@@ -1,5 +1,5 @@
-import { keysThrough } from "./desk/undo-across";
-import { DoorKeys, wayOut, type WayOut } from "./desk/keys-fact";
+import { DoorKeys, keysThrough, wayOut, type WayOut } from "./desk/keys-fact";
+import { StepRecord } from "./desk/step-record";
 import type { Reveal } from "./reveal";
 // One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
 // Quiet focus enters a glass tile without opening or rearranging the drawer.
@@ -114,6 +114,8 @@ export class AgentDrawer {
   private layer: LayoutState<string>;
   /** Who has the person's keys, the door's one record (desk/keys-fact.ts): written where they move here, read by everyone. */
   readonly keysFact = new DoorKeys<Desk["lifted"]>(HOST_SCREEN);
+  /** The door's steps (desk/step-record.ts): every desk's in one order, what ctrl+z takes back. */
+  readonly steps = new StepRecord<Desk>();
   /** Where they are in the host layer: the screen slot, or the agent (the module's answer each time). */
   private get keys(): string { return this.keysFact.host; }
   /** Who pulled it up, when that was an agent (said in the drawer's title until the person uses it). */
@@ -206,7 +208,7 @@ export class AgentDrawer {
     const first = made ? this.firstTab : null;
     const firstPane = first ? d.pane(String(first.name)) : undefined;
     const done = first && firstPane instanceof PtyPane && firstPane.run.cmd.join(" ") === prog.cmd.join(" ") ? first : this.agentTab(d, actor, prog);
-    if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
+    if (person) this.keysInto(done.tile, actor);
     else { const pane = d.pane(done.tile) ?? d.pane(String(done.name)); if (pane instanceof PtyPane) pane.startNow(...this.termSize()); }
     this.host.redraw();
     return done;
@@ -287,7 +289,7 @@ export class AgentDrawer {
     // Pulled up for a shell: the picker isn't offered over it (alt+g is the way to it).
     if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const done = await d.openTile({ kind: "pty", cmd: shellQuote(process.env.SHELL || "sh"), cwd: this.prog.cwd }, this.tabBase(), "tabs", actor);
-    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
+    if (this.ctx(actor).standing) this.keysInto(done.tile, actor);
     this.host.redraw();
     return done;
   }
@@ -302,7 +304,7 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === WAITING_YOU_KIND_NAME)?.name ?? (await d.openTile({ kind: WAITING_YOU_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
-    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
+    if (this.ctx(actor).standing) this.keysInto(tile, actor);
     this.host.redraw();
     return { tile, waiting: waitingOnYou(this).length + (this.host.ctx?.()?.heldAsks?.count() ?? 0) + (this.host.ctx?.()?.waitingAsks?.count() ?? 0) };
   }
@@ -316,7 +318,7 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === ACCESS_MATRIX_KIND_NAME)?.name ?? (await d.openTile({ kind: ACCESS_MATRIX_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
-    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
+    if (this.ctx(actor).standing) this.keysInto(tile, actor);
     this.host.redraw();
     return { tile };
   }
@@ -346,7 +348,7 @@ export class AgentDrawer {
     const changed = store.count();
     if (person) {
       if (actor.kind === "user") store.markSeen();
-      this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown();
+      this.keysInto(tile, actor);
     }
     this.host.redraw();
     return { tile, changed, seen: person && actor.kind === "user" };
@@ -531,7 +533,7 @@ export class AgentDrawer {
     p.run.cmd = cmd;
     p.run.session = { program, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}) };
     p.startNow(...this.termSize());
-    if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
+    if (person) this.keysInto(done.tile, actor);
     this.host.redraw();
     return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, name: done.name };
   }
@@ -641,7 +643,7 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === AGENTS_KIND_NAME)?.name ?? (await d.openTile({ kind: AGENTS_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
-    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
+    if (this.ctx(actor).standing) this.keysInto(tile, actor);
     this.host.redraw();
     const answer = d.tileInfo(tile);
     return { tile: answer.tile, name: answer.name, sessions: this.sessions().length };
@@ -996,7 +998,7 @@ export class AgentDrawer {
   set(open: boolean, actor: Actor) {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
     if (open && this.open && !this.ctx(actor).standing) return;
-    if (this.ctx(actor).standing) { this.restoreGlassKeys(); this.pulledUpBy = null; }   // a toggle of the person's: the drawer is theirs now, no carry's to put down
+    if (this.ctx(actor).standing) { this.restoreGlassKeys(); this.steps.drawerTaken(); }   // a toggle of the person's: the drawer is theirs now, no carry's to put down
     this.strip = false;
     if (open) void this.desk;
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
@@ -1011,6 +1013,8 @@ export class AgentDrawer {
   }
   private offered = false;
 
+  /** The person's keys go into drawer tile `tile`: the layer's, the tile's, and a terminal there takes them. */
+  private keysInto(tile: string, actor: Actor) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.desk!.focusTile(tile, actor); this.intoShown(); }
   /** The person's keys go into the tab the drawer shows: a terminal there takes them (its program types), as tile.enter does. */
   private intoShown(send?: string) {
     const d = this.desk, t = this.shownTabOf();
@@ -1043,20 +1047,17 @@ export class AgentDrawer {
    * person's drawer pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
    * the one shown and leaves the drawer and the keys as they are.
    */
-  /** The carry that pulled the drawer up with it: its undo puts the drawer down again (`carriesUndone`). */
-  private pulledUpBy: string | null = null;
   /**
    * An undo took back the carries `txns` (PIE-1574). The keys stay where they are unless their tile `keys` moved off the desk
    * `from` they were on: they go with it, a group's tile included. A drawer a carry pulled up goes down, unless the keys are still in it.
    */
   carriesUndone(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void {
-    const pulled = this.pulledUpBy !== null && txns.has(this.pulledUpBy), screen = tilesOf(this.host.screen?.()), d = this.d;
+    const pulled = this.steps.pullBack(txns), screen = tilesOf(this.host.screen?.()), d = this.d;
     if (keys && !from?.nameOfPane(keys)) {
       if (screen?.descend().some(x => x.nameOfPane(keys))) { if (this.entered) this.leave(this.host.screen?.(), false); keysThrough(screen, keys, USER); }
       else if (d) { const top = keysThrough(d, keys, USER); if (top) this.goTo(top, USER); }
     }
     if (pulled && this.open && !this.entered) { this.set(false, USER); this.save(); }
-    if (pulled) this.pulledUpBy = null;
   }
   /**
    * Why tile `name` of screen `from` can't go into the drawer (there, if `to`/`where` say where), or null: the screen
@@ -1081,8 +1082,8 @@ export class AgentDrawer {
     if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along when they were in it (the carry's one rule), or when asked.
       d.focusTile(done.tile, actor);
-      if (!this.open && this.mode !== "none" && !keep) { this.do({ op: "slide", tile: HOST_TILES, open: true }, actor); this.pulledUpBy = d.history.newest()?.txn ?? null; }
-      if ((followed || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); if (moved.typing) this.intoShown(); }
+      if (!this.open && this.mode !== "none" && !keep) { this.do({ op: "slide", tile: HOST_TILES, open: true }, actor); this.steps.pulledDrawer(d.history.newest()?.txn); }
+      if ((followed || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); if (moved.typing) this.intoShown(); }   // the desk's keys followed in the carry; this is the layer's
       this.save();
     }
     this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
@@ -1144,7 +1145,7 @@ export class AgentDrawer {
     if (glass) { this.keysFact.outOfGlass(); this.capture = null; }
     const { keys, moved: _moved, ...done } = d.carry(screen, name, { to, where }, actor);
     // The person's keys were in it in the drawer (or on the glass): they go with it, back on the screen.
-    if ((keys || glass) && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
+    if ((keys || glass) && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); if (glass) screen.focusTile(done.tile, actor); }
     this.host.redraw();
     return { ...done, inDrawer: false, into: screen.title };
   }

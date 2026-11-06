@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { LayoutHistory } from "../src/desk/layout-history";
+import { StepRecord } from "../src/desk/step-record";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { INVITES } from "../src/surface/invite";
@@ -27,7 +27,7 @@ const spec = (n: number) => ({ root: { t: "leaf", kind: "blank", name: `t${n}` }
 
 describe("the layout history", () => {
   test("a transaction's steps are one entry, a drag's resizes are one, and an idle transaction is found", () => {
-    const h = new LayoutHistory();
+    const h = new StepRecord().of({});
     h.join("run-1", AGENT, spec(0), 1000);
     h.record(spec(0), AGENT, "close", 1000, "run-1");
     h.record(spec(1), AGENT, "float", 1100, "run-1");

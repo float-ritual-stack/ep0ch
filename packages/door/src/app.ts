@@ -66,6 +66,7 @@ import { type ResolveOpts } from "./desk/tile-address";
 import { layerOrder, type HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { DoorKeys } from "./desk/keys-fact";
+import type { StepRecord } from "./desk/step-record";
 import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
@@ -124,6 +125,8 @@ export interface HostLayer {
   isDrawer(d: unknown): boolean;
   /** Who has the person's keys: the door's one record (desk/keys-fact.ts). */
   readonly keysFact: DoorKeys;
+  /** The door's steps, what ctrl+z takes back: one record (desk/step-record.ts). */
+  readonly steps: StepRecord<Desk>;
   carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void;   // an undo took back these carries, the person's keys on `keys` in `from` before it (PIE-1574)
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. `everyDesk`: every screen's too, shown or not, and the background's (PIE-1280: a program's tile is found wherever it runs). */
   desks(): Desk[]; everyDesk?(): Desk[];

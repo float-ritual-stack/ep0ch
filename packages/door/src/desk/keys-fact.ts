@@ -3,7 +3,9 @@
 // holds: the host layer's answer, the drawer's lift or glass the person went into, a terminal they went into on each desk
 // and the last ctrl+]. A desk's focus is the layout's own answer (`Desk.commit`), which tile keys come back to, kept there.
 // `wayOut` is the one rule for what ctrl+] does now: it steps out one mode at a time, innermost first.
+import type { Pane } from "./panes";
 import type { PtyPane } from "./pty";
+import type { Actor } from "../socket";
 
 /** How soon a second ctrl+] counts as the second of two: it goes to the program left, or back into the drawer left. */
 export const CHORD_MS = 1500;
@@ -85,4 +87,16 @@ export class DoorKeys<Lift = unknown> {
   justPassed(now = Date.now()): boolean { const c = this.chord; return !!c && "passed" in c && now - c.at < CHORD_MS; }
   /** A second ctrl+] now goes back into the drawer just left. */
   justLeftDrawer(now = Date.now()): boolean { const c = this.chord; return !!c && "drawer" in c && now - c.at < CHORD_MS; }
+}
+
+/** The keys to `p` wherever under `root` it is, a group's tile included: focused here and each mount around it. The outermost tile, or null when `root` doesn't hold it. */
+export function keysThrough<D extends { descend(): D[]; nameOfPane(p: Pane): string; focusPane(p: Pane, actor: Actor): void; holder: { tile: Pane; desk(): D | null } | null }>(root: D, p: Pane, actor: Actor): Pane | null {
+  let d = root.descend().find(x => x.nameOfPane(p)), top = p;
+  if (!d) return null;
+  for (;;) {
+    d.focusPane(top, actor);
+    const up: D | null | undefined = d.holder?.desk();
+    if (!up) return top;
+    top = d.holder!.tile; d = up;
+  }
 }
