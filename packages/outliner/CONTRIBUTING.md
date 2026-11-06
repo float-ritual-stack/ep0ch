@@ -465,10 +465,10 @@ One host serves every client of every outline on one event loop, and a client gi
   does after a wait is named from the stall itself (`<action> after a wait`, PIE-1567): what's left after the named work
   is shared among the requests waiting then.
 - A restart (PIE-1610): `warmRecent` in `outline-host.ts` opens what was written in the last three days as soon as the
-  host listens, one outline at a time, its graph read, its extensions' pages written and a door's first asks asked once
-  (`warmReads`, `outline-warm.ts`), each next outline after the doors already in have been answered (`quiet`). A request for an outline
-  waits for that outline; an extension's own process goes straight through. The log says `Outline "pie" warmed in N ms`;
-  a new thing every door asks first and is slow only once goes in `warmReads`.
+  host listens, one outline at a time, one somebody is waiting for first, each next one after the doors already in have
+  been answered (`quiet`). A warm is the open, the graph, the extensions' pages and a door's first asks asked once
+  (`outline-warm.ts`: a new thing every door asks first and is slow only once goes there). A request for an outline waits
+  for its warm, at most 6 s. The log says `Outline "pie" warmed in N ms`; `queuedMs` doesn't count that wait.
 - A question that names keys is answered through the property index (`queryCandidates` in `graph-questions.ts`, outline-core's
   `propertyCandidates`): only the blocks carrying them are asked, in the outline's order (`liveOrder`, once per graph), with no walk.
   A new query atom that holds for a block by its properties says so there; left out, the question walks every note, as before.

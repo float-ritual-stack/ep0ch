@@ -1,6 +1,6 @@
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
-import { warmReads } from "./outline-warm";
+import { warmHolds, warmReads } from "./outline-warm";
 import { LokiLeases } from "./loki-leases";
 import { UploadTokens } from "./upload-tokens";
 import { SHORTCUT_NAME } from "./send-to-ep0ch-shortcut";
@@ -74,8 +74,9 @@ export interface HostedOutline {
 
 /** How lately an outline was written for a restart to open it unasked. */
 const WARM_RECENT_MS = 3 * 24 * 60 * 60 * 1000;
-const WARM_SETTLE_MS = 5_000;
-const WARM_QUIET_MS = 2_000;
+const WARM_SETTLE_MS = 2_000;
+const WARM_QUIET_MS = 500;
+const WARM_WAIT_MS = 6_000;
 
 export interface OutlineHostOptions {
   /** The outlines folder (`resolveOutlinesFolder`). */
@@ -220,8 +221,9 @@ export class OutlineHost {
   private readonly relayProtocols = new Map<string, { protocol: number; at: number }>();
   private readonly opened = new Map<string, HostedOutline>();
   private readonly opening = new Map<string, Promise<HostedOutline>>();
-  /** What `warmRecent` hasn't finished: a request for one waits here. */
-  private readonly warming = new Map<string, Promise<void>>();
+  /** What `warmRecent` hasn't finished, and which of them a request has asked for. */
+  private readonly warming = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>();
+  private readonly warmAsked = new Set<string>();
   /** Outlines whose files are being moved away or written; they must not open meanwhile. */
   private readonly busy = new Set<string>();
   private readonly connections = new Set<Socket>();
@@ -292,26 +294,62 @@ export class OutlineHost {
 
   /**
    * A restart (PIE-1610): doors reconnect at once, every one asking whole-outline questions of every cold outline, each
-   * open holding the loop while the rest wait (float-2, Nov 6: 16 s). So what was in use is opened now, one at a time,
-   * its graph read and its extensions' pages written; a request for one waits for that
-   * outline (`warming`, in `route`), and for no other. An extension's own process goes straight through, since the wait
-   * may be for its answer. One outline's failure is that outline's: its first request says why, as ever.
+   * open holding the loop while the rest wait (float-2, Nov 6: 16 s). So what was in use is opened now, one at a time, an
+   * outline someone is waiting for first: its open, graph, extensions' pages and a door's first asks (`outline-warm.ts`). A
+   * request for one waits for that (`warmGate`, from `route` and link reads), never past WARM_WAIT_MS, and then it opens
+   * cold as ever. A door waits well: it says it's reconnecting until `events.subscribe` answers, with no timeout, and reads
+   * after that. An extension's own process goes straight through. One outline's failure is that outline's: its first
+   * request says why, as ever.
    */
   private warmRecent(): void {
-    const names = this.recentNames();
-    let turn = Promise.resolve();
-    for (const name of names) {
-      const done = turn.then(() => this.warm(name)).catch(error => {
-        this.log(`Outline "${name}" did not warm: ${error instanceof Error ? error.message : String(error)}`);
-      }).finally(() => { this.warming.delete(name); });
-      this.warming.set(name, done);
-      turn = done.then(() => this.quiet());
+    const queue = this.recentNames();
+    for (const name of queue) this.warming.set(name, Promise.withResolvers<void>());
+    void (async () => {
+      while (queue.length && !this.closing) {
+        const at = Math.max(0, queue.findIndex(name => this.warmAsked.has(name)));
+        const name = queue.splice(at, 1)[0]!;
+        await this.warm(name).catch(error => {
+          this.log(`Outline "${name}" did not warm: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        await this.quiet();
+      }
+      for (const [name, gate] of this.warming) { this.warming.delete(name); gate.resolve(); }
+    })();
+  }
+
+  /** Waits for an outline `warmRecent` hasn't finished, for a while. */
+  private async warmGate(name: string): Promise<void> {
+    const gate = this.warming.get(name);
+    if (!gate) return;
+    this.warmAsked.add(name);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([gate.promise, new Promise<void>(resolve => { timer = setTimeout(resolve, WARM_WAIT_MS); })]);
+    clearTimeout(timer);
+  }
+
+  private async warm(name: string): Promise<void> {
+    if (this.closing) return;
+    const started = performance.now();
+    let outline: HostedOutline, settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      outline = await this.open(name);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      warmHolds(name, outline.store);
+      // Bounded: a resource provider that hangs must not keep doors out, nor hold the next outline's turn.
+      settled = await Promise.race([outline.settled.then(() => true), new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), WARM_SETTLE_MS); })]);
+      clearTimeout(timer);
+      if (settled) await warmReads(name, outline.store, outline.server.own.request);
+    } finally {
+      this.warming.get(name)?.resolve();
+      this.warming.delete(name);
     }
+    this.log(`Outline "${name}" warmed in ${Math.round(performance.now() - started)} ms${settled ? "" : " (stopped waiting for its extensions)"}`);
   }
 
   /**
    * Doors that got in first have their burst answered before the next outline's open holds the loop: requests take one
-   * turn a pass, so a hold every pass keeps them queued however short it is. Not for long: that outline's doors are waiting too.
+   * turn a pass, so a hold every pass keeps them queued however short it is. Not for long: the next outline's doors are waiting too.
    */
   private async quiet(): Promise<void> {
     const until = performance.now() + WARM_QUIET_MS;
@@ -320,17 +358,6 @@ export class OutlineHost {
       await new Promise<void>(resolve => setTimeout(resolve, 25));
       still = [...this.opened.values()].some(outline => outline.server.turns.waiting) ? 0 : still + 1;
     }
-  }
-
-  private async warm(name: string): Promise<void> {
-    if (this.closing) return;
-    const started = performance.now();
-    const outline = await this.open(name);
-    // Bounded: a resource provider that hangs must not keep doors out. Whatever it was still doing ends without them.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([outline.settled.then(() => warmReads(name, outline.store, outline.server.own.request)), new Promise<void>(resolve => { timer = setTimeout(resolve, WARM_SETTLE_MS); })]);
-    clearTimeout(timer);
-    this.log(`Outline "${name}" warmed in ${Math.round(performance.now() - started)} ms`);
   }
 
   async close(): Promise<void> {
@@ -776,7 +803,7 @@ export class OutlineHost {
         }
         return undefined;
       });
-      server.setLinkReader(request => (this.links ??= new OutlineLinks(() => this.names(), async name => { await this.warming.get(name); return (await this.open(name)).store; }, this.outlinesFolder)).read(name, request));
+      server.setLinkReader(request => (this.links ??= new OutlineLinks(() => this.names(), async name => { await this.warmGate(name); return (await this.open(name)).store; }, this.outlinesFolder)).read(name, request));
       const settled = server.startHosted();
       if (this.closing) throw new Error("The outline host is stopping");
       const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server, settled };
@@ -938,7 +965,7 @@ export class OutlineHost {
       fail(new Error("Name the outline: every request to the outline host carries `outline: <name>` (see `ep0ch outline list`)"));
       return;
     }
-    if (request?.grant === undefined && request?.relayed === undefined) await this.warming.get(name);
+    if (request?.grant === undefined && request?.relayed === undefined) await this.warmGate(name);
     let outline: HostedOutline;
     try {
       outline = await this.open(name);

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
+import { makeOutline } from "../scripts/host-bench/fixture";
 import { OutlinerStore } from "../src/store";
 import { ShareSessions } from "../src/share-sessions";
 
@@ -23,6 +24,7 @@ function garden(store: OutlinerStore) {
   store.create("Pond [type::Pond] [tags::water, soil] [season::Été]");
   store.create("Quiet one [machine::record] [type::bed]");
   store.create("Plain note about the bed, no chips");
+  store.create("Long bed [kind::raised bed] [kinds::[raised bed, low bed]]");
   const trashed = store.create("Trashed bed [type::bed]");
   store.delete(trashed.id);
   const window = store.create("Window box [due::2031-03-01..2031-03-09] [type::box]");
@@ -41,7 +43,7 @@ test("a question through the property index holds the same notes, in the same or
     const questions = [
       "type=bed", "type=BED", "type=raised", "type=project OR type=box", "type=bed AND cost > 20", "cost < 20 OR owner=Moss",
       "area=north/*", "area=north", "due=2031-03-05", "due=2031-03-04", "due <= 2031-03-04", "needs", "tag=soil", "tag=water",
-      "season=été", "season=ÉTÉ", "type=bed NOT work-stage=done", "(needs NOT work-stage=done) OR type=box", "owner=moss type=project", "nosuchkey", "type=nosuchvalue", "revision >= 2", "type=bed revision >= 1",
+      "season=été", "season=ÉTÉ", "type=bed NOT work-stage=done", "(needs NOT work-stage=done) OR type=box", "owner=moss type=project", "kind=\"raised bed\"", "kinds=\"low bed\"", "KIND=\"RAISED BED\"", "nosuchkey", "type=nosuchvalue", "revision >= 2", "type=bed revision >= 1",
     ];
     for (const scope of ["block", "all"] as const) for (const where of questions) {
       const through = store.queryBlocks({ where, propertyScope: scope, limit: 100 }).blocks;
@@ -147,6 +149,29 @@ test("a restart opens what was written lately, a door's first answer waits for i
     // Asked for, the old one opens as ever.
     await client("attic").request({ action: "ping" } as never);
     expect(await opened()).toContain("attic");
+  } finally { await host.close(); done(); }
+});
+
+test("the outline a door is waiting for warms next, ahead of the rest of the line", async () => {
+  const { root, done } = scratch("warm-order");
+  const outlines = join(root, "o");
+  mkdirSync(join(outlines, "orchard"), { recursive: true });
+  makeOutline(join(outlines, "orchard.sqlite"), join(outlines, "orchard"), "small");
+  for (const name of ["pond", "shed"]) {
+    const store = new OutlinerStore(join(outlines, `${name}.sqlite`), { workspaceRoot: join(outlines, name) });
+    store.create(`A note in ${name}`);
+    store.close();
+  }
+  // The big one is first in line, whichever was written last.
+  const hour = new Date(Date.now() - 60 * 60 * 1000);
+  for (const name of ["pond", "shed"]) utimesSync(join(outlines, `${name}.sqlite`), hour, hour);
+  const logged: string[] = [];
+  const host = new OutlineHost({ outlinesFolder: outlines, warmRecent: true, log: line => logged.push(line) });
+  await host.start();
+  try {
+    await new OutlinerClient(host.socketPath, 30_000, "shed").request({ action: "ping" } as never);
+    // Asked while the big one was warming: shed went ahead of pond.
+    expect(logged.filter(line => line.includes('"pond" warmed'))).toEqual([]);
   } finally { await host.close(); done(); }
 });
 

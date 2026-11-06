@@ -3799,20 +3799,26 @@ export class OutlinerStore {
     // is current until a write (its deps, `anyChange`) or the minute turns (`clock`).
     const checked = `${this.sequence}:${(this.database.query("PRAGMA data_version").get() as { data_version: number }).data_version}:${Math.floor(Date.now() / 60_000)}`;
     if (this.valueReferencesChecked === checked) return;
-    this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id));
-    for (const id of this.valueReferenceIds) {
-      const block = this.get(id);
-      if (!block) { this.valueReferences.delete(id); this.valueReferenceIds.delete(id); continue; }
-      // A note in Trash links nowhere and is never answered; a restore reads it again.
-      if (block.effectiveDeletedRootId) { this.valueReferences.delete(id); continue; }
-      const cached = this.valueReferences.get(id);
-      if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
-      const answer = answerSite(this, { blockId: id });
-      replaceReferenceIndex(this.database, id, block.text, answer.values);
-      this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
-    }
+    for (const id of this.valueReferenceNotes()) this.refreshValueReference(id);
     // Marked once the pass is done: an answer that reads backlinks asks again inside it, and must meet the cycle there.
     this.valueReferencesChecked = checked;
+  }
+
+  private valueReferenceNotes(): Set<string> { return this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id)); }
+
+  /** A host warming an outline: the first pass over its value-reading notes, a pass of the loop between each (PIE-1610). */
+  async warmValueReferences(pass: () => Promise<void>): Promise<void> { for (const id of [...this.valueReferenceNotes()]) { this.refreshValueReference(id); await pass(); } }
+
+  private refreshValueReference(id: string): void {
+    const block = this.get(id);
+    if (!block) { this.valueReferences.delete(id); this.valueReferenceIds?.delete(id); return; }
+    // A note in Trash links nowhere and is never answered; a restore reads it again.
+    if (block.effectiveDeletedRootId) { this.valueReferences.delete(id); return; }
+    const cached = this.valueReferences.get(id);
+    if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) return;
+    const answer = answerSite(this, { blockId: id });
+    replaceReferenceIndex(this.database, id, block.text, answer.values);
+    this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
   }
 
   referenceValues(id: string) {
@@ -5780,9 +5786,7 @@ export class OutlinerStore {
   private requireCaptureInboxFromCurrentRead(): Block {
     const inboxes = this.captureInboxesFromCurrentRead();
     if (inboxes.length !== 1) {
-      throw new Error(
-        `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
-      );
+      throw new Error(`Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`);
     }
     return inboxes[0]!;
   }
@@ -5790,9 +5794,7 @@ export class OutlinerStore {
   private ensureInbox(): void {
     const inboxes = this.database.transaction(() => this.captureInboxesFromCurrentRead()).deferred();
     if (inboxes.length > 1) {
-      throw new Error(
-        `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
-      );
+      throw new Error(`Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`);
     }
     if (inboxes.length === 1) return;
     this.create("Inbox [type::inbox] [system-view::inbox]", null, "system");
@@ -5883,11 +5885,7 @@ export class OutlinerStore {
     return row ? row.block_id : undefined;
   }
 
-  private canonicalWorkIdReservationsFromCurrentRead(): Array<{
-    workId: string;
-    prefix: string;
-    number: number;
-  }> {
+  private canonicalWorkIdReservationsFromCurrentRead(): Array<{ workId: string; prefix: string; number: number }> {
     // Every read that resolves a reference asks: one read per change, as the prefixes (PIE-1610).
     const held = this.reservationsHeld, key = this.changeKey();
     if (held?.key === key) return held.reservations;

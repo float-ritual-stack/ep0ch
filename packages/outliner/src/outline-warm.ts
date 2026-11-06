@@ -9,12 +9,16 @@ import { seedMachinery } from "./watch-machinery";
 
 const pass = () => new Promise<void>(resolve => setImmediate(resolve));
 
-export async function warmReads(name: string, store: OutlinerStore, ask: (request: { action: string } & Record<string, unknown>) => Promise<unknown>): Promise<void> {
+/** The holds every door would meet at once. */
+export function warmHolds(name: string, store: OutlinerStore): void {
   heldBy(`open ${name}: graph`, () => store.liveBlocks());
-  await pass();
   heldBy(`open ${name}: waiting`, () => { waitingAsks(store); seedMachinery(store); });
+}
+
+export async function warmReads(name: string, store: OutlinerStore, ask: (request: { action: string } & Record<string, unknown>) => Promise<unknown>): Promise<void> {
   const newest = (store.database.query("SELECT id FROM blocks WHERE effective_deleted_root_id IS NULL ORDER BY updated_at DESC LIMIT 1").get() as { id: string } | null)?.id;
   if (!newest) return;
+  await store.warmValueReferences(pass);
   await pass();
   heldBy(`open ${name}: links`, () => {
     store.queryBacklinks({ targetBlockId: newest, limit: 20 });
