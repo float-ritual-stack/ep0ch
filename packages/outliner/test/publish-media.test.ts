@@ -105,6 +105,59 @@ test("an extension view's image primitive (PIE-827) is the page's image: served 
   expect(store.get(note.id)?.text).toBe("Moth cards [publish::public:moth-cards]\ngallery::");
 }, 30_000);
 
+test("a ::view card's cover is its note's header picture, served from that note, cropped by the page; body 0 leaves the title and chips (PIE-1595)", async () => {
+  const { store, get, elsewhere } = await setup();
+  const note = store.create([
+    "Moth shelf [publish::public:moth-shelf]", "",
+    '::view{query="shelf=moths" layout="gallery, feed" body=0 sort="title asc"} ^moths', "::", "",
+    '::view{query="shelf=named" layout="feed" cover=photo body=2} ^named', "::",
+  ].join("\n"));
+  const luna = store.create("Luna [shelf::moths]\n\n[img::images/luna-moth.png] [layout::hero] [hero-focus::0.25,0.75] [alt::Luna on the sheet]\n\n- A bullet of notes", note.id);
+  store.create(`Stray [shelf::moths]\n\n[img::${join(elsewhere, "private.png")}] [layout::hero]`, note.id);
+  store.create("Plain [shelf::moths]\n\n- No picture here", note.id);
+  const named = store.create("Named [shelf::named] [photo::images/luna-moth.png]\n\n- Words of the note", note.id);
+  const words = store.create("Worded [shelf::named] [photo::the white sheet]\n\n- Other words", note.id);
+  const summed = store.create("Summed [shelf::named] [photo::plant in spring]\n\n[img::images/luna-moth.png] [layout::hero]", note.id);
+  const bare = store.create("Bare [shelf::named]\nphoto:: images/luna-moth.png\n\n- More words", note.id);
+  const html = await (await get("/p/moth-shelf?view=html")).text();
+  // The gallery: cropped by the page around the line's focus, with no caption.
+  expect(html).toContain(`<div class="ext-cover"><figure class="media media-left"><img src="/p/${luna.id}/media/2" alt="Luna on the sheet"`);
+  expect(html).toContain("object-position:25% 75%");
+  expect(html).not.toContain("<figcaption>Luna on the sheet");
+  expect(html).toContain(".ext-cover img");
+  expect(html).toContain('class="ext-collection-grid"');
+  // body=0: nothing of the note's body, and never the source of the picture's line (the page's own subtree is below the views).
+  const gallery = html.slice(html.indexOf('class="ext-collection-grid"'), html.indexOf('class="ext-collection-rows"'));
+  expect(gallery).toContain(">Luna<");
+  expect(gallery).not.toContain("A bullet of notes");
+  expect(gallery).not.toContain("No picture here");
+  expect(gallery).not.toContain("[img::");
+  // A file outside the publish roots: words and its file's name, never its path, never served.
+  expect(html).toContain("<code>private.png</code>");
+  expect(html).not.toContain(elsewhere);
+  // A note with no picture has no cover.
+  expect(html.slice(html.indexOf(">Plain<") - 200, html.indexOf(">Plain<"))).not.toContain("ext-cover");
+  const image = await get(`/p/${luna.id}/media/2`);
+  expect(image.status).toBe(200);
+  // A public reader reaches the cover of a note under a public page, by the same gate as any of its images.
+  expect((await get(`/p/${luna.id}/media/2`, "public")).status).toBe(200);
+  // cover= names a property, whose picture is served by the line and place that name it; a feed's card holds it beside its words.
+  expect(html).toContain(`<img src="/p/${named.id}/media/0/0"`);
+  expect(html).toContain('class="ext-card ext-card-covered"');
+  expect(new Uint8Array(await (await get(`/p/${named.id}/media/0/0`)).arrayBuffer())).toEqual(PNG);
+  expect((await get(`/p/${named.id}/media/0/1`)).status).toBe(404);
+  expect(html).toContain("Words of the note");
+  // What cover= names comes first: words on a note with a header picture stay words; the hero is only for a note it names nothing on.
+  expect(html).toContain('<div class="ext-cover">plant in spring</div>');
+  expect(html).not.toContain(`<img src="/p/${summed.id}/media/2"`);
+  // A bare `photo:: path` line is a property like any other: its picture is served, not left as a missing image.
+  expect(html).toContain(`<img src="/p/${bare.id}/media/1/0"`);
+  expect(new Uint8Array(await (await get(`/p/${bare.id}/media/1/0`)).arrayBuffer())).toEqual(PNG);
+  // A value that isn't a picture stays words.
+  expect(html).toContain('<div class="ext-cover">the white sheet</div>');
+  expect((await get(`/p/${words.id}/media/0/0`)).status).toBe(404);
+}, 30_000);
+
 test("an image the page may not serve shows its alt text and its file's name, never its path or an empty bullet", async () => {
   const { store, get, elsewhere } = await setup();
   const note = store.create([

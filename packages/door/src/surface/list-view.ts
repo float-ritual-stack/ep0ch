@@ -15,6 +15,7 @@ import { BOLD, C, ellipsize, fg, LINK_END, pad, RESET, selectedRow, tint, width 
 import { primitiveLines } from "../components";
 import { tier } from "../figures/palette";
 import { moreRow, rowLines } from "../text";
+import { coverPicture, fileName, type ImagePrimitive, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import type { LineField } from "./line";
 import { paintRange } from "./selection";
 
@@ -121,6 +122,8 @@ export interface ListDrawOpts<S> {
   primitive?: ListPrimitive;
   /** A card's note body, drawn by its reader in that note's context. */
   body?: (row: ListViewRow<S>, cols: number) => string[];
+  /** A card's cover, drawn by its reader as a note's picture is (where it can't be: its caption, one row). */
+  image?: (node: ImagePrimitive, cols: number) => string[];
   header?: (key: string, text: string) => string;
   link?: (id: string, text: string, revision?: number) => string;
   lane?: (name: string, text: string) => string;
@@ -473,22 +476,36 @@ export class ListView<S = unknown> {
     const rows = this.visible(), mine = o.selection ? this.picked() : null;
     const expanded = this.hasPick(PERSON) ? mine : null;
     const titleAt = node.columns?.indexOf("title") ?? -1;
-    const card = (row: ListViewRow<S>, cols: number, record = false): string[] => {
+    const coverRows = (spec: MediaSpec, cols: number, rows: number): string[] => o.image
+      ? o.image({ src: spec.path, ...(spec.alt ? { alt: spec.alt } : {}), caption: false, fit: "cover", size: "full", height: rows, ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}) }, cols)
+      : [fg(C.dark) + ellipsize(`▣ ${fileName(spec.path)}`, cols) + RESET];
+    const card = (row: ListViewRow<S>, cols: number, record = false, thumbnail = false): string[] => {
       const cell = record ? row.cells?.[titleAt] ?? row.label : row.label;
       const title = typeof cell === "object" && cell.link ? o.link?.(cell.link, cell.text, cell.revision) ?? cell.text : listCellText(cell);
       const selected = sameRow(row, mine), agent = this.others().some(a => sameRow(a.row, row));
       const f = stringFrame(cols, { glyphs: selected ? BORDER_BOXES.heavy : BORDER_BOXES.line, ink: fg(selected ? C.lcyan : agent ? C.lmagenta : C.dark) + (selected ? BOLD : ""), pad: 0 });
+      // The cover: above the card's words at its width, a feed's beside them. Where it isn't drawn it's a caption on its own row.
+      const picture = record ? null : coverPicture(row.cover);
+      const inner = f.inner;
+      const thumb = picture && thumbnail ? (inner >= 60 ? { cols: 20, rows: 6 } : inner >= 36 ? { cols: 14, rows: 4 } : { cols: 10, rows: 3 }) : null;
+      const thumbRows = picture && thumb ? coverRows(picture, thumb.cols, thumb.rows) : [];
+      const beside = thumbRows.length > 1;
+      const above = picture && !beside ? (thumb ? coverRows(picture, inner, 1) : coverRows(picture, inner, Math.min(node.size === "large" ? 12 : 8, Math.max(3, Math.round(inner * 0.28))))) : [];
+      const words = beside ? inner - thumb!.cols - 2 : inner;
       const content = primitiveLines({ type: "card", title: `${sameRow(row, mine) ? "▸ " : ""}${title}`,
       ...(record ? {} : { subtitle: row.detail }), children: [
-        ...(!record && row.cover ? [{ type: "image", src: row.cover, caption: false, height: node.size === "large" ? 8 : 4 }] : []),
+        ...(!record && row.cover && !picture ? [{ type: "text", text: row.cover }] : []),
         ...(record ? (node.columns ?? []).flatMap((key, i) => {
           if (i === titleAt) return [];
           const cell = row.cells?.[i] ?? "";
           return [{ type: "text", ...(typeof cell === "object" ? cell : {}), text: rowLines(`${node.headers?.[i] ?? key}: ${listCellText(cell)}`, Math.max(8, cols - 2), sameRow(row, expanded) ? Infinity : 4).join("\n") }];
         }) : []),
         ...(o.body ? [{ type: "blockdown", text: "" }] : (row.body ?? []).map(text => ({ type: "text", text }))),
-      ] }, f.inner, { link: o.link, blockdown: o.body ? (_text, cols) => o.body!(row, cols) : undefined });
-      const lines = [f.top(), ...content.map(f.row), f.bottom()];
+      ] }, words, { link: o.link, blockdown: o.body ? (_text, cols) => o.body!(row, cols) : undefined });
+      const drawn = beside
+        ? Array.from({ length: Math.max(thumbRows.length, content.length) }, (_, i) => pad(thumbRows[i] ?? "", thumb!.cols) + "  " + (content[i] ?? ""))
+        : [...above, ...content];
+      const lines = [f.top(), ...drawn.map(f.row), f.bottom()];
       if (!o.tag) return lines;
       const [before, after] = o.tag(row, "\u0000").split("\u0000");
       // A link inside a card's body closes the row's tag where it ends; the row opens again after it, so a click past the link still picks the card.
@@ -517,7 +534,7 @@ export class ListView<S = unknown> {
       const per = arrange === "grid" && tier(cols) !== "narrow" ? Math.max(1, Math.floor(cols / (node.size === "large" && tier(cols) === "wide" ? 44 : 29))) : 1;
       if (arrange === "grid") this.columns = per;
       const cw = Math.floor((cols - 2 * (per - 1)) / per), out: string[] = [];
-      for (let i = 0; i < own.length; i += per) out.push(...combine(own.slice(i, i + per).map(row => card(row, cw, arrange === "table")), cw), "");
+      for (let i = 0; i < own.length; i += per) out.push(...combine(own.slice(i, i + per).map(row => card(row, cw, arrange === "table", arrange === "rows" && node.arrange === "rows")), cw), "");
       return out;
     };
     this.pageSize = node.page ?? 200;

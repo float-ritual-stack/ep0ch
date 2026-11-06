@@ -27,6 +27,7 @@ import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 import { buttonText } from "./surface/button";
 import { waitingText, wrap } from "./text";
+import { withoutMediaLines } from "@ep0ch/outline-core/media-line";
 
 /** Embeds one document projects (the service's `maxPerDocument`, the same as Detail's). */
 export const MAX_EMBEDS = 16;
@@ -341,6 +342,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     return LINK_ON + tagged(sink, { role: "task", block: id, task: { block: id, revision: node.revision, step, via: ref } }, box) + LINK_OFF;
   };
   const part = node.fragment ? { text: node.fragment.text, startLine: node.fragment.startLine } : null;
-  for (const l of body(target, part, Math.max(4, w - (bodyOnly ? 0 : 2)), { embed, task })) out.push(bodyOnly ? l : S(" " + l));
+  // A card's body is its words: its picture is the card's cover, never a caption (PIE-1595).
+  for (const l of body(bodyOnly ? { ...target, text: withoutMediaLines(target.text) } : target, part, Math.max(4, w - (bodyOnly ? 0 : 2)), { embed, task })) out.push(bodyOnly ? l : S(" " + l));
   return out;
 }

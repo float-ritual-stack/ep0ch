@@ -173,7 +173,7 @@ export function parseMediaLine(line: string): MediaSpec | null {
  * cover, where the card is what opens); where it can't be drawn, its caption still says what it is.
  */
 /** `src` a file; or `svg`, the picture's own markup (PIE-1555: a render script's drawing), which the door draws as it draws an SVG file. */
-export interface ImagePrimitive { src?: string; svg?: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number; caption?: boolean }
+export interface ImagePrimitive { src?: string; svg?: string; alt?: string; size?: string | number; fit?: "cover" | "contain"; height?: number; caption?: boolean; focus?: Focus; dim?: number }
 
 /**
  * The path an image primitive's `src` names: a `file:` Resource ref's path, read by `parseResourceRef` (so it is
@@ -200,7 +200,57 @@ export function imagePrimitiveSpec(node: ImagePrimitive): MediaSpec {
   if (node.height !== undefined) spec.height = node.height;
   if (node.fit !== undefined) spec.fit = node.fit;
   if (node.alt?.trim()) spec.alt = node.alt.trim();
+  if (node.focus) spec.focus = node.focus;
+  if (node.dim !== undefined) spec.dim = node.dim;
   return spec;
+}
+
+/** The media lines of a note's text, by line (none inside a fence or a component): the door's reading of it too. */
+export function noteMediaLines(text: string): Map<number, MediaSpec> {
+  const lines = text.split("\n"), structure = noteStructure(lines), out = new Map<number, MediaSpec>();
+  let hero = false;
+  lines.forEach((line, at) => {
+    const spec = structure[at] === -1 ? parseMediaLine(line) : null;
+    if (!spec) return;
+    // The first `[layout::hero]` is the header; a later one is an image like any other, as the door reads it.
+    if (spec.layout === "hero") { if (hero) delete spec.layout; hero = true; }
+    out.set(at, spec);
+  });
+  return out;
+}
+
+/** A note's text with its media lines blanked, line for line: a card's body is its words, its picture being the cover (PIE-1595). */
+export function withoutMediaLines(text: string): string {
+  const media = noteMediaLines(text);
+  return media.size ? text.split("\n").map((line, at) => media.has(at) ? "" : line).join("\n") : text;
+}
+
+/** Whether a property's value names a picture file: words stay words. */
+export const isPictureValue = (value: string): boolean => /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(value.trim()) || value.startsWith("file:/");
+
+/**
+ * What a `::view` card shows as its cover (PIE-1595), as one line of text: a media line when it's a picture
+ * (`coverPicture` reads it back), words otherwise. The `cover:` keys in order: the first that names anything here, its
+ * picture, else its words. `img` and `image` read the note's own media lines too. With `hero`, a note they name nothing
+ * on falls back on its `[layout::hero]` line.
+ */
+export function cardCover(text: string, named: readonly { key: string; values: readonly string[] }[], hero: boolean): string | undefined {
+  const lines = text.split("\n"), media = [...noteMediaLines(text)].filter(([, spec]) => spec.kind === "img");
+  const source = ([at]: [number, MediaSpec]) => lines[at]!.trim();
+  const headerLine = media.find(([, spec]) => spec.layout === "hero");
+  for (const { key, values } of named) {
+    const picture = values.find(isPictureValue);
+    if (picture) return headerLine?.[1].path === picture ? source(headerLine) : `[img::${picture}]`;
+    if (/^(img|image)$/i.test(key) && media[0]) return source(headerLine ?? media[0]);
+    if (values.join("")) return values.join(", ");
+  }
+  return hero && headerLine ? source(headerLine) : undefined;
+}
+
+/** The picture a row's `cover` line draws, or null: then the cover is words. */
+export function coverPicture(cover: string | undefined): MediaSpec | null {
+  const spec = cover ? parseMediaLine(cover) : null;
+  return spec?.kind === "img" ? spec : null;
 }
 
 /** The layout an artifact takes: the rest are an image's. */

@@ -4,7 +4,7 @@ import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
 import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line";
+import { coverPicture, fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line";
 import { safeExtensionHtml } from "./extension-html";
 import { figureBodyHtml } from "./publish-figures";
 import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, listCellText, openedRef, type ListCell, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
@@ -645,10 +645,16 @@ function terminalLines(node: Primitive): string[] {
 }
 
 
+/** A card's cover as a view's child: its picture, or its words. */
+const coverChild = (r: ListRow): Primitive[] => {
+  const picture = coverPicture(r.cover);
+  return picture ? [{ type: "image", src: picture.path, ...(picture.alt ? { alt: picture.alt } : {}), caption: false }] : r.cover ? [{ type: "text", text: r.cover }] : [];
+};
+
 function listContent(node: ListPrimitive): Primitive {
   if (node.arrange === "table") return { type: "table", columns: node.headers ?? node.columns ?? ["title"], rows: node.rows.map(r => r.cells ?? [r.label]) };
   const cards = (rows: readonly ListRow[]): Primitive[] => rows.map(r => ({ type: "card", title: r.label, subtitle: r.detail,
-    children: [...(r.cover ? [{ type: "text" as const, text: r.cover }] : []), ...(r.body ?? []).map(text => ({ type: "text" as const, text }))] }));
+    children: [...coverChild(r), ...(r.body ?? []).map(text => ({ type: "text" as const, text }))] }));
   if (node.arrange === "lanes" && node.groups?.length) return { type: "row", minWidth: 24, children: node.groups.map(group => ({ type: "box", title: listHead(group), children: listSections({ rows: node.rows, groups: [group] }).flatMap(section => [
     ...(group.groups?.length && section.head ? [{ type: "text" as const, text: listHead(section.head), strong: true }] : []), ...cards(section.rows),
   ]) })) };
@@ -785,7 +791,15 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
       if (node.arrange && node.rows.length) {
         const link = (ref: string, label: string) => `<span data-collection-open="${html(ref)}">${html(label)}</span>`;
         const open = (r: ListRow, label: string) => link(openedRef(r) ?? r.id, label);
-        const card = (r: ListRow) => `<article class="ext-card"><h4>${open(r, r.label)}</h4>${r.cover ? `<div class="ext-cover">${html(r.cover)}</div>` : ""}<p>${html(r.detail ?? "")}</p>${(r.body ?? []).map(line => `<p>${html(line)}</p>`).join("")}</article>`;
+        // A picture is a place the publisher fills (publish-live.ts drawCollection) by the row it's the cover of; words are words.
+        const cover = (r: ListRow, picture: ReturnType<typeof coverPicture>) => picture
+          ? `<div class="ext-cover"><figure class="media media-missing ext-image" data-card-cover="${html(r.id)}"><span class="media-what">image</span> ${picture.alt ? `${html(picture.alt)} ` : ""}<code>${html(fileName(imageSource(picture.path)))}</code></figure></div>`
+          : r.cover ? `<div class="ext-cover">${html(r.cover)}</div>` : "";
+        const card = (r: ListRow) => {
+          const picture = coverPicture(r.cover);
+          const words = `<h4>${open(r, r.label)}</h4><p>${html(r.detail ?? "")}</p>${(r.body ?? []).map(line => `<p>${html(line)}</p>`).join("")}`;
+          return `<article class="ext-card${picture ? " ext-card-covered" : ""}">${cover(r, picture)}${picture ? `<div class="ext-card-words">${words}</div>` : words}</article>`;
+        };
         if (node.arrange === "table") return figureBodyHtml("table", {
           headers: node.headers ?? node.columns ?? ["title"],
           rows: node.rows.map(r => (r.cells ?? [r.label]).map(cellText)),

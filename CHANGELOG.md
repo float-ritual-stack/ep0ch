@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A gallery card shows its note's header picture (PIE-1595)
+
+- **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.
+- **A feed row holds it as a thumbnail,** beside its title and body.
+- **A card's body is its words:** `body:` no longer prints a picture's line as text, and `body: 0` leaves the title and summary chips.
+
+### The desk's undo is a step, and who has your keys is one fact (PIE-1592)
+
+- **ctrl+z takes back the step you made, on the desk you made it.** Screen, drawer, glass and groups all undo from one record of steps: each says which desks it touched, whose it is, what takes it back and where your keys go.
+- **ctrl+] steps out one mode at a time, by one rule.**
+- **Under yolo:** an agent's focus off a lifted tile drops the layout's lift, and an agent's goTo on a glass float enters it, your keys with it.
+- **Run:** `ep0ch install --apply` (door code).
+
+### A published line ending in a bare URL keeps its link whole
+
+- **The link works again.** Since PIE-889's line anchors (Oct 15), a line ending in `https://…` published its anchor inside the link's address. It now lands after the link, in lists, tables and parentheses too.
+- **Run:** `ep0ch install --apply` (the publisher).
+
 ### A comment keeps what you dropped and said (PIE-1589)
 
 - **Files dropped into a comment or an edit become pictures, found by name when the folder never arrived.** A paste of nothing but image files is kept in `media/` and drawn; `ctrl+z` gives back what you dropped. macOS's bare names are looked up in the folders your notes name with `[drop-folder::<folder>]`, and what can't be found stays as written and says so. A macOS name's narrow no-break space now matches either way round.

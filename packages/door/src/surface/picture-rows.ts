@@ -35,7 +35,8 @@ export function pictureRows(node: ImagePrimitive, width: number, env: DocEnv, dr
   // A script's drawing is named by what it says it is, not by the file it was made into.
   if (node.svg !== undefined) r.lines[r.caption] = fg(C.dark) + ellipsize(`▣ ${node.alt?.trim() || "svg picture"}`, width) + RESET;
   const lines = [...r.lines];
-  if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ".repeat(r.image.cols));
+  // One cell says where it goes: the rest of its row stays what the view tagged it (a card's row, so a click picks the card).
+  if (r.image) lines[r.image.line] = " ".repeat(r.image.col) + tagged(drawn, { role: "picture", picture: r.image }, " ") + " ".repeat(r.image.cols - 1);
   // `caption: false` (PIE-839): the picture alone, once its rows are kept for it; where it isn't drawn, the caption says what it is.
   if (node.caption === false && r.caption > 0) return lines.slice(0, r.caption);
   // A file's caption opens the file; a script's drawing has no file a person keeps.

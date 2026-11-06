@@ -17,7 +17,7 @@ import { drawNoteComponents, drawViewLane, drawViewPage, hasCollectionLayout, re
 import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
-import { ARTIFACT_PATH, drawNoteMedia, fenceSvg, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
+import { ARTIFACT_PATH, componentImageAt, drawNoteMedia, fenceSvg, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
 import { artifactPagePath, artifactRepoRef, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
@@ -2143,7 +2143,7 @@ export class Publisher {
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
     if (audience === "public" && !share && !(await this.reachedFromPublic(blockId))) return notFound();
-    const spec = image === undefined ? await this.mediaLineAt(blockId, line) : await this.componentImageAt(blockId, line, image);
+    const spec = image === undefined ? await this.mediaLineAt(blockId, line) : await componentImageAt(this.client, blockId, line, image);
     if (!spec || spec.kind !== "img") return notFound();
     const check = checkImage(spec.path, policy);
     if (!check.ok) return notFound();
@@ -2162,18 +2162,6 @@ export class Publisher {
   private async mediaLineAt(blockId: string, line: number): Promise<MediaSpec | undefined> {
     const block = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
     return block ? noteMediaLines(block.text ?? "").get(line) : undefined;
-  }
-
-  /** The `image`th image primitive of the component line `line` of note `blockId` draws (PIE-827), as its kept view says now. */
-  private async componentImageAt(blockId: string, line: number, image: number): Promise<MediaSpec | undefined> {
-    try {
-      const read = await this.client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId });
-      const view = read.projections.find((projection) => projection.kind === "component" && projection.anchor.line === line)?.output?.component?.view;
-      const node = view === undefined ? undefined : viewImages(validatePrimitive(view))[image];
-      return node ? imagePrimitiveSpec(node) : undefined;
-    } catch {
-      return undefined;
-    }
   }
 
   /** Whether a public page shows `blockId`: it is a public note now, or under one with nothing between them left out. */
@@ -2587,6 +2575,7 @@ export class Publisher {
         // A public page links only to published notes; a tailnet page (and a share's) to any note it shows.
         return audience === "public" && !share ? null : `${base}/p/${encodeURIComponent(blockId)}`;
       },
+      mediaSrc: (blockId, at, spec) => !index.labelsOnly && this.policy && checkImage(spec.path, this.policy).ok ? `${base}${mediaPath(blockId, at.line, at.image)}` : null,
     };
   }
 
