@@ -282,6 +282,28 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     expect((await board.children(seeded.notes.replies.id)).some(m => m.text.includes("Bring baskets."))).toBe(true);
   });
 
+  test("replies, by the person's keys: the hint row names r, r opens a reply beside the message, R fetches instead (PIE-1599)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "replies" }, as: "reply-check" });
+    await until(() => screen().includes("Replies at the orchard"), "reply demo");
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "replies")).top as Desk;
+    const rd = desk.pane("reader") as ReaderPane;
+    screen();
+    press({ kind: "enter" });
+    await until(() => S().focus === "stage", "the keys in the section");
+    await until(() => plain(screen()).includes("r reply"), "the hint row naming r");
+    expect(plain(screen())).not.toContain("R reply");
+    ch("R");
+    await Bun.sleep(100);
+    expect(rd.surface.draft).toBeNull();
+    ch("r");
+    await until(() => !!rd.surface.draft, "the reply opening");
+    expect(screen()).toContain("Orchard row 1");
+    press({ kind: "esc" });
+    await until(() => !rd.surface.draft, "the reply closing");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
 
   test("reading line stays on its bullet while scrolling and steps without skipping bullets", async () => {
     (app as any).lastInput = 0;

@@ -175,8 +175,8 @@ test("Detail draws an output's markdown under its line, with when it ran, and a 
   expect(ready.lines[0]).toMatch(/^- Horoscope virgo · ran 2026-10-01 \d\d:00$/);
   expect(ready.lines.slice(1)).toEqual(["  **Virgo.** Say yes to soup.", "", "  - Colour: teal"]);
   expect(ready.fetchedLine).toBe(0);
-  const waiting = resourceProjectionLayout({ ...base, status: "not-run", reason: "costs model time or money: it runs once when you write the line; r runs it" });
-  expect(waiting.lines).toEqual(["- Horoscope virgo · not run yet", "  costs model time or money: it runs once when you write the line; r runs it"]);
+  const waiting = resourceProjectionLayout({ ...base, status: "not-run", reason: "costs model time or money: it runs once when you write the line, or when you run it from its line" });
+  expect(waiting.lines).toEqual(["- Horoscope virgo · not run yet", "  costs model time or money: it runs once when you write the line, or when you run it from its line"]);
 });
 
 test("Detail lays a row side by side when each child gets its minWidth, stacks it when not; an authored ep0ch-row fence is code", () => {

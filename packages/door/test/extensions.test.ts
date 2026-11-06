@@ -154,7 +154,7 @@ describe.skipIf(!outliner)("parity with Detail's layout for an extension's line"
       { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "ready", summary: "tidied 1 line above", fetchedAt: "2026-10-01T09:00:00.000Z", agent: { name: "tidy", status: "applied" } },
       // A request whose proposal was dismissed (PIE-510) reads like the other statuses.
       { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "ready", summary: "proposed 1 edit", fetchedAt: "2026-10-01T09:00:00.000Z", agent: { name: "tidy", status: "dismissed", proposalId: "prop-1" } },
-      { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "not-run", reason: "r asks @tidy", agent: { name: "tidy", status: "not-asked" } },
+      { ...base, provider: "tidy", label: "Tidy", propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "not-run", reason: "waits for a person to ask @tidy", agent: { name: "tidy", status: "not-asked" } },
       { ...base, provider: "moon", label: "Moon", propertyKey: "moon", kind: "data", key: "2026-10-26", status: "not-fetched", reason: "not fetched yet" },
     ];
     // The reader's head says it as the service words it.
@@ -276,9 +276,9 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(omenList.length).toBeGreaterThan(3);
     const drawn = omenList.filter(o => t.includes(`[ ]  ${o}`));
     expect(drawn.length).toBeGreaterThanOrEqual(1);
-    expect(t).not.toContain("[w ward] [keep] [r run again]");
+    expect(t).not.toContain("[w ward] [keep] [R run again]");
     expect(t).toMatch(/Tidy @tidy · applied · formatted 1 line/);
-    expect(t).not.toContain("[r ask again]");
+    expect(t).not.toContain("[R ask again]");
     // @tidy applied an attributed edit: the line above it is tidied, by ext:tidy.
     const after = (await board.get(note.id))!;
     expect(after.text).toContain("\nwater the leeks\n@tidy");
@@ -334,7 +334,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     while (surface.describe().elements?.current?.label !== "Fancy Horror virgo" && tries++ < 30) { surface.key(char("]"), host); lines(); }
     expect(surface.describe().elements!.current).toMatchObject({ kind: "resource", label: "Fancy Horror virgo" });
     expect(visible(surface.hint())).toStartWith(`[ ] `);
-    expect(visible(surface.hint())).toContain("w ward · r again · line Fancy Horror virgo · ⏎ ward off the next omen");
+    expect(visible(surface.hint())).toContain("w ward · R again · line Fancy Horror virgo · ⏎ ward off the next omen");
     // Every key the hint names is declared by an action the screen takes (the parity rule, PIE-506), and the
     // key runs the action that declares it.
     const declared = new Set(app.actions().actions.flatMap(a => [...declaredKeys(a.keys)]));
@@ -372,16 +372,16 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await expect(app.act({ action: "ext.fancy-horror.ward", args: { block: other.id }, as: AS })).rejects.toThrow(/needs a fancy-horror:: line/);
   }, 30_000);
 
-  test("r on the output's line runs that line again", async () => {
+  test("R on the output's line runs that line again", async () => {
     let tries = 0;
     while (surface.describe().elements?.current?.label !== "Horoscope virgo" && tries++ < 30) { surface.key(char("["), host); lines(); }
     expect(surface.describe().elements!.current!.label).toBe("Horoscope virgo");
     flashes.length = 0;
-    surface.key(char("r"), host);
+    surface.key(char("R"), host);
     await until(() => flashes.some(f => f.includes("horoscope:: virgo ran")), "the run", 15_000);
   }, 30_000);
 
-  test("r on an @name line asks again as whoever ran it: the line says who asked (C6)", async () => {
+  test("R on an @name line asks again as whoever ran it: the line says who asked (C6)", async () => {
     expect(askedBy("user")).toBe("you");
     expect(askedBy("agent:helper-7")).toBe("an agent (helper-7)");
     expect(askedBy("system")).toBe("the service");

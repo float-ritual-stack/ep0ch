@@ -166,7 +166,7 @@ test("the service advertises resources.projection and reads stored snapshots wit
   });
   expect(stale!.summary).toBe("Rollout checklist");
   expect(stale!.reason).toContain("last refresh failed");
-  expect(notFetched!.reason).toContain("r fetches it now");
+  expect(notFetched!.reason).toContain("fetch it now from its line");
   expect(unregistered!.reason).toContain("saving the jira:: line or opening the note fetches it");
   expect(unregistered!.resourceId).toBeUndefined();
   expect(ambiguous!.candidates).toEqual(["ACME-12", "ACME-13"]);

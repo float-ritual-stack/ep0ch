@@ -21,7 +21,7 @@ export const READER_GUARDS = {
   outline: "the note is the outline's",
   parent: "the note has a parent",
   preview: "it is a list's preview of a row's children",
-  resolvable: "a proposal can be resolved: the current one, the one shown, or the only one in view (with several in view, r asks which)",
+  resolvable: "a proposal can be resolved: the current one, the one shown, or the only one in view (with several in view, R asks which)",
   proposal: "a proposal is shown, or is the current element",
   element: "an element is current ([ ] or a click)",
   tinted: "someone's focus mark is on the note",
@@ -81,7 +81,7 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r('"', "note.quote", { when: ["note"] }),
   // A session as the person (SESSION_ACTIONS): e and ctrl+e arm the edit first (edit.arm), the rest start at once.
   r("t", "note.thread", { start: "note-thread", label: "thread", says: "open the note's replies in place", when: ["note"] }),
-  r("R", "note.reply", { start: "note-reply", label: "reply", when: ["note"] }),
+  r("r", "note.reply", { start: "note-reply", label: "reply", says: "write a reply beside this message", when: ["note"] }),
   r("e", "edit.arm", { start: "edit", label: "edit", when: ["note"] }),
   r("ctrl+e", "edit.arm", { start: "external", args: { external: true }, label: "edit in $EDITOR", when: ["note"] }),
   r("C", "passage.select", { start: "comment", label: "comment", when: ["note"] }),
@@ -89,7 +89,7 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r("i", "props", { start: "props", label: "properties", says: "open the property panel", when: ["note"] }),
   r("I", "props", { start: "props-full", args: { full: true }, label: "all properties", when: ["note"] }),
   // A proposal (PIE-501): the one shown, or the one whose embed or control is the current element.
-  r("r", "proposal.resolve", { pick: "resolve", label: "resolve", when: ["note", "resolvable"] }),
+  r("R", "proposal.resolve", { pick: "resolve", label: "resolve", when: ["note", "resolvable"] }),
   r("A", "proposal.apply", { label: "apply anyway", when: ["note", "proposal"] }),
   r("X", "proposal.dismiss", { label: "dismiss", when: ["note", "proposal"] }),
   // esc lets go of the current element, then of a focus mark, then of a zoom.
@@ -123,7 +123,7 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r("alt+D", "element.detach", { pick: "detach", label: "detach", when: [...OUTLINE, "detach"] }),
   r("b", "links", { label: "links", when: WHOLE, quiet: true }),
   r("M", "margin", { label: "comments mode", says: "cycle the margin's cards: trim, full, off (as marks)", when: WHOLE }),
-  r("r", "projection.refresh", { label: "fetch again", when: ["outline"], quiet: true }),
+  r("R", "projection.refresh", { label: "fetch again", when: ["outline"], quiet: true }),
   r("S", "sources.open", { label: "sources", says: "show where this note's generated parts come from", when: OUTLINE }),
 ]);
 
@@ -182,6 +182,9 @@ export const READER_OWN_KEYS: { has(key: string): boolean } = {
   has: key => readerRows().some(row => row.key === (key === " " ? "space" : key)) || key in READER_SAYS || "vVyYhl".includes(key),
 };
 
+/** The key that fetches or runs again in a reader, the keymap applied: what an age line, a run-again control and a refusal name. */
+export const runAgainKey = (): string => keyCaption((effective(READER_KEYS).find(row => row.action === "projection.refresh") ?? READER_KEYS.find(row => row.action === "projection.refresh")!).key);
+
 // ── the reader's hint rows (PIE-1293): rows of the table, as the hint row names them ──
 const rowsOf = (action: string, keys: readonly string[]) => keys.map(key => READER_KEYS.find(row => row.key === key && row.action === action)!);
 /** ↑ ↓ j k: a block (or a figure's row) at a time. */
@@ -189,4 +192,4 @@ export const STEP_KEYS: readonly ModeKey[] = rowsOf("reading.step", ["up", "down
 export const ELEMENT_STEP_KEYS: readonly ModeKey[] = rowsOf("element.select", ["[", "]"]);
 export const SECTION_KEYS: readonly ModeKey[] = rowsOf("fold.select", ["(", ")"]);
 /** The reading keys the hint row names after the steps, in the order it names them. */
-export const READING_KEYS: readonly ModeKey[] = ["f", "M", "R", "t", "i", "z", "u", "C", "m"].map(key => READER_KEYS.find(row => row.key === key && !row.when?.includes("preview"))!);
+export const READING_KEYS: readonly ModeKey[] = ["f", "M", "r", "t", "i", "z", "u", "C", "m"].map(key => READER_KEYS.find(row => row.key === key && !row.when?.includes("preview"))!);

@@ -3,7 +3,7 @@
 // service decides everything (which lines are provider lines, which key the context names, the status,
 // its reason, the allowed fields) through `resources.projection.read`; the door lays the answer out in
 // Detail's words (pi-herdr-outliner src/detail-embeds.ts `resourceProjectionLayout`, parity-tested) and
-// paints the fetched time's age when it draws. It never contacts a provider itself: `r` asks the service
+// paints the fetched time's age when it draws. It never contacts a provider itself: `R` asks the service
 // to refresh (`resources.projection.refresh`), and the service fetches.
 //
 // Answers are kept per connection and per note, like embeds (src/embeds.ts): read again when the note (or
@@ -27,6 +27,7 @@ import { regionRows, type RegionBook } from "./output-region";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 import { buttonText } from "./surface/button";
+import { runAgainKey } from "./surface/reader-keys";
 
 /** The statuses the service sends (the wire contract's). */
 export type { ResourceProjectionStatus } from "@ep0ch/outliner/wire";
@@ -223,13 +224,13 @@ function excerpt(record: Msg, rows: number): string[] {
   return lines.map(l => l.trimEnd()).filter((l, i, a) => l || (i > 0 && a[i - 1])).join("\n").trim().split("\n").filter(Boolean).slice(0, rows);
 }
 
-/** What the age line says: fetching, why it can't, or how old the copy is, with `r` to refresh. */
+/** What the age line says: fetching, why it can't, or how old the copy is, with the key to refresh. */
 function ageLine(p: ResourceProjection, now: number): { text: string; bad: boolean } {
   const when = p.fetchedAt ?? p.record?.syncedAt;
   const age = when ? `fetched ${ageSince(when, now, "ago")}` : "";
   if (p.fetching) return { text: [age, "fetching…"].filter(Boolean).join(" · "), bad: false };
   if (p.fetchError) return { text: `can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}${age ? ` · ${age}` : ""}`, bad: true };
-  return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · r refresh`, bad: false };
+  return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · ${runAgainKey()} refresh`, bad: false };
 }
 
 /**
@@ -483,7 +484,7 @@ function readOf(m: Msg, src: Source | null | undefined): ResourceProjectionRead 
 
 /** How the reader draws inside an extension's region: its markdown as the note's body is drawn, `width` wide. */
 export interface ExtDraw {
-  /** The note the line is in: its actions and `r` act on that block and line. */
+  /** The note the line is in: its actions and `R` act on that block and line. */
   note: string;
   markdown(text: string, width: number): string[];
   /** A view's `blockdown` primitive, drawn as this reader draws a note's body (its links, lists and properties), `width` wide. */
@@ -535,9 +536,8 @@ export const drawingPending = (read: ResourceProjectionRead): boolean =>
 export const RUN_AGAIN = "projection.refresh";
 
 /** The key that runs a line again, as the controls and the refusals name it: one place to change when the key audit (PIE-957) moves it. */
-export const RUN_AGAIN_KEY = "r";
 
-/** The words `r` says on a line of this kind: an agent is asked again, a record fetched, the rest run again. */
+/** The words `R` says on a line of this kind: an agent is asked again, a record fetched, the rest run again. */
 export const againWords = (p: ResourceProjection) => (p.kind === "agent" ? "ask again" : p.kind === "data" ? "fetch" : "run again");
 
 /** The primary action of an extension's line: its own first action (a component's `ward`), else run it again. */
@@ -589,7 +589,7 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   else if (!body.length) said([status, running].filter(Boolean).join(" · "), bad ? C.yellow : C.dark);
   if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${askedBy(p.agent.requestedBy)}` : ""}`, C.dark);
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
-  if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · ${RUN_AGAIN_KEY} runs it again`, C.dark);
+  if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · ${runAgainKey()} runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
   // Kept under its line while the note is edited (PIE-957): what it last drew, with no mark and no controls.
   if (d.bare) return { rows: [...body, ...notes] };
@@ -598,7 +598,7 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   const control = (action: string, text: string) => buttonText(text, {}, t => link ? link({ role: "control", label: text, ...at(action) }, t) : t);
   const controls = [
     ...acts.map(a => control(a.name, a.key && handlerKeyAction(extension, handler, a.key, d.hostKeys) === a ? `${a.key} ${a.id}` : a.id)),
-    control(RUN_AGAIN, `${RUN_AGAIN_KEY} ${againWords(p)}`),
+    control(RUN_AGAIN, `${runAgainKey()} ${againWords(p)}`),
   ];
   const facts = [l.title, ...(p.kind === "agent" ? [] : [[status, running].filter(Boolean).join(" · ")])].filter(Boolean);
   return regionRows({ key: `${d.note}:${p.anchor.line}`, label: l.title, target: { role: "resource", label: l.title, ...at(primary.name) }, body, notes, facts, controls, width: inner }, book);

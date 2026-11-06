@@ -281,7 +281,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     }
   }, 20_000);
 
-  test("r resolves the one proposal in view with none current; with several in view it asks which (PIE-1533)", async () => {
+  test("R resolves the one proposal in view with none current; with several in view it asks which (PIE-1533)", async () => {
     const asked: string[] = [], flashes: string[] = [];
     const resolve = board.resolveProposal.bind(board), flash = app.flash.bind(app);
     app.flash = (msg: string, ...more: any[]) => { flashes.push(msg); return (flash as any)(msg, ...more); };
@@ -297,11 +297,17 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
       let r = await reader();
       await shows("[resolve]");
       expect(current(r)).toBeNull();
+      // r writes a reply whatever is in view (PIE-1599): a proposal on screen doesn't take it.
       key(char("r"));
-      await until(() => asked.length === 1, "r resolving the proposal in view");
+      await until(() => !!r.surface.draft, "r opening a reply with a proposal in view");
+      expect(asked).toEqual([]);
+      key({ kind: "esc" });
+      await until(() => !r.surface.draft, "the reply closing");
+      key(char("R"));
+      await until(() => asked.length === 1, "R resolving the proposal in view");
       expect(asked).toEqual([one]);
 
-      // A second proposal in view: r asks which, putting [ ] on the first one's [resolve]; r again resolves that one.
+      // A second proposal in view: R asks which, putting [ ] on the first one's [resolve]; R again resolves that one.
       const two = await propose(note, "delivery Tuesday", "delivery Wednesday");
       const fresh = (await board.get(note.id))!; await board.update(fresh.id, fresh.text + "\nmore compost", fresh.revision!);
       r = await reader();
@@ -320,17 +326,17 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
         asked.pop();
       } finally { if (keymap === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = keymap; reloadKeymap(); }
       flashes.length = 0;
-      key(char("r"));
+      key(char("R"));
       expect(asked).toHaveLength(1);
       expect(flashes.at(-1)).toContain("2 proposals in view");
       expect(current(r)?.kind).toBe("control");
       const offered = (r.surface as any).currentProposal();
       expect(offered).toBe(one);
-      // ] walks on from it; r then offers (or, on the next one's own element, resolves) the next one, never the first again.
+      // ] walks on from it; R then offers (or, on the next one's own element, resolves) the next one, never the first again.
       key(char("]"));
-      key(char("r"));
-      if (asked.length === 1) { expect((r.surface as any).currentProposal()).toBe(two); key(char("r")); }
-      await until(() => asked.length === 2, "r resolving the next one");
+      key(char("R"));
+      if (asked.length === 1) { expect((r.surface as any).currentProposal()).toBe(two); key(char("R")); }
+      await until(() => asked.length === 2, "R resolving the next one");
       expect(asked[1]).toBe(two);
     } finally { (board as any).resolveProposal = resolve; app.flash = flash; }
   }, 30_000);

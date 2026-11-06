@@ -20,10 +20,13 @@ const reader = (...hold: ReaderGuard[]) => (g: ReaderGuard) => hold.includes(g);
 const run = (name: string, ...hold: ReaderGuard[]) => { const r = readerBinding(key(name), reader(...hold)); return r && { action: r.action, args: r.args ?? {} }; };
 
 describe("the reader's key table", () => {
-  test("r resolves a proposal that can be resolved, and fetches the tickets again otherwise: the guard picks", () => {
-    expect(run("r", "note", "outline", "resolvable")).toEqual({ action: "proposal.resolve", args: {} });
-    expect(run("r", "note", "outline")).toEqual({ action: "projection.refresh", args: {} });
-    expect(run("r", "note")).toBeUndefined();
+  test("r writes a reply whatever is in view; R resolves a proposal that can be resolved, and fetches the tickets again otherwise: the guard picks", () => {
+    expect(run("r", "note", "outline", "resolvable")).toEqual({ action: "note.reply", args: {} });
+    expect(run("r", "note", "outline")).toEqual({ action: "note.reply", args: {} });
+    expect(run("r")).toBeUndefined();
+    expect(run("R", "note", "outline", "resolvable")).toEqual({ action: "proposal.resolve", args: {} });
+    expect(run("R", "note", "outline")).toEqual({ action: "projection.refresh", args: {} });
+    expect(run("R", "note")).toBeUndefined();
   });
 
   test("esc lets go of the element, then of a focus mark, then of a zoom; with none of them, it isn't the reader's", () => {
@@ -56,7 +59,7 @@ describe("the reader's key table", () => {
 
   test("the keys window lists each reader key with what picks it, and finds no fight among them", () => {
     const all = bindings(), reader = all.filter(b => b.scope === "note" && b.from === "table");
-    expect(reader.find(b => b.key === "r" && b.action === "proposal.resolve")?.does).toContain("when");
+    expect(reader.find(b => b.key === "R" && b.action === "proposal.resolve")?.does).toContain("when");
     expect(reader.every(b => b.layer === "tile")).toBe(true);
     expect(conflicts(all).filter(g => g.some(b => b.scope === "note" && b.from === "table"))).toEqual([]);
   });
@@ -67,11 +70,13 @@ describe("the reader's key table", () => {
       for (const a of [r.action, ...(r.runs ?? [])]) { const d = NOTE_ACTIONS.def(a as never); if (d) expect([a, declaredKeys(d.keys).has(k)]).toEqual([a, true]); }
     }
     expect(sessionStart(key("C"))).toBe("comment");
+    expect(sessionStart(key("r"))).toBe("note-reply");
+    expect(sessionStart(key("R"))).toBeNull();
     expect(sessionStart(key("ctrl+e"))).toBe("external");
     expect(sessionStart(key("j"))).toBeNull();
     expect(STEP_KEYS.every(r => READER_KEYS.includes(r as never))).toBe(true);
-    expect(READING_KEYS.map(r => r.key)).toEqual(["f", "M", "R", "t", "i", "z", "u", "C", "m"]);
-    for (const k of ["r", "A", "X", "K", "W", "[", "~", " "]) expect(READER_OWN_KEYS.has(k)).toBe(true);
+    expect(READING_KEYS.map(r => r.key)).toEqual(["f", "M", "r", "t", "i", "z", "u", "C", "m"]);
+    for (const k of ["r", "R", "A", "X", "K", "W", "[", "~", " "]) expect(READER_OWN_KEYS.has(k)).toBe(true);
     expect(READER_OWN_KEYS.has("w")).toBe(false);
   });
 });

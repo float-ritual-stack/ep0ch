@@ -439,8 +439,8 @@ instead and asks `host.tileOf mark=<token>` over the control socket.
 | `changes.seen` | | `x` | the person's only: marks the list seen and keeps the position |
 | `status.pick` | `n` or `tile` | `j` `k`, the wheel, in the list | refused while the person is typing there |
 | `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
-| `held.open` | `n` (its row in the list, as `peek` numbers it: the terminals first, then the rows with `kind: held`) or `id`; left out, the selected row | `⏎`, a click on a held row | opens the note a request held for a person's `r` is in (an `@name` line that tripped a loop guard; the service lists them, `agents.held`); sends nothing |
-| `held.send` | `n` or `id` | `r`, a click on a held row's `[r send]` | sends a held request: its agent is asked now, as the person who pressed it (the line's own `r`). The person's alone: an agent's is refused, on the person's press too (`personAlways`) |
+| `held.open` | `n` (its row in the list, as `peek` numbers it: the terminals first, then the rows with `kind: held`) or `id`; left out, the selected row | `⏎`, a click on a held row | opens the note a request held for a person's `R` is in (an `@name` line that tripped a loop guard; the service lists them, `agents.held`); sends nothing |
+| `held.send` | `n` or `id` | `R`, a click on a held row's `[R send]` | sends a held request: its agent is asked now, as the person who pressed it (the line's own `R`). The person's alone: an agent's is refused, on the person's press too (`personAlways`) |
 | `status.seen` | `n` or `tile` | `x` | the person's only: seen is theirs, so an agent never clears a done they haven't seen (nor does `peek` or `subscribe`). Its done and failed records go; blocked ones stay until the program says otherwise |
 
 ## What an agent may do to each tile (PIE-639)
@@ -724,7 +724,7 @@ at, and what it does while they're typing:
 | `tree.links`, `tree.pick` | no: the tree's selection stays on the person's row (folding away the rows it is in is refused); an open lands where the tree's opens go | allowed |
 | `projection.refresh` | no | allowed |
 | `ext.*` | no | allowed: the service runs it, attributed to the extension |
-| `agents.yolo` | no | `on=true` (and a toggle with no `on=`) refused, on the person's press too (`personAlways`: they hand the door over); `on=false` allowed. While it's on, every row of this table says allowed: no person guard holds an agent back, the person's keys, focus and the tile they type in included (an agent may move them), and revisions and the layout's shape still do. Only the words being typed stay the person's: `draft.replace` waits until they're sent or closed, and `draft.patch` lands in the draft. It tells the outline service as well (PIE-973, `agents.yolo` on the wire): the MCP access level reads `full`, any proposal can be applied or dismissed, an agent's `r` releases a line waiting for a person, and the dropped-structure guard lets an edit through; the service drops it when the door that set it goes |
+| `agents.yolo` | no | `on=true` (and a toggle with no `on=`) refused, on the person's press too (`personAlways`: they hand the door over); `on=false` allowed. While it's on, every row of this table says allowed: no person guard holds an agent back, the person's keys, focus and the tile they type in included (an agent may move them), and revisions and the layout's shape still do. Only the words being typed stay the person's: `draft.replace` waits until they're sent or closed, and `draft.patch` lands in the draft. It tells the outline service as well (PIE-973, `agents.yolo` on the wire): the MCP access level reads `full`, any proposal can be applied or dismissed, an agent's `R` releases a line waiting for a person, and the dropped-structure guard lets an edit through; the service drops it when the door that set it goes |
 | `changes.machinery` | what "what changed" shows is the person's | refused: an agent reads changes itself (`changes.since`, `activity.recent`: both take `machinery`) |
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
 | the river's `column.select` (by row or `id=`), `column.scroll`, `column.filter` | no | refused on the column the person has the keys in (its cursor is theirs, `id=` too), with the agent's way named (another column, `search`, `open from=`, `column.tag`); said on the status bar elsewhere |
@@ -829,7 +829,7 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
 - **The person's typing reaches the service.** A moment after they type in a held draft (`drafts.touch`, never
   for an agent's patch), the service reads the draft back and an `@name` request line written there runs once
   quiet, before any save; its answer lands in the draft as that extension's (`ext:<id>`). Their save is then
-  recorded as theirs, naming it (`ep0ch-door:<host>+ext:<id>`). `r` on a request line (or `projection.refresh`)
+  recorded as theirs, naming it (`ep0ch-door:<host>+ext:<id>`). `R` on a request line (or `projection.refresh`)
   asks again as whoever pressed or ran it: `asked by you`, `asked by an agent (<id>)`.
 
     outliner patch-demo --block <id> --tidy-above "@tidy tidy this"    # a CLI demo of the prose policy, using the tidy extension's line rules; not the @tidy agent

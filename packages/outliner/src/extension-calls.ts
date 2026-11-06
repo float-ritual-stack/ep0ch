@@ -1240,9 +1240,9 @@ export class ExtensionCalls {
       const error = state?.error ?? row?.error ?? undefined;
       if (error) return { ...base, ...fetching, status: "unavailable", reason: error, fetchError: error };
       const waiting = call.effects === "write"
-        ? "runs only when asked: r runs it"
+        ? "runs only when asked: run it from its line"
         : call.effects === "spend"
-          ? "costs model time or money: it runs once when you write the line; r runs it"
+          ? "costs model time or money: it runs once when you write the line, or when you run it from its line"
           : "not run yet";
       return { ...base, ...fetching, status: "not-run", reason: state?.running ? `${extension?.name ?? call.extensionId} is running` : waiting };
     }
@@ -1294,7 +1294,7 @@ export class ExtensionCalls {
     const fetching = state?.running ? { fetching: true } : {};
     if (!row) {
       if (state?.error) return { ...base, ...fetching, status: "unavailable", reason: state.error, fetchError: state.error };
-      return { ...base, ...fetching, status: "not-fetched", reason: state?.running ? "fetching" : call.effects === "read" ? "not fetched yet" : "r fetches it" };
+      return { ...base, ...fetching, status: "not-fetched", reason: state?.running ? "fetching" : call.effects === "read" ? "not fetched yet" : "fetch it from its line" };
     }
     const record = this.store.get(row.blockId);
     const properties = record ? parsePropertyRecords(record.text).filter((property) => property.scope === "block") : [];
@@ -1777,7 +1777,7 @@ export class ExtensionCalls {
   /** `keep`: the output written under the block as real blocks, attributed to the extension. */
   private async keep(extension: LoadedExtension, action: ExtensionActionEntry, block: Block, call: HandlerCall, requestedBy: MutationProvenance | undefined): Promise<ExtensionActResult> {
     const row = this.store.extensionOutputs(block.id).find((candidate) => candidate.callKey === call.callKey);
-    if (!row || row.result === null) throw new Error(`${call.handlerKey}:: hasn't run yet: r runs it, then keep`);
+    if (!row || row.result === null) throw new Error(`${call.handlerKey}:: hasn't run yet: run it, then keep`);
     const result = row.result as { markdown?: string; title?: string } & ComponentOutput;
     const markdown = call.kind === "component" ? renderComponent(result, "markdown").body : result.markdown ?? "";
     const heading = result.title ?? `${extension.name}${call.argument ? ` · ${call.argument}` : ""}`;

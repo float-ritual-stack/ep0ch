@@ -361,7 +361,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await (S().stages.get(S().sel).top as Desk).dispatch.press("open", {id: first.proposal}, "guide");
     await until(() => screen().includes("[resolve]") && (S().stages.get(S().sel).top as Desk).layoutGet().tiles.some(t => t.showing?.id === first.proposal), "the reader resolve control");
     ch("l");
-    ch("r");
+    ch("R");
     await finished(first.proposal);
     expect((await board.get(first.note.id))!.text).toContain("grow peas\ndelivery Tuesday");
     press({kind: "char", ch: "z", ctrl: true});
@@ -395,7 +395,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await stage().dispatch.press("status.pick", {n: rows().find(row => row.block === fourth.proposal).n}, "waiting");
     await stage().dispatch.press("tile.focus", {}, "waiting");
     ch("l");
-    ch("r");
+    ch("R");
     await finished(fourth.proposal);
     await until(() => { press({kind: "esc"}); return S().focus === "index"; }, "leave the status section for the next example");
   }, 30_000);
@@ -818,7 +818,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
   }, 20_000);
 
-  test("held requests (PIE-888): an agent's @tidy line is listed after the programs and counted in the status bar; ⏎ opens its note, r sends it as the person, an agent's send is refused", async () => {
+  test("held requests (PIE-888): an agent's @tidy line is listed after the programs and counted in the status bar; ⏎ opens its note, R sends it as the person, an agent's send is refused", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "status" }, as: "test-agent" });
     await until(() => marks.status!.every(m => screen().includes(m)), "the status section");
@@ -827,7 +827,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     void app.heldAsks.seed(board);
     await until(() => app.heldAsks.count() === 1, "the held request", 8000);
     const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held");
-    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "cap: “Showcase wake cap” is capped at 1/day, and it's used up today · r to send" }]);
+    expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "cap: “Showcase wake cap” is capped at 1/day, and it's used up today · ask again to send" }]);
     await until(() => bar().includes("‼1"), "the count in the status bar");
     await stage().dispatch.press("status.pick", { n: held()[0].n }, "waiting");
     await until(() => screen().includes("@tidy · Reply to"), "the row");

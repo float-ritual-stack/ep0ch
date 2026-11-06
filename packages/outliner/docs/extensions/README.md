@@ -528,12 +528,12 @@ key:: [argument] [--option[=value]]…
 
 | `effects` | Runs by itself | Otherwise |
 |---|---|---|
-| `read` | When the line is saved or the note is opened, if it has no result, the result is older than `staleAfter`, (an output or component) the extension's `version` changed, or what it reads changed: the block's text, its children (one added, edited, moved away or trashed) or a block the line names `((id))`. A person's or agent's change to a child or a named block runs it, as opening the note would | `r` |
-| `spend` (costs money or model time) | Once, when a person's own save adds the line. Editing it afterwards, a line an agent wrote, and a line from before the service started wait. | `r` |
-| `write` | Never | `r` |
+| `read` | When the line is saved or the note is opened, if it has no result, the result is older than `staleAfter`, (an output or component) the extension's `version` changed, or what it reads changed: the block's text, its children (one added, edited, moved away or trashed) or a block the line names `((id))`. A person's or agent's change to a child or a named block runs it, as opening the note would | `R` |
+| `spend` (costs money or model time) | Once, when a person's own save adds the line. Editing it afterwards, a line an agent wrote, and a line from before the service started wait. | `R` |
+| `write` | Never | `R` |
 
-`r` is `resources.projection.refresh` (the door's `projection.refresh`; Detail's `r` on a note).
-`r` on a data record refetches that one key. What a line reads is kept as a short hash beside its result, bounded as
+`R` is the door's key for `resources.projection.refresh` (`projection.refresh`); Detail's is `r` on a note.
+`R` on a data record refetches that one key. What a line reads is kept as a short hash beside its result, bounded as
 `context` is, so telling whether it changed costs one read of the block and its children. Saves an extension makes
 never trigger a run, so extensions can't loop; the one exception is deliberate: after an action writes, its own `read` line
 runs once so the view shows the change.
@@ -694,7 +694,7 @@ keeps it.
    ```
 
 4. `weather:: Lisbon` shows the weather under the line and refreshes after 30 minutes on open.
-   `r` fetches now. For a call that costs money or model time (an LLM summary, say), use
+   `R` fetches now. For a call that costs money or model time (an LLM summary, say), use
    `"effects": "spend"` and a `"deadline"` up to `"5m"`.
 
 [horoscope](../../extensions/horoscope) is the smallest complete one.
@@ -929,7 +929,7 @@ runs again when the block's revision changes, showing the last one (`stale`) mea
 
 `status` is `ready`, `stale`, `not-run` or `unavailable` (with `reason`). An `extensions.output` event names the
 block when a code rule's view lands. The door draws `view` (a replaced heading keeps its fold point and `( )` stop;
-`R` shows the note as written); Detail shows the decoration as text under what it matched, named by its rule; the
+`~` shows the note as written); Detail shows the decoration as text under what it matched, named by its rule; the
 publisher puts its `markdown` in the page (a band is its `#` heading).
 
 Two primitives exist for rules: `band` (`text?`, `level?` 1–3, `style?`, `pattern?`, `align?`, `row?` top, middle or
@@ -956,7 +956,7 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
   across restarts (`lastRun` says when it stopped one); `skip` is a query whose blocks never set it off
   (`"triage=done OR child:via-trigger=intake-prior-art"`).
 - A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
-  agents (`@name` lines; other agents also wake by default): it's asked at once, as `r`
+  agents (`@name` lines; other agents also wake by default): it's asked at once, as `R`
   would, by whoever set the trigger off. The rule the person wrote is what asked; its guards are the limit.
 - **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
 - The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
@@ -1118,7 +1118,7 @@ An action is one thing an extension can do, declared once, so every client binds
 the door as an `ActionDef` named `ext.<id>.<action>` with its key and click (the door's PIE-512: a
 handler line's actions as keys and `[w ward]` controls under the line, a tile's in its tile kind),
 `outliner ext act` from a shell, and `extensions.act` for agents. Detail doesn't bind extension
-actions yet; `r` is its path today.
+actions yet; `R` is its path today.
 
 ```json
 { "id": "ward", "label": "Ward off the next omen", "on": "handler:fancy-horror", "key": "w", "effects": "write" }
@@ -1504,13 +1504,13 @@ lands in the note while he goes on. That needs a door that says when he types in
   types; the service reads that draft from the door, and a request line
   the person wrote there runs the same way once the draft is quiet, before any save. It runs once:
   rewording the line is a new request, removing an answered line and putting it back (an undo, within
-  ten minutes) brings its answer back rather than asking again, and `r` on the line asks again. `r`
+  ten minutes) brings its answer back rather than asking again, and `R` on the line asks again. `R`
   on the note asks the requests in it not answered yet (not asked, waiting, failed). Lines that were
-  already there wait for `r`: the service keeps, per note, the `@name` lines it last saw (any name,
+  already there wait for `R`: the service keeps, per note, the `@name` lines it last saw (any name,
   across restarts; notes from before this feature get theirs once, at start), so installing an
   extension doesn't wake old lines. New lines agents and extensions write wake their agents by default.
   Text always lands, in a saved note or a live draft. Only a loop-guard trip leaves an ask held,
-  with the guard named on the line; a person's `r` can send it. An interrupted request says so.
+  with the guard named on the line; a person's `R` can send it. An interrupted request says so.
 - **Invocation limits (PIE-906).** The default grant is all writers to all agents. Chains stop at
   a repeated agent or eight automatic hops. Notes can narrow a pair:
   `Short chain [invoke-from::ext:requests] [invoke-to::kitty] [max-hops::2] [budget::5] [cap::20/day]`.
@@ -1524,7 +1524,7 @@ lands in the note while he goes on. That needs a door that says when he types in
   agent invents pass through the loop guards, including the first repeat. Agent attribution stays intact.
   `extensions.list` reports the narrowing notes in `grants` and each extension's `held` count;
   `agents.held` lists loop-guard trips. There is no reminder or digest layer.
-- **Who asked.** `r` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
+- **Who asked.** `R` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
   actorId }`; a person when absent) and records it as `requestedBy` (`user`, `agent:<id>`).
 - **Streaming a plain inline answer (PIE-903):** on the same stdout, write one JSON line
   `{ "reply": "next chunk" }` per chunk, then the usual final envelope
@@ -2788,6 +2788,6 @@ properties your sync writes; never a list of keys in code ([properties are open]
   and `extensions.act`. Detail does draw highlights and margin notes (contract 6).
 - **The same request twice in one note.** Requests are known by their words: a second `@tidy` line
   that says exactly what an earlier one in the note says shows that one's answer and isn't asked
-  until `r` on it (or it's worded differently).
+  until `R` on it (or it's worded differently).
 - **Provider commands for extensions.** An extension's Resources are read-only from the outline: `comment.create` and
   other provider commands are Linear's built-in client's only.
