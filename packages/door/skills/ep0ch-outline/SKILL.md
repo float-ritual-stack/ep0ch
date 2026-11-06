@@ -660,7 +660,7 @@ A ```` ```svg ```` or ```` ```mermaid ```` fence draws as a picture where the re
   the note's own metadata, not body.
 - PNG, JPEG, WebP and GIF draw on Linux and macOS; video needs ffmpeg (Quick Look on a Mac). The path is on the
   machine the door runs on (`~` works). Under no Kitty graphics, the line says what it is.
-- To change one in a person's door: `images` lists them (`n`, line, layout, problems), then `image.size n= to=50%`
+- To change one in a person's door: `images` lists them (`n`, line, `picture`, layout, problems; a render line's drawing too), then `image.size n= to=50%`
   (or `height=`, or `by=1|-1`), `image.align n= to=center`, `image.hero n= on=true` (moves the header off any other
   image). Each is an attributed edit of that line, revision-checked, refused under a draft the person has open;
   `image.undo` takes yours back. Writing the line with `outline_patch` works too.

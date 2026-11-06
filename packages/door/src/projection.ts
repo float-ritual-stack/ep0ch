@@ -20,6 +20,7 @@ import { LIST_FIELDS } from "./socket";
 import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { resourceProviderKeys } from "./resource-providers";
 import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
+import type { ImagePrimitive } from "@ep0ch/outline-core/media-line";
 import { primitiveLines, type PrimitiveDraw } from "./components";
 import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
 import type { AfterRows } from "./doc";
@@ -549,7 +550,7 @@ export function primaryAction(p: ResourceProjection): { name: string; label: str
 /** A line's view: drawn from its primitives, else (a primitive this door doesn't draw) its markdown, else its data. */
 function componentBody(p: ResourceProjection, width: number, d: ExtDraw, press?: PrimitiveDraw["press"], run?: (act: string) => LinkTarget): { lines: string[]; via: "primitives" | "markdown" | "json" } {
   const c = p.output?.component;
-  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(press ? { press } : {}), ...(d.list && run && !d.bare ? { list: (node: ListPrimitive, w: number) => d.list!(node, w, run) } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: d.image } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
+  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(press ? { press } : {}), ...(d.list && run && !d.bare ? { list: (node: ListPrimitive, w: number) => d.list!(node, w, run) } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: (node: ImagePrimitive, w: number) => d.image!(node, w, p.anchor.line) } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
   if (p.output?.markdown.trim()) return { lines: d.markdown(p.output.markdown, width), via: "markdown" };
   return { lines: wrap(JSON.stringify(c?.data ?? null, null, 1) ?? "null", width).map(l => fg(C.grey) + l + RESET), via: "json" };
 }

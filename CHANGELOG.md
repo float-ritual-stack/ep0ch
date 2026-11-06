@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A picture is one thing: the right one changes, a page draws it the door's size, and [+] stops at the fit (PIE-1594, PIE-1584)
+
+- **The right picture changes.** Two pictures that read alike resize one at a time, past an insert above them, and so does ctrl+z. If another twin went in before the door redrew, it says so and writes nothing.
+- **A script's drawing is a picture too.** `images` lists it, its caption has `[−]` `[+]`, and a step writes `[height::…]` on its own render line.
+- **One header.** Two render lines drawing the same picture: the one with `[layout::hero]` is the header, the other draws where it's written.
+- **A published page draws the door's size.** An unsized picture fence is its own width, capped at the page, not always full width; `height=` makes it as wide as those rows do. A script's drawing now draws on a page at all.
+- **`[+]` stops at the full fit,** for every kind: a step that would draw the same says "it's as big as it gets here" and leaves the source alone.
+- **Header links read the click.** Alt- and middle-click on a link in a header's SVG open it fresh, on release like any link.
+- **Run:** `ep0ch install --apply` (door code and the publisher).
+
 ### A gallery card shows its note's header picture (PIE-1595)
 
 - **A cover, cropped to the card:** a `::view` in gallery or feed draws each note's `[layout::hero]` picture, or the picture `cover:` names, in the door (Kitty graphics) and on a published page. A value that isn't a picture stays words.

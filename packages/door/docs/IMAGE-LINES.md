@@ -75,4 +75,13 @@ background of its own (Tern) would otherwise show an empty box (PIE-839).
 In the door, an image's caption is its `[ ]` element: `⏎` opens the file, `+` `-` step its width, `←` `→` move it,
 `H` makes it the header, `=` shows a header whole or cropped; the caption's controls do the same by mouse. Each
 rewrites the line through the note's save (attributed, revision-checked, undoable). Agents: `images` lists a note's
-images, then `image.size`, `image.align`, `image.hero`, `image.fit`, `image.dim` (`ep0ch act …`).
+pictures, then `image.size`, `image.align`, `image.hero`, `image.fit`, `image.dim` (`ep0ch act …`).
+
+A step (`+` `-`, `by=`) stops where it would draw the same, and says so. A picture fence and a script's drawing step by
+rows; a script's drawing writes `[height::…]` on its render line.
+
+What a picture is lives in one place, outline-core's `picture.ts`: a media line, a fence, a script's drawing, which is
+the header, its size and one step. Who it is (`picture=`, from `images`) holds across a resize and an insert above it:
+what it draws, and which of those alike. If how many are alike changed, the action says the picture changed and writes
+nothing. A published page reads the same words; a file's unsized width is the exception, since the publisher doesn't read
+its pixels.

@@ -17,7 +17,7 @@ import { drawNoteComponents, drawViewLane, drawViewPage, hasCollectionLayout, re
 import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
-import { ARTIFACT_PATH, componentImageAt, drawNoteMedia, fenceSvg, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
+import { ARTIFACT_PATH, componentImageAt, drawingHtml, drawNoteMedia, fenceSvg, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
 import { artifactPagePath, artifactRepoRef, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
@@ -2650,7 +2650,7 @@ export class Publisher {
           const policy = this.policy;
           components.push(readImages(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)), (n) => {
             const node = images[n];
-            if (!node) return null;
+            if (!node || node.svg !== undefined) return node ? drawingHtml(node, text[line]) : null;
             const spec = imagePrimitiveSpec(node);
             // `caption: false` (PIE-839): a served cover without its caption; one not served still says what it is.
             return mediaHtml(spec, !context.index.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${context.basePath}${mediaPath(blockId, line, n)}` : null, undefined, node.caption !== false);

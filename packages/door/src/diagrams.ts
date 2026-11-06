@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { mediaCache, mediaChanged, type PictureFence } from "./media";
+import { mediaCache, mediaChanged, PICTURE_SCALE, svgOwnSize, type PictureFence } from "./media";
 import { theme, type Rgb } from "./theme";
 
 /** The colours a picture is drawn in: the door's own ground, text and lines (dark first, never a white sheet). */
@@ -30,7 +30,7 @@ export interface PictureRoom { pxWidth: number; fontSize: number }
 /** The room a body `cols` wide gives a picture, in cells of `cellW` × `cellH` pixels. */
 export const pictureRoom = (cols: number, cellW: number, cellH: number): PictureRoom => ({ pxWidth: cols * cellW, fontSize: Math.max(10, Math.round(cellH * 0.75)) });
 /** How much bigger than its layout a picture's SVG is drawn (sharp on a wide or dense screen). */
-export const PICTURE_SCALE = 2;
+export { PICTURE_SCALE };
 
 /** What the door has of a fence's picture now: being drawn, ready as a file, or what went wrong. */
 export type PictureState =
@@ -113,11 +113,8 @@ const hex = (c: Rgb) => `#${c.map(v => v.toString(16).padStart(2, "0")).join("")
 
 /** A ```svg fence: an `<svg>` element, its size if it says one. */
 export function describeSvg(source: string): string {
-  const root = /<svg\b[^>]*>/i.exec(source)?.[0] ?? "";
-  const w = /\bwidth\s*=\s*["']?([\d.]+)/.exec(root)?.[1], h = /\bheight\s*=\s*["']?([\d.]+)/.exec(root)?.[1];
-  const box = /\bviewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(root);
-  const size = w && h ? `${Math.round(+w)}×${Math.round(+h)}` : box ? `${Math.round(+box[1]!)}×${Math.round(+box[2]!)}` : "";
-  return `svg picture${size ? `: ${size}` : ""}`;
+  const own = svgOwnSize(source);
+  return `svg picture${own ? `: ${Math.round(own.width)}×${Math.round(own.height)}` : ""}`;
 }
 
 // ── the table ─────────────────────────────────────────────────────────────────

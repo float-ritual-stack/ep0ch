@@ -488,3 +488,4 @@ async function gridOf(s: Source, cols: number, rows: number, look: Look): Promis
 // ── the media line ────────────────────────────────────────────────────────────
 // Its grammar is outline-core's (media-line.ts): the service reads it too (a media line is content, never metadata).
 export * from "@ep0ch/outline-core/media-line";
+export * from "@ep0ch/outline-core/picture";

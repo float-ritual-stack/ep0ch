@@ -111,7 +111,7 @@ export interface PrimitiveDraw {
    * An `image` primitive (PIE-827) drawn as the reader draws a note's `[img::]` line, `width` wide: its picture and
    * caption. Without it, its alt text and its path.
    */
-  image?(node: ImagePrimitive, width: number): string[];
+  image?(node: ImagePrimitive, width: number, line?: number): string[];
   /**
    * A `list` primitive (PIE-747), drawn as the reader draws its lists: the one ListView, with the selection, filter and
    * scroll its viewer keeps. Without it (a page, a draft's preview, a rule's decoration) the rows are drawn as they are.

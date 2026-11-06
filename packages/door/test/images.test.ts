@@ -7,7 +7,8 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { heroBox, imageBox, coverCrop, mediaLines, renderDoc, type DocEnv } from "../src/doc";
+import { renderDoc, type DocEnv } from "../src/doc";
+import { heroBox, imageBox, coverCrop, noteMediaLines } from "../src/media";
 import { inWindow, KittyLayer } from "../src/kitty";
 import { brightness, cellColours, MAX_MEAN, media, mediaCache, nextFrame, parseFocus, parseMediaLine, rewriteMediaLine, sized, type ReadyMedia } from "../src/media";
 import { resizeEnded, resizing } from "../src/resize";
@@ -79,7 +80,7 @@ describe("the media line", () => {
   });
 
   test("one scan: not inside a fence or a figure; the first header counts", () => {
-    const found = mediaLines(["[img::a.png] [layout::hero]", "```", "[img::b.png]", "```", "[img::c.png] [layout::hero]"]);
+    const found = noteMediaLines(["[img::a.png] [layout::hero]", "```", "[img::b.png]", "```", "[img::c.png] [layout::hero]"].join("\n"));
     expect([...found.keys()]).toEqual([0, 4]);
     expect(found.get(4)!.layout).toBeUndefined();
     expect(found.get(4)!.problems).toEqual(["another image is the header already"]);

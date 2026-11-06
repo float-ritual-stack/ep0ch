@@ -7,7 +7,7 @@
 // under the header's text. Cells: one colour per cell from the same crop, under the text. Elsewhere (text out, no
 // colour): nothing. `reader.hero on=false` turns it off, kept for the next start as the theme is; `mode=follow` makes
 // the header follow the note's pictures: each one that scrolls under takes over, fading in over the one before.
-import { coverCrop } from "../doc";
+import { coverCrop } from "../media";
 import { backgroundAfter } from "../canvas";
 import type { Placement } from "../kitty";
 import { cellColours, sized, type CellGrid, type Focus, type Look, type ReadyMedia } from "../media";

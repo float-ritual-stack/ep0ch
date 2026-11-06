@@ -47,7 +47,7 @@ describe("children keep the note's context", () => {
     expect(doc.source[header]).toBe(1);
   });
   test("a box in a note with a header image keeps its own image in the body", () => {
-    const doc = renderDoc('img::header.png [layout::hero]\n::box{border=line}\nimg::beans.png\n::', { ...env, hero: true, heroLine: 0 });
+    const doc = renderDoc('img::header.png [layout::hero]\n::box{border=line}\nimg::beans.png\n::', { ...env, heroLine: 0 });
     expect(doc.hero?.path).toEndWith("header.png");
     expect(doc.lines.map(plain).join("\n")).toContain("beans.png");
     expect(doc.lines.map(plain).join("\n")).not.toContain("▀ header beans.png");
