@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A slow render tile says it was cut off, and a closed one stops drawing (PIE-1602)
+
+- **Past its budget,** a render script's tile says "drawing took too long: it ran past its 15 s budget and was stopped", wrapped to the tile.
+- **One drawing at a time:** a change while it draws asks once more when it ends; a closed tile asks for nothing more.
+- **Other doors keep answering:** `scripts.render` has run off the host's loop since #1255; a test now holds it there.
+- **Run:** `ep0ch install --apply`.
+
+### `--timeout` on export, find and mirror; a quoted question isn't an ask (PIE-1597)
+
+- **`ep0ch export`, `find` and `mirror` take `--timeout <seconds>`,** and a timeout names the flag to rerun with.
+- **A quoted `?`** (in quotes, apostrophes included, or a `>` quote) no longer counts as a question for you.
+- **done-stamp stamps tickets and outbox items** at done, and takes the stamp off on reopen.
+- **Run:** `ep0ch install --apply`.
+
 ### A picture is one thing: the right one changes, a page draws it the door's size, and [+] stops at the fit (PIE-1594, PIE-1584)
 
 - **The right picture changes.** Two pictures that read alike resize one at a time, past an insert above them, and so does ctrl+z. If another twin went in before the door redrew, it says so and writes nothing.
