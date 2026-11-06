@@ -117,6 +117,8 @@ test("a ::view card's cover is its note's header picture, served from that note,
   store.create("Plain [shelf::moths]\n\n- No picture here", note.id);
   const named = store.create("Named [shelf::named] [photo::images/luna-moth.png]\n\n- Words of the note", note.id);
   const words = store.create("Worded [shelf::named] [photo::the white sheet]\n\n- Other words", note.id);
+  const summed = store.create("Summed [shelf::named] [photo::plant in spring]\n\n[img::images/luna-moth.png] [layout::hero]", note.id);
+  const bare = store.create("Bare [shelf::named]\nphoto:: images/luna-moth.png\n\n- More words", note.id);
   const html = await (await get("/p/moth-shelf?view=html")).text();
   // The gallery: cropped by the page around the line's focus, with no caption.
   expect(html).toContain(`<div class="ext-cover"><figure class="media media-left"><img src="/p/${luna.id}/media/2" alt="Luna on the sheet"`);
@@ -145,6 +147,12 @@ test("a ::view card's cover is its note's header picture, served from that note,
   expect(new Uint8Array(await (await get(`/p/${named.id}/media/0/0`)).arrayBuffer())).toEqual(PNG);
   expect((await get(`/p/${named.id}/media/0/1`)).status).toBe(404);
   expect(html).toContain("Words of the note");
+  // What cover= names comes first: words on a note with a header picture stay words; the hero is only for a note it names nothing on.
+  expect(html).toContain('<div class="ext-cover">plant in spring</div>');
+  expect(html).not.toContain(`<img src="/p/${summed.id}/media/2"`);
+  // A bare `photo:: path` line is a property like any other: its picture is served, not left as a missing image.
+  expect(html).toContain(`<img src="/p/${bare.id}/media/1/0"`);
+  expect(new Uint8Array(await (await get(`/p/${bare.id}/media/1/0`)).arrayBuffer())).toEqual(PNG);
   // A value that isn't a picture stays words.
   expect(html).toContain('<div class="ext-cover">the white sheet</div>');
   expect((await get(`/p/${words.id}/media/0/0`)).status).toBe(404);

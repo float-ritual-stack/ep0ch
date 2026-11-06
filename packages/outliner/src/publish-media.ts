@@ -7,8 +7,9 @@
 //
 
 import { noteCodeFences } from "@ep0ch/outline-core/component-block";
-import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, imagePrimitiveSpec, linePictures, noteMediaLines, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
+import { ARTIFACT_KIND_LABELS, artifactKind, artifactRepoRef, fileName, imagePrimitiveSpec, noteMediaLines, pictureFenceSpec, type MediaSpec, type PictureFence } from "@ep0ch/outline-core/media-line";
 import type { ArtifactDeployState } from "@ep0ch/outline-core/artifacts";
+import { propertyPictureAt } from "@ep0ch/outline-core/picture-address";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import type { DrawnComponent } from "./publish-live";
 import type { OutlinerClient } from "./client";
@@ -30,7 +31,7 @@ export { fileName, noteMediaLines };
 
 /**
  * The `image`th picture line `line` of note `blockId` draws: its component's image primitive (PIE-827), as its kept view
- * says now; with no component there, the `image`th picture a property on that line names (a card's `cover:`, PIE-1595).
+ * says now; with no component there, the `image`th picture a property on that line names, a chip or a bare line (a card's `cover:`, PIE-1595).
  */
 export async function componentImageAt(client: Pick<OutlinerClient, "request">, blockId: string, line: number, image: number): Promise<MediaSpec | undefined> {
   try {
@@ -38,7 +39,7 @@ export async function componentImageAt(client: Pick<OutlinerClient, "request">, 
     const view = read.projections.find((projection) => projection.kind === "component" && projection.anchor.line === line)?.output?.component?.view;
     if (view !== undefined) { const node = viewImages(validatePrimitive(view))[image]; return node ? imagePrimitiveSpec(node) : undefined; }
     const block = (await client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
-    const path = linePictures((block?.text ?? "").split("\n")[line] ?? "")[image];
+    const path = propertyPictureAt(block?.text ?? "", line, image);
     return path ? { kind: "img", path, problems: [] } : undefined;
   } catch {
     return undefined;

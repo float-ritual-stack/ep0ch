@@ -64,15 +64,18 @@ describe("showcase: a card's cover", () => {
     const { root } = h.seeded.notes;
     const dir = SHOWCASE_ASSETS;
     await h.board.createBlock(root.id, `Named cover [shelf-b::one] [photo::${dir}/seed-packet.webp]\n\n[img::${dir}/allotment-dusk.jpg] [layout::hero]\n\n- A line of words`);
-    await h.board.createBlock(root.id, `Words for a cover [shelf-b::one] [photo::the bench at noon]\n\n[img::${dir}/allotment-dusk.jpg] [layout::hero]\n\n- A line of words`);
+    await h.board.createBlock(root.id, `Words for a cover [shelf-b::one] [photo::the bench at sunrise]\n\n[img::${dir}/evening-beds.jpg] [layout::hero]\n\n- A line of words`);
+    await h.board.createBlock(root.id, `Nothing named [shelf-b::one]\n\n[img::${dir}/allotment-dusk.jpg] [layout::hero]\n\n- A line of words`);
     await h.board.createBlock(root.id, `Words alone [shelf-b::one] [photo::the bench at noon]\n\n- A line of words`);
     const note = await h.board.createBlock(root.id, `Second shelf\n\n::view{query="shelf-b=one" layout="gallery, feed" cover=photo body=4 sort="title asc"} ^second\n::`);
     await act("open", { id: note.id });
-    await until(() => { draw(160); return images().length >= 2; }, "both pictures", 20_000);
+    await until(() => { draw(160); return images().some(i => i.media.path.endsWith("seed-packet.webp")) && images().some(i => i.media.path.endsWith("allotment-dusk.jpg")); }, "both pictures", 20_000);
     await until(() => shelf(160).lines.join("\n").includes("A line of words"), "the cards' words", 20_000);
     const drawn = shelf(160).lines.join("\n");
     expect(drawn).toContain("the bench at noon");
+    // What cover= names comes first: the note with words and a hero shows its words; only the note it names nothing on falls back on its hero.
     expect(images().map(i => i.media.path.split("/").pop()).sort()).toEqual(["allotment-dusk.jpg", "seed-packet.webp"]);
+    expect(drawn).toContain("the bench at sunrise");
     expect(drawn).toContain("A line of words");
     expect(drawn).not.toContain("header ");
     expect(drawn).not.toContain("[layout::hero]");

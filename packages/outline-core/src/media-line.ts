@@ -230,8 +230,9 @@ export const isPictureValue = (value: string): boolean => /\.(png|jpe?g|gif|webp
 
 /**
  * What a `::view` card shows as its cover (PIE-1595), as one line of text: a media line when it's a picture
- * (`coverPicture` reads it back), words otherwise. The first picture a `cover:` key names, then, with `hero`, the note's
- * `[layout::hero]` line, then the first words a `cover:` key names. `img` and `image` read the note's own media lines too.
+ * (`coverPicture` reads it back), words otherwise. The `cover:` keys in order: the first that names anything here, its
+ * picture, else its words. `img` and `image` read the note's own media lines too. With `hero`, a note they name nothing
+ * on falls back on its `[layout::hero]` line.
  */
 export function cardCover(text: string, named: readonly { key: string; values: readonly string[] }[], hero: boolean): string | undefined {
   const lines = text.split("\n"), media = [...noteMediaLines(text)].filter(([, spec]) => spec.kind === "img");
@@ -241,29 +242,15 @@ export function cardCover(text: string, named: readonly { key: string; values: r
     const picture = values.find(isPictureValue);
     if (picture) return headerLine?.[1].path === picture ? source(headerLine) : `[img::${picture}]`;
     if (/^(img|image)$/i.test(key) && media[0]) return source(headerLine ?? media[0]);
+    if (values.join("")) return values.join(", ");
   }
-  if (hero && headerLine) return source(headerLine);
-  return named.flatMap(({ values }) => values.join(", ") || []).find(Boolean);
+  return hero && headerLine ? source(headerLine) : undefined;
 }
 
 /** The picture a row's `cover` line draws, or null: then the cover is words. */
 export function coverPicture(cover: string | undefined): MediaSpec | null {
   const spec = cover ? parseMediaLine(cover) : null;
   return spec?.kind === "img" ? spec : null;
-}
-
-/** The picture values property tokens write on a line, in order: what `/p/<id>/media/<line>/<n>` names when a `cover:` property holds it. */
-export const linePictures = (line: string): string[] => propertyTokensInLine(line).map(token => token.value.trim()).filter(isPictureValue);
-
-/** Where in a note the picture `path` is named, for an address that holds no path: its media line, or a property's place on a line. */
-export function pictureAddress(text: string, path: string): { line: number; image?: number } | null {
-  for (const [line, spec] of noteMediaLines(text)) if (spec.kind === "img" && spec.path === path) return { line };
-  const lines = text.split("\n");
-  for (let line = 0; line < lines.length; line++) {
-    const image = linePictures(lines[line]!).indexOf(path);
-    if (image >= 0) return { line, image };
-  }
-  return null;
 }
 
 /** The layout an artifact takes: the rest are an image's. */
