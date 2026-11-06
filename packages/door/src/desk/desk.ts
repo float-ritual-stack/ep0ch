@@ -3772,7 +3772,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
-    withStripOwner(undefined, full.cols, () => this.drawDocks(canvas, full));
+    withStripOwner(undefined, full.cols, () => this.drawDocks(canvas, host?.root ?? full));   // the drawer's edges in the drawer, where the person looks for what it kept
     if (this.layout.lift) return { lines: canvas.lines(), placements };
     return this.finishFrame(canvas, area, cols, rows, placements, !!host);
   }
@@ -6347,7 +6347,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What a ctrl+] does on this desk's tiles now (the one rule, keys-fact.ts): none here is null, and the layer around it decides. */
   chordWay(): DeskWay {
     const p = this.panes.get(this.focus), inGroup = p instanceof ScreenTile && p.inside;
-    return deskWay({ typing: this.rawKeys(), exited: this.waitsOnExit(), armed: this.doorKeys.armed(p), inGroup, inner: inGroup ? p.inner?.chordWay() ?? null : null });
+    return deskWay({ typing: this.rawKeys(), exited: this.waitsOnExit(), armed: this.doorKeys.armed(p), inGroup, inner: this.keysDesk() !== this && p instanceof ScreenTile ? p.inner?.chordWay() ?? null : null });
   }
 
   /** The person's keys leave this screen's terminal without a word (the drawer's keys went back to the screen shown). */

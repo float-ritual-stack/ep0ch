@@ -16,6 +16,11 @@ describe("a desk's way out", () => {
   test("inside a group, the group's own way comes first", () => {
     for (const inner of ["program", "send", "group"] as DeskWay[]) expect(desk({ inGroup: true, inner })).toBe(inner);
   });
+  test("a group never gone into still answers for a program in it: a click put the keys there", () => {
+    expect(desk({ inGroup: false, inner: "program" })).toBe("program");
+    expect(desk({ inGroup: false, inner: "send" })).toBe("send");
+    expect(desk({ inGroup: false, inner: null })).toBeNull();
+  });
   test("a program that exited steps out of it; in a group that stays in the group", () => {
     expect(desk({ typing: true, exited: true })).toBe("exited");
     expect(desk({ inGroup: true, inner: "exited" })).toBe("program");

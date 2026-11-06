@@ -556,6 +556,88 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
       } finally { d.quit(); }
     });
 
+    for (const inDrawer of [false, true]) test(`a gather holding a live shell undone ${inDrawer ? "in the drawer" : "on the screen"}: the group and its shell are one click from the screen`, async () => {
+      const d = await door(cols, rows);
+      try {
+        if (inDrawer) { for (const t of ["reader", "replies"]) await d.desk.dispatch.act({ action: "tile.drawer", tile: t, args: { on: true } }, USER); d.paint(); }
+        const host = inDrawer ? d.drawer() : d.desk;
+        await host.dispatch.act({ action: "tile.group", tile: "replies", args: { with: "reader", name: "dg" } }, USER);
+        await host.dispatch.act({ action: "tile.focus", tile: "dg" }, USER);
+        d.paint();
+        await d.press(ctrl("w"), char("e"));
+        const tile = host.pane("dg") as any, inner = tile.inner as Desk;
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (inner.pane("pty") as PtyPane | undefined)?.running === true, "the shell runs");
+        const shell = inner.pane("pty") as PtyPane;
+        await d.press(ctrl("]"));
+        await Bun.sleep(1600);
+        await d.press(ctrl("z"));   // the shell's open: it stays, in its dock in the group
+        await d.press(ctrl("z"));   // the gather: the group stays for what it holds
+        expect(d.said()).toContain("kept in a dock");
+        expect(shell.running).toBe(true);
+        d.paint();
+        const cell = (host.layoutGet().tiles as any[]).find(t => t.name === "dg")!;
+        expect(cell.shown).toBe(false);
+        const edge = () => { const id = (host as any).idNamed("dg"); const h = (host as any).presses.kind("dock").find((x: any) => x.id === id); return h ? { x: h.from, y: h.row } : null; };
+        const spot = edge();
+        expect(spot).not.toBeNull();
+        // Where the person looks for it: on the layout it was kept on, the drawer's within the drawer.
+        const box = (d.app.drawer as any).rect;
+        if (inDrawer) expect(spot!.y).toBeGreaterThanOrEqual(box.row);
+        await d.click(spot!.x, spot!.y);
+        expect((host.layoutGet().tiles as any[]).find(t => t.name === "dg")!.shown).toBe(true);
+        d.paint();
+        // Its shell comes with it, running, on screen.
+        expect((inner.layoutGet().tiles as any[]).find(t => t.name === "pty")!.shown).toBe(true);
+        expect(shell.running).toBe(true);
+      } finally { d.quit(); }
+    });
+
+    test("a shell clicked in a group in the drawer, never stepped into: ^] leaves the program, not the drawer; a second soon after is the program's; left by the group's ^], the second goes back in to the program", async () => {
+      const d = await door(cols, rows);
+      try {
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "reader", args: { on: true } }, USER);
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies", args: { on: true } }, USER);
+        d.paint();
+        const dr = d.drawer();
+        await dr.dispatch.act({ action: "tile.group", tile: "replies", args: { with: "reader", name: "dg" } }, USER);
+        await dr.dispatch.act({ action: "tile.focus", tile: "dg" }, USER);
+        d.paint();
+        const tile = dr.pane("dg") as any, inner = tile.inner as Desk;
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (inner.pane("pty") as PtyPane | undefined)?.running === true, "the shell runs");
+        const shell = inner.pane("pty") as PtyPane, got: string[] = [], real = shell.input.bind(shell);
+        shell.input = (s: string) => { got.push(s); real(s); };
+        // The click: the shell has the keys and the group was never gone into.
+        await inner.dispatch.press("tile.focus", {}, "pty");
+        await inner.dispatch.press("tile.enter", {}, "pty");
+        d.paint();
+        expect(tile.inside).toBe(false);
+        expect(inner.rawKeys()).toBe(true);
+        expect(d.app.person().wayOut).toBe("program");
+        await d.press(ctrl("]"));
+        expect(d.app.drawer.entered).toBe(true);
+        expect(d.said()).toContain("back to the door");
+        expect(inner.rawKeys()).toBe(false);
+        expect(d.app.person().wayOut).toBe("send");
+        await d.press(ctrl("]"));
+        expect(got).toEqual(["\x1d"]);
+        expect(inner.rawKeys()).toBe(true);
+        // Out of the program, its second's moment gone: the drawer is next, and right after that the second goes back in, to the program.
+        await d.press(ctrl("]"));
+        d.app.drawer.keysFact.chordSpent();
+        expect(d.app.person().wayOut).toBe("drawer");
+        got.length = 0;
+        await d.press(ctrl("]"));
+        expect(d.app.drawer.entered).toBe(false);
+        expect(d.app.person().wayOut).toBe("drawer-send");
+        await d.press(ctrl("]"));
+        expect(d.app.drawer.entered).toBe(true);
+        expect(got).toEqual(["\x1d"]);
+        expect(inner.rawKeys()).toBe(true);
+      } finally { d.quit(); }
+    });
+
     test("a shell opened inside a group, undone twice: the door stays up and the second undo takes the next change or says there's none", async () => {
       const d = await door(cols, rows);
       try {
