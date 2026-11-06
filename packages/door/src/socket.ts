@@ -1,3 +1,4 @@
+import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { grammarWarning } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
@@ -98,6 +99,9 @@ export function hostSend(path: string, action: string, params: Record<string, un
  * A block as the service sends it: full (`text`), or projected without text (`title`, from blocks.read
  * or blocks.query `fields`), or compact (`preview`, from views.read `format: "tree"`).
  */
+/** A place a soft link could land: the note, or what following it would make. */
+export interface SoftLinkChoice { label: string; context?: string; note?: Msg; create?: { address: string; under?: string } }
+
 export interface WireBlock {
   id: string; parentId?: string | null; position?: number; text?: string; title?: string; preview?: string; revision?: number;
   author?: string; actorId?: string;
@@ -707,6 +711,15 @@ export class SocketBoard implements Board {
     return (await this.request("references.resolve", { text })).references;
   }
 
+  /** Where a soft link lands (PIE-408): the service's answer for what it names, from the block and line it's written on. */
+  async softLink(name: SoftLinkName, at: { blockId?: string; line?: number } = {}): Promise<{ status: "resolved" | "ambiguous" | "missing"; words: string; candidates: SoftLinkChoice[] }> {
+    const r = await this.request("references.soft", { name, ...at });
+    return { status: r.status, words: r.words, candidates: r.candidates.map(({ block, ...c }) => ({ ...c, ...(block ? { note: toMsg(block) } : {}) })) };
+  }
+
+  /** What soft links are drawn with (PIE-408): keys left out, and the page addresses a value can land on. */
+  async softLinkScope(): Promise<{ ignore: string[]; pages: string[] }> { return this.request("references.soft-scope", {}); }
+
   /** Which prefixes make a bare key a Work ID here (#429): the configured one and every prefix in use. */
   async ticketPrefixes(): Promise<{ prefix: string | null; prefixesInUse: string[] }> {
     const r = await this.request("references.resolve", { text: "" });
@@ -1067,8 +1080,8 @@ export class SocketBoard implements Board {
    * Blocks that point at this one, as the service sends them (PIE-442), with facets, read through
    * src/backlinks.ts as Detail reads them. The note itself stays, for the "this note" toggle.
    */
-  async backlinks(id: string, limit = BACKLINK_QUERY_LIMIT): Promise<BacklinkCollection> {
-    return backlinkCollectionOf(await this.request("references.backlinks", { query: { targetBlockId: id, limit } }), id);
+  async backlinks(id: string, limit = BACKLINK_QUERY_LIMIT, softMentions = false): Promise<BacklinkCollection> {
+    return backlinkCollectionOf(await this.request("references.backlinks", { query: { targetBlockId: id, limit, ...(softMentions ? { softMentions } : {}) } }), id);
   }
 
   /**

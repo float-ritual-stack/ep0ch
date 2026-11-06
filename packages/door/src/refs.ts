@@ -21,7 +21,9 @@ import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
-import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
+import { softLinkTokens, softName, type SoftLinkName, type SoftLinkToken } from "@ep0ch/outline-core/soft-links";
+import { isMediaLine } from "@ep0ch/outline-core/media-line";
+import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
@@ -143,6 +145,22 @@ export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes
   return c?.value ?? null;
 }
 
+const softScopeBy = new WeakMap<object, Map<string, Cached<{ ignore: string[]; pages: Set<string> }>>>();
+/**
+ * What soft links are drawn with (PIE-408), the service's one answer: keys left out, and the page addresses. Asked once
+ * per change whatever the note holds (a page or a rule note can appear at any edit), never once per value. Null while asked.
+ */
+function softScopeOf(src: Source | null | undefined) {
+  return ask(softScopeBy, src, "scope", async b => { const s = await b.softLinkScope(); return { ignore: s.ignore, pages: new Set(s.pages) }; }, c => anyChangeSince(c.at))?.value ?? null;
+}
+export const softLinkIgnoreOf = (src: Source | null | undefined): readonly string[] => softScopeOf(src)?.ignore ?? [];
+/** Whether a soft link draws as one: a date and a pull request do; a value only where its page is. One with no page stays text, and its panel row offers the stub. */
+const softLinkDraws = (t: SoftLinkToken, src: Source | null | undefined) => {
+  if (t.kind !== "value") return true;
+  const address = tryNormalizePageAddress(t.value)?.normalizedAddress;
+  return !!address && !!softScopeOf(src)?.pages.has(address);
+};
+
 const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();
 /** The workspace's Work-ID prefix: a string, null when none is configured (or unknown), undefined until asked. */
 export function workIdPrefix(src: Source | null | undefined): string | null | undefined {
@@ -245,6 +263,8 @@ export type LinkTarget = {
    * `at` and `atLabel` light that line), or says it is computed. `problem` is why it has no value.
    */
   value?: { expression: string; words: string; problem?: string; route: string };
+  /** A soft link (PIE-408): what it names and where it's written; the service says where it lands when it's followed. */
+  soft?: { name: SoftLinkName; block?: string; line?: number };
   /** A `#tag` (PIE-800), its value as the service's parser read it (`garden/beds`): it opens the notes carrying the tag. */
   tag?: string;
   query?: string;
@@ -401,7 +421,7 @@ export function referenceWords(text: string): string {
  * Each is an element: ⏎ or a click shows the line the value is written on. Without `site`, or while the answer is on its
  * way, a placeholder stays as typed. `draft`: the text is the note's unsaved one.
  */
-export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall }, literal: { properties?: boolean } = {}): string {
+export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall; /** Each drawn line's line in the note (a reader hides metadata and folds): where a soft link's context is walked from. */ lines?: readonly number[] }, literal: { properties?: boolean } = {}): string {
   embeds = expandsEmbeds(embeds);
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
@@ -458,6 +478,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // The `{{ }}` of the text, where the scan finds them, paired with the service's answers (none until it has answered).
   const { answer, current } = site ? siteRead(site.block, noteText, src, !!site.draft, site.call) : { answer: null, current: true };
   const pairs = answer ? pairValues(text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(p => p.value) : [];
+  // Where `text` starts in the note, in lines: what a soft link's context is walked from.
+  const cut = text === noteText ? 0 : noteText.indexOf(text), noteLine = cut > 0 ? noteText.slice(0, cut).split("\n").length - 1 : 0;
   let lineStart = 0;
   return lines.map((line, i) => {
     const from = lineStart;
@@ -482,6 +504,14 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     for (const tag of tags) for (const m of line.matchAll(tag.re)) {
       const start = m.index! + m[1]!.length;
       spans.push({ start, end: start + tag.raw.length, draw: () => mark({ text: tag.raw, missing: false }, { tag: tag.value, label: tag.raw }) });
+    }
+    // A soft link (PIE-408): a value, a date, a pull request, written by convention. Drawn without asking anyone; the
+    // service says where it lands when it's followed, from the note and line it's on.
+    // A picture line's chips are its layout, read from the line as written, never links.
+    if (src) for (const t of softLinkTokens(line, { code: codeSpanRanges(line), ignore: softLinkIgnoreOf(src), literalProperties: !!literal.properties || isMediaLine(line) })) {
+      if (!softLinkDraws(t, src)) continue;
+      const { start, end } = t, words = line.slice(start, end);
+      spans.push({ start, end, draw: () => mark({ text: words, missing: false }, { soft: { name: softName(t), ...(site?.block ? { block: site.block } : {}), line: site?.lines?.[i] ?? noteLine + i }, label: words }) });
     }
     const built = valueLinkOccurrences(line, answer?.values ?? [], code);
     const links = linkOccurrences(line, code).filter(l => !built.some(b => b.start < l.end && l.start < b.end));

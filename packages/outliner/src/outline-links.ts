@@ -288,7 +288,7 @@ export class OutlineLinks {
           [`${from}:${p.normalizedAddress}`, target.id] as [string, string],
           ...(name === from ? [[p.normalizedAddress, target.id] as [string, string]] : []),
         ]));
-        const result = (await this.open(name)).queryBacklinksAcross(request.query, target, addresses, from);
+        const result = (await this.open(name)).queryBacklinksAcross(request.query, target, addresses, from, name === from);
         sources.push(...result.sources.map(s => ({ ...s, ...(name !== from ? { outline: name } : {}) })));
         truncated ||= result.completeness.kind === "truncated";
       }

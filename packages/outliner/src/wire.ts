@@ -265,6 +265,8 @@ export interface WireAnswers {
   "reader.view": { view: ReaderView | null; readers: ReaderView[]; journal: ReaderEvent[]; };
   "references.backlinks": BacklinkCollection;
   "references.resolve": ResolvedBlockReferences;
+  "references.soft": import("./soft-links").SoftLinkAnswer;
+  "references.soft-scope": import("./soft-links").SoftLinkScope;
   "resources.collect": ResourceRetentionCollectionReceipt;
   "resources.command.execute": ResourceProviderCommandResult;
   "resources.describe": ResourceDescription;

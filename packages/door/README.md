@@ -318,7 +318,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **The outline** is seeded on the first run from `src/showcase/seed.ts`, a made-up household (an allotment,
   a kitchen, bikes), written through the service API (`create`, `work-ids.configure`,
   `roadmap.items.create`, `properties.patch`, `annotations.*`), not into SQLite. It has a board hub with a
-  lane per work stage and cards in each, callouts, links and soft links (`HOME-001`), folds, a literal
+  lane per work stage and cards in each, callouts, links and soft links (`HOME-001`; the `soft-links` section has the rest), folds, a literal
   region, a transclusion, properties in block, line and inline scopes, open and resolved comment threads,
   a saved view, one of every `::graph-*` kind, live ones included, and a call naming made-up tickets under
   `jira::` lines with a ticket page under it (PIE-445: a made-up ticket extension, `src/showcase/tickets`, a

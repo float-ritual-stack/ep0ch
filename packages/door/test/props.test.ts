@@ -377,7 +377,9 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     const r = await mine("props.follow", { key: "related-to" });
     expect(r).toMatchObject({ opened: ids.plan, title: "Garden plan" });
     await mine("open", { id: ids.card });
-    await expect(mine("props.follow", { key: "project" })).rejects.toThrow("plain text");
+    // A plain value is a soft link (PIE-408): [project::garden] lands on the garden page.
+    expect(await mine("props.follow", { key: "project" })).toMatchObject({ title: "Garden plan" });
+    await mine("open", { id: ids.card });
     (app as any).lastInput = 0;                                    // the person's summary keys: an agent's change waits until they're idle
     const s = await act("props.summary", { keys: "project, work-stage" });
     expect(s.yours).toEqual({ keys: ["project", "work-stage"], source: "yours" });

@@ -630,7 +630,7 @@ export function linksOf(id: string): LinkData | null {
   const watched = watchedOn(source);
   return {
     links: loaded(watched.read("blocks.authored-links", { ownerBlockId: id }, (r: AuthoredLinksSnapshot) => r)),
-    backlinks: loaded(watched.read("references.backlinks", { query: { targetBlockId: id, limit: BACKLINK_QUERY_LIMIT } }, (r: BacklinkCollection) => backlinkCollectionOf(r, id))),
+    backlinks: loaded(watched.read("references.backlinks", { query: { targetBlockId: id, limit: BACKLINK_QUERY_LIMIT, softMentions: true } }, (r: BacklinkCollection) => backlinkCollectionOf(r, id))),
   };
 }
 

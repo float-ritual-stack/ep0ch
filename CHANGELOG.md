@@ -41,6 +41,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Kept, not discarded:** a typed reply stays on its note, as the border promised. The status line says `kept here · r brings the reply back`, and `r` restores the text.
 - **It shows on the note:** the reader's `■` line says a reply is kept, with `[open copy]` and `[let it go]`.
 - **Run:** `ep0ch install --apply` (door code).
+### What you write by convention clicks through: values, dates, ticket keys, a project's PR (PIE-408)
+
+- **Click it, no brackets:** `[thread::agent-labour]` opens that page where the page exists (with none it stays text, and its row in `i` offers the stub), `ctx:: 2026-11-06 @ 4:31 AM` that day's note (a page named by the date, or a note with `[day::…]`), `PR#125` the note about it under the nearest `[project::…]`. Values in a note's metadata lines follow from the property panel (`i`).
+- **Nothing there:** the first click offers it, the second makes it: a stub page from a property row, or `PR#125` under its project's page (`page.create under=`).
+- **Two in one scope:** a chooser, never a guess.
+- **On the target:** those notes, and a bare ticket key, list under **Soft mentions**, their own group. `links:` and a note's record stay explicit.
+- **Keys that shouldn't link:** a note with `[soft-link-ignore::priority, status]`. No key is hard-coded.
 
 ### A picture is one thing: the right one changes, a page draws it the door's size, and [+] stops at the fit (PIE-1594, PIE-1584)
 

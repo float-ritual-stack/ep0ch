@@ -94,6 +94,7 @@ export const marks: Record<string, string[]> = {
   "tree-views": ["Garden chores", "V:", "matches · children to depth", "reader"],
   "lists-open": ["Bike shed", "detail", "preview · detail", "[ LINKS ]"],
   // The frost note in a detail, its #tags drawn as links.
+  "soft-links": ["Soft links, as you write them", "tool-library", "Tool library"],
   tags: ["Before the first frost", "#frost-jobs", "#compost"],
   // The swap thread, its links with every group, and the same tile with Children alone (its replies).
   children: ["Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
