@@ -3725,7 +3725,7 @@ export class OutlinerStore {
     });
     const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
     const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
-    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}), softLinkIgnore: softLinkIgnored(this.database) };
+    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}), ...(text ? {} : { softLinkIgnore: softLinkIgnored(this.database) }) };
   }
 
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {

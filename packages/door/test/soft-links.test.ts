@@ -96,11 +96,11 @@ describe("soft links in the reader", () => {
   }, 20_000);
 
   test("a value with no page offers a stub; the second click makes it", async () => {
-    await open(n.note.id, "no-page-yet");
-    click("no-page-yet");
+    await open(n.note.id, "no-page-yet].");
+    click("no-page-yet].");
     await until(() => /doesn't exist yet/.test(message() ?? ""), "the offer");
     expect((await board.resolvePage("no-page-yet")).status).toBe("missing");
-    click("no-page-yet");
+    click("no-page-yet].");
     await until(() => (reader()?.msg?.text ?? "").startsWith("no-page-yet"), "the stub, opened");
     expect((await board.resolvePage("no-page-yet")).status).toBe("resolved");
   }, 20_000);

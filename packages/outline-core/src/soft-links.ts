@@ -81,7 +81,7 @@ export interface SoftLinkOptions {
 export function softLinkableKey(key: string, ignore: Iterable<string> = []): boolean {
   const k = key.toLowerCase();
   // A heading's or a rule's chips are its style, read from its line as written.
-  if (ADDRESS_KEYS.has(k) || QUERY_KEYS.has(k) || k === SOFT_LINK_IGNORE_KEY || k === "rule" || isHeadingStyleKey(k)) return false;
+  if (ADDRESS_KEYS.has(k) || QUERY_KEYS.has(k) || k === SOFT_LINK_IGNORE_KEY || k === "rule" || k.startsWith("heading-") || isHeadingStyleKey(k)) return false;
   for (const left of ignore) if (left.toLowerCase() === k) return false;
   return true;
 }

@@ -158,8 +158,9 @@ revision, so concurrent edits rarely collide.
   note keeps its id and links) and put a duplicate or stray in Trash with `outline_trash` (the `revision` you
   read); `outline_restore` undoes it. Move freely, trash only what is plainly a copy or an empty stray, and say
   what you moved where. A system note (Inbox, Trash, Bookmarks, the Deploys record, a snapshot record) moves like any note, but nothing goes under Trash, Bookmarks or a guide; at propose access both arrive as comments.
-- **Soft links resolve by context.** A ticket key, a date or `PR#12` under `[project::garden-club]` means that
-  project's. Don't wrap every key in `[[…]]`; when a token is ambiguous, ask instead of guessing.
+- **Soft links resolve by context.** A property's value lands on its page, a date on that day's note, a ticket key on
+  its ticket, `PR#12` under `[project::garden-club]` on that project's. Don't wrap them in `[[…]]`: they click and
+  list on the target as Soft mentions. Two in one scope ask, never guess. A note with `[soft-link-ignore::rota]` leaves a key out.
 - **Reuse their keys and values.** A new key is a decision; an existing one is a convention.
 - **A step's box is their answer.** Checklist items have six states (outline-core `checklist-marks.ts`): `[ ]` to
   do, `[x]` done, `[~]` waiting, `[!]` problem, `[✓]` approved and `[✗]` rejected (`[+]` and `[-]` read the same).
