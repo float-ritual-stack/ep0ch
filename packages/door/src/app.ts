@@ -65,6 +65,7 @@ import { AgentDrawer, DRAWER_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import { type ResolveOpts } from "./desk/tile-address";
 import { layerOrder, type HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
+import type { DoorKeys } from "./desk/keys-fact";
 import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
@@ -120,7 +121,10 @@ export type { Video };
 /** The host layer's drawer as a screen's tiles reach it (PIE-498): `tile.drawer` moves a tile in or out through it. */
 export interface HostLayer {
   /** `d` is the drawer's own desk (its tiles, the drawer's tabs). */
-  isDrawer(d: unknown): boolean; carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void;   // an undo took back these carries, the person's keys on `keys` in `from` before it (PIE-1574)
+  isDrawer(d: unknown): boolean;
+  /** Who has the person's keys: the door's one record (desk/keys-fact.ts). */
+  readonly keysFact: DoorKeys;
+  carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void;   // an undo took back these carries, the person's keys on `keys` in `from` before it (PIE-1574)
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. `everyDesk`: every screen's too, shown or not, and the background's (PIE-1280: a program's tile is found wherever it runs). */
   desks(): Desk[]; everyDesk?(): Desk[];
   /** What of the drawer lies over row `row` of the screen now (PIE-1455): the drawer open over it, a drawer tile lifted over the whole screen, or nothing. */

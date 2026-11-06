@@ -92,6 +92,7 @@ import { AnswerTile } from "./answer-tile";
 import { AttachedTilePane, type Attachment } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
+import { deskWay, DoorKeys, type DeskWay } from "./keys-fact";
 import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
 import { fileOpenNote } from "./file-open";
@@ -374,8 +375,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private spines: [number, Rect][] = [];
   /** The layout last loaded or saved by name. */
   private layoutName: string | null = null;
+  /** Who has the person's keys, the door's one record (keys-fact.ts); a desk on no door yet has its own. */
+  private looseKeys: DoorKeys | null = null;
+  private get doorKeys(): DoorKeys { return this.ctx?.hostLayer?.keysFact ?? (this.looseKeys ??= new DoorKeys("")); }
   /** The terminal tile the person is typing in: every key but the escape chord is its program's. */
-  private ptyIn: PtyPane | null = null;
+  private get ptyIn(): PtyPane | null { return this.doorKeys.typingOn(this); }
   /** The group whose own drop zones show a dragged tile's ghost now (PIE-696), until the drag leaves it. */
   private groupGhost: Desk | null = null;
   /** alt+l: the next click (or h j k l, a digit) picks where this tile's opens land. */
@@ -926,7 +930,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!went) return;
     if (went.by === "home") this.entered.clear();
     const p = this.panes.get(this.focus);
-    if (went.typing && p instanceof PtyPane && p.running) { this.ptyIn = p; this.chord = null; }
+    if (went.typing && p instanceof PtyPane && p.running) this.doorKeys.typeIn(this, p);
   }
   /** Apply one layout operation for `actor`: the layout changes as one checked step, or the refusal is thrown. */
   private apply(op: Op<number>, actor: Actor = USER): Extract<Result<number>, { ok: true }> { return this.commit(this.ask(op, actor)); }
@@ -1078,7 +1082,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startMotion(TXN.getStore()?.motion, "put back");
     // A rollback nobody asked for (a run that ended early) leaves the keys where the person put them, when that tile is still there.
     const here = keepFocus ? this.focusId() : undefined;
-    try { this.entered.clear(); this.ptyIn = null; this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; } void this.fillColumns();   // lanes follow their source, not the shape put back (PIE-1574)
+    try { this.entered.clear(); this.doorKeys.stopTyping(this); this.build(here && specTileIds(spec).includes(here) ? { ...spec, focus: here } : spec, true, false, false, adopt); } finally { this.replaying = false; } void this.fillColumns();   // lanes follow their source, not the shape put back (PIE-1574)
   }
 
   /**
@@ -1316,7 +1320,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (was?.holdsWork?.(p) && was.whenFree) { this.whenFree(p, id, was.whenFree); continue; }
         const spec = this.specOf(id);
         p.dispose?.();
-        if (this.ptyIn === p) this.ptyIn = null;
+        this.doorKeys.stopTyping(this, p);
         const made = makeTile(spec);
         tileRegistry.replace(p, made);
         this.panes.set(id, made);
@@ -3259,8 +3263,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Raw input goes straight to the program while it runs (F-keys, shift-arrows, a bracketed paste): Term keeps the mouse and ctrl+]. */
   // A picker over it (the drawer's agent picker) has the keys first, as keyIn gives them: no bytes go past it.
   rawInput(): ((bytes: string) => void) | null { const p = this.ptyIn; return p && this.rawKeys() && p.running && !this.overlays.top() && !this.linking ? (s: string) => p.inputRaw(s) : null; }
-  /** The last ctrl+] out of a terminal: a second one soon after sends ctrl+] to the program instead. */
-  private chord: { pane: PtyPane; at: number } | null = null;
 
   /** Reader panes by their tile names (PIE-491: an answer names the tile, not its place). */
   private namedReaders(): { name: string; id: number; pane: ReaderPane }[] {
@@ -4994,7 +4996,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
     this.reenter();
     for (const [id, p] of this.panes) if (id !== this.focus && p.typing?.()) p.blur?.();
-    if (this.ptyIn && this.panes.get(this.focus) !== this.ptyIn) this.ptyIn = null;
+    if (this.ptyIn && this.panes.get(this.focus) !== this.ptyIn) this.doorKeys.stopTyping(this);
     this.shutLeftDocks();
   }
 
@@ -5014,13 +5016,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // has exited, the keys wait for a choice (⏎ runs it again, ctrl+] leaves) and nothing leaks to the desk.
     if (this.rawKeys() && k.kind !== "mouse") {
       const p = this.ptyIn!;
-      if (isEscapeChord(k)) return this.run("tile.leave", {}, this.nameOf(this.focus));
+      if (isEscapeChord(k)) return this.run("tile.leave", {}, this.nameOf(this.focus));   // chordWay: program or exited
       if (!p.running) {
         const name = this.nameOf(this.focus);
         if (k.kind === "enter") this.run("tile.restart", {}, name);
         else if (k.kind === "char" && !k.ctrl && k.ch === "x" && (p as Pane).clearsOnClose?.()) this.run("tile.close", {}, name);
         // Nothing runs to take ^W: it's the window chord again (^W x closes the tile at once).
-        else if (k.kind === "char" && k.ctrl && k.ch === "w") { this.ptyIn = null; this.prefix = "wm"; }
+        else if (k.kind === "char" && k.ctrl && k.ch === "w") { this.doorKeys.stopTyping(this); this.prefix = "wm"; }
         else ctx.flash(this.exitedSay(name));
         return this.redraw();
       }
@@ -5028,8 +5030,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return;
     }
     // ctrl+] twice: the second goes to the program (a literal ctrl+], telnet's own escape).
-    if (isEscapeChord(k) && this.chordArmed()) {
-      this.chord = null;
+    if (isEscapeChord(k) && this.doorKeys.armed(this.panes.get(this.focus))) {   // chordWay: send, on this desk's own tile
+      this.doorKeys.chordSpent();
       return this.run("tile.enter", { send: "\x1d" }, this.nameOf(this.focus));
     }
     // A board or river tile in its own edit, comment or panel: every key is its, the desk's included.
@@ -5931,7 +5933,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!r.ok) throw new ActionRefused(r.refused);
     if (nn?.clearsOnClose?.()) {
       nn.clearContent!();
-      if (this.ptyIn === nn) this.ptyIn = null;
+      this.doorKeys.stopTyping(this, nn);
       this.redraw();
       return { ...this.tileAnswer(t.id), state: "empty" };
     }
@@ -6339,7 +6341,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     p.personClickAt = Date.now();
     if (!p.running && p.exited !== null) { p.restart(); return { ...this.tileAnswer(this.tile(name).id), restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
-    this.ptyIn = p; this.chord = null; if (this.ctx.hostLayer?.isDrawer(this)) this.ctx.hostLayer.enteredTab?.(p);   // in the drawer, the drawer takes the keys in (PIE-1526)
+    this.doorKeys.typeIn(this, p); if (this.ctx.hostLayer?.isDrawer(this)) this.ctx.hostLayer.enteredTab?.(p);   // in the drawer, the drawer takes the keys in (PIE-1526)
     // Said by what its header calls it (the drawer's own tile: what runs in it, never its tile name).
     const said = (p as Pane).headName?.() ?? name;
     if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${said}`); }
@@ -6347,26 +6349,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(this.tile(name).id), typing: true };
   }
 
-  /**
-   * A ctrl+] now steps out of something in this desk instead of leaving it: the program the person types in (not one
-   * that exited), a second one soon after (it goes to the program), or the group they are inside.
-   */
-  chordSteps(): boolean {
-    const p = this.panes.get(this.focus);
-    return (this.rawKeys() && !this.waitsOnExit()) || this.chordArmed() || (p instanceof ScreenTile && p.inside);
+  /** What a ctrl+] does on this desk's tiles now (the one rule, keys-fact.ts): none here is null, and the layer around it decides. */
+  chordWay(): DeskWay {
+    const p = this.panes.get(this.focus), inGroup = p instanceof ScreenTile && p.inside;
+    return deskWay({ typing: this.rawKeys(), exited: this.waitsOnExit(), armed: this.doorKeys.armed(p), inGroup, inner: inGroup ? p.inner?.chordWay() ?? null : null });
   }
 
-  /** A ctrl+] left a terminal a moment ago: another now goes to its program, not to the door. */
-  chordArmed(): boolean { return !!this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running; }
-
   /** The person's keys leave this screen's terminal without a word (the drawer's keys went back to the screen shown). */
-  stopTyping() { this.ptyIn = null; }
+  stopTyping() { this.doorKeys.stopTyping(this); }
 
   /** Back to the door from the terminal the person types in (ctrl+]); ctrl+] again soon sends one to it. The person's only. */
   leaveTerminal(): TileDone {
     const p = this.ptyIn;
     if (!p) throw new ActionRefused("the person isn't typing in a terminal tile");
-    this.ptyIn = null; this.chord = { pane: p, at: Date.now() };
+    this.doorKeys.leftProgram(this, p);
     this.ctx.flash("back to the door");
     return { ...this.tileAnswer(this.focus), typing: false };
   }
@@ -6554,7 +6550,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The lock, a container's lock the person set, their keys: the module says whether the screen may be laid out again.
     this.apply({ op: "load", name }, actor);
     this.entered.clear();
-    this.ptyIn = null;
+    this.doorKeys.stopTyping(this);
     const before = new Set(this.all());
     const was = this.layoutSpec();
     this.build(found.spec, true);
@@ -6719,7 +6715,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       dismiss: () => { if (this.panes.has(id)) this.closeId(id); this.redraw(); },
     });
     if (!p.actor || p.actor.kind === "user") {
-      this.focus = id; this.ptyIn = pane;
+      this.focus = id; this.doorKeys.typeIn(this, pane);
       // The drawer up over this screen would hide the program where it opened (the reader's lower half, or all of it):
       // it's put away, as going to a tile on the screen puts it away (`revealPane` up through the groups holding it, then
       // `goTo`); alt+a brings it back. Whether it hides it is asked of the screen's own tile: in a group, the group's.
@@ -6934,8 +6930,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Everything this desk keeps about tile `id` that leaves it (closed, or moved whole to the drawer or another screen). */
   private forgetTile(id: number, p: Pane) {
     this.ctx?.agentPointers?.dropTile(this, this.tileId(id));
-    if (this.ptyIn === p) this.ptyIn = null;
-    if (this.chord?.pane === p) this.chord = null;
+    this.doorKeys.stopTyping(this, p); this.doorKeys.chordSpent(p);
     if (this.pending?.pane === p) this.pending = null;
     if (p instanceof ReaderPane) {
       this.failedEdits.delete(p);
@@ -7266,7 +7261,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (r.changed) this.save();
     // A terminal folded while the person types in it stops taking their keys: a spine has nothing to show them going in.
     const typing = this.ptyIn ? this.idOf(this.ptyIn) : undefined;
-    if (typing !== undefined && this.collapsed.has(typing)) this.ptyIn = null;
+    if (typing !== undefined && this.collapsed.has(typing)) this.doorKeys.stopTyping(this);
     // The person's fold says what it kept (an agent's is said by the action's own words).
     const p = this.panes.get(t.id);
     if (this.dispatch.standing(actor) && r.changed && r.answer.collapsed && p instanceof ReaderPane) {
@@ -7455,7 +7450,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Both halves, and the wires that ride along, are one transaction on both layouts (PIE-1559): one undo takes back
     // both by the tile's identity (`undoLayout` across the desks holding it, `build`'s adopt), never a second tile.
     const { moved, done } = this.inTxn("carry", () => { const moved = this.carryOut(p.t, p.plan, how.heir); return { moved, done: dest.carryIn(moved, p.plan, p.land) }; }, dest);
-    if (p.plan.keys && moved.typing && moved.pane instanceof PtyPane && dest.focus === dest.idOf(moved.pane)) dest.ptyIn = moved.pane;
+    if (p.plan.keys && moved.typing && moved.pane instanceof PtyPane && dest.focus === dest.idOf(moved.pane)) dest.doorKeys.typeIn(dest, moved.pane);
     // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
     return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
   }

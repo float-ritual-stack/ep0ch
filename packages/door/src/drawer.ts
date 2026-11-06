@@ -1,4 +1,5 @@
 import { keysThrough } from "./desk/undo-across";
+import { DoorKeys, wayOut, type WayOut } from "./desk/keys-fact";
 import type { Reveal } from "./reveal";
 // One host desk: its tree occupies the drawer, its floats the glass. Both change through apply.
 // Quiet focus enters a glass tile without opening or rearranging the drawer.
@@ -70,10 +71,8 @@ export const DRAWER_DROP = "into your drawer: travels with you";
 export const MIN_SHARE = 0.2, MAX_SHARE = 0.9;
 /** alt+A steps through these. */
 export const HEIGHT_STEPS = [0.4, 0.5, 0.6, 0.75] as const;
-/** A second ctrl+] within this long is the chord's second press (the terminal tile's window too). */
 /** Why `drawer.agent` names nothing, and what opens one. */
 const NO_AGENT = "no agent tab is open · agent.lift (✦a) opens one running the last agent picked; a right-click on the ▲ chip picks another";
-const CHORD_MS = 1500;
 /** How long after the program's last output the chip still says `working` (no program status report). */
 const WORKING_MS = 1500;
 /** How often what the agent knows is read again (its environment, its start, the mod's newest file). */
@@ -113,8 +112,10 @@ export class AgentDrawer {
    * engine, changed only by its operations (`do`): pulled up, put away, sized, the keys in it or back on the screen.
    */
   private layer: LayoutState<string>;
-  /** Where the person's keys are in the host layer: the screen slot, or the agent (the module's answer each time). */
-  private keys: string = HOST_SCREEN;
+  /** Who has the person's keys, the door's one record (desk/keys-fact.ts): written where they move here, read by everyone. */
+  readonly keysFact = new DoorKeys<Desk["lifted"]>(HOST_SCREEN);
+  /** Where they are in the host layer: the screen slot, or the agent (the module's answer each time). */
+  private get keys(): string { return this.keysFact.host; }
   /** Who pulled it up, when that was an agent (said in the drawer's title until the person uses it). */
   openedBy: Actor | null = null;
   /** The ▣ chip on the drawer's frame while its layout is locked (PIE-1346), where it was last drawn: a click unlocks it. */
@@ -128,12 +129,6 @@ export class AgentDrawer {
   private d: Desk | null = null;
   /** What a new agent tab runs: the last agent picked (or EP0CH_DAILY_AGENT, else a shell), in its folder. */
   private prog: DrawerProgram;
-  /**
-   * ctrl+]: when the person last left the drawer with it (a second one within CHORD_MS goes back in and sends
-   * the agent a ctrl+], as a terminal tile's does), and when one last went by to the screen (its own second).
-   */
-  private leftAt = 0;
-  private passedAt = 0;
   /** The top edge is being dragged; the program has the mouse until the button comes up. */
   private dragging = false;
   private capture: Rect | null = null;
@@ -792,7 +787,7 @@ export class AgentDrawer {
     return this.liftIn !== null ? this.inLift() : this.open;
   }
   /** The drawer's lift the person went into with the drawer down (put away or folded), else null. */
-  private liftIn: Desk["lifted"] = null;
+  private get liftIn(): Desk["lifted"] { return this.keysFact.lift; }
   /** That lift is still up: their keys are in its tile. One dropped (or lifted again since, an agent's too) isn't. */
   private inLift(): boolean { return !!this.liftIn && this.d?.liftedDesk?.lifted === this.liftIn; }
   /** The person's keys are in the drawer's lifted tile, gone into with the drawer down (on its folded strip isn't). */
@@ -816,12 +811,12 @@ export class AgentDrawer {
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
   private do(op: Op<string>, actor: Actor) {
     // A lift the person went into has dropped: their keys were back on the screen from then (entered says so).
-    if (this.liftIn !== null && this.keys !== HOST_SCREEN && !this.inLift()) { this.liftIn = null; this.keys = HOST_SCREEN; this.d?.stopTyping(); }
+    if (this.liftIn !== null && this.keys !== HOST_SCREEN && !this.inLift()) { this.keysFact.intoLift(null); this.keysFact.hostAt(HOST_SCREEN); this.d?.stopTyping(); }
     const r = applyLayout(this.layer, op, this.ctx(actor, this.rows, this.cols));
     if (!r.ok) throw new ActionRefused(r.refused);
     const moved = this.keys !== r.focus;
     this.layer = r.state;
-    this.keys = r.focus;
+    this.keysFact.hostAt(r.focus);
     if (moved) for (const d of this.desks()) d.liftedDesk?.dropLiftElsewhere();
     return r;
   }
@@ -1005,7 +1000,7 @@ export class AgentDrawer {
     this.strip = false;
     if (open) void this.desk;
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
-    if (open && this.ctx(actor).standing) { this.liftIn = null; this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
+    if (open && this.ctx(actor).standing) { this.keysFact.intoLift(null); this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
     if (open) this.openedBy = actor.kind === "agent" ? (this.entered ? null : actor) : null;
     else { this.openedBy = null; this.capture = null; this.dragging = false; }
     this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
@@ -1025,12 +1020,10 @@ export class AgentDrawer {
     const p = d.pane(t.name);
     d.run("tile.focus", {}, t.name);
     // A terminal not started yet starts as it's first drawn: the keys go into it then (render).
-    if (p instanceof PtyPane && !p.running && p.exited === null) { this.wantIn = { send }; return; }
-    this.wantIn = null;
+    if (p instanceof PtyPane && !p.running && p.exited === null) { this.keysFact.wantIn({ send }); return; }
+    this.keysFact.wantIn(null);
     if (p instanceof PtyPane && p.running) d.run("tile.enter", send ? { send } : {}, t.name);
   }
-  /** The person went into the drawer before its terminal started: their keys go into it once it has. */
-  private wantIn: { send?: string } | null = null;
 
   /** Its height, by the host layer's own split (the drawer's share, the screen slot the rest), for `actor`. */
   height(share: number, actor: Actor = USER) {
@@ -1116,8 +1109,8 @@ export class AgentDrawer {
     if (why) throw new ActionRefused(why);
     this.strip = want;
     this.foldPrefix = false;
-    if (want) { this.d?.stopTyping(); this.wantIn = null; this.capture = null; this.dragging = false; }
-    else if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.desk!.focusTile(name, actor); this.leftAt = 0; this.openedBy = null; }
+    if (want) { this.d?.stopTyping(); this.keysFact.wantIn(null); this.capture = null; this.dragging = false; }
+    else if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.desk!.focusTile(name, actor); this.keysFact.chordSpent(); this.openedBy = null; }
     this.save();
     this.d?.shownAs(this.shown || !!this.d.floatingTiles().length);
     this.host.redraw();
@@ -1148,7 +1141,7 @@ export class AgentDrawer {
     const why = d.carryRefusal(screen, name, { to, where }, actor);
     if (why) throw new ActionRefused(why);
     const glass = this.glassHasKeys(d.tileInfo(name).tile);
-    if (glass) { this.glassReturn = null; this.capture = null; }
+    if (glass) { this.keysFact.outOfGlass(); this.capture = null; }
     const { keys, moved: _moved, ...done } = d.carry(screen, name, { to, where }, actor);
     // The person's keys were in it in the drawer (or on the glass): they go with it, back on the screen.
     if ((keys || glass) && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
@@ -1294,9 +1287,9 @@ export class AgentDrawer {
       d.screenOrigin = { col: 0, row: 0 };
       const sized = new Proxy(ctx, { get: (o, k) => k === "t" ? { ...o.t, cols, rows } : typeof (o as any)[k] === "function" ? (o as any)[k].bind(o) : (o as any)[k] });
       this.hostFrame = d.render(sized, { root: { col: 0, row: r.row + 1, cols, rows: Math.max(0, r.rows - 2) }, shown: this.shown && !this.folded && r.rows >= 4, area: { col: 0, row: 0, cols, rows: rows - 1 } });
-      if (this.glassReturn && !d.floatingTiles().some(f => f.tile === this.glassReturn!.tile)) this.restoreGlassKeys();
+      if (this.keysFact.glass && !d.floatingTiles().some(f => f.tile === this.keysFact.glass!.tile)) this.restoreGlassKeys();
       this.hostFrame.lines.slice(r.row + 1, r.row + r.rows - 1).forEach((l, i) => canvas.text(0, i + 1, l, cols));
-      if (this.wantIn && this.entered) { const w = this.wantIn; queueMicrotask(() => { if (this.wantIn === w) this.intoShown(w.send); }); }
+      if (this.keysFact.want && this.entered) { const w = this.keysFact.want; queueMicrotask(() => { if (this.keysFact.want === w) this.intoShown(w.send); }); }
     }
     const lockChip = d?.screenLocked() ? lockChipText(d.layoutSelf()) : "";
     const lock = lockChip ? ` ${chipStyle(C.yellow, C.black)}${lockChip}${bg(C.black)}` : "";
@@ -1317,19 +1310,16 @@ export class AgentDrawer {
     return { rect: r, lines: canvas.lines(), placements };
   }
 
-  private glassReturn: { keys: string; focus: string | null; tile: string } | null = null;
-  glassHasKeys(tile?: string): boolean { return !!this.glassReturn && (!tile || this.glassReturn.tile === tile); }
+  glassHasKeys(tile?: string): boolean { const g = this.keysFact.glass; return !!g && (!tile || g.tile === tile); }
   private enterGlass(tile: string) {
-    this.glassReturn ??= { keys: this.keys, focus: this.d?.focusName() ?? null, tile };
-    this.glassReturn.tile = tile;
-    this.liftIn = null; this.wantIn = null;
+    this.keysFact.intoGlass({ keys: this.keys, focus: this.d?.focusName() ?? null }, tile);
     this.do({ op: "focus", tile: HOST_TILES, quiet: true }, USER);
     this.d!.focusTile(tile, USER);
   }
   restoreGlassKeys() {
-    const back = this.glassReturn;
+    const back = this.keysFact.glass;
     if (!back) return;
-    this.glassReturn = null;
+    this.keysFact.outOfGlass();
     if (back.focus && this.d?.pane(back.focus)) this.d.focusTile(back.focus, USER);
     this.do({ op: "focus", tile: back.keys, quiet: true }, USER);
   }
@@ -1383,9 +1373,9 @@ export class AgentDrawer {
       if (isEscapeChord(k)) {
         // Typing in a terminal there, the first steps out of the program as on a screen (the tile keeps the keys: `-` folds
         // it), a second soon after goes to the program, and in a group it comes out of the group; with nothing to step
-        // out of, it leaves the drawer.
+        // out of, it leaves the drawer: the one rule, as wayOut() answers.
         const d = this.desk, ctx = this.host.ctx?.();
-        if (d && ctx && !strip && d.chordSteps()) { d.key(k, ctx); return true; }
+        if (d && ctx && !strip && this.wayOut(screen) !== "drawer") { d.key(k, ctx); return true; }
         run("host.leave", {}); return true;
       }
       if (isAlt(k, "a")) { run("host.toggle", { open: !this.shown }); return true; }
@@ -1411,7 +1401,13 @@ export class AgentDrawer {
     // alt+s: a new shell in the drawer, here; alt+g: the agent panel, every session (PIE-737). On every screen, as alt+a.
     if (isAlt(k, "s")) { run("host.shell", {}); return true; }
     if (isAlt(k, "g")) { run("agents.open", {}); return true; }
-    if (this.shown && isEscapeChord(k)) return this.chordBack(screen, run);
+    if (isEscapeChord(k)) {
+      const way = this.wayOut(screen);
+      if (way === "drawer-send") { run("host.enter", { send: "\x1d" }); return true; }
+      if (way === "into-drawer") { run("host.enter", {}); return true; }
+      if (way !== "none" && !tilesOf(screen)) this.keysFact.passedOn();
+      return false;   // the screen's own: out of its program, its group, or none
+    }
     if (this.shown && isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
     if (this.shown && k.kind === "esc" && !screen?.holdsKeys?.() && !screen?.rawKeys?.()) { run("host.toggle", { open: false }); return true; }
@@ -1432,17 +1428,11 @@ export class AgentDrawer {
     return true;
   }
 
-  /**
-   * ctrl+] with the drawer up and the person out of it: back in (the keyboard's way, as a click is), or, right
-   * after leaving it with ctrl+], back in with a ctrl+] sent to the terminal there. A screen's own ctrl+] comes
-   * first: in its terminal tile it leaves the tile, and its second right after goes to that tile's program.
-   */
-  private chordBack(screen: Screen | undefined, run: DrawerRun): boolean {
-    const now = Date.now();
-    if (now - this.leftAt < CHORD_MS) { run("host.enter", { send: "\x1d" }); return true; }
-    if (screen?.rawKeys?.() || now - this.passedAt < CHORD_MS) { this.passedAt = now; return false; }
-    run("host.enter", {});
-    return true;
+  /** What ctrl+] does now, for the whole door: the one rule (desk/keys-fact.ts) over where the keys are. */
+  wayOut(screen: Screen | undefined): WayOut {
+    const inDrawer = this.entered, top = tilesOf(screen);
+    const here = inDrawer ? (this.folded && this.liftIn === null && !this.glassHasKeys() ? null : this.d?.chordWay() ?? null) : top ? top.chordWay() : screen?.rawKeys?.() || this.keysFact.justPassed() ? "program" : null;
+    return wayOut({ inDrawer, desk: here, drawerUp: this.shown, leftDrawer: this.keysFact.justLeftDrawer() });
   }
 
   /**
@@ -1454,7 +1444,7 @@ export class AgentDrawer {
     const lifted = this.d?.liftedDesk;
     if (lifted && !drawerUp(this)) return this.intoLift(lifted, send, restart);
     if (!this.shown) throw new ActionRefused("the drawer is put away · alt+a pulls it up");
-    this.leftAt = 0; this.openedBy = null; this.liftIn = null;
+    this.keysFact.chordSpent(); this.openedBy = null; this.keysFact.intoLift(null);
     this.do({ op: "focus", tile: HOST_TILES }, USER);
     const d = this.desk, t = this.shownTabOf(), q = t && d ? d.pane(t.name) : undefined;
     if (q instanceof PtyPane && !q.running && q.exited !== null) {
@@ -1478,7 +1468,7 @@ export class AgentDrawer {
     const name = d.liftedName()!, p = d.pane(name);
     // Its focus first (and its group's, lifted from one): a keys move drops a lift whose tile hasn't them (dropLiftElsewhere).
     d.focusLift();
-    this.liftIn = d.lifted; this.leftAt = 0; this.openedBy = null;
+    this.keysFact.intoLift(d.lifted); this.keysFact.chordSpent(); this.openedBy = null;
     // Quiet: the host layer's focus never slides a shut drawer up.
     this.do({ op: "focus", tile: HOST_TILES, quiet: true }, USER);
     if (p instanceof PtyPane && !p.running && p.exited !== null) {
@@ -1495,10 +1485,10 @@ export class AgentDrawer {
     if (this.glassHasKeys()) { this.d?.stopTyping(); this.restoreGlassKeys(); this.host.redraw(); return { entered: this.entered }; }
     // Back to the screen slot: the screen's own focus is as they left it. A terminal there stops taking keys.
     this.do({ op: "focus", tile: HOST_SCREEN }, USER);
-    this.liftIn = null;
+    this.keysFact.intoLift(null);
     this.d?.stopTyping();
-    this.wantIn = null;
-    this.leftAt = Date.now();
+    this.keysFact.wantIn(null);
+    this.keysFact.leftDrawer();
     if (!this.tabs().length) { this.set(false, USER); return { entered: false }; }
     if (said) this.host.flash(`back to the ${screen?.title ?? "screen"}`);
     this.host.redraw();
@@ -1614,7 +1604,7 @@ export class AgentDrawer {
     if (k.action === "down" && k.y === r.row && this.lockAt && k.x >= this.lockAt.from && k.x < this.lockAt.to && this.desk) { this.desk.pressLock(); return true; }
     // Folded: a click on the strip opens it, with the person's keys on it (it has no edge to drag).
     if (this.folded) {
-      if (k.action === "down" && this.desk) { this.liftIn = null; this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; this.desk.run("tile.collapse", { on: false }, this.shownTab() ?? undefined); }
+      if (k.action === "down" && this.desk) { this.keysFact.intoLift(null); this.do({ op: "focus", tile: HOST_TILES }, USER); this.keysFact.chordSpent(); this.openedBy = null; this.desk.run("tile.collapse", { on: false }, this.shownTab() ?? undefined); }
       return true;
     }
     if (k.action === "down" && k.y === r.row) { this.dragging = true; return true; }
@@ -1622,7 +1612,7 @@ export class AgentDrawer {
     const ctx = this.host.ctx?.(), d = this.desk;
     if (!ctx || !d) return true;
     if (k.action === "down") {
-      if (!this.entered || this.liftIn !== null) { this.liftIn = null; this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; }
+      if (!this.entered || this.liftIn !== null) { this.keysFact.intoLift(null); this.do({ op: "focus", tile: HOST_TILES }, USER); this.keysFact.chordSpent(); this.openedBy = null; }
       this.capture = r;
     }
     d.key(k, ctx);
