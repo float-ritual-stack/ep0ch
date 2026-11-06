@@ -203,7 +203,7 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 | `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:296` |
 | `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:454` |
 | `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:387` |
-| `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:135` |
+| `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:139` |
 | `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:442` |
 | `await date(text)` | A date as people write it in a property (`2026-01-05 4:23 PM`, `Oct 20`, `2026-10-20..2026-10-24`), read as the views read one, in the service host's zone: `{ ms, at, endMs, end }` (its start and end as epoch milliseconds and ISO), or `null` when it reads as no date. Renders too. | `packages/outliner/src/script-runtime.ts:124` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:106` |
@@ -273,23 +273,23 @@ a link the reader steps to and opens. A text reader and a published page say it 
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:398` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:404` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:407` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:414` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:421` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:428` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:454` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:465` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:471` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:489` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:492` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:495` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:500` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:516` |
-| `view.image` | `src`, `svg`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:523` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:411` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page`, `title` | `packages/outliner/src/component-primitives.ts:540` |
+| `view.text` | `text`, `tone`, `strong`, `act`, `link`, `revision` | `packages/outliner/src/component-primitives.ts:399` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:405` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:408` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:415` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:422` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:429` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:455` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:466` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:472` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:490` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:493` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:496` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:501` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:517` |
+| `view.image` | `src`, `svg`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:524` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:412` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty`, `arrange`, `size`, `columns`, `headers`, `page`, `title` | `packages/outliner/src/component-primitives.ts:541` |
 
 <!-- generated:view:end -->
 
@@ -490,7 +490,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
    their `outline_find` and `outline_read`; `resolve`, `act` and `wait` log nothing. The return value is last.
    `place()` still writes an output region in its note, and a render line's `.keep` still keeps its drawn output.
 3. **Deadline.** Default 5 minutes (the maximum), or `[deadline::2m]`. A render drawing defaults to 15 seconds.
-   A run past it fails with "The script ran past its deadline (Ns)".
+   A run past it fails with "The script ran past its deadline (Ns)"; a drawing past it is stopped, and its line or tile says "drawing took too long: it ran past its N s budget and was stopped". A drawing runs on its own worker with nothing queued behind its request, so a slow one holds no other door.
 4. **Stop.** `scripts.stop` with the run's undo id (`script.stop run=<undo id>` in the door) ends one run; its next call
    is refused and the completion says "Stopped by <who>". `{ stopped: false }` when it isn't running.
 5. **Edits.** Changing the script's **code** while it runs ends it ("The script source changed; run its saved revision
