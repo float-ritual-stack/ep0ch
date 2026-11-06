@@ -1801,14 +1801,14 @@ export class AnnotationRepository {
     };
   }
 
-  /** The live blocks quoting a mark (`quote`): those holding `[from::((mark))]`, oldest first. */
+  /** The live blocks quoting a mark (`quote`), oldest first: asked per thread, so by the index (PIE-1546), `}` being what follows `|`. */
   quotedIn(markId: string): string[] {
     const rows = this.database.query(`
       SELECT DISTINCT property.block_id AS id FROM block_properties property JOIN blocks block ON block.id = property.block_id
-      WHERE property.key = 'from' AND (property.value = ? OR property.value LIKE ? ESCAPE '\\')
+      WHERE property.scope IN ('block', 'line', 'inline') AND property.key = 'from' AND (property.value = ? OR (property.value >= ? AND property.value < ?))
         AND block.effective_deleted_root_id IS NULL
       ORDER BY block.created_at, block.id
-    `).all(`((${markId}))`, `((${markId.replace(/[\\%_]/g, "\\$&")}|%`) as Array<{ id: string }>;
+    `).all(`((${markId}))`, `((${markId}|`, `((${markId}}`) as Array<{ id: string }>;
     return rows.map((row) => row.id);
   }
 

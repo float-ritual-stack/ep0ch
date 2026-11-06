@@ -456,13 +456,23 @@ One host serves every client of every outline on one event loop, and a client gi
   on a connection keeps its order. A connection that closed has its queued requests dropped, never run.
 - The service asking itself goes through `this.own` in `server.ts` (a turn per request), never `handleAsync`
   directly: a job of many requests (Jev's records, a script's calls) then never holds the loop between them.
-- A watch pass (`query-watches.ts`) evaluates one watch a turn, one pass at a time, each question once a pass.
-- Work a timer starts (a route settling) is timed with `noteWork`, so a stall names it, and is
-  cached by what it read (`propertyDependencyStamp`), never by `store.sequence`, which every write moves.
+- A read that may go to another machine (what `OutlineLinks` answers) is `whole` or `detached` in `actions.ts`: a laptop's
+  round trips never hold what the door's connection sends after them (PIE-1546).
+- A watch pass (`query-watches.ts`) evaluates one watch a turn, one pass at a time, each question once a pass. The same
+  question registered by several connections at one sequence (doors reconnecting) is answered once.
+- Work a timer starts (a route settling) is timed with `noteWork` or `heldBy`, so a stall names it, and is
+  cached by what it read (`propertyDependencyStamp`), never by `store.sequence`, which every write moves. Work a request
+  does after a wait is named from the stall itself (`<action> after a wait`, PIE-1567): what's left after the named work
+  is shared among the requests waiting then.
+- The log says who was queued: `queued_minute` is a minute's actor × action counts over a second, and `slow_request` has
+  `who`. After a deploy: `ssh float-2 journalctl --user -u outliner-host --since -10min | bun scripts/host-queue-minutes.ts --check`.
 - Slow outside calls (GitHub, a model, an extension) are awaited or made by the client, never waited for synchronously.
 - `bun scripts/bench-host-stalls.ts` is the guard: a note read answered in under 200 ms at start-up, under load,
   during a backup and after a restart, on a fictional outline the size of a working one. `--outliner <dir>` runs
   another checkout's host for a before.
+- `bun scripts/bench-host-queue.ts` (PIE-1546) says whether a door's request queues over a second, by the host's own log:
+  three doors with their watches and note opens, agents and machinery writing, then an EchoNet toss's reads, a slow
+  machine in `.remote/` and a restart, one phase each. `--outliner <dir>` runs another checkout's host for a before.
 - `bun run bench:host` (`scripts/bench-host-fairness.ts`, PIE-1413) is the guard under bulk work: a pie-shaped
   fictional outline (or `--copy` a private copy) with a real door on the Desk (the door's `scripts/bench-door-desk.ts`:
   a board tile and a live query tile, the person reading and saving through the same connection), a watching door, the

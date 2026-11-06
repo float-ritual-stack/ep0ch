@@ -46,7 +46,8 @@ export class OutlineLinks {
     const layout = outlineLayout(this.folder);
     const config = mirrorsConfig(process.env);
     const files = (folder: string) => existsSync(folder) ? readdirSync(folder) : [];
-    const machines = new Set(files(layout.remoteDir).filter(f => f.endsWith(".sock")).map(f => f.slice(0, -5)));
+    // `<machine>.link.sock` is what `<machine>.sock` routes to: the same host, not a machine of its own to ask again.
+    const machines = new Set(files(layout.remoteDir).filter(f => f.endsWith(".sock") && !f.endsWith(".link.sock")).map(f => f.slice(0, -5)));
     if (!("error" in config)) for (const entry of config.mirrors) machines.add(entry.machine);
     const answers = await Promise.all([...machines].sort().map(async machine => {
       const copies = "error" in config ? [] : [...new Set([

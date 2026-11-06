@@ -108,7 +108,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, forget, heldBy, inFlightRequest, landed, thisTurn, timeRequest, turnKeyOf, turnOwner, type InFlight, type TurnKey, loopWatched, noteWork, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
 import { machineryBlind, watchesHear } from "./watch-machinery";
 import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
@@ -313,8 +313,6 @@ function asAgentSource<T>(input: T): T {
 }
 
 /** A request answered later than this is logged by a watched host (PIE-625). */
-const SLOW_REQUEST_MS = STALL_REPORT_MS;
-const SLOW_WAIT_MS = 1_000;
 
 export class OutlinerServer {
   private completions?: CompletionRequests;
@@ -855,18 +853,19 @@ export class OutlinerServer {
   startHosted(): void {
     if (this.running) throw new Error("Outliner service is already started");
     this.stopping = false;
-    this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
+    this.store.changes.onBackgroundChanges = changes => heldBy("background changes fan-out", () => this.publishChanges(undefined, changes));
     this.hosted = true;
     // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches. Its
     // snapshot links still end on time.
     if (this.readOnly) { if (this.copy) this.snapshots.start(); return; }
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
+    const name = this.outline?.name ?? "outline";
     this.snapshots.start();
-    this.agentRequests.start();
+    heldBy(`open ${name}: agent requests`, () => this.agentRequests.start());
     this.extensionSync.start();
-    this.extensionRules.start();
-    this.routing.ensureHub(); seedArtifactRule(this.store);
+    heldBy(`open ${name}: rules`, () => this.extensionRules.start());
+    heldBy(`open ${name}: routing`, () => { this.routing.ensureHub(); seedArtifactRule(this.store); });
     this.extensionSchedules.start();
     // Its resource providers once its folders are read (and again on every reload).
     void this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders());
@@ -4275,6 +4274,7 @@ export class OutlinerServer {
     let loopMs: number | undefined;
     let grant: ExtensionGrant | undefined;
     let previousSequence = 0;
+    let flight: InFlight | undefined;
     try {
       request = JSON.parse(line) as OutlinerRequest;
       // Queued turns can outlive their mirror generation, but must never read its released store.
@@ -4318,10 +4318,15 @@ export class OutlinerServer {
         collect: true,
       });
       const pending = this.store.changes.run(attribution, () => turnOwner.run(key, () => this.handleAsync(current, subscribedClient, socket)));
-      // What ran before the handler first waited held the loop; the waits after it didn't, unless they were all in this turn.
+      // What ran before the handler first waited held the loop; the waits after it didn't, unless they were all in this
+      // turn. What it does between its waits nobody times: a stall gives it what nothing else named (`after a wait`).
       loopMs = performance.now() - started;
-      response = await pending;
-      if (sameTurn()) loopMs = performance.now() - started;
+      flight = inFlightRequest(String(current.action));
+      try { response = await pending; } finally { landed(flight); }
+      if (sameTurn()) {
+        loopMs = performance.now() - started;
+        forget(flight);
+      }
       if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
       const problem = queryRequestProblem(error);
@@ -4353,25 +4358,12 @@ export class OutlinerServer {
     const publishMs = performance.now() - answered;
     // Who asked is charged what its request held the loop for (Turns): the next turn goes to someone who used it less.
     this.turns.charge(key, (loopMs ?? answered - started) + publishMs, request?.action);
-    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, publishMs);
+    if (!loopWatched()) return;
+    const actor = request && declaredActor(request)?.actorId, client = this.subscribers.get(socket);
+    timeRequest({ request, outline: this.outline?.name, who: grant?.label ?? actor ?? (client ? `${client.app ?? client.role}:${client.clientId.slice(0, 24)}` : "a connection"),
+      subscribers: this.subscribers.size, received, started, answered, loopMs: loopMs ?? answered - started, flight, publishMs });
   }
 
-  /** The host's per-request timing (loop-watch.ts): a request that took long is logged, and named in a stall. */
-  private timeRequest(request: OutlinerRequest | undefined, received: number, started: number, answered: number, loopMs: number, publishMs: number): void {
-    const action = String(request?.action ?? "invalid");
-    const ms = answered - received;
-    // A request that held the loop is named by what it computed (PIE-1047), so a stall points at its note and figure.
-    const subject = loopMs >= SLOW_REQUEST_MS || ms >= SLOW_WAIT_MS ? requestSubject(request) : undefined;
-    noteWork(subject && loopMs >= SLOW_REQUEST_MS ? subjectLabel(action, subject) : action, loopMs);
-    noteWork(`${action} fan-out`, publishMs);
-    // Its own work held the loop, or it waited long enough for a client to notice (a third of the 3 s timeout).
-    if (loopMs < SLOW_REQUEST_MS && publishMs < SLOW_REQUEST_MS && ms < SLOW_WAIT_MS) return;
-    console.log(JSON.stringify({
-      status: "slow_request", outline: this.outline?.name, action, ms: Math.round(ms),
-      queuedMs: Math.round(started - received), handleMs: Math.round(answered - started), loopMs: Math.round(loopMs),
-      publishMs: Math.round(publishMs), subscribers: this.subscribers.size, ...(subject ?? requestSubject(request)),
-    }));
-  }
 
   private publish(
     request: OutlinerRequest | undefined,
