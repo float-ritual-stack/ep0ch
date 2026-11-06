@@ -20,6 +20,13 @@ export const COMPONENT_STYLE = `
 .ext-stack>*+*{margin-top:.75rem}
 .ext-box,.ext-card{border:1px solid var(--rule);border-radius:.35rem;padding:.75rem 1rem;min-width:0;overflow-wrap:anywhere}
 .ext-box>h4{margin:0 0 .5rem;font:600 14px/1.4 ui-sans-serif,system-ui,sans-serif;color:var(--dim);letter-spacing:.02em}
+.ext-cover{margin:0 0 .5rem}
+.ext-cover .media{margin:0}
+.ext-cover img{width:100%;aspect-ratio:16/9;object-fit:cover}
+.ext-collection-rows .ext-card-covered{display:grid;grid-template-columns:clamp(5rem,24%,11rem) minmax(0,1fr);gap:.75rem;align-items:start}
+.ext-collection-rows .ext-card-covered .ext-cover{margin:0}
+.ext-collection-rows .ext-card-covered .ext-cover img{aspect-ratio:4/3}
+.ext-card-words>:first-child{margin-top:0}
 .ext-blockdown{white-space:pre-wrap}
 .ext-blockdown.ext-read{white-space:normal}
 .ext-blockdown.ext-read>:first-child{margin-top:0}

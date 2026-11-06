@@ -19,6 +19,9 @@ import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/searc
 import type { AuthoredLinksSnapshot } from "./authored-links";
 import { hostBusy } from "./client";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
+import { mediaHtml } from "./publish-media";
+import { coverPicture, pictureAddress, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import type { ListRow } from "@ep0ch/outline-core/list-row";
 import { componentSourceHtml, fieldsHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, viewRowsHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
 import { checklistItems } from "./checklist-items";
 import { placeFigureStep, type PublishedStep } from "./publish-steps";
@@ -34,6 +37,8 @@ export interface LiveHost {
   titles(ids: readonly string[]): Promise<Map<string, string>>;
   /** Where a shown note opens from this page. */
   href(blockId: string): string | null;
+  /** The address the picture `spec` at this place of a note is served from, or null when this page may not serve it. */
+  mediaSrc?(blockId: string, at: { line: number; image?: number }, spec: MediaSpec): string | null;
 }
 
 /** A component drawn in place of its lines (`start` to `end`, inclusive): its sentinel's Markdown. */
@@ -103,7 +108,24 @@ async function drawCollection(host: LiveHost, note: string, spec: ViewSpec): Pro
     return href ? `<a href="${href.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">${label}</a>` : label;
   });
   const count = answer.view.rows.length;
-  return figureFrame("view", answer.title, html, `live · ${count} result${count === 1 ? "" : "s"}${answer.truncated ? " · more matches" : ""}`, spec.error ?? answer.error ?? answer.hint);
+  return figureFrame("view", answer.title, await drawCovers(host, answer.view.rows, html), `live · ${count} result${count === 1 ? "" : "s"}${answer.truncated ? " · more matches" : ""}`, spec.error ?? answer.error ?? answer.hint);
+}
+
+/**
+ * A view's card covers (PIE-1595): each row's picture served from its own note, by the place the note names it and
+ * never by its path; the page crops it (`.ext-cover img`). One it may not serve keeps its words and its file's name.
+ */
+async function drawCovers(host: LiveHost, rows: readonly ListRow[], html: string): Promise<string> {
+  const pictures = new Map(rows.flatMap(row => { const spec = coverPicture(row.cover); return spec ? [[row.id, spec] as const] : []; }));
+  if (!pictures.size || !host.mediaSrc) return html;
+  // A view holds at most 1000 rows, as many as one read takes.
+  const { blocks } = await host.request<{ blocks: { id: string; text?: string }[] }>({ action: "blocks.read", ids: [...pictures.keys()], fields: ["text"] });
+  const texts = new Map(blocks.map(block => [block.id, block.text ?? ""]));
+  return html.replace(/<figure class="media media-missing ext-image" data-card-cover="([^"]+)">[\s\S]*?<\/figure>/g, (whole, id: string) => {
+    const spec = pictures.get(id), at = spec && pictureAddress(texts.get(id) ?? "", spec.path);
+    const src = at ? host.mediaSrc!(id, at, spec!) : null;
+    return src ? mediaHtml({ kind: "img", path: spec!.path, problems: [], ...(spec!.alt ? { alt: spec!.alt } : {}), ...(spec!.focus ? { focus: spec!.focus } : {}), ...(spec!.dim !== undefined ? { dim: spec!.dim } : {}) }, src, undefined, false) : whole;
+  });
 }
 
 // ── `::fields` and `::if` ──────────────────────────────────────────────────────────────────────────

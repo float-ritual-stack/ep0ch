@@ -26,7 +26,7 @@ export function renderPrimitiveList(surface: Pick<NoteSurface, "listFor" | "list
     return tagged({ ...to, ...at }, x);
   };
   const drawing = view.draw({
-    primitive: node, cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here",
+    primitive: node, cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here", ...(lb.image ? { image: lb.image } : {}),
     ...(previewing ? { preview: { side: node.preview!, of: (row: ListViewRow, w: number) => {
       const p = row.preview;
       return !p ? null : "block" in p ? lb.preview?.(p.block, w) ?? null : markdown(p.markdown);
