@@ -29,7 +29,7 @@ describe("soft link tokens", () => {
 
   test("a date in a picture's or a file's name is its name", () => {
     expect(names("![diagram](2026-03-14.png) and ![diagram](PR#3.png)")).toEqual([]);
-    expect(names("see 2026-03-14.png, then 2026-03-14.")[0]).toMatchObject({ day: "2026-03-14", start: 28 });
+    expect(names("see 2026-03-14.png, then 2026-03-14.")[0]).toMatchObject({ day: "2026-03-14", start: 25 });
     expect(names("see 2026-03-14.png, then 2026-03-14.")).toHaveLength(1);
   });
 
