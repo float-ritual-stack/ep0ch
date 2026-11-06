@@ -223,6 +223,25 @@ describe("the session owns the reload (a fake target)", () => {
       expect(d.note).not.toContain("gone");
     });
 
+    test("a table lost with nothing held isn't remembered: the next reload's held keys all apply", async () => {
+      const { d, s, read, press } = inCell();
+      press(ctrl("r"));
+      read.open({ loaded: msg("n", "Crops\n\nNo table now.", 2) });
+      await settled(d);
+      expect(d.views.rich?.on).toBe(false);
+      // Changed again; this read loads nothing, so the keys held through it act on the text as it stands.
+      s.changedTo(3);
+      const reread = gated<ReloadRead>();
+      (s.target as { reload?: DraftTarget["reload"] }).reload = () => reread.answer;
+      press(char("a"));
+      press(ctrl("r"));
+      press({ kind: "backspace" }); press(char("b"));
+      reread.open({ none: "the note is gone from the outline" });
+      await settled(d);
+      expect(d.lines.at(-1)).toBe("b");
+      expect(d.note).not.toContain("didn't apply");
+    });
+
     test("the table gone and nothing typed: the line it waits on isn't a change to save", async () => {
       const { d, read, press } = inCell();
       press(ctrl("r"));
@@ -489,6 +508,25 @@ describe("a comment on a passage", () => {
     expect(d.status.conflict).toBeNull();
     expect(d.note).toContain("found the quote again at revision 2");
     expect((s.target as any).revision).toBe(2);
+  });
+
+  test("edit.reload answers the revision the quote was found at, never the new comment's draft base; a reply names none", async () => {
+    const o = fakeOutline(), m = o.note("Gate\nHang it on Friday."), s = new NoteSurface(), h = o.host();
+    s.show(m, h);
+    s.session = new CommentSession(s.msg!, [], "select");
+    s.session.passage!.selectText("Hang it");
+    expect(s.session.write()).toBeNull();
+    const d = s.session.composer!;
+    for (const c of "soon") s.key(char(c), h);
+    o.edit(m.id, "Gate\nFirst:\nHang it on Friday.");
+    s.key(ctrl("s"), h);
+    await until(() => d.status.conflict !== null, "the stale refusal");
+    const r = await s.act("edit.reload", {}, h, USER) as { baseRevision?: number; note: string };
+    expect(r.note).toContain("found the quote again at revision 2");
+    expect(r.baseRevision).toBe(2);
+    s.session.target = { kind: "reply", thread: { id: "c-1" } as never };
+    expect("baseRevision" in (await s.act("edit.reload", {}, h, USER) as object)).toBe(false);
+    s.session.writing!.dispose();
   });
 
   test("the quote gone: it goes back to picking, and what was typed meanwhile is the comment's, not the picker's", async () => {

@@ -273,6 +273,8 @@ export class CommentSession {
   get composer(): Draft | null { return this.writing?.draft ?? null; }
   get dirty() { return !!this.composer?.dirty; }
   get requestId() { return this.out.requestId; }
+  /** The revision what's written goes against: a new comment's is the note's (its draft has none), an edit's the comment's own; a reply names none. */
+  get revision(): number | undefined { const t = this.target; return t && "revision" in t ? t.revision : t?.kind === "edit" ? this.composer?.base : undefined; }
 
   hint(): string {
     if (this.busy) return this.busy;

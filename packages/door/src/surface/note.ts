@@ -3494,7 +3494,7 @@ export class NoteSurface {
     if (comment) { if (actor.kind !== "agent") this.revealComposerNext(); await comment.reload(this.env(host, actor)); }
     else await s.reload();
     host.redraw();
-    return { baseRevision: s.draft.base, note: s.draft.note || null, ...(comment ? { mode: comment.mode } : {}) };
+    const revision = comment ? comment.revision : s.draft.base; return { ...(revision ? { baseRevision: revision } : {}), note: s.draft.note || null, ...(comment ? { mode: comment.mode } : {}) };
   }
 
   /** $EDITOR (ctrl+x ctrl+e in a draft, ctrl+e from a reader): the draft (or a comment being written) goes there and comes back. */

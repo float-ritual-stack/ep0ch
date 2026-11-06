@@ -419,14 +419,13 @@ export class DraftSession {
 
   /** What was typed or pasted during the reload goes in now, in order, where it landed. */
   private replayHeld() {
-    const held = this.heldKeys, back = [...this.heldBack], d = this.draft, said = d.note;
-    this.heldKeys = []; this.heldBack = new Set();
+    const held = this.heldKeys, back = [...this.heldBack], d = this.draft, said = d.note, lost = this.tableLost;
+    this.heldKeys = []; this.heldBack = new Set(); this.tableLost = null;
     // Disposed while the read was out (its reader went elsewhere): no key path is left to take them.
     if (!this.open || (!held.length && !back.length)) return;
     this.replaying = true;
     // Where the keys were meant for is gone (a table): a delete or a move would act on text they weren't pressed for.
-    const lost = this.tableLost, gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
-    this.tableLost = null;
+    const gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
     try { for (const { k, replay } of held) if (!gone || inserts(k)) replay(k); } finally { this.replaying = false; }
     // Typing clears the line; what the reload said is still news (unless a replayed key said something of its own).
     if (!d.note) this.status.say(said);
