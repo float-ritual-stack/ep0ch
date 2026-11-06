@@ -102,7 +102,7 @@ function artifactHtml(spec: MediaSpec, src: string | null, title: string, open?:
 function repoHtml(spec: MediaSpec, title: string, deploy?: ArtifactDeployState): string {
   const repo = artifactRepoRef(spec.path)!.repo, align = spec.align ?? "left";
   const live = deploy?.url && deploy.state !== "refused" && deploy.state !== "not-deployed" ? deploy.url : undefined;
-  const state = !deploy ? "" : deploy.state === "live" ? ` · live at <a href="${escapeHtml(live!)}" rel="noopener">${escapeHtml(live!.replace(/^https:\/\//, ""))}</a>`
+  const state = !deploy ? "" : deploy.state === "live" ? ` · live at <a href="${escapeHtml(live!)}" rel="noopener">${escapeHtml(live!.replace(/^https:\/\//, ""))}</a>${deploy.said ? `: ${escapeHtml(deploy.said)}` : ""}${deploy.said && deploy.command ? ` <code>${escapeHtml(deploy.command)}</code>` : ""}`
     : deploy.state === "deploying" ? " · deploying…"
     : ` · ${deploy.state === "failed" ? "deploy failed" : deploy.state === "refused" ? "can't deploy" : "not deployed yet"}${deploy.said ? `: ${escapeHtml(deploy.said)}` : ""}${deploy.command ? ` <code>${escapeHtml(deploy.command)}</code>` : ""}`;
   const name = live ? `<a href="${escapeHtml(live)}" rel="noopener">${escapeHtml(title)}</a>` : escapeHtml(title);

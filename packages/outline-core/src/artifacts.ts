@@ -5,7 +5,7 @@
 export interface ArtifactInfo { name: string; version?: number; files: string[]; bytes: number; url: string | null; warning?: string; frame?: string | null; deploy?: ArtifactDeployState }
 /**
  * What a repo an artifact line names is doing (PIE-1060), as artifact-deploy's records say: `deploying` (a run is under way
- * here), `live` (deployed, at `url`), `failed` (its last run failed: `said` says why, `command` fixes it), `not-deployed`
+ * here), `live` (deployed, at `url`; with `said` and `command` when a name it should answer at is missing), `failed` (its last run failed: `said` says why, `command` fixes it), `not-deployed`
  * (no record: `command` deploys it) or `refused` (not an ep0ch-artifacts repo: `command` forks it there). `run` is the
  * newest run note for it; `recorded` the repo the live record came from when it isn't this one (an imported deployment).
  */

@@ -1559,23 +1559,40 @@ The deployer must confirm the existing Caddy edge forwards the desired Host to
 port 8796 before advertising a named static host. No per-repo Caddy configuration
 is written by this command.
 
-Choose a Vercel domain with `--domain <name>` on the deploy CLI or
+Choose a Vercel name with `--domain <name>` on the deploy CLI or
 `[domain::<name>]` beside `[artifact::]` on the note; the CLI option takes
-precedence. The agent tool accepts `domain` too. Without an override, deployment
-reuses the project's existing `*.ep0ch.sh` domain, then a backfilled domain,
-then `<repo>.ep0ch.sh`. Backfill receipts resolve the existing Vercel project
-even when its name differs from the repo. An already assigned domain needs no
-`domains add` or DNS write. Project-specific deployment lists omit `--all`.
+precedence, and the agent tool accepts `domain` too. A label is a name under
+`ep0ch.sh`; anything with a dot is a full name on any domain the team holds.
+Without one, deployment asks again for a name it's still missing, then reuses the
+project's existing `*.ep0ch.sh` domain, then the recorded name, then
+`<repo>.ep0ch.sh`. Backfill receipts resolve the existing Vercel project even when
+its name differs from the repo. Project-specific deployment lists omit `--all`.
 Set `EP0CH_VERCEL_SCOPE` on the host only when a particular team scope is needed;
 otherwise all Vercel commands use the logged-in CLI context. Private GitHub
 clones require `gh auth setup-git` on the host.
 
-For a new domain, DNS runs through
-`with-secrets hetzner-dns -- hcloud ...`; use
-`with-secrets --add hetzner-dns HCLOUD_TOKEN` to enter the Cloud token privately.
-Without that group the command prints the exact manual CNAME/A record and keeps
-going. `ep0ch artifact dns <repo> --to vercel|float-2 --ws pie --machine float-2`
-can reconcile DNS separately. Program paths use `EP0CH_GIT`, `EP0CH_GH`,
+The name is attached by Vercel's own answers, in this order (PIE-1588):
+
+1. **Add it** through Vercel's API (`POST /v10/projects/<project>/domains`), unless the
+   project already has it. The answer says `verified`, and the TXT it wants when it isn't.
+2. **Nothing more** when it's verified and `/v6/domains/<name>/config` says it's pointed:
+   a name under a domain on Vercel's nameservers goes through with no TXT and no Hetzner
+   step, and no list of domains in the code decides that.
+3. **The TXT, then the address,** through `artifactDns` (`with-secrets hetzner-dns -- hcloud ...`;
+   `with-secrets --add hetzner-dns HCLOUD_TOKEN` enters the Cloud token privately). The TXT is
+   appended to `_vercel` beside every other name's (`add-records`), and left alone when it's there.
+4. **Verify,** asked again for up to a minute while the record reaches Vercel
+   (`EP0CH_VERCEL_VERIFY_WAIT_MS` between asks).
+
+A name that can't be finished (no `hetzner-dns` group, a domain's DNS held elsewhere, Vercel
+refusing it) is a missing name, not a failed deploy: the deployment is recorded at the address
+the app answers at (another verified name of the project's, else its `vercel.app` name), with
+`wanted` saying what's missing. The run note, the CLI's JSON and the card say "Vercel wants
+this DNS record: …" with the record, and the same deploy command finishes it, added by hand or not.
+A failed `vercel deploy` is still a failed deploy.
+
+`ep0ch artifact dns <repo> --to vercel|float-2 --ws pie --machine float-2`
+can reconcile the address separately. Program paths use `EP0CH_GIT`, `EP0CH_GH`,
 `EP0CH_VERCEL`, `EP0CH_HCLOUD` and `EP0CH_WITH_SECRETS`; the scratch tests use shell
 wrappers and `EP0CH_ARTIFACT_DEPLOYS` under their private temporary folder.
 External stderr is never copied into notes.
@@ -1601,9 +1618,9 @@ The local agent tool is available to scripts and the Claude mod; the MCP gateway
 has no deploy/proposal adapter.
 
 CLI flags checked with the real Vercel 64.5.0 help on float-2 (including list, inspect,
-deploy, domains add/list, project list/inspect, link and api). Domain discovery uses
-`vercel api /v9/projects/<project>/domains` because project inspect does not return
-domains. See the [Vercel list source](https://github.com/vercel/vercel/blob/main/packages/cli/src/commands/list/command.ts),
+deploy, project list/inspect, link and api). Domains go through `vercel api`
+(`/v9/projects/<project>/domains`) because project inspect does not return them, and because
+`vercel domains add` exits non-zero when Vercel wants a TXT, without saying which. See the [Vercel list source](https://github.com/vercel/vercel/blob/main/packages/cli/src/commands/list/command.ts),
 [Vercel domains documentation](https://vercel.com/docs/cli/domains),
 [Vercel API CLI](https://vercel.com/docs/cli/api) (backfill reads deployment metadata by ID), and
 [Hetzner RRSet CLI reference](https://github.com/hetznercloud/cli/blob/main/docs/reference/manual/hcloud_zone_rrset.md).
