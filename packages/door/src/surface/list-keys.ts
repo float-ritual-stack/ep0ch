@@ -1,5 +1,4 @@
 import { keyTable } from "./keymap";
-import { effective } from "./keymap";
 import { modeBinding, type ModeKey } from "./modes";
 import { keyCaption } from "./actions";
 import type { Key } from "../term";
@@ -30,9 +29,9 @@ export const COLLECTION_KEYS = keyTable<ModeKey>("collection", "While a collecti
   { key: "g", action: "list.group", label: "group", says: "choose the property the collection groups by" },
 ]);
 
-/** The keys of `action` in these tables, as one row of keycaps (`j ↓ k ↑`); `axis` narrows a step to its axis. */
+/** The keys of `action` in these tables, as one row of keycaps (`j ↓ k ↑`), built in (a def declares them: `modeActionKeys`); `axis` narrows a step to its axis. */
 export const keysOf = (tables: readonly (readonly ModeKey[])[], action: string, axis?: string) =>
-  [...new Set(tables.flatMap(t => effective(t).filter(r => r.action === action && (axis === "page" ? !!r.args?.page : !r.args?.page && (axis === undefined ? r.args?.axis === undefined : r.args?.axis === axis))).map(r => keyCaption(r.key))))].join(" ");
+  [...new Set(tables.flatMap(t => t.filter(r => r.action === action && (axis === "page" ? !!r.args?.page : !r.args?.page && (axis === undefined ? r.args?.axis === undefined : r.args?.axis === axis))).map(r => keyCaption(r.key))))].join(" ");
 
 export function listBinding(key: Key, collection: boolean, count: number): ModeKey | undefined {
   const b = (collection ? modeBinding(COLLECTION_KEYS, key) : undefined) ?? modeBinding(LIST_KEYS, key);
