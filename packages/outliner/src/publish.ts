@@ -37,7 +37,7 @@ import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { embeddedPageAddress, pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { linkSoftWords, softPageAddresses } from "./publish-soft-links";
+import { linkSoftWords, pageAddressesToResolve } from "./publish-soft-links";
 import { getProperty } from "./properties";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
@@ -2313,8 +2313,7 @@ export class Publisher {
   }
 
   private async resolvePages(texts: readonly string[]): Promise<Map<string, string>> {
-    const addresses = [...new Set(texts.flatMap((text) =>
-      [...pageAddressReferences(text).map((reference) => reference.normalizedAddress), ...softPageAddresses(text)]))].slice(0, PAGE_RESOLVE_LIMIT);
+    const addresses = pageAddressesToResolve(texts, PAGE_RESOLVE_LIMIT);
     const pages = new Map<string, string>();
     // A few at a time: a large page must not open hundreds of connections to the shared service.
     // A link that cannot be resolved shows its label, as an unpublished one does.

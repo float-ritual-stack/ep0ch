@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { OutlinerStore } from "../src/store";
 import { readBlockRecords } from "../src/block-records";
-import { linkSoftWords, softPageAddresses } from "../src/publish-soft-links";
-import { resolveOutlinerLinkTarget } from "../src/outliner-links";
+import { linkSoftWords, pageAddressesToResolve, softPageAddresses } from "../src/publish-soft-links";
+import { outlinerLinkUri, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "../src/outliner-links";
 import { softMentionRows } from "../src/soft-links";
 
 const cleanups: Array<() => void> = [];
@@ -208,6 +208,20 @@ describe("other clients", () => {
     expect(linkSoftWords("On 2026-03-14 [thread::seed-swap] and [zone::unpublished] and PR#12", pages, entries, link, () => false))
       .toBe("On [2026-03-14](/p/b) [thread::[seed-swap](/p/a)] and [zone::unpublished] and PR#12");
     expect(softPageAddresses("[thread::Seed-Swap] 2026-03-14 PR#12")).toEqual(["seed-swap", "2026-03-14"]);
+  });
+
+  test("a page's explicit links keep the resolving budget: soft words get what's left", () => {
+    const soft = Array.from({ length: 5 }, (_, i) => `[area::value-${i}]`).join(" ");
+    expect(pageAddressesToResolve([soft, "[[Real page]]"], 3)).toEqual(["real page", "value-0", "value-1"]);
+  });
+
+  test("a date in Detail never makes a page by a click; an explicit [[date]] still does", async () => {
+    const s = store();
+    const requester = { request: async (r: any) => r.action === "references.soft" ? s.softLink(r.name, {}) : r.action === "pages.follow" ? s.followPageAddress(r.address) : s.resolvePageAddress(r.address) };
+    const soft = parseOutlinerLinkUri(outlinerLinkUri("page", "2026-11-06", { soft: true }));
+    await expect(resolveOutlinerLinkTarget(requester as never, soft)).rejects.toThrow("2026-11-06");
+    expect(s.resolvePageAddress("2026-11-06").status).toBe("missing");
+    expect(await resolveOutlinerLinkTarget(requester as never, parseOutlinerLinkUri(outlinerLinkUri("page", "2026-11-06")))).toMatchObject({ created: true });
   });
 
   test("Detail's links name a value's and a date's page, and a date with no page lands on that day's note", async () => {

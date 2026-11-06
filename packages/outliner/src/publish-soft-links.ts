@@ -1,6 +1,6 @@
 // Soft links on a published page (PIE-408): a value left in the prose and a date link where their page is published.
 // A pull request's project is the note's context, which a page's words don't carry here, so it stays the words it is.
-import { tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { softLinkTokens, type SoftLinkToken } from "@ep0ch/outline-core/soft-links";
 
 /** The page address a soft link names by its words alone, normalized; null for a pull request. */
@@ -17,3 +17,7 @@ export function linkSoftWords<E>(body: string, pages: ReadonlyMap<string, string
   }
   return body;
 }
+
+/** What a page asks the service to resolve, at most `limit`: its explicit links first, so a page's many values never cost one. */
+export const pageAddressesToResolve = (texts: readonly string[], limit: number): string[] =>
+  [...new Set([...texts.flatMap(text => pageAddressReferences(text).map(reference => reference.normalizedAddress)), ...texts.flatMap(softPageAddresses)])].slice(0, limit);

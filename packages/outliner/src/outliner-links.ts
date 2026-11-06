@@ -59,6 +59,7 @@ export interface ResourceOccurrenceAddress {
 export interface OutlinerLinkTarget {
   kind: OutlinerLinkKind;
   value: string;
+  soft?: boolean;
   fragmentId?: string;
   preserveSource?: boolean;
   intent?: "reveal";
@@ -92,6 +93,8 @@ export function outlinerLinkUri(
     intent?: "reveal";
     fragmentId?: string;
     occurrence?: ResourceOccurrenceAddress;
+    /** Written by convention (PIE-408): following it never makes the page. */
+    soft?: boolean;
   } = {},
 ): string {
   const normalized = value.trim();
@@ -113,6 +116,7 @@ export function outlinerLinkUri(
   if (options.preserveSource) query.set("preserveSource", "1");
   if (options.intent) query.set("intent", options.intent);
   if (options.fragmentId) query.set("fragment", options.fragmentId);
+  if (options.soft) query.set("soft", "1");
   if (kind === "reference" || options.occurrence) {
     const occurrence = options.occurrence;
     if (kind !== "reference" || !occurrence || !validOccurrenceAddress(occurrence)) {
@@ -169,7 +173,7 @@ export function parseOutlinerLinkUri(uri: string): OutlinerLinkTarget {
   } : undefined;
   if (
     [...parsed.searchParams.keys()].some((key) =>
-      key !== "preserveSource" && key !== "intent" && key !== "fragment" &&
+      key !== "preserveSource" && key !== "intent" && key !== "fragment" && key !== "soft" &&
       !(kind === "reference" && occurrenceKeys.includes(key))
     ) ||
     preserveSourceValues.length > 1 ||
@@ -200,6 +204,7 @@ export function parseOutlinerLinkUri(uri: string): OutlinerLinkTarget {
     ...(fragmentValues.length === 1 ? { fragmentId: fragmentValues[0] } : {}),
     ...(preserveSourceValues.length === 1 ? { preserveSource: true } : {}),
     ...(intentValues.length === 1 ? { intent: "reveal" as const } : {}),
+    ...(parsed.searchParams.get("soft") === "1" ? { soft: true } : {}),
     ...(occurrence ? { occurrence } : {}),
   };
 }
@@ -333,6 +338,7 @@ export async function resolveOutlinerLinkTarget(
     const soft = await requester.request<SoftLinkAnswer>({ action: "references.soft", name: { kind: "date", day: target.value } });
     const only = soft.status === "resolved" ? soft.candidates[0]?.block : undefined;
     if (only) return { block: only };
+    if (target.soft) throw new Error(soft.status === "ambiguous" ? `More than one note for ${target.value}: open the one you mean` : `No note for ${target.value} yet: write [[${target.value}]] and follow it to make one`);
   }
   if (target.kind === "work") {
     throw new Error(`Work ID address is unresolved: ${target.value}`);
@@ -599,7 +605,7 @@ function genericLinkSpans(
   }
   // A date is a soft link (PIE-408) the words alone can place. A value links only where its page is, which a span of text
   // can't say, and a pull request needs its note's context: both stay text here (the door follows them, by the service's answer).
-  for (const token of softLinkTokens(text, { ignore: resourcePropertyKeys() })) if (token.kind === "date") spans.push({ start: token.start, end: token.end, uri: outlinerLinkUri("page", token.day) });
+  for (const token of softLinkTokens(text, { ignore: resourcePropertyKeys() })) if (token.kind === "date") spans.push({ start: token.start, end: token.end, uri: outlinerLinkUri("page", token.day, { soft: true }) });
   for (const match of text.matchAll(BLOCK_ID_TOKEN_PATTERN)) {
     const range = { start: match.index, end: match.index + match[0].length };
     if (

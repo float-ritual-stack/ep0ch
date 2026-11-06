@@ -39,7 +39,7 @@ const NAME_MAX_LENGTH = 64;
 const NAME_MAX_WORDS = 6;
 
 const ISO_DAY_START = /^(\d{4}-\d{2}-\d{2})(?=$|[\sT@,;])/;
-const PROSE_DAY = /(?<![\w./-])\d{4}-\d{2}-\d{2}(?![\w/-]|\.\.)/g;
+const PROSE_DAY = /(?<![\w./-])\d{4}-\d{2}-\d{2}(?![\w/-]|\.\.|\.\w)/g;
 const PROSE_PR = /(?<![\w#-])PR#(\d+)(?![\w-])/g;
 /** A value that says nothing to go to: a number, a measure, a yes or no, an id, a path. */
 const NOT_A_NAME = /^(?:[\d.,:%+-]+|true|false|yes|no|[0-9a-f]{8,}|[/~.].*)$/i;
@@ -111,7 +111,7 @@ export function softLinkTokens(text: string, options: SoftLinkOptions = {}): Sof
     }
   }
   const taken = [
-    ...records, ...linkOccurrences(text, []), ...blockReferenceEnvelopeRanges(text), ...pageLinkRanges(text),
+    ...records, ...linkOccurrences(text, []), ...[...text.matchAll(/!\[[^\]\n]*\]\([^)\n]*\)/g)].map(match => ({ start: match.index, end: match.index + match[0].length })), ...blockReferenceEnvelopeRanges(text), ...pageLinkRanges(text),
     // A URL holds dates and numbers that are its own (`/2026-11-06/`).
     ...[...text.matchAll(/\S*:\/\/\S*/g)].map(match => ({ start: match.index, end: match.index + match[0].length })),
   ];

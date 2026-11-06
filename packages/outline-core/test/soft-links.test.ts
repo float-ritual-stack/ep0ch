@@ -27,6 +27,12 @@ describe("soft link tokens", () => {
     expect(names("a span 2026-11-06..2026-11-08 and 2026-13-45")).toEqual([]);
   });
 
+  test("a date in a picture's or a file's name is its name", () => {
+    expect(names("![diagram](2026-03-14.png) and ![diagram](PR#3.png)")).toEqual([]);
+    expect(names("see 2026-03-14.png, then 2026-03-14.")[0]).toMatchObject({ day: "2026-03-14", start: 28 });
+    expect(names("see 2026-03-14.png, then 2026-03-14.")).toHaveLength(1);
+  });
+
   test("[PR::125] is a pull request whatever its key's case", () => {
     expect(names("See [PR::125] and [pr::#7]").map(t => [t.kind, t.kind === "pr" && t.number, t.words])).toEqual([["pr", 125, "125"], ["pr", 7, "#7"]]);
   });
