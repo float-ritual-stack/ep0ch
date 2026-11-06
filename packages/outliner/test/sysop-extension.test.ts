@@ -189,6 +189,9 @@ test("a recorded user unit restart runs through the CLI, and clean removal trash
   };
   const here = await r<{ machine: string }>({ action: "notes.address" });
   const remote = valueOf(page, "machines")!.split(",").map(name => name.trim()).find(name => name !== here.machine)!;
+  // The calm takes longer than a client's usual 3 s: the person's command waits for its answer, up to the action's own deadline.
+  machines.restartDelay = 3_500;
+  save();
   expect(await cli("ext", "act", "sysop", "calm", "--arg", `machine=${remote}`, "--actor", "garden-helper")).toContain("garden-cache.service");
   expect(JSON.parse(readFileSync(stateFile, "utf8")).restarts).toContain(`${remote}:systemctl --user restart garden-cache.service`);
   expect(await cli("ext", "remove", "sysop", "--outline-folder", join(scratch.outlines, "shed"), "--demo", "remove")).toContain("Trash");

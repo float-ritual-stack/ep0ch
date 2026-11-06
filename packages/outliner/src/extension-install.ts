@@ -7,7 +7,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { readExtensionFolder } from "./extension-manifest";
+import { MAX_DEADLINE_MS, readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, overrideWords, type ExtensionsListResult } from "./extension-registry";
 import { extFlagOptions, extFlagUsage } from "./extension-flags";
@@ -522,7 +522,10 @@ const USAGE = `usage: outliner ext ls [--long] [--json]
   unless --demo remove, switches off their rule-on notes, and reinstalling switches them back on.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
 
-export interface ExtClient { request<T>(input: Record<string, unknown>): Promise<T> }
+export interface ExtClient { request<T>(input: Record<string, unknown>, timeoutMs?: number): Promise<T> }
+
+/** What runs an extension's code waits for its answer: an action may take its deadline (at most MAX_DEADLINE_MS), and the service stops it then. */
+const EXTENSION_RUN_WAIT_MS = MAX_DEADLINE_MS + 30_000;
 
 /** The running service for this folder's outline or EP0CH_WS's, or null when none answers. */
 export async function serviceClient(): Promise<ExtClient | null> {
@@ -588,7 +591,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
           print(`service: still has ${id} (${entry.directory})`);
         } else {
           // Its demo notes: kept unless --demo remove said otherwise (never silently).
-          const done = await client.request<{ lines: string[] }>({ action: "extensions.uninstall", extension: id, demo: values.demo ?? "keep" })
+          const done = await client.request<{ lines: string[] }>({ action: "extensions.uninstall", extension: id, demo: values.demo ?? "keep" }, EXTENSION_RUN_WAIT_MS)
             .catch((error: Error) => ({ lines: /none of its demo notes are left/.test(error.message) ? [] : [`its demo notes: ${error.message}`] }));
           print(`service: ${id} is gone`);
           for (const line of done.lines) print(line);
@@ -632,7 +635,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       if (!extension || !entry || extra.length) throw new Error(USAGE);
       const client = await connect();
       if (!client) throw new Error("No outline service answers here (start the outline host, or name an outline with EP0CH_WS or a .ep0ch)");
-      const run = await client.request<{ at: string; ok: boolean; message?: string; error?: string }>({ action: "extensions.schedule.run", extension, entry });
+      const run = await client.request<{ at: string; ok: boolean; message?: string; error?: string }>({ action: "extensions.schedule.run", extension, entry }, EXTENSION_RUN_WAIT_MS);
       if (values.json) console.log(JSON.stringify(run));
       else print(run.ok ? `${extension} ${entry}: ${run.message ?? "ran"}` : `${extension} ${entry} failed: ${run.error ?? ""}`);
       return run.ok ? 0 : 1;
@@ -667,7 +670,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
         ...(Object.keys(argsMap).length ? { args: argsMap } : {}),
         // Who asked: the writes stay the extension's, this is recorded beside them (requestedBy).
         mutation: values.actor?.trim() ? { author: "agent", actorId: values.actor.trim() } : { author: "user" },
-      });
+      }, EXTENSION_RUN_WAIT_MS);
       if (values.json) console.log(JSON.stringify(result));
       else {
         if (result.message) print(result.message);

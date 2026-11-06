@@ -35,9 +35,14 @@ test("installed process lifecycle rejects invalid, disabled, stale, oversized an
       jira: { manifest, enabled, config: { mode }, credentials: {} },
     },
   });
+  const waitForStart = async () => {
+    for (let i = 0; i < 2_500 && !(await Bun.file(join(dir, "started")).exists()); i++) await Bun.sleep(2);
+  };
   const write = async (mode: string, enabled = true) =>
     writeFile(config, JSON.stringify(registry(mode, enabled)));
-  const runtime = new ResourceExtensionRuntime(config, 250);
+  // The deadline only the hanging program should meet: a bun that has to start on a busy machine takes longer than 250 ms.
+  const runtime = new ResourceExtensionRuntime(config);
+  const impatient = new ResourceExtensionRuntime(config, 250);
   try {
     await writeFile(entry, program);
     await writeFile(manifest, JSON.stringify(declaration));
@@ -62,7 +67,7 @@ test("installed process lifecycle rejects invalid, disabled, stale, oversized an
       ["error", "403"],
     ] as const) {
       await write(mode);
-      await expect(runtime.invoke("jira", "read", {})).rejects.toThrow(error);
+      await expect((mode === "hang" ? impatient : runtime).invoke("jira", "read", {})).rejects.toThrow(error);
     }
     await writeFile(manifest, JSON.stringify({ ...declaration, contract: 99 }));
     await expect(runtime.invoke("jira", "read", {})).rejects.toThrow(
@@ -87,12 +92,7 @@ test("installed process lifecycle rejects invalid, disabled, stale, oversized an
       () => null,
       (error) => error,
     );
-    for (
-      let i = 0;
-      i < 100 && !(await Bun.file(join(dir, "started")).exists());
-      i++
-    )
-      await Bun.sleep(2);
+    await waitForStart();
     expect(await Bun.file(join(dir, "started")).exists()).toBe(true);
     await write("normal", false);
     await writeFile(join(dir, "release"), "go");
@@ -106,12 +106,7 @@ test("installed process lifecycle rejects invalid, disabled, stale, oversized an
       () => null,
       (error) => error,
     );
-    for (
-      let i = 0;
-      i < 100 && !(await Bun.file(join(dir, "started")).exists());
-      i++
-    )
-      await Bun.sleep(2);
+    await waitForStart();
     expect(await Bun.file(join(dir, "started")).exists()).toBe(true);
     abort.abort();
     expect((await running).message).toContain("cancelled");
