@@ -206,6 +206,8 @@ while :; do
       [ ${#got[@]} -ge "$want" ] && break 2
     else
       exec {sfd}>&-
+      # In order, and nothing past a busy slot: two alone runs can't each hold what the other waits for.
+      [ "$alone" = 1 ] && break
     fi
   done
   t=$(now)
