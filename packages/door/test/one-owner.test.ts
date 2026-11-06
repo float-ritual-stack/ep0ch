@@ -111,18 +111,54 @@ const FAMILIES: Family[] = [
     // Esc's hold each asked their own (#1062, #1071 fixed one overlay at a time); now App.person answers and they read it.
     // A new overlay or screen is over a program by being a layer person() reads (a screen pushed, an overlay on a desk),
     // never by a check of its own in the router.
-    pattern: /\.(?:rawKeys|holdsKeys)\?\.\(|\.programKeys\(|\.rawInput(?:\?\.)?\(|\boverDrawer\(/g,
+    pattern: /\.(?:rawKeys|holdsKeys)\?\.\(|\.programKeys\(|\.rawInput(?:\?\.)?\(|\boverDrawer\(|\.rawKeys\(\)|\bkeysScreen\(/g,
     allowed: {
-      "app.ts": { n: 11, why: "the owner: keyLayers (person() carries it) and its feeders (overDrawer, programUnder); the raw sink hands bytes to the layer it named (the drawer's or the screen's rawInput); the router's door keys (alt+v, ctrl+n, ^K…) read the top screen's own answer once, after the layer is decided; a gesture's next press (heldAfter)" },
+      "app.ts": { n: 17, why: "the owner: keyLayers (person() carries it) and its feeders (overDrawer, programUnder); the raw sink hands bytes to the layer it named (the drawer's or the screen's rawInput); the router's door keys (alt+v, ctrl+n, ^K…) read the top screen's own answer once, after the layer is decided; a gesture's next press (heldAfter); keysScreen, the screen whose strips and menus the keys are on" },
       "whereabouts.ts": { n: 2, why: "screenKeys: a screen without tiles says whether it holds the keys, the answer person() starts from" },
-      "desk/desk.ts": { n: 1, why: "programKeys' own walk into the group the person went into" },
-      "drawer.ts": { n: 5, why: "the drawer's own key handling inside its layer (its tab's terminal, Esc putting it away when the screen under it isn't using the key, ctrl+]'s second press): person() already gave it the key" },
+      "desk/desk.ts": { n: 13, why: "programKeys' own walk into the group the person went into, and rawKeys, the desk's own answer the rest read (its keys, hint row, overlays, chordWay)" },
+      "drawer.ts": { n: 6, why: "the drawer's own key handling inside its layer (its tab's terminal, Esc putting it away when the screen under it isn't using the key): person() already gave it the key" },
       "desk/screen-tile.ts": { n: 2, why: "a tile framing a screen asks that screen, inside the desk's own key handling" },
+      "bar/sources.ts": { n: 3, why: "keysScreen: the desk whose menu and ^W keys the power bar lists, asked of the App; not where a key goes" },
       "desk/lanes.ts": { n: 2, why: "whether to move focus for the person (lanes), not where a key goes" },
       "hub/welcome.ts": { n: 1, why: "whether to move focus for the person (the welcome preview), not where a key goes" },
       "brief/brief.ts": { n: 1, why: "the brief's , and . inside its own key handling, once the desk has the key" },
       "echonet/screen.ts": { n: 1, why: "EchoNet's message keys inside its own key handling, once the desk has the key" },
       "showcase/showcase.ts": { n: 2, why: "the showcase's stage says whether its framed screen holds the keys (its own answer, read by person())" },
+    },
+  },
+  {
+    question: "who has the person's keys now: what moves them (PIE-1592, the keys fact)",
+    // Every write of the keys fact (desk/keys-fact.ts), and the two things that aren't in it because the layout answers them:
+    // the host layer's focus commits and a desk's own focus. A new place that moves the keys is named here, with why.
+    pattern: /\b(?:keysFact|doorKeys)\.(?:hostAt|intoLift|intoGlass|outOfGlass|wantIn|typeIn|stopTyping|leftProgram|leftDrawer|passedOn|chordSpent)\(|this\.do\(\{ op: "focus"|\bthis\.focus = /g,
+    allowed: {
+      "desk/desk.ts": { n: 21, why: "where a tile opens, closes, is carried, entered or left: typeIn, stopTyping, leftProgram; focus from the layout's answer (commit, build), an emptied desk and a program started for the person" },
+      "showcase/showcase.ts": { n: 7, why: "another focus: which section the showcase's stage shows" },
+      "surface/note-form.ts": { n: 2, why: "another focus: which field a form has" },
+      "drawer.ts": { n: 38, why: "the host layer's own moves: into the drawer, a lift or the glass, out of them, its focus commits (keysInto and the quiet ones the lift and glass need)" },
+    },
+  },
+  {
+    question: "what ctrl+] does now: steps out one mode at a time (PIE-1592)",
+    // The one rule is deskWay and wayOut in desk/keys-fact.ts. term.ts only turns the byte into a key (the Kitty protocol is
+    // one module, kbd.ts); nothing else decides. Asking `chordWay` or `isEscapeChord` elsewhere is a second decider.
+    pattern: /\bisEscapeChord\(|\.chordWay\(|\bdeskWay\(|\bwayOut\(/g,
+    allowed: {
+      "desk/keys-fact.ts": { n: 2, why: "the owner: the rule" },
+      "desk/desk.ts": { n: 4, why: "a desk's own answer (chordWay), and applying it in keyIn" },
+      "desk/screen-tile.ts": { n: 2, why: "applying it: out of the group when nothing inside takes the chord" },
+      "drawer.ts": { n: 8, why: "the door's answer over the layers (wayOut), and applying it" },
+      "app.ts": { n: 1, why: "person() reads it" },
+    },
+  },
+  {
+    question: "is this a step, and what takes it back (PIE-1592, the step record)",
+    // desk/step-record.ts answers these; Desk.commit asks `decide` once. A second place that keeps a pulled-up drawer's carry,
+    // a replay flag, or its own scope for "whose step" is a hydra.
+    pattern: /\.decide\(|\.takeBack\(|\.undoDesk\(|\.newestDesk\(|\.pulledDrawer\(|\.pullBack\(|\bsteps\.putBack\(/g,
+    allowed: {
+      "desk/desk.ts": { n: 7, why: "commit asks decide; undo asks takeBack, undoDesk, newestDesk and wraps a put-back" },
+      "drawer.ts": { n: 2, why: "the carry that pulled it up, and its undo" },
     },
   },
   {

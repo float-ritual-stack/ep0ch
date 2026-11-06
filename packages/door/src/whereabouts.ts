@@ -9,6 +9,8 @@
 // them (`program`). The raw sink, the key router and Esc's hold read it; the guard test (test/one-owner.test.ts) fails
 // when another place decides it.
 
+import type { KeysLayer, WayOut } from "./desk/keys-fact";
+
 /** Where the person's keys are on one screen, as that screen says it (Screen.keys). Tiles by the name `tile=` uses. */
 export interface ScreenKeys {
   /** Stable address of the tile under the keys, through mounted desks. */
@@ -41,6 +43,9 @@ export interface Whereabouts extends ScreenKeys {
    * way back, so nobody types in it and its Esc is the door's (PIE-1563). Left out when no program has their keys.
    */
   program?: { over: boolean; exited?: true };
+  /** The keys fact (desk/keys-fact.ts): the layer they are in and what ctrl+] does now. The App adds them. */
+  layer?: KeysLayer;
+  wayOut?: WayOut;
   /** The screen shown, by its title. */
   screen: string | null;
   /** Milliseconds since their last key or click. */

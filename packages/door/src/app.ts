@@ -120,7 +120,7 @@ export type { Video };
 /** The host layer's drawer as a screen's tiles reach it (PIE-498): `tile.drawer` moves a tile in or out through it. */
 export interface HostLayer {
   /** `d` is the drawer's own desk (its tiles, the drawer's tabs). */
-  isDrawer(d: unknown): boolean; carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void;   // an undo took back these carries, the person's keys on `keys` in `from` before it (PIE-1574)
+  isDrawer(d: unknown): boolean; readonly keysFact: import("./desk/keys-fact").DoorKeys; readonly steps: import("./desk/step-record").StepRecord<Desk>; carriesUndone?(txns: ReadonlySet<string>, keys: Pane | undefined, from: Desk | undefined): void;   // an undo took back these carries, the person's keys on `keys` in `from` before it (PIE-1574)
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. `everyDesk`: every screen's too, shown or not, and the background's (PIE-1280: a program's tile is found wherever it runs). */
   desks(): Desk[]; everyDesk?(): Desk[];
   /** What of the drawer lies over row `row` of the screen now (PIE-1455): the drawer open over it, a drawer tile lifted over the whole screen, or nothing. */
@@ -1290,7 +1290,7 @@ export class App implements Ctx {
   person(): Whereabouts {
     const s = this.stack.at(-1);
     const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor(), ...this.keyLayers() });
-    const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
+    const w: Whereabouts = { ...w0, layer: this.drawer.keysLayer(), wayOut: this.drawer.wayOut(s), ...(this.agentsYolo ? { yolo: true as const } : {}) };   // the keys fact, and who holds the door
     // The power bar holds their keys while it's open.
     // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
     const free = !w.busy || !!w.navHold;

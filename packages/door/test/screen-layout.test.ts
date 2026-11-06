@@ -1031,3 +1031,9 @@ describe("where an open lands: one table of requests and destinations (PIE-1522)
     });
   }
 });
+
+test("under yolo an agent's focus off a lifted tile drops the lift: it stands as the person (PIE-1592)", () => {
+  const s = ok(fresh(), { op: "zoom", tile: 2, reach: "full" }).state;
+  const moved = ok(s, { op: "focus", tile: 3 }, AGENT, { yolo: true });
+  expect(moved.state.lift).toBeNull();
+});
