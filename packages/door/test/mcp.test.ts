@@ -502,7 +502,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       const modPatch = async () => {
         const command = OUTLINE_TOOLS.find(t => t.name === "outline_patch")!.command(await edit("Bring twine.", "Bring pots."));
         if (typeof command === "string") throw new Error(command);
-        const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod"], {
+        const child = Bun.spawn(["bun", "src/cli.ts", "agent", command.operation, "--json", JSON.stringify(command.input), "--actor", "garden-mod/claude-code@garden-box"], {
           cwd: outliner!, env: { ...process.env, ...scratch.env }, stdout: "pipe", stderr: "pipe",
         });
         const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -524,7 +524,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         const response = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_patch", arguments: await edit("Bring pots.", "Bring seeds.") } }]);
         expect(called(response.find(r => r.id === 2))).toMatchObject({ isError: false, json: { outcome: "applied" } });
         expect(await record()).toMatchObject({ text: "Seed ledger\nBring seeds." });
-        for (const actorId of ["garden-script", "garden-mod", `mcp:claude-desktop@${machine}`]) {
+        for (const actorId of ["garden-script", "garden-mod/claude-code@garden-box", `mcp:claude-desktop@${machine}`]) {
           const activity = await board.request("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId, limit: 100, kinds: ["text"] });
           expect(activity.entries).toContainEqual(expect.objectContaining({ block: expect.objectContaining({ id: made.id }), actorId }));
         }

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { composeActor } from "@ep0ch/outline-core/attribution";
 import { sessionPersona } from "@ep0ch/outline-core/outline-location";
+import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { disk, hostSocketOf } from "./discover";
 import { boardFor } from "./notes-cli";
 import { RECORD_FIELDS, writeRecord, type RecordKind } from "@ep0ch/outliner/records";
@@ -37,7 +39,7 @@ export async function recordCommand(args: string[]): Promise<number> {
   if ("error" in board) { console.error(`ep0ch record: ${board.error}`); return 1; }
   const actor = sessionPersona({ env: process.env, folder: process.cwd(), fs: disk })?.name;
   const who = actor
-    ? { author: "agent" as const, provenance: { actorId: actor, sessionId: process.env.CODEX_THREAD_ID ?? process.env.CLAUDE_CODE_SESSION_ID } }
+    ? { author: "agent" as const, provenance: { actorId: composeActor({ persona: actor, principal: `ep0ch@${canonicalLocalMachineName()}` }), sessionId: process.env.CODEX_THREAD_ID ?? process.env.CLAUDE_CODE_SESSION_ID } }
     : { author: "user" as const };
   try {
     if (reportFile) props.report = readFileSync(reportFile, "utf8");

@@ -19,6 +19,7 @@ import {
 } from "./block-focus";
 import { createOutlinerClient, OutlinerRequestError, type RequestInput } from "./client";
 import { requireClientIdForRole } from "./client-target";
+import { cliActorId } from "./machine-name";
 import { boundFolderOf, clientSocket, machineFor, outlinesLayout, resolveClientPaths, resolveOutlinesFolder, whichOutlineFor, writeDotEp0ch } from "./paths";
 import { attachNamedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
@@ -69,7 +70,8 @@ const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> |
 const USAGE = `usage: outliner [--ws <name>] <command> [options]
 
 The outline host's command line: each command asks the outline this folder names (--ws, EP0CH_WS, the nearest
-.ep0ch). Writes take --author user|agent|system and --actor <id> (--session <id>); an agent names itself.
+.ep0ch). Writes take --author user|agent|system and --actor <id> (--session <id>); an agent names itself: a bare
+name is recorded as <name>/cli@<this machine>, a full id (loki/claude-code@float-2) as given.
 
 Reading
   list [--filter key=value]… [--query <expression>] [--text <words>] [--subtree <id>] [--limit <n>] [--fields <f,…>] [--facets <key,…> [--facet-values <n>]]
@@ -595,9 +597,14 @@ function writerAuthor(value: string | undefined, actor: string | undefined): "us
 function writerMutation(values: { author?: string; actor?: string; session?: string }): MutationProvenance {
   return {
     author: writerAuthor(values.author, values.actor),
-    actorId: values.actor ?? "cli",
+    actorId: values.actor ? cliActorId(values.actor) : "cli",
     ...(values.session ? { sessionId: values.session } : {}),
   };
+}
+
+/** An agent's actor and session as a write records them: the one place a CLI write turns `--actor` into its id. */
+function writerProvenance(values: { actor?: string; session?: string }): { actorId: string; sessionId?: string } {
+  return { actorId: cliActorId(values.actor!), ...(values.session ? { sessionId: values.session } : {}) };
 }
 
 function parseRevision(value: string | undefined): number {
@@ -631,8 +638,9 @@ async function textInput(values: Record<string, unknown>, fileOption: string, la
 }
 
 function workActor(values: Record<string, unknown>): WorkActor {
-  const actorId = (values.actor as string | undefined) ?? "cli";
-  if (!actorId.trim()) throw new Error("--actor requires an actor ID");
+  const named = values.actor as string | undefined;
+  if (named !== undefined && !named.trim()) throw new Error("--actor requires an actor ID");
+  const actorId = named === undefined ? "cli" : cliActorId(named);
   const author = writerAuthor(values.author as string | undefined, values.actor as string | undefined);
   if (author === "system") throw new Error("--author must be user or agent");
   const sessionId = values.session as string | undefined;
@@ -651,7 +659,7 @@ const WORK_USAGE = [
   "  work body <item> --file F|--stdin [--expected N]",
   "  work link <note> <item> [--expected N]   (the note, a request copy, names its ticket: [ticket::PIE-n])",
   "  note section <block> <heading> --file F|--stdin [--expected N]",
-  "  Writers: --actor ID [--session ID] is an agent (recorded author=agent as that actor); --author user|agent says it outright; with neither it is the person at the terminal. <item> is a Work ID or block UUID.",
+  "  Writers: --actor ID [--session ID] is an agent (recorded author=agent as ID/cli@<this machine>, a full id as given); --author user|agent says it outright; with neither it is the person at the terminal. <item> is a Work ID or block UUID.",
 ].join("\n");
 
 const ACTOR_OPTIONS = {
@@ -855,7 +863,7 @@ async function gateCliWrite(author: string, values: { actor?: string; session?: 
   if (decided.becomes === "refused") refuse(decided.why!);
   if (decided.becomes === "applied") return null;
   const definition = AGENT_TOOL_DEFINITIONS.find(d => d.name === tool)!;
-  const actor = { actorId: values.actor!, ...(values.session ? { sessionId: values.session } : {}) };
+  const actor = writerProvenance(values);
   const input = Object.fromEntries(Object.entries(given).filter(([, v]) => v !== undefined));
   return agentWrite(client, { definition, args: input, command: { operation, input } }, actor, level, where);
 }
@@ -886,7 +894,7 @@ async function runAgentCommand(args: string[]): Promise<number> {
     if ((values.json !== undefined) === Boolean(values.stdin)) throw new Error(`agent ${operation} takes its input as --json '{…}' or --stdin`);
     const input: unknown = JSON.parse(values.stdin ? await Bun.stdin.text() : values.json!);
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("the input is a JSON object");
-    const actor = values.actor?.trim() ? { actorId: values.actor.trim(), ...(values.session ? { sessionId: values.session } : {}) } : undefined;
+    const actor = values.actor?.trim() ? writerProvenance(values) : undefined;
     await client.requireCompatibleService();
     const result = await gatedAgentOperation(operation as (typeof AGENT_OPERATIONS)[number], input as Record<string, unknown>, actor, runAgentOperation);
     console.log(JSON.stringify(result));
@@ -923,7 +931,7 @@ switch (command) {
       ...(await client.request<object>({
         action: "draft.patch", blockId: values.block, revision: read.revision, patches: [span],
         mark: { text: values["tidy-above"] }, policy: "prose",
-        mutation: { author: "agent", actorId: values.actor!, ...(values.session ? { sessionId: values.session } : {}) },
+        mutation: { author: "agent", ...writerProvenance(values) },
       }, 15_000)),
     };
     break;
@@ -1065,7 +1073,7 @@ switch (command) {
     await gateCliWrite(author, values, "outline_comment", { ref: values.id, body }, "comment");
     directResult = await createBlockComment(client, {
       requestId: values["request-id"], author,
-      ...(author === "agent" ? {provenance: {actorId: values.actor!, ...(values.session ? {sessionId: values.session} : {})}} : {}),
+      ...(author === "agent" ? {provenance: writerProvenance(values)} : {}),
       input: {blockId: values.id, expectedRevision: parseRevision(values.expected), body, source: author,
         ...(values.whole ? {} : {passage: {quote: values.quote!, start, prefix: values.prefix, suffix: values.suffix, itemId: values.item}})},
     });
@@ -1124,7 +1132,7 @@ switch (command) {
       text: values.text,
       parentId: values.parent ?? null,
       author,
-      ...(values.actor ? { provenance: { actorId: values.actor, ...(values.session ? { sessionId: values.session } : {}) } } : {}),
+      ...(values.actor ? { provenance: writerProvenance(values) } : {}),
     };
     break;
   }
@@ -1153,7 +1161,7 @@ switch (command) {
       text: values.text ?? "",
       intent: { kind: "note", ...(values.near ? { near: values.near, nearOnly: true } : {}) },
       author,
-      ...(values.actor ? { provenance: { actorId: values.actor, ...(values.session ? { sessionId: values.session } : {}) } } : {}),
+      ...(values.actor ? { provenance: writerProvenance(values) } : {}),
     };
     if (values.near) {
       const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;

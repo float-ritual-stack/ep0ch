@@ -124,6 +124,33 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
   });
   afterAll(async () => { await scratch.dispose(); });
 
+  // PIE-1605: who wrote it says which machine and client. The outliner CLI's bare --actor and `ep0ch record`'s persona
+  // are recorded on their principal; `show`'s byline names the persona first, `revisions` the whole of it.
+  test("a bare --actor through the CLI: show names the persona, revisions the machine and client", async () => {
+    const cli = Bun.spawn(["bun", "src/cli.ts", "create", "--text", "Trellis list", "--author", "agent", "--actor", "someone"], {
+      cwd: outliner!, stdout: "pipe", stderr: "pipe", env: { ...process.env, ...scratch.env, EP0CH_MACHINE_NAME: "garden-box" },
+    });
+    const [out, err, code] = await Promise.all([new Response(cli.stdout).text(), new Response(cli.stderr).text(), cli.exited]);
+    expect(code, err).toBe(0);
+    const id = (JSON.parse(out) as { id: string }).id;
+    const shown = await run(["show", id, "--width", "60"], env);
+    expect(shown.code, shown.err).toBe(0);
+    expect(visible(shown.out)).toContain("someone · ");
+    const revisions = await run(["revisions", id], env);
+    expect(revisions.code, revisions.err).toBe(0);
+    expect(visible(revisions.out)).toContain("by someone (cli@garden-box)");
+  });
+
+  test("ep0ch record writes as the session's persona on this machine", async () => {
+    const started = await run(["record", "deploy", "--sha", "abc1234", "--host", "garden-box", "--protocol", "1", "--grammar", "1", "--sessions", "none", "--failed", "none"], { ...env, EP0CH_AGENT: "fixture-builder", EP0CH_MACHINE_NAME: "garden-box" });
+    expect(started.code, started.err).toBe(0);
+    const board = new SocketBoard(sock, undefined, scratch.name);
+    try {
+      const note = await board.request("get", { blockId: JSON.parse(started.out).id });
+      expect(note.actorId).toBe("fixture-builder/ep0ch@garden-box");
+    } finally { board.close(); }
+  });
+
   test("wait holds a query until a new child lands, prints only that row, and times out without polling", async () => {
     const board = new SocketBoard(sock, undefined, scratch.name);
     const parent = await board.request("create", { text: "Glasshouse log" });
@@ -209,14 +236,14 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       expect((await board.get(ended.id))!.text).toContain("[exit::7]");
       expect((await board.get(ended.id))!.text).toContain(`MCP writer: builder-${ticket.id}`);
       const reports = await board.request("children", { parentId: ticket.id });
-      expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId === `builder-${ticket.id}`)).toBe(true);
+      expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId?.startsWith(`builder-${ticket.id}/ep0ch@`))).toBe(true);
       const fresh = spawn({ BUILDER_FIXTURE_REPORT: staleReport });
       const freshOut = new Response(fresh.stdout).text();
       const freshErr = new Response(fresh.stderr).text();
       expect(await fresh.exited, await freshErr).toBe(7);
       const freshEnd = JSON.parse((await freshOut).trim());
       expect((await board.get(freshEnd.id))!.text).toContain("The fresh report file for this run.");
-      expect((await board.request("get", { blockId: freshEnd.id })).actorId).toBe("fixture-builder");
+      expect((await board.request("get", { blockId: freshEnd.id })).actorId).toMatch(/^fixture-builder\/ep0ch@/);
       const pidFile = join(scratch.root, "builder-child.pid");
       const waiting = spawn({ BUILDER_FIXTURE_WAIT: pidFile });
       const output = new Response(waiting.stdout).text();
@@ -275,7 +302,7 @@ process.exit(Number(process.env.BUILDER_CODE));
         const note = await board.get(ended.id);
         expect(note!.text).toContain(`[exit::${code}]`);
         expect(note!.text).toContain("The gate swings freely.");
-        expect((await board.request("get", { blockId: ended.id })).actorId).toBe("gate-builder");
+        expect((await board.request("get", { blockId: ended.id })).actorId).toMatch(/^gate-builder\/ep0ch@/);
       }
     } finally { board.close(); await h.dispose(); }
   }, 30_000);

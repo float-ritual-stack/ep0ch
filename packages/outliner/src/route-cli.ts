@@ -4,6 +4,7 @@
 import { parseArgs } from "node:util";
 import type { NoteRouteRun } from "@ep0ch/outline-core/protocol";
 import { createOutlinerClient } from "./client";
+import { cliActorId } from "./machine-name";
 import { resolveClientPaths } from "./paths";
 
 const USAGE = `usage: ep0ch route <note> [--dry-run] [--ws <outline>] [--json]
@@ -49,7 +50,7 @@ export async function runRouteCommand(args: readonly string[], env: NodeJS.Proce
   try {
     const paths = resolveClientPaths(values.ws ? { ...env, EP0CH_WS: values.ws } : env);
     const client = createOutlinerClient(paths as Parameters<typeof createOutlinerClient>[0]) as unknown as Client;
-    const mutation = values.actor ? { author: "agent", actorId: values.actor } : { author: "user" };
+    const mutation = values.actor ? { author: "agent", actorId: cliActorId(values.actor) } : { author: "user" };
     const run = await client.request<NoteRouteRun>({ action: "notes.route", ...(ref ? { ref } : { all: true }), ...(values["dry-run"] ? { dryRun: true } : {}), mutation });
     if (values.json) console.log(JSON.stringify(run));
     else for (const line of routeReport(run, { all: values.all === true, ...(values.ws ? { ws: values.ws } : {}) })) console.log(line);

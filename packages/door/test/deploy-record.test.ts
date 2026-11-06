@@ -1,6 +1,7 @@
 // The Deploys note install writes (PIE-941): its table figure draws the deploys at any width, and a table with
 // nothing to draw says so rather than failing the figure.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
 import { renderGraph } from "../src/graphs";
 import { drawNote } from "../src/notes-cli";
 const DEPLOYS_NOTE = "Deploys [type::virtual-branch] [query::type=deploy machine=install]\n\n::graph-table\n---\nquery: type=deploy machine=install\ncolumns: [title, created]\n---\n::";
@@ -75,4 +76,22 @@ test("with no outline named, a linked install writes no record and a person's sa
     expect(await start(true)).toBeUndefined();
     await expect(start(false)).rejects.toThrow("no outline named here or by the host");
   } finally { await scratch.dispose(); }
+}, 30_000);
+
+// PIE-1605: the install's Deploy rows said a bare `loki`; they say which machine wrote them, and the Who line stays the persona.
+test("a deploy record written by a persona carries the machine it ran on", async () => {
+  const scratch = new Scratch();
+  let board: SocketBoard | undefined;
+  try {
+    await scratch.start();
+    board = new SocketBoard(scratch.sock); await board.info();
+    await board.createBlock(null, "Deploys [system-view::deploys] [machine::install]", { kind: "user" });
+    const facts = { host: { socket: scratch.sock, running: true }, repo: { root: "/nowhere", protocol: 1, checkout: { head: "abc1234" } } } as unknown as Facts;
+    const env = { ...scratch.env, HOME: scratch.root, EP0CH_AGENT: "fixture-deployer", EP0CH_MACHINE_NAME: "garden-box" };
+    const record = await startDeployRecord(facts, env, tmpdir(), new Date(), () => {}, [], false);
+    expect(record).toBeDefined();
+    const note = await board.request("get", { blockId: record!.id });
+    expect(note.actorId).toBe("fixture-deployer/ep0ch@garden-box");
+    expect(note.text).toContain("Who: fixture-deployer");
+  } finally { board?.close(); await scratch.dispose(); }
 }, 30_000);

@@ -321,7 +321,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(draftView(e.d).cursorRow).toBe(row);
     expect(frameRow()).toBe(was);
     // The demo's actor: `patch-demo` (pi-herdr-outliner PIE-510), `tidy` before it.
-    expect(e.s.render(50, 12, e.h).lines.map(visible).join("\n")).toMatch(/an agent \((patch-demo|tidy)\) typed this/);
+    expect(e.s.render(80, 12, e.h).lines.map(visible).join("\n")).toMatch(/an agent \((patch-demo|tidy)[^)]*\) typed this/);
     expect((await board.get(e.id))!.text).toBe(saved.text);
     // His save carries both: one write, the block keeps its id, and note A's deep links still resolve.
     const a = await create(`Note A\nsee [[morning plan]] and ((${e.id}^deep-link))`);
@@ -649,14 +649,14 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(a.s.agent?.did).toBe("edited text above your cursor");
     await NOTE_ACTIONS.run("edit.save", {}, { surface: a.s, host: a.h, standing: true }, { kind: "user" });
     expect(a.s.draft).toBeNull();
-    expect(said(a.s, a.h)).not.toMatch(/an agent \((patch-demo|tidy)\)/);
+    expect(said(a.s, a.h)).not.toMatch(/an agent \((patch-demo|tidy)[^)]*\)/);
     // Put aside (closed with its changes kept as unsent): said in the past, with no cursor in it.
     const b = await editing(`Bulbs\nplant   deep\n\n${tidyMark}\n`);
     await patchDemo(b.id);
     expect(b.s.agent?.did).toBe("edited text above your cursor");
     NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: b.s, host: b.h, standing: true }, { kind: "user" });
     const now = said(b.s, b.h);
-    expect(now).toMatch(/an agent \((patch-demo|tidy)\) edited the draft you put aside/);   // patch-demo since pi-herdr-outliner PIE-510
+    expect(now).toMatch(/an agent \((patch-demo|tidy)[^)]*\) edited the draft you put aside/);   // patch-demo since pi-herdr-outliner PIE-510
     expect(now).not.toContain("your cursor");
   }, 30_000);
 
@@ -1067,8 +1067,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     const e = await editing(`Seeds\nsow   them\n\n${tidyMark}\n`);
     await patchDemo(e.id);
     const by = e.s.describe().editing!.patches[0]?.by ?? "";
-    expect(["patch-demo", "tidy"]).toContain(by);                        // `patch-demo` since pi-herdr-outliner PIE-510
-    expect(e.s.describe().editing).toMatchObject({ held: true, patches: [{ by }], lit: [`${by} · just now`] });
-    expect(visible(e.s.hint())).toContain(`^Z undo ${by}'s edit`);
+    expect(["patch-demo", "tidy"]).toContain(by.split("/")[0]!);                      // `patch-demo` since pi-herdr-outliner PIE-510
+    expect(e.s.describe().editing).toMatchObject({ held: true, patches: [{ by }], lit: [`${by.split("/")[0]} · just now`] });
+    expect(visible(e.s.hint())).toContain(`^Z undo ${by.split("/")[0]}'s edit`);
   }, 30_000);
 });
