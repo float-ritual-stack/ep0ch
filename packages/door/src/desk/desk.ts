@@ -1,3 +1,4 @@
+import { Again } from "../arm";
 import { returnPlace, mapPlace } from "./return-place";
 import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
 import type { Visit } from "../trail";
@@ -366,11 +367,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private tileSpots: { y: number; from: number; to: number; key: Key; tile?: number }[] = [];
   /**
    * The panel a prefix opens after a pause (PIE-1304): every key that can follow it, grouped, clickable, from the key
-   * table and the actions' own words (key-panel.ts). `panelSince`: the prefix it waits on and since when.
+   * table and the actions' own words (key-panel.ts). `panelWait`: the prefix it waits on, until its pause (Again).
    */
   private hintPanel: { title: string; foot: string; groups: PanelGroup[] } | null = null;
-  private panelSince: { prefix: Prefix; at: number } | null = null;
-  private panelTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly panelWait = new Again<Prefix>({ ms: Infinity, pause: () => panelPauseMs(), ripe: p => { if (this.prefix === p) this.redraw(); } });
   /** ^W P: the policy panel over the focused tile's containers. */
   /** The spines drawn, for a click. */
   private spines: [number, Rect][] = [];
@@ -1935,7 +1935,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.linking?.desk === this) this.linking = null;
     this.onScreen = false;
     this.leaveResize();
-    this.stopPanelTimer();
+    this.panelWait.clear();
     if (this.spec.stays && this.running().length) { kept.desk = this; return "keep"; }
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
@@ -4533,14 +4533,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private prefixPanel(): { title: string; foot: string; groups: PanelGroup[] } | null {
     const p = this.prefix;
-    if (p !== "wm" && p !== "add" && p !== "addtab") { this.panelSince = null; this.stopPanelTimer(); return null; }
-    if (this.panelSince?.prefix !== p) {
-      this.panelSince = { prefix: p, at: Date.now() };
-      const ms = panelPauseMs();
-      this.stopPanelTimer();
-      this.panelTimer = ms ? setTimeout(() => { this.panelTimer = null; if (this.prefix === p) this.redraw(); }, ms + 5) : null;
-    }
-    if (!this.panelOpen()) return null;
+    if (p !== "wm" && p !== "add" && p !== "addtab") { this.panelWait.clear(); return null; }
+    if (this.panelWait.armed() !== p) this.panelWait.arm(p);
+    return this.panelWait.ripe() === null ? null : this.panelOf(p);
+  }
+
+  /** What a prefix's panel lists, opening or not. */
+  private panelOf(p: "wm" | "add" | "addtab"): { title: string; foot: string; groups: PanelGroup[] } {
     if (p === "wm") {
       const all = this.wRows().find(r => r.key === "?"), tile = this.keysTile();
       // The focused tile's own keys first (PIE-1338), its ⋯ menu's rows with a key: typed without ^W, a click runs the row there.
@@ -4567,15 +4566,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A click on a row of the ^W panel's own group: ^W is let go, and the drawn tile's menu row for that key runs, as its ⋯ menu runs it. */
   private runTileKey(key: string): void {
     const at = this.panelRows, row = at?.rows.find(r => r.key === key);
-    this.prefix = ""; this.panelSince = null; this.stopPanelTimer();
+    this.prefix = ""; this.panelWait.clear();
     this.redraw();
     if (at && row) void at.desk.dispatch.press(row.action, row.args, row.tile);
   }
-
-  private stopPanelTimer() { if (this.panelTimer) clearTimeout(this.panelTimer); this.panelTimer = null; }
-
-  /** Whether the pending prefix has waited long enough for its panel. */
-  private panelOpen(): boolean { return !!this.panelSince && Date.now() - this.panelSince.at >= panelPauseMs(); }
 
   /** The prefix's panel over the screen, above the hint row; false when the screen is too small for it (the strip stays). Your drawer's is the App's to draw (paintKeyPanel). */
   private drawKeyPanel(canvas: Canvas, cols: number, rows: number): boolean {
@@ -4639,11 +4633,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   keysPanel(prefix: string, actor: Actor): { prefix: string; groups: PanelGroup[] } {
     const mode: Prefix | undefined = ({ "^W": "wm", "^W o": "add", "^W O": "addtab" } as const)[prefix as "^W"];
     if (!mode) throw new ActionRefused(`no panel for ${prefix}: choose ^W, "^W o" or "^W O"`);
-    const was = { prefix: this.prefix, since: this.panelSince };
-    this.prefix = mode; this.panelSince = { prefix: mode, at: 0 };
-    const panel = this.prefixPanel()!;
-    if (actor.kind === "agent") { this.prefix = was.prefix; this.panelSince = was.since; }
-    else this.redraw();
+    const panel = this.panelOf(mode);
+    if (actor.kind !== "agent") { this.prefix = mode; this.panelWait.arm(mode, 0); this.redraw(); }
     return { prefix, groups: panel.groups };
   }
 
@@ -5933,9 +5924,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running) {
-      const armed = this.closeArm && this.closeArm.id === t.id && Date.now() - this.closeArm.at < 3000;
-      if (!armed) { this.closeArm = { id: t.id, at: Date.now() }; throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`); }
-      this.closeArm = null;
+      if (!this.closeArm.take(t.id)) { this.closeArm.arm(t.id); throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`); }
     }
     this.keepTrailPlace(t.id);
     const kind = this.panes.get(t.id)!.kind;
@@ -6863,7 +6852,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(this.focus), mark: m.n };
   }
   private markAt = -1;
-  private closeArm: { id: number; at: number } | null = null;
+  private readonly closeArm = new Again<number>({ ms: 3000 });
 
   // ── borders, evening out, swapping: actions too (a drag of a border ends in layout.resize) ──
 

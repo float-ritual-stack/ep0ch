@@ -70,7 +70,7 @@ import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
-import { confirms, disarms, type Arm } from "./arm";
+import { Again, confirms, disarms, type Arm } from "./arm";
 import { hyperBinding, hyperLabel, hyperOn, HYPER_KEYS } from "./hyper";
 import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
@@ -499,7 +499,10 @@ export class App implements Ctx {
   private started: number;
   /** The status bar's clock and uptime as last painted: a minute later, the bar alone is repainted. */
   private shownTime = "";
-  private quitArmed = 0;
+  /** Leaving asked (an unsaved edit, a warning): the same press within 3s goes (`pressKey` lets any other let it go). */
+  private readonly quitAgain = new Again<string>({ ms: 3000 });
+  /** The press being handled, by its name: what a quit's second press must be. */
+  private quitPress = "";
   /** When the person last pressed a key or used the mouse (Date.now()). */
   lastInput = 0;
   host = "";
@@ -813,8 +816,8 @@ export class App implements Ctx {
     const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null; // says, not a hint row
     const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? tuning : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
-    if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
-    this.quitArmed = Date.now();
+    if (this.quitAgain.take(this.quitPress)) { dirty.forEach(s => s.keepDrafts?.()); return true; }
+    this.quitAgain.arm(this.quitPress);
     this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
@@ -916,6 +919,9 @@ export class App implements Ctx {
   private pressed(k: Key) {
     const p = pressOf(k);
     if (p === null) return;
+    this.quitPress = p;
+    // Any press but the one that asked lets a quit go; ^W isn't one yet, the key after it is.
+    if (this.quitAgain.armed() !== p && !(k.kind === "char" && k.ctrl && k.ch === "w")) this.quitAgain.clear();
     const r = this.refusedNow;
     if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + 4000; }
     this.refusedNow = null;
@@ -925,21 +931,20 @@ export class App implements Ctx {
   }
 
   // ── an armed edit (src/arm.ts): the next key opens it or lets it go ──
-  private armedNow: { a: Arm; timer: ReturnType<typeof setTimeout> } | null = null;
+  // The window running out lets it go quietly: its question and its tile's colour go.
+  private readonly editArm = new Again<Arm>({ ms: a => a.ms, lapsed: a => { this.retireArm(a); this.redraw(); } });
+  private retireArm(a: Arm) { if (this.message === printable(a.say, " ")) this.message = ""; }
   arm(a: Arm) {
     this.disarm();
-    // The window running out lets it go quietly: its question and its tile's colour go.
-    const timer = setTimeout(() => { if (this.armedNow?.a === a) { this.disarm(); this.redraw(); } }, a.ms);
-    this.armedNow = { a, timer };
+    this.editArm.arm(a);
     this.flash(a.say, a.ms);
   }
-  armed(): Arm | null { return this.armedNow?.a ?? null; }
+  armed(): Arm | null { return this.editArm.armed(); }
   disarm() {
-    const s = this.armedNow;
-    if (!s) return;
-    clearTimeout(s.timer);
-    this.armedNow = null;
-    if (this.message === printable(s.a.say, " ")) this.message = "";
+    const a = this.editArm.armed();
+    if (!a) return;
+    this.editArm.clear();
+    this.retireArm(a);
   }
   /** Flashes said so far: a key that said nothing and ran nothing is found by it (cmd+c with nothing to copy). */
   private flashes = 0;
@@ -1121,7 +1126,7 @@ export class App implements Ctx {
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
-      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.({ full: !!o.full }) ?? null };
+      ...((a => (a ? { armed: { edit: a.what, ms: a.ms } } : {}))(this.armed())), state: s?.describe?.({ full: !!o.full }) ?? null };
   }
 
   /**
@@ -1289,7 +1294,7 @@ export class App implements Ctx {
     const free = !w.busy || !!w.navHold;
     if (w.over === "bar" && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: "the person has the power bar open (ctrl+k)" }; }
     // An armed edit holds the next key: the person is mid-gesture.
-    const a = this.armedNow?.a;
+    const a = this.armed();
     if (a && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` }; }
     return w;
   }
@@ -1446,7 +1451,7 @@ export class App implements Ctx {
     }
     // An armed edit (e in a reader, src/arm.ts) takes the next key first: ⏎ or the arming key again opens it; any
     // other key (a click too) lets it go, then does what it does, wherever it goes.
-    const armed = this.armedNow?.a;
+    const armed = this.armed();
     if (armed && disarms(k)) {
       this.disarm();
       this.redraw();

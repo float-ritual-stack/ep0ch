@@ -62,7 +62,7 @@ import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "
 import { onlyScrolled, overscrollRows, pageRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { headedTitle, subject, titleLine, type Msg } from "../board";
-import { editArmMs } from "../arm";
+import { Again, editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -171,7 +171,7 @@ import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
 import { menuRow } from "../desk/tile-menu";
 import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
-import { createPage, followSoft, offerPage, type PageOffer, type PageOfferReader, type SoftChoices } from "./soft-follow";
+import { createPage, followSoft, offerPage, PAGE_OFFER_MS, type PageOffer, type PageOfferReader, type SoftChoices } from "./soft-follow";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -1260,7 +1260,7 @@ export class NoteSurface {
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
-    if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer.clear(); this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.drawnFolds = []; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.ancestors = []; this.pathNote = "…"; this.unread = "";
@@ -3065,7 +3065,7 @@ export class NoteSurface {
     const row = fresh.text.slice(0, this.position.reading).split("\n").length - 1;
     this.position.cursor = { row, col: 0 }; this.readingLine(row);
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
-      board: host.ctx.board, redraw,
+      board: host.ctx.board, redraw, said: text => host.ctx.flash(text, 8000),
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
       // The person's own `@name` line invites its answer beside their edit (as the draft rule reads it): an agent's
       // answer tile opens there even while they type, the keys staying in the edit (PIE-1294).
@@ -3242,7 +3242,7 @@ export class NoteSurface {
     const parent = this.requireNote();
     const target = noteReplyTarget(parent, host.ctx.board);
     const s: DraftSession = DraftSession.open(target, { text: `re:: ${subject(parent)}\n\n`, by: host.actor ?? USER }, {
-      board: host.ctx.board, redraw: () => host.redraw(),
+      board: host.ctx.board, redraw: () => host.redraw(), said: text => host.ctx.flash(text, 8000),
       closed: how => { this.draftClosed(s, how, host); host.redraw(); },
     });
     if (s.draft.restored === null) s.draft.row = s.draft.lines.length - 1;
@@ -3797,7 +3797,7 @@ export class NoteSurface {
       state: () => (cs.mode === "compose" ? `writing${cs.dirty ? " · unsent" : ""}` : cs.mode === "select" ? "quoting" : "comments"),
       describe: () => cs.describe(),
       // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
-      ended: () => cs.finished,
+      ended: () => cs.done,
     };
     return mode;
   }
@@ -4162,7 +4162,7 @@ export class NoteSurface {
     // q quotes the current thread (or the ones space picked) into a new block; space picks.
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === "q") { void this.runKey("quote", {}, host, true); return true; }
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === " ") { void this.runKey("thread.pick", {}, host, true); return true; }
-    if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
+    if (s.key(k, this.commentEnv(host)) === "close" || s.done) void this.runKey("comment.close", {}, host);
     // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
     if (k.kind === "esc" && writing && s.writing !== writing) host.ctx.flash(writing.closedWith || "closed the comment", 8000);
     host.redraw();
@@ -6361,8 +6361,8 @@ export class NoteSurface {
   }
 
   /** What soft-follow.ts works on: this reader, said narrowly. */
-  private get pageOffers(): PageOfferReader { const s = this; return { get msg() { return s.msg; }, get notice() { return s.notice; }, set notice(v) { s.notice = v; }, get pageOffer() { return s.pageOffer; }, set pageOffer(v) { s.pageOffer = v; }, runKey: (action, args, host) => s.runKey(action as "page.create", args, host), follow: (id, host, how) => s.followTarget({ block: id }, host, how) as Promise<Msg | null>, shown: (m, host, how) => s.track(() => host.navigate(m, how)) }; }
-  private pageOffer: PageOffer | null = null;
+  private get pageOffers(): PageOfferReader { const s = this; return { get msg() { return s.msg; }, get notice() { return s.notice; }, set notice(v) { s.notice = v; }, pageOffer: s.pageOffer, runKey: (action, args, host) => s.runKey(action as "page.create", args, host), follow: (id, host, how) => s.followTarget({ block: id }, host, how) as Promise<Msg | null>, shown: (m, host, how) => s.track(() => host.navigate(m, how)) }; }
+  private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
 
   createPage(address: string, host: SurfaceHost, actor: Actor, standing: boolean, under?: string) { return createPage(this.pageOffers, address, host, actor, standing, under); }
 

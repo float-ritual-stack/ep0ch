@@ -53,29 +53,71 @@ export function confirms(a: Arm, k: Key): boolean {
 /** A key that lets an armed edit go: anything but a mouse button's release (the press before it already did). */
 export const disarms = (k: Key) => !(k.kind === "mouse" && (k.action === "up" || (k.action === "drag" && k.button === 3)));
 
-// ── the same key again (PIE-1293) ──────────────────────────────────────────────────────────────────────
-// One rule for every "press it again to confirm": the first press says what the second does, the same press again
-// within AGAIN_MS does it, and any other key (or the window running out) lets it go, quietly. The edit's esc twice
-// (discard), a comment's ctrl+s twice (send anyway), the look tuner's X X and R R all hold theirs here. A yes/no
-// with rows is confirmPicker (surface/picker.ts): the safe row first.
+// ── the same key again (PIE-1293, PIE-1616) ───────────────────────────────────────────────────────────
+// One machine for every "press it again", and any wait on a press: idle, or holding one `what` since a moment.
+//   arm(what)            idle or holding → holding `what` (a new arm replaces the old one)
+//   take(what) / press() holding → idle, saying whether this press confirms: past its pause, inside its window
+//   clear()              holding → idle (any other key, or a change the first press didn't see)
+//   the window out       holding → idle, by itself (`lapsed` says so when someone draws it)
+// Each owner keeps its own window, pause and words: the edit's esc twice, ctrl+x ctrl+e and ctrl+z at a save
+// (DraftStatus), a comment's ctrl+s twice, the look tuner's X X and R R, the door's quit, ctrl+], ^W x, an armed edit, a
+// [[page]] offered, a prefix's panel after its pause. A yes/no with rows is confirmPicker (surface/picker.ts): the safe
+// row first, and no machine here.
 
 /** How long a second press confirms the first. */
 export const AGAIN_MS = 5000;
 
-/** One press waiting for its second: `what` it is for (compared with `same`), until the window runs out. */
+/** A press's rule: a number, or one for each `what`. */
+type PerWhat<T> = number | ((what: T) => number);
+const perWhat = <T>(v: PerWhat<T> | undefined, what: T, none: number) => (typeof v === "function" ? v(what) : v ?? none);
+
+export interface AgainRule<T> {
+  /** How long the first press waits (`AGAIN_MS` by default; Infinity for as long as nothing else happens). */
+  ms?: PerWhat<T>;
+  /** How soon a second press is too soon: key repeat isn't a second press, and `ripe` waits for it. */
+  pause?: PerWhat<T>;
+  /** Two presses of the same thing (identity by default). */
+  same?: (a: T, b: T) => boolean;
+  /** The window ran out and it let go: for an owner that draws it. */
+  lapsed?(what: T): void;
+  /** The pause passed while it still waits: for an owner that draws something then. */
+  ripe?(what: T): void;
+}
+
+/** One press waiting for its second. */
 export class Again<T = true> {
   private held: { what: T; at: number } | null = null;
-  constructor(private readonly ms = AGAIN_MS, private readonly same: (a: T, b: T) => boolean = Object.is) {}
-  /** The first press: the next `take` of the same `what` within the window confirms. */
-  arm(what: T, now = Date.now()) { this.held = { what, at: now }; }
-  /** A press: whether it is the second of `what` within the window. Either way the first is let go. */
-  take(what: T, now = Date.now()): boolean {
-    const h = this.held;
-    this.held = null;
-    return !!h && this.same(h.what, what) && now - h.at < this.ms;
+  private timers: ReturnType<typeof setTimeout>[] = [];
+  constructor(private readonly rule: AgainRule<T> = {}) {}
+  private window(what: T) { return perWhat(this.rule.ms, what, AGAIN_MS); }
+  private pause(what: T) { return perWhat(this.rule.pause, what, 0); }
+  private stopTimers() { for (const t of this.timers) clearTimeout(t); this.timers = []; }
+  private after(ms: number, then: () => void) { const t = setTimeout(then, ms); (t as { unref?(): void }).unref?.(); this.timers.push(t); }
+
+  /** The first press: it waits, replacing whatever waited. */
+  arm(what: T, now = Date.now()) {
+    this.clear();
+    const h = this.held = { what, at: now }, elapsed = Date.now() - now, ms = this.window(what), pause = this.pause(what), { lapsed, ripe } = this.rule;
+    if (lapsed && Number.isFinite(ms)) this.after(Math.max(0, ms - elapsed), () => { if (this.held === h) { this.clear(); lapsed(what); } });
+    if (ripe && pause > 0 && pause > elapsed) this.after(pause - elapsed + 5, () => { if (this.held === h) ripe(what); });
   }
+  /** A press of `what`: whether it is the second, past the pause and inside the window. Either way the first is let go. */
+  take(what: T, now = Date.now()): boolean {
+    const h = this.held, confirms = !!h && (this.rule.same ?? Object.is)(h.what, what) && this.inTime(h, now);
+    this.clear();
+    return confirms;
+  }
+  /** A press of whatever waits: what it confirms, or null. Either way the first is let go. */
+  press(now = Date.now()): T | null {
+    const h = this.held, confirms = h && this.inTime(h, now) ? h.what : null;
+    this.clear();
+    return confirms;
+  }
+  private inTime(h: { what: T; at: number }, now: number) { const e = now - h.at; return e >= this.pause(h.what) && e < this.window(h.what); }
   /** What waits for its second press now, or null. */
-  armed(now = Date.now()): T | null { return this.held && now - this.held.at < this.ms ? this.held.what : null; }
+  armed(now = Date.now()): T | null { return this.held && now - this.held.at < this.window(this.held.what) ? this.held.what : null; }
+  /** What waits and has waited its pause, or null. */
+  ripe(now = Date.now()): T | null { return this.held && this.armed(now) !== null && now - this.held.at >= this.pause(this.held.what) ? this.held.what : null; }
   /** Let it go (any other key). */
-  clear() { this.held = null; }
+  clear() { this.held = null; this.stopTimers(); }
 }

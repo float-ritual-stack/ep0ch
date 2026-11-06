@@ -255,6 +255,10 @@ export class CommentSession {
    */
   float: { row: number; col: number; cols: number; rows: number } | null = null;
   finished = false;
+  /** The draft a send is out from: `writing` until it lands, and still after, until the send has answered. */
+  private sending: DraftSession | null = null;
+  /** It landed and nothing is still waiting on the send: the reader lets the session go. */
+  get done() { return this.finished && !this.sending; }
   /**
    * The properties the comment is written with (ADR 0004 contract 6): Ask's `kind: question`, a toolbar's kind. Null:
    * a plain comment.
@@ -290,6 +294,9 @@ export class CommentSession {
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
+    // While a send is out, keys are its draft's to hold, through to the thread reloaded after it (`landed`).
+    const sending = this.sending;
+    if (sending?.holding(k, held => sending.key(held, { completer: env.complete?.(sending.draft) ?? undefined, run() {} }))) return "keep";
     if (this.busy || k.kind === "mouse") return "keep";
     if (this.mode === "select") {
       const a = this.passage!.key(k, this.room);
@@ -422,7 +429,7 @@ export class CommentSession {
           if (this.target?.kind === "edit") this.target = { kind: "edit", thread: th, mark };
           return mark;
         },
-      }), { by, text: m.body, base: m.revision }, { redraw: () => this.env?.redraw() });
+      }), { by, text: m.body, base: m.revision }, { redraw: () => this.env?.redraw(), said: text => this.env?.flash(text) });
     }
     return DraftSession.open(commentTarget({
       where: () => this.target as Exclude<Target, { kind: "edit" }>,
@@ -433,7 +440,7 @@ export class CommentSession {
       // A stale comment is the session's to say (the conflict, where the words were copied, ctrl+r), as an edit is.
       refused: (why, stale) => { this.busy = null; this.error = stale ? null : why; this.stale = stale; },
       relocate: () => this.relocate(this.env!),
-    }), { by }, { redraw: () => this.env?.redraw() });
+    }), { by }, { redraw: () => this.env?.redraw(), said: text => this.env?.flash(text) });
   }
 
   /** Select a passage on the note as the service has it now. */
@@ -451,11 +458,13 @@ export class CommentSession {
   /** Send it (ctrl+s, `comment.send`): through the writing session, recorded as whoever wrote the text. */
   async send(env: CommentEnv): Promise<void> {
     const w = this.writing, t = this.target;
-    if (!w || !t) return;
+    if (!w || !t || w.busy) return;
     this.env = env;
     if (w.draft.text.trim()) { this.busy = t.kind === "quote" || t.kind === "note" ? "sending the comment…" : t.kind === "reply" ? "sending the reply…" : "saving the edit…"; this.error = null; env.redraw(); }
     // A refusal is the adapter's to say (its error line, at once); one said on the draft itself (nothing typed) stays there.
-    const r = await w.submit(env.actor ?? USER);
+    this.sending = w;
+    w.status.say("");
+    const r = await w.submit(env.actor ?? USER).finally(() => { this.sending = null; });
     if (!r.ok) this.busy = null;
     env.redraw();
   }
@@ -623,7 +632,7 @@ export class CommentSession {
       // The draft's own status line, as a note's edit draws it (PIE-1560): an edit's conflict or "changed elsewhere", and
       // what the draft said, drawn by the frame to its width.
       // A refusal is said the same bounded way (an offline error names its copy at any width, PIE-1560).
-      draftStatus: { state: !!d.status.conflict || (t.kind === "edit" && d.status.changedElsewhere), said: this.busy ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
+      draftStatus: { state: !!d.status.conflict || (t.kind === "edit" && d.status.changedElsewhere), said: this.busy ? (this.sending ? d.note || null : null) : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
       status: [...(this.busy ? [status(this.busy, C.grey)] : this.error || d.note ? [] : [status(this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.dirty ? C.yellow : C.dark)])],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };

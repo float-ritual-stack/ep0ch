@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Keys typed during a save land, and a press-again never fires late (PIE-1613, PIE-1616)
+
+- **Keep typing after ctrl+s:** what you type while a save, a send or a create is out waits and goes in. Refused, it lands where you typed it; written, the note has what you saved, and the extra is kept and said ("e brings it back"). esc or ctrl+s pressed meanwhile doesn't run late: the line says to press it again.
+- **Press it again means now:** esc twice, ctrl+z at a save, ctrl+x ctrl+e, q to quit, ^W x on a running program: any other key lets the first press go, and so does an agent's edit, a reload or $EDITOR coming back. ctrl+z's ask now lasts 5 seconds, and the line stops saying what's armed when it isn't.
+
 ### Waiting on Evan lists the asks nobody filed, each at its line (PIE-1612)
 
 - **Asks, a new extension:** a minute after an agent's last save, the lines that ask you something get `[needs::sysop: the line]`, so Waiting on Evan lists them and opens at the line. Lines it's unsure of get `[maybe-needs::sysop]`, in a Maybe asks view of their own.

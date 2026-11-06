@@ -3,6 +3,7 @@
 // holds: the host layer's answer, the drawer's lift or glass the person went into, a terminal they went into on each desk
 // and the last ctrl+]. A desk's focus is the layout's own answer (`Desk.commit`), which tile keys come back to, kept there.
 // `wayOut` is the one rule for what ctrl+] does now: it steps out one mode at a time, innermost first.
+import { Again } from "../arm";
 import type { Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import type { Actor } from "../socket";
@@ -48,7 +49,7 @@ export class DoorKeys<Lift = unknown> {
   /** The terminal the person went into, by the desk it's on. A desk keeps it while the person is on another layer. */
   private programs = new WeakMap<object, PtyPane>();
   /** The last ctrl+]: out of a program (its second goes to it), out of the drawer (its second goes back in), or by to a screen with no tiles of its own that has a program (its second is that screen's too). */
-  private chord: { pane: PtyPane; at: number } | { drawer: true; at: number } | { passed: true; at: number } | null = null;
+  private readonly chord = new Again<{ pane: PtyPane } | { drawer: true } | { passed: true }>({ ms: CHORD_MS });
 
   constructor(host: string) { this.host = host; }
 
@@ -59,26 +60,26 @@ export class DoorKeys<Lift = unknown> {
   outOfGlass() { this.glass = null; }
   wantIn(w: { send?: string } | null) { this.want = w; }
   /** `desk`'s terminal `p` has the keys now. */
-  typeIn(desk: object, p: PtyPane) { this.programs.set(desk, p); this.chord = null; }
+  typeIn(desk: object, p: PtyPane) { this.programs.set(desk, p); this.chord.clear(); }
   /** Nobody types on `desk` now (only if in `p`, when named). */
   stopTyping(desk: object, p?: unknown) { if (!p || this.programs.get(desk) === p) this.programs.delete(desk); }
   /** ctrl+] left the program on `desk`: a second soon after goes to it. */
-  leftProgram(desk: object, p: PtyPane, now = Date.now()) { this.programs.delete(desk); this.chord = { pane: p, at: now }; }
+  leftProgram(desk: object, p: PtyPane, now = Date.now()) { this.programs.delete(desk); this.chord.arm({ pane: p }, now); }
   /** The person left the drawer by keys: a second ctrl+] soon after goes back in. */
-  leftDrawer(now = Date.now()) { this.chord = { drawer: true, at: now }; }
+  leftDrawer(now = Date.now()) { this.chord.arm({ drawer: true }, now); }
   /** A ctrl+] went by to a screen that frames its program. */
-  passedOn(now = Date.now()) { this.chord = { passed: true, at: now }; }
+  passedOn(now = Date.now()) { this.chord.arm({ passed: true }, now); }
   /** Whatever the last ctrl+] left is over (they went in again, or its tile went). */
-  chordSpent(p?: unknown) { if (!p || (this.chord && "pane" in this.chord && this.chord.pane === p)) this.chord = null; }
+  chordSpent(p?: unknown) { const c = this.chord.armed(); if (!p || (c && "pane" in c && c.pane === p)) this.chord.clear(); }
 
   // ── read ──
   typingOn(desk: object): PtyPane | null { return this.programs.get(desk) ?? null; }
   /** A second ctrl+] now goes to `p`, the program just left. */
-  armed(p: unknown, now = Date.now()): boolean { const c = this.chord; return !!c && "pane" in c && c.pane === p && c.pane.running && now - c.at < CHORD_MS; }
+  armed(p: unknown, now = Date.now()): boolean { const c = this.chord.armed(now); return !!c && "pane" in c && c.pane === p && c.pane.running; }
   /** A second ctrl+] now goes by to that screen. */
-  justPassed(now = Date.now()): boolean { const c = this.chord; return !!c && "passed" in c && now - c.at < CHORD_MS; }
+  justPassed(now = Date.now()): boolean { const c = this.chord.armed(now); return !!c && "passed" in c; }
   /** A second ctrl+] now goes back into the drawer just left. */
-  justLeftDrawer(now = Date.now()): boolean { const c = this.chord; return !!c && "drawer" in c && now - c.at < CHORD_MS; }
+  justLeftDrawer(now = Date.now()): boolean { const c = this.chord.armed(now); return !!c && "drawer" in c; }
 }
 
 /** The keys to `p` wherever under `root` it is, a group's tile included: focused here and each mount around it. The outermost tile, or null when `root` doesn't hold it. */

@@ -190,7 +190,7 @@ export class TunePane implements Pane {
   /** A nudge held on a row where something nearer wins: the choices it offers (a, o, c, or a click). */
   offer: { row: string; by: number; shadow: Shadow } | null = null;
   /** A reset of a level, or a revert, waiting for its confirmation (the same key again within its window, Again; or [confirm]). */
-  private readonly again = new Again<Armed>(undefined, (a, b) => a.action === b.action);
+  private readonly again = new Again<Armed>({ same: (a, b) => a.action === b.action });
   get armed(): Armed | null { return this.again.armed(); }
   set armed(a: Armed | null) { if (a) this.again.arm(a); else this.again.clear(); }
   readonly view = new Inspector();

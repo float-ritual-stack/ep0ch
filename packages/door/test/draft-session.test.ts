@@ -272,12 +272,12 @@ describe("the lifecycle, on a fake target", () => {
     keys(s, ["s"]);
     const writing = s.submit(USER);
     expect(await s.submit(USER)).toEqual({ ok: false, why: "the save is still landing" });
-    expect(keys(s, ["x", ESC])).toEqual([]);                                // keys wait too
+    expect(keys(s, ["x", ESC])).toEqual([]);                                // keys wait too (PIE-1613: and land)
     expect(await s.leave()).toEqual({ left: "saving" });
     release({ ok: false, stale: true, why: "changed elsewhere since you started · not saved" });
     expect(await writing).toMatchObject({ ok: false, stale: true });
-    expect([s.open, s.draft.text, s.draft.status.conflict]).toEqual([true, "Ferns", "changed elsewhere since you started · not saved"]);
-    expect(readFileSync(s.draft.status.savedCopy!, "utf8")).toBe("Ferns\n");
+    expect([s.open, s.draft.text, s.draft.status.conflict]).toEqual([true, "Fernsx", "changed elsewhere since you started · not saved"]);
+    expect(readFileSync(s.draft.status.savedCopy!, "utf8")).toBe("Fernsx\n");
     expect(s.draft.note).toContain("your draft is kept and copied to");
     s.dispose();
   });

@@ -9,14 +9,15 @@ import { isOutlineNote } from "../authored";
 import type { LinkTarget } from "../refs";
 import { USER, type Actor, type SoftLinkChoice } from "../socket";
 import { ActionRefused } from "./actions";
+import type { Again } from "../arm";
 import type { OpenHow, SurfaceHost } from "./note";
 import { centred, ListPicker, pickRow } from "./picker";
 
 /** How long an offer stands: never a create long after, unannounced. */
-const PAGE_OFFER_MS = 60_000;
+export const PAGE_OFFER_MS = 60_000;
 
 /** The `[[address]]` whose page the next ⏎ or click on its link makes, as said; gone with the note. */
-export interface PageOffer { page: string; notice: string; at: number }
+export interface PageOffer { page: string; notice: string }
 
 /** A soft link with more than one place to land, told to an agent (the person gets a chooser). */
 export interface SoftChoices { words: string; choices: { label: string; context?: string; id?: string; create?: { address: string; under?: string } }[] }
@@ -25,7 +26,7 @@ export interface SoftChoices { words: string; choices: { label: string; context?
 export interface PageOfferReader {
   readonly msg: Msg | null;
   notice: string;
-  pageOffer: PageOffer | null;
+  readonly pageOffer: Again<PageOffer>;
   runKey(action: string, args: Record<string, unknown>, host: SurfaceHost): Promise<unknown> | unknown;
   follow(id: string, host: SurfaceHost, how: OpenHow): Promise<Msg | null>;
   shown(m: Msg, host: SurfaceHost, how: OpenHow): void;
@@ -72,15 +73,15 @@ export async function offerPage(r: PageOfferReader, page: string, host: SurfaceH
   const named = under ? `${page} under [[${under}]]` : `[[${page}]]`, make = under ? { address: page, under } : { address: page };
   if (by.kind === "agent") throw new ActionRefused(`${named} doesn't exist yet: ${under ? "nothing there has that name" : "no page has that name"}; page.create address=${JSON.stringify(page)}${under ? ` under=${JSON.stringify(under)}` : ""} makes it`);
   // The offer stands while it's still said under the header, for a minute: never a create long after, unannounced.
-  const o = r.pageOffer;
-  if (o && o.page === named && r.notice === o.notice && Date.now() - o.at < PAGE_OFFER_MS) {
-    r.pageOffer = null;
+  const o = r.pageOffer.armed();
+  if (o && o.page === named && r.notice === o.notice) {
+    r.pageOffer.clear();
     r.notice = "";
     await r.runKey("page.create", make, host);
     return null;
   }
   r.notice = `no ${under ? "" : "page "}${named} · ⏎ or click it again: create it`;
-  r.pageOffer = { page: named, notice: r.notice, at: Date.now() };
+  r.pageOffer.arm({ page: named, notice: r.notice });
   host.ctx.flash(`${named} doesn't exist yet · ⏎ or click it again to create ${under ? "it" : "the page"}`, 8000);
   host.redraw();
   return null;
