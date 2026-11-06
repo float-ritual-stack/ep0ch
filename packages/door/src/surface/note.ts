@@ -3212,7 +3212,7 @@ export class NoteSurface {
   }
 
   private replyFrame(host?: SurfaceHost): EditFrame {
-    return { look: host?.look?.values ?? this.lastLook?.values, title: `reply · ${subject(this.replyParent!)}`, status: [], pick: true, follow: true,
+    return { look: host?.look?.values ?? this.lastLook?.values, title: `reply · ${subject(this.replyParent!)}`, status: [], draftStatus: { state: false, said: this.draft?.note || null }, pick: true, follow: true,
       preview: (text, w, links) => this.snippetDoc(text, w, host, links),
     };
   }

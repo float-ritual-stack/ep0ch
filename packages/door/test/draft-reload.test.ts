@@ -168,6 +168,36 @@ describe("the session owns the reload (a fake target)", () => {
     }
   });
 
+  test("a new change elsewhere retires the last reload's line: it no longer says what's true", async () => {
+    const { s, d, read, press } = changed();
+    press(ctrl("r"));
+    read.open({ loaded: msg("n", "Sowing\npeas", 2) });
+    await settled(d);
+    expect(d.note).toContain("loaded revision 2");
+    s.changedTo(3);
+    expect(d.status.changedElsewhere).toBe(true);
+    expect(d.note).toBe("");
+    expect(d.status.savedCopy).toBeNull();
+  });
+
+  test("it retires that line with what a held command added to it too", async () => {
+    const { s, d, read, press } = changed();
+    press(ctrl("r"));
+    press(ctrl("s"));
+    read.open({ loaded: msg("n", "Sowing\npeas", 2) });
+    await settled(d);
+    expect(d.note).toStartWith("ctrl+s didn't run");
+    s.changedTo(3);
+    expect(d.note).toBe("");
+  });
+
+  test("a new change elsewhere leaves anything else on the line alone", () => {
+    const { s, d } = changed();
+    d.status.say("esc again keeps it here");
+    s.changedTo(3);
+    expect(d.note).toBe("esc again keeps it here");
+  });
+
   test("changed elsewhere is the session's: a newer revision says so; an older read arriving late, a save and a reload under way don't", async () => {
     const target: DraftTarget = { place: `edit:reload-${++places}`, back: "e", label: "x", what: "x", verb: "save", leaveWrites: true, async submit() { return { ok: true }; } };
     const s = DraftSession.open(target, { text: "x", base: 5 }), st = s.status;
@@ -388,6 +418,17 @@ describe("each host's key path (a fake outline)", () => {
     release();
     await reload;
     expect(d.text).toBe("How deep should the bed be?");
+  });
+
+  test("a note reply's ctrl+r says so where it's drawn, in its own tile's rows", async () => {
+    const o = fakeOutline(), m = o.note("Beds\nRake them."), s = new NoteSurface(), h = o.host();
+    s.show(m, h);
+    const r = s.startReply(h);
+    s.key(ctrl("r"), h);
+    await Bun.sleep(0);
+    expect(r.draft.note).toBe("nothing to reload");
+    for (const [cols, rows] of [[120, 40], [44, 30]] as const) expect({ cols, shown: flat(s, h, cols, rows).includes("nothingtoreload") }).toEqual({ cols, shown: true });
+    r.dispose();
   });
 
   test("a short box keeps the typed text, the copy's file name and the reload key; reloaded, the revision and the copy", async () => {
@@ -625,5 +666,48 @@ describe("a draft put aside comes back the same way from any of them (PIE-1561)"
     const box = composerBox(d, again.session!.composerFrame()!, 32, 8, true).lines.map(visible).join("\n");
     expect(box).toContain("onions by the gate");
     expect(box).toContain("and a sign for the leeks");
+  });
+});
+
+describe("a rebound key in the live hint (a keymap already there when the door starts)", () => {
+  /** The door's modules load with the file in place, as they do for the person: a test that rebinds after import can't see this. */
+  async function started(keymap: Record<string, string[]>) {
+    const file = join(state, `keys-${++places}.json`);
+    await Bun.write(file, JSON.stringify(keymap));
+    const src = (f: string) => JSON.stringify(join(import.meta.dir, "../src", f));
+    const code = `
+      const { NoteSurface } = await import(${src("surface/note.ts")});
+      const { CommentSession } = await import(${src("comment.ts")});
+      const { COMMENT_KEYS } = await import(${src("surface/attached-keys.ts")});
+      const { modeBinding } = await import(${src("surface/modes.ts")});
+      await import(${src("app.ts")});   // every key table, as the door has them: they're registered as their modules load
+      const h = { ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false }, redraw() {}, navigate() {} };
+      const s = new NoteSurface();
+      s.show({ id: "note-1", text: "Gate\\nHang it.", revision: 1, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", properties: [] }, h);
+      s.session = new CommentSession(s.msg, [], "threads");
+      s.session.writeNote();
+      const press = key => modeBinding(COMMENT_KEYS, { kind: "alt", ch: key })?.action ?? null;
+      console.log(JSON.stringify({ hint: s.modes.top().hint(), nine: press("9"), eight: press("8") }));
+      process.exit(0);`;
+    const p = Bun.spawn(["bun", "-e", code], { env: { ...process.env, EP0CH_KEYMAP: file, EP0CH_STATE: state }, stdout: "pipe", stderr: "pipe" });
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    if (!out.trim()) throw new Error(err);
+    const r = JSON.parse(out.trim().split("\n").at(-1)!) as { hint: string; nine: string | null; eight: string | null };
+    return { ...r, hint: visible(r.hint) };
+  }
+
+  test("comment.place and comment.grip rebound: the hint says the key that works, and each key runs its action", async () => {
+    const r = await started({ "comment.place": ["alt+9"], "comment.grip": ["alt+8"] });
+    expect(r.hint).toContain("placement");
+    expect(r.hint).toContain("move");
+    expect(r.hint).not.toContain("^O");
+    expect(r.hint).not.toContain("^G");
+    expect([r.nine, r.eight]).toEqual(["comment.place", "comment.grip"]);
+  });
+
+  test("the keys an action declares are its built-in ones, whatever the file says when the door loads", async () => {
+    const r = await started({ "comment.place": [] });
+    expect(r.hint).not.toContain("placement");
+    expect(r.hint).toContain("move");
   });
 });
