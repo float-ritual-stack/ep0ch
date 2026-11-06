@@ -215,7 +215,7 @@ function hashOf(result: unknown): string {
 // saves go through it. Its requests are timed from its side (PIE-1413's second round: the probe passed while this
 // connection starved). --no-door leaves it out.
 const doorScript = join(outliner, "..", "door", "scripts", "bench-door-desk.ts");
-const door = !values["no-door"] && existsSync(doorScript) ? Bun.spawn([process.execPath, doorScript, "--socket", socket, "--outline", OUTLINE, "--hub", boardHub, "--note", probe, "--query", "type=review-finding"], {
+const door = !values["no-door"] && existsSync(doorScript) ? Bun.spawn([process.execPath, ...(values.profile ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${join(resolve(values.profile), "door")}`] : []), doorScript, "--socket", socket, "--outline", OUTLINE, "--hub", boardHub, "--note", probe, "--query", "type=review-finding"], {
   cwd: join(outliner, "..", "door"), stdin: "pipe", stdout: "pipe", stderr: "inherit",
   env: { PATH: process.env.PATH ?? "", HOME: root, TMPDIR: root, EP0CH_STATE: join(root, "door-state"), EP0CH_CONTROL: join(root, "door.sock"), EP0CH_DAEMON: "0" },
 }) : null;
@@ -346,14 +346,17 @@ enter("report");
 type DoorTimed = { phase: string; action: string; ms: number; failed?: true; view?: string };
 let doorTimed: DoorTimed[] = [];
 let doorTiles = { tiles: 0, stale: 0 };
+/** What the door's own loop did by phase (its script's `loops`): lag, paints, events heard. */
+let doorLoops: Record<string, { lagMs: number; lagMax: number; lagP95: number; paints: number; paintMs: number; paintMax: number; events: number }> = {};
 if (door) {
   door.stdin.write("report\n");
   const out = await Promise.race([new Response(door.stdout).text(), Bun.sleep(90_000).then(() => "")]);
   door.kill();
   try {
-    const report = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { timed?: DoorTimed[]; tiles?: number; stale?: number };
+    const report = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { timed?: DoorTimed[]; tiles?: number; stale?: number; loops?: typeof doorLoops };
     doorTimed = report.timed ?? [];
     doorTiles = { tiles: report.tiles ?? 0, stale: report.stale ?? 0 };
+    doorLoops = report.loops ?? {};
   } catch { console.error("bench: the door gave no report"); }
 }
 host.kill("SIGTERM");
@@ -416,6 +419,10 @@ if (door) {
   console.log(`the door's query tiles (its board's lanes and the query tile): ${doorTiles.tiles - doorTiles.stale} of ${doorTiles.tiles} show what a fresh read gives`);
   for (const r of doorRows) console.log(`${r.phase.padEnd(15)} ${String(r.all.n).padStart(12)} ${String(r.all.p95).padStart(5)} ${String(r.all.max).padStart(6)} ${String(r.person.n).padStart(30)} ${String(r.person.p95).padStart(5)} ${String(r.person.max).padStart(6)} ${String(r.failed).padStart(8)}  ${r.slowest}`);
 }
+if (door) {
+  console.log(`\nthe door's own loop      lag ms  lag p95  lag max  paints  paint ms  paint max  events`);
+  for (const name of phases) { const l = doorLoops[name]; if (l) console.log(`${name.padEnd(20)} ${String(l.lagMs).padStart(10)} ${String(l.lagP95).padStart(8)} ${String(l.lagMax).padStart(8)} ${String(l.paints).padStart(7)} ${String(l.paintMs).padStart(9)} ${String(l.paintMax).padStart(10)} ${String(l.events).padStart(7)}`); }
+}
 const failures = [
   ...doorRows.filter(r => r.person.p95 >= 200).map(r => `${r.phase}: the person's requests in the door p95 ${r.person.p95} ms`),
   ...doorRows.filter(r => r.all.max > 5_000).map(r => `${r.phase}: a door request took ${r.all.max} ms`),
@@ -430,7 +437,7 @@ const failures = [
     .filter(([k, v]) => v.p95 > (k === "query" ? queryBudget : opsBudget)).map(([k, v]) => `ops ${when}: ${k} p95 ${v.p95} ms`)),
 ];
 console.log(failures.length ? `\nover the bar:\n${failures.map(f => `  ✗ ${f}`).join("\n")}` : "\nwithin the bar: ping p95 < 200 ms in every phase, no stall over 1 s, every watch converged");
-if (values.json) writeFileSync(values.json, JSON.stringify({ outliner, shape: values.copy ? "copy" : shape, backfill: { ...(report ?? {}), samples: undefined, keeps, stopped, ms: Math.round(backfillMs) }, import: { created, ms: Math.round(importMs) }, rows, doorRows, doorTiles, worst, stale, opsBefore, opsAfter, failures }, null, 2));
+if (values.json) writeFileSync(values.json, JSON.stringify({ outliner, shape: values.copy ? "copy" : shape, backfill: { ...(report ?? {}), samples: undefined, keeps, stopped, ms: Math.round(backfillMs) }, import: { created, ms: Math.round(importMs) }, rows, doorRows, doorTiles, doorLoops, worst, stale, opsBefore, opsAfter, failures }, null, 2));
 if (values.keep) console.log(`kept: ${root}`);
 if (values.log) writeFileSync(values.log, hostLog.map(h => `${h.phase}\t${h.line}`).join("\n"));
 else rmSync(root, { recursive: true, force: true });

@@ -58,6 +58,15 @@ type HubPicker = ListPicker<{ hub: Msg; lanes: number }, Lanes>;
 type Mover = ListPicker<Lane, Lanes> & { card: Msg; from: number; plans: MovePlan[] | null };
 type Steps = ListPicker<ChecklistStep, Lanes> & { card: Msg; read: ChecklistRead | null; busy: boolean; note: string };
 
+/** The ids a lane's read lists, once per read: every change asks of every lane whether it lists the note (PIE-1606). */
+const idsOfRead = new WeakMap<readonly Msg[], Set<string>>();
+function listedIds(items: readonly Msg[] | null): Set<string> | null {
+  if (!items) return null;
+  let ids = idsOfRead.get(items);
+  if (!ids) idsOfRead.set(items, ids = new Set(items.map(m => m.id)));
+  return ids;
+}
+
 export class Lanes implements SourceModel {
   hub: Msg | null = null;
   /** The lane the cursor is in: what the lanes' keys and `card.*` act on when they name no lane. */
@@ -402,14 +411,16 @@ export class Lanes implements SourceModel {
       else if (id && m.id === id) this.refreshes.skipped++;
     }
     if (!this.hub || c.kind === "annotate" || c.kind === "draft") return;
+    // Once per change: the lanes are found in the desk's tree, and a storm of changes asks for every one of them (PIE-1606).
+    const lanes = this.lanes;
     // A reorder (made in Tree) changes one lane's ranks; its record names the lane, whose parent is the hub.
-    if (c.kind === "reorder") return this.markLanes(this.lanes.filter(l => l.view === id));
+    if (c.kind === "reorder") return this.markLanes(lanes.filter(l => l.view === id));
     // A view added, renamed or taken away under the hub: the hub source fills the lanes again (and reads them).
     if (c.parentId === this.hub.id || c.previousParentId === this.hub.id) return;
-    if (!id || c.kind === "other" || c.kind === "move" || c.kind === "delete" || c.kind === "restore" || c.kind === "purge") return this.markLanes(this.lanes);
-    const own = this.lanes.filter(l => l.view === id);
+    if (!id || c.kind === "other" || c.kind === "move" || c.kind === "delete" || c.kind === "restore" || c.kind === "purge") return this.markLanes(lanes);
+    const own = lanes.filter(l => l.view === id);
     if (own.length) return this.markLanes(own);                       // a lane's definition or its ranks changed
-    const members = this.lanes.filter(l => l.items?.some(m => m.id === id));
+    const members = lanes.filter(l => listedIds(l.items)?.has(id));
     this.markLanes(members);
     // Which other lanes it's in now is the service's answer: a plan that's "already" there, asked once the burst settles.
     this.planning.add(id);

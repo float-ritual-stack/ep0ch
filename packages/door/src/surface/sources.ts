@@ -20,6 +20,8 @@ export interface SourcesPanel {
   /** Why it can't be read (a service without `site.sources`, a failed read), or null. */
   error: string | null;
   loading: boolean;
+  /** The read out now, if any: what opens a field waits for it (PIE-1606). */
+  reading?: Promise<void>;
   /** The list's selection, and the source whose folds are open (null: the list). */
   sel: number;
   open: number | null;
@@ -205,4 +207,12 @@ export function sourceAt(a: SourcesAnswer, line: number): number {
   let best = -1;
   a.sources.forEach((s, i) => { if (line >= s.line && line <= s.endLine && (best < 0 || s.endLine - s.line <= a.sources[best]!.endLine - a.sources[best]!.line)) best = i; });
   return best;
+}
+
+/** Each editable source lists every yaml property its figure's schema has, the ones it doesn't write at their defaults. */
+export function withSchemaParams(answer: SourcesAnswer, schemas: readonly { id: string; props: readonly { key: string; where?: string; default?: string }[] }[]): void {
+  for (const source of answer.sources) if (source.query.editable) {
+    const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
+    for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
+  }
 }

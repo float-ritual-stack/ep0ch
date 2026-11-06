@@ -41,7 +41,7 @@ QueryPane.prototype.init = function (this: QueryPane, ...args: Parameters<typeof
 
 const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
 const app = new App(term as never, board, Date.now(), () => {});
-board.subscribe(e => app.event(e));
+board.subscribe(e => app.event(e));   // through the property: the loop's counting below wraps it
 app.push(new MainMenu());
 const desk = new Desk();
 app.push(desk);
@@ -51,8 +51,22 @@ for (const end = Date.now() + 20_000; D.panes.size === 0 && Date.now() < end;) a
 const act = (action: string, args: Record<string, unknown>) => app.act({ action, args, as: "bench" }).catch((e: Error) => console.error(`bench-door-desk: ${action}: ${e.message}`));
 await act("tile.open", { kind: "screen", screen: "board", ...(values.hub ? { target: values.hub } : {}) });
 await act("tile.open", { kind: "query", query: values.query ?? "type=review-finding" });
-// The door draws as a person's does: a frame whenever something changed, at most every 50 ms.
-const drawing = setInterval(() => { try { (app as unknown as { paint(): void }).paint(); } catch { /* a frame that throws is the door's to report */ } }, 50);
+// The door draws as a person's does: asked for a frame every 50 ms, as if something changed each time (the busiest a
+// screen gets), and its one paint scheduler says when (App.redraw; PIE-1606: before, this called paint() past it).
+const drawing = setInterval(() => { try { app.redraw(); } catch { /* a frame that throws is the door's to report */ } }, 50);
+
+// What the door's own loop did, by phase (PIE-1606): what a timed request waited behind on this side of the socket.
+// The loop's lag is a 10 ms timer's lateness; a paint is the App's whole frame, each time it drew or was asked to.
+type Loop = { lagMs: number[]; paints: number; paintMs: number; paintMax: number; events: number };
+const loop: Record<string, Loop> = {};
+const inPhase = () => (loop[phase] ??= { lagMs: [], paints: 0, paintMs: 0, paintMax: 0, events: 0 });
+let tickedAt = performance.now();
+const lagging = setInterval(() => { const now = performance.now(), lag = now - tickedAt - 10; tickedAt = now; if (lag > 1) inPhase().lagMs.push(lag); }, 10);
+const appPaints = app as unknown as { paint(force?: boolean): void };
+const paintFrame = appPaints.paint.bind(app);
+appPaints.paint = force => { const at = performance.now(); try { paintFrame(force); } finally { const ms = performance.now() - at, l = inPhase(); l.paints += 1; l.paintMs += ms; l.paintMax = Math.max(l.paintMax, ms); } };
+const heard = app.event.bind(app);
+app.event = e => { inPhase().events += 1; heard(e); };
 
 // The person: opens a note's children every second and saves a note of their own every five, through the door's board.
 const mine = await board.request("create", { text: "Bench person's note", author: "user" });
@@ -72,7 +86,7 @@ for await (const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream()
     buffer = buffer.slice(at + 1);
     if (line.startsWith("phase ")) phase = line.slice(6);
     if (line === "report") {
-      clearInterval(person); clearInterval(drawing);
+      clearInterval(person); clearInterval(drawing); clearInterval(lagging);
       // Converged: each tile's cards against the same read asked now (a lane off the board may be one change behind
       // for up to its hidden refresh, so it is given that long first).
       await Bun.sleep(11_000);
@@ -84,7 +98,8 @@ for await (const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream()
         const fresh = await (p.query !== null ? board.queryNotes(p.query, 200).then(r => r.notes) : p.titleNote ? readView(board, p.titleNote).then(r => r.items) : Promise.resolve(null)).catch(() => undefined);
         if (fresh === undefined || (fresh && fresh.map(m => m.id).join(",") !== shown(p))) stale += 1;
       }
-      process.stdout.write(`${JSON.stringify({ timed, tiles: tiles.filter(p => !p.disposed).length, stale })}\n`);
+      const loops = Object.fromEntries(Object.entries(loop).map(([name, l]) => { const lag = [...l.lagMs].sort((a, b) => a - b); return [name, { lagMs: Math.round(lag.reduce((a, b) => a + b, 0)), lagMax: Math.round(lag.at(-1) ?? 0), lagP95: Math.round(lag[Math.floor(lag.length * 0.95)] ?? 0), paints: l.paints, paintMs: Math.round(l.paintMs), paintMax: Math.round(l.paintMax), events: l.events }]; }));
+      process.stdout.write(`${JSON.stringify({ timed, tiles: tiles.filter(p => !p.disposed).length, stale, loops })}\n`);
       try { D.dispose(); } catch { /* going anyway */ }
       board.close();
       process.exit(0);

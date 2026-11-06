@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door stays quick while notes change under it (PIE-1606)
+
+- **A storm of changes:** a frame an outline change asks for now rests the door's loop first, three times the last frame's length (at most 250 ms), so painting takes about a quarter of the loop on a board of many lanes. A terminal tile's output, a transition, a key, a click and an agent's action keep a frame's pace.
+- **Asked less per change:** soft links' scope is a question the service watches, not a request on the first frame after every change; a change no longer counts the what-changed list twice or scans every lane's rows.
+- **Run:** `ep0ch install --apply` (door and host: `references.soft-scope` is now a watched read).
+
 ### Who wrote a note always says the machine and client (PIE-1605)
 
 - **Outliner CLI:** `--actor loki` is recorded as `loki/cli@float-box`, the shape the mod's writes have. A full id is kept as given.

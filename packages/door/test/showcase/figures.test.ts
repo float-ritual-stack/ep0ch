@@ -494,6 +494,36 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(drawn).not.toContain("view:");
   }, 20_000);
 
+  // Box-test reds of Nov 2 and Nov 6 (PIE-1606): under load the read after ctrl+z was still out when the next field opened, so the
+  // field held the revision from before the undo and its save was refused as "the figure changed".
+  test("a field opened right after ctrl+z saves, while the read that follows the undo is still out", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    screen();
+    press({ kind: "enter" });
+    const tile = S().stages.get(S().sel).top.layoutGet().tiles[0].name;
+    const before = (await board.get(seeded.notes.plotJobs.id))!;
+    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "density" } }, { kind: "user" });
+    screen();
+    ch("j");
+    press({ kind: "enter" });
+    await untilAsync(async () => (await board.get(before.id))!.text.includes('density: "comfortable"'), "density saved");
+    await until(() => screen().includes("close sources"), "the saved density field closes");
+    const read = board.siteSources.bind(board);
+    (board as any).siteSources = async (id: string) => { const answer = await read(id); await Bun.sleep(1000); return answer; };
+    try {
+      press({ kind: "char", ch: "z", ctrl: true });
+      await untilAsync(async () => (await board.get(before.id))!.text === before.text, "ctrl+z restores the figure");
+      await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
+      press({ kind: "paste", text: "Jobs after the undo" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.get(before.id))!.text.includes('title: "Jobs after the undo"'), "the field after the undo saved", 5000);
+    } finally { (board as any).siteSources = read; }
+    await app.dispatch.act({ action: "sources.undo", tile }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.close", tile }, { kind: "user" });
+    expect((await board.get(before.id))!.text).toBe(before.text);
+  }, 30_000);
+
   test("PIE-1100: figure properties edit in the panel, keep the note as source, and undo once", async () => {
     await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
     screen();
