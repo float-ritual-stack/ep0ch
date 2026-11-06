@@ -44,6 +44,8 @@ export class DraftStatus {
    */
   stateParts(dirty: boolean): { colour: number; words: string; short: string } {
     const one = (colour: number, words: string, short = words) => ({ colour, words, short });
+    // Reloading answers the conflict: the line says that's happening, and says the conflict again only if it stands.
+    if (this.phase === "reloading") return one(C.grey, this.doing!);
     return this.conflict ? one(C.lred, `! ${this.conflict}`, /not saved/.test(this.conflict) ? `! not saved: ${this.conflict.replace(/\s*·?\s*not saved\s*/, " ").trim()}` : `! ${this.conflict}`)
       : this.doing ? one(C.grey, this.doing)
       : this.changedElsewhere ? one(C.yellow, "!! changed elsewhere · saving checks it first", "!! changed elsewhere")

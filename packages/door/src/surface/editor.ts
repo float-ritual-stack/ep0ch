@@ -164,7 +164,8 @@ export function draftStatusRows(d: Draft, f: EditFrame, w: number): string[] {
   // A box short of rows (`limit`) keeps its last row, next to the text, for the refusal and its key; a view too short for
   // the whole box shows the rows nearest the text, so what's said goes above it.
   const short = s.limit !== undefined, refused = short && s.state && !!d.status.conflict;
-  const why = width("! not saved · ^R reload") <= w ? "! not saved · ^R reload" : "! not saved · ^R";
+  const not = /not sent/.test(d.status.conflict ?? "") ? "! not sent" : "! not saved";
+  const why = width(`${not} · ^R reload`) <= w ? `${not} · ^R reload` : `${not} · ^R`;
   const state = refused ? [fg(C.lred) + pad(drawEllipsized(why, w), w) + RESET] : s.state ? editState(d, w, "") : [];
   const said = s.said ? saidRows(s.said, w, s.limit ?? 4, s.tone ?? C.yellow, !refused) : [];
   return short ? [...said, ...state] : [...state, ...said];
@@ -316,7 +317,7 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
     ...bound("edit.save", o.save), ...row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
     ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
     ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
-    ...(o.place ? row("ctrl+o", "draft.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
+    ...(o.place ? row("ctrl+o", "comment.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
     ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? bound("draft.copy", "copy") : []),
     ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? bound("edit.reload", o.reload) : []),
     ...bound("draft.pick", "insert"), ...row("tab", "draft.indent", "indent"), ...row("shift+tab", "draft.outdent", "out"), ...bound("draft.preview", "preview"),

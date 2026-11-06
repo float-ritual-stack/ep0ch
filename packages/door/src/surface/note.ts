@@ -93,7 +93,7 @@ import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, liveRowStep, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
-import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
+import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
@@ -3244,7 +3244,8 @@ export class NoteSurface {
   }
 
   private draftKey(k: Key, host: SurfaceHost): boolean {
-    const s = this.drafting!; if (s.status.phase === "reloading") { s.holdKey(k, held => void this.draftKey(held, host)); host.redraw(); return true; }
+    const s = this.drafting!;
+    if (s.holding(k, held => void this.draftKey(held, host))) { host.redraw(); return true; }
     if (s.draft.views.raw.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
@@ -3483,10 +3484,17 @@ export class NoteSurface {
     return r;
   }
 
-  /** ctrl+r: drop the draft for the note's current text (the block adapter's reload). Typed work is copied to disk first. */
-  async reload(host: SurfaceHost): Promise<void> {
-    await this.drafting?.reload();
+  /** ctrl+r, keys or act: the draft with the keys reloads, by its session (its comment's, which keeps the env its reads go through). */
+  async reload(host: SurfaceHost, actor: Actor) {
+    const cs = this.session, writing = cs?.mode === "compose" ? cs.writing : null;
+    const comment = writing && (this.modes.top()?.name === "comment" || !this.drafting) ? cs : null;
+    const s = comment ? writing : this.draftSession();
+    if (!s) throw new ActionRefused("nothing is being edited here");
+    if (s.busy) throw new ActionRefused(s.status.phase === "reloading" ? "it's reloading already" : "the save is still landing");
+    if (comment) { if (actor.kind !== "agent") this.revealComposerNext(); await comment.reload(this.env(host, actor)); }
+    else await s.reload();
     host.redraw();
+    const revision = comment ? comment.revision : s.draft.base; return { ...(revision ? { baseRevision: revision } : {}), note: s.draft.note || null, ...(comment ? { mode: comment.mode } : {}) };
   }
 
   /** $EDITOR (ctrl+x ctrl+e in a draft, ctrl+e from a reader): the draft (or a comment being written) goes there and comes back. */
@@ -3556,6 +3564,7 @@ export class NoteSurface {
       pick: () => void this.runKey("draft.pick", {}, host),
       follow: () => void this.runKey("edit.follow", {}, host),
       image: dropped => void (dropped === undefined ? this.runKey("draft.image", {}, host) : this.runKey("draft.drop", { text: dropped }, host)),
+      reload: () => void this.runKey("edit.reload", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
       redraw: () => host.redraw(),
@@ -3662,7 +3671,7 @@ export class NoteSurface {
       get keys() { return d.views.raw.preview ? EDIT_PREVIEW_READER_KEYS : undefined; },
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
-      changed: revision => { if (!this.replyParent && !d.status.saving && revision !== d.base) d.status.changedElsewhere = true; },
+      changed: revision => { if (!this.replyParent) s.changedTo(revision); },
       editing: () => true, covers: () => !this.replyParent,
       key: (k, host) => this.draftKey(k, host),
       click: (x, y, host) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }) : this.writeClick(d, x, y, host),
@@ -3720,7 +3729,8 @@ export class NoteSurface {
     // The comment's own tile (PIE-846) has its mouse (composerPointer): here, a press, a click and the wheel are the note's.
     const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
     const mode: CommentMode = {
-      get keys() { return cs.mode === "compose" ? COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row) : undefined; },
+      // ctrl+r is the draft's own key (DRAFT_KEYS); it's named here only when there's something to reload.
+      get keys() { return cs.mode === "compose" ? [...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row), ...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload") : [])] : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
       // In its own tile (PIE-846) the list and the picker are drawn there, and the note here stays as it was.
@@ -10445,15 +10455,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit.reload": def({
-    summary: "after the note changed elsewhere: start over from its current text (the draft is copied to disk first)", keys: "ctrl+r",
+    summary: "ctrl+r in any draft, after what it's written on moved on: a note's edit or a posted comment's edit starts over from its current text (what was typed is copied to disk first), a comment finds its quote again in the note's current text (nearest where it was), or picks the passage again when its words are gone, its text staying; what's typed during the read is held and lands after it. A draft with nothing behind it (a new card, a reply) says so", keys: "ctrl+r",
     touches: "draft", draft: "type", replay: "ask",
     args: {},
-    async run(_, { surface, host }) {
-      if (!surface.draft) throw new ActionRefused("nothing is being edited here");
-      if (surface.draft.busy) throw new ActionRefused("the save is still landing");
-      await surface.reload(host);
-      return { baseRevision: surface.draft?.base, note: surface.draft?.note };
-    },
+    run: (_, { surface, host }, actor) => surface.reload(host, actor),
   }),
   "edit.close": def({
     summary: "close the edit; unsaved changes need discard=true (and are put aside as unsent, with a copy on disk: e brings the person's back)", keys: "esc (twice when unsaved)",
@@ -10997,19 +11002,6 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const kept = s.writing!.replace(body, actor);
       host.redraw();
       return { dirty: s.composer.dirty, keptYourDraftAt: kept ?? undefined };
-    },
-  }),
-  "comment.reload": def({
-    summary: "after a save or send refused because it moved on: an edit of a posted comment loads its words as they are now (its earlier words copied), a comment finds the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: modeActionKeys(ATTACHED_KEYS, "comment.reload"),
-    touches: "draft", draft: "type", replay: "ask",
-    args: {},
-    async run(_, { surface, host }, actor) {
-      const s = surface.session;
-      if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here");
-      if (actor.kind !== "agent") surface.revealComposerNext(); await s.reload(surface.env(host, actor));
-      if (s.error) throw new ActionRefused(s.error);
-      host.redraw();
-      return { mode: s.mode, note: s.note || s.composer?.note || null };
     },
   }),
   "comment.send": def({

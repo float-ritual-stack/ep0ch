@@ -81,6 +81,15 @@ describe("the edit control's keys are one table the keymap rebinds (PIE-1542)", 
     } finally { rebind({}); }
   });
 
+  test("a rebound comment.place moves in the hint as in the keys window: the hint names the action its key runs", () => {
+    rebind({ "comment.place": ["alt+o"] });
+    try {
+      const hint = editHint(new Draft("test", 0, ""), { save: "send", place: "floating" }).replace(/\x1b\[[\d;]*m/g, "");
+      expect(hint).toContain("alt+o floating");
+      expect(hint).not.toContain("^O floating");
+    } finally { rebind({}); }
+  });
+
   test("a cmd (super) rebind of draft.undo undoes in a draft and in a line field", async () => {
     rebind({ "draft.undo": ["super+z"] });
     try {

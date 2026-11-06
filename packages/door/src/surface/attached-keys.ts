@@ -65,7 +65,7 @@ export const REVISION_KEYS: readonly ModeKey[] = keyTable("revision", "a note at
 
 export const COMMENT_KEYS: readonly ModeKey[] = keyTable("comment", "a comment being written", [
   row("esc", "comment.escape", "close comment"), row("ctrl+s", "comment.send", "send"),
-  say(row("ctrl+o", "comment.place", "placement"), "choose where the comment being written sits"), row("ctrl+g", "comment.grip", "move"), say(row("ctrl+r", "comment.reload", "reload"), "after it changed elsewhere: load an edit's words as they are now, or find a comment's quote again"), row("click", "comment.place", ""),
+  say(row("ctrl+o", "comment.place", "placement"), "choose where the comment being written sits"), row("ctrl+g", "comment.grip", "move"), row("click", "comment.place", ""),
 ]);
 export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "an edit's preview (ctrl+p)", [
   row("esc", "draft.preview", "close preview", { on: false }), row("ctrl+p", "draft.preview", "close preview", { on: false }),

@@ -38,6 +38,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
 - **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
 
+### ctrl+r reloads every draft the same way (PIE-1591)
+
+- **What you type during the read lands:** in a note's edit, a comment, a comment's edit or a table cell, the words wait and go in after what was read. A comment finding its quote again used to drop them.
+- **Where it lands is one rule:** the end of the text, or the same table cell, whether you typed before the read answered or after.
+- **One line, one conflict:** a stale comment says it the way a stale edit does, the copy's file name included, and clears once. A new card or a reply says "nothing to reload".
+- **A rebound comment.place shows in the hint row** as well as the keys window.
+- **For scripts:** `comment.reload` is gone; `edit.reload` reloads whichever draft has the keys.
+
 ### An artifact deploy attaches its name by itself (PIE-1588)
 
 - **No hand step in Hetzner:** `ep0ch artifact deploy` adds the name through Vercel's API, appends the TXT Vercel asks for to `_vercel`, sets the CNAME, asks Vercel to verify and records the deployment.

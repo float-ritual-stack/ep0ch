@@ -6,7 +6,7 @@ import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings
 import { pageRows, RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
-import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark } from "./draft-session";
+import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark, type ReloadRead } from "./draft-session";
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace } from "./surface/composer";
 import { modeHint, type ModeKey } from "./surface/modes";
@@ -176,6 +176,8 @@ export interface CommentEnv {
   follow?(): void;
   /** Put in the picture on the clipboard, or the one dropped (ctrl+v, PIE-592), as the edit does: its host's `draft.image`; `dropped`: what a paste of image files holds, its `draft.drop`. */
   image?(dropped?: string): void;
+  /** Reload what's being written (ctrl+r), as the edit does: its host's `edit.reload`. */
+  reload?(): void;
   /** The composer's reference completion, when the connection can look references up. */
   complete?(d: Draft): Completer | null;
   /** Who sends what this session writes: the person at the keys unless an agent is acting. */
@@ -271,6 +273,8 @@ export class CommentSession {
   get composer(): Draft | null { return this.writing?.draft ?? null; }
   get dirty() { return !!this.composer?.dirty; }
   get requestId() { return this.out.requestId; }
+  /** The revision what's written goes against: a new comment's is the note's (its draft has none), an edit's the comment's own; a reply names none. */
+  get revision(): number | undefined { const t = this.target; return t && "revision" in t ? t.revision : t?.kind === "edit" ? this.composer?.base : undefined; }
 
   hint(): string {
     if (this.busy) return this.busy;
@@ -286,8 +290,7 @@ export class CommentSession {
   }
 
   key(k: Key, env: CommentEnv): "keep" | "close" {
-    // A reload holds the person's keys rather than dropping them (its session replays them on what it leaves).
-    if ((this.busy && this.writing?.status.phase !== "reloading") || k.kind === "mouse") return "keep";
+    if (this.busy || k.kind === "mouse") return "keep";
     if (this.mode === "select") {
       const a = this.passage!.key(k, this.room);
       if (a === "close") {
@@ -296,33 +299,7 @@ export class CommentSession {
       } else if (a === "compose") this.write();
       return "keep";
     }
-    if (this.mode === "compose") {
-      const w = this.writing!, d = w.draft;
-      let out: "keep" | "close" = "keep";
-      this.env = env;
-      w.key(k, {
-        completer: env.complete?.(d) ?? undefined,
-        run: cmd => {
-          if (cmd === "save") void this.send(env);
-          else if (cmd === "editor") env.external(d);
-          else if (cmd === "pick") env.pick?.();
-          else if (cmd === "follow") env.follow?.();
-          else if (cmd === "image") env.image?.();
-          else if (cmd === "drop") env.image?.(w.dropped);
-          else if (cmd === "reload") void this.reload(env);
-          else if (cmd === "close" || cmd === "discard") {
-            // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
-            w.close(cmd === "discard");
-            this.writing = null; this.target = null; this.error = null; this.note = ""; this.out.done();
-            if (this.fromReader) out = "close";
-            else if (this.back === "select" && this.passage) this.mode = "select";
-            else if (this.origin === "select" && !this.threads.length) out = "close";
-            else this.mode = "threads";
-          }
-        },
-      });
-      return out;
-    }
+    if (this.mode === "compose") return this.compose(k, env);
     // threads
     const c = ch(k), n = this.threads.length;
     this.error = null;
@@ -334,6 +311,35 @@ export class CommentSession {
     // C in the list writes on the whole note (PIE-846): words are chosen by selecting them in the reader.
     else if (c === "C") { const why = this.writeNote(); if (why) this.error = why; }
     return "keep";
+  }
+
+  /** A key in the text being written: the writing session's, its commands run here. */
+  private compose(k: Key, env: CommentEnv): "keep" | "close" {
+    const w = this.writing!, d = w.draft;
+    let out: "keep" | "close" = "keep";
+    this.env = env;
+    w.key(k, {
+      completer: env.complete?.(d) ?? undefined,
+      run: cmd => {
+        if (cmd === "save") void this.send(env);
+        else if (cmd === "editor") env.external(d);
+        else if (cmd === "pick") env.pick?.();
+        else if (cmd === "follow") env.follow?.();
+        else if (cmd === "image") env.image?.();
+        else if (cmd === "drop") env.image?.(w.dropped);
+        else if (cmd === "reload") { if (env.reload) env.reload(); else void this.reload(env); }
+        else if (cmd === "close" || cmd === "discard") {
+          // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
+          w.close(cmd === "discard");
+          this.writing = null; this.target = null; this.error = null; this.note = ""; this.out.done();
+          if (this.fromReader) out = "close";
+          else if (this.back === "select" && this.passage) this.mode = "select";
+          else if (this.origin === "select" && !this.threads.length) out = "close";
+          else this.mode = "threads";
+        }
+      },
+    });
+    return out;
   }
 
   /** Enter on a picked passage: write the comment under it. The comment's text carries over from an earlier pick. */
@@ -410,11 +416,13 @@ export class CommentSession {
           const now = await this.env!.reloadComments(true);
           this.threads = now;
           const th = now.find(x => x.id === t.thread.id), x = m.reply ? th?.replies.find(r => r.id === m.id) : th;
-          if (!x || x.revision === undefined) return null;
+          if (!th || !x || x.revision === undefined) return null;
           this.error = null; this.stale = false;
-          return { ...m, revision: x.revision, body: x.body };
+          const mark = { ...m, revision: x.revision, body: x.body };
+          if (this.target?.kind === "edit") this.target = { kind: "edit", thread: th, mark };
+          return mark;
         },
-      }), { by, text: m.body, base: m.revision });
+      }), { by, text: m.body, base: m.revision }, { redraw: () => this.env?.redraw() });
     }
     return DraftSession.open(commentTarget({
       where: () => this.target as Exclude<Target, { kind: "edit" }>,
@@ -422,9 +430,10 @@ export class CommentSession {
       board: () => this.env!.board,
       out: this.out,
       landed: (r, t, body) => this.landed(r, t, body),
-      refused: (why, stale) => { this.busy = null; this.error = why; this.stale = stale; },
+      // A stale comment is the session's to say (the conflict, where the words were copied, ctrl+r), as an edit is.
+      refused: (why, stale) => { this.busy = null; this.error = stale ? null : why; this.stale = stale; },
       relocate: () => this.relocate(this.env!),
-    }), { by });
+    }), { by }, { redraw: () => this.env?.redraw() });
   }
 
   /** Select a passage on the note as the service has it now. */
@@ -494,8 +503,12 @@ export class CommentSession {
     }
   }
 
-  /** ctrl+r: an edit's words as they are now, or a comment's quote found again (the one way, keys, click and act). */
-  reload(env: CommentEnv): Promise<void> { return this.target?.kind === "edit" ? this.reloadEdit(env) : this.relocate(env); }
+  /** ctrl+r: the writing session's reload (its target reads an edit's words as they are now, or finds a comment's quote again). */
+  async reload(env: CommentEnv): Promise<void> {
+    this.env = env;
+    await this.writing?.reload();
+    env.redraw();
+  }
 
   /**
    * The note's comments as the service has them now: a posted comment being edited that moved on since its edit opened
@@ -503,56 +516,32 @@ export class CommentSession {
    */
   commentsChanged(threads: readonly Comment[]) {
     const w = this.writing, t = this.target;
-    if (!w?.open || w.busy || t?.kind !== "edit") return;
+    if (!w || t?.kind !== "edit") return;
     const th = threads.find(x => x.id === t.thread.id), now = t.mark.reply ? th?.replies.find(x => x.id === t.mark.id) : th;
-    if (now?.revision !== undefined && now.revision > t.mark.revision) w.status.changedElsewhere = true;
+    if (now?.revision !== undefined) w.changedTo(now.revision);
   }
 
-  /** ctrl+r on a stale edit: its words as they are now (the draft kept and copied). */
-  private async reloadEdit(env: CommentEnv): Promise<void> {
-    this.env = env;
-    const w = this.writing;
-    if (!w || this.target?.kind !== "edit") return;
-    this.busy = waitingText("the note again"); env.redraw();
-    // The session's reload, as a note's edit takes: what it says (the revision, the copy) goes on the one status line.
-    try { await w.reload(false); } finally { this.busy = null; }
+  /** A comment's read for ctrl+r after a stale refusal: the same quote in the note's current text, nearest where it was. */
+  private async relocate(env: CommentEnv): Promise<ReloadRead> {
     const t = this.target;
-    if (t?.kind === "edit" && w.open) {
-      const th = this.threads.find(x => x.id === t.thread.id);
-      const now = t.mark.reply ? th?.replies.find(x => x.id === t.mark.id) : th;
-      if (th && now?.revision !== undefined) this.target = { kind: "edit", thread: th, mark: { ...t.mark, revision: now.revision, body: now.body } };
-    }
-    w.replayHeld();
-    env.redraw();
-  }
-
-  /** After a stale refusal: find the same quote in the note's current text, nearest where it was. */
-  async relocate(env: CommentEnv): Promise<void> {
-    this.env = env;
-    const t = this.target;
-    if (!t || t.kind !== "quote" || !this.stale) { if (this.composer) this.composer.status.say("nothing to reload"); return; }
-    this.busy = waitingText("the note"); env.redraw();
-    const fresh = await env.fetch(t.blockId).catch(() => null);
-    this.busy = null;
-    if (!fresh || fresh.revision === undefined) { this.error = "can't read the note's current revision"; env.redraw(); return; }
+    if (!t || t.kind !== "quote" || !this.stale) return { none: "nothing newer to load" };
+    const fresh = await env.fetch(t.blockId);
+    if (!fresh) return { none: "the note is gone from the outline" };
+    if (fresh.revision === undefined) return { none: "the outline didn't say which revision the note is at" };
     this.msg = fresh; env.setMsg(fresh);
+    this.stale = false; this.error = null;
     const q = t.passage.quote, hits: number[] = [];
     for (let i = fresh.text.indexOf(q); i >= 0; i = fresh.text.indexOf(q, i + 1)) hits.push(i);
     if (hits.length) {
       const start = hits.reduce((a, b) => (Math.abs(b - t.passage.start) < Math.abs(a - t.passage.start) ? b : a));
       this.target = { ...t, revision: fresh.revision, passage: { quote: q, start } };
-      this.stale = false; this.error = null;
-      // Found again: the draft's own "refused, copied to …" line goes, so this one shows.
-      if (this.writing) { this.writing.settled(); this.writing.draft.status.say(""); }
-      this.note = `found the quote again at revision ${fresh.revision}${hits.length > 1 ? ` (nearest of ${hits.length})` : ""} · ctrl+s sends`;
-    } else {
-      // The words are gone: pick again. The comment text rides along and comes back on Enter.
-      this.passage = new Passage(fresh.text);
-      this.passage.note = "the quote is gone from the current text · pick the passage again · Enter returns to your comment";
-      this.stale = false; this.error = null; this.mode = "select";
-      if (this.writing) { this.writing.settled(); this.writing.draft.status.say(""); }
+      return { stays: `found the quote again at revision ${fresh.revision}${hits.length > 1 ? ` (nearest of ${hits.length})` : ""} · ctrl+s sends` };
     }
-    env.redraw();
+    // The words are gone: pick again. The comment text rides along and comes back on Enter.
+    this.passage = new Passage(fresh.text);
+    this.passage.note = "the quote is gone from the current text · pick the passage again · Enter returns to your comment";
+    this.mode = "select";
+    return { stays: "" };
   }
 
   /**
@@ -634,7 +623,7 @@ export class CommentSession {
       // The draft's own status line, as a note's edit draws it (PIE-1560): an edit's conflict or "changed elsewhere", and
       // what the draft said, drawn by the frame to its width.
       // A refusal is said the same bounded way (an offline error names its copy at any width, PIE-1560).
-      draftStatus: { state: t.kind === "edit" && !!(d.status.conflict || d.status.changedElsewhere), said: this.busy && d.status.phase !== "reloading" ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
+      draftStatus: { state: !!d.status.conflict || (t.kind === "edit" && d.status.changedElsewhere), said: this.busy ? null : this.error ? `! ${this.error}` : d.note || null, tone: this.error ? C.lred : C.yellow },
       status: [...(this.busy ? [status(this.busy, C.grey)] : this.error || d.note ? [] : [status(this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.dirty ? C.yellow : C.dark)])],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };
