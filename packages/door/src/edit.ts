@@ -1080,12 +1080,12 @@ export class Draft {
 
   /**
    * The selection is one the door filled in for typing over (a snippet's slot, a completion's example value, a prefilled
-   * line), not one the person made: a wrap key typed there replaces it as any key does. Moving either end makes it theirs.
+   * line), not one the person made: a wrap key typed there replaces it as any key does. Moving either end makes it theirs,
+   * and so does making it again: the anchor itself is compared, and a new selection has a new one.
    */
-  private filled: string | null = null;
-  markTypesOver() { this.filled = this.selectionKey(); }
-  private selectionKey() { return this.anchor ? `${this.anchor.row}:${this.anchor.col}:${this.row}:${this.col}` : null; }
-  private typesOver() { return this.filled !== null && this.filled === this.selectionKey(); }
+  private filled: { anchor: Draft["anchor"]; row: number; col: number } | null = null;
+  markTypesOver() { this.filled = { anchor: this.anchor, row: this.row, col: this.col }; }
+  private typesOver() { return !!this.anchor && this.filled?.anchor === this.anchor && this.filled.row === this.row && this.filled.col === this.col; }
 
   /** The last column of line `row` (UTF-16, as every column in a draft is). */
   private endOf(row: number) { return this.offsetOf(row + 1, 0) - this.offsetOf(row, 0) - 1; }
@@ -1203,7 +1203,8 @@ export class Draft {
     this.row = r;
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
     this.selectAsk();
-    if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
+    // Back on where it started, nothing is selected: no anchor for esc to let go. A drag going on starts from the same place.
+    if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col) this.anchor = null;
     this.goal = null; this.status.discard.clear(); this.undoArmed = 0;
     // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
     this.letChordGo();
@@ -1440,7 +1441,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
   }),
   "draft.wrap": def({
     summary: `wrap the selected text: with=[[ makes [[text]], with=** makes **text**, the text left selected. Typing ${Object.keys(WRAPS).join(" ")} over a selection does it a key at a time. One undo step`,
-    keys: `${Object.keys(WRAPS).join(" ")}, over a selection; click, the hint's wraps`, touches: "draft", draft: "type", replay: "ask",
+    keys: [{ keys: Object.keys(WRAPS).join(" "), does: "typed over a selection" }, { keys: "click", does: "the hint's wraps" }], touches: "draft", draft: "type", replay: "ask",
     args: { with: { type: "string", about: "what opens it; the closer is its mirror" } },
     examples: [{ act: "draft.wrap with=[[", does: "turns the selected text into a [[page]] link" }],
     run({ with: open }, d, actor) { d.wrap(open, actor); return { text: d.selectedText() ?? "", line: d.row + 1 }; },

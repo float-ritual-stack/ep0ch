@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS } from "../src/edit";
 import { parseReport, reportKey } from "../src/kbd";
-import { chordName, exactKeyName, keyCaption, keyName, keyOfName } from "../src/surface/actions";
+import { chordName, declaredKeys, exactKeyName, isKeyName, keyCaption, keyName, keyOfName } from "../src/surface/actions";
+import { DraftSession } from "../src/draft-session";
 import { editHint } from "../src/surface/editor";
 import { reloadKeymap } from "../src/surface/keymap";
 import { LineField } from "../src/surface/line";
@@ -308,5 +309,56 @@ describe("in a line field", () => {
     expect(l.text).toBe("sow  peas");
     l.take({ kind: "char", ch: "u", ctrl: true });
     expect(l.text).toBe("");
+  });
+});
+
+describe("review of #1323", () => {
+  test("a selection the person makes again over a released fill wraps", () => {
+    const l = new LineField("garden", true);
+    l.take({ kind: "right" });
+    l.take({ kind: "alt", ch: "S" });
+    expect(l.selectedText()).toBe("garden");
+    l.take({ kind: "char", ch: "[" });
+    expect(l.text).toBe("[garden]");
+  });
+
+  test("a selecting key that selects nothing leaves no selection for esc to let go", () => {
+    const d = draftOf("peas", 0, 4);
+    d.key(key(CMD_SHIFT_RIGHT));
+    expect(d.anchor).toBeNull();
+    expect(d.key({ kind: "esc" })).toBe("close");
+    const empty = draftOf("", 0, 0);
+    empty.key({ kind: "alt", ch: "W" });
+    expect(empty.anchor).toBeNull();
+    const drag = draftOf("peas", 0, 1);
+    drag.place(0, 3, true); drag.place(0, 1, true); drag.place(0, 3, true);
+    expect(drag.selectedText()).toBe("ea");
+  });
+
+  test("draft.wrap's page names its keys and its click, and no stray key", () => {
+    const keys = declaredKeys(DRAFT_ACTIONS.list().find(a => a.name === "draft.wrap")!.keys);
+    for (const k of ["(", "[", "~", "click"]) expect(keys.has(k)).toBe(true);
+    expect(keys.has("a")).toBe(false);
+  });
+
+  test("a screen's key map can't name a key only a draft reads", () => {
+    for (const name of ["ctrl+left", "super+left", "alt+home", "super+shift+left"]) expect(isKeyName(name)).toBe(false);
+    for (const name of ["alt+left", "alt+up", "super+k", "left"]) expect(isKeyName(name)).toBe(true);
+  });
+
+  test("a chord with no shift held names the unshifted key", () => {
+    expect(chordName("alt+super+k")).toBe("super+k");
+    expect(chordName("cmd+shift+k")).toBe("super+K");
+    expect(chordName("alt+shift+k")).toBe("alt+K");
+  });
+
+  test("during a reload, an edit's key waits and goes in after; copy and undo are pressed again", () => {
+    const s = DraftSession.open({ place: "edit:keys", back: "e", label: "peas", what: "the edit", verb: "save", leaveWrites: true, async submit() { return { ok: true }; } }, { text: "sow peas", base: 1 });
+    s.draft.status.phase = "reloading";
+    const kept: Key[] = [], k = (key: Key) => s.holding(key, held => kept.push(held));
+    for (const held of [{ kind: "alt", ch: "L" }, { kind: "alt-up" }, { kind: "super", ch: "x" }] as Key[]) expect(k(held)).toBe(true);
+    expect(kept).toEqual([]);
+    for (const asked of [{ kind: "alt", ch: "c" }, { kind: "super", ch: "z" }, { kind: "super", ch: "Z" }] as Key[]) expect(k(asked)).toBe(true);
+    expect(s.draft.note).toContain("press alt+c, super+z, super+Z again");
   });
 });

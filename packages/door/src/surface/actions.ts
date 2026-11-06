@@ -441,9 +441,9 @@ const NAMED: Record<string, string> = {
 };
 /** A key held with modifiers by its exact name (`exactKeyName`): `super+shift+left`, `ctrl+home`. */
 const HELD_NAME = /^(?:ctrl\+)?(?:alt\+)?(?:super\+)?(?:shift\+)?(?:left|right|up|down|home|end|pgup|pgdn|delete|backspace)$/;
-/** Whether `s` is a key's one name (what `keyName` gives): a screen's key map names its keys so. */
+/** Whether `s` is a key's one name (what `keyName` gives; never `exactKeyName`'s, which no screen matches): a screen's key map names its keys so. */
 export const isKeyName = (s: unknown): s is string =>
-  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super|hyper)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || HELD_NAME.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
+  typeof s === "string" && (/^[^ ]$/u.test(s) || /^(alt|super|hyper)\+.$/u.test(s) || /^ctrl\+[^A-Z]$/u.test(s) || (Object.values(NAMED).includes(s) && !MOUSE.has(s)));
 /** Words that are a mouse gesture: in a hint, what follows them is what's clicked, not more keys. */
 const MOUSE = new Set(["click", "drag", "wheel"]);
 
@@ -516,7 +516,7 @@ function wordKeys(w: string): string[] | null {
     const held = many[1]!.toLowerCase().replace(/cmd/g, "super"), named = NAMED[many[2]!.toLowerCase()];
     if (named) return [`${["ctrl", "alt", "super", "shift"].filter(m => held.includes(`${m}+`)).map(m => `${m}+`).join("")}${named}`];
     if ([...many[2]!].length !== 1 || held.includes("ctrl+")) return null;
-    return [`${held.includes("super+") ? "super" : "alt"}+${many[2]!.toUpperCase()}`];
+    return [`${held.includes("super+") ? "super" : "alt"}+${held.includes("shift+") ? many[2]!.toUpperCase() : many[2]!}`];
   }
   const mod = /^(ctrl|alt|shift|super|cmd)\+(.+)$/i.exec(w);
   if (mod) {
