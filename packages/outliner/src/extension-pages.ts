@@ -2,6 +2,7 @@ import { commandLine } from "@ep0ch/outline-core/component-block";
 import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { noteConstructs } from "@ep0ch/outline-core/rules";
+import { SHAPE_LIMITS } from "@ep0ch/outline-core/write-shape";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -208,7 +209,10 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string, inst
   for (const rule of manifest.rules ?? []) {
     const match = Object.entries(rule.match).map(([key, value]) => `${key} \`${String(value).replaceAll("`", "'")}\``).join(", ");
     const does = [rule.decorate ? `draws ${rule.decorate.use ?? "a view"} ${rule.decorate.place ?? ""}`.trim() : "", rule.on ? `runs ${Object.entries(rule.on).filter(([key]) => key !== "quiet").map(([when, id]) => `${id} on ${when}`).join(", ")}` : ""].filter(Boolean).join(" and ");
-    out.push(`- Rule \`${rule.id}\`: when a note matches ${match}, ${does || "nothing yet"}${rule.description ? `. ${words(rule.description)}` : ""}`);
+    const line = `- Rule \`${rule.id}\`: when a note matches ${match}, ${does || "nothing yet"}${rule.description ? `. ${words(rule.description)}` : ""}`;
+    // A long match is shown whole, as code under a short lead: a bullet is one short point.
+    if (line.length <= SHAPE_LIMITS.itemChars) out.push(line);
+    else out.push(`- Rule \`${rule.id}\`: ${does || "nothing yet"}${rule.description ? `. ${words(rule.description)}` : ""}`, "```text", ...Object.entries(rule.match).map(([key, value]) => `${key}: ${String(value)}`), "```");
   }
   for (const agent of manifest.agents ?? []) out.push(`- Agent \`@${agent.name}\`${agent.threads ? " (answers in comment threads)" : ""}${agent.description ? `: ${words(agent.description)}` : ""}`);
   for (const source of manifest.facetSources ?? []) out.push(`- Facet source **${words(source.title)}** (\`ext.${manifest.id}.${source.id}\`): \`tile.open kind=facets source=ext.${manifest.id}.${source.id}\`.`);
