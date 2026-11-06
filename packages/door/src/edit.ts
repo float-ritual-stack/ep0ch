@@ -77,7 +77,7 @@ export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a p
   { key: "ctrl+z", action: "draft.undo", label: "undo", says: "take back the last change in what you're writing" },
   { key: "ctrl+y", action: "draft.redo", label: "redo", says: "put back the change you undid (ctrl+shift+z too)" },
   { key: "ctrl+t", action: "draft.pick", label: "insert", says: "insert a link or a component from a picker" },
-  { key: "ctrl+r", action: "edit.reload", label: "reload", says: "load the note as it is now, after it changed elsewhere" },
+  { key: "ctrl+r", action: "edit.reload", label: "reload", says: "after it changed elsewhere: load what's being edited as it is now, or find a comment's quote again" },
   { key: "ctrl+p", action: "draft.preview", label: "preview", says: "show or hide the preview of what you're writing" },
   { key: "ctrl+v", action: "draft.image", label: "picture", says: "put in a picture from the clipboard or the path at the cursor" },
   { key: "ctrl+l", action: "edit.follow", label: "open link", says: "open the link the cursor is on, beside the edit" },
@@ -383,9 +383,7 @@ export class Draft {
     this.record(USER, "the reload");
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);
-    this.status.settled();
     this.writers = []; this.lastWriter = null;
-    this.status.say("reloaded the current text");
   }
 
   /**

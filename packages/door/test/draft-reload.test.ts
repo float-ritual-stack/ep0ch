@@ -1,0 +1,577 @@
+// A draft's reload has one owner (PIE-1591): ctrl+r holds, replays, lands and clears the conflict the same way for every
+// draft. The session's rule runs on a fake target whose read waits on a gate; each host's key path and what it draws run
+// on a fake outline. Made-up notes; no service (with the host stopped: comment-reload-host.test.ts).
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Msg } from "../src/board";
+import { CommentSession } from "../src/comment";
+import { cardTarget, DraftSession, noteReplyTarget, type DraftTarget, type ReloadRead } from "../src/draft-session";
+import { EditConflict, Refused, USER } from "../src/socket";
+import { visible } from "../src/style";
+import { composerBox } from "../src/surface/composer";
+import { elementEdit } from "../src/surface/element-editor";
+import { Inspector } from "../src/surface/inspector";
+import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import type { Key } from "../src/term";
+
+const char = (ch: string): Key => ({ kind: "char", ch });
+const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
+const until = async (ok: () => boolean, what: string) => { const end = Date.now() + 3000; while (!ok()) { if (Date.now() > end) throw new Error(`timed out: ${what}`); await Bun.sleep(2); } };
+const msg = (id: string, text: string, revision: number): Msg => ({ id, text, revision, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", properties: [] }) as Msg;
+
+/** A read that answers when it's let go: what a slow or stopped host looks like to whoever asked. */
+function gated<T>() {
+  let open!: (v: T) => void, shut!: (e: Error) => void;
+  const answer = new Promise<T>((res, rej) => { open = res; shut = rej; });
+  return { answer, open, shut };
+}
+
+const stateWas = process.env.EP0CH_STATE;
+let state = "";
+beforeAll(() => { state = mkdtempSync(join(tmpdir(), "draft-reload-")); process.env.EP0CH_STATE = state; });
+afterAll(() => { if (stateWas === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = stateWas; rmSync(state, { recursive: true, force: true }); });
+
+let places = 0;
+
+describe("the session owns the reload (a fake target)", () => {
+  /** A draft on `text` whose target says it changed elsewhere; ctrl+r's read waits on `read`. */
+  function changed(text = "Sowing\nbeans", over: Partial<DraftTarget> = {}) {
+    const read = gated<ReloadRead>();
+    let reads = 0;
+    const target: DraftTarget = {
+      place: `edit:reload-${++places}`, back: "e", label: "sowing", what: "the edit", verb: "save", leaveWrites: true,
+      async submit() { return { ok: true }; },
+      reload: () => { reads++; return read.answer; },
+      ...over,
+    };
+    const s = DraftSession.open(target, { text, base: 1 });
+    s.changedTo(2);
+    const run: string[] = [];
+    const host = { completer: null, run: (cmd: string) => { run.push(cmd); if (cmd === "reload") void s.reload(); } };
+    return { s, d: s.draft, read, run, host, press: (k: Key) => s.key(k, host), reads: () => reads };
+  }
+  const settled = async (d: { status: { phase: unknown } }) => { await until(() => d.status.phase === null, "the read's answer"); await Bun.sleep(0); };
+
+  test("keys and a paste during the read land, in order, after the words it loaded; the conflict clears once and the line names the copy", async () => {
+    const { d, s, read, press } = changed();
+    press(char("!"));
+    press(ctrl("r"));
+    expect(d.status.phase).toBe("reloading");
+    press(char("x")); press({ kind: "paste", text: "yz" }); press(char("w"));
+    const typed = "Sowing!\nbeans";
+    expect(d.text).toBe(typed);
+    read.open({ loaded: msg("n", "Sowing\npeas", 2) });
+    await settled(d);
+    expect(d.text).toBe("Sowing\npeasxyzw");
+    expect([d.status.conflict, d.status.changedElsewhere, d.base]).toEqual([null, false, 2]);
+    expect(d.note).toContain("loaded revision 2 · your earlier draft is at");
+    expect(await Bun.file(d.status.savedCopy!).text()).toBe(`${typed}\n`);
+    // Nothing is out of date now: a second ctrl+r reads nothing.
+    await s.reload();
+    expect(d.note).toBe("nothing newer to load");
+  });
+
+  test("a key before the read answers and one after land in the same place", async () => {
+    for (const before of [true, false]) {
+      const { d, read, press } = changed("Sowing\nbeans\nby the fence");
+      d.place(0, 2);
+      press(ctrl("r"));
+      if (before) press(char("x"));
+      read.open({ loaded: msg("n", "Sowing\npeas\nby the gate", 2) });
+      await settled(d);
+      if (!before) press(char("x"));
+      expect({ before, text: d.text }).toEqual({ before, text: "Sowing\npeas\nby the gatex" });
+    }
+  });
+
+  test("a command during the read doesn't run: the line says to press it again, and the text after it lands", async () => {
+    const { d, read, press, run } = changed();
+    press(ctrl("r"));
+    press(char("a"));
+    press(ctrl("s"));
+    expect(d.note).toBe("reloading · press ctrl+s again once it has loaded");
+    press(char("b"));
+    press({ kind: "esc" });
+    expect(d.note).toBe("reloading · press ctrl+s, esc again once it has loaded");
+    press(char("c"));
+    read.open({ loaded: msg("n", "Sowing\npeas", 2) });
+    await settled(d);
+    expect(d.text).toBe("Sowing\npeasabc");
+    expect(run).toEqual(["reload"]);
+    expect(d.note).toStartWith("ctrl+s, esc didn't run: press them again · ");
+  });
+
+  test("a read that fails isn't a reload: the conflict stands, the text is kept, and what was typed lands on it", async () => {
+    const { d, read, press } = changed();
+    press(ctrl("r"));
+    press(char("!"));
+    read.shut(new Error("socket closed"));
+    await settled(d);
+    expect(d.text).toBe("Sowing!\nbeans");
+    expect(d.status.changedElsewhere).toBe(true);
+    expect(d.note).toBe("couldn't read it now · your text is kept · ctrl+r tries again (socket closed)");
+  });
+
+  test("nothing loaded: the conflict stands and the line says why; the text stays and its place found: it clears", async () => {
+    const gone = changed();
+    gone.press(ctrl("r"));
+    gone.read.open({ none: "the note is gone from the outline" });
+    await settled(gone.d);
+    expect([gone.d.status.changedElsewhere, gone.d.note]).toEqual([true, "the note is gone from the outline"]);
+    const found = changed();
+    found.press(ctrl("r"));
+    found.press(char("!"));
+    found.read.open({ stays: "found the quote again at revision 3" });
+    await settled(found.d);
+    expect([found.d.status.changedElsewhere, found.d.text]).toEqual([false, "Sowing!\nbeans"]);
+    expect(found.d.note).toBe("found the quote again at revision 3");
+    expect(found.d.status.savedCopy).toBeNull();
+  });
+
+  test("nothing out of date: no read; the same line whichever draft it is", async () => {
+    const { s, press, reads } = changed();
+    s.status.settled();
+    press(ctrl("r"));
+    await Bun.sleep(0);
+    expect([reads(), s.draft.note]).toEqual([0, "nothing newer to load"]);
+  });
+
+  test("a card and a note reply have nothing behind them: ctrl+r says so on the line, whoever hosts them, and no command reaches the host", async () => {
+    const parent = msg("note-parent", "Beds", 1);
+    const targets: DraftTarget[] = [
+      cardTarget({ kind: "card", lane: "Doing", view: `view-${++places}`, create: async () => ({}) }),
+      noteReplyTarget({ ...parent, id: `note-parent-${++places}` }, { newNote: async () => ({ note: parent }) } as never),
+    ];
+    for (const target of targets) {
+      const s = DraftSession.open(target, {}), run: string[] = [];
+      s.key(char("a"), { completer: null, run: c => run.push(c) });
+      s.key(ctrl("r"), { completer: null, run: c => run.push(c) });
+      await Bun.sleep(0);
+      expect({ place: target.place, note: s.draft.note, run, text: s.draft.text }).toEqual({ place: target.place, note: "nothing to reload", run: [], text: "a" });
+      s.dispose();
+    }
+  });
+
+  test("changed elsewhere is the session's: a newer revision says so; an older read arriving late, a save and a reload under way don't", async () => {
+    const target: DraftTarget = { place: `edit:reload-${++places}`, back: "e", label: "x", what: "x", verb: "save", leaveWrites: true, async submit() { return { ok: true }; } };
+    const s = DraftSession.open(target, { text: "x", base: 5 }), st = s.status;
+    s.changedTo(4); s.changedTo(5);
+    expect(st.changedElsewhere).toBe(false);
+    st.phase = "saving"; s.changedTo(6);
+    st.phase = "reloading"; s.changedTo(6);
+    expect(st.changedElsewhere).toBe(false);
+    st.phase = null; s.changedTo(6);
+    expect(st.changedElsewhere).toBe(true);
+    s.dispose();
+  });
+
+  describe("in a rich cell", () => {
+    const TABLE = "Crops\n\n| crop | bed |\n| --- | --- |\n| one | leeks |";
+    function inCell(title = "Crops") {
+      const x = changed(TABLE.replace("Crops", title));
+      const d = x.d;
+      d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks") + 5);
+      elementEdit(d).open(USER);
+      return x;
+    }
+    const rich = (d: { views: { rich: { on: boolean } | null } }) => d.views.rich?.on;
+
+    test("what's typed lands in the same cell, held or not", async () => {
+      for (const held of [true, false]) {
+        const { d, read, press } = inCell();
+        press(ctrl("r"));
+        if (held) for (const c of "ab") press(char(c));
+        read.open({ loaded: msg("n", TABLE.replace("Crops", "Crops today"), 2) });
+        await settled(d);
+        if (!held) for (const c of "ab") press(char(c));
+        expect({ held, line: d.lines.at(-1), rich: rich(d) }).toEqual({ held, line: "| one | leeksab |", rich: true });
+      }
+    });
+
+    test("the same cell with shorter words: what's typed follows them, with no padding taken for content", async () => {
+      const { d, read, press } = inCell();
+      press(ctrl("r"));
+      for (const c of "ab") press(char(c));
+      read.open({ loaded: msg("n", TABLE.replace("leeks", "kale"), 2) });
+      await settled(d);
+      expect(d.lines.at(-1)).toBe("| one | kaleab |");
+    });
+
+    test("the table gone: rich edit closes and says so, what's typed gets its own line, a held delete or move touches nothing", async () => {
+      const { d, read, press } = inCell();
+      press(ctrl("r"));
+      press({ kind: "backspace" }); press({ kind: "left" }); press(char("a")); press({ kind: "paste", text: "bc" });
+      read.open({ loaded: msg("n", "Crops\n\nNo table now.", 2) });
+      await settled(d);
+      expect(rich(d)).toBe(false);
+      expect(d.text).toBe("Crops\n\nNo table now.\nabc");
+      expect(d.note).toContain("backspace, left didn't apply: the table they were for is gone");
+      expect(d.note).toContain("the table is gone, so rich edit closed");
+    });
+
+    test("another table at that number: rich edit closes, nothing goes into the other table", async () => {
+      const { d, read, press } = inCell();
+      press(ctrl("r"));
+      for (const c of "ab") press(char(c));
+      read.open({ loaded: msg("n", "Crops\n\n| tool | shed |\n| --- | --- |\n| rake | two |", 2) });
+      await settled(d);
+      expect(rich(d)).toBe(false);
+      expect(d.text).toBe("Crops\n\n| tool | shed |\n| --- | --- |\n| rake | two |\nab");
+      expect(d.note).toContain("the table changed");
+      expect(d.note).not.toContain("gone");
+    });
+
+    test("the table gone and nothing typed: the line it waits on isn't a change to save", async () => {
+      const { d, read, press } = inCell();
+      press(ctrl("r"));
+      read.open({ loaded: msg("n", "Crops\n\nNo table now.", 2) });
+      await settled(d);
+      expect([rich(d), d.dirty, d.lines.at(-1), d.row]).toEqual([false, false, "", d.lines.length - 1]);
+    });
+  });
+});
+
+/** The outline a reader sees, in memory: notes and one thread each, revisions that move, and reads that can be held. */
+function fakeOutline() {
+  const notes = new Map<string, Msg>(), threads = new Map<string, any[]>();
+  let gate: Promise<unknown> | null = null;
+  const board = {
+    ancestors: async () => [],
+    get: async (id: string) => { await gate; return notes.get(id) ?? null; },
+    comments: async (id: string) => { await gate; return threads.get(id) ?? []; },
+    previewPropertyList: async () => null,
+    update: async (id: string, text: string, base: number) => { const n = notes.get(id)!; if (n.revision !== base) throw new EditConflict(id, "revision is stale"); const now = msg(id, text, base + 1); notes.set(id, now); return now; },
+    updateComment: async (id: string, revision: number, body: string) => {
+      const t = [...threads.values()].flat().find(x => x.id === id);
+      if (t.revision !== revision) throw new Refused("revision is stale");
+      Object.assign(t, { body, revision: revision + 1 });
+      return { id, revision: revision + 1, body };
+    },
+    comment: async (_r: string, id: string, revision: number) => { if (notes.get(id)!.revision !== revision) throw new Refused("revision is stale"); return { id: "c-new" }; },
+  };
+  const host = (): SurfaceHost => ({ ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
+  return {
+    board, host,
+    note(text: string, revision = 1) { const m = msg(`note-${++places}`, text, revision); notes.set(m.id, m); return m; },
+    edit(id: string, text: string) { const was = notes.get(id)!, now = msg(id, text, was.revision! + 1); notes.set(id, now); return now; },
+    thread(id: string, body: string) { const t = { id: `c-${++places}`, author: "user", body, quote: "", at: 0, open: true, lifecycle: "open", start: null, end: null, replies: [], revision: 3 }; threads.set(id, [t]); return t; },
+    /** Reads wait until the answer is let go: the host, stopped, as whoever asked sees it. */
+    hold() { const g = gated<void>(); gate = g.answer; return () => { gate = null; g.open(); }; },
+  };
+}
+
+describe("each host's key path (a fake outline)", () => {
+  /** A note with one posted comment, in its edit with a word typed; the comment then changed elsewhere and ctrl+s refused. */
+  async function commentRefused(title: string, o = fakeOutline(), rows = 8) {
+    const m = o.note(`${title}\nThe plot by the shed.`), t = o.thread(m.id, "How deep is the bed?");
+    const s = new NoteSurface(), h = o.host();
+    s.show(m, h);
+    await s.loadComments(h);
+    s.key(char("m"), h);
+    await until(() => s.session?.mode === "threads" && s.session.threads.length === 1, "the thread list");
+    s.key(char("e"), h);
+    await until(() => !!s.session?.composer, "the comment's edit");
+    const d = s.session!.composer!;
+    for (const c of " now") s.key(char(c), h);
+    Object.assign(t, { body: "How deep should the bed be?", revision: 4 });
+    // Drawn as it's typed, in a small tile: what ctrl+s says comes after this, and must not push the text out of view.
+    s.render(28, rows, h);
+    s.key(ctrl("s"), h);
+    s.render(28, rows, h);                  // the frame the key paints, before the answer
+    await until(() => d.status.conflict !== null, "the stale refusal");
+    return { s, h, d, o, t, m };
+  }
+  const flat = (s: NoteSurface, h: SurfaceHost, cols: number, rows: number) => s.render(cols, rows, h).lines.map(visible).join("").replace(/[\s│]+/g, "");
+  const settled = (d: { status: { phase: unknown } }, loaded: () => boolean) => until(() => d.status.phase === null && loaded(), "the reload's answer");
+
+  /** A note's edit, a key typed, the note changed elsewhere and the reader told. */
+  function noteEdit(o: ReturnType<typeof fakeOutline>, text: string, next: string) {
+    const m = o.note(text), s = new NoteSurface(), h = o.host();
+    s.show(m, h);
+    s.startDraft(m, h);
+    const d = s.draft!;
+    return { s, h, d, m, changed: () => s.drafting!.changedTo(o.edit(m.id, next).revision!) };
+  }
+
+  test("a note's edit: ctrl+r holds keys through the reader's own key path; the line says what a command didn't do", async () => {
+    const o = fakeOutline(), { s, h, d, changed } = noteEdit(o, "Sowing\nbeans", "Sowing\npeas");
+    s.key(char("!"), h);
+    changed();
+    const release = o.hold();
+    s.key(ctrl("r"), h);
+    await until(() => d.status.phase === "reloading", "the reload's read");
+    s.key(char("x"), h); s.key(ctrl("s"), h); s.key({ kind: "paste", text: "yz" }, h); s.key({ kind: "esc" }, h); s.key(char("w"), h);
+    release();
+    await settled(d, () => d.text.includes("peas"));
+    expect(d.text).toBe("Sowing\npeasxyzw");
+    expect(s.draft).toBe(d);
+    expect(d.note).toContain("ctrl+s, esc didn't run");
+    expect(d.status.changedElsewhere).toBe(false);
+  });
+
+  test("a note's edit in a rich cell: the key that would reach the cell's own keys is held first, and lands in the cell", async () => {
+    const o = fakeOutline(), table = "\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |", { s, h, d, changed } = noteEdit(o, `Crops${table}`, `Crops [season::spring]${table}`);
+    d.place(d.lines.length - 1, 3);
+    await s.act("rich.toggle", { on: true }, h, USER);
+    changed();
+    const release = o.hold();
+    s.key(ctrl("r"), h);
+    await until(() => d.status.phase === "reloading", "the reload's read");
+    for (const c of "ab") s.key(char(c), h);
+    s.key({ kind: "paste", text: "cd" }, h);
+    expect(d.lines.at(-1)).toBe("| leek | 3 |");
+    release();
+    await settled(d, () => d.text.includes("abcd"));
+    expect(d.lines.at(-1)).toContain("abcd");
+  });
+
+  test("a comment's edit: ctrl+r takes the one route, its keys are held, and they land on the words it loaded", async () => {
+    const { s, h, d, o } = await commentRefused("Held reload");
+    const release = o.hold();
+    s.key(ctrl("r"), h);
+    await until(() => d.status.phase === "reloading", "the reload's read");
+    for (const c of "ab") s.key(char(c), h);
+    s.key({ kind: "paste", text: "pasted" }, h);
+    s.key(ctrl("s"), h);
+    expect(d.note).toContain("press ctrl+s again");
+    s.key(char("c"), h);
+    expect(d.text).toBe("How deep is the bed? now");
+    release();
+    await settled(d, () => d.text.includes("should"));
+    expect(d.text).toBe("How deep should the bed be?abpastedc");
+    expect(s.session?.composer).toBe(d);
+    expect(d.status.conflict).toBeNull();
+    expect((s.session!.target as any).mark.revision).toBe(4);
+  });
+
+  test("an act of edit.reload is the same route: an agent's paste while the read is out is refused, and nothing is lost", async () => {
+    const { s, h, d, o } = await commentRefused("Late paste");
+    const release = o.hold();
+    const reload = s.act("edit.reload", {}, h, USER);
+    await until(() => d.status.phase === "reloading", "the reload's read");
+    await expect(s.act("draft.paste", { text: "?" }, h, USER)).rejects.toThrow("try again");
+    release();
+    await reload;
+    expect(d.text).toBe("How deep should the bed be?");
+  });
+
+  test("a short box keeps the typed text, the copy's file name and the reload key; reloaded, the revision and the copy", async () => {
+    const { s, h, d } = await commentRefused("Short box");
+    const file = d.status.savedCopy!.split("/").at(-1)!;
+    const shown = flat(s, h, 28, 8);
+    expect(shown).toContain("now");
+    expect(shown).toContain("notsaved");
+    // One row is what's left for the copy and its key: the name's two ends, which tell one copy from another.
+    expect(shown).toContain(file.slice(0, 8));
+    expect(shown).toContain(file.slice(-6));
+    expect(shown).toContain("^R");
+    await s.act("edit.reload", {}, h, USER);
+    const after = flat(s, h, 28, 8), copy = d.status.savedCopy!.split("/").at(-1)!;
+    expect(d.text).toBe("How deep should the bed be?");
+    expect(after).toMatch(/revision\d/);
+    expect(after).toContain(copy.slice(0, 8));
+    expect(after).toContain(copy.slice(-6));
+  });
+
+  test("at the zoomed size what ctrl+s says never pushes the typed row out of view", async () => {
+    for (const rows of [7, 8, 9, 10]) {
+      const { s, h, d } = await commentRefused(`Zoomed ${rows}`, fakeOutline(), rows);
+      const shown = flat(s, h, 28, rows);
+      expect({ rows, saved: shown.includes("notsaved"), typed: shown.includes("now"), key: shown.includes("^R") }).toEqual({ rows, saved: true, typed: true, key: true });
+      const file = d.status.savedCopy!.split("/").at(-1)!;
+      expect(shown).toContain(file.slice(-6));
+    }
+  });
+
+  test("wheeled away from an inline comment edit, a resize leaves the note where it was scrolled", async () => {
+    const o = fakeOutline(), m = o.note(`Long plan\n${Array.from({ length: 120 }, (_, i) => `row ${i + 1} of the long plan`).join("\n")}`);
+    o.thread(m.id, "Which rows first?");
+    const s = new NoteSurface(), h = o.host();
+    s.show(m, h);
+    await s.loadComments(h);
+    s.key(char("m"), h);
+    await until(() => s.session?.mode === "threads" && s.session.threads.length === 1, "the thread list");
+    s.key(char("e"), h);
+    await until(() => !!s.session?.composer, "the comment's edit");
+    s.key(char("!"), h);
+    s.render(80, 24, h);
+    // The wheel, away from the box; then the tile shrinks, and the box with it. No key was pressed.
+    (s as any).scroll = 60;
+    s.render(80, 24, h);
+    const at = (s as any).scroll;
+    s.render(80, 8, h);
+    expect((s as any).scroll).toBeGreaterThan(at - 3);
+  });
+
+  test.each([[80, 24], [30, 12]])("rich edit at %d×%d says changed elsewhere, then not saved, on the draft's own status row, and reloading clears them", async (cols, rows) => {
+    const o = fakeOutline(), title = `Rich why ${cols}`, table = "\n\n| crop | bed |\n| --- | --- |\n| one | leeks |", { s, h, d, m } = noteEdit(o, `${title}${table}`, "");
+    d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks"));
+    await s.act("rich.toggle", { on: true }, h, USER);
+    const lit = () => s.render(cols, rows, h).lines.map(visible).join("").replace(/\s+/g, "");
+    const before = s.render(cols, rows, h).lines.map(visible).findIndex(l => l.includes("leeks"));
+    s.drafting!.changedTo(m.revision! + 1);
+    expect(lit()).toContain("!!changedelsewhere");
+    // The status takes the state row it already has: the note under it stays where it was.
+    expect(s.render(cols, rows, h).lines.map(visible).findIndex(l => l.includes("leeks"))).toBe(before);
+    for (const c of "ab") s.key(char(c), h);
+    o.edit(m.id, `${title} today${table}`);
+    s.key(ctrl("s"), h);
+    await until(() => d.status.conflict !== null && !d.busy, "the stale refusal");
+    expect(lit()).toContain("notsaved");
+    await s.act("edit.reload", {}, h, USER);
+    expect(lit()).not.toContain("notsaved");
+    expect(lit()).not.toContain("changedelsewhere");
+    expect(d.views.rich?.on).toBe(true);
+  });
+
+  test("rich edit says what a held command didn't do, whole, during the hold and after it", async () => {
+    for (const cols of [80, 177]) {
+      const o = fakeOutline(), title = `Rich line ${cols}`, table = "\n\n| crop | bed |\n| --- | --- |\n| one | leeks |", { s, h, d, m } = noteEdit(o, `${title}${table}`, "");
+      d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks") + 5);
+      await s.act("rich.toggle", { on: true }, h, USER);
+      for (const c of " and radishes too") s.key(char(c), h);
+      o.edit(m.id, `${title} today${table}`);
+      s.key(ctrl("s"), h);
+      await until(() => d.status.conflict !== null && !d.busy, "the stale refusal");
+      const lit = () => s.render(cols, 24, h).lines.map(visible).join("").replace(/\s+/g, "");
+      const release = o.hold();
+      s.key(ctrl("r"), h);
+      await until(() => d.status.phase === "reloading", "the reload's read");
+      s.key(ctrl("s"), h);
+      s.key({ kind: "esc" }, h);
+      expect(lit()).toContain("reloading·pressctrl+s,escagain");
+      release();
+      await settled(d, () => d.lines[0]!.includes("today") && d.status.conflict === null);
+      const after = lit();
+      expect(after).toContain("ctrl+s,escdidn'trun:pressthemagain");
+      // The status grew by rows; the note under it didn't scroll for that.
+      expect(after).toContain(`Richline${cols}today`);
+      expect(after).toContain("revision");
+      expect(after).toContain(d.status.savedCopy!.split("/").at(-1)!);
+      expect(d.views.rich?.on).toBe(true);
+    }
+  });
+});
+
+describe("a comment on a passage", () => {
+  const msgOf = (text: string, revision: number) => msg("note-gate", text, revision);
+  /** A comment refused as stale; the read ctrl+r makes waits on the gate. */
+  async function refused() {
+    const read = gated<Msg>();
+    const env: any = {
+      board: { async comment() { throw new Refused("revision is stale"); } },
+      fetch: () => read.answer, setMsg() {}, reloadComments: async () => [], external() {}, flash() {}, redraw() {},
+    };
+    const s = new CommentSession(msgOf("Gate\nHang it on Friday.", 1), [], "select");
+    s.passage!.selectText("Hang it");
+    expect(s.write()).toBeNull();
+    for (const c of "soon") s.key(char(c), env);
+    s.key(ctrl("s"), env);
+    await until(() => s.writing!.status.conflict !== null, "the stale refusal");
+    return { s, env, d: s.writing!.draft, read };
+  }
+
+  test("what's typed while it finds the quote again is held and lands, and the line says one thing", async () => {
+    const { s, env, d, read } = await refused();
+    expect(s.error).toBeNull();
+    expect(d.status.conflict).toBe("the note changed since you picked the passage · not sent");
+    expect(d.note).toContain("your draft is kept and copied to");
+    s.key(ctrl("r"), env);
+    expect(d.status.phase).toBe("reloading");
+    s.key(char("!"), env);
+    s.key({ kind: "paste", text: " please" }, env);
+    expect(d.text).toBe("soon");
+    read.open(msgOf("Gate\nFirst:\nHang it on Friday.", 2));
+    await until(() => d.status.phase === null && d.text !== "soon", "the held keys");
+    expect(d.text).toBe("soon! please");
+    expect(d.status.conflict).toBeNull();
+    expect(d.note).toContain("found the quote again at revision 2");
+    expect((s.target as any).revision).toBe(2);
+  });
+
+  test("the quote gone: it goes back to picking, and what was typed meanwhile is the comment's, not the picker's", async () => {
+    const { s, env, d, read } = await refused();
+    s.key(ctrl("r"), env);
+    for (const c of "jk") s.key(char(c), env);
+    read.open(msgOf("Gate\nNothing about it now.", 2));
+    await until(() => d.status.phase === null && s.mode === "select", "the picker");
+    await Bun.sleep(0);
+    expect(d.text).toBe("soonjk");
+    expect(s.passage!.note).toContain("the quote is gone");
+    expect(d.status.conflict).toBeNull();
+  });
+
+  test("a read that fails: the conflict stands and the same line says so as any draft's", async () => {
+    const { s, env, d, read } = await refused();
+    const r = s.reload(env);
+    read.shut(new Error("socket closed"));
+    await r;
+    expect(d.status.conflict).not.toBeNull();
+    expect(d.note).toContain("couldn't read it now");
+    expect(s.error).toBeNull();
+  });
+});
+
+describe("a draft put aside comes back the same way from any of them (PIE-1561)", () => {
+  test("a comment: esc esc puts it aside, and C on the note brings it back", async () => {
+    const o = fakeOutline(), m = o.note("Gate\nHang it."), h = o.host();
+    const first = new NoteSurface();
+    first.show(m, h);
+    first.key(char("C"), h);
+    await until(() => !!first.session?.composer, "the comment");
+    for (const c of "onions by the gate") first.key(char(c), h);
+    first.key({ kind: "esc" }, h);
+    first.key({ kind: "esc" }, h);
+    expect(first.session?.composer ?? null).toBeNull();
+    const again = new NoteSurface();
+    again.show(m, h);
+    again.key(char("C"), h);
+    await until(() => !!again.session?.composer, "the comment again");
+    const d = again.session!.composer!;
+    expect(d.text).toBe("onions by the gate");
+    expect(d.note).toContain("brought back");
+    again.session!.writing!.dispose();
+  });
+
+  test("a line field: esc esc on typed words puts them aside, and editing that field again brings them back", async () => {
+    const place = `field:bed-${++places}`, field = new Inspector();
+    await field.edit("bed", "", [], false, place, async () => ({}));
+    for (const c of "three") field.key(char(c));
+    expect(field.key({ kind: "esc" })).toBe(true);
+    const op = field.key({ kind: "esc" });
+    expect(op).toEqual({ op: "cancel" });
+    await field.input("cancel");
+    expect(field.field).toBeNull();
+    const again = new Inspector();
+    await again.edit("bed", "", [], false, place, async () => ({}));
+    expect(again.field!.session.draft.text).toBe("three");
+    expect(again.field!.session.draft.note).toContain("brought back");
+    again.field!.session.dispose();
+  });
+
+  test("a narrow float brought back with the cursor on line 2 draws both lines, with no blank row for line 1", async () => {
+    const o = fakeOutline(), m = o.note("Gate\nHang it."), h = o.host();
+    const first = new NoteSurface();
+    first.show(m, h);
+    first.key(char("C"), h);
+    await until(() => !!first.session?.composer, "the comment");
+    for (const c of "onions by the gate") first.key(char(c), h);
+    first.key({ kind: "enter" }, h);
+    for (const c of "and a sign for the leeks") first.key(char(c), h);
+    composerBox(first.session!.composer!, first.session!.composerFrame()!, 32, 8, true);   // drawn, so its place is kept
+    first.session!.writing!.keep();
+    first.session!.writing!.dispose();
+    const again = new NoteSurface();
+    again.show(m, h);
+    again.key(char("C"), h);
+    await until(() => !!again.session?.composer, "the comment again");
+    const d = again.session!.composer!;
+    expect(d.note).toContain("brought back");
+    expect(d.row).toBe(1);
+    const box = composerBox(d, again.session!.composerFrame()!, 32, 8, true).lines.map(visible).join("\n");
+    expect(box).toContain("onions by the gate");
+    expect(box).toContain("and a sign for the leeks");
+  });
+});

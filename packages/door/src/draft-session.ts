@@ -18,6 +18,7 @@ import { DraftStatus, type DraftPhase } from "./draft-status";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
+import type { ElementEdit } from "./surface/element-editor";
 import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
@@ -65,12 +66,18 @@ export interface DraftTarget {
    * `away`: leaving by a click, which never confirms a second save.
    */
   submit(s: DraftSession, by: Actor, how: { asked: Actor; away: boolean; confirmed: boolean; report: TargetReport }): Promise<Outcome>;
-  /**
-   * ctrl+r after a stale refusal: start over from (or find the place again in) what the service has now; what to say.
-   * `reloaded: false`: nothing was loaded (nothing newer, or it's gone), so the conflict stands. A read that fails throws.
-   */
-  reload?(s: DraftSession, report: TargetReport): Promise<string | { said: string; reloaded: false } | void>;
+  /** ctrl+r: read what the service has now and report only that (`ReloadRead`). A read that fails throws. The session does the rest. */
+  reload?(s: DraftSession): Promise<ReloadRead>;
 }
+
+/**
+ * What a target read on ctrl+r (PIE-1591). The session owns everything else: the hold and the replay, copying what was
+ * typed, where the text lands, when the conflict clears and what the line says.
+ * - `loaded`: the block as it is now, which the draft takes.
+ * - `stays`: the draft's text stands and its place was found again (a comment's quote); what to say about it.
+ * - `none`: nothing to load (it's gone, or nothing is out of date), so the conflict stands; why.
+ */
+export type ReloadRead = { loaded: Msg } | { stays: string } | { none: string };
 
 /** What a session asks of whoever hosts it: its connection (for the hold), a redraw, and what to say. */
 export interface SessionEnv {
@@ -133,7 +140,7 @@ const registry = (board: object | null | undefined) => {
   return s;
 };
 
-/** A key that writes in a draft, or moves between what's written (a command is anything else: `DraftSession.holdKey`). */
+/** A key that writes in a draft, or moves between what's written (a command is anything else: `DraftSession.holding`). */
 const WRITES = new Set<Key["kind"]>(["char", "paste", "enter", "alt-enter", "backspace", "alt-backspace", "delete", "tab", "backtab", "left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
 /** A held key that only adds text: what's safe wherever it lands. */
 const inserts = (k: Key) => k.kind === "paste" || (k.kind === "char" && !k.ctrl);
@@ -211,23 +218,25 @@ export class DraftSession {
    */
   /** A submit is on its way to its target: keys wait for it (`key`). */
   private submitting = false;
-  /** Keys and pastes that came during a reload, in order, and the text it started from. */
+  /** Keys and pastes that came during a reload, in order, each with its host's key path. */
   private heldKeys: { k: Key; replay: (k: Key) => void }[] = [];
-  private heldOn = "";
   /** The reload took away or changed the table the held keys were typed in: how, in words. */
   private tableLost: "is gone" | "changed" | null = null;
   /** Commands pressed during that reload: never run, said when it ends. */
   private heldBack = new Set<string>();
   /** Its held keys are going in: a host's key path runs no command for them. */
   replaying = false;
-  key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null }): void {
-    if (this.status.phase === "reloading") { this.holdKey(k, held => this.key(held, { ...host, run() {} })); return; }
+  /** `replay`: the host's whole key path, for one with steps before this (`holding`); by default a held key comes back here. */
+  key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null; replay?(k: Key): void }): void {
+    if (this.holding(k, host.replay ?? (held => this.key(held, { ...host, run() {} })))) return;
     // While a submit is in flight the keys are held (PIE-1542 review): typing then would show and be lost with the field.
     if (!this.open || this.draft.busy || this.submitting) return;
     // The default attachment (PIE-626): a session's draft completes from its own connection, whoever hosts it; a host
     // that passes `completer: null` opts out, one that passes its own (a note's, with the draft's note as context) keeps it.
     const completer = host.completer === undefined ? defaultCompleter(this.draft, this.env.board, () => this.env.redraw?.()) : host.completer;
     const a: DraftAction = completionKey(this.draft, k, completer);
+    // A draft with nothing behind it to read (a new card, a note reply, a field) says so, whoever hosts it.
+    if (a === "reload" && !this.target.reload) { void this.reload(); return; }
     if (a !== "keep") host.run(a);
   }
 
@@ -260,8 +269,7 @@ export class DraftSession {
     if (r.said !== undefined && this.open) { d.status.say(r.said); this.env.redraw?.(); }
     if (r.stale && this.open) {
       d.status.conflict = r.why;
-      // (A target that already copied it and said so, the comment's, isn't copied twice.)
-      const was = d.status.savedCopy, copied = was && r.why.includes(tidy(was)) ? was : d.copyOut(this.target.label);
+      const copied = d.copyOut(this.target.label);
       d.status.say(`your draft is kept and copied to ${copied}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`);
     }
     return r;
@@ -351,38 +359,70 @@ export class DraftSession {
     return DRAFT_ACTIONS.run(name, args, this.draft, actor);
   }
 
-  /** ctrl+r: after a stale refusal, start over from what the service has now (the target's way). */
-  async reload(replay = true): Promise<void> {
+  /**
+   * ctrl+r, in any draft, the one lifecycle (PIE-1591): keys wait (`holding`) while its target reads (`ReloadRead`); what
+   * was read lands, the conflict clears once and the line says one thing (`land`); what was typed meanwhile goes in on
+   * what it holds (`replayHeld`). A read that fails changes nothing but the line.
+   */
+  async reload(): Promise<void> {
     if (!this.open) return;
-    if (!this.target.reload) { this.status.say("nothing to reload"); return; }
+    if (!this.target.reload) { this.status.say("nothing to reload"); this.env.redraw?.(); return; }
     if (this.draft.busy) return;
-    this.heldOn = this.draft.text;
-    try { await this.reloading(); } finally { if (replay) this.replayHeld(); }
+    if (!this.status.conflict && !this.status.changedElsewhere) { this.status.say("nothing newer to load"); this.env.redraw?.(); return; }
+    try { await this.reading(); } finally { this.replayHeld(); }
+  }
+
+  private async reading(): Promise<void> {
+    const d = this.draft, was = d.text, rich = d.views.rich?.on ? d.views.rich : null, cell = rich?.cellNow() ?? null;
+    let read: ReloadRead;
+    // Keys wait for it and an agent's writes are refused: what they'd add now the reload's rebase would drop (PIE-1560).
+    this.status.phase = "reloading"; this.status.say(""); this.env.redraw?.();
+    // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
+    try { read = await this.target.reload!(this); }
+    catch (e) { this.status.say(`couldn't read it now · your text is kept · ctrl+r tries again (${e instanceof Error ? e.message : String(e)})`); return; }
+    finally { this.status.phase = null; }
+    if (this.open) this.land(read, was, rich, cell);
+  }
+
+  /** What the target read goes where it belongs, the conflict clears unless nothing was loaded, and the line says so. */
+  private land(read: ReloadRead, was: string, rich: ElementEdit | null, cell: ReturnType<ElementEdit["cellNow"]>) {
+    if ("none" in read) { this.status.say(read.none); return; }
+    this.status.settled();
+    if ("stays" in read) { this.status.say(read.stays); return; }
+    const d = this.draft, copy = d.dirty ? d.copyOut(this.target.label) : this.status.savedCopy;
+    d.rebase(read.loaded);
+    this.hold?.revise(d.base);
+    const loaded = `loaded revision ${d.base}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
+    if (d.text === was) { this.status.say(loaded); return; }
+    // Rich edit stays in its cell over the new text, or says it can't: nothing typed goes into a table's syntax (PIE-1560).
+    // Anywhere else the cursor waits at the end: the same place whether a key came before the read answered or after.
+    const landed = rich ? rich.landIn(cell) : (d.place(d.lines.length - 1, d.lines.at(-1)!.length), "kept");
+    this.tableLost = landed === "gone" ? "is gone" : landed === "changed" ? "changed" : null;
+    this.status.say(this.tableLost ? `the table ${this.tableLost}, so rich edit closed and what you type gets its own line · ${loaded}` : loaded);
   }
 
   /**
-   * A key during a reload (PIE-1560). What a person writes always lands, so what they wrote (characters, pastes and the
-   * moves between them) waits for `replayHeld`, through `replay`: their key path. A command (ctrl+s, esc, ctrl+r, anything
-   * else) never runs later on text they haven't seen: it doesn't run at all, and the line says to press it again.
+   * A key during a reload (PIE-1560): true when this session took it. Every host asks this first, before anything of its
+   * own acts on the key. What a person writes always lands, so what they wrote (characters, pastes and the moves between
+   * them) waits for `replayHeld`, through `replay`: their key path. A command (ctrl+s, esc, ctrl+r, anything else) never
+   * runs later on text they haven't seen: it doesn't run at all, and the line says to press it again.
    */
-  holdKey(k: Key, replay: (k: Key) => void) {
-    if (writes(k, this.draft)) { this.heldKeys.push({ k, replay }); return; }
+  holding(k: Key, replay: (k: Key) => void): boolean {
+    if (this.status.phase !== "reloading") return false;
+    if (writes(k, this.draft)) { this.heldKeys.push({ k, replay }); return true; }
     const name = keyName(k) ?? "that key";
     this.heldBack.add(name);
     this.status.say(`reloading · press ${[...this.heldBack].join(", ")} again once it has loaded`);
     this.env.redraw?.();
+    return true;
   }
 
-  /**
-   * What was typed or pasted during the reload goes in now, in order, on what the draft holds: after the words it loaded
-   * (the cursor at their end), or where it was on the kept text. A host with more to do after the reload calls this itself.
-   */
-  replayHeld() {
+  /** What was typed or pasted during the reload goes in now, in order, where it landed. */
+  private replayHeld() {
     const held = this.heldKeys, back = [...this.heldBack], d = this.draft, said = d.note;
     this.heldKeys = []; this.heldBack = new Set();
-    if (!held.length && !back.length) return;
-    // After the words it loaded; in a rich cell, the cell the cursor is in.
-    if (d.text !== this.heldOn && !d.views.rich?.on) d.place(d.lines.length - 1, d.lines.at(-1)!.length);
+    // Disposed while the read was out (its reader went elsewhere): no key path is left to take them.
+    if (!this.open || (!held.length && !back.length)) return;
     this.replaying = true;
     // Where the keys were meant for is gone (a table): a delete or a move would act on text they weren't pressed for.
     const lost = this.tableLost, gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
@@ -396,29 +436,13 @@ export class DraftSession {
     this.env.redraw?.();
   }
 
-  private async reloading(): Promise<void> {
-    const d = this.draft, rich = d.views.rich?.on ? d.views.rich : null, cell = rich?.cellNow() ?? null;
-    let r: Awaited<ReturnType<NonNullable<DraftTarget["reload"]>>>;
-    // Keys wait for it and an agent's writes are refused: what they'd add now the reload's rebase would drop (PIE-1560).
-    this.status.phase = "reloading"; this.status.say("");
-    // A read that fails isn't a reload: the conflict stands and the draft says why (PIE-1560).
-    try { r = await this.target.reload!(this, { phase: p => { this.status.phase = p; this.env.redraw?.(); } }); }
-    catch (e) { this.status.say(`couldn't read it now · your text is kept · ctrl+r tries again (${e instanceof Error ? e.message : String(e)})`); return; }
-    finally { this.status.phase = null; }
-    if (typeof r === "string") this.status.say(r);
-    else if (r) { this.status.say(r.said); return; }
-    // Rich edit stays in its cell over the new text, or says it can't: nothing typed goes into a table's syntax (PIE-1560).
-    const landed = rich && d.text !== this.heldOn ? rich.landIn(cell) : "kept";
-    if (landed !== "kept") {
-      this.tableLost = landed === "gone" ? "is gone" : "changed";
-      this.status.say(`the table ${this.tableLost}, so rich edit closed and what you type gets its own line · ${d.note}`);
-    }
-    this.settled();
-    this.hold?.revise(this.draft.base);
+  /**
+   * What it's written on moved to `revision` (an outline event, a comment list read again): it says so before any save.
+   * Never during a save or a reload, which answer that themselves; never for an older read arriving late.
+   */
+  changedTo(revision: number) {
+    if (this.open && !this.status.saving && this.status.phase !== "reloading" && revision > this.draft.base) this.status.changedElsewhere = true;
   }
-
-  /** The block or passage was found again after a stale refusal: the draft says so no longer. */
-  settled() { this.status.settled(); }
 
   /**
    * Replace the whole text (`edit.text`, `comment.write`, $EDITOR coming back). Text someone else changed last
@@ -815,17 +839,11 @@ export function blockTarget(m: Msg, o: {
         return { ok: false, why, said: `not saved: ${why}` };
       } finally { redraw(); }
     },
-    async reload(s) {
-      const d = s.draft;
-      if (!s.status.conflict && !s.status.changedElsewhere) return { said: "nothing newer to load", reloaded: false };
-      const copy = d.dirty ? d.copyOut(m.id.slice(0, 8)) : s.status.savedCopy;
+    async reload() {
       const now = await o.board.get(m.id);
-      if (!s.open) return;
-      redraw();
-      if (!now) return { said: "the note is gone from the outline", reloaded: false };
+      if (!now) return { none: "the note is gone from the outline" };
       o.reread?.(now);
-      d.rebase(now);
-      return copy ? `loaded revision ${d.base} · your earlier draft is at ${copy}` : d.note;
+      return { loaded: now };
     },
   };
 }
@@ -887,7 +905,7 @@ export function commentTarget(o: {
   landed(r: { id: string; deduplicated?: boolean }, where: NewCommentWhere, body: string): Promise<void>;
   /** Not sent, and why (said by the host at once, before the outcome reaches whoever asked). */
   refused?(why: string, stale: boolean): void;
-  relocate?(): Promise<void>;
+  relocate?(): Promise<ReloadRead>;
 }): DraftTarget {
   const w0 = o.where(), title = `“${subject(o.note)}”`;
   // ctrl+s again sends a text that differs from a send with no answer (Again: the same key within its window).
@@ -930,12 +948,10 @@ export function commentTarget(o: {
         if (e instanceof Refused) {
           o.out.refused();
           const stale = t.kind === "quote" && /revision is stale|was not found|ambiguous/i.test(msg);
-          // A refusal never strands the text (PIE-761): it stays open here, and a copy is on disk, said with what to do next.
-          const kept = `your text is kept here and copied to ${tidy(d.copyOut(label))}`;
-          const why = /revision is stale/i.test(msg) ? `the note changed since you picked the passage · not sent · ${kept} · ctrl+r finds the quote in the current text`
-            : /was not found/i.test(msg) ? `the quote isn't in the note's current text · not sent · ${kept} · ctrl+r picks it again`
-            : `refused, not sent: ${msg} · ${kept} · ctrl+s tries again, esc esc puts it aside (${back})`;
-          return no(why, { stale });
+          // A refusal never strands the text (PIE-761): it stays open here, and a copy is on disk, said with what to do
+          // next. A stale one is the session's to copy and say, as a note's edit is.
+          if (stale) return no(/revision is stale/i.test(msg) ? "the note changed since you picked the passage · not sent" : /was not found/i.test(msg) ? "the quote isn't in the note's current text · not sent" : `refused, not sent: ${msg}`, { stale });
+          return no(`refused, not sent: ${msg} · your text is kept here and copied to ${tidy(d.copyOut(label))} · ctrl+s tries again, esc esc puts it aside (${back})`);
         }
         o.out.unsure();
         return no(`no answer from the outline (${msg}) · it may be saved · your text is kept here and copied to ${tidy(d.copyOut(label))} · ctrl+s retries with the same request id, so it can't land twice`);
@@ -995,17 +1011,11 @@ export function commentEditTarget(o: {
         return no(`no answer from the outline (${msg}) · it may be saved · your text is kept here and copied to ${tidy(d.copyOut(label))} · ctrl+s tries again (a stale refusal then means it landed)`);
       }
     },
-    async reload(s) {
-      const d = s.draft;
-      if (!s.status.conflict && !s.status.changedElsewhere) return { said: "nothing newer to load", reloaded: false };
-      const copy = d.dirty ? d.copyOut(label) : s.status.savedCopy;
+    async reload() {
       const now = await o.reread();
-      if (!s.open) return;
-      if (!now) return { said: `the ${what} is gone from the outline`, reloaded: false };
+      if (!now) return { none: `the ${what} is gone from the outline` };
       mark = now;
-      s.settled();
-      d.rebase({ id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null });
-      return `loaded revision ${now.revision}${copy ? ` · your earlier draft is at ${tidy(copy)}` : ""}`;
+      return { loaded: { id: now.id, text: now.body, revision: now.revision, properties: [], parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null } as unknown as Msg };
     },
   };
 }

@@ -297,12 +297,14 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("s"), d);
     await idle(pane);
     expect(pane.session!.mode).toBe("compose");
-    expect(pane.session!.error).toMatch(/^the note changed since you picked the passage · not sent · your text is kept here and copied to .+-comment-.+\.md · ctrl\+r finds the quote in the current text$/);
+    expect(pane.session!.error).toBeNull();
+    expect(pane.session!.composer!.status.conflict).toBe("the note changed since you picked the passage · not sent");
+    expect(pane.session!.composer!.note).toMatch(/^your draft is kept and copied to .+-comment-.+\.md · ctrl\+r finds it again$/);
     expect(pane.session!.composer!.text).toBe("Friday is tight.");
     expect(await threads(b.id)).toHaveLength(0);
 
     pane.key(ctrl("r"), d);
-    await until(() => pane.session?.error === null && pane.session.note.startsWith("found the quote again"), "the quote to be found again");
+    await until(() => !!pane.session?.composer?.note.startsWith("found the quote again"), "the quote to be found again");
     pane.key(ctrl("s"), d);
     await until(() => pane.session?.mode === "threads", "the send");
     const list = await threads(b.id);
