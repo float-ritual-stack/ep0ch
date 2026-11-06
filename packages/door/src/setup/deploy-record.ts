@@ -1,5 +1,6 @@
 import { linkInstallSummary, type LinkDeploy, type LinkInstallResult } from "@ep0ch/outliner/link";
 import { sessionPersona } from "@ep0ch/outline-core/outline-location";
+import { composeActor } from "@ep0ch/outline-core/attribution";
 import { configuredMachineName, hostMachineName } from "@ep0ch/outliner/machine-name";
 import { disk, resolveTarget } from "../discover";
 import { forwardTo } from "../machine";
@@ -31,7 +32,6 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   if (!outline) throw new Error("no outline named here or by the host; run install with EP0CH_WS=<served outline>");
   const actor = sessionPersona({ env, folder, fs: disk })?.name;
   const sessionId = env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || env.CODEX_THREAD_ID;
-  const provenance = actor ? { actorId: actor, sessionId } : undefined;
   const author = actor ? "agent" : "user";
   const request = <T>(action: string, params: Record<string, unknown> = {}) => {
     // A schema refusal can be tried after restart; a lost create answer must never create twice.
@@ -39,6 +39,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
     return hostSend(socket, action, { outline, ...params }) as Promise<T>;
   };
   const machine = f.machineName?.chosen || configuredMachineName(env, f.host.folder) || hostMachineName();
+  const provenance = actor ? { actorId: composeActor({ persona: actor, principal: `ep0ch@${machine}` }), sessionId } : undefined;
   const heading = `Deploy ${when.toISOString()} on ${machine}`;
   const identity = [`When: ${when.toISOString()}`, `Machine: ${machine}`, `Who: ${actor || "person"}`, ...(sessionId ? [`Session: ${sessionId}`] : []), `From: ${f.repo.checkout.head ?? "unknown"}`];
   const legs = new Map(sshInstallClients(f).map(name => [name, `${name}: not run`]));

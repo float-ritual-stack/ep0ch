@@ -11,7 +11,7 @@ documents the metadata and the commands.
 
 In Claude Code, use the mod's tools: `work_create`, `work_set`, `work_stage`, `work_body`, `work_link`, `work_deliver`,
 `work_complete`, `outline_read`, `outline_find`, `outline_comment`, `outline_reply` and `note_section`. Other
-agents use the outliner CLI (`bun src/cli.ts work …` in `packages/outliner`, with `--author agent --actor <id>`).
+agents use the outliner CLI (`bun src/cli.ts work …` in `packages/outliner`, with `--author agent --actor <id>`: a bare name is recorded as `<name>/cli@<this machine>`, a full id as given).
 Every write checks the revision you read (`expectedRevision`), so read the item first.
 
 ## Conventions

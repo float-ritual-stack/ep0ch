@@ -2,6 +2,7 @@
 // asked for it, its update goes through draft.patch's edit guard (and a live draft), its created text's
 // properties are live, a disabled extension's late answer is dropped, and what an extension says reaches no terminal raw.
 // Scratch services in temp folders; every note, name and secret is made up.
+import { canonicalLocalMachineName } from "../src/machine-name";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -190,7 +191,7 @@ test("an action records who asked beside the extension's writes, in changes.sinc
     console.log = log;
   }
   const cli = store.children(note.id).find((child) => child.text === "From the CLI")!;
-  expect(feed().find((change) => change.blockId === cli.id)?.requestedBy).toEqual({ author: "agent", actorId: "cli-agent" });
+  expect(feed().find((change) => change.blockId === cli.id)?.requestedBy).toEqual({ author: "agent", actorId: `cli-agent/cli@${canonicalLocalMachineName()}` });
   expect(root).toBeTruthy();
 });
 
