@@ -32,7 +32,7 @@ describe("the keys", () => {
   test("alt+← and alt+→ arrive as their own keys, in each encoding terminals send", () => {
     expect(keysOf("\x1b[1;3D")).toEqual([{ kind: "alt-left" }]);
     expect(keysOf("\x1b[1;3C")).toEqual([{ kind: "alt-right" }]);
-    expect(keysOf("\x1b[1;9D")).toEqual([{ kind: "alt-left" }]);
+    expect(keysOf("\x1b[1;9D")).toEqual([{ kind: "alt-left", super: true }]);   // cmd+←: alt+← on a screen; a draft's table tells them apart (PIE-1607)
     expect(keysOf("\x1b\x1b[D")).toEqual([{ kind: "alt-left" }]);
     expect(keysOf("\x1b[D")).toEqual([{ kind: "left" }]);                     // a plain arrow is unchanged
   });
