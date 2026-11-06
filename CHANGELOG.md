@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The editing keys you reach for work in every draft, and a selection is plain to see (PIE-1607)
+
+- **Mac keys in every place you type:**
+  - cmd+shift+←/→ selects to the line's edge.
+  - option+↑/↓ moves lines, and with shift copies them.
+  - ctrl+Home/End goes to the text's ends.
+  - option+←/→ moves by word, option+⌫ erases a word, and alt+D deletes the line.
+  - alt+W, alt+L and alt+S select the word, the line or all.
+- **Typing `[[`, `**`, `(`, a quote or a backtick over a selection wraps it,** and keeps it selected. Text the door filled in for you is still replaced as you type.
+- **A selection is a clear blue,** apart from the cyan cursor. A selected blank line shows.
+- **Each chord a terminal swallows has an alt or ctrl twin:** UI-GRAMMAR's "The keys of a draft" lists them.
+- **In the power bar,** cmd+←/→ goes to the line's edges, and alt+←/→ still changes scope.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### The door stays quick while notes change under it (PIE-1606)
 
 - **A storm of changes:** a frame an outline change asks for now rests the door's loop first, three times the last frame's length (at most 250 ms), so painting takes about a quarter of the loop on a board of many lanes. A terminal tile's output, a transition, a key, a click and an agent's action keep a frame's pace.
