@@ -133,8 +133,12 @@ export class WhatChanged extends OutlineStore {
     if (c.kind === "delete" && prev?.created) this.rows.delete(c.blockId);
     // Over the limit the oldest seen note goes first: an unseen one is still news (and counted), up to a far larger bound.
     if (this.rows.size > KEEP) {
-      const all = [...this.rows.values()].sort((a, b) => a.sequence - b.sequence);
-      const drop = all.find(r => r.seen) ?? (this.rows.size > KEEP * 10 ? all[0] : undefined);
+      let oldest: ChangedRow | undefined, oldestSeen: ChangedRow | undefined;
+      for (const r of this.rows.values()) {
+        if (!oldest || r.sequence < oldest.sequence) oldest = r;
+        if (r.seen && (!oldestSeen || r.sequence < oldestSeen.sequence)) oldestSeen = r;
+      }
+      const drop = oldestSeen ?? (this.rows.size > KEEP * 10 ? oldest : undefined);
       if (drop) this.rows.delete(drop.blockId);
     }
   }
@@ -143,9 +147,11 @@ export class WhatChanged extends OutlineStore {
   heard(e: OutlineEvent) {
     if (e.action === "reset") { this.rows.clear(); this.notify(); return; }
     if (!e.change) return;
-    const before = this.count();
+    // Only this note's row can move the count: a storm of changes doesn't count every row twice per change (PIE-1606).
+    const id = e.change.blockId, counted = (r: ChangedRow | undefined) => !!r && !r.seen && (this.showMachinery || !held(r));
+    const before = id ? counted(this.rows.get(id)) : false;
     this.add(e.change);
-    if (this.count() !== before) this.notify();
+    if (id && counted(this.rows.get(id)) !== before) this.notify();
   }
 
   /** The ids of the notes not yet seen (taken just before the person's look marks them). */

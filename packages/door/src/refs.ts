@@ -1,6 +1,7 @@
 import { expandsEmbeds } from "./embed-policy";
 import type { PictureKind } from "@ep0ch/outline-core/picture";
 import { anyChangeSince, changeClock, changedSince, configChangedSince, outlineChanged, type Notes } from "./search-schedule";
+import { outlineList } from "./outline-lists";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { C, fg, drawEllipsized, ellipsize } from "./style";
@@ -145,20 +146,24 @@ export function ticketPrefixesOf(src: Source | null | undefined): TicketPrefixes
   return c?.value ?? null;
 }
 
-const softScopeBy = new WeakMap<object, Map<string, Cached<{ ignore: string[]; pages: Set<string> }>>>();
+type SoftScope = { ignore: readonly string[]; pages: ReadonlySet<string> };
+const scopeItems = (r: { ignore: string[]; pages: string[] }) => ({ items: [{ ignore: r.ignore, pages: new Set(r.pages) } as SoftScope], problems: [] as string[] });
 /**
- * What soft links are drawn with (PIE-408), the service's one answer: keys left out, and the page addresses. Asked once
- * per change whatever the note holds (a page or a rule note can appear at any edit), never once per value. Null while asked.
+ * What soft links are drawn with (PIE-408), the service's one answer: keys left out, and the page addresses. A page or a
+ * rule note can appear at any edit, so the service watches the question and says when its answer moved: a storm of
+ * changes asks nothing (PIE-1606: it was asked on the first frame after every change). Nothing left out, no pages, until it answers.
  */
-function softScopeOf(src: Source | null | undefined) {
-  return ask(softScopeBy, src, "scope", async b => { const s = await b.softLinkScope(); return { ignore: s.ignore, pages: new Set(s.pages) }; }, c => anyChangeSince(c.at))?.value ?? null;
-}
-export const softLinkIgnoreOf = (src: Source | null | undefined): readonly string[] => softScopeOf(src)?.ignore ?? [];
+const SOFT_SCOPE = outlineList<SoftScope, SoftScope>(
+  (b: Partial<Pick<SocketBoard, "softLinkScope">>) => (typeof b.softLinkScope === "function" ? () => b.softLinkScope!().then(scopeItems) : undefined),
+  items => items[0] ?? { ignore: [], pages: new Set() }, { ignore: [], pages: new Set() },
+  { action: "references.soft-scope", pick: scopeItems },
+);
+export const softLinkIgnoreOf = (src: Source | null | undefined): readonly string[] => SOFT_SCOPE.of(src).ignore;
 /** Whether a soft link draws as one: a date and a pull request do; a value only where its page is. One with no page stays text, and its panel row offers the stub. */
 const softLinkDraws = (t: SoftLinkToken, src: Source | null | undefined) => {
   if (t.kind !== "value") return true;
   const address = tryNormalizePageAddress(t.value)?.normalizedAddress;
-  return !!address && !!softScopeOf(src)?.pages.has(address);
+  return !!address && SOFT_SCOPE.of(src).pages.has(address);
 };
 
 const prefixBy = new WeakMap<object, Map<string, Cached<string | null>>>();

@@ -93,7 +93,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   // one the door drew (snap), not one drawn again beside it.
   const flushPaint = () => {
     const a = A();
-    if (!a?.paintTimer) return false;
+    if (!a?.pace.waiting) return false;
     a.flush();   // the door's own "paint now": the timer cleared, the frame made
     return true;
   };
@@ -229,7 +229,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         A().refusedNow = null;
         // The last paint drew this screen, nothing has changed or asked for a paint since, and no refusal copy is on its frame
         // (a probe leaves that out): its rows are the screen's.
-        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().paintTimer;
+        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().pace.waiting;
         try {
           const l0 = performance.now();
           const drawn = app.strips.draw(current ? painted!.lines : top.render(app).lines, cols, rows);

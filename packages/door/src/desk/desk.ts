@@ -3646,10 +3646,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const id of ids) { const p = this.panes.get(id); if (p instanceof ReaderPane) { p.floating = this.isFloat(id); p.opensHere = pinned.length > 1 && id === a; } }
     }
     for (const [id, p] of this.panes) if (madeFor(p)) (p as ReaderPane).floating = this.isFloat(id);
-    // An empty reader says where its notes come from: the tiles whose opens land in it.
-    const into = new Map<number, string[]>();
-    for (const id of this.all()) { const to = this.linkOf(id); if (to !== undefined && to !== id) into.set(to, [...(into.get(to) ?? []), this.nameOf(id)]); }
-    for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.landsFrom = into.get(id) ?? [];
+    // An empty reader says where its notes come from: the tiles whose opens land in it (a placement a tile, only then: PIE-1606).
+    const into = new Map<number, string[]>(), someEmpty = [...this.panes.values()].some(p => p instanceof ReaderPane && !p.msg);
+    if (someEmpty) for (const id of this.all()) { const to = this.linkOf(id); if (to !== undefined && to !== id) into.set(to, [...(into.get(to) ?? []), this.nameOf(id)]); }
+    if (someEmpty) for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.landsFrom = into.get(id) ?? [];
     // A pinned reader's hint row says where the opens aimed at it land instead (PIE-1207).
     for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.opensGo = p.pinned ? this.opensOf(id).short : null;
     // A preview following a list that quotes its selection (the backlinks: where the source mentions the note) says it.
