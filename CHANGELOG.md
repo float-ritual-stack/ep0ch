@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Published pages keep their bold and their tables (PIE-1590)
+
+- **Bold that ends a line stays bold:** `**9:30 AM, gutters on:**` on its own list item or line no longer shows its asterisks on the web. Italics and strikethrough closed by punctuation are fixed the same way.
+- **A table in a callout is a table:** it was drawn as a paragraph of pipes. Like any wide table on a page, it scrolls sideways on a phone.
+
 ### Pictures in notes size the way you set them (PIE-1583)
 
 - **Smaller or bigger:** a picture's caption has `[-][+]`, and a key or `act` does the same. The size is saved in the note as `height=N` on an svg or mermaid fence or `[size::N%]` on an `[img::]` line, so it reopens at that size, published pages included.
