@@ -99,7 +99,9 @@ async function readBehind() {
       hiddenStale.delete(next);
       // Shown meanwhile, read already, or put away: nothing to do.
       if (!next.stale || !next.desk || next.disposed) continue;
+      next.readingBehind = true;
       await next.refreshNow(next.desk).catch(() => {});
+      next.readingBehind = false;
       // Spaced, so a board of lanes off the screen is a trickle, not a stream.
       await Bun.sleep(BEHIND_GAP_MS);
     }
@@ -242,7 +244,8 @@ export class QueryPane implements Pane {
       }
       this.sel = Math.max(0, at >= 0 ? at : Math.min(this.sel, items.length - 1));
       this.loaded?.(this);
-      desk.redraw();
+      // A lane off the screen read behind: nothing on screen changed (PIE-1606).
+      if (!this.readingBehind || desk.shows?.(this) !== false) desk.redraw();
     }, () => { if (turn.alive()) { this.inflight = null; this.items = []; desk.redraw(); } });
     this.inflight = mine;
     return mine;
@@ -260,6 +263,8 @@ export class QueryPane implements Pane {
   /** When it was last drawn and last read because the outline changed, and whether a change since is still to read. */
   disposed = false;
   readAt = 0;
+  /** This read is the door-wide trickle's, for a tile not shown (`readBehind`). */
+  readingBehind = false;
   stale = false;
   /** A frame was asked for since it was last read: asking again would only draw the same screen. */
   private redrawAsked = false;

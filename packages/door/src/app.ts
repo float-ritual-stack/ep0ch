@@ -704,8 +704,8 @@ export class App implements Ctx {
     this.reportStatus();
     this.openEvents.start();
     this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
-    this.waitingAsks.subscribe(() => this.redraw());
-    this.heldAsks.subscribe(() => this.redraw());
+    this.waitingAsks.subscribe(() => this.redraw(true));
+    this.heldAsks.subscribe(() => this.redraw(true));
     // A source that came or went (an extension added or removed) is asked, or dropped, by the open bar at once.
     onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
@@ -1041,7 +1041,8 @@ export class App implements Ctx {
     this.redraw();
   }
 
-  event(e: OutlineEvent) {
+  event(e: OutlineEvent) { this.pace.hearing(() => this.heard(e)); }
+  private heard(e: OutlineEvent) {
     this.heldAsks.heard(e);
     this.waitingAsks.heard(e);
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
@@ -1707,16 +1708,15 @@ export class App implements Ctx {
    *
    * Asked while a frame is being drawn (a render that redraws itself), it never paints inside that paint: the frame
    * timer paints once, a frame after it ends (`paint`, PIE-1315).
-   *
-   * A dear frame with nobody pressing anything rests the loop after it (src/frame-pace.ts, PIE-1606).
+   * `rest`: an outline change asked for it, and it rests the loop first (src/frame-pace.ts, PIE-1606).
    */
-  redraw() {
+  redraw(rest = false) {
     this.redraws++; notePressRedraw();
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.keying || this.batching) this.speed.asked();
     if (this.batching) { this.wanted = true; return; }
     this.changed = true;
-    this.pace.ask(this.lastInput, () => this.paint());
+    this.pace.ask(this.lastInput, () => this.paint(), rest);
   }
   /** Repaints asked for, painted or folded into another (the parity pass counts them). */
   private redraws = 0;
