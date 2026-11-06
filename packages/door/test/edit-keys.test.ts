@@ -1,10 +1,16 @@
 // A Mac editor's keys in the one editor (PIE-1607): each chord as the terminal sends it (a real byte sequence through the
 // decoder), in a note's draft, then the same keys in a line field. Made-up text.
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS } from "../src/edit";
 import { parseReport, reportKey } from "../src/kbd";
 import { chordName, exactKeyName, keyCaption, keyName, keyOfName } from "../src/surface/actions";
+import { editHint } from "../src/surface/editor";
+import { reloadKeymap } from "../src/surface/keymap";
 import { LineField } from "../src/surface/line";
+import { visible } from "../src/style";
 import { USER } from "../src/socket";
 import type { Key } from "../src/term";
 
@@ -233,6 +239,42 @@ describe("wrapping a selection", () => {
     // By key, the refusal is said on the status line, never thrown.
     d.key({ kind: "alt", ch: "x" });
     expect(d.note).toContain("nothing is selected");
+  });
+});
+
+describe("following the keymap", () => {
+  test("a rebind moves the key in a draft and a line alike, and the old key is the character or nothing again", () => {
+    const dir = mkdtempSync(join(tmpdir(), "edit-keys-"));
+    const file = join(dir, "keybindings.json");
+    process.env.EP0CH_KEYMAP = file;
+    try {
+      writeFileSync(file, JSON.stringify({ "draft.go to=line-end extend=true": ["alt+y"], "draft.wrap with=[": ["alt+i"] }));
+      reloadKeymap();
+      const d = draftOf("sow peas", 0, 4);
+      d.key(key(CMD_SHIFT_RIGHT));
+      expect(d.selection()).toBeNull();
+      d.place(0, 4);
+      d.key({ kind: "alt", ch: "y" });
+      expect(d.selectedText()).toBe("peas");
+      typed(d, "[");
+      expect(d.text).toBe("sow [");
+      const l = new LineField("sow peas");
+      l.place(0, 4);
+      expect(l.take({ kind: "alt", ch: "y" })).toBe(true);
+      expect(l.selectedText()).toBe("peas");
+      expect(l.take({ kind: "alt", ch: "i" })).toBe(true);
+      expect(l.text).toBe("sow [peas]");
+    } finally {
+      delete process.env.EP0CH_KEYMAP;
+      reloadKeymap();
+    }
+  });
+
+  test("the selection's hint offers a wrap a click can run", () => {
+    const d = draftOf("sow peas", 0, 0);
+    expect(editHint(d, { save: "save" })).not.toContain("wraps");
+    selecting(d, 4, 8);
+    expect(visible(editHint(d, { save: "save" }))).toContain("[ wraps");
   });
 });
 

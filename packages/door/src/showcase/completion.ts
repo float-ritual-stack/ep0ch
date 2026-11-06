@@ -64,8 +64,8 @@ export function editKeysSection(deskOf: MakeDesk): Section {
     const r = new ReaderPane();
     return deskOf({ title: "showcase · editing keys", panes: [r] }, show, [[r, n.editKeys]], d => {
       void d.press(r, NOTE_ACTIONS, "edit")
-        .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3, col: 10 }))
-        .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3, col: 20, extend: true }));
+        .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3, col: 11 }))
+        .then(() => d.press(r, NOTE_ACTIONS, "draft.place", { line: 3, col: 21, extend: true }));
     });
   },
 };

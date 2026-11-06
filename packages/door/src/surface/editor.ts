@@ -317,7 +317,7 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
     ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
     ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
     ...(o.place ? row("ctrl+o", "comment.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
-    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), ...bound("draft.wrap", "wraps")] : []),
+    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), { key: "[", action: "draft.wrap", args: { with: "[" }, label: "wraps" }] : []),
     ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? bound("edit.reload", o.reload) : []),
     ...bound("draft.pick", "insert"), ...row("tab", "draft.indent", "indent"), ...row("shift+tab", "draft.outdent", "out"), ...bound("draft.preview", "preview"),
   ]);

@@ -65,6 +65,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     await act("draft.undo", {});
     (app as any).paint();
     press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
+    (app as any).lastInput = 0;
   });
 
   test("insert uses the note's scoped folder, returns absolute file lines, and stays beside a drawer draft", async () => {
