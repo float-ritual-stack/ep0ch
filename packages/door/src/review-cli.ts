@@ -24,12 +24,16 @@ export const REVIEW_USAGE = `  ep0ch review backfill [--since 7d] [--limit <n>] 
                                    the asks extension's settle over notes an agent last wrote in the window: a dry run by
                                    default, printing per note what it would write; --write writes it. Safe to run twice.`;
 
-const SOLO = ["--json", "--no-jev", "--here", "--write"];
-const VALUED = ["--since", "--limit", "--into", "--into-machine", "--ws", "--machine"];
+/** The flags each subcommand reads: any other is refused, never taken and ignored. */
+const FLAGS = {
+  backfill: { solo: ["--json", "--no-jev", "--here"], valued: ["--since", "--limit", "--into", "--into-machine", "--ws", "--machine"] },
+  asks: { solo: ["--write", "--here"], valued: ["--since", "--limit", "--ws", "--machine"] },
+};
 
 export async function reviewCommand(args: string[], io = { out: (s: string) => console.log(s), err: (s: string) => console.error(s) }): Promise<number> {
   if (args[1] !== "backfill" && args[1] !== "asks") { io.err(REVIEW_USAGE); return 2; }
   const command = `ep0ch review ${args[1]}`;
+  const { solo: SOLO, valued: VALUED } = FLAGS[args[1]];
   const rest = args.slice(2), opts: Record<string, string> = {};
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
