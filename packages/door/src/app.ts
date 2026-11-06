@@ -655,7 +655,8 @@ export class App implements Ctx {
   /** `now`: the clock the status bar reads (a test's fake one). */
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
-    this.screensAsk = new AskAgain<void>({ read: () => this.loadScreens(), show() {}, told: board.watched && { by: board.watched, answers: () => [board.byPropShown?.("type", SCREEN_TYPE, 500)] } });
+    // Once the door has read its screens: the first read is the start's, and a moved answer before it has nothing to bring up to date.
+    this.screensAsk = new AskAgain<void>({ read: async () => { if (this.screensSeen) await this.loadScreens(); }, show() {}, told: board.watched && { by: board.watched, answers: () => [board.byPropShown?.("type", SCREEN_TYPE, 500)] } });
     this.started = now();
     this.speed = new SpeedMeter(now);
     // A Claude session running twice (PIE-1369): this machine's sessions and the outline's machine's, read while someone looks.

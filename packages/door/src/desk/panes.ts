@@ -903,7 +903,7 @@ export class ActivityPane implements Pane {
   pickRow(i: number, desk: DeskApi) { this.sel = i; desk.redraw(); }
   reload(desk: DeskApi) { void this.again.at(desk).now(); }
   init(desk: DeskApi) { void this.again.at(desk).now(); }
-  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) this.again.at(desk).heard(e); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) { const again = this.again.at(desk); if (e) again.heard(e); else again.soon(); }
   dispose() { this.again.cancel(); }
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.rows) return { lines: [dim("listening…")] };
@@ -940,7 +940,7 @@ export class WhoPane implements Pane {
   init(desk: DeskApi) { this.load(desk); }
   /** Who's on and what they read: any change may be someone arriving. */
   private readonly again = new AskAgainAt<DeskApi, void>(desk => ({ read: async () => this.load(desk), show() {}, notes: "any" }));
-  onEvent(desk: DeskApi, e?: OutlineEvent) { if (e) this.again.at(desk).heard(e); }
+  onEvent(desk: DeskApi, e?: OutlineEvent) { const again = this.again.at(desk); if (e) again.heard(e); else again.soon(); }
   dispose() { this.again.cancel(); }
   /** The callers as last read, as who.refresh answers them. */
   rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
