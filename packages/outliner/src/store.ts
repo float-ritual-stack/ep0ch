@@ -1,3 +1,4 @@
+import { workIdPrefixesInUse } from "./work-id-prefixes";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { createRequestedBlock } from "./create-request";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
@@ -3580,7 +3581,8 @@ export class OutlinerStore {
 
   /** For an id prefix nothing starts: the notes whose ids sort nearest it (one below, two above), or null in an empty outline. */
   private nearestIdsFromCurrentRead(prefix: string): string | null {
-    const live = "effective_deleted_root_id IS NULL";
+    // `+`: by the primary key; through the deleted-root index this read every live note, per missing reference (PIE-1546).
+    const live = "+effective_deleted_root_id IS NULL";
     const below = this.database.query(`SELECT id FROM blocks WHERE ${live} AND id < ? ORDER BY id DESC LIMIT 1`).all(prefix) as { id: string }[];
     const above = this.database.query(`SELECT id FROM blocks WHERE ${live} AND id > ? ORDER BY id LIMIT 2`).all(prefix) as { id: string }[];
     const ids = [...below, ...above].map(row => row.id);
@@ -4329,7 +4331,8 @@ export class OutlinerStore {
 
   /** Every block not in the Trash, in outline order: a rule's baseline (PIE-600, `src/extension-rules.ts`). */
   liveBlocks(): Block[] {
-    return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" })).deferred();
+    // `source`: nobody here reads a display text; resolving every note's references held the host's first change (PIE-1546).
+    return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active", display: "source" })).deferred();
   }
 
   /**
@@ -5912,7 +5915,7 @@ export class OutlinerStore {
         : null,
       reservedCount: reservations.length,
       observedPrefixes,
-      prefixesInUse: this.workIdPrefixesInUseFromCurrentRead(allocator?.prefix ?? null, observedPrefixes),
+      prefixesInUse: workIdPrefixesInUse(this.database, this.sequence, allocator?.prefix ?? null, observedPrefixes, () => this.ticketPagesFromCurrentRead().keys()),
     };
   }
 
@@ -5922,21 +5925,6 @@ export class OutlinerStore {
    * (`[jira::KEY-1]`). Any other `LETTERS-digits`
    * (a synth's name, `FM-1`) is plain text.
    */
-  private workIdPrefixesInUseFromCurrentRead(configured: string | null, observed: readonly string[]): string[] {
-    const prefixes = new Set<string>([...(configured ? [configured] : []), ...observed]);
-    const values = this.database.query(
-      "SELECT DISTINCT upper(trim(property.value)) AS value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL",
-    ).all() as Array<{ value: string }>;
-    const pages = this.database.query(
-      "SELECT upper(display_address) AS value FROM page_addresses WHERE kind IN ('page', 'alias')",
-    ).all() as Array<{ value: string }>;
-    for (const key of [...values, ...pages].map((row) => row.value).concat([...this.ticketPagesFromCurrentRead().keys()])) {
-      const match = /^([A-Z][A-Z0-9]{0,15})-\d+$/.exec(key);
-      if (match) prefixes.add(match[1]!);
-    }
-    return [...prefixes].sort();
-  }
-
   private nextWorkIdNumberForPrefixFromCurrentRead(prefix: string): number {
     let maximum = 0;
     for (const reservation of this.canonicalWorkIdReservationsFromCurrentRead()) {

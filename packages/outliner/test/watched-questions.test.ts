@@ -44,6 +44,25 @@ function hub() {
   return { hub: store.get(hub.id)!, shed, beans, rota, gate, compost };
 }
 
+test("the same question from three connections at one sequence is answered once; a change answers it again", () => {
+  let value = 1, sequence = 1, answers = 0;
+  const watches = new QueryWatches({ answer: r => { answers += 1; return { id: r.id, ok: true, result: { value }, sequence }; }, sequence: () => sequence });
+  const door = () => ({ write() {} });
+  const ask = (connection: ReturnType<typeof door>, id: string) => watches.ask(connection, { id, action: "blocks.query", query: { where: "type=seed" }, watch: "seeds" });
+  const [a, b, c] = [door(), door(), door()];
+  expect(ask(a, "1")).toMatchObject({ id: "1", ok: true, result: { value: 1, generation: 0 } });
+  expect(ask(b, "2")).toMatchObject({ id: "2", ok: true, result: { value: 1, generation: 0 } });
+  expect(ask(c, "3")).toMatchObject({ id: "3", ok: true, result: { value: 1, generation: 0 } });
+  expect(answers).toBe(1);
+  // Another question isn't this one.
+  watches.ask(a, { id: "4", action: "blocks.query", query: { where: "type=bean" }, watch: "beans" });
+  expect(answers).toBe(2);
+  value = 2; sequence = 2;
+  expect(ask(door(), "5")).toMatchObject({ result: { value: 2 } });
+  expect(answers).toBe(3);
+  watches.stop();
+});
+
 describe("this, linkedfrom: and parent:", () => {
   test("links:this NOT linkedfrom:this is the backlinks the note doesn't link back", () => {
     const s = hub();

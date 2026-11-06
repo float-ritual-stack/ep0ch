@@ -37,7 +37,7 @@ process.on("uncaughtException", error => contain("uncaught error", error.stack ?
 process.on("unhandledRejection", reason => contain("unhandled rejection", reason instanceof Error ? reason.stack ?? reason.message : String(reason)));
 
 // What holds the loop is said in the log (PIE-625): every client waits on this one loop.
-watchEventLoop(stall => console.log(JSON.stringify(stall)));
+watchEventLoop(stall => console.log(JSON.stringify(stall)), { lane: minute => console.log(JSON.stringify(minute)) });
 
 try {
   const outlinesFolder = resolveOutlinesFolder();

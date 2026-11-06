@@ -6,7 +6,14 @@
  * - `loop_stalled`: the loop didn't get back to a timer for `ms` (sampled every 50 ms; reported from 100 ms), with
  *   the requests that ran in that window, summed by action, the longest first;
  * - `slow_request`: one request that took `ms` from its line arriving to its answer written: `queuedMs` behind the
- *   requests before it on its connection, `handleMs` handling it, and `publishMs` sending its change to subscribers.
+ *   requests before it on its connection, `handleMs` handling it, `publishMs` sending its change to subscribers, and
+ *   `who` asked;
+ * - `queued_minute`: who was queued over a second in that minute, as actor × action counts (PIE-1546), so the next pile-up
+ *   reads off one line: `scripts/host-queue-minutes.ts` reads a log's worth.
+ *
+ * What a stall can't name: the work a request does after a wait (a laptop's answer, a copy's snapshot) runs on the loop
+ * with nobody timing it. Whatever is left of a stall after the named work goes to the requests waiting at that moment,
+ * shared, as `<action> after a wait` (PIE-1567): that is the only work that can have run, except a timer's.
  *
  * The host turns it on; a test or a CLI that opens a store never does.
  *
@@ -50,16 +57,87 @@ export interface LoopWatch {
   stop(): void;
 }
 
+/** A request that is waiting for something off the loop, and what its work between the waits held the loop for. */
+export interface InFlight { action: string; heldMs: number; landed?: true }
+const inFlight = new Set<InFlight>();
+
+/** A request's handler is about to be waited for; `forget` it once its timing is written. */
+export function inFlightRequest(action: string): InFlight {
+  const flight: InFlight = { action, heldMs: 0 };
+  if (watching) inFlight.add(flight);
+  return flight;
+}
+/** It answered. Its last stretch of work ended just now, before the sampler could run: the next stall still counts it. */
+export const landed = (flight: InFlight): void => { flight.landed = true; };
+export const forget = (flight: InFlight): void => { inFlight.delete(flight); };
+
+/** Times synchronous work that isn't a request (an outline opening, a rule's baseline), so a stall can name it. */
+export function heldBy<T>(label: string, work: () => T): T {
+  const started = performance.now();
+  try { return work(); } finally { noteWork(label, performance.now() - started); }
+}
+
+/** A request waited this long for its turn, over the line a client notices. */
+export const QUEUED_MS = 1_000;
+const LANE_ROWS = 12;
+
+/** Who was queued in one minute: actor × action counts (PIE-1546, the request's "a lane that says who is queued"). */
+export interface QueuedMinute { status: "queued_minute"; minute: string; over1s: number; worstMs: number; who: string[] }
+export class QueueLane {
+  private minute = "";
+  private rows = new Map<string, { n: number; worst: number }>();
+  /** `at`: the minute it happened in, `2026-11-06T09:41`. A new minute hands back the one that ended. */
+  note(who: string, action: string, queuedMs: number, at: string): QueuedMinute | undefined {
+    const ended = at === this.minute ? undefined : this.flush();
+    this.minute = at;
+    const key = `${who} × ${action}`, row = this.rows.get(key) ?? { n: 0, worst: 0 };
+    row.n += 1;
+    row.worst = Math.max(row.worst, queuedMs);
+    this.rows.set(key, row);
+    return ended;
+  }
+  /** The minute so far, and the lane emptied. */
+  flush(): QueuedMinute | undefined {
+    if (!this.rows.size) return undefined;
+    const rows = [...this.rows].sort((a, b) => b[1].n - a[1].n || b[1].worst - a[1].worst);
+    const done: QueuedMinute = {
+      status: "queued_minute", minute: this.minute, over1s: rows.reduce((sum, [, row]) => sum + row.n, 0), worstMs: Math.round(Math.max(...rows.map(([, row]) => row.worst))),
+      who: rows.slice(0, LANE_ROWS).map(([key, row]) => `${key} ${row.n} (worst ${Math.round(row.worst)} ms)`),
+    };
+    this.rows = new Map();
+    return done;
+  }
+  /** The minute `now` is in, as the log's lines read. */
+  static minuteOf(now = new Date()): string {
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 16);
+  }
+}
+const lane = new QueueLane();
+let laneReport: ((minute: QueuedMinute) => void) | undefined;
+
+/** A request's turn came after `queuedMs`: it joins this minute's lane when that's over the line. */
+export function noteQueued(who: string, action: string, queuedMs: number): void {
+  if (!watching || queuedMs < QUEUED_MS) return;
+  const ended = lane.note(who, action, queuedMs, QueueLane.minuteOf());
+  if (ended) laneReport?.(ended);
+}
+
 /** Samples the loop's lag and reports stalls; one per process. */
-export function watchEventLoop(report: (stall: LoopStall) => void, options: { sampleMs?: number; reportMs?: number } = {}): LoopWatch {
+export function watchEventLoop(report: (stall: LoopStall) => void, options: { sampleMs?: number; reportMs?: number; lane?: (minute: QueuedMinute) => void } = {}): LoopWatch {
   const sampleMs = options.sampleMs ?? SAMPLE_MS;
   const reportMs = options.reportMs ?? STALL_REPORT_MS;
   watching = true;
+  laneReport = options.lane;
   let expected = performance.now() + sampleMs;
+  let lastMinute = QueueLane.minuteOf();
   const timer = setInterval(() => {
     const now = performance.now();
     const lag = now - expected;
     expected = now + sampleMs;
+    // A quiet minute after a busy one still says what the busy one held.
+    const minute = QueueLane.minuteOf();
+    if (minute !== lastMinute) { lastMinute = minute; const ended = lane.flush(); if (ended) laneReport?.(ended); }
     if (lag < reportMs) return;
     const since = now - lag - sampleMs;
     const byLabel = new Map<string, { ms: number; count: number }>();
@@ -70,6 +148,16 @@ export function watchEventLoop(report: (stall: LoopStall) => void, options: { sa
       sum.count += 1;
       byLabel.set(work.label, sum);
     }
+    // What nothing named: the work of the requests waiting right now, after their waits, shared.
+    const named = [...byLabel.values()].reduce((sum, { ms }) => sum + ms, 0), share = (lag - named) / inFlight.size;
+    if (inFlight.size && share >= KEEP_MS) for (const flight of inFlight) {
+      flight.heldMs += share;
+      const label = `${flight.action} after a wait`, sum = byLabel.get(label) ?? { ms: 0, count: 0 };
+      sum.ms += share;
+      sum.count += 1;
+      byLabel.set(label, sum);
+    }
+    for (const flight of inFlight) if (flight.landed) inFlight.delete(flight);
     const during = [...byLabel].sort((a, b) => b[1].ms - a[1].ms).slice(0, 8)
       .map(([label, sum]) => `${label} ${Math.round(sum.ms)}${sum.count > 1 ? ` (${sum.count}×)` : ""}`);
     recent = [];
@@ -81,6 +169,10 @@ export function watchEventLoop(report: (stall: LoopStall) => void, options: { sa
       clearInterval(timer);
       watching = false;
       recent = [];
+      inFlight.clear();
+      const ended = lane.flush();
+      if (ended) laneReport?.(ended);
+      laneReport = undefined;
     },
   };
 }
@@ -253,4 +345,44 @@ export function subjectLabel(action: string, subject: Record<string, string | nu
   const note = typeof subject.blockId === "string" ? ` ((${subject.blockId.slice(0, 8)}))` : typeof subject.viewId === "string" ? ` view ((${subject.viewId.slice(0, 8)}))` : "";
   const what = subject.figure ? ` graph-${subject.figure}` : subject.produce ? ` ${subject.produce}` : subject.scriptLine !== undefined ? ` script line ${subject.scriptLine}` : subject.sources ? " sources" : "";
   return `${action}${note}${what}`;
+}
+
+/** One request's timing, for the host's log. */
+export interface RequestTiming {
+  request: { action?: unknown } | undefined;
+  outline: string | undefined;
+  /** The agent it names, the extension it's from, else the client on its connection. */
+  who: string;
+  subscribers: number;
+  received: number; started: number; answered: number;
+  /** What it held the loop for that was timed; a stall adds what it did after a wait (`flight`). */
+  loopMs: number;
+  flight: InFlight | undefined;
+  publishMs: number;
+}
+
+/**
+ * A request that took long is logged and named in a stall (PIE-625, 1047), and one that waited over a second joins its
+ * minute's lane. After a wait, the sampler goes first (already due, if this held the loop) and says what it held.
+ */
+export function timeRequest(t: RequestTiming): void {
+  if (t.flight && t.answered - t.started >= STALL_REPORT_MS) setTimeout(() => writeTiming(t), 1);
+  else writeTiming(t);
+}
+
+function writeTiming(t: RequestTiming): void {
+  if (t.flight) forget(t.flight);
+  const afterWait = t.flight?.heldMs ?? 0, action = String(t.request?.action ?? "invalid"), ms = t.answered - t.received;
+  noteQueued(t.who, action, t.started - t.received);
+  // A request that held the loop is named by what it computed (PIE-1047), so a stall points at its note and figure.
+  const subject = t.loopMs >= STALL_REPORT_MS || ms >= QUEUED_MS ? requestSubject(t.request) : undefined;
+  noteWork(subject && t.loopMs >= STALL_REPORT_MS ? subjectLabel(action, subject) : action, t.loopMs);
+  noteWork(`${action} fan-out`, t.publishMs);
+  // Its own work held the loop, or it waited long enough for a client to notice (a third of the 3 s timeout).
+  if (t.loopMs + afterWait < STALL_REPORT_MS && t.publishMs < STALL_REPORT_MS && ms < QUEUED_MS) return;
+  console.log(JSON.stringify({
+    status: "slow_request", outline: t.outline, action, who: t.who, ms: Math.round(ms),
+    queuedMs: Math.round(t.started - t.received), handleMs: Math.round(t.answered - t.started), loopMs: Math.round(t.loopMs + afterWait),
+    publishMs: Math.round(t.publishMs), subscribers: t.subscribers, ...(subject ?? requestSubject(t.request)),
+  }));
 }

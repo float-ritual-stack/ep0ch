@@ -19,6 +19,7 @@
 // - A question can name the day (`wait-until <= today`, `due <= +3d`, PIE-769): when the machine's day turns, every
 //   watch is evaluated again with no change at all, so a view of what's waiting until today fills at midnight.
 //
+// - The same question asked by several connections at one sequence (doors reconnecting after a restart) is answered once.
 // - Fair to everyone else (PIE-1413): with `turn`, a pass is evaluated a watch at a time, each waiting its turn on the
 //   loop like a client's request, so a pass over hundreds of watches never holds the loop (a backfill's 441 ms passes
 //   once a second did). One pass runs at a time; what changes meanwhile is evaluated by the next. A question watched
@@ -75,6 +76,8 @@ export interface ChangedNotes {
 
 /** In a pass taking longer than this, what changed so far is told without waiting for the rest. */
 const TELL_EVERY_MS = 100;
+/** How long an answer serves the same question asked by another connection, while the outline hasn't changed. */
+const MEMO_MS = 2_000;
 
 
 /** An answer's identity: everything in it but the service's sequence, which moves on every write. */
@@ -136,6 +139,8 @@ export class QueryWatches {
   private passing = false;
   private passes = 0;
   private chain: Promise<void> = Promise.resolve();
+  /** What was answered at one sequence, a moment ago, for the next connection asking the same (`asked`). */
+  private memo?: { sequence: number; at: number; answers: Map<string, OutlinerResponse> };
   private readonly settleMs: number;
   private readonly minuteMs: number;
   private readonly maxWaitMs: number;
@@ -196,7 +201,7 @@ export class QueryWatches {
     const slot = `${this.id(connection)}\0${key}`;
     const held = this.all.get(slot);
     if (held && held.signature === signature) return this.reply(request.id, held);
-    const response = this.options.answer({ ...question, id: request.id } as Request);
+    const response = this.asked(signature, question, request.id);
     if (!response.ok) return response;
     if (held) this.all.delete(slot);
     const deps = depsOf(response);
@@ -206,6 +211,22 @@ export class QueryWatches {
     this.bound(connection);
     this.armMinute();
     return this.reply(request.id, watch);
+  }
+
+  /**
+   * The answer to a question being registered: one a connection asked at this sequence moments ago if there is one. Doors
+   * reconnecting after a restart all ask the same reads at once; on float-2 three of them queued up to 10 s behind each
+   * other's copies of the same reads (PIE-1546). A watched read answers from the outline and the clock alone, so the same
+   * question at the same sequence has the same answer; `MEMO_MS` keeps the clock's part honest.
+   */
+  private asked(signature: string, question: Record<string, unknown>, id: string): OutlinerResponse {
+    const sequence = this.options.sequence(), now = performance.now();
+    if (this.memo?.sequence !== sequence || now - this.memo.at > MEMO_MS) this.memo = { sequence, at: now, answers: new Map() };
+    const held = this.memo.answers.get(signature);
+    if (held) return { ...held, id };
+    const response = this.options.answer({ ...question, id } as Request);
+    if (response.ok) this.memo.answers.set(signature, response);
+    return response;
   }
 
   private reply(id: string, watch: Watch): OutlinerResponse {
