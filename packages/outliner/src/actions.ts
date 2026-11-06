@@ -161,6 +161,7 @@ export const ACTIONS = {
   "blocks.authored-links": { ext: "read", watch: true, whole: true },
   "blocks.census": { read: true },
   "blocks.context": { ext: "read" },
+  "blocks.asks": { ext: "read", async: true, once: true },
   "blocks.facets": { read: true, whole: true },
   "blocks.grep": { read: true, whole: true },
   "blocks.markRead": { event: (request, { result }) => (result as { marked: number }).marked ? content(request.blocks[0]?.id) : null },

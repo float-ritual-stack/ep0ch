@@ -890,6 +890,7 @@ Every condition given must hold; at least one is needed.
 |---|---|---|
 | `property` | `key=value` or `key`: the property case of `query` | the service's query matcher (`query.matches`), the views' grammar and index |
 | `query` | a saved-view query (`type=meeting AND where="the shed"`) | the same |
+| `propertyScope` | which chips `property` and `query` read: `all` for a `[key::value]` on any line too (a ticked step's no longer matches), as `[property-scope::all]` on a view | the same |
 | `view` | a saved view's block id: its `[query::…]` | the same |
 | `under` | only blocks under this one (and it) | the same |
 | `text` | a pattern, line by line, never in a code fence, a code span, a literal region or a `[key::value]` token; `(?i)` at the start ignores case; each line once, 16 lines per note at most | outline-core `ruleHits` |
@@ -2155,6 +2156,16 @@ Blocks matching a question in the views' grammar (`where: "readwise.book=8"`), u
 | `query` | `BlockSearchQuery` |  |
 
 Answers `VisibleBlockCollection`.
+
+#### `blocks.asks`
+
+The write review's `asks` judgment on a note as it is now, line by line, with the text and revision it read (PIE-1612). `jev` says why when it couldn't be asked.
+
+| Field | Type | |
+|---|---|---|
+| `blockId` | `string` |  |
+
+Answers `{ jev: string; lines: AskReading[]; blockId: string; revision: number; text: string; }`.
 
 #### `pages.resolve`
 

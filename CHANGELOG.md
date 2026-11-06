@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Waiting on Evan lists the asks nobody filed, each at its line (PIE-1612)
+
+- **Asks, a new extension:** a minute after an agent's last save, the lines that ask you something get `[needs::sysop: the line]`, so Waiting on Evan lists them and opens at the line. Lines it's unsure of get `[maybe-needs::sysop]`, in a Maybe asks view of their own.
+- **It clears itself:** a tick, a line under it, a comment on it or the note reaching done takes the chip off; a chip you wrote is never touched, and a line is marked once.
+- **Over past notes:** `ep0ch review asks --since 30d --ws <name>` prints what it would write; `--write` writes it.
+- **For builders:** `blocks.asks` answers the write review's asks judgment per line, and a manifest rule's `match` takes `propertyScope`.
+- **Run:** `ep0ch install --apply`, then `ep0ch ext add asks --outline-folder ~/outlines/<name>` where you want it.
+
 ### pie's host stays quick under agent writes, and its log names who waited (PIE-1546, PIE-1567)
 
 - **Fewer waits:** reading comments no longer scans every note; opening a note no longer waits on a sleeping laptop; three doors asking the same question after a restart get one answer.

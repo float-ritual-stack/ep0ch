@@ -4,6 +4,7 @@
 process.chdir(new URL("..", import.meta.url).pathname);
 const BUNDLES = [
   { entry: "packages/claude-mod/scripts/link-grammar-entry.ts", output: "packages/claude-mod/hooks/link-grammar.js" },
+  { entry: "packages/outliner/scripts/asks-grammar-entry.ts", output: "packages/outliner/extensions/asks/link-grammar.js" },
   { entry: "packages/outliner/scripts/echonet-grammar-entry.ts", output: "packages/outliner/extensions/echonet/link-grammar.js" },
   { entry: "packages/outliner/scripts/intake-grammar-entry.ts", output: "packages/outliner/extensions/intake/link-grammar.js" },
   { entry: "packages/outliner/scripts/structure-grammar-entry.ts", output: "packages/outliner/extensions/structure/link-grammar.js" },

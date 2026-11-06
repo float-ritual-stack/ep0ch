@@ -11,7 +11,7 @@ import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, Anno
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ImportReport } from "./outline-import";
 import type { GrepResult } from "@ep0ch/outline-core/text-search";
-import type { BlockSizeCensus, HeldAsk, LokiLease, LokiLeaseUse, McpAccessStatus, NoteMoveReceipt, NotePlacement, NoteRouteRun, OutlineSnapshot, PartAt, ReaderEvent, ReaderView, RestoredBlock, ShareSession, UploadDevice, UploadTake, WaitingAsk, WebSession } from "@ep0ch/outline-core/protocol";
+import type { AskReading, BlockSizeCensus, HeldAsk, LokiLease, LokiLeaseUse, McpAccessStatus, NoteMoveReceipt, NotePlacement, NoteRouteRun, OutlineSnapshot, PartAt, ReaderEvent, ReaderView, RestoredBlock, ShareSession, UploadDevice, UploadTake, WaitingAsk, WebSession } from "@ep0ch/outline-core/protocol";
 import type { StoredMessage } from "./mentions";
 import type { PropsSpec, SiteAnswer } from "@ep0ch/outline-core/site";
 import type { ProposalOutcomesPage } from "./proposal-outcomes";
@@ -119,6 +119,7 @@ export interface WireAnswers {
   "blocks.authored-links": AuthoredLinksSnapshot;
   "blocks.census": BlockSizeCensus;
   "blocks.context": SelectionContext;
+  "blocks.asks": { blockId: string; revision: number; text: string; jev: string; lines: AskReading[]; };
   "blocks.facets": { facets: Record<string, LinkTargetFacets>; missing: string[]; };
   "blocks.grep": GrepResult;
   "blocks.markRead": { marked: number };

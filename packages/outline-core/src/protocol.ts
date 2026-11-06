@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 311;
+export const PROTOCOL = 312;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 39;
 
@@ -867,6 +867,9 @@ export interface PropertyMatch {
 
 /** A match as a tool or the CLI gives it to a person or an agent: `line` counts from 1, `task` only on a step. */
 export const matchFacts = (m: PropertyMatch) => ({ key: m.key, value: m.value, line: m.line + 1, scope: m.scope, ...(m.task ? { task: m.task } : {}) });
+
+/** One line that may ask Evan, read (`blocks.asks`): how sure Jev is, what the thresholds make of it, and whether it's a filed top `- [ ]`. */
+export interface AskReading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
 
 /** An outline ask in the waiting-on-you list; call positions are zero-based source lines and offsets. */
 export interface WaitingAsk {
