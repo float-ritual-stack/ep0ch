@@ -2,12 +2,12 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, join } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { exportFiles, readRecords } from "./export";
-import { boardFor, type Out } from "./notes-cli";
+import { boardFor, timeoutFlag, type Out } from "./notes-cli";
 
-export const MIRROR_USAGE = `  ep0ch mirror <dir> [--once] [--ws <name>] [--machine <ssh-name>]
+export const MIRROR_USAGE = `  ep0ch mirror <dir> [--once] [--timeout <seconds>] [--ws <name>] [--machine <ssh-name>]
                                    export every live note as source in its tree, then follow changes;
                                    --once writes one pass and exits. manifest.json records asOf,
-                                   sequence and leftOut. Restarted hosts reconnect and catch up`;
+                                   sequence and leftOut. Restarted hosts reconnect and catch up. --timeout as export's`;
 
 function atomicFile(path: string, content: string) {
   mkdirSync(dirname(path), { recursive: true });
@@ -17,15 +17,16 @@ function atomicFile(path: string, content: string) {
 }
 
 export async function mirrorCommand(argsIn: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
-  const args = argsIn.slice(1), valued = ["--ws", "--machine"];
+  const args = argsIn.slice(1), valued = ["--ws", "--machine", "--timeout"];
   for (const flag of valued) {
     const at = args.indexOf(flag);
     if (at >= 0 && (!args[at + 1] || args[at + 1]!.startsWith("--"))) { io.err(`ep0ch: ${flag} needs a value`); return 2; }
   }
   const rest = args.filter((arg, i) => !valued.includes(arg) && !valued.includes(args[i - 1] ?? "") && arg !== "--once" && arg !== "--here");
   if (rest.length !== 1 || rest[0]!.startsWith("--")) { io.err(MIRROR_USAGE); return 2; }
-  const dir = rest[0]!, once = args.includes("--once");
-  const board = await boardFor(args, argsIn);
+  const dir = rest[0]!, once = args.includes("--once"), timeoutMs = timeoutFlag(args);
+  if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
+  const board = await boardFor(args, argsIn, timeoutMs);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   const manifestPath = join(dir, "manifest.json");
   let records = new Map<string, BlockRecord>(), sequence = 0;

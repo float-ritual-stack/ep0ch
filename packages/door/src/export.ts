@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { noteFile, type NoteIdentity } from "@ep0ch/outline-core/header-line";
-import { boardFor, selectionOf, selectNotes, selects, type Out } from "./notes-cli";
+import { boardFor, selectionOf, selectNotes, selects, timeoutFlag, type Out } from "./notes-cli";
 import { connectFigures, figureAscii } from "./graphs";
 import { noteFigures } from "./page-results";
 import { liveSettled } from "./live";
@@ -25,7 +25,7 @@ import type { SocketBoard } from "./socket";
 import { printable } from "./text";
 
 export const EXPORT_USAGE = `  ep0ch export [--all | <id>…] [--query "<expression>"] [--view <id>] [--under <id>] [<date flags>]
-               [--children] [--format md|json] [--out <dir>|-] [--split] [--resolve-links] [--manifest] [--source]
+               [--children] [--format md|json] [--out <dir>|-] [--split] [--resolve-links] [--manifest] [--source] [--timeout <seconds>]
                                    notes out as files: the notes named (((id)) or bare ids, as find --ids
                                    prints them) and the ones find's flags select; --all reads every live note. --format md (the default): a
                                    file a note, its header line's [k::v] chips moved into YAML front matter
@@ -39,7 +39,8 @@ export const EXPORT_USAGE = `  ep0ch export [--all | <id>…] [--query "<express
                                    records (as find --json), keys sorted. --out <dir> writes <title>-<id8>.md
                                    (or .json) files there (it adds and replaces, never removes); without it
                                    (or -), stdout. --manifest adds manifest.json: the export time, the outline,
-                                   the selection, the files it wrote and leftOut extension pages`;
+                                   the selection, the files it wrote and leftOut extension pages. --timeout: seconds to
+                                   wait for each answer on a busy machine (15 by default; EP0CH_REQUEST_TIMEOUT_MS, in ms, says it for a script)`;
 
 /** A note's file name: its title as a slug, then the start of its id (so two notes of one title never collide). */
 export function fileName(r: Pick<BlockRecord, "id" | "title">, ext: "md" | "json"): string {
@@ -200,12 +201,14 @@ export async function exportLeftOut(board: SocketBoard, included: ReadonlySet<st
 /** `ep0ch export …`: its exit code. */
 export async function exportCommand(argsIn: string[], io: Out = { out: s => process.stdout.write(`${s}\n`), err: console.error }): Promise<number> {
   const args = argsIn.slice(1);
-  const valued = ["--ws", "--machine", "--format", "--out"];
+  const valued = ["--ws", "--machine", "--format", "--out", "--timeout"];
   for (const f of valued) {
     const at = args.indexOf(f);
     if (at >= 0 && (args[at + 1] === undefined || (args[at + 1]!.startsWith("--") && args[at + 1] !== "-"))) { io.err(`ep0ch: ${f} needs a value`); return 2; }
   }
   const value = (f: string) => { const at = args.indexOf(f); return at >= 0 ? args[at + 1] : undefined; };
+  const timeoutMs = timeoutFlag(args);
+  if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
   const format = (value("--format") ?? "md") as ExportOptions["format"];
   const again = (change: (a: string[]) => string[]) => `ep0ch ${change(argsIn).map(a => (/^[\w@%+=:,./()-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(" ")}`;
   if (format !== "md" && format !== "json") { io.err(`ep0ch: --format is md or json, not ${format}: ${again(a => a.map((x, i) => (a[i - 1] === "--format" ? "md" : x)))}`); return 2; }
@@ -222,7 +225,7 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
   if (unknown) { io.err(`ep0ch: export doesn't take ${unknown}\n${EXPORT_USAGE}`); return 2; }
   const sel = { ids, words: [] as string[], ...picked.selection };
   if (!all && !sel.ids.length && !selects(sel)) { io.err(`ep0ch: export takes notes' ids or find's flags (--query, --view, --under)\n${EXPORT_USAGE}`); return 2; }
-  const board = await boardFor(args, argsIn);
+  const board = await boardFor(args, argsIn, timeoutMs);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     const chosen = all ? await board.queryIds({ machinery: "show" }) : await selectNotes(board, sel);
@@ -235,7 +238,7 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
     if (format === "md" && !o.source) {
       connectFigures(board, () => {});
       for (const r of byId.values()) if (r.text.includes("::graph-")) figuresAsAscii(r.text, r.id);
-      await liveSettled();
+      await liveSettled(timeoutMs);
     }
     const files = exportFiles(roots, byId, o);
     if (!out || out === "-") {
@@ -255,7 +258,9 @@ export async function exportCommand(argsIn: string[], io: Out = { out: s => proc
     io.err(`ep0ch: ${files.length} file${files.length === 1 ? "" : "s"} in ${printable(out)}${manifest ? " (and manifest.json)" : ""}`);
     return missing.length ? 1 : 0;
   } catch (e) {
-    io.err(`ep0ch: ${(e as Error).message}`);
+    const message = (e as Error).message;
+    const longer = / timed out$/.test(message) ? `; to wait longer: ${again(a => [...a.filter((x, i) => x !== "--timeout" && a[i - 1] !== "--timeout"), "--timeout", "120"])}` : "";
+    io.err(`ep0ch: ${message}${longer}`);
     return 1;
   } finally { board.close(); }
 }

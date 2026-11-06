@@ -348,6 +348,17 @@ test("with no Jev key the answer says so", async () => {
   expect((made.json.review as { jev: string }).jev).toMatch(/^Jev is not configured/);
 });
 
+test("a quoted question comes back with no ask and no needs::sysop patch even when Jev says yes, and a line with no words of its own isn't put to Jev (PIE-1597)", async () => {
+  const { agent, asked } = await setup(id => (id.startsWith("asks::") ? { type: "noul", noul: 0.95 } : undefined));
+  const quoted = 'Evan: "anything the crew should take a deeper look at?"';
+  const made = await agent("create", { parent: "root", text: `Crew recon [type::note]\n\nThe beds are set for spring.\n\n## Evidence\n- ${quoted}\n- The sign reads "who left the gate open?"\n- Ran \`is_ready?\` on the bins.\n\n\`\`\`text\nwho has the ladder?\n\`\`\`\n- Oct 6: seeds ordered.` });
+  const review = made.json.review as Review;
+  expect(review.findings.map(f => f.rule)).not.toContain("question");
+  expect(JSON.stringify(review)).not.toContain("needs::sysop");
+  const put = asked.map(call => JSON.stringify(call.state.asks ?? {})).join();
+  for (const unasked of ["who left the gate", "is_ready", "who has the ladder"]) expect(put).not.toContain(unasked);
+});
+
 // PIE-1419: a verifier's walk (Oct 29), every patch applied as written. A question at the bottom that doesn't name Evan
 // is buried unless Jev says firmly it asks nothing; the wall under a chip line keeps its chips; a callout is named as one.
 test("a prose question at the bottom is buried while Jev is unsure, and not when Jev says it asks nothing", async () => {

@@ -15,7 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, proseOf, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -97,10 +97,14 @@ export function sectionsOf(text: string): Section[] {
   return out.map((s, k) => ({ ...s, id: `s${k}` }));
 }
 
-/** The lines below the top that may ask Evan something: a question mark or a decision word, outside code and components; never a ticked box (answered). */
+/** The lines below the top that may ask Evan something: a question mark or a decision word in its own words (proseOf: not a quotation, a code span or an address), outside fences and components; never a ticked box (answered). */
 function askCandidates(text: string): number[] {
   const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line;
-  return lines.flatMap((line, i) => i > title && structure[i] === -1 && !answeredBox(line) && (/\?/.test(line) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(line)) ? [i] : []);
+  return lines.flatMap((line, i) => {
+    if (i <= title || structure[i] !== -1 || answeredBox(line)) return [];
+    const words = proseOf(line);
+    return /\?/.test(words) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(words) ? [i] : [];
+  });
 }
 
 /** The components a review may name: every one the outline has in its figures, layout and site groups, each by its own description. */
