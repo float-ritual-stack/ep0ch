@@ -390,7 +390,7 @@ export class AgentDrawer {
     const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
     if (d && inDrawer) {
       const float = d.floatingTiles().find(f => f.pane === p);
-      if (float && actor.kind === "user") { this.enterGlass(float.tile); this.host.redraw(); return { tile: float.tile, name: float.name, in: "drawer" }; }
+      if (float && this.ctx(actor).standing) { this.enterGlass(float.tile); this.host.redraw(); return { tile: float.tile, name: float.name, in: "drawer" }; }
       if (!this.open) { this.offered = true; this.set(true, actor); }
       this.do({ op: "focus", tile: HOST_TILES }, actor);
       d.focusTile(inDrawer, actor);
