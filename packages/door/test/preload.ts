@@ -2,7 +2,7 @@
 // aside, a copy of refused text) lands in a temp dir for this run, removed when the run ends. Tests that
 // set EP0CH_STATE still win. The person's own EP0CH_* settings (a landing, a now page, the daily agent) are
 // cleared too (and Claude's config dir moved), so the suite runs the same from any shell; EP0CH_OUTLINER, which names the checkout the tests
-// start scratch services from, stays.
+// start scratch services from, stays, and so does EP0CH_TEST_SLACK, the run's own setting for its waits (test/scratch.ts).
 import { plugin } from "bun";
 import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -11,7 +11,7 @@ import { join, relative } from "node:path";
 import "../../../scripts/fake-ssh-owner";
 import "../../../scripts/host-free-guard";
 
-for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER") delete process.env[k];
+for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER" && k !== "EP0CH_TEST_SLACK") delete process.env[k];
 // No test asks the real Jev for a figure suggestion (the outliner's figure-fit.ts, run by the gateway's writes).
 process.env.OUTLINER_FIGURE_FIT = "off";
 // A test's budget is its own waits' (until()'s, 5 s and up), not Bun's 5 s default: under a loaded runner (CI's
