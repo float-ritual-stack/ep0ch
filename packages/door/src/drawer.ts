@@ -1027,6 +1027,7 @@ export class AgentDrawer {
     if (p instanceof PtyPane && !p.running && p.exited === null) { this.keysFact.wantIn({ send }); return; }
     this.keysFact.wantIn(null);
     if (p instanceof PtyPane && p.running) d.run("tile.enter", send ? { send } : {}, t.name);
+    else if (send) { const inner = d.focusedDesk(), q = inner?.focusedPane(); if (inner && q instanceof PtyPane && q.running) inner.run("tile.enter", { send }, inner.focusName()); }   // a ctrl+] back in, to a group's program
   }
 
   /** Its height, by the host layer's own split (the drawer's share, the screen slot the rest), for `actor`. */
@@ -1618,6 +1619,7 @@ export class AgentDrawer {
       if (!this.entered || this.liftIn !== null) { this.keysFact.intoLift(null); this.do({ op: "focus", tile: HOST_TILES }, USER); this.keysFact.chordSpent(); this.openedBy = null; }
       this.capture = r;
     }
+    if (k.action === "up" && !this.capture) return true;   // its press was a dock edge's (the strip took it): a key to the desk now would shut the dock it just opened
     d.key(k, ctx);
     this.host.redraw();
     return true;

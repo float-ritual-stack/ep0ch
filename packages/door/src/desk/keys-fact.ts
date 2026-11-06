@@ -15,12 +15,12 @@ export type DeskWay = "program" | "exited" | "send" | "group" | null;
 /** What ctrl+] does now, for the door. `drawer-send`: back into the drawer it just left, sending the program a ctrl+]. */
 export type WayOut = "program" | "send" | "group" | "drawer" | "drawer-send" | "into-drawer" | "none";
 
-/** One desk's answer: a program here, a second press for one, else the group the keys are in (its own way first). */
+/** One desk's answer: a program here, a second press for one, what the focused group's own desk says (gone into or not: a click can put the keys on a shell in it), else out of the group they went into. */
 export function deskWay(f: { typing: boolean; exited: boolean; armed: boolean; inGroup: boolean; inner: DeskWay }): DeskWay {
   if (f.typing) return f.exited ? "exited" : "program";
   if (f.armed) return "send";
-  if (!f.inGroup) return null;
-  return f.inner === "exited" ? "program" : f.inner ?? "group";   // an exited program in a group still steps out to the group, never past it
+  if (f.inner) return f.inner === "exited" ? "program" : f.inner;   // an exited program in a group still steps out to the group, never past it
+  return f.inGroup ? "group" : null;
 }
 
 /** The door's answer: what the desk with the keys answers, around the drawer they are in, or left, or that is up. */
