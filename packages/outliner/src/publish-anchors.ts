@@ -73,7 +73,7 @@ export function placeAnchor(text: string, index: number, inCode = /^ {4}|^\t/.te
   // A table cell may hold an empty span; a separate sentinel paragraph would split the table.
   if ((/^\s*\|/.test(head) || /\|[ \t]*$/.test(head)) && !/^\s*\|?[\s:|-]+$/.test(head)) {
     const at = /\|[ \t]*$/.exec(head)?.index ?? head.length;
-    return `${text.slice(0, at)}${sentinel}${text.slice(at)}`;
+    return `${text.slice(0, at)}${BARE_URL_END.test(head.slice(0, at)) ? " " : ""}${sentinel}${text.slice(at)}`;
   }
   // The line's own construct, under any quote and list markers it opens with.
   const inner = head.replace(/^\s*(?:(?:>[ \t]?)|(?:[-*+]|\d{1,9}[.)])[ \t]+)*/, "");
@@ -81,8 +81,13 @@ export function placeAnchor(text: string, index: number, inCode = /^ {4}|^\t/.te
   // Before a heading's closing hashes and a hard break, which anything after them would turn into text.
   const closing = /^#{1,6}[ \t]/.test(inner) ? /(?:[ \t]+#+)?(?:\\|[ \t]+)?$/ : /(?:\\|[ \t]+)?$/;
   const at = head.length - (closing.exec(head)?.[0].length ?? 0);
-  return `${text.slice(0, at)}${sentinel}${text.slice(at)}`;
+  // A bare URL ending the line would take the sentinel into its address (Markdown's autolink runs to whitespace).
+  const gap = BARE_URL_END.test(head.slice(0, at)) ? " " : "";
+  return `${text.slice(0, at)}${gap}${sentinel}${text.slice(at)}`;
 }
+
+/** A line that ends in an address an autolink would take: `https://…`, `http://…` or `www.…`. */
+const BARE_URL_END = /(?:https?:\/\/|www\.)\S+$/i;
 
 /** First lines nothing may follow: a fence, a table row, HTML, a rule, a link reference definition, a bare callout tag. */
 const OWN_LINE = /^(?:`{3,}|~{3,}|::|\||<|(?:[-*_][ \t]*){3,}$|\[[^\]]+\]:|\[![^\]]+\][+-]?[ \t]*$)/;
