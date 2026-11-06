@@ -421,6 +421,37 @@ test("a ? inside a link's address, a code span or a reference isn't a question",
   expect(writeShape(note("Evan, use <https://example.org/plan>?")).map(f => f.rule)).toContain("question");
 });
 
+// Oct 29 (PIE-1597): a line quoting Evan's own question came back as an ask for him to answer it.
+test("a ? inside quotes, a plain blockquote or a fence isn't an ask; one outside the quote still is", () => {
+  const note = (line: string) => `Garden plan\n\nThe beds are set for spring.\n\n## History\n- ${line}\n- Oct 6: seeds ordered.`;
+  const rules = (text: string) => writeShape(text).map(f => f.rule);
+  expect(rules(note('Evan: "anything the crew should take a deeper look at…?"'))).not.toContain("question");
+  expect(rules(note("Evan: “anything the crew should look at?”"))).not.toContain("question");
+  expect(rules(note("Evan said 'which bed comes first?' on Friday."))).not.toContain("question");
+  expect(rules(note("Evan said 'why isn't it ready?' on Friday."))).not.toContain("question");
+  expect(rules(note("Evan said ‘why isn’t it ready?’ on Friday."))).not.toContain("question");
+  expect(rules(note("The sign reads 'Is it open? Why isn't it?'"))).not.toContain("question");
+  expect(rules(note("'Tis the bed's turn, Evan, isn't it?"))).toContain("question");
+  expect(rules(note('The sign on the shed reads "who left the gate open?"'))).not.toContain("question");
+  expect(rules(note('Evan asked "should we pick the east bed?" and we did.'))).not.toContain("question");
+  // Asked outside the quote, the line still asks.
+  expect(rules(note('Evan, should we call it "the bay"?'))).toContain("question");
+  expect(rules(note('He said "why?" Should we order the grit?'))).toContain("question");
+  expect(rules(note("Evan, don't you think it's ready?"))).toContain("question");
+  // An unclosed quote quotes nothing.
+  expect(rules(note('Evan, is the 5" pot big enough?'))).toContain("question");
+  // A block quote is someone's words; a callout is the writer's own, and its question asks.
+  const low = (block: string) => `Garden plan\n\nThe beds are set for spring.\n\nThe grit is here.\n\nThe bins moved.\n\n${block}\n\nThe rest is settled.`;
+  expect(rules(low("> Evan: which bed comes first?\n> and who waters it?"))).not.toContain("question");
+  expect(rules(low("> [!warning] Grit\n> Evan, should we order it?"))).toContain("question");
+  expect(rules(low("```text\nEvan, should we order it?\n```"))).not.toContain("question");
+  // A question Jev says asks is still not an ask when the only ? is someone else's.
+  const lines = 'Plan\n\n- Evan: "which bed?"\n- Ran `is_ready?` on it\n- Which bed comes first?'.split("\n");
+  expect(asksAt(lines, 2, "yes")).toBe(false);
+  expect(asksAt(lines, 3, "yes")).toBe(false);
+  expect(asksAt(lines, 4, "yes")).toBe(true);
+});
+
 test("a chip in a comment's words is told, with a code span as the fix; what a comment shows isn't (PIE-1589)", () => {
   const found = writeShape("The note carries [orient::all] today.", { kind: "comment" });
   expect(found.map(f => f.rule)).toEqual(["comment-chip"]);

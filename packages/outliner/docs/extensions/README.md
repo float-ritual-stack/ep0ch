@@ -2657,7 +2657,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
   "completionSources": [{ "id": "issues", "extension": "issues", "name": "ext.issues.issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"] }, { "id": "issue-words", "extension": "issues", "name": "ext.issues.issue-words", "title": "issue words", "triggers": ["query"] }],
   "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"],
-  "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
+  "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done OR work-stage=done OR outbox=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],
   "targets": ["terminal", "markdown", "blockdown", "html", "json", "csv"],
   "trust": "Extensions are trusted code, not a sandbox: they run as the service user."
