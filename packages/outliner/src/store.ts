@@ -8,6 +8,8 @@ import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
+import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
+import { resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
 import { embeddedPageAddress, pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
@@ -619,7 +621,6 @@ function normalizeCaptureTitle(title: string): string {
   return normalized;
 }
 
-
 const ROADMAP_PRIORITIES: Record<RoadmapItemPriority, true> = {
   high: true,
   medium: true,
@@ -967,7 +968,6 @@ export class OutlinerStore {
     }
   }
 
-
   close(): void {
     // A second close is a no-op: its record would describe an open that has ended (another may own the file now).
     if (this.closed) return;
@@ -1038,7 +1038,6 @@ export class OutlinerStore {
       .run(OUTLINE_ABOUT_METADATA_KEY, JSON.stringify(about));
   }
 
-
   /**
    * `place`: an id minted beforehand (an extension's write group names its new blocks before any is written, so its
    * other writes can link to them) and a position among the parent's children (the end when left out).
@@ -1074,7 +1073,6 @@ export class OutlinerStore {
     this.lastCreatedAt = at;
     return new Date(at).toISOString();
   }
-
 
   private createAt(
     text: string,
@@ -1309,7 +1307,6 @@ export class OutlinerStore {
   getAnnotationAgentPackage(annotationId: string): AnnotationAgentPromptPackage {
     return this.annotations.agentPackage(annotationId);
   }
-
 
   getAnnotationAgentReceipt(requestId: string): AnnotationAgentProposalReceipt | null {
     return this.annotations.agentReceipt(requestId);
@@ -2187,7 +2184,6 @@ export class OutlinerStore {
       if (text !== copy.text) this.update(id, text, copy.revision, mutation, "properties");
     }
   }
-
 
   // ── Extension records (src/extension-records.ts) ────────────────────────
   // A record is an ordinary block an extension owns: only that extension may
@@ -3343,8 +3339,6 @@ export class OutlinerStore {
     })();
   }
 
-
-
   virtualBranchOrder(viewId: string): VirtualBranchOrder {
     return this.database.transaction(() => {
       const view=this.requireActive(viewId);
@@ -3731,27 +3725,32 @@ export class OutlinerStore {
     });
     const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
     const ticketPrefixes = this.workIdAllocatorStatusFromCurrentRead().prefixesInUse;
-    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}) };
+    return { ...resolved, ...(workIdPrefix ? { workIdPrefix } : {}), ...(ticketPrefixes.length ? { ticketPrefixes } : {}), };
   }
 
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {
     return this.database.transaction(() => {
       const query = { ...input, targetBlockId: input.targetBlockId.trim() };
-      const context = this.backlinkContextFromCurrentRead([query.targetBlockId]);
+      const read = query.softMentions ? softMentionRead(this.database, this.getFromCurrentRead(query.targetBlockId), query.limit, this.softLinkSource()) : null;
+      const context = this.backlinkContextFromCurrentRead([query.targetBlockId], [], read?.rows);
       const target = context.blocksById.get(query.targetBlockId);
       if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
-      return resolveBacklinkRelation({ query, target, ...context });
+      return resolveBacklinkRelation({ query, target, ...context, ...(read?.soft ? { soft: read.soft } : {}) });
     }).deferred();
   }
 
-  pageAddressesOf(blockId: string): { normalizedAddress: string }[] {
-    return this.database.query("SELECT normalized_address AS normalizedAddress FROM page_addresses WHERE block_id = ?").all(blockId) as { normalizedAddress: string }[];
-  }
+  private softLinkSource() { return storeSoftLinkSource(this.database, id => this.getFromCurrentRead(id), address => this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(address))); }
+  softLinkScope() { return this.database.transaction(() => softLinkScope(this.database)).deferred(); }
+  softLink(name: SoftLinkName, place: SoftLinkPlace): SoftLinkAnswer { return this.database.transaction(() => resolveSoftLink(name, place, this.softLinkSource())).deferred(); }
 
-  queryBacklinksAcross(query: BacklinkQuery, target: Block, addresses: Map<string, string>, targetOutline: string): BacklinkCollection {
+  pageAddressesOf(blockId: string): { normalizedAddress: string }[] { return this.database.query("SELECT normalized_address AS normalizedAddress FROM page_addresses WHERE block_id = ?").all(blockId) as { normalizedAddress: string }[]; }
+
+  queryBacklinksAcross(query: BacklinkQuery, target: Block, addresses: Map<string, string>, targetOutline: string, own = false): BacklinkCollection {
     return this.database.transaction(() => {
-      const context = this.backlinkContextFromCurrentRead([target.id], [...addresses.keys()]);
-      return resolveBacklinkRelation({ ...context, query, target, addressTargets: addresses, targetOutline });
+      // Soft mentions are this outline's own: a word in another outline names that outline's page.
+      const read = own && query.softMentions ? softMentionRead(this.database, target, query.limit, this.softLinkSource()) : null;
+      const context = this.backlinkContextFromCurrentRead([target.id], [...addresses.keys()], read?.rows);
+      return resolveBacklinkRelation({ ...context, query, target, addressTargets: addresses, targetOutline, ...(read?.soft ? { soft: read.soft } : {}) });
     }).deferred();
   }
 
@@ -3823,7 +3822,7 @@ export class OutlinerStore {
   }
 
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
-  private backlinkContextFromCurrentRead(targetIds?: readonly string[], extraAddresses: readonly string[] = []) {
+  private backlinkContextFromCurrentRead(targetIds?: readonly string[], extraAddresses: readonly string[] = [], softRows: readonly { block_id: string }[] = []) {
     this.refreshValueReferences();
     const addressRows = this.database.query(
       "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
@@ -3843,6 +3842,7 @@ export class OutlinerStore {
       const addresses = [...extraAddresses, ...targets, ...[...addressTargets].filter(([, id]) => targets.has(id)).map(([address]) => address)];
       const rows = this.database.query(`SELECT DISTINCT block_id FROM block_reference_candidates
         WHERE address IN (${addresses.map(() => "?").join(", ")})`).all(...addresses) as { block_id: string }[];
+      const direct = new Set(rows.map(row => row.block_id)); rows.push(...softRows.filter(row => !direct.has(row.block_id)));
       const load = (id: string): Block | null => {
         const cached = blocksById.get(id);
         if (cached) return cached;
@@ -5192,7 +5192,6 @@ export class OutlinerStore {
     };
   }
 
-
   private virtualOccurrenceRanksFromCurrentRead(): VirtualOccurrenceRank[] {
     const rows = this.database
       .query(
@@ -5551,8 +5550,6 @@ export class OutlinerStore {
     };
   }
 
-
-
   /**
    * The schema (src/schema.ts: a new file gets it, any other version is refused), then what every start
    * keeps true of the data: the property index and page addresses for this parser version, and work-id
@@ -5569,14 +5566,6 @@ export class OutlinerStore {
     this.reconcileWorkIdAddresses();
     return opened;
   }
-
-
-
-
-
-
-
-
 
   /**
    * `block_properties` (and the page addresses declared there) derive from block text by the property
@@ -5615,7 +5604,6 @@ export class OutlinerStore {
       return true;
     })();
   }
-
 
   /**
    * `page_addresses` follows the declared `[page::…]` and `[work-id::…]` properties, so a parser change
@@ -5689,7 +5677,6 @@ export class OutlinerStore {
     })();
   }
 
-
   private reconcileWorkIdAddresses(): void {
     this.database.transaction(() => {
       const allocator = this.workIdAllocatorFromCurrentRead();
@@ -5716,7 +5703,6 @@ export class OutlinerStore {
       }
     })();
   }
-
 
   private bookmarksRootsFromCurrentRead(): Block[] {
     const rows = this.database

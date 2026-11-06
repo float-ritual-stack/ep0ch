@@ -358,7 +358,7 @@ export class BacklinksPane implements Pane {
       (e: Error) => { if (turn.alive()) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
     // A tile that doesn't list Backlinks doesn't ask for them: an empty collection stands in, so a slow or failed
     // backlinks read never holds up (or hides) the groups it does list.
-    const backlinks = this.groups.includes("backlinks") ? board.backlinks(m.id) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
+    const backlinks = this.groups.includes("backlinks") ? board.backlinks(m.id, undefined, true) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
     return backlinks.then(data => {
       if (!turn.alive()) return;
       // A re-read keeps the selected row: the one selected now, not when it was asked (the person may have moved since).
@@ -743,7 +743,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       const target = same ? L.target! : await desk.ctx.board.get(id!);
       if (!target) throw new ActionRefused(`no block ${id}`);
       const board = target.address ? (await outlineBoards(desk.ctx).on(target.address)).board : desk.ctx.board;
-      const data = same && L.data ? L.data : await board.backlinks(target.id);
+      const data = same && L.data ? L.data : await board.backlinks(target.id, undefined, true);
       // The person's options carry over only for the note they're looking at; another note starts as Detail's.
       const base = same ? { ...L.options } : { ...DEFAULT_BACKLINK_VIEW_OPTIONS, sortField: L.options.sortField, sortDirection: L.options.sortDirection };
       // Its authored links too: the counts and kinds are across all three groups, as the person's.

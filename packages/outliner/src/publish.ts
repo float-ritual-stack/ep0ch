@@ -37,6 +37,7 @@ import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { embeddedPageAddress, pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { linkSoftWords, pageAddressesToResolve } from "./publish-soft-links";
 import { getProperty } from "./properties";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
@@ -2312,8 +2313,7 @@ export class Publisher {
   }
 
   private async resolvePages(texts: readonly string[]): Promise<Map<string, string>> {
-    const addresses = [...new Set(texts.flatMap((text) =>
-      pageAddressReferences(text).map((reference) => reference.normalizedAddress)))].slice(0, PAGE_RESOLVE_LIMIT);
+    const addresses = pageAddressesToResolve(texts, PAGE_RESOLVE_LIMIT);
     const pages = new Map<string, string>();
     // A few at a time: a large page must not open hundreds of connections to the shared service.
     // A link that cannot be resolved shows its label, as an unpublished one does.
@@ -2405,7 +2405,6 @@ export class Publisher {
     }
     return hidden;
   }
-
 
   /**
    * The index as this page may link it: a target locked since the index was
@@ -2985,7 +2984,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));
   // An embedded view is drawn as its lane, not quoted.
   body = body.replace(EMBED_SENTINEL, (_, at: string) => { const shown = rendered[Number(at)] ?? ""; return `\n\n${isComponentSentinel(shown) ? shown : quote(shown)}\n\n`; });
-  return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+  return linkSoftWords(body, pages, byId, link, inCode).replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
 /** Where a `#tag` opens: the page's search for it, which lists the notes carrying it (publish-search.ts `tagOf`). */

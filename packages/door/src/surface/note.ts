@@ -85,7 +85,7 @@ import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, pageView, pageOf, presentLinks, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, pageView, pageOf, presentLinks, softLinkIgnoreOf, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -171,6 +171,7 @@ import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
 import { menuRow } from "../desk/tile-menu";
 import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
+import { createPage, followSoft, offerPage, type PageOffer, type PageOfferReader, type SoftChoices } from "./soft-follow";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -194,6 +195,7 @@ export interface OpenHow { where?: import("@ep0ch/outline-core/list-row").ListOp
 export interface Outside { outside: "browser" | "viewer"; url: string; launched: boolean }
 /** A reader opened a query (a #tag or an activity day): its list and matching notes. */
 export interface TagList { tag?: string; query: string; tile?: string; notes: { id: string; title: string }[] }
+
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -465,7 +467,8 @@ async function compareAt(board: SocketBoard, id: string, revision: number | unde
 /** A figure's control, named across renders (its figure's key, then which). */
 const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : c.row !== undefined ? `row:${c.row}` : c.size ? "size" : "density"}`;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
-const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
+const softKey = (l: Link) => (l.soft ? JSON.stringify([l.soft.name, l.soft.line]) : undefined);
+const sameLink = (a: Link, b: Link) => a.tag === b.tag && softKey(a) === softKey(b) && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /** The same element's link in another draw: a press by its button's place, anything else as sameLink, of the same role. */
 const sameElementLink = (a: Link, b: Link) => a.press || b.press
   ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
@@ -604,7 +607,7 @@ function linkOfRef(ref: string): Link | null {
 /** How a link reads in the hint and `peek`: its title or label, as the note shows it. */
 const linkText = (l: Link, text: string, src: Source | null) => l.block
   ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment))).text
-  : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
+  : l.soft ? l.label ?? "" : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
 
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
 const printableBlock = (s: string) => printable(s, "", { lines: true });
@@ -650,8 +653,6 @@ type PanelMode = ReturnType<typeof panelMode>;
 type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number; col?: number; row?: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
-/** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
-const PAGE_OFFER_MS = 60_000;
 
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "comment.edit", "resolve", "thread.seen", "thread.keep", "thread.tldr"]);
@@ -2535,7 +2536,7 @@ export class NoteSurface {
       ...(preview ? { preview } : {}), image: (node, width) => pictureRows(node, width, env, drawn),
       seen: info => blocks.push(info),
     };
-    const doc = drawIn("note", presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), env, {
+    const doc = drawIn("note", presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id, lines } : undefined), env, {
       literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
       linkBlocks: this.listEnv, componentLine: line => lines[line]!,
       callout: this.calloutHook(m, lines, points, drawn),
@@ -2780,7 +2781,7 @@ export class NoteSurface {
   /** The panel's rows for `m`: the service's tokens once it has answered, the block properties until then. */
   rows(m: Msg, tokens: PropertyRecord[] | null = null): PropRow[] {
     const t = tokens ? { state: "ready", tokens } : tokensOf(m.text, this.src);
-    return propertyRows(m, t?.state === "ready" ? t.tokens : null, workIdPrefix(this.src) ?? null);
+    return propertyRows(m, t?.state === "ready" ? t.tokens : null, workIdPrefix(this.src) ?? null, softLinkIgnoreOf(this.src));
   }
 
   /** Open (or switch to full) the property panel. */
@@ -2817,10 +2818,16 @@ export class NoteSurface {
   }
 
   /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
-  async followValue(r: Pick<PropRow, "key" | "target">, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
+  async followValue(r: Pick<PropRow, "key" | "target" | "line">, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | null> {
     const t = r.target;
     let target: Msg | null = null, why = "";
     if (!t) why = `${r.key} holds plain text; there is nothing to follow`;
+    else if ("soft" in t) {
+      const m = await followSoft(this.pageOffers, { name: t.soft, ...(this.msg && isOutlineNote(this.msg) ? { block: this.msg.id } : {}), ...(r.line !== undefined ? { line: r.line } : {}) }, host, how);
+      if (m && "choices" in m) throw new ActionRefused(`more than one ${m.words}: ${m.choices.map(c => c.id ? `${c.label} (${c.id})` : c.label).join(", ")}; open id=<id> opens the one you mean`);
+      if (m) this.panel = null;
+      return m as Msg | null;
+    }
     else if ("block" in t) { target = await host.ctx.board.get(t.block); if (!target) why = `nothing answers at ((${shortId(t.block)}))`; }
     else {
       const p = await host.ctx.board.resolvePage(t.page).catch((e: Error) => ({ status: "failed", error: e.message } as const));
@@ -4185,7 +4192,7 @@ export class NoteSurface {
    * Follow link `l` from the edit or comment being written (`edit.follow`, PIE-592): where a reader's link opens, which
    * for a reader holding an edit is beside it (the desk's `besideEdit`); the draft and its cursor stay as they were.
    */
-  followFromDraft(l: Link, host: SurfaceHost): Promise<Msg | Outside | TagList | null> {
+  followFromDraft(l: Link, host: SurfaceHost): Promise<Msg | Outside | TagList | SoftChoices | null> {
     return this.followTarget(l, host, { link: true });
   }
   /** The draft being written here, an edit's or a comment's, or null. */
@@ -6257,8 +6264,9 @@ export class NoteSurface {
   }
 
   /** Open what a link names: media in the system viewer, web pages in the browser (openOutside), blocks and pages through the host (`how`, where). */
-  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | TagList | null> {
+  private async followTarget(l: Link, host: SurfaceHost, how: OpenHow = { link: true }): Promise<Msg | Outside | TagList | SoftChoices | null> {
     how = { ...how, ...(l.openWhere && !how.fresh ? { where: l.openWhere } : {}) };
+    if (l.soft) return followSoft(this.pageOffers, l.soft, host, how);
     if (l.query !== undefined) {
       if (!host.query) { host.ctx.flash(`${l.query}: this screen has nowhere to list notes · / searches the outline`); return null; }
       return host.query(l.query, { ...how, ...(host.actor ? { by: host.actor } : {}) });
@@ -6336,7 +6344,7 @@ export class NoteSurface {
       // The service's page and Work-ID registry first (read-only: a dangling address isn't created).
       const p = await host.ctx.board.resolvePage(l.page).catch(() => null);
       if (p?.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
-      else if (p?.status === "missing") return this.offerPage(l.page, host);
+      else if (p?.status === "missing") return offerPage(this.pageOffers, l.page, host);
     }
     if (!target && l.page) {
       // Not a registered address: the one search's answer, when it is exactly that (an id, or the title as folded).
@@ -6352,48 +6360,12 @@ export class NoteSurface {
     return target;
   }
 
-  /**
-   * A followed `[[address]]` nothing answers (PIE-544): never made silently. The first ⏎ or click offers it (said, and
-   * kept under the header while this note is shown); the person's next ⏎ or click on that link makes it (`page.create`)
-   * and opens it here. An agent following one is told, and makes it with page.create.
-   */
-  private async offerPage(page: string, host: SurfaceHost): Promise<null> {
-    const by = host.actor ?? USER;
-    if (by.kind === "agent") throw new ActionRefused(`[[${page}]] doesn't exist yet: no page has that name; page.create address=${JSON.stringify(page)} makes it`);
-    // The offer stands while it's still said under the header, for a minute: never a create long after, unannounced.
-    const o = this.pageOffer;
-    if (o && o.page === page && this.notice === o.notice && Date.now() - o.at < PAGE_OFFER_MS) {
-      this.pageOffer = null;
-      this.notice = "";
-      await this.runKey("page.create", { address: page }, host);
-      return null;
-    }
-    this.notice = `no page [[${page}]] · ⏎ or click it again: create it`;
-    this.pageOffer = { page, notice: this.notice, at: Date.now() };
-    host.ctx.flash(`[[${page}]] doesn't exist yet · ⏎ or click it again to create the page`, 8000);
-    host.redraw();
-    return null;
-  }
-  /** The `[[address]]` whose page the next ⏎ or click on its link makes (offerPage), as said; gone with the note. */
-  private pageOffer: { page: string; notice: string; at: number } | null = null;
+  /** What soft-follow.ts works on: this reader, said narrowly. */
+  private get pageOffers(): PageOfferReader { const s = this; return { get msg() { return s.msg; }, get notice() { return s.notice; }, set notice(v) { s.notice = v; }, get pageOffer() { return s.pageOffer; }, set pageOffer(v) { s.pageOffer = v; }, runKey: (action, args, host) => s.runKey(action as "page.create", args, host), follow: (id, host, how) => s.followTarget({ block: id }, host, how) as Promise<Msg | null>, shown: (m, host, how) => s.track(() => host.navigate(m, how)) }; }
+  private pageOffer: PageOffer | null = null;
 
-  /**
-   * `page.create`: the page an `[[address]]` names, made where new notes go (the service's placement rule, today the
-   * top of the Inbox) as `X [page::X]`, then opened as a followed link opens; one that exists already is opened. An
-   * agent's is made and said, opening nothing.
-   */
-  async createPage(address: string, host: SurfaceHost, actor: Actor, standing: boolean): Promise<{ id: string; created: boolean; said?: string }> {
-    const r = await host.ctx.board.followPage(address, actor).catch((e: Error) => { throw new ActionRefused(`no page ${address}: ${e.message}`); });
-    if (!r.note) throw new ActionRefused(r.status === "deleted" ? `[[${address}]] is a page in the trash: restore it there` : `no page ${address}`);
-    const said = r.created ? `created page ${subject(r.note)} ${r.placement?.said ?? ""}`.trim() : `${subject(r.note)} was there already`;
-    if (standing) {
-      const target = r.note;
-      this.track(() => host.navigate(target, { link: true, by: actor, standing }));
-      host.ctx.flash(said);
-    }
-    host.redraw();
-    return { id: r.note.id, created: r.created, said };
-  }
+  createPage(address: string, host: SurfaceHost, actor: Actor, standing: boolean, under?: string) { return createPage(this.pageOffers, address, host, actor, standing, under); }
+
 
   /** Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader. */
   takeReveal(m: Msg, host: SurfaceHost) {
@@ -10489,15 +10461,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: [{ keys: "⏎ click", does: "on a [[missing page]] link, twice (the first offers it)" }],
     touches: "nothing", replay: "ask",
     says: out => (out?.said ? `· ${out.said}` : null),
-    args: { address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" } },
+    args: {
+      address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" },
+      under: { type: "string", optional: true, kind: "page", about: "make a note titled address on this page instead (a project's PR#125, PIE-408), making the page when it's missing" },
+    },
     examples: [
       { act: "page.create address=seed-swap", does: "makes the page seed-swap where new notes go, then opens it" },
+      { act: "page.create address=PR#125 under=garden-club", does: "makes the note PR#125 on the garden-club page, then opens it" },
       { act: "page.create", does: "makes the page the selected [[link]] names, then opens it" },
     ],
-    async run({ address }, { surface, host, standing }, actor) {
+    async run({ address, under }, { surface, host, standing }, actor) {
       const page = address ?? surface.selectedPage();
       if (!page) throw new ActionRefused("name the page: address=<its name>, or select a [[page]] link first");
-      return surface.createPage(page, host, actor, standing);
+      return surface.createPage(page, host, actor, standing, under);
     },
   }),
   "component.new": def({
@@ -10571,6 +10547,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (m && "outside" in m) return { opened: null, ...m };
       // A #tag (PIE-800): the list it opened (or, for an agent, the notes carrying it).
       if (m && "query" in m) return { opened: null, ...m };
+      // A soft link with several places to land (PIE-408): the agent's told them, and moves nothing.
+      if (m && "choices" in m) return { opened: null, ...m };
       if (m) surface.noteAgent(actor, `followed a link to ${subject(m)}`);
       return m ? { opened: m.id, title: subject(m) } : { opened: null };
     },
@@ -11658,7 +11636,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "props.follow": def({
-    summary: "open what a block, page or Work-ID value names; where it opens is the view's call. An agent's is refused on the reader the person has", keys: "i, tab, o",
+    summary: "open what a block, page or Work-ID value names, or a plain value's own page, that day's note for a date, a project's pull request (a soft link: PIE-408); where it opens is the view's call. An agent's is refused on the reader the person has", keys: "i, tab, o",
     touches: "tile", replay: "ask", way: "following it there would move what they're reading · an agent follows it in another reader (tile=), or opens the note with open id=",
     args: ROW_ARGS,
     examples: [
@@ -11669,6 +11647,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const { row } = await propRow(surface, n, key);
       if (!row.target) throw new ActionRefused(`${row.key} holds plain text (${row.value}); there is nothing to follow`);
       const m = await surface.followValue(row, host);
+      // A soft link with nothing there yet was offered, or a chooser is open: nothing's wrong (PIE-408).
+      if (!m && "soft" in row.target) return { opened: null };
       if (!m) throw new ActionRefused(surface.panel?.note || `nothing answers at ${row.value}`);
       surface.noteAgent(actor, `followed ${row.key} to ${subject(m)}`);
       return { opened: m.id, title: subject(m) };

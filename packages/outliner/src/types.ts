@@ -1308,7 +1308,6 @@ export interface WorkIdAllocatorStatus {
   prefixesInUse: string[];
 }
 
-
 export interface WorkIdAllocation {
   workId: string;
   block: Block;
@@ -1436,7 +1435,6 @@ export interface BlockQuerySort {
   field: BlockQuerySortField;
   direction: BlockQuerySortDirection;
 }
-
 
 export interface BlockTraversalOptions {
   filters?: PropertyFilter[];
@@ -1732,6 +1730,7 @@ export interface LinkTargetFacets {
 export interface BacklinkQuery {
   targetBlockId: string;
   includeDeleted?: boolean;
+  softMentions?: boolean; // also what names it by convention, kind `mention` (PIE-408): the door's links ask; anyone else reads links as they always were
   limit: number;
 }
 
@@ -1844,7 +1843,6 @@ export interface HostedPaneOutline {
   clientId?: string;
   role?: OutlinerClientRole;
 }
-
 
 export interface ResourceProviderCommandResult {
   readonly receipt: ResourceProviderCommandReceipt;
@@ -2554,6 +2552,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "rules.preview"; note: string; text: string }
   | ({ id: string; action: "references.backlinks"; query: BacklinkQuery; sourceTarget?: { block: Block; outline: string; addresses: string[] } } & WatchFields)
   | { id: string; action: "pages.resolve"; address: string }
+  | { id: string; action: "references.soft-scope" } // what a client draws soft links with (PIE-408)
+  | { id: string; action: "references.soft"; name: import("@ep0ch/outline-core/soft-links").SoftLinkName; blockId?: string; line?: number } // where a soft link lands (PIE-408)
   | {
       id: string;
       action: "pages.follow";

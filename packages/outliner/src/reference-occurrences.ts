@@ -20,7 +20,7 @@ export interface TextRange {
  * A reference in a note's text, or (with `propertyKey`) inside one of its property values (PIE-874: `[via::[[X-2]]]`,
  * `[ticket::PC-1]`), an edge labelled by that property.
  */
-export type OutlinerReferenceOccurrence = { propertyKey?: string; outline?: string } & (
+export type OutlinerReferenceOccurrence = { propertyKey?: string; outline?: string; /** Written by convention, no brackets (PIE-408): it's listed as a mention. */ soft?: true } & (
   | {
       kind: "block";
       blockId: string;

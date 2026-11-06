@@ -7,6 +7,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { popupHint, completerOf, completionOf } from "./completer";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { isWritablePropertyValue, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
+import { softLinkableKey, softLinkOfValue, type SoftLinkName } from "@ep0ch/outline-core/soft-links";
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId, drawShortId } from "../refs";
@@ -24,15 +25,17 @@ export interface PropRow {
   n: number; key: string; value: string;
   scope: "block" | "line" | "inline"; placement?: string; syntax?: string; line?: number;
   ordinal: number | null;
-  /** Where `o` goes: a block id, or a page address / Work ID the service resolves. */
-  target: { block: string } | { page: string } | null;
+  /** Where `o` goes: a block id, a page address / Work ID the service resolves, or a soft link (a plain value: PIE-408). */
+  target: ValueTarget;
 }
+
+export type ValueTarget = { block: string } | { page: string } | { soft: SoftLinkName } | null;
 
 /**
  * Where a value points, when it names something: a block id or `((id))`, a `[[page]]`, or a Work ID in
  * the workspace's own prefix (`PIE-409` when the prefix is PIE; `week-38` or `utf-8` are just text).
  */
-export function valueTarget(key: string, value: string, workIdPrefix: string | null = null): PropRow["target"] {
+export function valueTarget(key: string, value: string, workIdPrefix: string | null = null): { block: string } | { page: string } | null {
   const v = value.trim();
   const ref = referencedBlock(v);
   if (ref) return { block: ref.blockId };
@@ -49,12 +52,17 @@ export function valueTarget(key: string, value: string, workIdPrefix: string | n
  * The panel's rows: the service's tokens for the note's text when it offers them (`properties.preview`),
  * otherwise the block properties the note was read with (no line/inline scope, no ordinals).
  */
-export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPrefix: string | null = null): PropRow[] {
+export function propertyRows(m: Msg, tokens: PropertyRecord[] | null, workIdPrefix: string | null = null, softIgnore: readonly string[] = []): PropRow[] {
   const src = tokens
     ? tokens.map(t => ({ key: t.key, value: t.value, scope: t.scope, placement: t.placement, syntax: t.syntax, line: t.line, ordinal: t.ordinal }))
     : m.properties.map(p => ({ ...p, scope: "block" as const, ordinal: null }));
   src.sort((a, b) => Number(a.scope !== "block") - Number(b.scope !== "block"));
-  return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value, workIdPrefix) }));
+  // A plain value is a soft link (PIE-408), the value's own page, the one item a row follows; a list's follow from the note's text.
+  const soft = (key: string, value: string): ValueTarget => {
+    const items = splitPropertyValue(value), name = items.length === 1 && softLinkableKey(key, softIgnore) ? softLinkOfValue(key, items[0]!) : null;
+    return name ? { soft: name } : null;
+  };
+  return src.map((p, i) => ({ n: i + 1, ...p, target: valueTarget(p.key, p.value, workIdPrefix) ?? soft(p.key, p.value) }));
 }
 
 /**
