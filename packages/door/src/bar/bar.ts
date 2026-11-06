@@ -219,7 +219,8 @@ export class PowerBar {
       if (binding) { void this.host.dispatch.press(binding.action, binding.args); return true; }
     }
     if (this.compact()?.choice && k.kind === "char" && !k.ctrl && (k.ch === "j" || k.ch === "k")) return false;
-    const scoping = modeBinding(SCOPE_KEYS, k);
+    // cmd+← and alt+shift+← read as alt+← on a screen; on the line they move or select (PIE-1607). alt+← alt+b stay the scope.
+    const scoping = "super" in k || "shift" in k ? undefined : modeBinding(SCOPE_KEYS, k);
     if (scoping) { void this.host.dispatch.press(scoping.action, scoping.args); return true; }
     // In an action's form (PIE-1031) shift+tab, and backspace on an empty line, go back a field.
     const form = this.scope === "ask" && formOpen();

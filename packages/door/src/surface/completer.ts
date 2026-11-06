@@ -1016,6 +1016,8 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
   const before = d.text, open = c.state?.target;
   const a = d.key(k);
   if (a !== "keep" || k.kind === "esc") { c.dismiss(); return a; }
+  // What's left selected (a wrap's text) is still being worked on: `[[` over it is the person's link, no popup to take ⏎.
+  if (d.selection()) { c.dismiss(); return a; }
   followCursor(c, d.text !== before, open);
   return a;
 }

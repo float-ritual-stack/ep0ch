@@ -148,9 +148,11 @@ const registry = (board: object | null | undefined) => {
 
 /** A key that writes in a draft, or moves between what's written (a command is anything else: `DraftSession.holding`). */
 const WRITES = new Set<Key["kind"]>(["char", "paste", "enter", "alt-enter", "backspace", "alt-backspace", "delete", "tab", "backtab", "left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
+/** A cmd or alt key of the draft's table that edits or moves, so it waits with the typing; copy and undo are commands, pressed again. */
+const TABLE_EDITS = new Set(["draft.go", "draft.select", "draft.line", "draft.erase", "draft.cut", "draft.wrap"]);
 /** A held key that only adds text: what's safe wherever it lands. */
 const inserts = (k: Key) => k.kind === "paste" || (k.kind === "char" && !k.ctrl);
-const writes = (k: Key, d: Draft) => WRITES.has(k.kind) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
+const writes = (k: Key, d: Draft) => (WRITES.has(k.kind) || (k.kind === "alt" || k.kind === "super" || k.kind.startsWith("alt-")) && TABLE_EDITS.has(d.binding(k)?.action ?? "")) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
 
 export class DraftSession {
   readonly draft: Draft;

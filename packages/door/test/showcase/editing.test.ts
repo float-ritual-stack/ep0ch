@@ -26,6 +26,7 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
+import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures, tables, completion", () => {
   const h = useShowcaseScreen();
@@ -33,6 +34,39 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+
+  test("editing keys (PIE-1607): an agent's own draft takes every new key's action through act: wrap, move a line, select to an edge, go, erase, cut", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "edit-keys" }, as: "test-agent" });
+    await until(() => marks["edit-keys"]!.every(m => screen().includes(m)), `the edit-keys section: ${marks["edit-keys"]!.filter(m => !screen().includes(m)).join(" | ")}`, 8000);
+    const draft = () => S().stages.get(S().sel).top.pane("reader").surface.draft;
+    expect(draft().selectedText()).toBe("early peas");
+    // The stage opened it as the person: it's theirs, so an agent is told so and the text stays.
+    await expect(app.act({ action: "draft.wrap", args: { with: "[[" }, tile: "reader", as: "test-agent" })).rejects.toThrow();
+    expect(draft().selectedText()).toBe("early peas");
+    const act = (action: string, args: Record<string, unknown>) => S().stages.get(S().sel).top.dispatch.act({ action, args, tile: "reader" }, { kind: "user" });
+    await act("draft.wrap", { with: "[[" });
+    expect(draft().text).toContain("- sow the [[early peas]] in the long bed");
+    expect(draft().selectedText()).toBe("early peas");
+    await act("draft.go", { to: "line-end", extend: true });
+    expect(draft().selectedText()).toBe("early peas]] in the long bed");
+    await act("draft.go", { to: "line-start" });
+    await act("draft.line", { op: "down" });
+    expect(draft().text).toContain("- thin the carrots\n- sow the [[early peas]] in the long bed");
+    await act("draft.line", { op: "copy-up" });
+    await act("draft.line", { op: "delete" });
+    await act("draft.go", { to: "doc-start" });
+    expect([draft().row, draft().col]).toEqual([0, 0]);
+    await act("draft.go", { to: "doc-end" });
+    await act("draft.select", { what: "line" });
+    expect(draft().selectedText()).toBe("See the planting calendar for dates.");
+    expect(((await act("draft.cut", {})) as { text: string }).text).toBe("See the planting calendar for dates.");
+    await act("draft.erase", { to: "word-back" });
+    await act("draft.undo", {});
+    (app as any).paint();
+    press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
+    (app as any).lastInput = 0;
+  });
 
   test("insert uses the note's scoped folder, returns absolute file lines, and stays beside a drawer draft", async () => {
     await app.act({ action: "section", args: { name: "insert" }, as: "test-agent" });
