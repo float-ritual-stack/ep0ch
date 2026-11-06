@@ -1545,8 +1545,9 @@ letters. A saved screen's existing key map can bind `note.reply`, `note.quote` a
 they are ordinary NOTE_ACTIONS, with mouse menu entries and `act` access.
 
 A reply starts with `re:: <message title>` (queryable front matter). Save creates a child stamped
-`replyTo` and the source's `thread`, then closes the split. Esc discards, with the existing second-Esc
-confirmation after typing. The source keeps its reading place and scrolls with the wheel or Page keys
+`replyTo` and the source's `thread`, then closes the split. Esc closes it; after typing, Esc twice puts it
+aside where it was written, as every draft is (DraftSession's one close path, PIE-1603): the status line and the
+reader's `■` line name `r`, which brings it back, and a copy stays on disk. The source keeps its reading place and scrolls with the wheel or Page keys
 while the editor keeps its cursor. A selected passage becomes a frozen quote callout with its block
 reference; an existing paragraph anchor is used when present. Quotes do not rewrite the source.
 Replies are notes; whole-note comments and patch notes keep their existing behavior.

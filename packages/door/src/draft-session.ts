@@ -57,6 +57,10 @@ export interface DraftTarget {
   readonly what: string;
   /** Saved, sent or created. */
   readonly verb: "save" | "send" | "create";
+  /** The text it opens on is only a frame the door wrote (a reply's `re::` line), so nothing is written until there's more. */
+  readonly framed?: boolean;
+  /** How it's named when it comes back, when its verb's words don't fit ("your reply", "ctrl+s saves"). */
+  readonly returns?: { what: string; does: string };
   /** The block it edits in place: held on the service while open (`drafts.hold`), and what the agent rule keys on. */
   readonly blockId?: string;
   /** The note it's written about (the edited note, the commented one, the parent, the view): `((` and `[[` search from there. */
@@ -184,6 +188,7 @@ export class DraftSession {
     s.draft.titlesPages = target.verb !== "send";
     // Only an edit the person opened can be one opened by mistake: an agent's they typed into is theirs to put aside.
     s.draft.straysClose = target.place.startsWith("edit:") && by.kind !== "agent";
+    s.draft.framed = !!target.framed;
     if (by.kind !== "agent" && !s.restore()) {
       // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
       const h = histories.get(target.place);
@@ -542,7 +547,8 @@ export class DraftSession {
     d.undos = (u.history?.undos ?? []).map(step => ({ ...step, open: false }));
     d.redos = u.history?.redos ?? [];
     d.patches = u.history?.patches ?? [];
-    this.status.say(`brought back your ${this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit"} from ${dayOf(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`);
+    const { what, does } = this.target.returns ?? { what: this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit", does: `${this.target.verb}s` };
+    this.status.say(`brought back your ${what} from ${dayOf(u.at)} · ctrl+s ${does} · esc twice drops it`);
     return true;
   }
 
@@ -1093,7 +1099,7 @@ export function noteReplyTarget(parent: Msg, board: Pick<SocketBoard, "newNote">
     const { note } = await board.newNote(lines.join("\n"), parent.id, by, true);
     return note;
   } });
-  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”` };
+  return { ...target, place: `note-reply:${parent.id}`, back: `${replyKey()} brings the reply back`, what: `the reply to “${subject(parent)}”`, framed: true, returns: { what: "reply", does: "saves" } };
 }
 
 // ── unsent drafts on disk ─────────────────────────────────────────────────────

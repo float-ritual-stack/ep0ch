@@ -1565,7 +1565,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "replies", need: "reply while the message stays visible, quote its words and follow the conversation", part: "NoteSurface's reader mode and shared split, the new-note editor and DraftSession child target, and the links model", files: "src/surface/note.ts, src/draft-session.ts, src/links.ts",
-    aside: 'r replies · wheel over the message or PgUp/PgDn scrolls it while the draft keeps its place · ctrl+s saves · Esc twice discards typed text · select and r quotes · t opens replies, b shows links, T the full list · ~ toggles raw decoration',
+    aside: 'r replies · wheel over the message or PgUp/PgDn scrolls it while the draft keeps its place · ctrl+s saves · Esc twice keeps typed text here and r brings it back · select and r quotes · t opens replies, b shows links, T the full list · ~ toggles raw decoration',
     stage(n, show) {
       const a = new ReaderPane();
       return deskOf({ title: "showcase · replies", panes: [a], names: ["reader"], layout: ([x]) => leaf(x!) }, show, [[a, n.replies]]);

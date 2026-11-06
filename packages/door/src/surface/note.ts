@@ -96,7 +96,7 @@ import { addressedResource, destinationOf, external, externalOpenCommand, fileOp
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
-import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
+import { baseTextOf, copyNote, copyOf, diffNote, keptName, oldUnsentLine, settleQuietly, UNSENT_KINDS, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { theme, type Rgb } from "../theme";
@@ -8847,7 +8847,7 @@ export class NoteSurface {
     const elems: Element[] = ranges.map(r => {
       const l = tags[r.n]!, u = l.unsent!, key = `control:unsent:${u.op}:${u.kind}:${of}#0`, at = row + r.line;
       this.hits.push({ row: at, from: r.from, to: r.to, link: l, elem: key });
-      return { key, kind: "control", row: at, from: r.from, to: r.to, ruler: [at, at + 1], label: `${unsentLabel(u.op, view ? viewVerdict(of) : null)} the kept ${u.kind === "child" ? "note" : u.kind}`, link: l };
+      return { key, kind: "control", row: at, from: r.from, to: r.to, ruler: [at, at + 1], label: `${unsentLabel(u.op, view ? viewVerdict(of) : null)} the kept ${keptName(u.kind)}`, link: l };
     });
     return { lines, elems };
   }
@@ -8890,7 +8890,7 @@ export class NoteSurface {
     const s = this.drafting;
     if (!s) return { closed: false };
     if (s.draft.written && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
-    return this.replyParent && discard ? { closed: true, ...s.discard() } : s.close(discard);
+    return s.close(discard);
   }
 
   async ensureSession(host: SurfaceHost, mode: "select" | "threads", by: Actor = USER): Promise<CommentSession> {
@@ -9298,14 +9298,14 @@ export interface On { surface: NoteSurface; host: SurfaceHost; standing: boolean
 /** An unsent action's argument: which put-aside draft on the note. */
 /** back and forward's `steps`: how many stops on the trail at once. */
 const STEPS_ARG = { type: "number" as const, optional: true as const, about: "how many stops at once (default 1): trail lists them" };
-const UNSENT_ARGS = { kind: { type: "string" as const, optional: true, about: "edit (default), comment, child (a note under this one) or card: what's put aside on the note" } };
+const UNSENT_ARGS = { kind: { type: "string" as const, optional: true, about: "edit (default), comment, child (a note under this one), card or note-reply (a reply to this one): what's put aside on the note" } };
 /** The note what's put aside belongs to: the note shown, or the one a diff or copy view is about. */
 const unsentOf = (surface: NoteSurface) => { const m = surface.requireNote(); return unsentView(m.id)?.of ?? m.id; };
 /** The first kind put aside on the note shown (what [open copy] and [dismiss] mean without kind=). */
-const firstUnsent = (surface: NoteSurface): UnsentKind | undefined => { const m = surface.msg; if (!m) return undefined; const of = unsentView(m.id)?.of ?? m.id; return (["edit", "comment", "child", "card"] as const).find(k => unsent(`${k}:${of}`)); };
+const firstUnsent = (surface: NoteSurface): UnsentKind | undefined => { const m = surface.msg; if (!m) return undefined; const of = unsentView(m.id)?.of ?? m.id; return UNSENT_KINDS.find(k => unsent(`${k}:${of}`)); };
 /** What's put aside on the note shown, as `kind`, refused when there's nothing; `fetch`: the note as it is now too. */
 async function unsentHere(surface: NoteSurface, host: SurfaceHost, kind: string, fetch: boolean): Promise<{ of: string; u: Unsent; now: Msg | null }> {
-  if (!["edit", "comment", "child", "card"].includes(kind)) throw new ActionRefused(`kind is edit, comment, child or card, not ${kind}`);
+  if (!(UNSENT_KINDS as readonly string[]).includes(kind)) throw new ActionRefused(`kind is ${UNSENT_KINDS.join(", ")}, not ${kind}`);
   const of = unsentOf(surface), u = unsent(`${kind}:${of}`);
   if (!u) throw new ActionRefused(`nothing is kept here (${kind})`);
   const now = fetch || kind === "edit" ? await host.ctx.board.get(of) : null;
@@ -10322,7 +10322,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.reply": def({
-    summary: "write a reply beside this message; Save creates a child with replyTo and the message's thread, Esc closes without posting",
+    summary: "write a reply beside this message; Save creates a child with replyTo and the message's thread, Esc closes without posting (twice after typing, and the reply is put aside: r brings it back)",
     keys: readerKeys("note.reply", { keys: "click", does: "on the note menu's reply" }), touches: "nothing", replay: "ask",
     menu: { label: "reply to this note", group: "note", key: "r" },
     args: { text: { type: "string", optional: true, about: "reply text; an agent supplies this and creates the note without opening an editor" } },
@@ -12661,14 +12661,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "unsent.copy": def({
-    summary: "the text kept on this note (kind=edit, comment, child or card), as it was written: the person's opens in a reader beside this one (read-only); an agent gets the text and where its copy is on disk",
+    summary: "the text kept on this note (kind=edit, comment, child, card or note-reply), as it was written: the person's opens in a reader beside this one (read-only); an agent gets the text and where its copy is on disk",
     keys: "⏎ or a click on [open copy] on the kept-draft line",
     touches: "nothing", replay: "safe",
     menu: unsentRow("kept edit: open its copy"),
     args: UNSENT_ARGS,
     examples: [
       { act: "unsent.copy kind=comment", does: "shows the comment kept unsent on this note, as it was written" },
-      { act: "unsent.copy", does: "shows the first text kept on this note (edit, comment, child or card)" },
+      { act: "unsent.copy", does: "shows the first text kept on this note (edit, comment, child, card or note-reply)" },
     ],
     async run({ kind }, { surface, host, standing }, actor) {
       const k = kind ?? firstUnsent(surface) ?? "edit";
@@ -12681,7 +12681,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "unsent.dismiss": def({
-    summary: "let go of what's kept on this note (kind=edit, comment, child or card): its line goes; a copy of the text stays on disk (drafts/), written first if there isn't one. The person's only",
+    summary: "let go of what's kept on this note (kind=edit, comment, child, card or note-reply): its line goes; a copy of the text stays on disk (drafts/), written first if there isn't one. The person's only",
     keys: "⏎ or a click on [let it go] on the kept-draft line or in its comparison",
     touches: "nothing", replay: "ask",
     person: "the kept text is the person's to keep or let go; an agent reads it with unsent.diff or unsent.copy",
@@ -12695,7 +12695,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const { of, u } = await unsentHere(surface, host, k, false);
       const copy = copyOf(u, of.slice(0, 8));
       unshelveIf(u);
-      host.ctx.flash(`let go of the ${k === "child" ? "note" : k} · its copy stays at ${tidy(copy)}`);
+      host.ctx.flash(`let go of the ${keptName(k as UnsentKind)} · its copy stays at ${tidy(copy)}`);
       host.redraw();
       return { of, kind: k, dismissed: true, copy };
     },

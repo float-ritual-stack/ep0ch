@@ -29,6 +29,12 @@ are its record. The outliner's entries from then are kept below, under
 - **done-stamp stamps tickets and outbox items** at done, and takes the stamp off on reopen.
 - **Run:** `ep0ch install --apply`.
 
+### Esc twice keeps a reply where you wrote it (PIE-1603)
+
+- **Kept, not discarded:** a typed reply stays on its note, as the border promised. The status line says `kept here · r brings the reply back`, and `r` restores the text.
+- **It shows on the note:** the reader's `■` line says a reply is kept, with `[open copy]` and `[let it go]`.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A picture is one thing: the right one changes, a page draws it the door's size, and [+] stops at the fit (PIE-1594, PIE-1584)
 
 - **The right picture changes.** Two pictures that read alike resize one at a time, past an insert above them, and so does ctrl+z. If another twin went in before the door redrew, it says so and writes nothing.
