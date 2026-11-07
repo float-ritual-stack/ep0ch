@@ -527,6 +527,33 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect(S().focus).not.toBe("stage");
   }, 20_000);
 
+  test("a comment sent from its tile: esc as it lands does what it does, whether or not a frame came first", async () => {
+    (app as any).lastInput = 0;
+    if (S().focus === "stage") for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    await app.act({ action: "section", args: { name: "comment-tile" }, as: "test-agent" });
+    const surf = () => (S().stages.get(S().sel).top as any).pane("reader").surface;
+    await until(() => !!surf()?.msg, "the whole note open");
+    if (S().focus !== "stage") press({ kind: "enter" });
+    for (let i = 0; i < 3 && surf().session; i++) press({ kind: "esc" });
+    ch("C");
+    await until(() => surf().session?.mode === "compose", "a comment open");
+    await (app as any).dispatch.press("comment.place", { place: "tile" });
+    await until(() => (S().stages.get(S().sel).top.describe().panes as any[]).some(t => t.kind === "comment"), "the comment in its tile");
+    const inTile = surf().session.composer;
+    press({ kind: "paste", text: "A last look at the frost." });
+    await until(() => inTile.text.includes("frost"), "the words in the tile");
+    // The thread takes its time to read again: the send ends well after its last frame was asked for.
+    const comments = board.comments;
+    (board as any).comments = async (...a: unknown[]) => { await Bun.sleep(150); return (comments as any).apply(board, a); };
+    try {
+      press({ kind: "char", ch: "s", ctrl: true });
+      while (surf().session) await Bun.sleep(0);
+      for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+      expect(S().focus).not.toBe("stage");
+    } finally { (board as any).comments = comments; }
+    for (const t of await board.comments(surf().msg.id)) if (t.body.includes("frost")) await board.trash(t.id);
+  });
+
   test("session: a half-written floating comment, moved and sized, comes back after a handover as it sat: its words, place, size and cursor", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "session" }, as: "test-agent" });

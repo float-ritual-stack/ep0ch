@@ -42,6 +42,8 @@ export class AttachedTilePane implements Pane {
   /** Closing it was asked for once (its attachment ended): the desk closes it after this frame. */
   private closing = false;
   private lastRow = -1;
+  /** The size of the last frame. */
+  private drawnAt: { w: number; h: number } | null = null;
   /** The owner as of the last frame: its title and hint are its. */
   private owner: (Pane & AttachedOwner) | null = null;
   /** `source`: the tile whose attachment it draws, by name. */
@@ -85,6 +87,7 @@ export class AttachedTilePane implements Pane {
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.lastRow = h - 1;
+    this.drawnAt = { w, h };
     const drawn = this.drawn(w, h, focused, desk);
     if (drawn) { this.closing = false; return drawn; }
     // Its attachment ended (a comment sent, put aside or placed back), or its owner went: it closes, unless the
@@ -93,7 +96,13 @@ export class AttachedTilePane implements Pane {
     return { lines: [fg(C.dark) + pad(` nothing of ${this.source}'s is attached here`, w) + RESET] };
   }
 
-  key(k: Key, desk: DeskApi): boolean { return !!this.owned(desk)?.attachedKey(this.attachment, k, desk); }
+  key(k: Key, desk: DeskApi): boolean {
+    if (this.owned(desk)?.attachedKey(this.attachment, k, desk)) return true;
+    // Its attachment ended and no frame has closed it yet (a comment that just landed): it closes now, so what the key
+    // does next is the same whether a frame came first or not.
+    if (this.drawnAt && !this.drawn(this.drawnAt.w, this.drawnAt.h, true, desk)) desk.dismiss?.(this);
+    return false;
+  }
 
   /** Its owner's list, when its owner draws one (Matches): `list.*` with tile= this one reach it. */
   listHost(desk: DeskApi): ListHost {
