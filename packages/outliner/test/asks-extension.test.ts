@@ -335,8 +335,6 @@ test("the dry run lists only open asks: records, closed notes, answered lines, p
     "Walked the shed [type::proof]\n\n- Should the shed have failed? It didn't.",
     "Shed landed [type::landed]\n\n- Should the shed face south? It does now.",
     "Yard log, Mar 3 [type::build-log]\n\n- Should the shed move? Picked it.",
-    "Shed design [type::capability]\n\n## Open questions\n- Should the shed face east?",
-    "Hedge design [type::design]\n\n- Should the hedge be low?",
     "Hedge parked [work-stage::later]\n\n- Should the hedge be high?",
     "A call made [type::decision]\n\n- Should the fence be pine?",
     "Fence closed [status::closed]\n\n- Should the fence be cedar?",
@@ -357,6 +355,38 @@ test("the dry run lists only open asks: records, closed notes, answered lines, p
   for (const closed of t.older.slice(2)) expect(said).not.toContain(closed.id);
   expect(said).toContain("1 would be written");
   expect(code).toBe(0);
+});
+
+test("Codex on #1332: a question in a capability or design note is still a question; the records are the rule's query, a person can edit it", async () => {
+  const t = await setup(["Shed design [type::capability]\n\n## Open questions\n- Should the shed face east?", "Hedge design [type::design]\n\n- Should the hedge be low?"], 60_000);
+  const { said } = await dryRun(t);
+  for (const note of t.older) expect(said).toContain(note.id);
+  const manifest = await Bun.file(join(REPO_EXTENSIONS, "asks", "extension.json")).json() as { rules: { id: string; match: { query: string } }[] };
+  expect(manifest.rules.find(rule => rule.id === "settle")!.match.query).toContain("NOT type=permission-ask");
+});
+
+test("Codex on #1332: a comment on one question answers that one; the next is still marked", async () => {
+  const t = await setup(["Yard\n\nSome text.\n\n- Should the shed face south?\n- Should the hedge be low?"], 60_000);
+  const note = t.older[0]!;
+  await comment(t, note.id, "Should the shed face south?");
+  await t.edit(note.id, text => `${text}\n\nAgent's aside.`, AGENT);
+  const { said } = await dryRun(t);
+  expect(said).toContain("Should the hedge be low?");
+  expect(said).not.toContain("Should the shed face south?");
+});
+
+test("Codex on #1332: the same words an agent writes again under another heading are a new line, above or below the old one", async () => {
+  const t = await setup(["Below\n\n## Front\n- Should the shed move?", "Above\n\n## Front\n- Should the fence move?"], 60_000);
+  const [below, above] = t.older as [Block, Block];
+  await t.edit(below.id, text => `${text}\n\nA thought.`);
+  await t.edit(below.id, text => `${text}\n\n## Back\n- Should the shed move?`, AGENT);
+  await t.edit(above.id, text => `${text}\n\nA thought.`);
+  await t.edit(above.id, text => text.replace("## Front", "## Back\n- Should the fence move?\n\n## Front"), AGENT);
+  const { said } = await dryRun(t);
+  expect(said).toContain("L9 needs (0.92): Should the shed move?");
+  expect(said).not.toContain("L4 needs (0.92): Should the shed move?");
+  expect(said).toContain("L4 needs (0.92): Should the fence move?");
+  expect(said).not.toContain("L7 needs (0.92): Should the fence move?");
 });
 
 test("a line older than a person's last save or comment is answered; a line an agent adds after it still asks", async () => {

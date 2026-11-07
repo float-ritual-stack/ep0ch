@@ -17,7 +17,7 @@
     {
       "id": "settle",
       "description": "Asks the write review about a note an agent wrote, a minute after it was last saved, and marks what it finds",
-      "match": { "query": "NOT type=annotation NOT type=annotation-reply NOT type=peer-message NOT type=draft-proposal NOT type=snapshot NOT type=virtual-branch NOT type=jev-run NOT type=review-finding NOT machine NOT demo NOT from NOT ext.page NOT asks=off" },
+      "match": { "query": "NOT type=annotation NOT type=annotation-reply NOT type=peer-message NOT type=draft-proposal NOT type=snapshot NOT type=virtual-branch NOT type=jev-run NOT type=review-finding NOT machine NOT demo NOT from NOT ext.page NOT asks=off NOT type=permission-ask NOT type=proof NOT type=implementation-proof NOT type=validated NOT type=landed NOT type=merge NOT type=decision NOT type=build-log NOT type=log-entry NOT type=release-notes NOT type=artifact-run" },
       "on": { "start": "settle", "change": "settle", "quiet": "1m", "from": ["agent"] }
     },
     {

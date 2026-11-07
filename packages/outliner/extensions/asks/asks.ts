@@ -3,7 +3,7 @@
 // mark beside it. `clear` and `reply`: a tick, a reply or done takes a marked chip off. Each line is written once: a
 // record under this extension's page remembers it, so a chip you removed never comes back.
 import { outline } from "./outline";
-import { aboutLines, chippedLines, hashOf, isAnswered, isClosed, isRecord, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, type Anchor, type Mark } from "./asks-line";
+import { aboutLines, chippedLines, hashOf, isAnswered, isClosed, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
 
 interface Block { id: string; revision: number; text: string; parentId?: string | null; properties?: { key: string; value: string }[] }
 interface Reading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
@@ -47,10 +47,33 @@ async function patch(block: { id: string; revision: number; text: string }, next
   return outcome;
 }
 
+interface Written { id: string; author?: string; createdAt?: string }
+interface Thread { block: Written; resolvedTarget?: { anchor?: Anchor } | null; replies?: { block: Written }[] }
+
+/**
+ * The lines you've answered (PIE-1620): each still as it was at your last save (a tick is one) or comment on the whole
+ * note, and the lines a comment of yours is on. You've seen those; what an agent wrote since can still ask.
+ */
+async function answeredLines(note: string, text: string): Promise<Set<number>> {
+  const { revisions } = await outline<{ revisions: { revision: number; savedAt: string; author?: string }[] }>({ action: "block.revisions", blockId: note }); // Newest first.
+  const threads = await outline<Thread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: note }, includeResolved: true } });
+  const yours = threads.flatMap(t => [t.block, ...(t.replies ?? []).map(r => r.block)].filter(b => b.author === "user").map(b => ({ at: Date.parse(b.createdAt ?? ""), anchor: t.resolvedTarget?.anchor })));
+  const lastWhole = Math.max(0, ...yours.filter(c => c.anchor?.kind === "whole-subject").map(c => c.at));
+  const onWhole = lastWhole ? revisions.find(r => Date.parse(r.savedAt) <= lastWhole)?.revision ?? 0 : 0;
+  const seen = Math.max(revisions.find(r => r.author === "user")?.revision ?? 0, onWhole);
+  const out = seen ? unchangedLines((await outline<{ text: string }>({ action: "block.revisions", blockId: note, revision: seen })).text, text) : new Set<number>();
+  const lines = text.split("\n");
+  for (const { anchor } of yours) {
+    if (anchor?.kind === "whole-subject") continue;
+    const about = aboutLines(anchor, text);
+    if (about) lines.forEach((_, i) => { if (about(i, lines)) out.add(i); });
+  }
+  return out;
+}
+
 async function settle(note: string, dry: boolean, sure: boolean): Promise<void> {
   const block = await outline<Block>({ action: "get", blockId: note });
   if (isClosed(block.properties)) return done("left out: the note is closed");
-  if (isRecord(block.properties)) return done("left out: the note is a record");
   const read = await outline<{ revision: number; text: string; jev: string; lines: Reading[] }>({ action: "blocks.asks", blockId: note }, { timeoutMs: 110_000 });
   if (read.jev !== "asked") return done(`not asked: ${read.jev}`);
   const lines = read.text.split("\n");
@@ -58,8 +81,11 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || (l.reads === "unsure" && !sure)).filter(l => !chipped.has(l.line));
   if (!wanted.length) return done("nothing asks here");
   const seen = await records(note);
-  const fresh = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)));
-  if (!fresh.length) return done("already marked once");
+  const unseen = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)));
+  if (!unseen.length) return done("already marked once");
+  const yours = await answeredLines(note, read.text);
+  const fresh = unseen.filter(l => !yours.has(l.line));
+  if (!fresh.length) return done("nothing asks here: you've answered what's left");
   const said = fresh.map(l => `L${l.line + 1} ${l.reads === "yes" ? "needs" : "maybe-needs"} (${l.noul.toFixed(2)}): ${wordsOf(lines[l.line]!)}`);
   if (dry) { const { message, answer } = listed(`would write ${fresh.length}`, said); return done(message, { answer }); }
   const made = fresh.map(l => ({ under: linesUnder(lines, l.line), hash: hashOf(lines[l.line]!), words: wordsOf(lines[l.line]!) }));
@@ -98,7 +124,6 @@ async function clear(note: string): Promise<void> {
   return takeOff(block, ({ line: i }, lines) => isAnswered(lines[i]!) || replied(i, lines), "ticked or replied to");
 }
 
-interface Thread { block: { id: string }; resolvedTarget?: { anchor?: Anchor } | null; replies?: { block: { id: string } }[] }
 
 /** A comment on a marked line answers that mark; a comment on the whole note answers them all. */
 async function reply(mark: string): Promise<void> {

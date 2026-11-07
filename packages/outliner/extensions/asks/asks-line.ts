@@ -14,12 +14,16 @@ const TAIL_ANCHOR = new RegExp(`[ \\t]+\\^${FRAGMENT_ID_SOURCE}[ \\t]*$`);
 
 /** A line's own words: no chips, no list mark, no anchor, links as their labels, nothing a chip's value can't hold. */
 export function wordsOf(line: string): string {
-  const flat = line.replace(CHIP, " ").replace(TAIL_ANCHOR, "").replace(LEAD, "")
+  const flat = plainWords(line);
+  return flat.length > WORDS ? `${flat.slice(0, WORDS - 1).trimEnd()}…` : flat;
+}
+
+function plainWords(line: string): string {
+  return line.replace(CHIP, " ").replace(TAIL_ANCHOR, "").replace(LEAD, "")
     .replace(/\(\([^)|]*\|([^)]*)\)\)/g, "$1").replace(/\(\([^)]*\)\)/g, " ")
     .replace(/\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (_, page: string, label?: string) => label ?? page)
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[`*[\]]/g, "")
     .replace(/\s+/g, " ").trim();
-  return flat.length > WORDS ? `${flat.slice(0, WORDS - 1).trimEnd()}…` : flat;
 }
 
 /** The mark's value names the chip it belongs to, by key and value: what's ours wherever it sits on the line. */
@@ -107,14 +111,27 @@ const DONE: readonly (readonly [key: string, value?: string])[] = [
   ["status", "done"], ["status", "closed"], ["status", "answered"], ["status", "decided"], ["status", "resolved"], ["status", "shipped"], ["status", "complete"], ["status", "verified"],
   ["work-stage", "done"], ["work-stage", "superseded"], ["work-stage", "later"], ["outbox", "done"], ["answered"],
 ];
-/**
- * Notes that record what happened, or have their own way to you, so a line in them isn't waiting on a mark: a session's
- * permission ask (the dialog and its own `[needs::]` are its ask), a verifier's proof, a day's log, what landed, and a
- * capability or design note (the waiting list reads its "Decisions for Evan" itself).
- */
-const RECORDS = new Set(["permission-ask", "proof", "implementation-proof", "validated", "landed", "merge", "build-log", "log-entry", "release-notes", "artifact-run", "artifact-deployment", "capability", "design", "decision"]);
-
 type Property = { key: string; value?: string; values?: string[] };
 const valuesOf = (p: Property) => p.values ?? (p.value === undefined ? [] : [p.value]);
 export const isClosed = (properties: readonly Property[] = []) => properties.some(p => DONE.some(([key, value]) => p.key === key && (value === undefined || valuesOf(p).includes(value))));
-export const isRecord = (properties: readonly Property[] = []) => properties.some(p => p.key === "type" && valuesOf(p).some(v => RECORDS.has(v)));
+
+/**
+ * The lines of `after` still there from `before`, by words (chips and a box's mark aside), each occurrence once: common
+ * ends first, so the same words written again above or below stay new; a longest common run through the rest.
+ */
+export function unchangedLines(before: string, after: string): Set<number> {
+  const was = before.split("\n").map(plainWords), now = after.split("\n").map(plainWords), kept = new Set<number>();
+  let top = 0;
+  while (top < was.length && top < now.length && was[top] === now[top]) kept.add(top++);
+  let endWas = was.length, endNow = now.length;
+  while (endWas > top && endNow > top && was[endWas - 1] === now[endNow - 1]) kept.add(--endNow), endWas--;
+  const rows = endWas - top, cols = endNow - top;
+  const run = Array.from({ length: rows + 1 }, () => new Uint32Array(cols + 1));
+  for (let r = rows - 1; r >= 0; r--) for (let c = cols - 1; c >= 0; c--) run[r]![c] = was[top + r] === now[top + c] ? run[r + 1]![c + 1]! + 1 : Math.max(run[r + 1]![c]!, run[r]![c + 1]!);
+  for (let r = 0, c = 0; r < rows && c < cols;) {
+    if (was[top + r] === now[top + c]) { kept.add(top + c); r++; c++; }
+    else if (run[r + 1]![c]! >= run[r]![c + 1]!) r++;
+    else c++;
+  }
+  return new Set([...kept].filter(i => now[i]));
+}

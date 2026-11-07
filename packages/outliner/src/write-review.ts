@@ -197,16 +197,14 @@ function aroundLine(lines: readonly string[], i: number, title: number) {
  * entry, an answered question or an agent's own checklist reads as what it is. The truth table, in code: a line that
  * can't ask (a quotation, someone's `>` block, as `asksAt` has it) or can't hold a chip (a heading, a table row) reads
  * `no` whatever Jev says, as does one Jev says yes to any of `NOT_OPEN`; else "does it ask?" by the thresholds.
- * `answered` is the lines someone has already answered, left out unasked. Never throws: `jev` says why when it couldn't
+ * Never throws: `jev` says why when it couldn't
  * be asked, with no lines.
  */
-export async function readAsks(text: string, o: ReviewOptions & { answered?: () => ReadonlySet<number> } = {}): Promise<{ jev: string; lines: AskReading[] }> {
+export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ jev: string; lines: AskReading[] }> {
   if ((o.env ?? process.env).OUTLINER_FIGURE_FIT === "off") return { jev: "off", lines: [] };
-  const lines = text.split("\n"), maybe = askCandidates(text);
-  if (!maybe.length) return { jev: "not asked: no line may ask", lines: [] };
+  const lines = text.split("\n"), candidates = askCandidates(text);
+  if (!candidates.length) return { jev: "not asked: no line may ask", lines: [] };
   try {
-    const answered = o.answered?.(), candidates = answered ? maybe.filter(i => !answered.has(i)) : maybe;
-    if (!candidates.length) return { jev: "not asked: every line that may ask is older than its answer", lines: [] };
     const prompt = await loadWriteReviewPrompt(o.promptDirectory), title = headerLine(text).line;
     const kind = parsePropertyRecords(text).find(p => p.scope === "block" && p.key === "type")?.value;
     const out: AskReading[] = [];
