@@ -13,7 +13,7 @@ import { editorClick } from "../../src/surface/editor";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { DRAFT_LEASE_MS, SocketBoard, USER } from "../../src/socket";
-import { extensionList } from "../../src/extensions";
+import { extensionList, scriptBindings } from "../../src/extensions";
 import type { ReaderPane } from "../../src/desk/panes";
 import { type Key } from "../../src/term";
 import { outliner, Scratch, until } from "../scratch";
@@ -321,6 +321,16 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     expect(text).not.toContain("task.status");
     await app.dispatch.act({ action: "ext.undo", tile: "source" }, USER);
     screen();
+  }, 30_000);
+
+
+  test("PIE-1629: the showcase's own script keys are free, so no save flashes a clash, and Seed report is on alt+G", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "seed-report"), "the script bound");
+    for (const b of scriptBindings()) expect([b.key, app.dispatch.bindingProblem(b, scriptBindings())]).toEqual([b.key, undefined]);
+    expect(scriptBindings().filter(b => b.label === "seed-report").map(b => b.key)).toEqual(["alt+G"]);
+    expect((app as any).message).not.toContain("is held by");
   }, 30_000);
 
 
