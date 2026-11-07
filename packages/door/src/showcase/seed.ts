@@ -221,13 +221,13 @@ if (request.input.request === "describe the beds") {
   if (opts.ticketsConfig) seedDoorExts(opts.ticketsConfig);
   notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
   notes.scripts = await make(notes.root.id, [
-    "Seed report [script::seed-report] [results::keep] [effects::write] [keys::alt+S]",
+    "Seed report [script::seed-report] [results::keep] [effects::write] [keys::alt+G]",
     "> [!summary] A script that ticks the first task on the Planting checklist and adds a note under itself. Press the button to run it, then look at the checklist.",
     "",
     '::button{label="Run seed report" act="seed-report"}',
     "",
     "## Ways to run it",
-    "- **The button** above, or **Press alt+S** anywhere (its `[keys::alt+S]`).",
+    "- **The button** above, or **Press alt+G** anywhere (its `[keys::alt+G]`).",
     "- **By name:** `^K` then `seed-report`; its answer stays under the line, and one Esc closes the bar.",
     "- **Take it back:** one `ext.undo` (or ctrl+z) undoes the whole run.",
     "",
@@ -241,7 +241,7 @@ if (request.input.request === "describe the beds") {
     "```ts",
     "const dispatcher = await act('layout.get');",
     // The tile showing the checklist, by its note's id (a tile= answers to the block it shows): a press from this note's own
-    // button, alt+S or the power bar all tick the same task.
+    // button, alt+G or the power bar all tick the same task.
     `await act('task.status', { n: 1, to: 'done', tile: '${notes.scriptTarget.id}' });`,
     "await tools.outline_create({ parent: self.id, text: 'Labels for planting' });",
     "return { message: 'Ready for planting', dispatcher };",

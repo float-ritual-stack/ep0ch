@@ -228,7 +228,7 @@ export const marks: Record<string, string[]> = {
   wyrm: ["Wyrmhold", "join the realm", "Dozing Gerald"],
   lens: ["Jobs", "Fix the gate latch", "Seed order"],
   workbench: ["Garden collection workbench", "Table", "Cards"],
-  scripts: ["Seed report", "Press alt+S"],
+  scripts: ["Seed report", "Press alt+G"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "pick-a-tile": ["Pick a tile instead of typing its id", "pop it", "misread"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
