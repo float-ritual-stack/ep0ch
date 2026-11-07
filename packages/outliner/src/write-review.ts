@@ -16,7 +16,7 @@ import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
-import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, proseOf, RUBRIC_OF, shapeNext, splitPoints, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksAt, FIX_BEFORE_DONE, mayAsk, pointsPatch, RUBRIC_OF, shapeNext, splitPoints, structuralLines, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -100,14 +100,11 @@ export function sectionsOf(text: string): Section[] {
   return out.map((s, k) => ({ ...s, id: `s${k}` }));
 }
 
-/** The lines below the top that may ask Evan something: a question mark or a decision word in its own words (proseOf: not a quotation, a code span or an address), outside fences and components; never a ticked box (answered). */
+/** The lines below the top that may ask Evan something: a question mark or a decision word in its own words (proseOf: not a quotation, a code span or an address), outside fences and components; never a line that can't be asking (`structuralLines`). */
 function askCandidates(text: string): number[] {
-  const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line;
+  const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line, structural = structuralLines(lines);
   return lines.flatMap((line, i) => {
-    if (i <= title || structure[i] !== -1 || answeredBox(line)) return [];
-    // A chip's words are no ask: `[type::decision]` alone on a line is a property.
-    const words = stripPropertyTokens(proseOf(line));
-    return /\?/.test(words) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(words) ? [i] : [];
+    return i > title && structure[i] === -1 && !structural.has(i) && mayAsk(line) ? [i] : [];
   });
 }
 
@@ -171,12 +168,24 @@ export async function askJevQuestions(state: Record<string, unknown>, questions:
   }
 }
 
-/** Questions beside "does it ask?" over a whole note (`readAsks`), each one judgment: a yes to any says the line is no open ask. The state's facts are `around` and the note's own. */
-const NOT_OPEN = { record: "askRecord", settled: "askSettled", other: "askOther" } as const;
-/** How much of a neighbouring line `around` sends. */
-const AROUND = 200;
+/** What Jev is asked per line over a whole note (`readAsks`), each one judgment; `askLine` combines them. The state's facts are `around` and the note's own. */
+const LINE_QUESTIONS = { decide: "askDecide", addressed: "askAddressed", settled: "askSettled", record: "askRecord" } as const;
+/**
+ * Jev is the cheap first pass, not the judge (Evan, Nov 6): a miss can't be recovered later and a false pass can, since a
+ * bigger model confirms what passes. So it passes on an even chance rather than the review's 0.7.
+ */
+export const ASK_PASS = { pass: 0.5, no: REVIEW_THRESHOLDS.no };
+/** How much of a neighbouring line `around` sends, and of what follows a line in its section. */
+const AROUND = 200, LATER = 600;
 
-/** Where line `i` sits, as a person reading it sees: its heading, the item it's under and the lines either side. Only what's there. */
+/** The truth table: it asks only as far as it's both addressed to Evan and asks him for something, and said answered or a record is no. */
+export function askLine(a: Readonly<Record<keyof typeof LINE_QUESTIONS, number>>): { noul: number; reads: AskReading["reads"] } {
+  const noul = Math.min(a.decide, a.addressed);
+  if (a.settled >= REVIEW_THRESHOLDS.yes || a.record >= REVIEW_THRESHOLDS.yes) return { noul, reads: "no" };
+  return { noul, reads: noul >= ASK_PASS.pass ? "yes" : noul >= ASK_PASS.no ? "unsure" : "no" };
+}
+
+/** Where line `i` sits, as a person reading it sees: its heading, the item it's under, the lines either side and the rest of its section. Only what's there. */
 function aroundLine(lines: readonly string[], i: number, title: number) {
   const clip = (line: string) => stripPropertyTokens(line).trim().slice(0, AROUND);
   const depth = /^[ \t]*/.exec(lines[i]!)![0].length;
@@ -188,17 +197,23 @@ function aroundLine(lines: readonly string[], i: number, title: number) {
     if (!parent && !heading && /^[ \t]*(?:[-*+]|\d+[.)])[ \t]/.test(line) && /^[ \t]*/.exec(line)![0].length < depth) parent = clip(line);
   }
   const before = near(-1), after = near(1);
-  return { ...(heading ? { heading } : {}), ...(parent ? { parent } : {}), ...(before ? { before } : {}), ...(after ? { after } : {}) };
+  const follows: string[] = [];
+  let size = 0;
+  for (let k = i + 1; k < lines.length && size <= LATER && !HEADING.test(lines[k]!); k++) {
+    if (!lines[k]!.trim()) continue;
+    const line = clip(lines[k]!);
+    follows.push(line);
+    size += line.length + 1;
+  }
+  const later = follows.join("\n").slice(0, LATER);
+  return { ...(heading ? { heading } : {}), ...(parent ? { parent } : {}), ...(before ? { before } : {}), ...(after ? { after } : {}), ...(follows.length > 1 ? { later } : {}) };
 }
 
 /**
- * The write review's `asks` judgment on a whole note, kept rather than shaped into a receipt (PIE-1612, `blocks.asks`):
- * the same candidates, prompt and thresholds, with what a person would see of each line beside it (PIE-1620), so a log
- * entry, an answered question or an agent's own checklist reads as what it is. The truth table, in code: a line that
- * can't ask (a quotation, someone's `>` block, as `asksAt` has it) or can't hold a chip (a heading, a table row) reads
- * `no` whatever Jev says, as does one Jev says yes to any of `NOT_OPEN`; else "does it ask?" by the thresholds.
- * Never throws: `jev` says why when it couldn't
- * be asked, with no lines.
+ * Jev's first pass over a whole note, kept rather than shaped into a receipt (PIE-1612, `blocks.asks`): the write
+ * review's candidates, with what a person would see of each line beside it, and `LINE_QUESTIONS` per line, combined by
+ * `askLine` (PIE-1620). A line reading `yes` has only passed: the asks extension has a bigger model confirm it before a
+ * chip is written. Never throws: `jev` says why when it couldn't be asked, with no lines.
  */
 export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ jev: string; lines: AskReading[] }> {
   if ((o.env ?? process.env).OUTLINER_FIGURE_FIT === "off") return { jev: "off", lines: [] };
@@ -213,8 +228,8 @@ export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ j
       const batches = Array.from({ length: ASK_BATCHES }, (_, k) => candidates.slice(at + k * MAX_ASKS, at + (k + 1) * MAX_ASKS)).filter(batch => batch.length);
       for (const asked of await Promise.all(batches.map(batch => {
         const request = reviewRequest(text, [], batch, {}, prompt, { title: false, opening: false });
-        const questions: Record<string, unknown> = Object.fromEntries(Object.entries(request.questions).filter(([id]) => id.startsWith("asks::")));
-        for (const i of batch) for (const [id, key] of Object.entries(NOT_OPEN)) {
+        const questions: Record<string, unknown> = {};
+        for (const i of batch) for (const [id, key] of Object.entries(LINE_QUESTIONS)) {
           questions[`${id}::L${i}`] = { type: "noul", instructions: prompt[key].replaceAll("{line}", `asks.L${i}`).replaceAll("{around}", `around.L${i}`) };
         }
         const state = { ...request.state, ...(kind ? { kind } : {}), around: Object.fromEntries(batch.map(i => [`L${i}`, aroundLine(lines, i, title)])) };
@@ -222,12 +237,11 @@ export async function readAsks(text: string, o: ReviewOptions = {}): Promise<{ j
       }))) {
         // One batch unanswered: nothing is said, and the next settle reads the note whole.
         if (!("answers" in asked)) return { jev: asked.unavailable, lines: [] };
-        for (const [id, answer] of Object.entries(asked.answers)) {
-          const i = Number(/^asks::L(\d+)$/.exec(id)?.[1] ?? NaN), noul = answer.noul;
-          if (!Number.isInteger(i) || !unit(noul)) continue;
-          const notOpen = Object.keys(NOT_OPEN).some(q => { const n = asked.answers[`${q}::L${i}`]?.noul; return unit(n) && n >= REVIEW_THRESHOLDS.yes; });
-          const reads = notOpen || !asksAt(lines, i, "yes") || HEADING.test(lines[i]!) || /^[ \t>]*\|/.test(lines[i]!) ? "no" as const : noul >= REVIEW_THRESHOLDS.yes ? "yes" as const : noul >= REVIEW_THRESHOLDS.no ? "unsure" as const : "no" as const;
-          out.push({ line: i, text: lines[i]!, noul, reads, top: topBox(lines, i, title) });
+        for (const i of candidates) {
+          const said = Object.fromEntries(Object.keys(LINE_QUESTIONS).map(q => [q, asked.answers[`${q}::L${i}`]?.noul]));
+          // Asked in another batch, or left out of the answer: `no` could only be a guess.
+          if (!unit(said.decide) || !unit(said.addressed)) continue;
+          out.push({ line: i, text: lines[i]!, ...askLine({ decide: said.decide, addressed: said.addressed, settled: unit(said.settled) ? said.settled : 0, record: unit(said.record) ? said.record : 0 }), top: topBox(lines, i, title) });
         }
       }
     }

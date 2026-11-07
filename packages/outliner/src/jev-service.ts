@@ -8,7 +8,7 @@ import { readAsks } from "./write-review";
 /** At most this many findings stamped by one request. */
 const STAMPS_PER_REQUEST = 200;
 
-/** `blocks.asks` (PIE-1612): the write review's `asks` judgment on a note as it is now, with the text and revision it read. */
+/** `blocks.asks` (PIE-1612): Jev's first pass over a note as it is now, with the text and revision it read. */
 export async function answerAsks(store: Pick<OutlinerStore, "require">, blockId: string, promptDirectory: string | undefined) {
   const block = store.require(blockId);
   return { blockId: block.id, revision: block.revision, text: block.text, ...await readAsks(block.text, { ...(promptDirectory ? { promptDirectory } : {}) }) };

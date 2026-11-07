@@ -2,6 +2,8 @@
 // sure lines (PIE-1620): the maybe lane is for what was just written, and a month of old maybes is noise to read.
 /** How many notes it reads at once: Jev answers each in about a second. */
 const AT_ONCE = 4;
+/** How `settle`'s answer starts a line the model turned down. */
+const TURNED_DOWN = "turned down: ";
 /** How many notes one read of the window asks for: the most a query answers. */
 const PAGE = 1000;
 
@@ -28,16 +30,22 @@ export async function asksBackfill(board: Sender, o: { since: string; write: boo
   // A note you alone wrote isn't marked, as the rule hears only agents.
   const notes = found.filter(b => b.author === "agent" && b.actorId && !/^(?:ext:|jev\/)/.test(b.actorId)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, o.limit ?? Infinity);
   let marked = 0, failed = 0;
+  const struck: string[] = [];
   for (let i = 0; i < notes.length; i += AT_ONCE) {
     await Promise.all(notes.slice(i, i + AT_ONCE).map(async note => {
       try {
-        const answer = await board.send("extensions.act", { extension: "asks", extensionAction: "settle", blockId: note.id, args: { sure: "yes", ...(o.write ? {} : { dry: "yes" }) }, mutation: { author: "agent", actorId: "review-asks" } }, 120_000) as { message?: string; answer?: string };
+        const answer = await board.send("extensions.act", { extension: "asks", extensionAction: "settle", blockId: note.id, args: { sure: "yes", ...(o.write ? {} : { dry: "yes" }) }, mutation: { author: "agent", actorId: "review-asks" } }, 300_000) as { message?: string; answer?: string };
+        const title = `${note.id}  ${note.text.split("\n")[0]!.slice(0, 60)}`;
+        const said = (answer.answer ?? answer.message ?? "").split("\n");
+        const down = said.filter(l => l.startsWith(TURNED_DOWN));
+        if (down.length) struck.push(title, ...down.map(l => `  ${l.slice(TURNED_DOWN.length)}`));
         if (!/^(?:would write|wrote|proposed)/.test(answer.message ?? "")) return;
         marked++;
-        io.out(`${note.id}  ${note.text.split("\n")[0]!.slice(0, 60)}\n${(answer.answer ?? answer.message!).split("\n").map(l => `  ${l}`).join("\n")}`);
+        io.out(`${title}\n${said.filter(l => !l.startsWith(TURNED_DOWN)).map(l => `  ${l}`).join("\n")}`);
       } catch (e) { failed++; io.err(`${note.id}: ${(e as Error).message}`); }
     }));
   }
+  if (struck.length) io.out(`Turned down by the model, not written:\n${struck.join("\n")}`);
   io.out(`${notes.length} notes read, ${marked} ${o.write ? "written" : "would be written"}${failed ? `, ${failed} failed` : ""}${o.write ? "" : ". Dry run: nothing was written; --write writes it."}`);
   return failed ? 1 : 0;
 }

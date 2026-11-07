@@ -1,9 +1,11 @@
 // The write review's asks kept as properties (PIE-1612). `settle`: a note an agent wrote has gone quiet, so the service
-// reads it (`blocks.asks`: the review's candidates, prompt and thresholds) and each line that asks gets a chip with a
-// mark beside it. `clear` and `reply`: a tick, a reply or done takes a marked chip off. Each line is written once: a
+// reads it (`blocks.asks`: code, then Jev), a bigger model confirms what Jev passes (PIE-1620), and each line that asks
+// gets a chip with a mark beside it. `clear` and `reply`: a tick, a reply or done takes a marked chip off. Each line is written once: a
 // record under this extension's page remembers it, so a chip you removed never comes back.
+import { join } from "node:path";
 import { outline } from "./outline";
-import { aboutLines, chippedLines, hashOf, isAnswered, isClosed, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
+import { confirmPrompt, verdicts } from "./asks-confirm";
+import { aboutLines, chippedLines, declineKey, hashOf, isAnswered, isClosed, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
 
 interface Block { id: string; revision: number; text: string; parentId?: string | null; properties?: { key: string; value: string }[] }
 interface Reading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
@@ -15,9 +17,10 @@ interface Request {
     args?: { dry?: string; sure?: string };
     requestedBy?: { author: "user" | "agent"; actorId?: string };
   };
+  config?: { answer?: string[] };
 }
 
-const { input } = (await Bun.stdin.json()) as Request;
+const { input, config } = (await Bun.stdin.json()) as Request;
 const done = (message: string, extra: Record<string, unknown> = {}) => process.stdout.write(JSON.stringify({ ok: true, value: { message, ...extra } }));
 
 /** A message holds at most this (the service refuses more); the whole list goes in `answer`, for whoever asked. */
@@ -32,9 +35,12 @@ const listed = (head: string, said: readonly string[]) => {
 };
 
 const prop = (block: Block, key: string) => block.properties?.find(p => p.key === key)?.value;
-/** What this extension wrote on a note, by each line's hash: how many lines sat under it when it last looked. */
-async function records(note: string): Promise<Map<string, { block: Block; under: number }>> {
-  const { blocks } = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note}`, machinery: "show", limit: 200 } });
+const recordsOf = async (note: string) => (await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note}`, machinery: "show", limit: 200 } })).blocks;
+/** The lines the model said no to on this note, by `declineKey`: its word, kept apart from a mark, which is yours to take off for good. */
+const declinedOf = (blocks: readonly Block[]) => new Set(blocks.flatMap(block => { const key = prop(block, "asks.declined"); return key ? [key] : []; }));
+/** The lines this extension marked on a note, by each line's hash: how many lines sat under it when it last looked. */
+async function records(note: string, blocks?: readonly Block[]): Promise<Map<string, { block: Block; under: number }>> {
+  blocks ??= await recordsOf(note);
   return new Map(blocks.flatMap(block => { const line = prop(block, "asks.line"); return line ? [[line, { block, under: Number(prop(block, "asks.under") ?? 0) }] as const] : []; }));
 }
 
@@ -45,6 +51,31 @@ async function records(note: string): Promise<Map<string, { block: Block; under:
 async function patch(block: { id: string; revision: number; text: string }, next: string): Promise<"applied" | "proposed"> {
   const { outcome } = await outline<{ outcome: "applied" | "proposed" }>({ action: "draft.patch", blockId: block.id, revision: block.revision, current: true, propose: "on-conflict", patches: linePatches(block.text, next.split("\n")) });
   return outcome;
+}
+
+// The model is a command (prompt on stdin, JSON on stdout): config.answer in this copy's config.json, else the schema's
+// default, read from extension.json so the door's settings say what actually runs.
+const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extension.json")).json()).configSchema.properties.answer.default;
+/** How long the model gets to answer for one note. */
+const MODEL_MS = 120_000; // Run from this folder: a checkout's CLAUDE.md would be read into every judgment, at ten times the cost.
+const FIX = `ep0ch act ext.asks.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}', or sign in with claude`;
+
+/**
+ * The bigger model's word on the lines Jev passed, one call for the note. It throws when there's no word, as the run's
+ * error: a failed call is never a yes or a no, so nothing is written and the next save asks again.
+ */
+async function confirm(text: string, passed: readonly number[]): Promise<Map<number, boolean>> {
+  const command = config?.answer ?? DEFAULT_ANSWER;
+  const failed = (why: string) => new Error(`The model couldn't confirm, so nothing was written: ${why}. To fix: ${FIX}`);
+  if (!command.length) throw failed("config.answer is empty");
+  const ran = command.join(" ").slice(0, 100);
+  let proc;
+  try { proc = Bun.spawn(command, { stdin: new Blob([confirmPrompt(text, passed)]), stdout: "pipe", stderr: "pipe", timeout: MODEL_MS, cwd: import.meta.dir }); }
+  catch (e) { throw failed(`${ran} couldn't start (${(e as Error).message})`); }
+  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  if (code !== 0) throw failed(`${ran} exited ${code}${err.trim() ? `, saying "${err.trim().split("\n")[0]!.slice(0, 120)}"` : ""}`);
+  try { return verdicts(out, passed); }
+  catch (e) { throw failed(`${ran}: ${(e as Error).message}`); }
 }
 
 interface Written { id: string; author?: string; createdAt?: string }
@@ -80,32 +111,41 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   const chipped = chippedLines(read.text);
   const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || (l.reads === "unsure" && !sure)).filter(l => !chipped.has(l.line));
   if (!wanted.length) return done("nothing asks here");
-  const seen = await records(note);
-  const unseen = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)));
-  if (!unseen.length) return done("already marked once");
+  const written = await recordsOf(note);
+  const seen = await records(note, written), declined = declinedOf(written);
+  const unseen = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)) && !declined.has(declineKey(lines, l.line)));
+  if (!unseen.length) return done("already marked or turned down once");
   const yours = await answeredLines(note, read.text);
   const fresh = unseen.filter(l => !yours.has(l.line));
   if (!fresh.length) return done("nothing asks here: you've answered what's left");
-  const said = fresh.map(l => `L${l.line + 1} ${l.reads === "yes" ? "needs" : "maybe-needs"} (${l.noul.toFixed(2)}): ${wordsOf(lines[l.line]!)}`);
-  if (dry) { const { message, answer } = listed(`would write ${fresh.length}`, said); return done(message, { answer }); }
-  const made = fresh.map(l => ({ under: linesUnder(lines, l.line), hash: hashOf(lines[l.line]!), words: wordsOf(lines[l.line]!) }));
-  for (const l of fresh) lines[l.line] = withMark(lines[l.line]!, l.reads as "yes" | "unsure");
+  // Only what Jev passed goes up, last, once everything code can rule out is out. Jev's unsure band stays a maybe, unconfirmed.
+  const passed = fresh.filter(l => l.reads === "yes").map(l => l.line);
+  const word = passed.length ? await confirm(read.text, passed) : new Map<number, boolean>();
+  const kept = fresh.filter(l => l.reads !== "yes" || word.get(l.line));
+  const struck = fresh.filter(l => l.reads === "yes" && !word.get(l.line));
+  const said = kept.map(l => `L${l.line + 1} ${l.reads === "yes" ? "needs" : "maybe-needs"} (${l.noul.toFixed(2)}): ${wordsOf(lines[l.line]!)}`);
+  const down = struck.map(l => `turned down: L${l.line + 1} (${l.noul.toFixed(2)}): ${wordsOf(lines[l.line]!)}`);
+  const withDown = (answer: string) => [answer, ...down].join("\n");
+  // A dry run lists what the write would do. Past it, a line turned down is remembered like a marked one: every later save isn't another call.
+  const page = dry ? { block: undefined } : await outline<{ block?: { id: string } }>({ action: "pages.resolve", address: "ext-asks" });
+  const record = async (line: number, tail: string) => (await outline<{ id: string }>({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${wordsOf(lines[line]!)} [machine::asks] [ext.generated::asks] [asks.note::${note}] ${tail}` })).id;
+  if (!dry) for (const l of struck) await record(l.line, `[asks.declined::${declineKey(lines, l.line)}]`);
+  if (!kept.length) return done(`nothing confirmed: the model turned down ${struck.length}`, { answer: down.join("\n") });
+  if (dry) { const { message, answer } = listed(`would write ${kept.length}`, said); return done(message, { answer: withDown(answer) }); }
   // Remembered either way: a proposal Evan dismisses is his answer, and it isn't sent again on the next save. Written before
   // the chips: a save the moment a chip shows is compared with its count, and an agent's line under it updates that count.
-  const page = await outline<{ block?: { id: string } }>({ action: "pages.resolve", address: "ext-asks" });
-  const written: string[] = [];
-  for (const r of made) {
-    written.push((await outline<{ id: string }>({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${r.words} [machine::asks] [ext.generated::asks] [asks.note::${note}] [asks.line::${r.hash}] [asks.under::${r.under}]` })).id);
-  }
+  const made: string[] = [];
+  for (const l of kept) made.push(await record(l.line, `[asks.line::${hashOf(lines[l.line]!)}] [asks.under::${linesUnder(lines, l.line)}]`));
+  for (const l of kept) lines[l.line] = withMark(lines[l.line]!, l.reads as "yes" | "unsure");
   let outcome: "applied" | "proposed";
   try { outcome = await patch({ id: note, revision: read.revision, text: read.text }, lines.join("\n")); }
   catch (error) {
     // Nothing landed: the next save asks again.
-    for (const id of written) await outline({ action: "delete", blockId: id });
+    for (const id of made) await outline({ action: "delete", blockId: id });
     throw error;
   }
-  const { message, answer } = listed(`${outcome === "proposed" ? "proposed" : "wrote"} ${fresh.length}${outcome === "proposed" ? ": you were typing there" : ""}`, said);
-  done(message, { answer });
+  const { message, answer } = listed(`${outcome === "proposed" ? "proposed" : "wrote"} ${kept.length}${outcome === "proposed" ? ": you were typing there" : ""}`, said);
+  done(message, { answer: withDown(answer) });
 }
 
 async function takeOff(block: Block, which: (mark: Mark, lines: readonly string[]) => boolean, why: string): Promise<void> {

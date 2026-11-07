@@ -6,7 +6,7 @@ import { checkServiceCompatibility } from "./service-compatibility";
 import type { OutlinerServiceStatus } from "./types";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { MAX_DEADLINE_MS, readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
@@ -528,12 +528,18 @@ export interface ExtClient { request<T>(input: Record<string, unknown>, timeoutM
 /** What runs an extension's code waits for its answer: an action may take its deadline (at most MAX_DEADLINE_MS), and the service stops it then. */
 const EXTENSION_RUN_WAIT_MS = MAX_DEADLINE_MS + 30_000;
 
-/** The running service for this folder's outline or EP0CH_WS's, or null when none answers. */
-export async function serviceClient(): Promise<ExtClient | null> {
+/**
+ * The running service for this folder's outline or EP0CH_WS's, or null when none answers. `outlineFolder`, when it's an
+ * outline's folder in the outlines folder, names that outline instead: it's the one that has to load what was just
+ * written there before the command returns (PIE-1620).
+ */
+export async function serviceClient(outlineFolder?: string): Promise<ExtClient | null> {
   try {
-    const { resolveClientPaths } = await import("./paths");
+    const { outlinesLayout, resolveClientPaths } = await import("./paths");
     const { createOutlinerClient } = await import("./client");
-    const client = createOutlinerClient(resolveClientPaths());
+    const folder = outlineFolder ? resolve(outlineFolder) : undefined;
+    const named = folder && dirname(folder) === outlinesLayout(process.env).root ? { EP0CH_WS: basename(folder) } : {};
+    const client = createOutlinerClient(resolveClientPaths({ ...process.env, ...named }));
     // A service on another protocol isn't asked: read the folders here instead.
     if (checkServiceCompatibility(await client.request<OutlinerServiceStatus>({ action: "ping" }))) return null;
     return client as unknown as ExtClient;
@@ -550,7 +556,7 @@ function print(line: string): void {
   console.log(cleanExtensionText(line));
 }
 
-export async function runExtCommand(args: readonly string[], connect: () => Promise<ExtClient | null> = serviceClient): Promise<number> {
+export async function runExtCommand(args: readonly string[], connect: (outlineFolder?: string) => Promise<ExtClient | null> = serviceClient): Promise<number> {
   const [verb, ...rest] = args;
   const operation = verb === "install" ? "add" : verb;
   try {
@@ -566,7 +572,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       }
       const pick = pickOf(values), outlineFolder = pick.outlineFolder;
       const carry = values.demo !== undefined ? ["--demo", values.demo] : [];
-      const client = await connect();
+      const client = await connect(outlineFolder);
       const before = operation === "add" && client
         ? await client.request<{ disabledRules?: Record<string, number> }>({ action: "extensions.list" }) : undefined;
       // `remove <name> --demo remove` with the folder already gone takes out only what it left in the outline.

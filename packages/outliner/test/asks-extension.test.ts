@@ -2,7 +2,7 @@
 // Jev that answers by the line's words; every note is made up. The table, the settle wait, clearing, and the waiting
 // list reading what it wrote.
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -29,15 +29,27 @@ async function until<T>(what: string, check: () => T | undefined | null | false 
 }
 
 /** The fake Jev's word on a line: by the words in it. */
-const NOUL: [RegExp, number][] = [[/shed|fence|hedge|quoted/i, 0.92], [/maybe/i, 0.5], [/idle/i, 0.1]];
+const NOUL: [RegExp, number][] = [[/shed|fence|hedge|quoted/i, 0.92], [/maybe/i, 0.4], [/idle/i, 0.1], [/Evan, Oct|Decision:|Mark a finding|Wildcards|Check:|Note to self/, 0.72]];
 /** Its word on the questions beside "does it ask": each reads the line and where it sits, so these can only pass if the note's context reached Jev. */
 const BESIDE: Record<string, (line: string, around: { heading?: string; parent?: string; before?: string; after?: string }) => boolean> = {
   record: line => /^- \*\*\d+:\d+/.test(line),
   settled: (line, around) => /with the owner's yes/.test(line) || /answered: south/i.test(around.after ?? ""),
-  other: (_, around) => /checklist/i.test(around.heading ?? ""),
+  addressed: (_, around) => !/checklist/i.test(around.heading ?? ""),
 };
 
-async function setup(past: readonly string[] = [], ruleQuietMs = 100) {
+/**
+ * The bigger model, as the config's `answer` command: prompt on stdin, a yes or no per line on stdout. It says no to a
+ * line that reads as no ask, and keeps every prompt it was sent. Made up, as the notes are.
+ */
+const FAKE_MODEL = (log: string) => `
+import { appendFileSync } from "node:fs";
+const prompt = await Bun.stdin.text();
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(prompt) + "\\n");
+const answers = Object.fromEntries([...prompt.matchAll(/^L(\\d+): (.*)$/gm)].map(m => ["L" + m[1], /Wildcards|Mark a finding|Evan, Oct|turned down/.test(m[2]) ? "no" : "yes"]));
+console.log(JSON.stringify(answers));
+`;
+
+async function setup(past: readonly string[] = [], ruleQuietMs = 100, model?: { answer: string[] }) {
   const asked: Record<string, string>[] = [];
   const jev = Bun.serve({
     port: 0, hostname: "127.0.0.1",
@@ -49,7 +61,7 @@ async function setup(past: readonly string[] = [], ruleQuietMs = 100) {
         const [question, at] = id.split("::") as [string, string];
         const line = body.state.asks?.[at] ?? "";
         const beside = BESIDE[question];
-        answers[id] = { type: "noul", noul: beside ? (beside(line, body.state.around?.[at] ?? {}) ? 0.9 : 0.05) : NOUL.find(([pattern]) => pattern.test(line))?.[1] ?? 0.1 };
+        answers[id] = { type: "noul", noul: beside ? (beside(line, body.state.around?.[at] ?? {}) ? 0.95 : 0.05) : NOUL.find(([pattern]) => pattern.test(line))?.[1] ?? 0.1 };
       }
       return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 10, output_tokens: 1 } });
     },
@@ -60,6 +72,10 @@ async function setup(past: readonly string[] = [], ruleQuietMs = 100) {
   const outlineFolder = join(root, "outline");
   mkdirSync(join(outlineFolder, "extensions"), { recursive: true });
   cpSync(join(REPO_EXTENSIONS, "asks"), join(outlineFolder, "extensions", "asks"), { recursive: true });
+  const modelLog = join(root, "model.jsonl"), modelScript = join(root, "fake-model.ts");
+  writeFileSync(modelScript, FAKE_MODEL(modelLog));
+  writeFileSync(join(outlineFolder, "extensions", "asks", "config.json"), JSON.stringify({ config: { answer: model?.answer ?? [process.execPath, modelScript] } }));
+  const modelPrompts = () => existsSync(modelLog) ? readFileSync(modelLog, "utf8").trim().split("\n").map(line => JSON.parse(line) as string) : [];
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outlineFolder });
   // Notes from before the rule: a rule starts from now, so only a backfill reaches them.
   const older = past.map(text => store.create(text, null, "agent", { actorId: "builder" }));
@@ -82,7 +98,7 @@ async function setup(past: readonly string[] = [], ruleQuietMs = 100) {
   const marked = (id: string, count = 1) => until(`${count} marks on ${id}`, () => { const text = store.require(id).text; return (text.match(/\[asks\.derived::/g)?.length ?? 0) === count ? text : null; });
   const settled = async () => { await Bun.sleep(400); await until("the rules to finish", async () => true); };
   const waiting = () => client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "needs", propertyScope: "all", limit: 50 } });
-  return { older, store, server, client, write, edit, marked, settled, waiting, asked };
+  return { older, store, server, client, write, edit, marked, settled, waiting, asked, modelPrompts };
 }
 
 test("the table: a sure ask gets a needs chip on its line, an unsure one its own lane, a no nothing, a filed top box nothing", async () => {
@@ -540,4 +556,219 @@ test("the backfill pages past a page of notes, oldest included, with nothing sai
   for (const note of t.older) expect(said).toContain(note.id);
   expect(said).toContain("5 notes read, 5 would be written");
   expect(said).not.toContain("more than");
+});
+
+// PIE-1620, Evan's shape: code first, Jev generous, a bigger model confirms. His dry run's noise at 0.70 to 0.73, as
+// made-up copies: the fake Jev answers each as generously as the real one did.
+
+const NOISE = [
+  "> [!quote] Evan, Oct 20",
+  "> You could pick either, it said.",
+  "- **Decision:** a header picture is set one way",
+  "- Check: the mower takes its keys from the tile",
+  "- Note to self: please confirm the fence posts later",
+  "- Mark a finding below: x when you agree with the gardener",
+  "- Wildcards and masks should work as they did on the old board",
+];
+
+test("the noise: structural lines never reach Jev, what Jev passes the model turns down, and only the real asks would be written", async () => {
+  const t = await setup([["Yard review", "", ...NOISE, "", "## Still open", "- Should the shed face south or east?", "- Decision: should the fence be cedar or larch?"].join("\n")]);
+  const { code, said } = await dryRun(t);
+  expect(code).toBe(0);
+  const read = t.asked.flatMap(a => Object.values(a)).join("\n");
+  // Code first.
+  for (const line of ["Evan, Oct 20", "You could pick", "a header picture", "takes its keys", "Note to self"]) expect(read).not.toContain(line);
+  // A label over a real question still reaches Jev: a miss can't be recovered later.
+  expect(read).toContain("Decision: should the fence be cedar or larch?");
+  // Jev is generous, and passes these on.
+  for (const line of ["Mark a finding", "Wildcards"]) expect(read).toContain(line);
+  const would = said.split("Turned down")[0]!;
+  expect(would).toContain("Should the shed face south or east?");
+  expect(would).toContain("Decision: should the fence be cedar or larch?");
+  for (const line of ["Mark a finding", "Wildcards", "Evan, Oct 20", "header picture", "takes its keys"]) expect(would).not.toContain(line);
+  // What the model struck is said apart, so a person sees what the confirm took.
+  expect(said.split("Turned down")[1]).toContain("Mark a finding below");
+  expect(said).toContain("1 would be written");
+});
+
+test("Jev's judgments are separate questions, and code combines them: yes needs both addressed and asking; said answered or a record is no", async () => {
+  const { readAsks } = await import("../src/write-review");
+  const say: Record<string, Record<string, number>> = {
+    "- Should the shed open east?": { decide: 0.9, addressed: 0.9 },
+    "- Should the hedge open east?": { decide: 0.9, addressed: 0.1 },
+    "- Should the fence open east?": { decide: 0.1, addressed: 0.9 },
+    "- Should the beans open east?": { decide: 0.9, addressed: 0.9, settled: 0.9 },
+    "- Should the peas open east?": { decide: 0.9, addressed: 0.9, record: 0.9 },
+    "- Should the pond open east?": { decide: 0.6, addressed: 0.55 },
+    "- Should the path open east?": { decide: 0.4, addressed: 0.9 },
+  };
+  const text = `Yard\n\n${Object.keys(say).join("\n")}`;
+  const lines = text.split("\n");
+  const asked = new Set<string>();
+  const read = await readAsks(text, {
+    apiKey: "fake", env: { OUTLINER_FIGURE_FIT: "on" }, fetch: (async (_: unknown, init: { body: string }) => {
+      const body = JSON.parse(init.body) as { questions: Record<string, unknown> };
+      const answers = Object.fromEntries(Object.keys(body.questions).map(id => {
+        const [question, at] = id.split("::") as [string, string];
+        asked.add(question);
+        return [id, { type: "noul", noul: say[lines[Number(at.slice(1))]!]?.[question] ?? 0.05 }];
+      }));
+      return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 1, output_tokens: 1 } });
+    }) as never,
+  });
+  expect([...asked].sort()).toEqual(["addressed", "decide", "record", "settled"]);
+  expect(read.lines.map(l => [l.text.slice(13, 18).trim(), l.reads])).toEqual([["shed", "yes"], ["hedge", "no"], ["fence", "no"], ["beans", "no"], ["peas", "no"], ["pond", "yes"], ["path", "unsure"]]);
+});
+
+test("Jev reads what follows a line, so an answer further down the section can settle it", async () => {
+  const bodies: { state: { around?: Record<string, { later?: string }> } }[] = [];
+  const { readAsks } = await import("../src/write-review");
+  await readAsks("Yard\n\n## Beds\n- Should the shed move?\n- It shades them\n- We moved it\n\n## Other\n- Not this", {
+    apiKey: "fake", env: { OUTLINER_FIGURE_FIT: "on" }, fetch: (async (_: unknown, init: { body: string }) => {
+      const body = JSON.parse(init.body); bodies.push(body);
+      return Response.json({ model: "jev-1.13.0", answers: {}, usage: { input_tokens: 1, output_tokens: 1 } });
+    }) as never,
+  });
+  expect(bodies[0]!.state.around?.L3?.later).toBe("- It shades them\n- We moved it");
+});
+
+test("the model reads one batch per note, with its title and what follows; the unsure band never reaches it and stays a maybe", async () => {
+  const t = await setup();
+  const note = await t.write(["Yard plan", "", "Some text.", "", "## Beds", "- Should the shed face south?", "- Should the fence be cedar?", "- Maybe move the beans, what do you think?", "- Wildcards should do what you want here", "- It shades the beans"].join("\n"));
+  const text = await t.marked(note.id, 3);
+  expect(t.modelPrompts()).toHaveLength(1);
+  const prompt = t.modelPrompts()[0]!;
+  expect(prompt).toContain("Yard plan");
+  expect(prompt).toContain("## Beds");
+  expect(prompt).toContain("It shades the beans");
+  expect(prompt).toContain("L6: ");
+  expect(prompt).toContain("L7: ");
+  expect(prompt).not.toContain("L8: ");
+  expect(prompt).toContain("evidence");
+  const lines = text.split("\n");
+  expect(lines[5]).toContain("[needs::sysop: Should the shed face south?]");
+  expect(lines[6]).toContain("[needs::sysop: Should the fence be cedar?]");
+  expect(lines[7]).toContain("[maybe-needs::sysop]");
+  expect(lines[8]).toBe("- Wildcards should do what you want here");
+});
+
+test("a line the model turned down isn't asked about again on the next save", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\n\n- Wildcards should do what you want here");
+  await until("the model's answer", () => t.modelPrompts().length === 1);
+  await t.settled();
+  await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
+  await t.settled();
+  expect(t.modelPrompts()).toHaveLength(1);
+  expect(t.store.require(note.id).text).not.toContain("asks.derived");
+});
+
+test.each([
+  ["exits non-zero", ["false"]],
+  ["can't start", ["/no/such/model"]],
+  ["answers prose", ["echo", "I think both of them, yes."]],
+  ["leaves a line out", ["echo", "{}"]],
+  ["is turned off", []],
+])("the model %s: nothing is written, not even the maybes; the run says so and the backfill counts it failed", async (_, answer) => {
+  const t = await setup(["Older yard\n\nSome text.\n\n- Should the hedge be low?\n- Maybe move the beans, what do you think?"], 100, { answer });
+  const [old] = t.older as [Block];
+  const before = t.store.require(old.id).text;
+  const out: string[] = [];
+  expect(await asksBackfill(boardOf(t), { since: "30d", write: true }, { out: s => { out.push(s); }, err: s => { out.push(s); } })).toBe(1);
+  expect(t.store.require(old.id).text).toBe(before);
+  expect(out.join("\n")).toContain(old.id);
+  expect(out.join("\n")).toMatch(/model|answer/i);
+  expect(out.join("\n")).toContain("1 failed");
+  const records = await t.client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${old.id}`, machinery: "show" } } as never);
+  expect(records.blocks).toEqual([]);
+});
+
+test("with only unsure lines the model isn't called, so a live settle still writes the maybe with no model at all", async () => {
+  const t = await setup([], 100, { answer: ["false"] });
+  const note = await t.write("Yard\n\nSome text.\n\n- Maybe move the beans, what do you think?");
+  const text = await t.marked(note.id);
+  expect(text).toContain("[maybe-needs::sysop]");
+});
+
+test("a question callout's title can ask; another callout's header, a heading and a table row never reach Jev", async () => {
+  const t = await setup(["Yard\n\n> [!question] Should the shed face south?\n> [!warning] Should nobody touch the fence?\n## Should the hedge go?\n| Should the fence stay? | yes |\n\nSome text."]);
+  await dryRun(t);
+  const read = t.asked.flatMap(a => Object.values(a)).join("\n");
+  expect(read).toContain("Should the shed face south?");
+  for (const line of ["touch the fence", "the hedge go", "the fence stay"]) expect(read).not.toContain(line);
+});
+
+// Codex on #1337: each of these could happen on pie.
+
+const SAME_START = "- Should the shed face south, which we went over at length with the gardener last week and wrote up in the plan, ";
+
+test("Codex on #1337: a declined line whose ending is edited into a new request is asked again, past the chip's hundred characters", async () => {
+  const t = await setup();
+  const note = await t.write(`Yard\n\nSome text.\n\n${SAME_START}turned down by then`);
+  await until("the model's answer", () => t.modelPrompts().length === 1);
+  await t.settled();
+  expect(t.store.require(note.id).text).not.toContain("asks.derived");
+  await t.edit(note.id, text => text.replace("turned down by then", "and you should pick one now"), AGENT);
+  await t.marked(note.id);
+  expect(t.modelPrompts()).toHaveLength(2);
+});
+
+test("Codex on #1337: a declined line moved under another heading is asked again; the same words in the same place aren't", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\n## Beds\n- Wildcards should do what you want here\n\n## Paths\nSome text.");
+  await until("the model's answer", () => t.modelPrompts().length === 1);
+  await t.settled();
+  await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
+  await t.settled();
+  expect(t.modelPrompts()).toHaveLength(1);
+  await t.edit(note.id, text => text.replace("- Wildcards should do what you want here\n\n", "").replace("Some text.", "- Wildcards should do what you want here"), AGENT);
+  await until("the model's second answer", () => t.modelPrompts().length === 2);
+});
+
+test("Codex on #1337: the model's no is kept apart from a chip you took off, which stays off whatever the section", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\n\n- Wildcards should do what you want here\n- Should the hedge be cut low?");
+  await t.marked(note.id);
+  const records = await t.client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note.id}`, machinery: "show" } } as never);
+  const keys = records.blocks.map(b => b.text.includes("Wildcards") ? "declined" : "marked").sort();
+  expect(keys).toEqual(["declined", "marked"]);
+  for (const b of records.blocks) expect(b.text.includes("[asks.line::")).toBe(!b.text.includes("Wildcards"));
+  await t.edit(note.id, text => text.replace(/ \[needs::[^\]]*\] \[asks\.derived::[^\]]*\]/, "").replace("Some text.", "## Beds"));
+  await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
+  await t.settled();
+  expect(t.store.require(note.id).text).not.toContain("asks.derived");
+});
+
+test("Codex on #1337: a label over a request still reaches Jev and gets its chip; a label over a statement doesn't", async () => {
+  const t = await setup(["Yard\n\nSome text.\n\n- Decision: Evan, please choose cedar or larch\n- Check: Evan, please confirm the shed dimensions\n- Decision: a header picture is set one way\n- Check: the mower takes its keys from the tile"]);
+  const { said } = await dryRun(t);
+  const read = t.asked.flatMap(a => Object.values(a)).join("\n");
+  for (const line of ["please choose cedar", "please confirm the shed"]) { expect(read).toContain(line); expect(said).toContain(line); }
+  for (const line of ["header picture", "takes its keys"]) expect(read).not.toContain(line);
+});
+
+test("a long note reaches the model as the lines around what's asked, with its title and a gap marked", async () => {
+  const { confirmPrompt } = await import("../extensions/asks/asks-confirm");
+  const rows = Array.from({ length: 800 }, (_, i) => `- Row ${i} of beans along the old fence by the shed door`);
+  const prompt = confirmPrompt(["Yard plan", ...rows].join("\n"), [400]);
+  expect(prompt).toContain("Title: Yard plan");
+  expect(prompt).toContain("L401: - Row 399 of beans");
+  expect(prompt).toContain("401| - Row 399 of beans");
+  expect(prompt).toContain("441| - Row 439 of beans");
+  expect(prompt).not.toContain("442| - Row 440 of beans");
+  expect(prompt).not.toContain("300| - Row 298 of beans");
+  expect(prompt).toContain("\n…\n");
+});
+
+test("what follows a line stops at its limit, and reads the same as the whole section cut there", async () => {
+  const bodies: { state: { around?: Record<string, { later?: string }> } }[] = [];
+  const { readAsks } = await import("../src/write-review");
+  const rows = Array.from({ length: 200 }, (_, i) => `- Row ${i} of beans along the old fence by the shed door`);
+  await readAsks(["Yard", "", "- Should the shed move?", ...rows].join("\n"), {
+    apiKey: "fake", env: { OUTLINER_FIGURE_FIT: "on" }, fetch: (async (_: unknown, init: { body: string }) => {
+      const body = JSON.parse(init.body); bodies.push(body);
+      return Response.json({ model: "jev-1.13.0", answers: {}, usage: { input_tokens: 1, output_tokens: 1 } });
+    }) as never,
+  });
+  expect(bodies[0]!.state.around?.L2?.later).toBe(rows.join("\n").slice(0, 600));
 });

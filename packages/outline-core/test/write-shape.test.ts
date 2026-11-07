@@ -2,7 +2,7 @@ import { componentBrief } from "../src/component-schema";
 import { FIGURE_COMPONENT_SCHEMAS } from "../src/component-schemas-figures";
 import { figureRowShape } from "../src/figure-props";
 import { expect, test } from "bun:test";
-import { answeredBox, asksAt, FIX_BEFORE_DONE, SHAPE_LIMITS, sentenceCount, shapeNext, shapeWarnings, writeShape } from "../src/write-shape";
+import { answeredBox, asksAt, FIX_BEFORE_DONE, SHAPE_LIMITS, sentenceCount, shapeNext, shapeWarnings, structuralLines, writeShape } from "../src/write-shape";
 
 const wall = "Seeds were sorted by hand on Tuesday. The borlotti came in two sizes. Nobody counted the small ones. The jars ran out before the lentils did. We reordered at noon.";
 
@@ -508,4 +508,26 @@ test("the compare's own example and brief say the shape, and the example passes 
   expect(example).toMatch(/^- .+: .+ \| .+$/m);
   expect(example).not.toContain("headers:");
   expect(writeShape(`Beds\n\n${example}`).filter(f => f.rule === "figure-rows")).toEqual([]);
+});
+
+// Codex on #1337: what can't be asking gets no receipt either, Jev or no Jev; a label over a request isn't filed.
+test("a quoted question, a callout's header and a bare label are no buried ask; a real one still is", () => {
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  const asks = (text: string, jev: boolean) => {
+    const lines = text.split("\n");
+    return writeShape(text, jev ? { asks: new Set(lines.flatMap((line, i) => i && line.trim() && !/^- point|It's wet/.test(line) ? [i] : [])) } : {}).filter(f => f.rule === "question");
+  };
+  for (const jev of [false, true]) {
+    expect(asks(`Notes\n\n${filler}\n\n> [!quote] Someone, Mar 3\n> Should the shed face south?`, jev)).toEqual([]);
+    expect(asks(`Notes\n\n${filler}\n\n> [!warning] Should nobody touch the fence?\n> It's wet.`, jev)).toEqual([]);
+    expect(asks(`Notes\n\n${filler}\n\n- Decision: the fence is cedar`, jev)).toEqual([]);
+  }
+  expect(asks(`Notes\n\n${filler}\n\nShould we ask Evan which table to book?`, false)).toHaveLength(1);
+  expect(asks(`Notes\n\n${filler}\n\n> [!question] Should we ask Evan which table to book?`, false)).toHaveLength(1);
+});
+
+test("a label over a statement is filed; a label over a request isn't, and a note to self always is", () => {
+  const filed = (line: string) => structuralLines(["Notes", "", line]).has(2);
+  for (const line of ["Decision:", "- **Decision:**", "Decision: a header picture is set one way", "- **Decision:** a header picture is set one way", "Check: comment.close takes its keys from the tile", "Note to self: please confirm the fence posts", "Note to self: does the fence need posts?"]) expect([line, filed(line)]).toEqual([line, true]);
+  for (const line of ["Decision: Evan, please choose cedar or larch", "Check: Evan, please confirm the shed dimensions", "- **Decision:** should the fence be cedar?", "Check: does the shed need a window?"]) expect([line, filed(line)]).toEqual([line, false]);
 });

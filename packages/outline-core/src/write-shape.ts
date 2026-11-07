@@ -9,7 +9,7 @@
 // kinds: they add findings of their own beside `writeShape`'s (same `ShapeFinding`, a `rule` and a `key`), and the
 // agent tools' `shapeWarnings` is the one place the lists meet.
 
-import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { figureRow } from "./figure-markdown";
@@ -17,7 +17,7 @@ import { figureBlockLine, figureRowsProblem, figureSource, graphKind } from "./f
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
 import { isMediaLine } from "./media-line";
-import { parsePropertyRecords } from "./property-parse";
+import { parsePropertyRecords, stripPropertyTokens } from "./property-parse";
 import { BLOCK_ID_SOURCE } from "./addressable-resource";
 
 /** The limits the rules measure against, said once: the tool descriptions and the findings quote them. */
@@ -130,6 +130,8 @@ export function sentenceCount(paragraph: string): number {
 }
 
 const HEADING = /^[ \t]{0,3}#{1,6}[ \t]/;
+/** A heading line, for what can't import the rest of this file's reading of a note. */
+export const isHeadingLine = (line: string): boolean => HEADING.test(line);
 const LIST_ITEM = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/;
 const TABLE_ROW = /^[ \t]*\|/;
 const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
@@ -276,7 +278,9 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       // At the top: a "- [ ]" in the first lines, or the first sentence of the first line. Anything else is buried.
       const atTop = (i: number, sentence: string) => topBox(lines, i, header?.line ?? -1) ||
         (i === body[0] && splitPoints(lines[i]!.replace(/^[ \t>]*(?:[-*+]|\d+[.)])?[ \t]*/, ""), { clauses: false })[0]?.trim() === sentence.trim());
-      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksAt(lines, i)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
+      // What can't be asking is no ask, whoever said so: Jev isn't asked about these, and code alone would take a quoted question for one (PIE-1620).
+      const structural = structuralLines(lines);
+      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && !structural.has(i) && (o.asks ? o.asks.has(i) : asksAt(lines, i)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
       if (buried >= 0) {
         const sentence = askedSentence(lines[buried]!, o.asks !== undefined);
         const patch = questionPatch(lines, buried, header?.line ?? 0, sentence);
@@ -669,6 +673,41 @@ export function asksAt(lines: readonly string[], i: number, jev?: "yes" | "no"):
   // Jev read the whole line: when its only ? is quoted or code, a yes is about someone else's question (PIE-1597).
   const othersQuestion = lines[i]!.includes("?") && !proseOf(lines[i]!).includes("?");
   return asksEvan(lines[i]!) || (jev === "yes" && !othersQuestion) || (jev !== "no" && endsAsking(lines, i));
+}
+
+/** A line that may ask Evan something: a question mark or a decision word in its own words (not a quotation, a code span or an address, nor a chip's). */
+export function mayAsk(line: string): boolean {
+  const words = stripPropertyTokens(proseOf(line));
+  return /\?/.test(words) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(words);
+}
+
+/** A lead that files a line under what it is, when nothing after it may ask: "Decision: the fence is cedar" is filed, "Decision: Evan, please choose" goes on to Jev. */
+const FILING_LEAD = /^(?:decision|decided|check)[*_ \t]*:/i;
+/** An agent's words to itself, whatever they say. */
+const NOTE_TO_SELF = /^note to self[*_ \t]*:/i;
+const LIST_LEAD = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+(?:\[.\][ \t]+)?)?/;
+
+/**
+ * The lines that can't be asking, by what they are rather than what they say (PIE-1620), so no model reads them: a
+ * callout's header (one of the question type excepted: its title is the question) and everything in a quote callout,
+ * someone's words in a `>` block, an answered box, a question only quoted, a heading, a table row, a note to self, and a
+ * `Decision:` or `Check:` with nothing after it that may ask.
+ */
+export function structuralLines(lines: readonly string[]): Set<number> {
+  const out = new Set<number>();
+  for (const callout of calloutBlocks(lines)) {
+    if (BUILTIN_CALLOUT_REGISTRY.resolve(callout.type)?.name === "quote") for (let i = callout.line; i < callout.end; i++) out.add(i);
+    else if (BUILTIN_CALLOUT_REGISTRY.resolve(callout.type)?.name !== "question") out.add(callout.line);
+  }
+  lines.forEach((line, i) => {
+    const content = quoteDepth(line).content;
+    if (!asksAt(lines, i, "yes") || HEADING.test(content) || TABLE_ROW.test(content)) out.add(i);
+    else {
+      const lead = content.replace(LIST_LEAD, "").replace(/^[*_]+/, ""), filing = FILING_LEAD.exec(lead);
+      if (NOTE_TO_SELF.test(lead) || (filing && !mayAsk(lead.slice(filing[0].length)))) out.add(i);
+    }
+  });
+  return out;
 }
 
 /** Line `i` is in a plain `>` block: someone's words. A callout's lines (`> [!type]` opens one) are the writer's own. */
