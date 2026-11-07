@@ -21,7 +21,7 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
   const scratch = new Scratch();
   const writes: string[] = [];
   let board: SocketBoard, app: App, desk: Desk, key: (k: Key) => void = () => {};
-  let beans: Msg, plan: Msg, hero: Msg, sized: Msg;
+  let beans: Msg, plan: Msg, hero: Msg, sized: Msg, form: Msg, long: Msg, titled: Msg;
   const INFO = { cols: 120, rows: 44, cellW: 9, cellH: 16, kitty: true };
   const decoder = new KeyDecoder(INFO);
   const D = () => desk as any;
@@ -78,6 +78,11 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
     hero = await board.createBlock(null, `Evening beds\n[img::${SHOWCASE_ASSETS}/evening-beds.jpg] [layout::hero] [height::8] [fit::cover]\n\nThe beds at dusk, with the shed lit.\nWater them before the light goes.`);
     for (const n of [1, 2, 3]) await board.createBlock(null, `Landing ${n} [type::gesture-landing] [landed::2026-10-2${n}]`);
     sized = await board.createBlock(null, `Sizing log\n\n${TIMELINE}\n\nThe log ends here.`);
+    form = await board.createBlock(null, "Tea order\n[form-field::tea text required]");
+    long = await board.createBlock(null, `Long bed\n\n${Array.from({ length: 80 }, (_, i) => `Row ${i + 1} of the bed.`).join("\n")}`);
+    const svg = join(scratch.root, "roof.svg");
+    await Bun.write(svg, `<svg xmlns='http://www.w3.org/2000/svg' width='800' height='200' viewBox='0 0 800 200'><rect width='800' height='200' fill='#223'/><a href='((${beans.id}))'><rect x='0' y='0' width='400' height='200' fill='#354'/><text x='20' y='100' fill='#fff' font-size='20'>the beans</text></a></svg>`);
+    titled = await board.createBlock(null, `Under the shed roof\n[img::${svg}] [layout::hero] [height::10]\n\nThe roof leaks by the door.`);
     const term = { info: INFO, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: (k: Key) => void) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     decoder.keyHandler = k => key(k);
@@ -413,6 +418,126 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
     });
   });
 
+  describe("each part as it worked", () => {
+    const answer = async (value: string) => {
+      await open(form, "Tea order");
+      await D().dispatch.press("form.set", { field: "tea", value }, T);
+      await until(() => { try { where(value); return true; } catch { return false; } }, "the answer drawn");
+      await D().dispatch.press("form.leave", {}, T);
+      return where(value);
+    };
+
+    test("a form field: a drag from outside the form selects to where it ends, and a click only places", async () => {
+      const w = await answer("Sencha");
+      down(w.x, w.y);
+      await surface().inTurn(async () => {});
+      drag(w.x + 1, w.y);
+      await surface().inTurn(async () => {});
+      drag(w.x + 6, w.y);
+      await surface().inTurn(async () => {});
+      up(w.x + 6, w.y);
+      await surface().inTurn(async () => {});
+      expect(surface().form!.draft("tea").selectedText()).toBe("Sencha");
+      await D().dispatch.press("form.leave", {}, T);
+    });
+
+    test("a form field already focused: the same drag, with no awaits between its bytes", async () => {
+      const w = await answer("Sencha");
+      await D().dispatch.press("form.focus", { field: "tea" }, T);
+      down(w.x, w.y); drag(w.x + 1, w.y); drag(w.x + 6, w.y); up(w.x + 6, w.y);
+      await surface().inTurn(async () => {});
+      expect(surface().form!.draft("tea").selectedText()).toBe("Sencha");
+      await D().dispatch.press("form.leave", {}, T);
+    });
+
+    test("the copy control: a click copies what's selected, and doesn't let go of it or select under it", async () => {
+      await open(plan, "Water the seedlings");
+      const w = where("Water the");
+      down(w.x, w.y); drag(w.x + 1, w.y); drag(w.x + 4, w.y); up(w.x + 4, w.y);
+      expect(copied()).toEqual(["Water"]);
+      const c = where("[y copy]");
+      await Bun.sleep(500);
+      down(c.x + 2, c.y); up(c.x + 2, c.y);
+      await until(() => copied().length === 2, "the control's copy");
+      expect(copied()).toEqual(["Water", "Water"]);
+      expect(surface().describe().selection?.text).toBe("Water");
+    });
+
+    test("the wheel during a drag scrolls, the drag goes on, and its release copies once", async () => {
+      await open(long, "Row 1 of the bed");
+      const w = where("Row 2 of the bed");
+      const top = surface().scroll;
+      down(w.x, w.y); drag(w.x + 1, w.y); drag(w.x + 4, w.y);
+      sgr(65, w.x + 4, w.y, "M"); sgr(65, w.x + 4, w.y, "M");
+      expect(surface().scroll).toBeGreaterThan(top);
+      drag(w.x + 6, w.y); up(w.x + 6, w.y);
+      await until(() => copied().length > 0, "the copy");
+      expect(copied()).toHaveLength(1);
+      expect(copied()[0]).toStartWith("Row 2");
+      expect(surface().describe().selection?.text).toBe(copied()[0]);
+    });
+
+    test("a link in the header's SVG: a click, an alt-click and a middle-click each open it once, a drag from it doesn't", async () => {
+      const closeBeside = async () => {
+        for (const [id, p] of [...D().panes] as [number, any][]) if (p.surface?.msg?.id === beans.id && p !== reader()) await D().dispatch.press("tile.close", {}, D().nameOf(id));
+      };
+      const ready = async () => {
+        await closeBeside();
+        await open(titled, "Under the shed roof");
+        await until(() => { frame(); return (surface() as any).heroHits.length > 0; }, "the header's link");
+        const hit = (surface() as any).heroHits[0] as { row: number; from: number }, o = tile();
+        return { x: o.col + hit.from + 2, y: o.row + hit.row };
+      };
+      for (const [what, button] of [["alt", 8], ["middle", 1], ["plain", 0]] as const) {
+        const at = await ready(), spy = watch(surface());
+        sgr(button, at.x, at.y, "M");
+        expect(spy.did, `${what}: nothing on the press`).toEqual([]);
+        sgr(button, at.x, at.y, "m");
+        spy.stop();
+        expect(spy.did.filter(d => d === "click"), what).toHaveLength(1);
+        await until(() => showingBeans() > 0, `${what}: the link opened`, 5000);
+        expect(showingBeans(), what).toBe(1);
+      }
+      const at = await ready(), spy = watch(surface());
+      down(at.x, at.y); drag(at.x + 1, at.y); drag(at.x + 3, at.y); up(at.x + 3, at.y);
+      spy.stop();
+      expect(spy.did).not.toContain("click");
+      expect(surface().msg?.id).toBe(titled.id);
+      await closeBeside();
+      // The next note has no header: where the link was drawn is nothing of its.
+      await open(plan, "Water the seedlings");
+      await Bun.sleep(500);
+      down(at.x, at.y); up(at.x, at.y);
+      await surface().inTurn(async () => {});
+      await Bun.sleep(100);
+      expect(surface().msg?.id).toBe(plan.id);
+      expect(showingBeans()).toBe(0);
+    });
+
+    test("a river reader column: a drag selects and copies, a click on the same words lets go, a link follows", async () => {
+      const was = desk;
+      await app.dispatch.press("screen.open", { name: "river" });
+      desk = (app as any).stack.at(-1);
+      try {
+        const name = (await D().dispatch.press("open", { id: plan.id }) as { name: string }).name;
+        await until(() => { try { where("Water the", name); return true; } catch { return false; } }, "the column");
+        await D().dispatch.press("tile.focus", {}, name);
+        await Bun.sleep(500);
+        writes.length = 0;
+        const w = where("Water the", name);
+        down(w.x, w.y); drag(w.x + 1, w.y); drag(w.x + 4, w.y); up(w.x + 4, w.y);
+        await until(() => copied().length === 1, "the column's copy");
+        expect(copied()).toEqual(["Water"]);
+        await Bun.sleep(500);
+        down(w.x + 2, w.y); up(w.x + 2, w.y);
+        expect(surface(name).describe().selection).toBeNull();
+      } finally {
+        await app.dispatch.press("screen.back", {});
+        desk = was;
+      }
+    });
+  });
+
   describe("a press that becomes a drag never also clicks", () => {
     test("a menu row pressed and dragged off chooses nothing, selects nothing, and a plain click still chooses", async () => {
       await open(plan, "Water the seedlings");
@@ -438,8 +563,9 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
       expect(surface().msg?.id).toBe(plan.id);
       expect(surface().describe().selection?.text).toBe("Stake");
       await Bun.sleep(500);
+      const showing = showingBeans();
       down(w.x + 1, w.y); up(w.x + 1, w.y);
-      await until(() => surface().msg?.id === beans.id || showingBeans() > 0, "the link followed");
+      await until(() => showingBeans() > showing, "the link followed");
     });
 
     test("a fold clicks once; double-clicking a word selects it, copied once", async () => {

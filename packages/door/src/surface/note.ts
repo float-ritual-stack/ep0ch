@@ -931,8 +931,12 @@ export class NoteSurface {
     if (!form) throw new ActionRefused("this note has no form-field properties");
     form.focus = field === "@submit" ? form.fields.length : form.fields.findIndex(f => f.name === field);
     if (form.focus < 0) throw new ActionRefused(`the form has no field ${field}`);
-    let saidEnded = false;
-    const mode: ReaderMode<SurfaceHost> = {
+    if (this.modes.get("form")?.of !== form) this.modes.push(this.formMode(form, host));   // already open, it stays: a drag's form.place isn't a mode going (PIE-1615)
+    const element = this.elems.find(e => e.link?.form?.field === field); if (element) { this.setElem(element); this.reveal = true; }
+    host.enterMode?.(); host.redraw();
+  }
+  private formMode(form: NoteForm, host: SurfaceHost): ReaderMode<SurfaceHost> {
+    let saidEnded = false; return {
       name: "form", of: form, word: "form", noun: "the form", holdsKeys: true,
       keys: FORM_KEYS,
       ended: () => {
@@ -951,10 +955,6 @@ export class NoteSurface {
       hint: () => "filling the form",
       state: () => "form", describe: () => ({ focus: form.fields[form.focus]?.name ?? "@submit", answers: form.values(USER) }),
     };
-    this.modes.push(mode);
-    const element = this.elems.find(e => e.link?.form?.field === field);
-    if (element) { this.setElem(element); this.reveal = true; }
-    host.enterMode?.(); host.redraw();
   }
   leaveForm() { this.modes.drop("form"); }
   private formHit(x: number, y: number) {
@@ -1444,7 +1444,7 @@ export class NoteSurface {
 
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
   private renderReading(w: number, h: number, host: SurfaceHost | undefined, writing: ReturnType<NoteSurface["composing"]>): SurfaceView {
-    const hero = this.heroOf(w, h, host);
+    const hero = this.heroOf(w, h, host); if (!hero) this.heroHits = [];
     this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over", max: Math.floor(h / 2), picture: hero.box.rows };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
