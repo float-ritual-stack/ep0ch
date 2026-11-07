@@ -69,6 +69,7 @@ const MAX_NOTE_TEXT = 64 * 1024;
 const MAX_REPLY = 64 * 1024;
 const MAX_PATCHES = 20;
 const DEFAULT_QUIET_MS = 1_500;
+
 /**
  * A long answer says it's working (PIE-1452): a thread gets a reply saying so once an answer has run this long, and
  * every PROGRESS_MS after that it (and a note's request line) says how long and what the agent has written so far.
@@ -237,6 +238,29 @@ export function personRequestKeys(store: OutlinerStore, blockId: string): string
 export class AgentRequests {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly running = new Set<string>();
+  /**
+   * The answers this service wrote under ask lines, each exactly as written (from the line's end), by note and agent.
+   * When a line is asked again in other words, only one still there word for word, right under it, gives way (PIE-1585):
+   * a line the person added or changed in it, or a quotation under it, is theirs and stays.
+   */
+  private readonly written = new Map<string, Set<string>>();
+
+  /** The answer `agent` wrote that `below` (the text after an ask line) starts with, unchanged, or "". */
+  private ownAnswer(blockId: string, agent: string, below: string): string {
+    for (const fold of this.written.get(this.key(blockId, agent)) ?? []) {
+      if (below.startsWith(fold) && (below.length === fold.length || below[fold.length] === "\n")) return fold;
+    }
+    return "";
+  }
+
+  /** `fold` is what `agent` wrote under a line now, in place of `was` (the answer it replaced, or its last streamed part). */
+  private wroteAnswer(blockId: string, agent: string, fold: string, was = ""): void {
+    const key = this.key(blockId, agent);
+    const folds = this.written.get(key) ?? new Set<string>();
+    if (was) folds.delete(was);
+    folds.add(fold);
+    this.written.set(key, folds);
+  }
   /** Each ask running now: its note, the extension answering and the chain it came in (grants' hops, PIE-888). */
   private readonly live = new Map<string, { blockId: string; extensionId: string; chain: InvocationChain }>();
   private stopped = false;
@@ -770,14 +794,17 @@ export class AgentRequests {
         const current = await this.deps.readDraft(blockId);
         const mark = requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey);
         if (!mark) throw new Error("the ask changed while answering");
-        const start = mark.end - mark.text.length;
+        const start = mark.end - mark.text.length, first = replySpan === line.text;
+        // The first part takes the place of its answer to the line's earlier words, when that is still as it wrote it.
+        const was = first ? this.ownAnswer(blockId, line.agent, current.text.slice(start + line.text.length)) : replySpan.slice(line.text.length);
+        if (first) replySpan += was;
         const after = current.text.slice(start + replySpan.length);
-        if (replySpan !== line.text && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
+        if (!first && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
           throw new Error("the answer changed while streaming; your text was kept");
         }
         const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
         // Keep an existing quotation outside the answer fold, including while it is edited.
-        const separator = replySpan === line.text && after.startsWith("\n>") ? "\n" : "";
+        const separator = first && after.startsWith("\n>") ? "\n" : "";
         const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
         const outcome = await this.store.changes.run(
           this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
@@ -785,6 +812,7 @@ export class AgentRequests {
             replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement: replacement + separator, range: { start, end: start + replySpan.length } }] }),
         );
         if (outcome.outcome !== "applied") throw new Error(`answer proposed instead: ${outcome.reason}`);
+        this.wroteAnswer(blockId, line.agent, replacement.slice(line.text.length), was);
         replySpan = replacement;
         blocks = streamed.split(/\n\s*\n/).filter(part => part.trim()).length;
         this.deps.changed(blockId, { line: line.text, state: "working", blocks, beside: true });
@@ -849,12 +877,20 @@ export class AgentRequests {
             body += `\n${run.written.length ? run.written.map(id => `!((${id}))`).join("\n") : run.message ?? "Script finished"}`;
           } catch (error) { body += `\n⚠ ${message(error)}`; }
         }
+        // Its answer to the line's earlier words goes: the line now asks this (PIE-1585).
+        const current = await this.deps.readDraft(blockId);
+        const from = (requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.text === line.text)?.end ?? line.end) - line.text.length;
+        const below = current.text.slice(from + line.text.length), was = this.ownAnswer(blockId, line.agent, below);
+        const observed = line.text + was;
+        const fold = `\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}`;
+        // A quotation, or an answer the person changed, right under it stays outside this answer's fold.
+        const separator = below.slice(was.length).startsWith("\n>") ? "\n" : "";
         const outcome = await this.store.changes.run(
           this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
-          () => this.deps.patch({ blockId, revision: draft.revision, mutation: actor, current: true,
-            replyTo: line.text, patches: [{ observed: line.text, range: { start: line.end - line.text.length, end: line.end },
-              replacement: `${line.text}\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}` }] }),
+          () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
+            replyTo: line.text, patches: [{ observed, range: { start: from, end: from + observed.length }, replacement: line.text + fold + separator }] }),
         );
+        if (outcome.outcome === "applied") this.wroteAnswer(blockId, line.agent, fold, was);
         answer = outcome.outcome === "applied"
           ? { status: "replied", message: respond.message ?? "answer in the note" }
           : { status: "proposed", message: outcome.reason, proposalId: outcome.proposalId };

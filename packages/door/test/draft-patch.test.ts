@@ -28,6 +28,101 @@ const span = (text: string, observed: string, replacement: string) => {
   return { observed, replacement, range: { start, end: start + observed.length }, unit: "utf16" as const };
 };
 
+describe("an answer landing under the ask the cursor is on (PIE-1585)", () => {
+  const YO: Actor = { kind: "agent", id: "ext:yo" };
+  const ASK = "@yo how do I lift the agent again";
+  const answer = "> [!note]- @yo answered\n> the lid lifts";
+  const asking = (col = ASK.length) => {
+    const d = new Draft("note-1", 1, `Shed door\n\n${ASK}`);
+    d.row = 2; d.col = col;
+    return d;
+  };
+  const reply = (d: Draft, patchId = "p1", extra: { replyGroup?: string; observed?: string; replacement?: string } = {}) =>
+    d.applyPatch({ patchId, revision: 1, replyTo: ASK, ...(extra.replyGroup ? { replyGroup: extra.replyGroup } : {}),
+      patches: [span(d.text, extra.observed ?? ASK, extra.replacement ?? `${ASK}\n${answer}`)] }, YO);
+
+  test("the cursor at the ask's end: it lands below and the cursor stays where it was, and typing goes on the ask", () => {
+    const d = asking();
+    expect(reply(d)).toEqual({ applied: true });
+    expect(d.text).toBe(`Shed door\n\n${ASK}\n${answer}`);
+    expect([d.row, d.col]).toEqual([2, ASK.length]);
+  });
+
+  test("the cursor inside the ask, or a selection on it: it lands and nothing moves", () => {
+    const d = asking(4);
+    d.anchor = { row: 2, col: 1 };
+    expect(reply(d)).toEqual({ applied: true });
+    expect([d.row, d.col]).toEqual([2, 4]);
+    expect(d.anchor).toEqual({ row: 2, col: 1 });
+  });
+
+  test("the cursor in the answer already there: refused, so a streamed answer never rewrites what's being typed", () => {
+    const d = asking();
+    expect(reply(d, "p1", { replyGroup: "g" })).toEqual({ applied: true });
+    d.row = 3; d.col = 5;
+    const more = reply(d, "p2", { replyGroup: "g", observed: `${ASK}\n${answer}`, replacement: `${ASK}\n${answer} up` });
+    expect(more.applied).toBe(false);
+    expect(d.text).toBe(`Shed door\n\n${ASK}\n${answer}`);
+  });
+
+  test("a streamed answer grows under the cursor on the ask, and one undo takes the whole answer back", () => {
+    const d = asking();
+    expect(reply(d, "p1", { replyGroup: "g" })).toEqual({ applied: true });
+    expect(reply(d, "p2", { replyGroup: "g", observed: `${ASK}\n${answer}`, replacement: `${ASK}\n${answer} up` })).toEqual({ applied: true });
+    expect(d.text).toBe(`Shed door\n\n${ASK}\n${answer} up`);
+    expect([d.row, d.col]).toEqual([2, ASK.length]);
+    d.key(ctrl("z"));
+    expect(d.text).toBe(`Shed door\n\n${ASK}`);
+    expect([d.row, d.col]).toEqual([2, ASK.length]);
+  });
+
+  test("enter at the ask's end goes past its answer: the answer stays under the line and the words go on below it", () => {
+    const d = asking();
+    d.lines.push("", "the rest");
+    reply(d);
+    d.key({ kind: "enter" });
+    for (const c of "more") d.key(char(c));
+    expect(d.text).toBe(`Shed door\n\n${ASK}\n${answer}\nmore\n\nthe rest`);
+    expect(d.hiddenAnswerLines().size).toBe(2);
+    d.key(ctrl("z"));
+    expect(d.text).toBe(`Shed door\n\n${ASK}\n${answer}\n\nthe rest`);
+  });
+
+  test("enter inside the ask still splits it, and a line with no answer breaks as ever", () => {
+    const d = asking(3);
+    reply(d);
+    d.key({ kind: "enter" });
+    expect(d.lines[2]).toBe("@yo");
+    expect(d.lines[3]).toBe(ASK.slice(3));
+    const plain = asking();
+    plain.key({ kind: "enter" });
+    expect(plain.text).toBe(`Shed door\n\n${ASK}\n`);
+  });
+
+  test("the ask typed on since it was read: refused whole, so the line isn't split and the cursor stays on it", () => {
+    const d = asking();
+    d.key(char("?"));
+    const before = d.text;
+    const late = reply(d);
+    expect(late.applied).toBe(false);
+    expect(d.text).toBe(before);
+    expect([d.row, d.col]).toEqual([2, ASK.length + 1]);
+    // A line that only starts like it, or ends like it, is not the ask either.
+    const inside = new Draft("note-1", 1, `Shed door\n\nsee ${ASK}`);
+    inside.row = 0; inside.col = 0;
+    expect(reply(inside).applied).toBe(false);
+  });
+
+  test("the person's typing on the ask after it landed stays theirs, and undo of the answer still finds it", () => {
+    const d = asking();
+    reply(d);
+    d.key(char("?"));
+    expect(d.text).toBe(`Shed door\n\n${ASK}?\n${answer}`);
+    expect(d.revertPatch("p1", YO)).toBe(true);
+    expect(d.text).toBe(`Shed door\n\n${ASK}?`);
+  });
+});
+
 describe("a patch in a draft being typed in", () => {
   const TEXT = "Morning plan\nThe beans   go along  the fence.\nwater  them ^beds\n\n@tidy tidy this\n";
 

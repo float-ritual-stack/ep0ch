@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { argsOf, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryText, planOf, pressLine, quoted, quoteOf, ranked, recalled, sections, type ActionRecord } from "../extensions/yo/yo-line";
+import { argsOf, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryText, planOf, pressLine, quoted, quoteOf, ranked, recalled, sections, shortReason, type ActionRecord } from "../extensions/yo/yo-line";
 
 const LIFT: ActionRecord = {
   name: "barrow.lift", summary: "lift the barrow above the bench as a column (reach=full: across the shed), wherever it is: the one you used last. Again drops it",
@@ -22,6 +22,18 @@ test("a quote is the action's own words, cut at a clause, and its keys its own r
   expect(quoted(LIFT)).toEqual(['`barrow.lift`: "lift the barrow above the bench as a column"', "keys: ✦b · ^W Z"]);
   expect(quoteOf({ ...LIFT, words: "lift this barrow" })).toBe("lift this barrow");
   expect(keysOf(WATER)).toBe("click");
+});
+
+test("a long refusal in a step ends at a sentence, never inside a code span", () => {
+  const missing = 'No outline named "yo" in /srv/outlines/of/this/machine. Nothing was created (a read never makes one). Which machines have it: `ep0ch outline list --all`; to make it here on purpose: `ep0ch outline create yo`';
+  expect(shortReason(missing)).toBe('No outline named "yo" in /srv/outlines/of/this/machine. Nothing was created (a read never makes one)');
+  expect(shortReason("short\nand a second line")).toBe("short");
+  const word = `run \`${"x".repeat(170)}\` first`;
+  expect(shortReason(word)).toBe("run…");
+  expect(shortReason("y".repeat(200))).toBe(`${"y".repeat(159)}…`);
+  // A sentence end inside a code span isn't one: the cut is the sentence before the span.
+  const inCode = `The model refused it. Its words were \`invalid query? ${"z ".repeat(60)}\` and it stopped there for good.`;
+  expect(shortReason(inCode)).toBe("The model refused it");
 });
 
 test("the button takes the label its doc gives, asks for a required argument, and a press remembers", () => {

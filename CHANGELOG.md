@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An @ask answers under the line the cursor is on (PIE-1585)
+
+- **The cursor can stay on the ask:** pause on an `@yo …` line in the editor and the answer opens under it, with the cursor where it was. It used to fail with "the cursor is on the ask being answered", and that failure stuck to the line.
+- **Enter at the end of an answered ask goes on below its answer,** so the answer stays under its line.
+- **Other words, one answer:** finish the line after it answered and the new answer takes the old one's place, for every agent.
+- **Run:** `ep0ch install --apply` (door and host code).
+
 ### A press or drag in a reader is one gesture (PIE-1615)
 
 - **One thing at a time:** a press that becomes a drag never also clicks. A release outside the tile, a tile closing or a mode opening ends the gesture cleanly, and the next click starts fresh.

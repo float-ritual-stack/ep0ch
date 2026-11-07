@@ -222,6 +222,18 @@ export function memoryText(asked: string, pressed: string): string {
   return `${said}: ${line} [yo-memory::answer] [yo-action::${action}] [yo-asked::${said}] [yo-line::${line}]`;
 }
 
+/** A refusal in a step's few words: its first line, ended at a sentence when it runs long, never mid-word or inside a code span. */
+export function shortReason(said: string): string {
+  const line = said.split("\n", 1)[0]!.trim();
+  if (line.length <= 160) return line;
+  // The last sentence end before the limit that sits outside code spans (an even count of backticks before it).
+  const ends = [...line.slice(0, 160).matchAll(/[.!?)](?=\s)/g)].map(m => m.index! + 1)
+    .filter(at => at >= 21 && (line.slice(0, at).match(/`/g)?.length ?? 0) % 2 === 0);
+  if (ends.length) return line.slice(0, ends.at(-1)).replace(/\.$/, "");
+  const cut = line.slice(0, 159).replace(/\s+\S*$/, "");
+  return `${(cut.match(/`/g)?.length ?? 0) % 2 ? cut.replace(/`[^`]*$/, "").trimEnd() : cut}…`;
+}
+
 /** The steps under an answer, folded under their count. */
 export function stepsFold(steps: readonly string[]): string[] {
   return steps.length ? [`> [!note]- ${steps.length} step${steps.length === 1 ? "" : "s"}`, ...steps.map(s => `> - ${s}`)] : [];

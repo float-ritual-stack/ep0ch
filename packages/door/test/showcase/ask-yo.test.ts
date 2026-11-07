@@ -53,6 +53,31 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect((await read()).text).toContain("answered from memory");
   }, 60_000);
 
+  test("typed in the editor: it answers under the line the cursor is on; enter goes on past the answer; other words replace it", async () => {
+    await until(() => !!h.app.keysScreen()?.dispatch?.tile("focused"), "the keys in the stage", 8000);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo how do I dock") h.ch(c);
+    // Quiet with the cursor still on the line: yo answers under it, and the cursor stays.
+    await until(() => h.screen().includes("· tile.dock"), "yo's answer beside the line", 30_000);
+    expect(h.screen()).not.toContain("could not accept");
+    for (const c of " the tile") h.ch(c);
+    const draft = () => h.S().stages.get(h.S().sel).top.pane("ask").surface.draft as { text: string };
+    // The answer to the line's first words gives way to the answer to all of them, under it.
+    await until(() => /@yo how do I dock the tile\n> \[!note\][-+]? @yo answered\n/.test(draft().text), "the answer to the whole words", 30_000);
+    h.press({ kind: "enter" });
+    for (const c of "and I go on") h.ch(c);
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await untilAsync(async () => (await read()).text.includes("and I go on"), "the save", 8000);
+    const text = (await read()).text, asked = text.slice(text.indexOf("@yo how do I dock the tile"));
+    expect(asked).toMatch(/^@yo how do I dock the tile\n> \[!note\][-+]? @yo answered\n> `tile\.dock`/);
+    expect(asked).toMatch(/\n> > - [^\n]*\nand I go on\s*$/);
+    expect(asked.split("\n").filter(l => l.endsWith("@yo answered")).length).toBe(1);
+  }, 90_000);
+
   test("about=tile asks from where you are: the tile on a line, the door and tile on the thread; the tile menu offers it", async () => {
     const rows = h.app.keysScreen()!.dispatch!.menu("focused", USER);
     expect(rows.map(r => r.label)).toContain("ask yo about this");

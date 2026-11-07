@@ -27,7 +27,7 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
   let last: { desk: Desk; reader: ReaderPane; note: { id: string }; feed: (bytes: string) => void; wheel: string; x: number; y: number } | undefined;
   const rows = () => sc.render(app).lines.map(plain);
   /** The one-place section's reader on a new long note, its keys given to it. */
-  async function reading(title: string) {
+  async function reading(title: string, body = LONG) {
     if (S().focus !== "stage") {
       (app as any).lastInput = 0;
       await app.act({ action: "section", args: { name: "one-place" }, as: "place-check" });
@@ -38,12 +38,12 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
     screen();
     const desk = S().stage(SECTIONS.findIndex(s => s.key === "one-place")).top as Desk;
     const reader = desk.pane("reader") as ReaderPane;
-    const note = await board.createBlock(null, `${title}\n\n${LONG}`);
+    const note = await board.createBlock(null, `${title}\n\n${body}`);
     await desk.dispatch.press("open", { id: note.id }, "reader");
-    await until(() => reader.msg?.id === note.id && !reader.msg.partial && screen().includes("Cane 1:"), "the long note");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial && screen().includes("Cane 1"), "the long note");
     await desk.dispatch.press("tile.focus", {}, "reader");
     const decoder = new KeyDecoder(app.terminalSize); decoder.keyHandler = h.press;
-    const ls = rows(), y = ls.findIndex(l => l.includes("Cane 1:")), x = ls[y]!.indexOf("Cane 1:");
+    const ls = rows(), y = ls.findIndex(l => l.includes("Cane 1")), x = ls[y]!.indexOf("Cane 1");
     return last = { desk, reader, note, feed: (bytes: string) => { decoder.feed(bytes); screen(); }, wheel: `\x1b[<65;${x + 1};${y + 1}M`, x, y };
   }
   /** `e`, and `e` again for the arming; back with the draft drawn. */
@@ -82,6 +82,34 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
     await opened(r);
     expect(rows().findIndex(l => l.includes(sample))).toBe(was.findIndex(l => l.includes(sample)));
     typesInView(r, title);
+  });
+
+  test("typed on the edit's top row and saved: the line stays below the reader's header, in view (PIE-1585)", async () => {
+    const title = `Top row beans ${cols}`, r = await reading(title);
+    for (let i = 0; i < 30; i++) r.feed(r.wheel);
+    const d = await opened(r);
+    for (let i = 0; i < 40 && draftView(d).cursorRow > 0; i++) h.press({ kind: "up" });
+    screen();
+    expect(draftView(d).cursorRow).toBe(0);
+    for (const c of "zq") h.press({ kind: "char", ch: c });
+    screen();
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => { screen(); return !r.reader.surface.editing; }, "the save");
+    await until(() => rows().some(l => l.includes("zq")), "the line typed on the top row, in view");
+  });
+
+  test("saved at the end of a note whose answers the reader draws taller than the edit: the line typed stays in view (PIE-1585)", async () => {
+    const answered = Array.from({ length: 12 }, (_, i) => `Cane ${i + 1}\n@yo how do I tie cane ${i + 1}\n> [!note]- @yo answered\n> one\n> two\n> three\n> four`).join("\n\n");
+    const title = `Answered beans ${cols}`, r = await reading(title, answered);
+    const d = await opened(r);
+    h.press({ kind: "end", ctrl: true });
+    h.press({ kind: "enter" }); h.press({ kind: "enter" });
+    for (const c of "the last line x") h.press({ kind: "char", ch: c });
+    screen();
+    expect(d.text.endsWith("> four\n\nthe last line x")).toBe(true);
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => { screen(); return !r.reader.surface.editing; }, "the save");
+    await until(() => rows().some(l => l.includes("the last line x")), "the line typed last, in view");
   });
 
   test("the wheel stopped inside a wrapped paragraph: the cursor is on the row at the top, not above it", async () => {

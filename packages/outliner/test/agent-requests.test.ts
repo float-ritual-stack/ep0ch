@@ -218,6 +218,67 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "two items", r
   expect(failed.reason).toBe("@broken answered something the service can't apply: patches must be a list of at most 20");
 });
 
+test("a line asked in other words: its new answer takes the old one's place under it, and a quotation under the line stays (PIE-1585)", async () => {
+  const { store, client, create, agentOf, writeAgent } = await setup();
+  await writeAgent("answer", `const request = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + request.input.request } }));`);
+  const note = await create("Shed\n@answer how do I\n\nthe rest");
+  await agentOf(note.id, (p) => p.status === "ready");
+  expect(store.get(note.id)!.text).toBe("Shed\n@answer how do I\n> [!note]- @answer answered\n> for: how do I\n\nthe rest");
+  const reworded = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: reworded.text.replace("how do I", "how do I lift it"), expectedRevision: reworded.revision, mutation: PERSON });
+  await until("the new answer", () => store.get(note.id)!.text.includes("for: how do I lift it"));
+  expect(store.get(note.id)!.text).toBe("Shed\n@answer how do I lift it\n> [!note]- @answer answered\n> for: how do I lift it\n\nthe rest");
+  const quoting = await create("Shed\n@answer what next\n> a quotation of mine");
+  await until("the answer", () => store.get(quoting.id)!.text.includes("for: what next"));
+  expect(store.get(quoting.id)!.text).toContain("> a quotation of mine");
+});
+
+test("asked again in other words, only the answer the agent wrote goes: a quotation of his under it and an answer he edited stay (PIE-1585)", async () => {
+  const { store, client, create, writeAgent } = await setup();
+  await writeAgent("answer", `const request = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + request.input.request } }));`);
+  const reword = async (id: string, from: string, to: string) => {
+    const now = store.get(id)!;
+    await client.request({ action: "update", blockId: id, text: now.text.replace(from, to), expectedRevision: now.revision, mutation: PERSON });
+    await until(`the answer for ${to}`, () => store.get(id)!.text.includes(`for: ${to.replace(/^@answer /, "")}`));
+  };
+  const typed = async (id: string, text: string) => {
+    const now = store.get(id)!;
+    await client.request({ action: "update", blockId: id, text, expectedRevision: now.revision, mutation: PERSON });
+  };
+
+  // A quotation of his right under the answer (no blank line between) stays, and the new answer doesn't swallow it.
+  const quoted = await create("Shed\n@answer how do I");
+  await until("the answer", () => store.get(quoted.id)!.text.includes("for: how do I"));
+  await typed(quoted.id, `${store.get(quoted.id)!.text}\n> a quotation of mine`);
+  await reword(quoted.id, "@answer how do I", "@answer how do I lift it");
+  expect(store.get(quoted.id)!.text).toBe("Shed\n@answer how do I lift it\n> [!note]- @answer answered\n> for: how do I lift it\n\n> a quotation of mine");
+
+  // An answer he corrected is his now: the new one goes above it and his correction stays.
+  const edited = await create("Shed\n@answer what next");
+  await until("the answer", () => store.get(edited.id)!.text.includes("for: what next"));
+  await typed(edited.id, store.get(edited.id)!.text.replace("> for: what next", "> for: what next, and water the beans"));
+  await reword(edited.id, "@answer what next", "@answer what next week");
+  expect(store.get(edited.id)!.text).toBe("Shed\n@answer what next week\n> [!note]- @answer answered\n> for: what next week\n\n> [!note]- @answer answered\n> for: what next, and water the beans");
+});
+
+test("a streamed answer asked again in other words keeps a quotation of his under the old one (PIE-1585)", async () => {
+  const { store, client, create, writeAgent } = await setup();
+  await writeAgent("drip", `const request = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ reply: "for: " + request.input.request }) + "\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { message: "done" } }));`);
+  const note = await create("Shed\n@drip how do I");
+  await until("the answer", () => store.get(note.id)!.text.includes("for: how do I"));
+  let now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${now.text}\n> a quotation of mine`, expectedRevision: now.revision, mutation: PERSON });
+  now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: now.text.replace("@drip how do I", "@drip how do I lift it"), expectedRevision: now.revision, mutation: PERSON });
+  await until("the new answer", () => store.get(note.id)!.text.includes("for: how do I lift it"));
+  expect(store.get(note.id)!.text).toContain("> a quotation of mine");
+  expect(store.get(note.id)!.text).not.toContain("for: how do I\n");
+});
+
 test("only a request a person's save adds runs: lines from before the install wait, note-level r doesn't ask, typing elsewhere still applies", async () => {
   const { store, client, create, agentOf, writeAgent } = await setup();
   // Written while no extension answered @slow: when one appears, an unrelated save doesn't run it.
