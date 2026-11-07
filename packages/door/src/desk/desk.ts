@@ -7112,6 +7112,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
+    this.ctx?.pressOpenedMenu?.();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);
     let anchor: { col: number; row: number; right?: boolean };
