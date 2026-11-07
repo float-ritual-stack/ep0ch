@@ -766,6 +766,49 @@ function propertyTokensInLine(line) {
   const code = line.includes("`") ? codeSpanRanges(line) : [];
   return propertyTokenMatches(line).filter((token) => !isEscapedAt(line, token.start) && !codeHides(token, code)).map((token) => ({ key: token.key.toLowerCase(), value: token.value.trim(), raw: token.raw, start: token.start, end: token.end }));
 }
+function splitPropertyValue(value) {
+  value = value.trim();
+  if (!value.startsWith("[") || !value.endsWith("]") || isLinkValue(value))
+    return value ? [value] : [];
+  value = value.slice(1, -1);
+  const references = new Map(blockReferenceOccurrences(value, []).map((reference) => [reference.start, reference.end]));
+  const items = [];
+  let depth = 0;
+  let quote = "";
+  let from = 0;
+  for (let at = 0;at < value.length; at += 1) {
+    const skip = references.get(at);
+    if (skip !== undefined) {
+      at = skip - 1;
+      continue;
+    }
+    const character = value[at];
+    if (quote) {
+      if (character === quote && !isEscapedAt(value, at))
+        quote = "";
+      continue;
+    }
+    if ((character === "'" || character === '"') && !value.slice(from, at).trim()) {
+      quote = character;
+      continue;
+    }
+    if (character === "[")
+      depth += 1;
+    else if (character === "]")
+      depth = Math.max(0, depth - 1);
+    else if (character === "," && depth === 0) {
+      items.push(value.slice(from, at));
+      from = at + 1;
+    }
+  }
+  items.push(value.slice(from));
+  return items.map((item) => item.trim()).map((item) => /^(?:'[^]*'|"[^]*")$/.test(item) ? item.slice(1, -1) : item).filter(Boolean);
+}
+function isLinkValue(value) {
+  const text = value.trim();
+  const [page] = text.startsWith("[[") ? pageLinkRanges(text) : [];
+  return !!page && page.start === 0 && page.end === text.length && text.length > 4 || /^!?\(\(/.test(text) && blockReferenceOccurrences(text.replace(/^!/, ""), []).some((r) => r.start === 0 && r.end === text.replace(/^!/, "").length);
+}
 var ADDRESS_KEYS = new Set(["page", "work-id"]);
 var QUERY_KEYS = new Set(["query"]);
 
@@ -1316,6 +1359,10 @@ var isArtifactName = (value) => artifactReference(value) !== null;
 
 // packages/outline-core/src/media-line.ts
 var MAX_CONTENT_HEIGHT = 200;
+var CONTENT_SIZE_PROPS = [
+  { key: "width", where: "yaml", type: "enum", default: "fit", meaning: "fit keeps the reading measure; full fills the available width", values: [{ value: "fit", meaning: "inside the reading measure" }, { value: "full", meaning: "the whole available width" }] },
+  { key: "height", where: "yaml", type: "int", min: 1, max: MAX_CONTENT_HEIGHT, meaning: "height in terminal rows", samples: ["8", "12"] }
+];
 function readContentSize(props) {
   const problems = [];
   const width = props.width ?? (props.size === "full" ? "full" : "fit");
@@ -1797,8 +1844,403 @@ function parsePropertyRecords(source) {
     return { ...candidate, ordinal, scope };
   });
 }
+// packages/outline-core/src/checklist-marks.ts
+var STEP_BOX_CHARS = " xX~!✓✗+\\-";
+var STEP_BOX = `\\[[${STEP_BOX_CHARS}]\\]`;
+
+// packages/outline-core/src/figure-markdown.ts
+var BOX = new RegExp(`^(${STEP_BOX})[ \\t]+`);
+
+// packages/outline-core/src/dates.ts
+var MONTH_WORD = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?";
+var WEEKDAY = "(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)(?:day|nesday|rsday|urday)?\\.?,?\\s+";
+var ORDINAL = "(?:st|nd|rd|th)?";
+var TIME = "(?:[T\\s]+(\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,3}))?)?\\s*(am|pm)?\\s*(z|[+-]\\d{2}:?\\d{2})?)?";
+var ISO = new RegExp(`^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})${TIME}$`, "i");
+var SLASHED = new RegExp(`^(\\d{1,2})/(\\d{1,2})(?:/(\\d{2}|\\d{4}))?${TIME}$`, "i");
+var MONTH_DAY = new RegExp(`^(${MONTH_WORD})\\s+(\\d{1,2})${ORDINAL}(?:,?\\s+(\\d{4}))?${TIME}$`, "i");
+var DAY_MONTH = new RegExp(`^(\\d{1,2})${ORDINAL}\\s+(?:of\\s+)?(${MONTH_WORD}),?(?:\\s+(\\d{4}))?${TIME}$`, "i");
+var LEADING_WEEKDAY = new RegExp(`^${WEEKDAY}`, "i");
+var DATE_SHAPE = new RegExp(`^(?:${WEEKDAY})?(?:${MONTH_WORD}\\s+\\d{1,2}${ORDINAL}(?:,?\\s+\\d{2,4})?|\\d{1,2}${ORDINAL}\\s+(?:of\\s+)?${MONTH_WORD},?(?:\\s+\\d{2,4})?` + `|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}/\\d{1,2}/\\d{2,4})(?:[T\\s,]+[\\d:.apmz+\\s-]*)?$`, "i");
+
+// packages/outline-core/src/prop-values.ts
+var enumOf = (meanings) => Object.entries(meanings).map(([value, meaning]) => ({ value, meaning }));
+
+// packages/outline-core/src/block-record.ts
+function valuesOf(source, key) {
+  const k = key.toLowerCase();
+  return (source.properties ?? []).flatMap((p) => p.key.toLowerCase() === k ? "values" in p ? p.values : splitPropertyValue(p.value) : []);
+}
+function subtitleOf(source) {
+  const property = (source.properties ?? parsePropertyRecords(source.text ?? "").filter((p) => p.scope === "block")).find((p) => p.key.toLowerCase() === "subtitle");
+  return property ? "values" in property ? property.values.join(", ") : property.value : undefined;
+}
+
+// packages/outline-core/src/view-fields.ts
+var date = (ms) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+var fields = [
+  { value: "title", meaning: "the note's title", read: (m) => m.title },
+  { value: "subtitle", meaning: "the note's subtitle", read: (m) => subtitleOf(m) ?? "" },
+  { value: "created", meaning: "when the note was created", read: (m) => date(m.createdAt) },
+  { value: "updated", meaning: "when the note last changed", read: (m) => date(m.updatedAt) },
+  { value: "author", meaning: "who wrote the note", read: (m) => m.author ?? "" },
+  { value: "description", meaning: "the note's description, or its first body line", read: (m, body) => valuesOf(m, "description").join(", ") || body[0] || "" }
+];
+var VIEW_SUMMARY_FIELDS = fields.map(({ value, meaning }) => ({ value, meaning }));
+var VIEW_SORT_FIELDS = ["created", "updated", "title"].map((key) => VIEW_SUMMARY_FIELDS.find((f) => f.value === key));
+var VIEW_LAYOUT = { key: "layout", where: "note", type: "list", question: { type: "toggle" }, default: "table", meaning: "one or several layouts, comma-separated; several are tabs over one source", values: enumOf({ table: "rows with sortable column headers", gallery: "cards in a responsive grid", feed: "full-width cards with body lines", board: "a lane per group, tabs when narrow" }) };
+
+// packages/outline-core/src/component-schemas-figures.ts
+var yaml = (key, type, meaning, extra = {}) => ({ key, where: "yaml", type, meaning, ...extra });
+var TITLE = yaml("title", "text", "the title in the figure's frame", { samples: ["Plot jobs", "Moth counts"] });
+var QUERY = yaml("query", "query", "makes the figure live: the blocks this query holds for are its rows, asked of the outline", { complete: "query", samples: ["type=task", "type=roadmap-item project=house"] });
+var VIEW = yaml("view", "ref", "a saved view named by ((id)), [[page]], [[page|label]] or a bare page address, in place of `query:`");
+var LIMIT = yaml("limit", "int", "the most results a live figure asks for", { min: 1, max: 1000, default: "200" });
+var SORT = yaml("sort", "property", "a live figure's sort field (updated when left out)", { default: "updated", samples: ["updated", "created", "title"] });
+var DIRECTION = yaml("direction", "enum", "a live figure's sort direction", { default: "desc", values: enumOf({ asc: "oldest or smallest first", desc: "newest or largest first" }) });
+var MACHINERY = yaml("machinery", "enum", "what a live figure's query holds of the notes tools write for their own bookkeeping ([machine::…]): left out unless this says show or only", { default: "hide", values: enumOf({ hide: "leave them out", show: "hold them with the rest", only: "hold just them (backup runs, tosses)" }) });
+var LIVE = [QUERY, VIEW, MACHINERY];
+var liveFilter = (key, meaning, samples) => yaml(key, "query", meaning, { complete: "query", samples });
+var TILE = [
+  yaml("value", "text", "the number drawn, as written (a live tile's count takes its place)", { samples: ["18", "98%"] }),
+  yaml("label", "text", "the words under the number", { samples: ["outbox", "uptime"] }),
+  yaml("accent", "enum", "the tile drawn in the accent (else the bold row, else the last)", { values: enumOf({ true: "this tile" }) }),
+  LIMIT,
+  ...LIVE.map((p) => ({ ...p, meaning: p.key === "query" ? "counts the blocks this query holds, live: the count is the tile's value" : p.meaning }))
+];
+var DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's density control goes over this)", { default: "cozy", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
+var LIVE_WORDS = "\n\nWith `query:` or `view:` the figure is live: it is drawn from the outline's blocks and refreshed as they change. The library has no outline to ask, so it shows the static form and says so here.";
+function figure(k) {
+  const id = `graph-${k.kind}`;
+  return {
+    id,
+    group: "figures",
+    title: `${k.title} (::${id})`,
+    intro: k.intro,
+    where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
+    props: [
+      ...k.props,
+      ...CONTENT_SIZE_PROPS.map((p) => ({ ...p, meaning: p.meaning + (p.key === "width" ? "; full spans the tile beyond the reading measure. = toggles; drag the side to change it" : "; shift+up/down scrolls inside. Drag the bottom to resize; release writes YAML and ctrl+z undoes") })),
+      ...!k.props.some((p) => p.key === "limit") && (k.props.includes(QUERY) || k.kind === "stat") ? [LIMIT] : [],
+      ...k.props.includes(QUERY) ? [SORT, DIRECTION].filter((d) => !k.props.some((p) => p.key === d.key)) : [],
+      yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })
+    ],
+    source: { use: `::${id}
+---
+{{props.yaml}}
+---
+${k.rows ? `${k.rows}
+` : ""}::` },
+    example: k.example,
+    ...k.rowShape ? { rowShape: k.rowShape } : {},
+    sweep: k.sweep,
+    grids: k.grids ?? [],
+    space: k.space ?? k.sweep
+  };
+}
+var FIGURES = [
+  {
+    kind: "stat",
+    title: "Stat",
+    intro: "Big numbers with labels under them, tiles that wrap into rows when they don't fit: the counts a note wants at a glance. The bold row (or `accent: true`) is the accent; with none, the last. A live item counts the blocks its own `query:` or `view:` holds." + LIVE_WORDS,
+    props: [TITLE, yaml("items", "list", "the tiles, each { value, label }, or { label, query } (or view) to count live", { samples: ['[{ value: "18", label: outbox }, { value: "8", label: waiting }]', '[{ value: "3", label: drafts }]'], each: TILE })],
+    example: { title: "this week", items: '[{ value: "18", label: outbox }, { value: "8", label: waiting }, { value: "2", label: drafts }]' },
+    sweep: ["items"]
+  },
+  {
+    kind: "rank",
+    title: "Rank",
+    intro: "Bars sized by a count, longest first as written; the accent row is bold (`accent: true`), a receding one italic (`muted: true`). Rows are `- label: 12`. Live, the results are counted by the value of the `group:` property." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("items", "list", "the bars, each { label, value }, optionally accent or muted", { samples: ["[{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]", "[{ label: a, value: 3 }, { label: b, value: 1, muted: true }]"] }),
+      ...LIVE,
+      yaml("group", "property", "a live figure's property whose values are counted", { default: "status", samples: ["status", "type"] })
+    ],
+    example: { title: "where the work went", items: "[{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]" },
+    sweep: ["items"]
+  },
+  {
+    kind: "tree",
+    title: "Tree",
+    intro: "Nested labels drawn with branches, each node optionally a quiet `meta` beside it and an accent.",
+    props: [TITLE, yaml("nodes", "list", "the nodes, each { label, meta, accent, children: [...] }", { samples: ["[{ label: garden, children: [{ label: beds, meta: 4 }, { label: shed, accent: true }] }]", "[{ label: a }, { label: b, children: [{ label: c }] }]"] })],
+    example: { title: "the garden", nodes: "[{ label: garden, children: [{ label: beds, meta: 4 }, { label: shed, accent: true }] }]" },
+    sweep: ["nodes"]
+  },
+  {
+    kind: "check",
+    title: "Checklist",
+    intro: "A list with boxes: `- [x] done`, `- [ ] open` (any of a checklist step's six marks: `[~]` waiting, `[!]` problem, `[✓]` approved, `[✗]` rejected), or a bold row without a box for done; a muted side note after an em dash. A boxed row is a step: a reader's x o + - w ! marks it, rewriting its box. Its words take inline Blockdown (code spans, links, emphasis). Live, each result is an item and a note's `done:` is the results that are done, `now:` those under way; with `done: \"key=value\"`, a mark writes that property on the result's own note." + LIVE_WORDS,
+    props: [
+      TITLE,
+      ...LIVE,
+      liveFilter("done", "a live figure's results that are done; one `key=value` (`stage=done`) is also what a mark writes on the result's note", ["stage=done", "status=done"]),
+      liveFilter("now", "a live figure's results under way", ["stage=doing"]),
+      yaml("note", "text", "a live figure's property whose value is each item's side note", { samples: ["owner", "when"] })
+    ],
+    rows: `- [x] Order the seed
+- [x] Dig the beds — before the frost
+- [ ] Water at nine
+- [ ] Cover the tomatoes`,
+    example: { title: "Saturday" },
+    sweep: []
+  },
+  {
+    kind: "timeline",
+    title: "Timeline",
+    intro: "Events down a spine: `- 2026-03: label`, a bold row is now (●, in the accent), an italic one is next (○), a side note after an em dash. Live, each result is an event dated by its updated time, or by the property `date:` names." + LIVE_WORDS,
+    props: [TITLE, ...LIVE, { ...DIRECTION, default: "asc" }, yaml("meta", "property", "a property beside each event; parent shows its parent note's title", { samples: ["parent", "owner"] }), liveFilter("now", "a live figure's results drawn as now on the spine", ["stage=doing"]), yaml("date", "property", "a live figure's property that dates and sorts each event; clocks on one day, dated clocks across days, in the reader's zone", { samples: ["when", "due", "landed"] }), { ...SORT, meaning: "the property that dates and sorts an event when date: is left out" }],
+    rows: `- 2026-03: seeds sown
+- 2026-05: first flowers — early
+- **2026-08: the open garden**
+- *2026-10: seed collecting*`,
+    example: { title: "The garden year" },
+    sweep: []
+  },
+  {
+    kind: "table",
+    title: "Table",
+    intro: "Rows and columns: `headers:`, `rows:` (a list of rows), an optional `footer:`, and `align:` per column. Live, the results are rows and `columns:` name the properties (title, subtitle when present, and updated when left out); a row opens its note. Narrow, only the title column and one more are drawn and the rest are counted." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("headers", "list", "the column names", { samples: ["[Agent, Tokens, Time]", "[Name, Count]"] }),
+      yaml("rows", "list", "the rows, each a list of cells", { samples: ['[[Inks, "115,207", 16m], [Patterns, "186,716", 18m]]', "[[a, 1], [b, 2]]"] }),
+      yaml("footer", "list", "a closing row, ruled off", { samples: ['[Total, "301,923", 34m]'] }),
+      yaml("align", "list", "left or right for each column", { samples: ["[left, right, right]", "[left, left, right]"] }),
+      { ...VIEW_LAYOUT, where: "yaml" },
+      yaml("columns", "list", "a live table's properties, one a column (title, subtitle when present, and updated: the defaults)", { samples: ["[title, status, updated]", "[ticket, title, owner]"], question: { type: "pick-order", source: "facets" } }),
+      yaml("titleColumn", "int", "which column is the title, the one density wraps", { min: 0, max: 8, default: "0" }),
+      yaml("link", "property", "a live table's property naming a note: a row opens that note instead of its own (a record table opens what the record is about)", { samples: ["note", "ticket"] }),
+      yaml("at", "property", "with link:, a live table's property holding a revision of that note: a row opens the note at that revision beside how it is now (a review record's revision)", { samples: ["revision"] }),
+      yaml("row", "enum", "with link:, what a row opens", { default: "note", values: enumOf({ note: "the linked note", record: "the row's own record; the linked note's cell opens that note, at at:'s revision" }) }),
+      DENSITY,
+      ...LIVE,
+      LIMIT,
+      SORT,
+      DIRECTION
+    ],
+    example: { title: "what the research cost", headers: "[Agent, Tokens, Time]", rows: '[[Inks, "115,207", 16m], [Patterns, "186,716", 18m]]', footer: '[Total, "301,923", 34m]', align: "[left, right, right]" },
+    sweep: ["align", "footer", "density"],
+    grids: [["align", "footer"]]
+  },
+  {
+    kind: "tabs",
+    title: "Tabs",
+    intro: "A live query's results grouped by a property, a tab each with its count, the chosen tab's rows drawn as a table. Tabs switch by a click, `tab` and `shift+tab`, or `figure.tab`. It is always live: the library draws sample results with the same table renderer." + LIVE_WORDS,
+    props: [
+      TITLE,
+      ...LIVE,
+      yaml("group", "property", "the property whose values make the tabs", { default: "status", samples: ["status", "work-stage"] }),
+      yaml("order", "list", "tabs listed first, even when empty; the rest follow alphabetically", { samples: ["[doing, review, queued]"] }),
+      yaml("columns", "list", "each tab's table columns (title, subtitle when present, and updated: the defaults)", { samples: ["[title, updated]"] }),
+      yaml("limit", "int", "rows a tab shows before saying how many more", { min: 1, max: 1000, default: "50" }),
+      DENSITY
+    ],
+    example: { title: "Jobs by stage", query: "type=task", group: "status" },
+    sweep: ["group", "order"]
+  },
+  {
+    kind: "decision",
+    title: "Decision",
+    intro: "The options weighed: chosen (●), rejected (×) or still open (○), each with its reason, then what was decided in prose with its status and date. Rows are `- **chosen** — reason`, `- *rejected* — reason`, `- open — reason`. Live, each result is an option and its `decision-state` says which glyph." + LIVE_WORDS,
+    props: [TITLE, yaml("status", "text", "where the decision stands", { samples: ["decided", "open"] }), yaml("date", "text", "when", { samples: ["2026-10-03"] }), ...LIVE, yaml("reason", "text", "a live figure's property that holds each option's reason", { default: "reason", samples: ["reason"] })],
+    rows: `- **Bun workspaces** — one lockfile
+- *pnpm + turbo* — two tools
+- nx — not tried
+
+We chose what we already run.`,
+    example: { title: "one repo", status: "decided", date: "2026-10-03" },
+    sweep: ["status", "date"]
+  },
+  {
+    kind: "chat",
+    title: "Chat",
+    intro: "A few turns of a conversation: the first speaker (or `you:`) gets the `>` prompt, a speaker who speaks again isn't named again, an italic turn is an aside, drawn dim. Rows are `- name: words`.",
+    props: [TITLE, yaml("you", "text", "the speaker who gets the prompt (the first speaker when left out)", { samples: ["shypht", "loki"] }), yaml("messages", "list", "the turns, each { from, text, aside } (the YAML form of the rows)", { samples: ['[{ from: shypht, text: did the backups run? }, { from: loki, text: "yes, at 03:00" }]'] })],
+    rows: `- shypht: did the backups run?
+- loki: yes, at 03:00
+- loki: fourteen snapshots
+- daddy: *goes to make tea*`,
+    example: { title: "at the board" },
+    sweep: ["you"]
+  },
+  {
+    kind: "keys",
+    title: "Keys",
+    intro: "A keymap cheat sheet, each key drawn as keycaps (`ctrl+k` is [ctrl][k], `g then d` is [g] then [d]); a bold row is one to learn first. Or `actions:` names a scope and the door's own keys are read from the action registry, so the sheet never drifts from what the keys do. Rows are `- ctrl+k: the command palette`.",
+    props: [TITLE, yaml("actions", "list", "scopes of the door's action registry whose keys are listed (in place of rows)", { samples: ["note", "desk", "[note, desk]"] }), yaml("learn", "list", "action names drawn as learn-first", { samples: ["[edit, comment.start]"] }), yaml("limit", "int", "the most keys listed from the registry", { min: 1, max: 200, default: "40" })],
+    rows: `- **e: edit the note**
+- g then d: the desk
+- ctrl+k: the command palette`,
+    example: { title: "the reader" },
+    sweep: []
+  },
+  {
+    kind: "props",
+    title: "Properties",
+    intro: "A properties table: what a component, an action or an extension takes, one row each, its name, the values it takes, its default (or *needed*), and what it means under it. The library's component pages and an action's page draw theirs with it. Rows are `- name: values · default — what it means`; a bold name is one that's needed.",
+    props: [TITLE, yaml("where", "text", "a heading for a column of where each is written (a component's: on the line, in the YAML)", { samples: ["where"] }), yaml("props", "list", "the rows, each { name, values, default, meaning, needed, where } (the YAML form of the rows)", { samples: ["[{ name: to, values: text, meaning: the tile it goes beside }]"] })],
+    rows: `- **to**: a tile — the tile it goes beside
+- where: left, right, up, down, tabs · right — which side of it
+- index: a number — with where=tabs, its place among the tabs (0 first)`,
+    example: { title: "layout.move" },
+    sweep: []
+  },
+  {
+    kind: "example",
+    title: "Example",
+    intro: "Real commands and what each does: an action line (or any command) drawn as code, what happens under it, and a quiet *safe* mark on one an agent may run as it is. An action's page shows its examples with it; an extension's page shows its actions'. Rows are `` - `layout.move tile=notes to=right` → moves the notes tile to the right of it ``, `(safe)` at the end marks one safe.",
+    props: [TITLE, yaml("prompt", "text", "what each command starts with (none when left out)", { samples: ["ep0ch act", "$"] }), yaml("examples", "list", "the rows, each { act, does, safe } (the YAML form of the rows)", { samples: ["[{ act: bar.open query=garden, does: lists what matches garden, safe: true }]"] })],
+    rows: "- `layout.move tile=notes to=right` → puts the notes tile to the right of it\n- `bar.open scope=actions query=move` → lists the actions about moving (safe)",
+    example: { title: "try it", prompt: "ep0ch act" },
+    sweep: ["prompt"]
+  },
+  {
+    kind: "uptime",
+    title: "Uptime",
+    intro: "A glyph a day: ok, degraded, down or nothing recorded. Rows are runs of states, `ok*20 degraded ok*9 down`, from `from:`. Live, each result is a day by its `date` property and `status`; `last: 30` is the thirty days to today, and `source: backups` reads the backup runs." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("from", "text", "the first day, YYYY-MM-DD", { samples: ["2026-09-01"] }),
+      yaml("to", "text", "the last day, YYYY-MM-DD (today when left out)", { samples: ["2026-09-30"] }),
+      yaml("last", "int", "a live figure's window: this many days to today (or `to:`)", { min: 1, max: 365, samples: ["14", "30"] }),
+      yaml("wrap", "int", "days to a line", { min: 5, max: 90, default: "30" }),
+      ...LIVE,
+      yaml("date", "text", "a live figure's property with each result's day", { default: "date", samples: ["date"] }),
+      yaml("state", "text", "a live figure's property with each result's state", { default: "status", samples: ["status"] }),
+      yaml("source", "enum", "a known source of runs", { values: enumOf({ backups: "the backup-run notes a timer writes" }) })
+    ],
+    rows: "- ok*20 degraded ok*9 down ok*3",
+    example: { title: "backups", from: "2026-09-01", to: "2026-10-04" },
+    sweep: ["wrap", "from"]
+  },
+  {
+    kind: "activity",
+    title: "Activity",
+    intro: "A contribution grid: a column a week, a row a weekday, shaded by the count that day. Rows are a week each from a date, `- 2026-03-02: 0 1 4 2 0*3`. Live, each result counts toward the day it was created, updated, or the property `count:` names." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("weeks", "int", "how many weeks to draw", { min: 1, max: 53, default: "26" }),
+      yaml("to", "text", "the last day, YYYY-MM-DD (today for a live figure)", { samples: ["2026-03-15"] }),
+      yaml("weekStartsOn", "text", "the weekday a column starts on, 0 (Sunday) to 6, or a day's name", { default: "0", samples: ["0", "mon", "sat"] }),
+      yaml("count", "text", "what a live result counts toward", { default: "created", samples: ["created", "updated", "due"] }),
+      yaml("date", "text", "a live figure's property with each result's day (read before count:)", { samples: ["date", "due"] }),
+      ...LIVE
+    ],
+    rows: `- 2026-03-02: 0 1 4 2 0*3
+- 2026-03-09: 5 3 0 0 1 2 8`,
+    example: { title: "notes written", to: "2026-03-15" },
+    sweep: ["weekStartsOn", "weeks"],
+    grids: [["weekStartsOn", "weeks"]]
+  },
+  {
+    kind: "calendar",
+    title: "Calendar",
+    intro: "One month: marked days with their labels. Rows are `- 12: **launch**` (a bold one is the accent). Live, the results are marked on the day of the property `date:` names, within `year:` and `month:`." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("year", "int", "the year", { min: 1970, max: 2200, samples: ["2026"] }),
+      yaml("month", "int", "the month", { min: 1, max: 12 }),
+      yaml("weekStartsOn", "text", "the weekday a week starts on, 0 (Sunday) to 6, or a day's name", { default: "mon", samples: ["sun", "mon", "sat"] }),
+      yaml("date", "text", "a live figure's property with each result's day", { default: "date", samples: ["date", "due"] }),
+      yaml("today", "text", "the day bracketed as today, YYYY-MM-DD, and the month shown when year and month are left out (the clock's day when left out)", { samples: ["2026-03-11"] }),
+      ...LIVE
+    ],
+    rows: `- 12: **launch**
+- 20: the plot committee`,
+    example: { title: "Garden days", year: "2026", month: "3" },
+    sweep: ["month", "weekStartsOn"],
+    grids: [["month", "weekStartsOn"]]
+  },
+  {
+    kind: "annotate",
+    title: "Annotate",
+    intro: "Code with numbered callouts. A line ending in a `// (1)` or `# (1)` marker (also `-- (1)`, `; (1)`) is bright with `[1]` in its gutter, the rest dim; the ordered list after the fence says what each is. The YAML form is `code:` and `notes:`.",
+    props: [TITLE, yaml("code", "text", "the code, with its markers (the YAML form of the fence)", { samples: ['const host = "float-2" // (1)'] }), yaml("notes", "list", "what each marker says, in order", { samples: ["[the box it runs on]"] })],
+    rows: `\`\`\`sh
+sqlite3 "$db" ".backup '$stage'"  # (1)
+restic backup "$stage"            # (2)
+\`\`\`
+1. a consistent copy, never the live file
+2. encrypted, to the storage box`,
+    example: { title: "the snapshot" },
+    sweep: []
+  },
+  {
+    kind: "quadrant",
+    title: "Quadrant",
+    intro: "Blocks placed by two properties, a cell per (x, y): the verdict is the shape, which corner is full and which is empty. Rows are `- label: x, y`, a bold one the accent. `xs:` and `ys:` give the axes' order (the first y is at the top). Narrow, a cell shows a dot per point and the labels move to a legend. Live, a point is a note, placed by the properties `x:` and `y:` name." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("xs", "list", "the x axis values, left to right", { samples: ["[cheap, costly]", "[low, medium, high]"] }),
+      yaml("ys", "list", "the y axis values, top to bottom", { samples: ["[prevents, helps, nothing]", "[done, doing, queued]"] }),
+      yaml("quadrants", "list", "a name for each cell group, in reading order", { samples: ['[edges, "", "", the hard ones]'] }),
+      ...LIVE,
+      yaml("x", "text", "a live figure's property for the x axis", { samples: ["priority"] }),
+      yaml("y", "text", "a live figure's property for the y axis", { samples: ["work-stage"] }),
+      yaml("label", "text", "a live figure's property to label a point with (its title when left out)", { samples: ["title"] })
+    ],
+    rows: `- untyped wire: cheap, prevents
+- **identity by name: costly, nothing**
+- extra tests: cheap, helps`,
+    example: { title: "bug classes", xs: "[cheap, costly]", ys: "[prevents, helps, nothing]" },
+    sweep: ["xs", "ys", "quadrants"],
+    grids: [["xs", "ys"]]
+  },
+  {
+    kind: "matrix",
+    title: "Matrix",
+    intro: "Counts over two properties, a heatmap: cells are toned by their share of the largest, an empty cell is a dot. Rows are `- CodeRabbit: edges=80 identity=2`. Live, `down:` makes the rows and `across:` the columns, each cell counting the results with that pair (or summing `value:`)." + LIVE_WORDS,
+    props: [
+      TITLE,
+      yaml("order-down", "list", "the row names in this order", { samples: ["[ultrareview, CodeRabbit]"] }),
+      yaml("order-across", "list", "the column names in this order", { samples: ["[edges, identity, parsers]", "[doing, review, queued, done]"] }),
+      ...LIVE,
+      yaml("down", "text", "a live figure's property that makes the rows", { samples: ["arc"] }),
+      yaml("across", "text", "a live figure's property that makes the columns", { samples: ["work-stage"] }),
+      yaml("value", "text", "a live figure's numeric property to sum in each cell (a count when left out)", { samples: ["points"] })
+    ],
+    rows: `- CodeRabbit: edges=80 identity=2
+- ultrareview: identity=4 parsers=1`,
+    example: { title: "who catches what" },
+    sweep: ["order-across", "order-down"]
+  },
+  {
+    kind: "compare",
+    title: "Compare",
+    intro: 'Two or three columns of rows, aligned by their label, so "A against B" reads across instead of as two notes or a wide table. A cell is the text between `|`s, a bold row is the accent, an italic one recedes. Under 60 columns the block stacks: each row is its label, then one line per column.',
+    props: [TITLE, yaml("columns", "list", "the column names (two or three)", { samples: ["[Raised beds, Grow bags]", "[A, B, C]"] })],
+    rows: `- cost: £60 of boards | £12 a bag
+- drainage: good on clay | fine
+- **lasts: ten years | two seasons**`,
+    rowShape: { row: "- label: a | b", namedBy: "columns" },
+    example: { title: "beds", columns: "[Raised beds, Grow bags]" },
+    sweep: ["columns"]
+  },
+  {
+    kind: "flow",
+    title: "Flow",
+    intro: "Where things came from and where they went, two stages. A row `- a → b: 7`. Each source is a bar sized by its total with its flows under it, the line's weight by the flow's share of the source (═ half or more, ─ a fifth or more, ┄ less); the targets' totals close the figure. Live, `from:` and `to:` name two properties and each pair is counted." + LIVE_WORDS,
+    props: [TITLE, yaml("targets", "text", "the words over the targets' totals", { default: "where they went", samples: ["where they went", "what became of them"] }), ...LIVE, yaml("from", "text", "a live figure's property for the source", { samples: ["area"] }), yaml("to", "text", "a live figure's property for the target", { samples: ["stage"] })],
+    rows: `- main → recorded: 5
+- main → fixed: 2
+- Effect → fixed: 4`,
+    example: { title: "the review's findings" },
+    sweep: ["targets"]
+  }
+];
+var FIGURE_COMPONENT_SCHEMAS = FIGURES.map(figure);
+
+// packages/outline-core/src/write-shape.ts
+var HEADING2 = /^[ \t]{0,3}#{1,6}[ \t]/;
+var isHeadingLine = (line) => HEADING2.test(line);
+var COMMENT_SHOWS = new Set(["file", "web", "img", "video", "artifact"]);
+var SINGLE_QUOTED = String.raw`(?:[^'’\n]|(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}]))*`;
+var QUOTATION = new RegExp(String.raw`"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{N}])['‘]${SINGLE_QUOTED}\?${SINGLE_QUOTED}['’](?![\p{L}\p{N}])`, "gu");
 export {
   FRAGMENT_ID_SOURCE,
+  isHeadingLine,
   parsePropertyRecords,
   sourceLines
 };

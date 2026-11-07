@@ -1,7 +1,7 @@
 // What a mark is, with no I/O: the words it quotes, the chip it writes, and which chips are its own. Tokens are found by
 // the shared property parser, so a fence or a code span is never touched. The judgment (does this line ask?) is the
 // service's (`blocks.asks`); this is only where it lands.
-import { FRAGMENT_ID_SOURCE, parsePropertyRecords, sourceLines } from "./link-grammar.js";
+import { FRAGMENT_ID_SOURCE, isHeadingLine, parsePropertyRecords, sourceLines } from "./link-grammar.js";
 
 const NEEDS = "needs", MAYBE = "maybe-needs", MARK = "asks.derived";
 const WORDS = 100;
@@ -88,7 +88,7 @@ export function hashOf(line: string): string {
  */
 export function declineKey(lines: readonly string[], i: number): string {
   let section = "";
-  for (let k = i - 1; k >= 0 && !section; k--) if (/^[ \t]{0,3}#{1,6}[ \t]/.test(lines[k]!)) section = plainWords(lines[k]!);
+  for (let k = i - 1; k >= 0 && !section; k--) if (isHeadingLine(lines[k]!)) section = plainWords(lines[k]!);
   return Bun.hash(`${section}\n${plainWords(lines[i]!)}`.toLowerCase()).toString(36);
 }
 

@@ -130,6 +130,8 @@ export function sentenceCount(paragraph: string): number {
 }
 
 const HEADING = /^[ \t]{0,3}#{1,6}[ \t]/;
+/** A heading line, for what can't import the rest of this file's reading of a note. */
+export const isHeadingLine = (line: string): boolean => HEADING.test(line);
 const LIST_ITEM = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/;
 const TABLE_ROW = /^[ \t]*\|/;
 const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
