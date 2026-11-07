@@ -13,6 +13,7 @@ import {detailTitle} from "./detail-renderer";
 import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ReaderMenu} from "./reader-chrome";
 import {chromeToggleLabel, chromeToggledText, OutlinerUiConfig, pinResultText} from "./ui-config";
 import { renderDetailLines } from "./detail-renderer";
+import { treeMenuPinnable, treeShowsWorkspaceReport } from "./tree-controller";
 import { treeLinkAtClick } from "./tree-mouse";
 import {EditRecoveryInput} from "./edit-recovery-input";
 import {EditRecoveryClient} from "./edit-recovery-client";
@@ -1037,7 +1038,7 @@ let actionMenuPin: ((id: string) => void) | null = null;
 let paneOwnsRightClick = rightClickOwnership === "outliner";
 /** While a menu is open the pane takes right-clicks (they pin), then hands them back to Herdr. */
 function syncRightClickOwnership(): void {
-  const wanted = rightClickOwnership === "outliner" || actionMenuPin !== null || composedTree?.controller.view().actionMenuBar !== undefined;
+  const wanted = rightClickOwnership === "outliner" || actionMenuPin !== null || (composedTree ? treeMenuPinnable(composedTree.controller.view()) : false);
   if (wanted === paneOwnsRightClick || stopping) return;
   paneOwnsRightClick = wanted;
   setImmediate(() => {
@@ -1954,7 +1955,7 @@ tui.addOutlinerInputListener(data => {
   const detailPointer = parseTreePrimaryPointer(data);
   if (composedTree && !actionMenuHandle && detailPointer) {
     if (detailPointer.phase === "down") composedViewerDrag = detailPointer.column < composedWidths(processTerminal.columns).tree &&
-      composedTree.controller.mode === "viewer" && !!composedTree.controller.view().workspaceReport;
+      treeShowsWorkspaceReport(composedTree.controller.view());
     if (composedViewerDrag) {
       if (detailPointer.phase === "up") composedViewerDrag = false;
       serviceEventScheduler.scheduleWork(async () => {

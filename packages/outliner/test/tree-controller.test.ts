@@ -21,7 +21,7 @@ import {
 import { authoredTextDigest } from "../src/authored-links";
 import { rankBlockFocusMatches } from "../src/block-focus";
 import { resolveBlockReferencesWithStatus } from "../src/references";
-import { treeIndexFixture } from "./tree-fixtures";
+import { gotoOf, menuOf, quickOf, treeIndexFixture, viewerOf } from "./tree-fixtures";
 import type { RequestInput } from "../src/client";
 import { OutlinerActionKeymap } from "../src/outliner-actions";
 import {
@@ -395,11 +395,11 @@ describe("createTreeController", () => {
     expect(fake.calls.filter(input => input.action === "tree.index")).toHaveLength(reads);
     await controller.handleKeypress("e", { name: "e" }, "pass");
     await controller.handlePaste("keep this draft");
-    const draft = controller.view().quickInput;
+    const draft = quickOf(controller.view())?.input;
     for (const action of ["mentions.ingest", "mentions.clear"]) {
       await controller.handleServiceEvent({ ...event("mentions"), action });
     }
-    expect(controller.view().quickInput).toBe(draft);
+    expect(quickOf(controller.view())?.input).toBe(draft);
     expect(controller.view().refreshPending).toBe(false);
     await controller.handleServiceEvent(event("content"));
     expect(controller.view().refreshPending).toBe(true);
@@ -424,7 +424,7 @@ describe("createTreeController", () => {
     const controller = createTreeController(fake.effects);
     await controller.initialize();
     await controller.handleKeypress("e", { name: "e" }, "pass");
-    expect(controller.view().quickInput).toBe(text);
+    expect(quickOf(controller.view())?.input).toBe(text);
     await controller.handleKeypress("!", { name: "!" }, "pass");
     await controller.handleKeypress("", { name: "return" }, "pass");
     expect(lastCall(fake.calls, "update")).toMatchObject({ blockId: original.id, expectedRevision: 5, text: text + "!" });
@@ -452,15 +452,15 @@ describe("createTreeController", () => {
 
     await controller.handleAction("tree.menu.open");
     expect(controller.view().mode).toBe("action-menu");
-    expect(controller.view().actionMenuItems?.length).toBeGreaterThan(0);
+    expect(menuOf(controller.view())?.items.length).toBeGreaterThan(0);
     await controller.handleKeypress("dtrt", {}, "pass");
-    expect(controller.view().actionMenuQuery).toBe("dtrt");
-    expect(controller.view().actionMenuItems?.[0]?.id).toBe("tree.detail.right");
-    expect(controller.view().actionMenuItems?.length).toBeLessThan(
+    expect(menuOf(controller.view())?.query).toBe("dtrt");
+    expect(menuOf(controller.view())?.items[0]?.id).toBe("tree.detail.right");
+    expect(menuOf(controller.view())?.items.length).toBeLessThan(
       fake.effects.actionKeymap!.menuItems("tree", "browse").length,
     );
     await controller.handleKeypress("", { name: "backspace" }, "pass");
-    expect(controller.view().actionMenuQuery).toBe("dtr");
+    expect(menuOf(controller.view())?.query).toBe("dtr");
     await controller.handleAction("tree.detail.right");
     expect(fake.createdDetailDirections).toEqual(["right"]);
     expect(controller.view().mode).toBe("browse");
@@ -860,7 +860,7 @@ describe("createTreeController", () => {
     await setImmediate();
 
     expect(controller.view().mode).toBe("goto");
-    expect(controller.view().goto?.matches[0]).toMatchObject({
+    expect(gotoOf(controller.view())?.matches[0]).toMatchObject({
       block: { id: target.id }, title: "Roadmap review after the graveyard walk",
     });
 
@@ -899,11 +899,11 @@ describe("createTreeController", () => {
       const controller = createTreeController(fake.effects); await controller.initialize();
       await controller.handleKeypress("g", {name: "g"}, "pass");
       await controller.handlePaste("match"); await setImmediate();
-      const selected = controller.view().goto!.selected!.block.id;
+      const selected = gotoOf(controller.view())!.selected!.block.id;
       // 19 body rows display only 9 pairs; the last row and empty pairs are inert.
       await controller.handleGotoMouse(`\x1b[<8;3;${count === 2 ? 9 : 23}M`);
       expect(controller.view().mode).toBe("goto");
-      expect(controller.view().goto!.selected!.block.id).toBe(selected);
+      expect(gotoOf(controller.view())!.selected!.block.id).toBe(selected);
       await controller.handleKeypress("", {name: "escape"}, "pass");
     }
   });
@@ -951,7 +951,7 @@ describe("createTreeController", () => {
     }
     await started.promise;
     await setImmediate(); // Drain the input lane while its transport remains held.
-    const typedBeforeReply = controller.view().quickInput;
+    const typedBeforeReply = gotoOf(controller.view())?.query;
     held.resolve(gotoCandidates([first], ""));
     await inputQueue;
     await controller.handleKeypress("", { name: "return" }, "pass");
@@ -1208,7 +1208,7 @@ describe("createTreeController", () => {
       expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
 
       await controller.handleAction("tree.menu.open");
-      expect(controller.view().actionMenuItems).toContainEqual(expect.objectContaining({
+      expect(menuOf(controller.view())?.items).toContainEqual(expect.objectContaining({
         id: "tree.reorder.down", binding: "y",
       }));
       await controller.handlePaste("Move item down");
@@ -1267,11 +1267,11 @@ describe("createTreeController", () => {
     await controller.handleKeypress("roadmap", { sequence: "roadmap" }, "pass");
     await setImmediate();
 
-    expect(controller.view().goto?.index).toBe(0);
+    expect(gotoOf(controller.view())?.index).toBe(0);
     await controller.handleKeypress("", { name: "tab", shift: true }, "pass");
-    expect(controller.view().goto?.index).toBe(1);
+    expect(gotoOf(controller.view())?.index).toBe(1);
     await controller.handleKeypress("", { name: "tab" }, "pass");
-    expect(controller.view().goto?.index).toBe(0);
+    expect(gotoOf(controller.view())?.index).toBe(0);
   });
 
   test("installs a complete 501-block snapshot and selects its last block", async () => {
@@ -1339,7 +1339,7 @@ describe("createTreeController", () => {
       prefix: "sta",
       limit: 100,
     });
-    expect(controller.view().quickCompletion?.items[0]).toEqual({
+    expect(quickOf(controller.view())?.completion?.items[0]).toEqual({
       label: "status (6)",
       insertion: "status=",
     });
@@ -1353,7 +1353,7 @@ describe("createTreeController", () => {
       limit: 20,
     });
     await controller.handleKeypress("", { name: "tab" }, "pass");
-    expect(controller.view().quickInput).toBe('status="in progress"');
+    expect(quickOf(controller.view())?.input).toBe('status="in progress"');
     await controller.handleKeypress("", { name: "return" }, "pass");
 
     expect(controller.view().activeFilter).toBe('status="in progress"');
@@ -2015,11 +2015,11 @@ describe("createTreeController", () => {
 
     await controller.handleKeypress("", { name: "return" }, "pass");
     expect(controller.view().mode).toBe("browse");
-    expect(controller.view().quickInput).toBe("");
+    expect(quickOf(controller.view())).toBeUndefined();
 
     await controller.handleKeypress("e", { name: "e" }, "pass");
     expect(controller.view().mode).toBe("edit");
-    expect(controller.view().quickInput).toBe("One line");
+    expect(quickOf(controller.view())?.input).toBe("One line");
   });
 
   test("defers service events during editing and reloads once editing is cancelled", async () => {
@@ -2031,10 +2031,10 @@ describe("createTreeController", () => {
     await controller.handleKeypress("e", { name: "e" }, "pass");
     const indexReads = () => fake.calls.filter(call => call.action === "tree.index").length;
     const callsBeforeEvent = indexReads();
-    const draft=controller.view().quickInput;
+    const draft=quickOf(controller.view())?.input;
     await controller.handleServiceEvent(event("content", "selected"));
     expect(indexReads()).toBe(callsBeforeEvent);
-    expect(controller.view().quickInput).toBe(draft);
+    expect(quickOf(controller.view())?.input).toBe(draft);
     expect(controller.view().mode).toBe("edit");
     expect(controller.view().refreshPending).toBe(true);
 
@@ -2134,13 +2134,13 @@ describe("createTreeController", () => {
       await started.promise;
       if (lookup !== "loading") await opening;
       // Nothing matches but a new page to make, which ⏎ never takes unless chosen (↓ first).
-      expect((controller.view().quickCompletion?.items ?? []).map(item => item.kind)).toEqual(lookup === "empty" ? ["new"] : []);
+      expect((quickOf(controller.view())?.completion?.items ?? []).map(item => item.kind)).toEqual(lookup === "empty" ? ["new"] : []);
       await controller.handleKeypress("", { name: "return" }, "pass");
       expect(fake.calls).toContainEqual(expect.objectContaining({ action: "update", blockId: selected.id, text: "[[draft" }));
       expect(controller.view().mode).toBe("browse");
       pending.resolve({ addresses: [], completeness: { kind: "complete" } });
       await opening;
-      expect(controller.view().quickCompletion).toBeNull();
+      expect(controller.view().mode).toBe("browse");
     }
   });
 
@@ -2175,15 +2175,15 @@ describe("createTreeController", () => {
       contextBlockId: "selected",
     }]);
     expect(fake.calls.some((call) => call.action === "tree.query")).toBe(false);
-    expect(controller.view().quickCompletion?.items[0]).toMatchObject({
+    expect(quickOf(controller.view())?.completion?.items[0]).toMatchObject({
       label: "home · Home",
       insertion: "[[home]]",
       blockId: "home-id",
     });
-    expect(controller.view().quickCompletion?.truncatedLimit).toBe(20);
+    expect(quickOf(controller.view())?.completion?.truncatedLimit).toBe(20);
 
     await controller.handleKeypress("", { name: "tab" }, "pass");
-    expect(controller.view().quickInput).toBe("[[home]]");
+    expect(quickOf(controller.view())?.input).toBe("[[home]]");
   });
   test("normalizes Work-ID convenience completion to a titled canonical wikilink", async () => {
     const selected = block("selected", {
@@ -2221,7 +2221,7 @@ describe("createTreeController", () => {
       contextBlockId: "selected",
     });
     await controller.handleKeypress("", { name: "tab" }, "pass");
-    expect(controller.view().quickInput).toBe(
+    expect(quickOf(controller.view())?.input).toBe(
       "[[PIE-175|some title - PIE-175]]",
     );
   });
@@ -3246,7 +3246,7 @@ describe("createTreeController", () => {
     );
     expect(fake.calls.some((call) => call.action === "virtual.occurrences.reorder")).toBe(false);
     await controller.handleAction("tree.menu.open");
-    expect(controller.view().actionMenuItems?.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
+    expect(menuOf(controller.view())?.items.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
   });
 
   test("projected child commit rechecks changed bounds without discarding the draft", async () => {
@@ -3273,7 +3273,7 @@ describe("createTreeController", () => {
       await expect(controller.handleKeypress("", { name: "return" }, "pass")).rejects.toThrow("child-depth 0");
       expect(store.children(card.id)).toEqual([]);
       expect(controller.view().mode).toBe("add-child");
-      expect(controller.view().quickInput).toBe("Feedback");
+      expect(quickOf(controller.view())?.input).toBe("Feedback");
       expect(fake.calls.some(input => input.action === "create")).toBe(false);
     } finally { store.close(); }
   });
@@ -3453,7 +3453,7 @@ describe("createTreeController", () => {
     );
     expect(fake.calls.some((call) => call.action === "virtual.occurrences.reorder")).toBe(false);
     await controller.handleAction("tree.menu.open");
-    expect(controller.view().actionMenuItems?.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
+    expect(menuOf(controller.view())?.items.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
     await controller.handleKeypress("", { name: "escape" }, "pass");
 
     await controller.handleKeypress("", { name: "left" }, "pass");
@@ -3613,8 +3613,8 @@ test("the file viewer uses service content while retaining the authored line ran
   await controller.initialize();
   await controller.handleKeypress("f", { name: "f" }, "pass");
   expect(controller.view().mode).toBe("viewer");
-  expect(controller.view().viewerLines).toEqual(["SERVER SECOND"]);
-  expect(controller.view().viewerPath).toBe("today.txt:2");
+  expect(viewerOf(controller.view())?.lines).toEqual(["SERVER SECOND"]);
+  expect(viewerOf(controller.view())?.path).toBe("today.txt:2");
 });
 
 
@@ -3676,7 +3676,7 @@ test("breadcrumbs follow the projected occurrence instead of the canonical stora
   await controller.handleKeypress("",{name:"left",meta:true},"pass");
   expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
   await controller.handleAction("tree.location");
-  const location = controller.view().actionMenuItems!.find(item => item.label === "note")!;
+  const location = menuOf(controller.view())!.items.find(item => item.label === "note")!;
   expect(location).toBeDefined();
   await controller.handleAction(location.id);
   expect(controller.view().mode).toBe("browse");
@@ -3747,7 +3747,7 @@ test("Tree destination picker labels distinguish linking from opening once", asy
   await controller.initialize();
   for (const purpose of ["link", "open"] as const) {
     await controller.handleAction(purpose === "link" ? "tree.navigation.link" : "tree.navigation.once");
-    expect(controller.view().destinationPurpose).toBe(purpose);
+    expect(menuOf(controller.view())?.destination?.purpose).toBe(purpose);
     for (const width of [80, 120]) {
       const frame = renderTreeFrame(controller.view(), width, 24).frame;
       if (purpose === "open") {
@@ -3763,7 +3763,7 @@ test("Tree destination picker labels distinguish linking from opening once", asy
       }
     }
     await controller.handleAction("tree.cancel");
-    expect(controller.view().destinationPurpose).toBeUndefined();
+    expect(menuOf(controller.view())?.destination?.purpose).toBeUndefined();
   }
   expect(fake.calls.some(input => input.action === "navigation.link.set")).toBe(false);
 });
@@ -3781,10 +3781,10 @@ test("Alt+L is available while local Preview owns focus, and Escape returns to T
  const controller=createTreeController(fake.effects);await controller.initialize();
  for(let i=0;i<30&&!controller.view().localPreview;i++)await Promise.resolve();
  await controller.handleKeypress("",{name:"p",meta:true},"pass");expect(controller.view().localPreview?.focused).toBe(true);
- await controller.handleKeypress("",{name:"l",meta:true},"pass");expect(controller.view().mode).toBe("action-menu");expect(controller.view().destinationInstructions).toContain("create a Detail");
+ await controller.handleKeypress("",{name:"l",meta:true},"pass");expect(controller.view().mode).toBe("action-menu");expect(menuOf(controller.view())?.destination?.instructions).toContain("create a Detail");
  await controller.handleKeypress("",{name:"escape"},"pass");expect(controller.view().mode).toBe("browse");
  await controller.handleKeypress('?',{name:'?'},'pass');
- expect(controller.view().actionMenuItems).toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.reader.comment',binding:'m'})]));
+ expect(menuOf(controller.view())?.items).toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.reader.comment',binding:'m'})]));
  await controller.handleKeypress('',{name:'escape'},'pass');
  await controller.handleKeypress('c',{name:'c'},'pass');
  expect(controller.view().localPreview?.comment).toBeUndefined();
@@ -3847,8 +3847,8 @@ test("Tree links a new Detail beside the chosen anchor", async () => {
   fake.effects.createDetailDestination=async(...args)=>{created.push(args);return {clientId:"created",region:"detail"};};
   const c=createTreeController(fake.effects); await c.initialize();
   await c.handleAction('tree.navigation.link'); await c.handleAction('destination:place-right');
-  expect(c.view().destinationPurpose).toBe('place');
-  expect(c.view().actionMenuItems?.map(i=>i.id)).toEqual(['placement:1','placement:back']);
+  expect(menuOf(c.view())?.destination?.purpose).toBe('place');
+  expect(menuOf(c.view())?.items.map(i=>i.id)).toEqual(['placement:1','placement:back']);
   await c.handleAction('placement:1');
   expect(created).toEqual([[note.id,{kind:'split',direction:'right',targetPaneId:'w1:p9'}]]);
   expect(c.view().mode).toBe('browse');
@@ -3860,10 +3860,10 @@ test('Tree link controls explain active filters without discarding their text', 
  const c=createTreeController(fake.effects);await c.initialize();
  await c.handleAction('tree.filter.properties'); await c.handlePaste('my filter');
  await c.handleAction('tree.navigation.link');
- expect(c.view().mode).toBe('filter');expect(c.view().quickInput).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
+ expect(c.view().mode).toBe('filter');expect(quickOf(c.view())?.input).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
  await c.handleKeypress('',{name:'l',meta:true},'pass');
- expect(c.view().mode).toBe('filter');expect(c.view().quickInput).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
- await c.handleKeypress('L',{name:'l',shift:true},'pass');expect(c.view().quickInput).toBe('my filterL');
+ expect(c.view().mode).toBe('filter');expect(quickOf(c.view())?.input).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
+ await c.handleKeypress('L',{name:'l',shift:true},'pass');expect(quickOf(c.view())?.input).toBe('my filterL');
 });
 
 test('Tree sidebar choices link the exact newly created destination',async()=>{
@@ -4211,18 +4211,18 @@ test("a right-click or the pin key on a menu item pins it to the bar the menu wa
     const controller = createTreeController({...fake.effects, uiConfig: new OutlinerUiConfig(path)});
     await controller.initialize();
     await controller.handleAction("tree.menu.open");
-    const items = controller.view().actionMenuItems!;
+    const items = menuOf(controller.view())!.items;
     const goto = items.find(item => item.id === "tree.goto")!;
-    expect(controller.view().actionMenuBar).toBe("tree");
-    expect(controller.view().actionMenuPinned?.has("tree.goto")).toBe(false);
+    expect(menuOf(controller.view())?.pin?.bar).toBe("tree");
+    expect(menuOf(controller.view())?.pin?.pinned.has("tree.goto")).toBe(false);
     await controller.handleSecondaryClick({column: 3, row: 4}, `pi-outliner-action:${goto.id}`);
     expect(controller.view().mode).toBe("action-menu");
-    expect(controller.view().actionMenuPinned?.has("tree.goto")).toBe(true);
+    expect(menuOf(controller.view())?.pin?.pinned.has("tree.goto")).toBe(true);
     expect(JSON.parse(readFileSync(path, "utf8")).bar.tree).toContain("tree.goto");
     expect(controller.view().bar?.map(button => button.actionId)).toContain("tree.goto");
     // The pin key unpins the highlighted item.
     await controller.handleKeypress("", {name: "return", meta: true}, "modified-enter");
-    expect(controller.view().actionMenuPinned?.has("tree.goto")).toBe(false);
+    expect(menuOf(controller.view())?.pin?.pinned.has("tree.goto")).toBe(false);
     expect(JSON.parse(readFileSync(path, "utf8")).bar.tree).not.toContain("tree.goto");
     await controller.handleKeypress("", {name: "escape"}, "pass");
     expect(controller.view().mode).toBe("browse");
@@ -4309,8 +4309,8 @@ describe("nothing of a left mode shows in the next", () => {
     await controller.handleAction("tree.location");
     await controller.handleKeypress("", {name: "escape"}, "pass");
     await controller.handleAction("tree.navigation.link");
-    expect(controller.view().actionMenuItems!.map(item => item.id)).not.toContain("tree.root.workspace");
-    expect(controller.view().actionMenuItems!.every(item => item.id.startsWith("destination:"))).toBe(true);
+    expect(menuOf(controller.view())!.items.map(item => item.id)).not.toContain("tree.root.workspace");
+    expect(menuOf(controller.view())!.items.every(item => item.id.startsWith("destination:"))).toBe(true);
   });
 
   test("the selected-items menu left by Esc doesn't fill the destination chooser", async () => {
@@ -4319,17 +4319,17 @@ describe("nothing of a left mode shows in the next", () => {
     await controller.handleAction("tree.selection.inspect");
     await controller.handleKeypress("", {name: "escape"}, "pass");
     await controller.handleAction("tree.navigation.link");
-    expect(controller.view().actionMenuItems!.every(item => item.id.startsWith("destination:"))).toBe(true);
+    expect(menuOf(controller.view())!.items.every(item => item.id.startsWith("destination:"))).toBe(true);
   });
 
   test("a menu opened by right-click leaves no position for the next one", async () => {
     const {controller} = destinationFixture();
     await controller.initialize();
     await controller.handleSecondaryClick({column: 9, row: 7}, undefined);
-    expect(controller.view().actionMenuOrigin).toEqual({column: 9, row: 7});
+    expect(menuOf(controller.view())?.origin).toEqual({column: 9, row: 7});
     await controller.handleKeypress("", {name: "escape"}, "pass");
     await controller.handleAction("tree.selection.inspect");
-    expect(controller.view().actionMenuOrigin).toBeNull();
+    expect(menuOf(controller.view())?.origin).toBeNull();
   });
 
   test("the workspace report's copy note doesn't show in the next viewer", async () => {
@@ -4337,10 +4337,10 @@ describe("nothing of a left mode shows in the next", () => {
     await controller.initialize();
     await controller.handleAction("tree.workspace.inspect");
     await controller.handleAction("tree.viewer.copy");
-    expect(controller.view().viewerStatus).toBe("Value sent to terminal clipboard");
+    expect(viewerOf(controller.view())?.status).toBe("Value sent to terminal clipboard");
     await controller.handleKeypress("", {name: "escape"}, "pass");
     await controller.handleAction("tree.view.inspect");
-    expect(controller.view().viewerPath).toBe("View status");
-    expect(controller.view().viewerStatus).toBe("");
+    expect(viewerOf(controller.view())?.path).toBe("View status");
+    expect(viewerOf(controller.view())?.status).toBe("");
   });
 });
