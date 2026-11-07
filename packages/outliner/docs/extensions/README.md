@@ -2159,7 +2159,7 @@ Answers `VisibleBlockCollection`.
 
 #### `blocks.asks`
 
-The write review's `asks` judgment on a note as it is now, line by line, with the text and revision it read (PIE-1612). `jev` says why when it couldn't be asked.
+Jev's first pass over a note as it is now, line by line, with the text and revision it read (PIE-1612): `reads: "yes"` has only passed, and a bigger model confirms it before a chip is written (PIE-1620). `jev` says why when it couldn't be asked.
 
 | Field | Type | |
 |---|---|---|

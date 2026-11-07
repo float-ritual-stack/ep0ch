@@ -54,7 +54,7 @@ async function patch(block: { id: string; revision: number; text: string }, next
 // default, read from extension.json so the door's settings say what actually runs.
 const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extension.json")).json()).configSchema.properties.answer.default;
 /** How long the model gets to answer for one note. */
-const MODEL_MS = 120_000;
+const MODEL_MS = 120_000; // Run from this folder: a checkout's CLAUDE.md would be read into every judgment, at ten times the cost.
 const FIX = `ep0ch act ext.asks.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}', or sign in with claude`;
 
 /**
@@ -67,7 +67,7 @@ async function confirm(text: string, passed: readonly number[]): Promise<Map<num
   if (!command.length) throw failed("config.answer is empty");
   const ran = command.join(" ").slice(0, 100);
   let proc;
-  try { proc = Bun.spawn(command, { stdin: new Blob([confirmPrompt(text, passed)]), stdout: "pipe", stderr: "pipe", timeout: MODEL_MS }); }
+  try { proc = Bun.spawn(command, { stdin: new Blob([confirmPrompt(text, passed)]), stdout: "pipe", stderr: "pipe", timeout: MODEL_MS, cwd: import.meta.dir }); }
   catch (e) { throw failed(`${ran} couldn't start (${(e as Error).message})`); }
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   if (code !== 0) throw failed(`${ran} exited ${code}${err.trim() ? `, saying "${err.trim().split("\n")[0]!.slice(0, 120)}"` : ""}`);
