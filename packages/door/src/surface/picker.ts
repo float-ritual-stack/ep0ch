@@ -109,6 +109,8 @@ export class ListPicker<T, H> implements Mode<H> {
     this.spec.choose(it, i, host);
   }
 
+  /** What Esc closes in it, in the hint's words: a filter it clears first, its own name for itself, or the picker. */
+  escCloses(): string { return this.spec.escClears && this.spec.input?.text ? "the filter" : this.spec.clickChooses ? "the menu" : "the picker"; }
   get bindings(): readonly ModeKey[] {
     const input = this.spec.input, chooses = this.spec.clickChooses ?? this.spec.stays;
     return [

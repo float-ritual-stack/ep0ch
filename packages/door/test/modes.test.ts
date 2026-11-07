@@ -29,6 +29,29 @@ function fake(name: ModeName, o: Partial<ReaderMode<Host>> & { clicks?: boolean 
 }
 
 describe("the stack", () => {
+  test("what's open over a mode goes with it, and the mode's own way out runs (PIE-1617)", () => {
+    const s = new ModeStack<Host>(), h: Host = { said: [] };
+    let out = 0;
+    const comment = s.push(fake("comment", { dropped: () => { out++; } }));
+    s.push(fake("grip", { over: comment.of }));
+    s.push(fake("placement", { over: comment.of }));
+    const ask = s.pushParked(fake("leave-ask", { over: comment.of, holdsKeys: false }));
+    expect(s.top()?.name).toBe("placement");                // the ask is the power bar's: it takes no key here
+    expect(s.get("leave-ask")).toBe(ask);
+    s.drop("comment");
+    expect(s.all()).toEqual([]);
+    expect(out).toBe(1);
+    expect(s.key(char("x"), h)).toBeNull();                 // the next key is the reader's
+  });
+
+  test("ties are stated: among modes of one rank the newest takes the keys", () => {
+    const s = new ModeStack<Host>();
+    s.push(fake("draft"));
+    s.push(fake("list"));
+    expect(PRECEDENCE.draft).toBe(PRECEDENCE.list);
+    expect(s.top()?.name).toBe("list");
+  });
+
   test("precedence is stated once: the status choice, then the panel, then the edit or the comment, whatever order they opened in", () => {
     const s = new ModeStack<Host>(), h: Host = { said: [] };
     const draft = s.push(fake("draft")), panel = s.push(fake("panel")), picker = s.push(fake("picker"));

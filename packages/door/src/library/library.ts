@@ -9,6 +9,7 @@
 // the readers' own renderer (src/library/draw.ts) at 40, 80 or 160 columns, and its source is copied by a click, `y` or
 // `act`. Too narrow for the rail beside a readable page, the rail folds into the header (‹ name ›, `,` `.` step).
 // A screen spec (`library`) of one tile kind; every key and click runs one of LIBRARY_ACTIONS or the lists' actions.
+import { lineEscCloses } from "../surface/completer";
 import { axisValues, componentIsLive, grid, spaceSize, spaceVariations, sweep, variation, variationText, type ComponentSchema, type SpaceFilter, type Variation } from "@ep0ch/outline-core/component-schema";
 import { currentComponentId } from "@ep0ch/outline-core/note-mover-rename";
 import type { ListGroup } from "@ep0ch/outline-core/list-row";
@@ -508,6 +509,8 @@ export class LibraryPane implements Pane {
     }
   }
   wheel(dir: 1 | -1, desk: DeskApi) { void desk.press?.(this, LIBRARY_ACTIONS, "library.scroll", { by: wheelRows(dir) }); }
+  /** Esc takes back the filter being typed (esc-rule.ts). */
+  escCloses() { return this.list.typing ? lineEscCloses(this.list.typing, "the filter") : undefined; }
   /** The person typing the rail's filter: letters narrow it as they're typed, ⏎ keeps them, esc goes back. */
   key(k: Key, desk: DeskApi): boolean {
     if (!this.list.typing) return false;

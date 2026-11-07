@@ -514,6 +514,8 @@ export class TunePane implements Pane {
     return { lines };
   }
 
+  /** Esc: a step waiting for its second press, or a nudge held on a shadowed row (esc-rule.ts). */
+  escCloses() { return this.armed ? "the waiting step" : this.offer ? "the offer" : undefined; }
   key(k: Key, desk: DeskApi): boolean {
     // A field being typed in is the edit control's; what it asks of the inspector (save, cancel, a choice) is tune.field.
     const field = this.view.key(k);

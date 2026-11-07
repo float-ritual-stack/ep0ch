@@ -33,6 +33,6 @@ export const drawerTitleHint = () => partsHint([DRAWER_OPEN_PART, DRAWER_LEAVE_P
  * PIE-1554); its program exited, ⏎ runs it again and esc or ctrl+] steps out (PIE-1563); entered, - folds it, esc steps
  * out and esc again puts it away; else esc puts it away. In a group there, ctrl+] comes out of the group first.
  */
-export const drawerFoot = (entered: boolean, typing = false, exited = false, inGroup = false) => partsHint(inGroup && !typing && !exited ? [{ ...LEAVE_PART, label: "comes out of the group" }, DRAWER_FOLD_PART] : entered && exited ? [AGAIN_PART, { ...DRAWER_LEAVE_PART, label: `or ${keyCaption(ESCAPE_CHORD)} back` }]
+export const drawerFoot = (entered: boolean, typing = false, exited = false, inGroup = false, closes: string | null = null) => partsHint(closes && !typing ? [{ action: "esc.close", key: "esc", label: closes }, ...(entered ? [DRAWER_FOLD_PART] : [])] : inGroup && !typing && !exited ? [{ ...LEAVE_PART, label: "comes out of the group" }, DRAWER_FOLD_PART] : entered && exited ? [AGAIN_PART, { ...DRAWER_LEAVE_PART, label: `or ${keyCaption(ESCAPE_CHORD)} back` }]
   : entered && typing ? [{ ...LEAVE_PART, label: "steps out · esc is the program's" }]
   : entered ? [DRAWER_FOLD_PART, { ...DRAWER_LEAVE_PART, label: "steps out" }, DRAWER_AWAY_PART] : [{ ...DRAWER_AWAY_PART, label: "puts it away" }]);

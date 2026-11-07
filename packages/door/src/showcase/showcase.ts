@@ -1305,7 +1305,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "esc", need: "close what popped up (a picker, a menu, a box, a mode, a dock); say there's nothing left to close", part: "the Esc rule: Esc closes the innermost temporary thing (a picker or menu, the keys box, a ^W chord, link mode, a filter, a dock or the drawer, a zoom, an empty edit, a selection; a float keeps its keys and says what closes it), each through its own action, and never leaves the screen: with nothing left, nothingToClose says so (q leaves)", files: "src/shell-keys.ts, src/desk/desk.ts, src/showcase/frame.ts, src/app.ts (the raw sink, ESC_SPENT_MS)",
-    aside: "go in (⏎), then ^W z zooms the reader, ] lights a link in it and ^W . opens its menu: three things open · each Esc closes one, innermost first (the menu, the link, the zoom) · the next hands the keys back to this index, and one more says nothing to close · q leaves · Esc never reaches a terminal by mistake (PIE-1431): click in the kettle tile (cat -v shows an Esc it gets as ^[), then ^K on the status bar opens the power bar over it: Esc closes the bar, and a second Esc right after goes nowhere, said on the status line; a moment later Esc is kettle's again. In the drawer (alt+a) it's the same, and a status-bar group's menu takes Esc before the drawer's agent",
+    aside: "go in (⏎), then ^W z zooms the reader, ] lights a link in it and ^W . opens its menu: three things open · each Esc closes one, innermost first (the menu, the link, the zoom), and the hint row's last part says which before you press (esc: the menu) · the next hands the keys back to this index, and one more says nothing to close · q leaves · Esc never reaches a terminal by mistake (PIE-1431): click in the kettle tile (cat -v shows an Esc it gets as ^[), then ^K on the status bar opens the power bar over it: Esc closes the bar, and a second Esc right after goes nowhere, said on the status line; a moment later Esc is kettle's again. In the drawer (alt+a) it's the same, and a status-bar group's menu takes Esc before the drawer's agent",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'kettle: cat -v, an Esc it gets shows here'; exec cat -v"], label: "kettle" });
       return deskOf({ title: "showcase · esc", panes: [a, b, kettle], names: ["reader", "beside", "kettle"], layout: ([x, y, z]) => pair("row", 0.6, leaf(x!), pair("col", 0.5, leaf(y!), leaf(z!))) }, show, [[a, n.notebook], [b, n.shed]]);
@@ -1803,11 +1803,11 @@ export class Showcase implements Screen {
       : `|14 in ${SECTIONS[this.sel]!.key}|08 · the part's own keys and mouse (its hints are on its bottom row) · |15esc|08 backs out, to the sections at last`), cols);
   }
 
+  escNext(front: boolean): string | null { const d = this.focus === "stage" ? this.stage(this.sel)?.top as Partial<Desk> | undefined : null; return this.focus !== "stage" ? null : front ? d?.escNextFront?.() ?? null : d?.escNextHome?.() ?? "the section"; }
   key(k: Key, ctx: Ctx) {
     if (k.kind === "mouse") return this.mouse(k);
     if (this.focus === "stage") { const f = this.stage(this.sel); if (f) f.key(k); else this.focus = "index"; return ctx.redraw(); }
-    const c = ch(k);
-    if (k.kind === "esc") return nothingToClose(ctx);
+    const c = ch(k); if (k.kind === "esc") return nothingToClose(ctx);
     if (c === "q") return this.shell("screen.back");
     if (isUp(k)) return this.sel > 0 ? this.run("section", { name: String(this.sel) }) : undefined;
     if (isDown(k)) return this.sel + 1 < SECTIONS.length ? this.run("section", { name: String(this.sel + 2) }) : undefined;

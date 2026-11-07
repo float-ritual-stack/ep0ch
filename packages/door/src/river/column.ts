@@ -1,3 +1,4 @@
+import { lineEscCloses } from "../surface/completer";
 import { standsAsPerson } from "../surface/dispatch";
 import { keyTable } from "../surface/keymap";
 import { holdsEdit, NOBODY } from "../whereabouts";
@@ -147,6 +148,8 @@ const filterInput = (text = "") => new LineField(text, false, { complete: { gram
 // ── a column ─────────────────────────────────────────────────────────────────
 
 export class RiverColumn extends ReaderPane {
+  /** Esc in a column: the filter or choice being typed, the column's own text selection, then the reader's (esc-rule.ts). */
+  override escCloses(desk: DeskApi): string | null { return this.mode === "filter" ? lineEscCloses(this.input, "the filter") : this.mode ? "the choice" : this.text ? "the selection" : super.escCloses(desk) ?? (this.linked() ? "the lit link" : null); }
   readonly bindings = [...COLUMN_MOVE_KEYS, ...FLOW_KEYS];
   override readonly kind: TileKindName = "river.column";
   /** A block column's note, as read; the Library's and a #tag's list. */

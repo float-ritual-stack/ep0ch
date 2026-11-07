@@ -236,6 +236,12 @@ export class ScreenTile implements Pane {
     queueMicrotask(() => desk?.showFrom?.(this, m));
   }
 
+  /** The desk inside answers; with nothing left in it, Esc comes out of a group it's in. */
+  escCloses(): string | null | undefined {
+    const inner = this.inner;
+    if (!inner) return this.framed ? undefined : null;
+    return inner.escNextFront() ?? inner.escNextHome() ?? (this.inside ? `the ${this.screen ?? "group"}` : null);
+  }
   key(k: Key): boolean {
     if (!this.framed) return false;
     if (this.inside) {

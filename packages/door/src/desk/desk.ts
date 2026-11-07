@@ -1,4 +1,6 @@
 import { Again } from "../arm";
+import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, type EscRung } from "../esc-rule";
+import { deskEscFront, deskEscSteps, deskLiftEsc, type DeskEscHost } from "./desk-esc";
 import { returnPlace, mapPlace } from "./return-place";
 import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
 import type { Visit } from "../trail";
@@ -4087,7 +4089,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
-    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}${modeHint([{ key: "enter", action: "tile.open", label: "opens it" }], () => undefined)} · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
+    // A float can lie over the hint row, so with the keys in it its own foot says what the next Esc closes too (PIE-1614).
+    const escSaid = keys && float && !no ? (this.ctx?.esc?.hint() ?? null) : null;
+    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}${modeHint([{ key: "enter", action: "tile.open", label: "opens it" }], () => undefined)} · any other key cancels` : escSaid ? `${fg(C.grey)}esc: ${escSaid}${fg(C.dark)} · ${hint}` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     if (badgeWidth) canvas.text(at.liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
     const row = r.row, button = (kind: Press["kind"], x: number, glyph: string, sgr: string, does: Pick<Press, "label" | "action" | "args" | "alt" | "altMods">) =>
@@ -4676,7 +4680,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.hintPanel = null;
     const desk = this.hintDesk(), tile = desk.focusId();
     const text = stripHint() ?? withStripOwner(tile, Infinity, () => desk.hintText());
-    const tabs = stripSegments(text), locked = this.screenLocked();
+    const closes = this.ctx?.esc ? this.ctx.esc.hint() : desk.escNextFront() ?? desk.escNextHome();
+    const tabs = stripSegments(text).filter(t => !closes || t.key !== "esc"), locked = this.screenLocked();
     if (this.spec.layouts || locked) tabs.push({ label: locked ? lockChipText(this.layoutSelf()).trim() : "□ lock", keep: true, hit: { action: "layout.lock", tile: this.focusId() } });
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
     if (drawer?.screenLocked()) tabs.push({ label: lockChipText(drawer.layoutSelf()).trim(), keep: true, hit: { action: "layout.lock", tile: drawer.focusId() } });
@@ -4685,6 +4690,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const b of hyperBindings(notes).filter(b => notes.some(n => n.action === b.action))) tabs.push({ label: `${hyperLabel(b.key)} ${b.label}`, hit: { action: b.action } });
       tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
     }
+    // What the next Esc closes (PIE-1614), in place of any part that says Esc again: first, where a float over the row's end doesn't hide it, and kept when the row is narrow.
+    if (closes) tabs.unshift({ label: `esc: ${closes}`, ...(cols >= 40 ? { keep: true } : { short: "esc" }), hit: { action: "esc.close" } });
     const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, overflow: "drop", style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
     // A click is strip.pick while an App paint records the strip; a desk drawn on its own presses a chip's action
     // itself, and a keyed part's key as typed (the key spots after), as a screen on a stand-in context does.
@@ -4894,10 +4901,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (!repeat) pending.keys.push(k);
         return;
       }
-      if (k.kind !== "mouse" || k.action === "down") {
-        this.pending = null;
-        if (here && k.kind === "esc") { ctx.flash("not opened"); this.redraw(); return; }
-      }
+      if ((k.kind !== "mouse" || k.action === "down") && k.kind !== "esc") this.pending = null;
     }
     if (this.arriving(this.focus) && (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && "jk".includes(k.ch))) this.run("tile.arrival.clear", {}, this.nameOf(this.focus));
     if (!this.all().length && !this.overlayOpen() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.homeRect.col - 2, y: k.y - this.homeRect.row - 1 } : k, action => { void ctx.press?.(action); })) return;
@@ -4937,11 +4941,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
     }
     if (isHover(k)) { this.releaseLost(); return; }
-    if (k.kind === "esc" && (this.hintCard || this.xray)) {
-      const inMode = this.linking || this.dragging || this.floatDrag || this.drag || this.prefix || this.overlayOpen() || this.pickedBy(USER).length;
-      this.run("hint.dismiss");
-      if (!inMode) return;
-    }
 
     if (ch(k) === "?" && this.hintPointer && !this.holdsKeys()) {
       const at = this.hits.find(([, r]) => this.hintPointer!.y === r.row && this.hintPointer!.x >= r.col && this.hintPointer!.x < r.col + r.cols);
@@ -4949,9 +4948,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (at && this.onFrame(at[0], this.hintPointer.x, this.hintPointer.y)) { this.run("hint.show", {}, this.nameOf(at[0])); return; }
     }
     // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
+    if (k.kind === "esc") { if (!this.escFront() && !this.escHome()) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); return; }
     if (this.moving) { this.settle(); this.render(ctx); }
-    // Esc while a script run is rearranging the screen stops it (layout.stop): one obvious key. Only then; a prefix, a draft, an overlay or a drag keep their Esc.
-    if (k.kind === "esc" && this.runningScripts().length && !this.prefix && !this.holdsKeys() && !this.dragging && !this.floatDrag && ![...this.overlays.all()].length) return void this.run("layout.stop");
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && this.bandHits.some(r => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows)) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
@@ -4977,6 +4975,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A source's model holds the keys while its own overlay is open (the board's composer, pickers), before the screen's.
     const model = !this.overlayOpen() && [...this.models.values()].some(m => m.key?.(k));
     if (!model && !this.boundKey(k)) this.keyIn(k, ctx);
+    this.afterKey();
+  }
+
+  /** What every key leaves behind it: where the keys are now settles what they left. */
+  private afterKey() {
     this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
     this.reenter();
     for (const [id, p] of this.panes) if (id !== this.focus && p.typing?.()) p.blur?.();
@@ -5022,7 +5025,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const held = this.panes.get(this.focus), heldKind = held && kindOf(held);
     const windowKey = !!heldKind?.windowKeys && (!!this.prefix || (k.kind === "char" && k.ctrl && k.ch === "w"));
     if (held && heldKind?.takesKeys?.(held) && k.kind !== "mouse" && !windowKey) { held.key(k, this); return; }
-    if (this.dragging && k.kind === "esc") { this.gesture = null; this.endGroupGhost(); ctx.flash("not moved"); return this.redraw(); }
     // A key while a tile is dragged acts on that tile, as its ^W chord does (the same actions): f floats it, p puts it
     // in a dock (or pins it), a puts it in your drawer. The drag ends there.
     const mid = this.dragging && k.kind === "char" && !k.ctrl ? DRAG_KEYS[k.ch] : undefined;
@@ -5031,8 +5033,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.gesture = null;
       return this.run(mid[0], mid[1], src);
     }
-    // Esc while the person's own edit or comment is still opening cancels it, and does nothing else.
-    if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
     // An edit or comment of the person's kept open on the focused reader (brought back by a restore, or left by a ^W
     // chord) has their keys before anything else does (PIE-812): none of them goes to the desk underneath.
     const focused = this.focusedReader();
@@ -5051,7 +5051,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // (session.leave) and runs; esc after it stays in. The wheel scrolls the pane under the pointer.
         if (k.kind !== "mouse") {
           if (this.prefix === "wm") {
-            if (k.kind === "esc") { this.prefix = ""; ctx.flash(`still in ${sessionName(focused)}`); return this.redraw(); }
             if (focused.editing && !this.leaveSession(focused)) { this.prefix = ""; return this.redraw(); }
             return this.command(k);
           }
@@ -5154,43 +5153,29 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (/^[1-9]$/.test(k.ch) && this.numbered) { const id = this.all()[Number(k.ch) - 1]; if (id !== undefined) return this.run("tile.focus", {}, this.nameOf(id)); return; }
       if (k.ch === "q" && this.spec.home === undefined) { this.pending = null; return this.shell("screen.back"); }
     }
-    // Esc closes the screen's next temporary thing (closeStep), and with none left says so and stays: it never leaves the
-    // screen (UI-GRAMMAR, "Esc"). On a screen with a home, q takes the same steps and then leaves (PIE-489: q is back
-    // everywhere).
-    if (k.kind === "esc" || (c0 === "q" && this.spec.home !== undefined)) {
-      if (this.closeStep(k.kind === "esc")) return;
-      if (k.kind === "esc") return nothingToClose(this.ctx, this.floatCloseWord() ?? undefined);
+    // On a screen with a home, q takes the steps out Esc takes (a peek's and a gathering's are Esc's alone) and then leaves (PIE-489: q is back everywhere).
+    if (c0 === "q" && this.spec.home !== undefined) {
+      if (escPress(["lift", "zoom", "dock"] as const, this.escSteps()) || this.escHome()) return;
       this.pending = null; return this.shell("screen.back");
     }
   }
 
-  /** Close the innermost temporary place; a peek closes back to its gallery. Other floats keep their keys. */
-  private closeStep(esc: boolean): boolean {
-    const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
-    if (this.layout.lift) return step("tile.zoom", { on: false, reach: this.layout.lift.reach }, this.nameOf(this.layout.lift.tile));
-    if (this.zoom !== null) return step("tile.zoom", { on: false }, this.nameOf(this.zoom));
-    if (esc && peekSource(this.layout, this.focus) !== undefined) return step("tile.close", {}, this.nameOf(this.focus));
-    // Esc lets go of the tiles the person picked to gather.
-    if (esc && this.pickedBy(USER).length) return step("tile.select", { clear: true }, this.nameOf(this.focus));
-    const shuts = (d: Dock<number> | null) => !!d?.open && d.policy?.overlay !== false && policyOfNode(this.layout, d).collapsible;
-    const d = dockOf(this.root, this.focus);
-    if (shuts(d)) return chainOf(this.root, this.focus).some(c => c.policy?.shuts) ? step("tile.close", {}, this.nameOf(this.focus)) : step("tile.slide", { open: false }, this.nameOf(this.focus));
-    const home = this.homeTile();
-    if (home !== undefined && !this.atHome()) return step("tile.focus", {}, this.nameOf(home));
-    const open = this.spec.home !== undefined ? docks(this.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
-    if (open) return step("tile.slide", { open: false, container: open.id }, this.nameOf(leaves(open.kid)[0]!));
-    return false;
-  }
+  private escSteps() { return deskEscSteps(this as unknown as DeskEscHost); }
+  /** Esc: all that's in front of a drawer the person is out of (False: nothing took it); past the drawer, the keys home and a dock sliding over; and what the next one closes, in the hint's words, for each. */
+  escFront(): boolean { return deskEscFront(this as unknown as DeskEscHost); }
+  escHome(): boolean { const took = escPress(DESK_HOME_ESC, this.escSteps()); if (took) this.afterKey(); return took; }
+  escNextFront(): string | null { return escNext(DESK_ESC, this.escSteps()); }
+  escNextHome(): string | null { return escNext(DESK_HOME_ESC, this.escSteps()); }
 
   /** In a float with nothing left to close, what Esc says closes it: the screen's own x (the river's, the board's), else ^W x. */
-  private floatCloseWord(): string | null {
+  floatCloseWord(): string | null {
     return this.isFloat(this.focus) ? `${this.xClosesFloat() ? "x" : "^W x"} closes the float` : null;
   }
   /** The screen's own x closes the focused tile (the river's and the board's CLOSE_KEY): the hint and Esc's words both ask this. */
   private xClosesFloat(): boolean { return this.screenKeys().some(b => b.key === "x" && b.action === "tile.close"); }
 
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
-  escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); }
+  escaped() { if (!escPress(["lift", "zoom", "peek", "picked", "dock", "keys-home", "sliding-dock"] as const, this.escSteps())) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); }
   /** DeskApi.screen: this desk, the screen a reader's edit lists its actions for (PIE-1439). */
   screen(): Screen { return this; }
 
@@ -5273,14 +5258,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const c = ch(k);
     if (pick) {
       const tile = desk.nameOf(from), then = { then: pick.then, prompt: pick.prompt };
-      if (k.kind === "esc") return desk.run("tile.pick", { ...then, cancel: true }, tile);
       if (pick.chosen) {
         const value = c === "1" ? pick.chosen.id : c === "2" ? pick.chosen.role : undefined;
         if (value) desk.run("tile.pick", { ...then, value }, tile);
         return;
       }
     } else if (c === "s" || c === "a" || c === "o" || c === "v") return desk.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : c === "v" ? "hover" : "open" }, desk.nameOf(from));
-    if (k.kind === "esc") return desk.run("tile.link", { ask: false }, desk.nameOf(from));
     const tiles = this.screenTiles();
     const rects = new Map(tiles.filter(t => this.linkAccepts(t.pane)).map(t => [t.pane, t.rect]));
     const target = MOVE[c] ? neighbour(rects, desk.panes.get(from)!, MOVE[c]!) : /^[1-9]$/.test(c) ? tiles[Number(c) - 1]?.pane : null;
@@ -7044,11 +7027,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       if ([r, ...this.overlayHits].some(box => k.x >= box.col && k.x < box.col + box.cols && k.y >= box.row && k.y < box.row + box.rows)) { if (k.action === "down") { this.run("tile.focus", {}, this.nameOf(lift.tile)); enter(); } this.key(k, this.ctx); return true; }
       if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") { this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile)); droppedForInput(this, lift); }
-    } else if (this.keysHere() && this.focus === lift.tile) {
-      if (k.kind === "esc") { this.key(k, this.ctx); return true; }
-    } else this.dropLiftElsewhere();
+    } else if (!this.keysHere() || this.focus !== lift.tile) this.dropLiftElsewhere();
     return false;
   }
+  liftEsc(): EscRung | null { return deskLiftEsc(this as unknown as DeskEscHost); }
 
   /** `tile.zoom`: the tile fills the screen, or the screen comes back. */
   zoomTile(sel: string | undefined, on: boolean | undefined, actor: Actor, reach: ZoomReach = "screen"): TileDone {

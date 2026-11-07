@@ -1,3 +1,4 @@
+import { lineEscCloses } from "../surface/completer";
 import { filterLine } from "../surface/line";
 import { waitingText } from "../text";
 import { standsAsPerson } from "../surface/dispatch";
@@ -637,6 +638,8 @@ export class BacklinksPane implements Pane {
   }
 
   /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks.view filter=`), esc goes back to what it was. */
+  /** Esc takes back the filter being typed (esc-rule.ts). */
+  escCloses() { return this.list.typing ? lineEscCloses(this.list.typing, "the filter") : undefined; }
   private filterKey(k: Key, desk: DeskApi): boolean {
     if (k.kind === "enter") { const f = this.draft?.text.trim() ?? ""; this.list.stopTyping(false); this.run(desk, "backlinks.view", { filter: f }); return true; }
     if (k.kind === "esc") this.list.stopTyping(false);

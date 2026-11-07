@@ -252,6 +252,11 @@ export interface Pane {
    */
   claims?(k: Key): boolean;
   /**
+   * What the next Esc closes in it, in the hint's words (esc-rule.ts): null, nothing, and the key goes on past it; left out,
+   * it says nothing and is still asked.
+   */
+  escCloses?(desk: DeskApi): string | null | undefined;
+  /**
    * A screen of its own is drawn in it (a mount, a group): a refusal of the person's key is said on the focused tile in
    * there (PIE-727), so this tile's frame doesn't say it again. Its tiles have frames of their own, so the desk draws
    * this one as its header row alone (PIE-1305), and the outermost screen's hint row speaks for the focused tile in it.
@@ -803,6 +808,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   /** A tile following a file on disk (a preview of a path): never a Resource's text. */
   protected fileSource(): boolean { return false; }
 
+  escCloses(desk: DeskApi): string | null { return this.surface.escNext(this.host(desk)); }
   key(k: Key, desk: DeskApi): boolean {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
     if (this.holdsKeys || this.surface.claims(k)) return this.surface.key(k, this.host(desk));

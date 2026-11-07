@@ -1309,7 +1309,7 @@ export class AgentDrawer {
     canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
     // Whether a program has the person's keys, or has exited, is the owner's answer (App.person's `program`, PIE-1563), read, not asked again.
     const keysAre = this.entered ? this.host.person?.() : undefined, program = keysAre?.program;
-    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited, !!program?.exited, keysAre?.wayOut === "group")}${fg(C.dark)}` + RESET, cols - 2);
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited, !!program?.exited, keysAre?.wayOut === "group", this.entered && !program?.exited ? this.desk?.escNextFront() ?? null : null)}${fg(C.dark)}` + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
   }
@@ -1392,7 +1392,7 @@ export class AgentDrawer {
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them and the tile with the keys (in
       // a group too) doesn't claim them (the keys window closes on them); never the screen's back.
       // A terminal there that exited isn't using them either.
-      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !(d.focusedDesk() ?? d).focusedPane()?.claims?.(k) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
+      if (k.kind === "char" && !k.ctrl && k.ch === "q" && (!d.holdsKeys() || d.waitsOnExit()) && !(d.focusedDesk() ?? d).focusedPane()?.claims?.(k) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
       // ctrl+k, cmd+k or alt+k: the power bar, from the drawer too (PIE-1346), folded or not, as on a screen: never typing or in a terminal tile.
       if (isBarKey(k) && !this.foldPrefix && !d.rawKeys() && !d.holdsKeys()) { void this.host.ctx?.()?.press?.("bar.open"); return true; }
       if (strip) return this.stripKey(k, d);
@@ -1413,8 +1413,6 @@ export class AgentDrawer {
       return false;   // the screen's own: out of its program, its group, or none
     }
     if (this.shown && isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
-    // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
-    if (this.shown && k.kind === "esc" && !screen?.holdsKeys?.() && !screen?.rawKeys?.()) { run("host.toggle", { open: false }); return true; }
     return false;
   }
 
@@ -1677,6 +1675,15 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { act: "host.leave quiet=true", does: "gives the keys back without a word on the status bar" },
     ],
     run({ quiet }, { drawer, here }) { return drawer.leave(here, !quiet); },
+  }),
+  "esc.close": def({
+    summary: "close the innermost temporary thing where the person's keys are, as their Esc does: the one the hint row names (`esc: the popup`). The person's only",
+    keys: [{ keys: "esc", does: "close the innermost thing" }, { keys: "click", does: "on the hint row's esc:" }],
+    touches: "screen", replay: "safe", person: "Esc closes what the person has open; an agent reads what it would close as `escCloses` in peek and closes what it opened by that thing's own action",
+    says: out => (out.closed ? `· closed ${out.closed}` : null),
+    args: {},
+    examples: [{ act: "esc.close", does: "closes what the hint row's esc: names" }],
+    run(_, { ctx }) { return { closed: ctx.esc?.close() ?? null }; },
   }),
   "host.toggle": def({
     summary: "pull the drawer (the host layer's drawer: your agent tabs and the tiles put in) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",

@@ -1,3 +1,4 @@
+import { DoorEsc, type DoorEscHost } from "./esc-door";
 import type { Trail } from "./trail";
 import { OpenEvents } from "./open-events";
 import { TRAIL_QUERIES } from "./trail-actions";
@@ -248,6 +249,8 @@ export interface Ctx {
    * instead of saying so (the showcase's stage hands the keys back to its index). The door's own Ctx leaves it out.
    */
   nothingToClose?(leave: string): void;
+  /** The door's reader of Esc's ladder: what the hint says, a click on it (`esc.close`); a stand-in context has none and the desk answers. */
+  esc?: Pick<DoorEsc, "hint" | "close">;
   /**
    * Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the
    * screen; `from`: a terminal tile's name, when its program copied it ("copied from <tile>"). False when nothing was
@@ -357,6 +360,8 @@ export interface Screen {
   readonly name?: string;
   /** Arguments that reopen this named screen through `screen.open` after a session handoff. */
   openArgs?(): Record<string, unknown> | null;
+  /** A screen that isn't a desk: what its next Esc closes, in the hint's words (esc-rule.ts): in front of a drawer, or (`front` false) past it. */
+  escNext?(front: boolean): string | null;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
   /** False: the key is not this screen's and the holder may take it (a reader framed in a tile gives ctrl+z on to the desk's layout undo, PIE-1470). */
@@ -483,8 +488,6 @@ export function agentActor(as?: string): Actor {
 }
 
 /** A frame: no screen paints more often than this, and no hover report is handled more often (App.redraw, App.key). */
-/** After an Esc that closed something over a terminal the person types in, a second Esc this soon is that one again, never the program's (PIE-1431). */
-export const ESC_SPENT_MS = 600;
 
 export class App implements Ctx {
   readonly overflow = new Overflow();
@@ -690,7 +693,7 @@ export class App implements Ctx {
       const { program } = this.keyLayers();
       const sink = !program || program.over ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
-        this.xrayHold.drop(); if (this.escSpent(bytes)) return; // a chord typed into a program drops a waiting ctrl hold too
+        this.xrayHold.drop(); if (this.esc.spent(bytes)) return; // a chord typed into a program drops a waiting ctrl hold too
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
       } : null;
@@ -1121,6 +1124,7 @@ export class App implements Ctx {
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
+      escCloses: this.esc.next(),
       ...((a => (a ? { armed: { edit: a.what, ms: a.ms } } : {}))(this.armed())), state: s?.describe?.({ full: !!o.full }) ?? null };
   }
 
@@ -1403,11 +1407,11 @@ export class App implements Ctx {
     this.pressed(k);
     // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
     // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
-    // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
+    // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (esc.spent).
     const layers = this.keyLayers(), program = k.kind === "esc" && !layers.program?.exited ? layers.program : undefined;   // an exited one's Esc is the door's
     if (program) {
-      if (!program.over && this.heldEsc()) return;
-      if (program.over) this.escSpentAt = this.now();
+      if (!program.over && this.esc.held()) return;
+      if (program.over) this.esc.spend();
     }
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
     try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k, layers)); }
@@ -1421,6 +1425,8 @@ export class App implements Ctx {
       }
     }
   }
+
+  readonly esc = new DoorEsc(this as unknown as DoorEscHost);
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
@@ -1436,11 +1442,12 @@ export class App implements Ctx {
     const leader = this.xrayLeader;
     if (k.kind !== "mouse") this.xrayLeader = w.over !== "bar" && k.kind === "char" && !!k.ctrl && k.ch === "]";
     if (w.over !== "bar" && leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }
+    // Esc has one rule, whichever layer the keys are in: the first rung open closes (esc-rule.ts).
+    if (k.kind === "esc") return this.esc.press();
 
     // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
     if (w.over === "probe" && k.kind !== "mouse") {
-      if (k.kind === "esc") this.probeKeys(false);
-      else if (k.kind === "paste") { this.flash(`✦ probe · a paste of ${[...k.text].length} characters (bracketed paste) · esc ends the probe`, 60_000); this.redraw(); }
+      if (k.kind === "paste") { this.flash(`✦ probe · a paste of ${[...k.text].length} characters (bracketed paste) · esc ends the probe`, 60_000); this.redraw(); }
       else { this.flash(describeKey(k, (this.term as { lastSeq?: string }).lastSeq ?? ""), 60_000); this.redraw(); }
       return;
     }
@@ -1606,18 +1613,6 @@ export class App implements Ctx {
     }
     return null;
   }
-  /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
-  private escSpentAt = -Infinity;
-  /** An Esc right after one closed something over the program: held back, and said (PIE-1431). */
-  private heldEsc(): boolean {
-    // A fixed window from the Esc that closed something: a held one doesn't extend it, so tapping Esc gets through soon.
-    if (this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
-    this.flash("nothing to close · pause, then esc is the program's", 2500);
-    return true;
-  }
-  /** Raw bytes that are an Esc (legacy, or a Kitty report), held back as heldEsc says. */
-  private escSpent(bytes: string): boolean { return this.now() - this.escSpentAt < ESC_SPENT_MS && (/^\x1b+$/.test(bytes) || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
-
   private probing = false;
   probeKeys(on = !this.probing): boolean {
     this.probing = on;

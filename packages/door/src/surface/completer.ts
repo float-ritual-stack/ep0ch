@@ -1,3 +1,4 @@
+import { DRAFT_ESC, escNext } from "../esc-rule";
 import { pageRows } from "../scroll";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
@@ -941,6 +942,24 @@ export const recordCompletionPick = (board: CompletionBoard, key: string, item: 
 
 /** The draft's completer, if it has one. */
 export const completerOf = (d: CompletionField): Completer | null => (d.views.completer) ?? null;
+/**
+ * What the next Esc does in a draft, by DRAFT_ESC, in the hint's words. The steps themselves are `completionKey`'s and
+ * `Draft.key`'s, read here: a popup with candidates, snippet stops, a popup still loading, the selection, then `noun`,
+ * whose unsaved text takes Esc twice (the draft session puts it aside).
+ */
+export function lineEscCloses(line: CompletionField | null | undefined, noun: string): string {
+  return line && completerOf(line)?.shown?.items.length ? "the popup" : noun;
+}
+export function draftEscCloses(d: Draft, noun: string): string | null {
+  const c = completerOf(d), shown = c?.shown, ready = !!shown?.items.length && !shown.loading;
+  const word = (closes: string | null) => (closes ? { closes, run() {} } : null);
+  return escNext(DRAFT_ESC, {
+    popup: () => word(ready || (shown && !d.snippet) ? "the popup" : null),
+    snippet: () => word(d.snippet ? "the snippet" : null),
+    selection: () => word(d.selection() ? "the selection" : null),
+    draft: () => word(!d.written || d.stray() !== null ? noun : d.status.armed() === "discard" ? `${noun}, put aside` : `${noun}, twice puts it aside`),
+  });
+}
 
 /** The draft's popup, if one is open (for drawing). */
 export const completionOf = (d: CompletionField): CompletionState | null => (d.views.completer)?.shown ?? null;
