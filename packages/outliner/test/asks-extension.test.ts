@@ -746,3 +746,29 @@ test("Codex on #1337: a label over a request still reaches Jev and gets its chip
   for (const line of ["please choose cedar", "please confirm the shed"]) { expect(read).toContain(line); expect(said).toContain(line); }
   for (const line of ["header picture", "takes its keys"]) expect(read).not.toContain(line);
 });
+
+test("a long note reaches the model as the lines around what's asked, with its title and a gap marked", async () => {
+  const { confirmPrompt } = await import("../extensions/asks/asks-confirm");
+  const rows = Array.from({ length: 800 }, (_, i) => `- Row ${i} of beans along the old fence by the shed door`);
+  const prompt = confirmPrompt(["Yard plan", ...rows].join("\n"), [400]);
+  expect(prompt).toContain("Title: Yard plan");
+  expect(prompt).toContain("L401: - Row 399 of beans");
+  expect(prompt).toContain("401| - Row 399 of beans");
+  expect(prompt).toContain("441| - Row 439 of beans");
+  expect(prompt).not.toContain("442| - Row 440 of beans");
+  expect(prompt).not.toContain("300| - Row 298 of beans");
+  expect(prompt).toContain("\n…\n");
+});
+
+test("what follows a line stops at its limit, and reads the same as the whole section cut there", async () => {
+  const bodies: { state: { around?: Record<string, { later?: string }> } }[] = [];
+  const { readAsks } = await import("../src/write-review");
+  const rows = Array.from({ length: 200 }, (_, i) => `- Row ${i} of beans along the old fence by the shed door`);
+  await readAsks(["Yard", "", "- Should the shed move?", ...rows].join("\n"), {
+    apiKey: "fake", env: { OUTLINER_FIGURE_FIT: "on" }, fetch: (async (_: unknown, init: { body: string }) => {
+      const body = JSON.parse(init.body); bodies.push(body);
+      return Response.json({ model: "jev-1.13.0", answers: {}, usage: { input_tokens: 1, output_tokens: 1 } });
+    }) as never,
+  });
+  expect(bodies[0]!.state.around?.L2?.later).toBe(rows.join("\n").slice(0, 600));
+});

@@ -198,7 +198,13 @@ function aroundLine(lines: readonly string[], i: number, title: number) {
   }
   const before = near(-1), after = near(1);
   const follows: string[] = [];
-  for (let k = i + 1; k < lines.length && !HEADING.test(lines[k]!); k++) if (lines[k]!.trim()) follows.push(clip(lines[k]!));
+  let size = 0;
+  for (let k = i + 1; k < lines.length && size <= LATER && !HEADING.test(lines[k]!); k++) {
+    if (!lines[k]!.trim()) continue;
+    const line = clip(lines[k]!);
+    follows.push(line);
+    size += line.length + 1;
+  }
   const later = follows.join("\n").slice(0, LATER);
   return { ...(heading ? { heading } : {}), ...(parent ? { parent } : {}), ...(before ? { before } : {}), ...(after ? { after } : {}), ...(follows.length > 1 ? { later } : {}) };
 }
