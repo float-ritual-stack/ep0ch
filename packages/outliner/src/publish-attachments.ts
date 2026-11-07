@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, isAbsolute, relative, sep } from "node:path";
+import { dirname, extname, isAbsolute, relative, sep } from "node:path";
 import { MAX_TEXT_FILE_BYTES, resolveReferencedPath } from "./files";
 
 /**
@@ -222,3 +222,49 @@ function checkServable<T>(sourcePath: string, policy: AttachmentPolicy, cap: num
     ino: stat.ino,
   };
 }
+
+/**
+ * Where a picture on a page is served from (`at`) when `shown` and `checkImage` allows it; when it doesn't, the
+ * signed-in owner's reason with the line that fixes it (PIE-1633), and null for anyone else.
+ */
+export function imageSource(policy: AttachmentPolicy | null, path: string, at: string, shown: boolean, owner: boolean, outline: string | undefined): string | { said: string } | null {
+  if (!shown || !policy) return null;
+  const check = checkImage(path, policy);
+  return check.ok ? at : owner ? { said: imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
+}
+
+/**
+ * The systemd unit this publisher runs as, named in a fix (PIE-1633): its own `outliner-publish…` unit when its
+ * cgroup says so, else `outliner-publish-<outline>`, the name an install gives it.
+ */
+export function publisherUnit(outline: string | undefined, cgroup = (() => { try { return readFileSync("/proc/self/cgroup", "utf8"); } catch { return ""; } })()): string {
+  return /\/(outliner-publish[^/\s]*)\.service\b/.exec(cgroup)?.[1] ?? (outline ? `outliner-publish-${outline}` : "outliner-publish");
+}
+
+/**
+ * Why an image `checkImage` refused isn't on the page, and the line that fixes it, for the signed-in owner only
+ * (PIE-1633; a refusal's own `reason` is what a reader may see, so it never names a path): the folder to add for one
+ * outside the roots, on `publisher` (its systemd unit). Commands are in backticks.
+ */
+export function imageRefusalWhy(check: Extract<ImageCheck, { ok: false }>, sourcePath: string, policy: AttachmentPolicy, publisher: string): string {
+  let where = sourcePath;
+  try { where = resolveReferencedPath(sourcePath, policy.workspaceRoot, policy.homeDirectory); } catch { /* said as written */ }
+  let real = where;
+  try { real = realpathSync(where); } catch { /* missing: said as resolved */ }
+  switch (check.refusal) {
+    case "outside-roots": {
+      const folder = dirname(real);
+      return `${folder} is outside this publisher's roots. Add \`--root ${folder}\` to \`${publisher}\`, then restart it.`;
+    }
+    case "no-roots": return `This publisher has no roots to serve pictures from. Add \`--root ${dirname(real)}\` to \`${publisher}\`, then restart it.`;
+    case "missing": return `${where} isn't there${check.reason.includes("dangling") ? " (a link to nothing)" : ""}: fix the path on the line, or put the file back.`;
+    case "unsupported-type": return `Pages show ${listed(Object.keys(PUBLISHED_IMAGE_TYPES))} pictures, not ${extname(real) || "a file with no extension"}.`;
+    case "remote-service": return `The outline's service runs on another machine, so this publisher can't read its files: run \`${publisher}\` on that machine.`;
+    case "too-large": return `${where} is larger than a page serves (${MAX_PUBLISHED_IMAGE_BYTES / 1024 / 1024} MB).`;
+    case "hidden-path": return `${where} is in a hidden file or folder, which a page never serves: move it out.`;
+    case "not-a-file": return `${where} isn't a regular file.`;
+    case "parent-segment": return `The path has a .. in it, which a page never serves: write it without one.`;
+  }
+}
+
+const listed = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;

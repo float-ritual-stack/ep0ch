@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { Publisher } from "../src/publish";
+import { publisherUnit } from "../src/publish-attachments";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { scratchOutline } from "./scratch-outline";
@@ -326,4 +327,37 @@ test("a picture fence on a published page is its picture, at the size its fence 
   expect(html).toContain("not a picture");
   const markdown = await (await get("/p/plot-plan?view=markdown")).text();
   expect(markdown).toContain("```svg height=12");
+});
+
+test("a picture a page can't show says why to the signed-in owner, with the line that fixes it; outsiders get its words and its name (PIE-1633)", async () => {
+  const { store, publisher, workspace, elsewhere } = await setup();
+  writeFileSync(join(workspace, "images", "moth.bmp"), PNG);
+  store.create([
+    "Sheet night [publish::public:sheet-night]",
+    `[img::${join(elsewhere, "private.png")}] [layout::hero] [alt::the sheet at dusk]`,
+    `- [img::${join(elsewhere, "private.png")}] [alt::a stray moth]`,
+    "- [img::images/gone.png]",
+    "- [img::images/moth.bmp]",
+  ].join("\n"));
+  const ask = (signedIn: boolean) => publisher.handle(new Request("http://127.0.0.1/p/sheet-night?view=html", { headers: { accept: "text/html" } }),
+    "tailnet", undefined, signedIn ? { sessionId: "web-moth" } : undefined).then((response) => response.text());
+  const owner = await ask(true);
+  // Outside the roots: the folder to add, on the publisher that serves this outline. The hero follows the same rule.
+  const outside = `${elsewhere} is outside this publisher&#39;s roots. Add <code>--root ${elsewhere}</code> to <code>outliner-publish</code>, then restart it.`;
+  expect(owner.split(outside).length - 1).toBe(2);
+  expect(owner).toMatch(/class="media media-missing media-center media-hero"><span class="media-what">image<\/span> the sheet at dusk <code>private.png<\/code><span class="media-why">[^<]*outside this publisher/);
+  expect(owner).toContain(`${join(workspace, "images", "gone.png")} isn&#39;t there`);
+  expect(owner).toContain("Pages show .png, .jpg, .jpeg, .gif, .webp, .avif and .svg pictures, not .bmp");
+  const outsider = await ask(false);
+  expect(outsider).toContain('<span class="media-what">image</span> a stray moth <code>private.png</code><span class="line-anchor"');
+  expect(outsider).toContain('<code>gone.png</code><span class="line-anchor"');
+  expect(outsider).not.toContain('class="media-why"');
+  expect(outsider).not.toContain(elsewhere);
+  expect(outsider).not.toContain("--root");
+});
+
+test("the fix names the publisher's own unit: its cgroup's outliner-publish service, else outliner-publish-<outline> (PIE-1633)", () => {
+  expect(publisherUnit("gurgle", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/outliner-publish-moths.service\n")).toBe("outliner-publish-moths");
+  expect(publisherUnit("gurgle", "0::/user.slice/user-1000.slice/user@1000.service/claude-builder.service\n")).toBe("outliner-publish-gurgle");
+  expect(publisherUnit(undefined, "")).toBe("outliner-publish");
 });

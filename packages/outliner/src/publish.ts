@@ -45,6 +45,7 @@ import {
   canonicalPublishRoots,
   checkAttachment,
   checkImage,
+  imageSource,
   readCheckedImage,
   type AttachmentPolicy,
   type PublishedFileType,
@@ -2543,7 +2544,7 @@ export class Publisher {
     drawNoteMedia(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), options.format ?? "html", components, drawn,
       (blockId, line, spec) => spec.kind === "artifact"
         ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
-        : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
+        : imageSource(this.policy, spec.path, `${base}${mediaPath(blockId, line)}`, !linked.labelsOnly, this.signedInOwner(), this.outlineName),
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
       (blockId, line) => artifactPages.get(`${blockId}:${line}`), (blockId, line) => repos.get(`${blockId}:${line}`), await fenceSvg(rows.map((row) => row.block.text ?? "")));
     if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
@@ -2646,13 +2647,12 @@ export class Publisher {
         if (body !== undefined && components.length < MAX_PUBLISHED_COMPONENTS) {
           // Its pictures as the page's own images (PIE-827): served from here when the file may leave the machine.
           const images = this.componentImages({ ...projection, output });
-          const policy = this.policy;
           components.push(readImages(readBlockdown(body, (source) => renderMarkdownHtml(publishedText(source, context), callouts)), (n) => {
             const node = images[n];
             if (!node || node.svg !== undefined) return node ? drawingHtml(node, text[line]) : null;
             const spec = imagePrimitiveSpec(node);
             // `caption: false` (PIE-839): a served cover without its caption; one not served still says what it is.
-            return mediaHtml(spec, !context.index.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${context.basePath}${mediaPath(blockId, line, n)}` : null, undefined, node.caption !== false);
+            return mediaHtml(spec, imageSource(this.policy, spec.path, `${context.basePath}${mediaPath(blockId, line, n)}`, !context.index.labelsOnly, this.signedInOwner(), this.outlineName), undefined, node.caption !== false);
           }));
           shown.set(line, componentSentinel(components.length - 1));
         } else if (output?.markdown.trim()) shown.set(line, output.markdown);
