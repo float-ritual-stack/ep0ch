@@ -25,7 +25,7 @@
           "type": "string"
         },
         "description": "The command that answers @tidy: prompt on stdin, JSON replacement and message on stdout; left out, Haiku through claude",
-        "default": ["claude", "-p", "--model", "haiku", "--tools", ""]
+        "default": ["claude", "-p", "--safe-mode", "--model", "haiku", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--system-prompt", "You answer with JSON only."]
       }
     },
     "additionalProperties": false

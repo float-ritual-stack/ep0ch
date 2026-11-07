@@ -36,9 +36,9 @@ const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).sli
  */
 function failure(command: string[], why: string): Error {
   const from = request.config?.answer ? "from tidy's settings" : "tidy's default";
-  const fix = `ctrl+k then & settings tidy in the door, or ep0ch act ext.tidy.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}', or sign in with claude`;
+  const fix = `ctrl+k then & settings tidy in the door, or ep0ch act ext.tidy.settings answer='/full/path/to/claude ${shown(DEFAULT_ANSWER.slice(1))}', or sign in with claude`;
   const ran = shown(command);
-  return new Error(`${why}: ${ran.length > 100 ? `${ran.slice(0, 99)}…` : ran} (${from}). To fix: ${fix}`);
+  return new Error(`${why}: ${ran.length > 60 ? `${ran.slice(0, 59)}…` : ran} (${from}). To fix: ${fix}`);
 }
 
 async function modelAnswer(command: string[], prompt: string): Promise<unknown> {

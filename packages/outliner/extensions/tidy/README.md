@@ -35,7 +35,7 @@ Morning plan
 
 - **Install:** `ep0ch ext add tidy`.
 - **The model:** `config.answer` in `config.json` names a command that reads the prompt on stdin and prints the answer.
-  - The default is `claude -p --model haiku --tools ""`, with a 20-second deadline.
+  - The default is Haiku through `claude` in safe mode, with no CLAUDE.md, skills, plugins, tools, MCP or settings loaded, and a 20-second deadline. The door's settings row shows the whole command.
   - An empty command list turns the model off and says so.
 - **Its answer:** JSON `{ "replacement": "the full rewritten passage", "message": "rewrote 4 items as callouts" }`.
 
