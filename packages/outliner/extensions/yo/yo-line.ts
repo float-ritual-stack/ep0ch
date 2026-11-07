@@ -87,6 +87,17 @@ export function doneRow(label: string, undo: string, reversible: boolean): strin
   return `✓ yo pressed ${label} · ${reversible ? `[undo](act: ext.undo run=${undo})` : "no undo: it changes no note and no layout"}`;
 }
 
+/**
+ * The step that says memory wasn't read. No outline by that name yet is a first run, said plainly with the command that
+ * makes one (PIE-1632); anything else (a machine that doesn't answer, a refusal) is said as it came.
+ */
+export function memoryStep(reason: string, outline: string, doing: "read" | "write" = "read"): string {
+  if (/^No outline named\b/i.test(reason)) {
+    return doing === "read" ? `no memory yet: yo remembers once an outline named ${outline} exists, \`ep0ch outline create ${outline}\`` : `not remembered: no outline named ${outline} yet, \`ep0ch outline create ${outline}\``;
+  }
+  return doing === "read" ? `memory skipped (${reason})` : `not remembered (${reason})`;
+}
+
 /** The two quoted lines of an answer. */
 export function quoted(a: ActionRecord): string[] {
   const keys = keysOf(a);
@@ -130,17 +141,27 @@ export function asksHow(request: string): boolean {
   return /\bhow (do|can|could|would|should|to)\b|\b(is|are) there (a|any) (way|key|button)\b|\b(the|a|which|what) (key|keys|shortcut|button|command) (for|to)\b/.test(asked);
 }
 
-/** yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note. */
-export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; label: string; act: string } | null } | null {
+/**
+ * yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note.
+ * The button says which line it is (`at`, from 0): the same answer can be written above it word for word (PIE-1632).
+ */
+export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; at: number; label: string; act: string } | null } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!/^>\s*\[!note\][+-]?\s+@yo answered\s*$/.test(lines[i]!)) continue;
     let end = i + 1;
     while (end < lines.length && lines[end]!.startsWith(">")) end++;
     const ask = /^\s*(?:[-*+]\s+)?@yo\b[:,]?\s*(.*)$/.exec(lines[i - 1] ?? "")?.[1] ?? "";
-    return { ask, button: lastButton(lines.slice(i + 1, end).filter(l => !l.startsWith("> >"))) };
+    for (let at = end - 1; at > i; at--) {
+      const found = lines[at]!.startsWith("> >") ? null : buttonIn(lines[at]!);
+      if (found) return { ask, button: { line: lines[at]!, at, ...found } };
+    }
+    return { ask, button: null };
   }
   return null;
 }
+
+/** Where line `at` starts in `text` (UTF-16, as draft.patch's range counts): the lines before it and their newlines. */
+export const lineStart = (text: string, at: number) => (at ? text.split("\n").slice(0, at).join("\n").length + 1 : 0);
 
 /**
  * What memory says of an ask: an exact note first, whatever order they're in; else the notes whose words cover it, when

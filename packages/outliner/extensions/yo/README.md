@@ -49,6 +49,7 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 - **Install:** `ep0ch ext add yo`, or `&` in the power bar.
 - **Its memory:** `ep0ch outline create yo` on one machine, and `ep0ch mcp access full --ws yo` when other machines read it.
   - **From another machine:** `ep0ch act ext.yo.settings memory='{"outline":"yo","machine":"<ssh-name>"}'`.
+  - **Before there is one:** yo answers anyway; its first step says `no memory yet` with the command that makes it.
   - **While it can't be reached:** yo answers without it and says so in its steps.
 - **The models:** each default is `claude` in safe mode, sending only the prompt; the settings row shows the whole command.
 - **`door.act`** is the primitive under the button: an agent's process asks the door to run one action line, as the agent, and gets its undo id ([Agents in the note](../../docs/extensions/README.md#agents-in-the-note)).

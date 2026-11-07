@@ -469,7 +469,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 |---|---|---|---|
 | `read` | a data handler | `{ handler, key, options, context }` | `{ record: { title, fields: [{ key, value }], body } }`, or a collection: `{ record?, records: [{ key, title, fields, body }], complete? }` |
 | `run` | an output or component handler | `{ handler, argument, options, context }` | output: `{ markdown, title? }`; component: `{ data, view, targets?, title? }` |
-| `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
+| `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, range?, before?, after? }] }` (`range`: `{ start, end }` in `note.text`, UTF-16: which copy, when the same words are in the note more than once) |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
 | `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component?, where? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect?, priority? }] }` |

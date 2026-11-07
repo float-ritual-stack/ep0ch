@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { argsOf, asksHow, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryText, planOf, planPrompt, pressLine, quoted, quoteOf, ranked, recalled, sections, shortReason, type ActionRecord } from "../extensions/yo/yo-line";
+import { argsOf, asksHow, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, quoteOf, ranked, recalled, sections, shortReason, type ActionRecord } from "../extensions/yo/yo-line";
 
 const LIFT: ActionRecord = {
   name: "barrow.lift", summary: "lift the barrow above the bench as a column (reach=full: across the shed), wherever it is: the one you used last. Again drops it",
@@ -34,6 +34,13 @@ test("a long refusal in a step ends at a sentence, never inside a code span", ()
   // A sentence end inside a code span isn't one: the cut is the sentence before the span.
   const inCode = `The model refused it. Its words were \`invalid query? ${"z ".repeat(60)}\` and it stopped there for good.`;
   expect(shortReason(inCode)).toBe("The model refused it");
+});
+
+test("PIE-1632: no memory outline yet is a first run, said plainly; a memory that can't be reached is said as it came", () => {
+  const missing = shortReason('No outline named "yo" in /srv/outlines/of/this/machine. Nothing was created (a read never makes one)');
+  expect(memoryStep(missing, "yo")).toBe("no memory yet: yo remembers once an outline named yo exists, `ep0ch outline create yo`");
+  expect(memoryStep(missing, "yo", "write")).toBe("not remembered: no outline named yo yet, `ep0ch outline create yo`");
+  expect(memoryStep("no answer from yo@shed in 20000 ms", "yo")).toBe("memory skipped (no answer from yo@shed in 20000 ms)");
 });
 
 test("the button takes the label its doc gives, asks for a required argument, and a press remembers", () => {
@@ -87,7 +94,7 @@ test("memory keeps the arguments that worked, never the tile they ran in", () =>
 test("do it is tied to yo's own last answer: another button below it is not pressed, and an answer with none presses nothing", () => {
   const ask = "@yo lift the barrow", fold = ["> [!note]+ @yo answered", '> ::button{label="▲ lift" act="barrow.lift"}', "> > [!note]- 2 steps", "> > - read"];
   const lines = ["Shed", ask, ...fold, "", '::button{label="close" act="tile.close"}', "[bin it](act: note.trash)"];
-  expect(lastAnswer(lines)).toEqual({ ask: "lift the barrow", button: { line: fold[1]!, label: "▲ lift", act: "barrow.lift" } });
+  expect(lastAnswer(lines)).toEqual({ ask: "lift the barrow", button: { line: fold[1]!, at: 3, label: "▲ lift", act: "barrow.lift" } });
   expect(lastAnswer(["Shed", '::button{label="close" act="tile.close"}'])).toBeNull();
   expect(lastAnswer([ask, "> [!note]+ @yo answered", "> ✓ yo pressed ▲ lift · [undo](act: ext.undo run=a)"])?.button).toBeNull();
   // A newer answer with nothing to press hides an older button.
@@ -222,3 +229,37 @@ test("a remembered answer's button keeps the arguments that worked", async () =>
   expect(text).toContain('act=["barrow.lift on=false"');
   expect(t.models()).toEqual([]);
 }, 30_000);
+
+test("PIE-1632: after four answers with the same button, do it presses the newest by its range, not by text alone", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const pressed: string[] = [];
+  const door = t.client.watch({
+    client: { clientId: "a-shed-door", role: "observer", contextId: "shed", app: "door" },
+    onEvent: async event => {
+      const call = (event as unknown as { script?: { requestId: string; targetClientId: string; action: string } }).script;
+      if (event.domain !== "script" || !call || call.targetClientId !== "a-shed-door") return;
+      pressed.push(call.action);
+      await t.client.request({ action: "scripts.answer", requestId: call.requestId, clientId: "a-shed-door", result: { ok: true } } as never);
+    },
+  });
+  cleanups.push(() => door.stop());
+  await until("the door connected", async () => (await t.client.request<{ clientId: string }[]>({ action: "clients.list" })).length >= 1);
+  // Four asks of the same thing in other words: each answer's button and hint read the same, line for line.
+  const asks = ["how do I lift the barrow again", "how can I lift the barrow?", "what's the key for lifting the barrow", "can you lift the barrow?"];
+  const made = await t.client.request<{ id: string }>({ action: "create", text: ["Shed list", "", ...asks.map(a => `@yo ${a}\n`)].join("\n"), author: "user" } as never);
+  const answered = await until("four answers", () => { const b = t.store.require(made.id); return t.store.agentRequests(made.id).filter(r => r.answeredAt).length === 4 ? b : null; });
+  // The newest answer's button, written above too: "lift barrow" slugs alike ("lifting" is another word).
+  const button = answered.text.split("\n").filter(l => l.startsWith("> ::button{")).at(-1)!;
+  const before = answered.text.split("\n").filter(l => l === button).length;
+  expect(before).toBeGreaterThanOrEqual(3);
+  await t.client.request({ action: "update", blockId: made.id, text: `${answered.text}\n\n@yo do it`, expectedRevision: answered.revision, mutation: { author: "user" } } as never);
+  const row = await until("do it answered", () => t.store.agentRequests(made.id).find(r => r.request === "do it" && r.answeredAt));
+  expect([row.status, row.message]).toEqual(["applied", "✓ pressed ▲ lift as yo"]);
+  expect(pressed).toEqual(["barrow.lift"]);
+  const lines = t.store.require(made.id).text.split("\n");
+  // The older answers keep their button and hint; the newest's are its done row.
+  expect(lines.filter(l => l === button).length).toBe(before - 1);
+  const fourth = lines.lastIndexOf("> [!note]+ @yo answered");
+  expect(lines[fourth - 1]).toBe("@yo can you lift the barrow?");
+  expect(lines.slice(fourth).join("\n")).toMatch(/\n> keys: ✦b · \^W Z\n> ✓ yo pressed ▲ lift · [^\n]+\n> > \[!note\]-/);
+}, 60_000);
