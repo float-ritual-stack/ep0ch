@@ -121,3 +121,34 @@ export class Again<T = true> {
   /** Let it go (any other key). */
   clear() { this.held = null; this.stopTimers(); }
 }
+
+/**
+ * The door's asks of one press (leaving, closing a running program): the same press within 3 s goes; any other lets it go,
+ * but ^W, which is no press yet, and one that only opens a menu on the way to its row.
+ */
+export class PressAgain {
+  private readonly waiting = new Again<{ press: string; what: string; at: number }>({ ms: 3000, same: (a, b) => a.press === b.press && a.what === b.what });
+  /** What this press let go, until the next press. */
+  private letGo: { press: string; what: string; at: number } | null = null;
+  /** The press being handled, by its name. */
+  private press = "";
+  /** A press came, whoever takes it. */
+  pressed(press: string, k: Key) {
+    this.press = press;
+    const asked = this.waiting.armed();
+    this.letGo = null;
+    if (asked && asked.press !== press && !(k.kind === "char" && k.ctrl && k.ch === "w")) { this.letGo = asked; this.waiting.clear(); }
+  }
+  /** `what` asks twice: false on the first press (it waits), true on the same press again. */
+  asked(what: string): boolean {
+    const asked = { press: this.press, what, at: Date.now() };
+    if (this.waiting.take(asked)) return true;
+    this.waiting.arm(asked);
+    return false;
+  }
+  /** This press only opened a menu: what it let go still waits, in its own window. */
+  openedMenu() {
+    if (this.letGo) this.waiting.arm(this.letGo, this.letGo.at);
+    this.letGo = null;
+  }
+}

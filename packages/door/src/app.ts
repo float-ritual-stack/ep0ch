@@ -70,7 +70,7 @@ import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
-import { Again, confirms, disarms, type Arm } from "./arm";
+import { Again, confirms, disarms, PressAgain, type Arm } from "./arm";
 import { hyperBinding, hyperLabel, hyperOn, HYPER_KEYS } from "./hyper";
 import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
@@ -239,10 +239,8 @@ export interface Ctx {
   refuse?(msg: string, at?: number): void;
   /** Which of the person's keys or clicks is being answered now (refuse's `at`, taken as an action begins). */
   pressNow?(): number;
-  /** `what` asks twice (src/arm.ts): false on the first press, true on the same press again before any other. */
-  pressedAgain?(what: string): boolean;
-  /** This press only opened a menu: what `pressedAgain` was waiting for still waits. */
-  pressOpenedMenu?(): void;
+  /** What asks twice waits here for the same press again (src/arm.ts). */
+  readonly pressAgain?: PressAgain;
   /** The refusal said now, for the focused tile's frame to show: its words, and loud when the same key was refused again. */
   refusal?(): Refusal | null;
   /**
@@ -503,24 +501,7 @@ export class App implements Ctx {
   private started: number;
   /** The status bar's clock and uptime as last painted: a minute later, the bar alone is repainted. */
   private shownTime = "";
-  /** One thing asked by a press (leaving, closing a running program): the same press within 3s goes; any other lets it go (`pressed`). */
-  private readonly askedAgain = new Again<{ press: string; what: string; at: number }>({ ms: 3000, same: (a, b) => a.press === b.press && a.what === b.what });
-  /** What this press let go, until the next press: opening a menu to press it again brings it back (`pressOpenedMenu`). */
-  private askLetGo: { press: string; what: string; at: number } | null = null;
-  /** The press being handled, by its name: what the second press must be. */
-  private pressName = "";
-  /** `what` asks twice: false on the first press (it waits), true on the same press again. */
-  pressedAgain(what: string): boolean {
-    const asked = { press: this.pressName, what, at: Date.now() };
-    if (this.askedAgain.take(asked)) return true;
-    this.askedAgain.arm(asked);
-    return false;
-  }
-  /** This press only opened a menu, on the way to its row: it isn't another press, so what it let go still waits, in its own window. */
-  pressOpenedMenu() {
-    if (this.askLetGo) this.askedAgain.arm(this.askLetGo, this.askLetGo.at);
-    this.askLetGo = null;
-  }
+  readonly pressAgain = new PressAgain();
   /** When the person last pressed a key or used the mouse (Date.now()). */
   lastInput = 0;
   host = "";
@@ -834,7 +815,7 @@ export class App implements Ctx {
     const tuning = tuned ? `unsaved tuning, s to save (${tuned} value${tuned === 1 ? "" : "s"}, alt+y opens the tune inspector) · again within 3s quits without ${tuned === 1 ? "it" : "them"}` : null; // says, not a hint row
     const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? tuning : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
-    if (this.pressedAgain("leave")) { dirty.forEach(s => s.keepDrafts?.()); return true; }
+    if (this.pressAgain.asked("leave")) { dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
@@ -936,11 +917,7 @@ export class App implements Ctx {
   private pressed(k: Key) {
     const p = pressOf(k);
     if (p === null) return;
-    this.pressName = p;
-    // Any press but the one that asked lets it go; ^W isn't one yet, the key after it is.
-    const asked = this.askedAgain.armed();
-    this.askLetGo = null;
-    if (asked && asked.press !== p && !(k.kind === "char" && k.ctrl && k.ch === "w")) { this.askLetGo = asked; this.askedAgain.clear(); }
+    this.pressAgain.pressed(p, k);
     const r = this.refusedNow;
     if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + 4000; }
     this.refusedNow = null;
@@ -961,9 +938,8 @@ export class App implements Ctx {
   armed(): Arm | null { return this.editArm.armed(); }
   disarm() {
     const a = this.editArm.armed();
-    if (!a) return;
     this.editArm.clear();
-    this.retireArm(a);
+    if (a) this.retireArm(a);
   }
   /** Flashes said so far: a key that said nothing and ran nothing is found by it (cmd+c with nothing to copy). */
   private flashes = 0;

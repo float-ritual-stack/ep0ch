@@ -1227,7 +1227,7 @@ export class Draft {
    * is a change to it. Its last step stops at the save, as a draft opened again on it does (PIE-1414).
    */
   wentOnFrom(text: string, at?: number) {
-    if (text !== this.text) { this.lines = text.split("\n"); this.row = this.lines.length - 1; this.col = this.lines[this.row]!.length; this.anchor = null; this.undos = []; this.redos = []; }
+    if (text !== this.text) { this.lines = text.split("\n"); this.place(this.lines.length - 1, Infinity); this.undos = []; this.redos = []; }
     else this.undos = this.undos.map((s, i, all) => ({ ...s, open: false, ...(i === all.length - 1 && at !== undefined ? { saved: at } : {}) }));
     this.original = this.seen = text;
     if (at !== undefined) this.base = at;

@@ -6855,7 +6855,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A desk on no door yet (a test's) asks itself; on a door, its one owner lets any other press let it go. */
   private readonly looseAgain = new Again<string>({ ms: 3000 });
   private pressedAgain(what: string): boolean {
-    if (this.ctx?.pressedAgain) return this.ctx.pressedAgain(what);
+    if (this.ctx?.pressAgain) return this.ctx.pressAgain.asked(what);
     if (this.looseAgain.take(what)) return true;
     this.looseAgain.arm(what);
     return false;
@@ -7112,7 +7112,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
-    this.ctx?.pressOpenedMenu?.();
+    this.ctx?.pressAgain?.openedMenu();
     const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);
     let anchor: { col: number; row: number; right?: boolean };

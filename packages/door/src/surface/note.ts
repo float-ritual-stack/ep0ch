@@ -3257,7 +3257,6 @@ export class NoteSurface {
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const s = this.drafting!;
     if (s.holding(k, held => void this.draftKey(held, host))) { host.redraw(); return true; }
-    // A replayed key runs no command, on this path either: it was held as text.
     if (!s.replaying && s.draft.views.raw.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
     if (!s.replaying && this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
