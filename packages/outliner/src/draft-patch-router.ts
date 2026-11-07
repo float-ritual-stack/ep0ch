@@ -308,7 +308,7 @@ export class DraftPatchRouter {
   async patch(input: DraftPatchInput, output = false): Promise<DraftPatchResult> {
     const edits = normalizeDraftPatchEdits(input);
     if (input.replyTo !== undefined && (typeof input.replyTo !== "string" || edits.length !== 1 ||
-      edits[0]!.patches.length !== 1 || (edits[0]!.patches[0]!.observed !== input.replyTo && !edits[0]!.patches[0]!.observed.startsWith(input.replyTo + "\n> [!note]- ")) ||
+      edits[0]!.patches.length !== 1 || (edits[0]!.patches[0]!.observed !== input.replyTo && !edits[0]!.patches[0]!.observed.startsWith(input.replyTo + "\n> [!note]")) ||
       !edits[0]!.patches[0]!.replacement.startsWith(input.replyTo + "\n"))) {
       throw new Error("replyTo inserts an answer after its unchanged ask line");
     }

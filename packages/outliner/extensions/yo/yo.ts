@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { actPrompt, argsOf, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -81,7 +81,7 @@ async function remember(asked: string, pressed: string): Promise<void> {
   } catch (error) { steps.push(`not remembered (${firstLine(error)})`); }
 }
 
-const firstLine = (error: unknown) => (error instanceof Error ? error.message : String(error)).split("\n", 1)[0]!.slice(0, 160);
+const firstLine = (error: unknown) => shortReason(error instanceof Error ? error.message : String(error));
 
 /** The model as a command: prompt on stdin, its JSON on stdout (`claude --output-format json`'s envelope unwrapped, and its cost said). */
 async function model(command: string[], which: string, prompt: string): Promise<unknown> {

@@ -218,6 +218,22 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "two items", r
   expect(failed.reason).toBe("@broken answered something the service can't apply: patches must be a list of at most 20");
 });
 
+test("a line asked in other words: its new answer takes the old one's place under it, and a quotation under the line stays (PIE-1585)", async () => {
+  const { store, client, create, agentOf, writeAgent } = await setup();
+  await writeAgent("answer", `const request = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + request.input.request } }));`);
+  const note = await create("Shed\n@answer how do I\n\nthe rest");
+  await agentOf(note.id, (p) => p.status === "ready");
+  expect(store.get(note.id)!.text).toBe("Shed\n@answer how do I\n> [!note]- @answer answered\n> for: how do I\n\nthe rest");
+  const reworded = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: reworded.text.replace("how do I", "how do I lift it"), expectedRevision: reworded.revision, mutation: PERSON });
+  await until("the new answer", () => store.get(note.id)!.text.includes("for: how do I lift it"));
+  expect(store.get(note.id)!.text).toBe("Shed\n@answer how do I lift it\n> [!note]- @answer answered\n> for: how do I lift it\n\nthe rest");
+  const quoting = await create("Shed\n@answer what next\n> a quotation of mine");
+  await until("the answer", () => store.get(quoting.id)!.text.includes("for: what next"));
+  expect(store.get(quoting.id)!.text).toContain("> a quotation of mine");
+});
+
 test("only a request a person's save adds runs: lines from before the install wait, note-level r doesn't ask, typing elsewhere still applies", async () => {
   const { store, client, create, agentOf, writeAgent } = await setup();
   // Written while no extension answered @slow: when one appears, an unrelated save doesn't run it.

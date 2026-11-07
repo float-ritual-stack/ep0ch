@@ -731,6 +731,9 @@ export class Draft {
   newline(plain = false) {
     if (this.anchor) this.deleteSelection();
     this.anchor = null;
+    // ⏎ at the end of an answered ask: the answer stays under its ask and the words go on below it (PIE-1585).
+    const answer = this.line.slice(this.col) ? undefined : this.answerFolds().find(p => p.line === this.row + 1);
+    if (answer) ({ row: this.row, col: this.col } = this.placeOf(this.offsetOf(answer.end, 0) - 1));
     // ⏎ at the end of a first line of only `[page::x]` titles it `x` (PIE-544), outline-core's rule, the one the service
     // saves by. Anywhere else on the line (before it, inside the token) it's a plain break: the save titles it later.
     if (this.titlesPages && this.row === 0 && this.col >= this.lines[0]!.trimEnd().length) {
@@ -891,6 +894,10 @@ export class Draft {
     const text = this.text;
     const located = locateSpans(text, p.patches, !!p.force);
     if (!located.ok) return no(located.reason);
+    // An answer leaves its ask line word for word (the service checks): what it changes is below that line, so the ask's
+    // own text is out of the patch: the cursor may be on it (PIE-1585), and the undo unit is the answer alone.
+    const askEnd = p.replyTo ? located.spans[0]!.start + p.replyTo.length : -1;
+    if (p.replyTo) located.spans = [{ ...located.spans[0]!, start: askEnd, replacement: located.spans[0]!.replacement.slice(p.replyTo.length) }];
     if (p.force && p.mark !== undefined) {
       // A mark line the person took out holds nothing back: the passage is placed by its own text.
       const mark = markStart(text, p.mark);
@@ -901,7 +908,7 @@ export class Draft {
     const own = by.kind === "user";
     if (!p.force && !p.output && !own) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
-      if (p.replyTo && located.spans.some(sp => sp.start <= c && c <= sp.end)) return no("the cursor is on the ask being answered");
+      if (p.replyTo && located.spans.some(sp => sp.start < c && c <= sp.end)) return no("the cursor is in the answer");
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
       // With a mark: above it; and when the person went back up above the mark to write, above the block they're in.
       if (p.mark !== undefined) {
@@ -936,14 +943,15 @@ export class Draft {
         rebased.push({ step, before, after });
       }
     }
-    this.commitPatch(located.spans, by, p.patchId);
+    // A cursor at the ask's end stays there, on the line it was typing: the answer opens below it.
+    this.commitPatch(located.spans, by, p.patchId, p.replyTo ? o => (o <= askEnd ? o : mapOffset(o, located.spans)) : undefined);
     const latest = this.undos.at(-1);
     if (p.replyGroup && latest?.unit) {
       latest.unit.group = p.replyGroup;
       if (prior?.unit && prior !== latest) {
         for (const { step, before, after } of rebased) { step.before = before; step.after = after; }
         prior.unit = { ...prior.unit, patchIds: [...(prior.unit.patchIds ?? [prior.unit.patchId]), p.patchId],
-          spans: prior.unit.spans.map(sp => ({ ...sp, text: p.patches[0]!.replacement })) };
+          spans: prior.unit.spans.map(sp => ({ ...sp, text: p.patches[0]!.replacement.slice(p.replyTo!.length) })) };
         this.undos.pop();
       }
     }

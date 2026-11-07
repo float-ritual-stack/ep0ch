@@ -69,6 +69,11 @@ const MAX_NOTE_TEXT = 64 * 1024;
 const MAX_REPLY = 64 * 1024;
 const MAX_PATCHES = 20;
 const DEFAULT_QUIET_MS = 1_500;
+
+/** `agent`'s answer fold right under an ask, where `below` is the text after the ask line: the fold's text, or nothing. */
+function answerBelow(below: string, agent: string): string {
+  return new RegExp(`^\\n> \\[!note\\][-+]? @${agent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} answered(?:\\n>.*)*`).exec(below)?.[0] ?? "";
+}
 /**
  * A long answer says it's working (PIE-1452): a thread gets a reply saying so once an answer has run this long, and
  * every PROGRESS_MS after that it (and a note's request line) says how long and what the agent has written so far.
@@ -771,6 +776,7 @@ export class AgentRequests {
         const mark = requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey);
         if (!mark) throw new Error("the ask changed while answering");
         const start = mark.end - mark.text.length;
+        if (replySpan === line.text) replySpan += answerBelow(current.text.slice(start + line.text.length), line.agent);
         const after = current.text.slice(start + replySpan.length);
         if (replySpan !== line.text && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
           throw new Error("the answer changed while streaming; your text was kept");
@@ -849,10 +855,14 @@ export class AgentRequests {
             body += `\n${run.written.length ? run.written.map(id => `!((${id}))`).join("\n") : run.message ?? "Script finished"}`;
           } catch (error) { body += `\n⚠ ${message(error)}`; }
         }
+        // Its answer to the line's earlier words goes: the line now asks this (PIE-1585).
+        const current = await this.deps.readDraft(blockId);
+        const from = (requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.text === line.text)?.end ?? line.end) - line.text.length;
+        const observed = line.text + answerBelow(current.text.slice(from + line.text.length), line.agent);
         const outcome = await this.store.changes.run(
           this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
-          () => this.deps.patch({ blockId, revision: draft.revision, mutation: actor, current: true,
-            replyTo: line.text, patches: [{ observed: line.text, range: { start: line.end - line.text.length, end: line.end },
+          () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
+            replyTo: line.text, patches: [{ observed, range: { start: from, end: from + observed.length },
               replacement: `${line.text}\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}` }] }),
         );
         answer = outcome.outcome === "applied"
