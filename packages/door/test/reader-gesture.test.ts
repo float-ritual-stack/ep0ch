@@ -275,6 +275,21 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
     });
   });
 
+  describe("the release comes wherever the pointer went", () => {
+    test("a selection let go on the status bar: selected to the edge, copied, and over", async () => {
+      await open(plan, "Water the seedlings");
+      const w = where("Water the");
+      down(w.x, w.y); drag(w.x + 1, w.y); drag(w.x + 3, 43); up(w.x + 3, 43);
+      await until(() => copied().length === 1, "the selection copied");
+      expect(copied()[0]).toContain("Water the seedlings every morning.");
+      expect(copied()[0]).toContain("Turn the heap");
+      await Bun.sleep(500);
+      const a = where("Water the");
+      down(a.x + 2, a.y); up(a.x + 2, a.y);
+      expect(surface().describe().selection).toBeNull();
+    });
+  });
+
   describe("what ends a press under it", () => {
     test("a tile closing: the release on its link opens nothing", async () => {
       const made = await app.act({ action: "tile.open", args: { kind: "reader", note: plan.id, where: "right" }, as: "gesture-test" }) as { name: string };
