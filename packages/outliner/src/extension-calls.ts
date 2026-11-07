@@ -273,6 +273,8 @@ export interface ExtensionPickedRequest {
   readonly text?: string;
 }
 
+/** Notes `refreshReaders` reads between two chances for anyone else to run. */
+const READERS_SLICE = 1000;
 const MAX_BAR_ROWS = 50;
 /** An extension's completion source answers at most this many rows an ask. */
 const MAX_COMPLETION_ROWS = 20;
@@ -666,13 +668,25 @@ export class ExtensionCalls {
       // A line keeps its watch while its extension still serves it: a handler's `query`, or a script that asks.
       if (!call || !extension || !(extension.script || extension.manifest.handlers?.some(handler => handler.key === call.handlerKey && handler.query))) this.options.lines?.forgetLine(blockId, callKey);
     }
-    // One walk of the outline for all of them: a query a handler held pie's host 900 ms at every open (PIE-1610).
-    const needles = changed.map(key => `${key.toLowerCase()}::`);
-    const readers = !needles.length ? [] : this.store.liveBlocks().filter(block => {
-      if (isMachinery(block.properties)) return false;
-      const text = block.text.toLowerCase();
-      return needles.some(needle => text.includes(needle));
-    }).map(block => block.id);
+    if (changed.length) void this.refreshReaders(changed);
+  }
+
+  /**
+   * The lines of the handlers that changed run again. One walk of the outline for all of them, a slice a pass: a query a
+   * handler held pie's host 900 ms at every open, and one whole walk 380 ms on float-2 (PIE-1610).
+   */
+  private async refreshReaders(changed: readonly string[]): Promise<void> {
+    const needles = changed.map(key => `${key.toLowerCase()}::`), blocks = this.store.liveBlocks();
+    const readers: string[] = [];
+    for (let at = 0; at < blocks.length; at += READERS_SLICE) {
+      if (at) await new Promise<void>(resolve => setImmediate(resolve));
+      if (this.stopped) return;
+      for (const block of blocks.slice(at, at + READERS_SLICE)) {
+        if (isMachinery(block.properties)) continue;
+        const text = block.text.toLowerCase();
+        if (needles.some(needle => text.includes(needle))) readers.push(block.id);
+      }
+    }
     // A pass on open runs only what is out of date or never ran, so lines already drawn cost a look.
     for (const id of readers.slice(0, 500)) {
       const block = this.store.get(id);

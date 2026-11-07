@@ -111,12 +111,12 @@ source evidence or distinguish authored glyphs from controls.
   (`loop_stalled`, `slow_request` in the host's log). `src/text-memo.ts`
   memoizes what is a pure function of a note's text (display titles); a whole-outline read uses those and the
   store's per-change graph, never its own copy. See [Responsiveness](#responsiveness).
-- `src/tree-controller.ts` / `src/tree-renderer.ts` own Tree behavior and presentation.
+- `src/tree-controller.ts` / `src/tree-renderer.ts` own Tree behavior and presentation. `src/tree-modes.ts` states Tree's one machine (browse, delete, goto, the one-line inputs, the viewer, the action menu): a mode holds its own data, a menu holds the mode it opened over, and `TreeView` gives the renderer only the mode it's in. A new mode or a mode's new field goes there, never as a loose variable.
 - `src/ui-config.ts` owns `ui.json` (pinned bar actions and `compact | full`
   chrome per pane kind, shared in shape with the door); `src/reader-chrome.ts`
   draws every pane's bar and hint row from it and the action registry. A new
   pane kind adds a kind there, not its own header or footer.
-- `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation.
+- `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation. `DetailState.mode` is its one machine (`DetailModeState`): a comment holds its draft and where it returns, the file view its line selection; the ready document holds its read status, and `detailDocumentRefreshing` answers "is this about to change".
 - `src/virtual-branches.ts` owns projection semantics, saved-view record compilation (`parseVirtualBranchConfig` → `virtualBranchMembershipQuery`, shared by reads, write planning and collection producers), and create-parent resolution.
 - `src/program-status-emit.ts` (a declared export, `@ep0ch/outliner/program-status-emit`) is the one emitter of
   program status (OSC 7501, PIE-614) for our own commands: whether this terminal speaks it (`EP0CH_PROGRAM_STATUS`,
@@ -484,7 +484,8 @@ One host serves every client of every outline on one event loop, and a client gi
   machine in `.remote/` and a restart, one phase each. `--outliner <dir>` runs another checkout's host for a before.
   `--copy <file.sqlite>` serves a snapshot (what only the real shape shows: `extensions/`, `user-extensions/` and
   `extension-schedules.json` beside it come along; its host has no programs on its PATH), and `--others <n>` adds outlines
-  with doors of their own.
+  with doors of their own, `--small <n>` of them small. `--slow-core <n>` pins the host to one core, about float-2's speed.
+  Float-2's restart: `--phase restart --copy <pie.sqlite> --others 7 --small 4 --slow-core 16 --check`.
 - `bun run bench:host` (`scripts/bench-host-fairness.ts`, PIE-1413) is the guard under bulk work: a pie-shaped
   fictional outline (or `--copy` a private copy) with a real door on the Desk (the door's `scripts/bench-door-desk.ts`:
   a board tile and a live query tile, the person reading and saving through the same connection), a watching door, the

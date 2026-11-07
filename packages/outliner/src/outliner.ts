@@ -34,6 +34,7 @@ import { parsePropertySummaryKeys } from "./property-summary";
 import { resolveClientPaths } from "./paths";
 import { TerminalInputDecoder, type TerminalKey } from "./terminal";
 import { createTreeController } from "./tree-controller";
+import { treeMenuPinnable } from "./tree-modes";
 import {
   isTreeMouseSequence,
   parseTreePrimaryClick,
@@ -84,7 +85,7 @@ let paneOwnsRightClick = rightClickOwnership === "outliner";
 /** While a menu is open the pane takes right-clicks (they pin), then hands them back to Herdr. */
 function syncRightClickOwnership(): void {
   // Only a menu whose items pin wants right-clicks; selection and destination menus leave them to Herdr.
-  const wanted = rightClickOwnership === "outliner" || controller.view().actionMenuBar !== undefined;
+  const wanted = rightClickOwnership === "outliner" || treeMenuPinnable(controller.view());
   if (wanted === paneOwnsRightClick || stopping) return;
   paneOwnsRightClick = wanted;
   setImmediate(() => {

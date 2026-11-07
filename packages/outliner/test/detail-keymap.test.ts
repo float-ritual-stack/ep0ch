@@ -25,21 +25,18 @@ function state(): DetailState {
     resolvedProvenance: null,
     resolvedSelectedText: "",
     projectedSelectedText: "",
-    readStatus: "ready",
     embedStates: [],
     embedRanges: [],
     embedBackgroundEnabled: true,
     workIdPrefix: null,
     resolvedBreadcrumb: "",
-    mode: "edit",
+    mode: {kind: "edit"},
     buffer: new TextBuffer("alpha beta"),
     referencedFile: null,
     previewOffset: 0,
     editorVisualOffset: 0,
     fileOffset: 0,
     fileCursor: 0,
-    selectionAnchor: null,
-    annotationRange: null,
     annotationThreads: [],
     attention: emptyAttentionState("detail-test"),
     attentionRevealSourceLine: null,
@@ -165,7 +162,7 @@ test("remaps preview and editor actions while suppressing stale defaults", async
   expect(editor.intents).toEqual([{ type: "buffer.save" }]);
 
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const directions: string[] = [];
   const previewKeymap = new OutlinerActionKeymap("<test>", {
     "detail.edit.begin": ["x"],
@@ -212,7 +209,7 @@ test("routes Ctrl+C and Command+C to copy while editing", async () => {
 
 test("opens direction-aware Detail splits from preview bindings", async () => {
   const detailState = state();
-  detailState.mode = "preview";
+  detailState.mode = {kind: "preview"};
   detailState.context.selected = {
     revision: 1,
     id: "block-1",
@@ -237,7 +234,7 @@ test("opens direction-aware Detail splits from preview bindings", async () => {
 
 test("uses q to close a dedicated Property Detail without changing ordinary q", async () => {
   const propertyState = state();
-  propertyState.mode = "preview";
+  propertyState.mode = {kind: "preview"};
   propertyState.propertyInspector.presentation = "dedicated";
   const property = harness(propertyState, false);
   await property.press({ name: "q" }, "q");
@@ -245,7 +242,7 @@ test("uses q to close a dedicated Property Detail without changing ordinary q", 
   expect(property.intents).toEqual([]);
 
   const ordinaryState = state();
-  ordinaryState.mode = "preview";
+  ordinaryState.mode = {kind: "preview"};
   const ordinary = harness(ordinaryState, false);
   await ordinary.press({ name: "q" }, "q");
   expect(ordinary.stops.count).toBe(0);
@@ -254,7 +251,7 @@ test("uses q to close a dedicated Property Detail without changing ordinary q", 
 
 test("opens the contextual menu and invokes its selected action through effective bindings", async () => {
   const detailState = state();
-  detailState.mode = "preview";
+  detailState.mode = {kind: "preview"};
   let menuItems: readonly OutlinerActionMenuItem[] = [];
   let invoke: (actionId: string) => Promise<void> = async () => {
     throw new Error("Action menu did not open");
@@ -281,7 +278,7 @@ test("opens the contextual menu and invokes its selected action through effectiv
 
 test("an Edit link beside a reply edits that reply (PIE-763): detail.annotation.edit:<reply id>", async () => {
   const detailState = state();
-  detailState.mode = "preview";
+  detailState.mode = {kind: "preview"};
   const detail = harness(detailState, false);
   await detail.invoke("detail.annotation.edit");
   await detail.invoke("detail.annotation.edit:3f0c9e2a-reply");
@@ -293,7 +290,7 @@ test("an Edit link beside a reply edits that reply (PIE-763): detail.annotation.
 
 test("invokes the external editor action from an active unsaved draft", async () => {
   const editState = state();
-  editState.mode = "edit";
+  editState.mode = {kind: "edit"};
   const detail = harness(editState, true);
 
   await detail.press({ name: "e", meta: true });
@@ -303,7 +300,7 @@ test("invokes the external editor action from an active unsaved draft", async ()
 
 test("comments on a directly dragged rendered selection from preview", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const capture: DetailDirectSelectionCapture = {
     kind: "rendered",
     capture: {
@@ -340,7 +337,7 @@ test("comments on a directly dragged rendered selection from preview", async () 
 for (const outcome of ["changed", "failed"] as const) {
   test(`Comment does not reinterpret a ${outcome} pending selection as a general comment`, async () => {
     const previewState = state();
-    previewState.mode = "preview";
+    previewState.mode = {kind: "preview"};
     const pending = Promise.withResolvers<DetailDirectSelectionCapture | null>();
     const detail = harness(previewState, false, { directSelectionCapture: () => pending.promise });
     const action = detail.press({ name: "c" }, "c");
@@ -358,7 +355,7 @@ for (const outcome of ["changed", "failed"] as const) {
 
 test("invokes semantic actions directly regardless of bindings and reports invalid contexts", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const detail = harness(previewState, false, {
     actionKeymap: new OutlinerActionKeymap("<test>", {
       "detail.edit.begin": [],
@@ -384,7 +381,7 @@ test("resolves shared chords by ordered Detail context", async () => {
     "detail.backlinks.filter": ["x"],
   });
   const detailState = state();
-  detailState.mode = "preview";
+  detailState.mode = {kind: "preview"};
   detailState.propertyInspector.expanded = true;
   detailState.propertyInspector.model = createPropertyInspectorModel("source-block", "Source [status::open]");
   detailState.backlinks.expanded = true;
@@ -501,7 +498,7 @@ test("retains save, completion, insertion, and delete bindings", async () => {
 
 test("restores direct Trash roots from file mode", async () => {
   const detailState = state();
-  detailState.mode = "file";
+  detailState.mode = {kind: "file", lineAnchor: null};
   detailState.context.selected = {
     revision: 1,
     id: "deleted-file",
@@ -524,7 +521,7 @@ test("restores direct Trash roots from file mode", async () => {
 
 test("maps preview and file navigation history and reference-follow bindings", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
 
   await preview.press({ name: "left", meta: true });
@@ -542,7 +539,7 @@ test("maps preview and file navigation history and reference-follow bindings", a
   ]);
 
   const fileState = state();
-  fileState.mode = "file";
+  fileState.mode = {kind: "file", lineAnchor: null};
   fileState.referencedFile = {
     absolutePath: "/workspace/example.ts",
     displayPath: "example.ts",
@@ -563,7 +560,7 @@ test("maps preview and file navigation history and reference-follow bindings", a
 
 test("activates the focused preview region and reserves e for editing", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
 
   await preview.press({ name: "return" });
@@ -579,7 +576,7 @@ test("activates the focused preview region and reserves e for editing", async ()
 
 test("maps preview b to the lazy backlink section", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
 
   await preview.press({ name: "b" }, "b");
@@ -589,7 +586,7 @@ test("maps preview b to the lazy backlink section", async () => {
 
 test("maps Shift+V to the generic virtual branch navigator", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
 
   await preview.press({ name: "v", shift: true }, "V");
@@ -599,7 +596,7 @@ test("maps Shift+V to the generic virtual branch navigator", async () => {
 
 test("maps m bookmark actions without claiming Ctrl+Shift+M", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
 
   await preview.press({ name: "m" }, "m");
@@ -615,7 +612,7 @@ test("maps m bookmark actions without claiming Ctrl+Shift+M", async () => {
 
 test("keeps Shift+R pane-level while Backlinks are expanded", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   previewState.backlinks = {
     expanded: true,
     loading: false,
@@ -666,7 +663,7 @@ test("keeps Shift+R pane-level while Backlinks are expanded", async () => {
 
 test("maps backlink filter, sort, and disclosure controls", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   previewState.backlinks.expanded = true;
   const preview = harness(previewState, false);
 
@@ -691,7 +688,7 @@ test("maps backlink filter, sort, and disclosure controls", async () => {
 
 test("maps backlink kind, stage, resolved and this-note toggles only while Backlinks are open", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
   await preview.press({ name: "k" }, "k");
   expect(preview.intents).toEqual([{ type: "redraw" }]);
@@ -737,7 +734,7 @@ test("key-clash audit: Backlinks keys shadow nothing in the scopes active beside
 
 test("maps Shift+R to current-block reveal without a destination picker", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   const preview = harness(previewState, false);
 
   await preview.press({ name: "r", shift: true }, "R");
@@ -754,7 +751,7 @@ test("maps Shift+R to current-block reveal without a destination picker", async 
 
 test("Properties read mode links with Shift+L while editors and property filters retain uppercase input", async () => {
   const properties = state();
-  properties.mode = "preview";
+  properties.mode = {kind: "preview"};
   properties.propertyInspector.presentation = "dedicated";
   const reader = harness(properties, false);
   await reader.press({name: "l", shift: true}, "L");
@@ -778,12 +775,12 @@ test("destination header clicks and Alt+L explain active editors instead of disc
     {type: "status.set", message: "Finish or cancel the active edit or filter before changing the destination"},
   ]);
   expect(detail.buffer.text).toBe(before);
-  expect(detail.mode).toBe("edit");
+  expect(detail.mode.kind).toBe("edit");
 });
 
 test("maps property inspector disclosure, pane, grouping, filtering, target, and viewport keys", async () => {
   const previewState = state();
-  previewState.mode = "preview";
+  previewState.mode = {kind: "preview"};
   previewState.propertyInspector.expanded = true;
   previewState.propertyInspector.model = createPropertyInspectorModel("source-block", "Source [related-to::target-block]");
   previewState.previewRegions = {
@@ -883,7 +880,7 @@ test("maps property value editing keys without entering the full block editor", 
 
 test("an active destination chooser owns input before keymap actions", async () => {
   const detailState = state();
-  detailState.mode = "preview";
+  detailState.mode = {kind: "preview"};
   detailState.destinationChooser.active = true;
   const stateHarness = harness(detailState, false);
 
@@ -901,7 +898,7 @@ test("an active destination chooser owns input before keymap actions", async () 
 
 test("routes thread keys to navigation, root reply and lifecycle without entering source editing", async () => {
   const detail = state();
-  detail.mode = "preview";
+  detail.mode = {kind: "preview"};
   const h = harness(detail, false);
   await h.press({ name: "]" }, "]");
   await h.press({ name: "[" }, "[");
@@ -914,7 +911,7 @@ test("routes thread keys to navigation, root reply and lifecycle without enterin
 });
 
 test("an absent Properties inspector cannot steal Resource evidence scrolling", async () => {
-  const detail = { ...state(), mode: "preview" as const, target: { kind: "resource" as const, resourceId: "resource-1" } };
+  const detail = { ...state(), mode: {kind: "preview"} as const, target: { kind: "resource" as const, resourceId: "resource-1" } };
   detail.propertyInspector.expanded = true;
   detail.propertyInspector.model = null;
   const h = harness(detail, false);
@@ -924,7 +921,7 @@ test("an absent Properties inspector cannot steal Resource evidence scrolling", 
 
 
 test("key inspector action is unbound, discoverable and opens without touching the reader", async () => {
-  const reading = state(); reading.mode = "preview"; reading.selectionAnchor = 0;
+  const reading = state(); reading.mode = {kind: "preview"}; reading.mode = {kind: "preview"};
   let opened = 0;
   const detail = harness(reading, false, {openKeyInspector: () => {opened++;}});
   const menu = new OutlinerActionKeymap("<test>").menuItems("detail", "preview");
@@ -933,7 +930,6 @@ test("key inspector action is unbound, discoverable and opens without touching t
   expect(opened).toBe(1);
   expect(detail.intents).toEqual([]);
   expect(detail.stops.count).toBe(0);
-  expect(reading.selectionAnchor).toBe(0);
   expect(reading.buffer.text).toBe("alpha beta");
 });
 
@@ -957,7 +953,7 @@ test("custom destination chords do not preempt source editor commands", async ()
     const editor = harness(state(), true, {actionKeymap: keymap});
     await editor.press(key);
     expect(editor.intents).toEqual([intent]);
-    const reading = state(); reading.mode = "preview";
+    const reading = state(); reading.mode = {kind: "preview"};
     const reader = harness(reading, false, {actionKeymap: keymap});
     await reader.press(key);
     expect(reader.intents).toEqual([{type: "navigation.link"}]);
@@ -965,7 +961,7 @@ test("custom destination chords do not preempt source editor commands", async ()
 });
 
 test("custom destination chords do not preempt property value editing", async () => {
-  const editing = state(); editing.mode = "preview";
+  const editing = state(); editing.mode = {kind: "preview"};
   editing.propertyInspector.edit = {occurrenceId: "property:note:status", ordinal: 0, blockId: "note", expectedRevision: 1, buffer: new TextBuffer("planned")};
   const keymap = new OutlinerActionKeymap("<test>", {"detail.navigation.link": ["Alt+A", "Ctrl+A", "Alt+Home", "Alt+Backspace"]});
   const editor = harness(editing, false, {actionKeymap: keymap});
@@ -982,7 +978,7 @@ test("custom destination chords do not preempt property value editing", async ()
 test("custom destination chords leave modified Backspace with active filters", async () => {
   const keymap = new OutlinerActionKeymap("<test>", {"detail.navigation.link": ["Alt+Backspace"]});
   for (const property of [true, false]) {
-    const editing = state(); editing.mode = "preview";
+    const editing = state(); editing.mode = {kind: "preview"};
     if (property) editing.propertyInspector.filterDraft = "status";
     else editing.backlinks.filterDraft = "source";
     const editor = harness(editing, false, {actionKeymap: keymap});

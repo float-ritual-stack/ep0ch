@@ -868,7 +868,7 @@ export class OutlinerServer {
     heldBy(`open ${name}: routing`, () => { this.routing.ensureHub(); seedArtifactRule(this.store); });
     this.extensionSchedules.start();
     // Its resource providers once its folders are read (and again on every reload); answered when that and its pages are done.
-    return this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders()).then(() => this.syncExtensionPages(false)).catch(() => {});
+    return this.extensionPages.giveWay().then(() => this.extensionRegistry.watch()).catch(() => {}).then(() => this.refreshResourceProviders()).then(() => this.syncExtensionPages(false)).catch(() => {});
   }
 
   /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */

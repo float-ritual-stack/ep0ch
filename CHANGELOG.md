@@ -15,6 +15,18 @@ are its record. The outliner's entries from then are kept below, under
 - **Keep typing after ctrl+s:** what you type while a save, a send or a create is out waits and goes in. Refused, it lands where you typed it; written, the note has what you saved, and the extra is kept and said ("e brings it back"). esc or ctrl+s pressed meanwhile doesn't run late: the line says to press it again.
 - **Press it again means now:** esc twice, ctrl+z at a save, ctrl+x ctrl+e, q to quit, ^W x on a running program: any other key lets the first press go, and so does an agent's edit, a reload or $EDITOR coming back. ctrl+z's ask now lasts 5 seconds, and the line stops saying what's armed when it isn't.
 
+### A door open across a deploy answers at once after the host restarts (PIE-1610)
+
+- **The host warms what you use:** outlines written in the last three days open first, a door's own outline before the rest, and the warm steps aside for any waiting request.
+- **Questions read the property index,** not every note, and the graph is read in slices.
+- **On float-2 after the Nov 6 8:13 PM restart:** no request queued over 1 s (15 after the 12:56 PM one).
+- **Run:** `ep0ch install --apply`.
+
+### The asks backfill marks only questions still waiting on you (PIE-1620)
+
+- **Left out:** closed and parked notes, records, lines you've seen, ticked or commented on, and reports. The backfill marks only sure lines, and reads past 1,000 notes.
+- **Run:** `ep0ch ext update asks --ws pie`, then `ep0ch review asks --since 30d --ws pie` to read it before `--write`.
+
 ### Waiting on Evan lists the asks nobody filed, each at its line (PIE-1612)
 
 - **Asks, a new extension:** a minute after an agent's last save, the lines that ask you something get `[needs::sysop: the line]`, so Waiting on Evan lists them and opens at the line. Lines it's unsure of get `[maybe-needs::sysop]`, in a Maybe asks view of their own.

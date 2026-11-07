@@ -195,6 +195,70 @@ test("the outline a door is waiting for warms next, ahead of the rest of the lin
   } finally { await host.close(); done(); }
 });
 
+test("the graph read in slices is the graph read at once, and a later write still reaches it", async () => {
+  const { root, done } = scratch("graph-slices");
+  const path = join(root, "outline.sqlite");
+  try {
+    const seed = new OutlinerStore(path);
+    const parent = seed.create("A shed [type::shed]");
+    // More than a slice of notes and of properties, so a page ends in the middle of them.
+    seed.database.transaction(() => { for (let i = 0; i < 1200; i++) seed.create(`Bed ${i} [type::bed] [row::${i % 7}] [plot::${i}]`, parent.id); })();
+    const whole = seed.liveBlocks().map(block => [block.id, block.text, block.properties]);
+    seed.close();
+    const store = new OutlinerStore(path);
+    try {
+      let passes = 0;
+      await store.readGraphInSlices(async () => { passes += 1; });
+      expect(passes).toBeGreaterThan(3);
+      const read = (store as unknown as { graph?: { graph: unknown } }).graph?.graph;
+      expect(read).toBeDefined();
+      expect(store.liveBlocks().map(block => [block.id, block.text, block.properties])).toEqual(whole);
+      // The same graph, not a whole read again.
+      expect((store as unknown as { graph?: { graph: unknown } }).graph?.graph).toBe(read as never);
+      const made = store.create("A spade [type::spade]");
+      expect(store.queryBlocks({ where: "type=spade", limit: 5 }).blocks.map(block => block.id)).toEqual([made.id]);
+    } finally { store.close(); }
+  } finally { done(); }
+});
+
+test("a read that fails keeps the graph; a write that fails drops what it may have undone", () => {
+  const { root, done } = scratch("graph-failed");
+  try {
+    const store = new OutlinerStore(join(root, "outline.sqlite"));
+    try {
+      const note = store.create("A note [type::bed]");
+      store.liveBlocks();
+      const graph = () => (store as unknown as { graph?: { graph: unknown } }).graph?.graph;
+      const read = graph();
+      expect(() => store.queryBlocks({ where: "type=bed", subtreeRootId: "99999999-aaaa-4bbb-8ccc-000000000001", limit: 5 })).toThrow("Block not found");
+      expect(graph()).toBe(read as never);
+      expect(() => store.update(note.id, "A stale edit", note.revision + 5)).toThrow();
+      expect(graph()).toBe(read as never);
+      expect(() => store.database.transaction(() => { store.create("Half a write"); store.liveBlocks(); throw new Error("undone"); })()).toThrow("undone");
+      expect(graph()).toBeUndefined();
+      expect(store.liveBlocks().map(block => block.text)).not.toContain("Half a write");
+    } finally { store.close(); }
+  } finally { done(); }
+});
+
+test("outlines open one at a time, however many are asked for at once", async () => {
+  const { root, done } = scratch("open-line");
+  const outlines = join(root, "o");
+  mkdirSync(outlines, { recursive: true });
+  for (const name of ["orchard", "meadow", "pond"]) {
+    const store = new OutlinerStore(join(outlines, `${name}.sqlite`), { workspaceRoot: join(outlines, name) });
+    store.create(`A note in ${name}`);
+    store.close();
+  }
+  let open = 0, most = 0;
+  const host = new OutlineHost({ outlinesFolder: outlines, log: () => {}, onOpen: async () => { most = Math.max(most, ++open); await Bun.sleep(20); open -= 1; } });
+  await host.start();
+  try {
+    await Promise.all(["orchard", "meadow", "pond"].map(name => new OutlinerClient(host.socketPath, 30_000, name).request({ action: "ping" } as never)));
+    expect(most).toBe(1);
+  } finally { await host.close(); done(); }
+});
+
 test("a note whose links are all here opens no other outline; a link to one that isn't here looks there", async () => {
   const { root, done } = scratch("lazy-links");
   const { host, client, opened, notes } = await restartedHost(root, { recent: ["orchard", "meadow"] }, false);

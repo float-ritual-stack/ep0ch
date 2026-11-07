@@ -13,6 +13,7 @@ import {detailTitle} from "./detail-renderer";
 import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ReaderMenu} from "./reader-chrome";
 import {chromeToggleLabel, chromeToggledText, OutlinerUiConfig, pinResultText} from "./ui-config";
 import { renderDetailLines } from "./detail-renderer";
+import { treeMenuPinnable, treeShowsWorkspaceReport } from "./tree-modes";
 import { treeLinkAtClick } from "./tree-mouse";
 import {EditRecoveryInput} from "./edit-recovery-input";
 import {EditRecoveryClient} from "./edit-recovery-client";
@@ -399,7 +400,7 @@ let editorDragActive = false;
 let renderedSelectionDragActive = false;
 
 function draftSplitActive(): boolean {
-  return controller.state.mode === "edit" &&
+  return controller.state.mode.kind === "edit" &&
     terminal.columns >= DETAIL_DRAFT_SPLIT_MIN_WIDTH;
 }
 
@@ -407,15 +408,15 @@ function viewport(reader: DetailController = controller): DetailViewport {
   const rectangle = reader === inspection ? readerGeometry().preview : readerGeometry().current;
   const width = rectangle.width;
   const editorUsesSplitWidth = width >= DETAIL_DRAFT_SPLIT_MIN_WIDTH &&
-    reader.state.mode !== "file" &&
-    reader.state.mode !== "comment";
+    reader.state.mode.kind !== "file" &&
+    reader.state.mode.kind !== "comment";
   return {
     width,
     editorWidth: editorUsesSplitWidth
       ? detailDraftSplitWidths(width).editor
       : width,
     height: rectangle.height,
-    editorBody: reader.state.mode === "comment"
+    editorBody: reader.state.mode.kind === "comment"
       ? bufferComposerEditorBody(width)
       : undefined,
   };
@@ -846,7 +847,7 @@ function focusRegion(region: OutlinerRegion): void {
 }
 
 function requestStop(): void {
-  if (composed && (controller.state.mode === "edit" || controller.state.mode === "comment" ||
+  if (composed && (controller.state.mode.kind === "edit" || controller.state.mode.kind === "comment" ||
       ["edit", "add-child", "add-sibling"].includes(composedTree!.controller.mode))) {
     controller.onServiceError(new Error("Finish or cancel the draft before closing the Outliner"));
     return;
@@ -1037,7 +1038,7 @@ let actionMenuPin: ((id: string) => void) | null = null;
 let paneOwnsRightClick = rightClickOwnership === "outliner";
 /** While a menu is open the pane takes right-clicks (they pin), then hands them back to Herdr. */
 function syncRightClickOwnership(): void {
-  const wanted = rightClickOwnership === "outliner" || actionMenuPin !== null || composedTree?.controller.view().actionMenuBar !== undefined;
+  const wanted = rightClickOwnership === "outliner" || actionMenuPin !== null || (composedTree ? treeMenuPinnable(composedTree.controller.view()) : false);
   if (wanted === paneOwnsRightClick || stopping) return;
   paneOwnsRightClick = wanted;
   setImmediate(() => {
@@ -1325,7 +1326,6 @@ function activeDetailActionScopes(): readonly string[] {
   });
 }
 
-
 function editorSourceLineAtViewport(): number | null {
   const layout = layoutDetailEditor(
     controller.state.buffer.lines,
@@ -1382,7 +1382,7 @@ async function handleRenderedSelectionMouse(data: string): Promise<boolean> {
   const reader = focusedReader();
   const layout = focusedPreviewLayout();
   const rectangle = reader === inspection ? readerGeometry().preview : readerGeometry().current;
-  if (reader.state.mode !== "select") {
+  if (reader.state.mode.kind !== "select") {
     renderedSelectionDragActive = false;
     return false;
   }
@@ -1429,7 +1429,7 @@ async function handleRenderedSelectionMouse(data: string): Promise<boolean> {
 }
 
 async function handleDetailMouse(data: string): Promise<boolean> {
-  if (controller.state.mode !== "edit") return false;
+  if (controller.state.mode.kind !== "edit") return false;
   const split = draftSplitActive();
   const widths = detailDraftSplitWidths(terminal.columns);
   const mouseLayout = {
@@ -1537,13 +1537,13 @@ function shouldPassDetailInputToTui(data: string): boolean {
   ) return false;
   if (actionMenuHandle) return true;
   if (composerHandle) return false;
-  if (focusedReader().state.mode === "select" && parseTreePrimaryPointer(data)) return false;
+  if (focusedReader().state.mode.kind === "select" && parseTreePrimaryPointer(data)) return false;
   if (readingSurface.active === inspection && isTreeMouseSequence(data)) return true;
   if (tui.hasOverlay()) return true;
   if (!isTreeMouseSequence(data)) return false;
   if (parseTreeSecondaryClick(data) && rightClickOwnership === "outliner") return false;
-  if (controller.state.mode === "select" && parseTreePrimaryPointer(data)) return false;
-  if (controller.state.mode !== "edit") return true;
+  if (controller.state.mode.kind === "select" && parseTreePrimaryPointer(data)) return false;
+  if (controller.state.mode.kind !== "edit") return true;
   const click = parseTreePlainClick(data);
   if (!click || !draftSplitActive()) return false;
   const widths = detailDraftSplitWidths(terminal.columns);
@@ -1800,10 +1800,10 @@ const readerVertical = new DetailReaderVerticalLayout(preview, inspectionLayout)
 
 const composer = new BufferComposer(() => {
   const reader = focusedReader();
-  const reply = reader.state.annotationReplyDraft;
-  const editing = reader.state.annotationEditDraft;
+  const draft = reader.state.mode.kind === "comment" ? reader.state.mode.draft : null;
+  const reply = draft?.kind === "reply" ? draft : null, editing = draft?.kind === "edit" ? draft : null;
   const thread = reply ? reader.state.annotationThreads.find(thread => thread.block.id === reply.annotationId) : null;
-  const target = reader.state.annotationDraft?.target;
+  const target = draft?.kind === "new" ? draft.target : undefined;
   const context = target?.anchor.kind === "text-quote"
     ? target.anchor.exact
     : target?.anchor.kind === "dom-range"
@@ -1829,7 +1829,7 @@ const composer = new BufferComposer(() => {
   };
 });
 let layoutRoot: Component | undefined;
-let previousMode = controller.state.mode;
+let previousMode = controller.state.mode.kind;
 const composedLayout = composedTree ? new ComposedLayout(composedTree, preview, () => processTerminal.columns) : null;
 let composerGeometry = "";
 
@@ -1843,7 +1843,7 @@ synchronizeLayout = () => {
     retireDirectSelection();
   }
   inspectionVisible = readingSurface.previewVisible;
-  const mode = controller.state.mode;
+  const mode = controller.state.mode.kind;
   if (mode !== previousMode) editorDragActive = false;
   if ((mode === "edit" || mode === "select") && mode !== previousMode) {
     draftSplitFocus = "editor";
@@ -1874,11 +1874,11 @@ synchronizeLayout = () => {
   const composerCol = rectangle.x + (composed ? composedWidths(processTerminal.columns).detailX : 0);
   const composerRow = rectangle.y + Math.max(0, rectangle.height - BUFFER_COMPOSER_HEIGHT);
   const geometryKey = `${composerCol}:${composerRow}:${rectangle.width}:${rectangle.height}`;
-  if (composerHandle && (composerGeometry !== geometryKey || active.state.mode !== "comment")) {
+  if (composerHandle && (composerGeometry !== geometryKey || active.state.mode.kind !== "comment")) {
     composerHandle.hide();
     composerHandle = null;
   }
-  if (active.state.mode === "comment" && !composerHandle) {
+  if (active.state.mode.kind === "comment" && !composerHandle) {
     composerGeometry = geometryKey;
     composerHandle = tui.showOverlay(composer, {
       width: rectangle.width,
@@ -1953,7 +1953,7 @@ tui.addOutlinerInputListener(data => {
   const detailPointer = parseTreePrimaryPointer(data);
   if (composedTree && !actionMenuHandle && detailPointer) {
     if (detailPointer.phase === "down") composedViewerDrag = detailPointer.column < composedWidths(processTerminal.columns).tree &&
-      composedTree.controller.mode === "viewer" && !!composedTree.controller.view().workspaceReport;
+      treeShowsWorkspaceReport(composedTree.controller.view());
     if (composedViewerDrag) {
       if (detailPointer.phase === "up") composedViewerDrag = false;
       serviceEventScheduler.scheduleWork(async () => {

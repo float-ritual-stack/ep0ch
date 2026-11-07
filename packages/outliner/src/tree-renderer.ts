@@ -28,7 +28,8 @@ import { layoutExpandedBlock } from "./tree-layout";
 import { renderMarkdownLine, sanitizeDynamicText, truncate } from "./terminal";
 import { hideLiteralMarkers } from "./document-presentation";
 import type { Block, TreeIndexBlock } from "./types";
-import type { TreeQuickCompletion, TreeView } from "./tree-controller";
+import type { TreeView } from "./tree-controller";
+import type { TreeQuickCompletion } from "./tree-modes";
 import {
   isBlockTreeRow,
   type AuthoredLinkHeaderRow,
@@ -449,13 +450,13 @@ export function renderTreeFrame(
     const mouseTargets=preview.placement==='compact'&&view.localPreview.focused?[]:tree.mouseTargets.map(target=>target?{...target,minColumn:0,maxColumn:preview.treeWidth-1}:target);
     return{...tree,preview,mouseTargets,frame:`${options.clearScreen===false?'':`${ESC}H${ESC}2J`}${[...lines,hint].slice(0,height).join("\n")}`};
   }
-  if(view.mode==='action-menu' && view.destinationPreview) {
+  if(view.mode==='action-menu' && view.menu.destination) {
     const fit=(text:string,w:number)=>truncateToWidth(text,w);
     const body=Math.max(1,height-5),beside=width>=90;
     const listWidth=beside?Math.floor((width-1)*.48):width;
     const listHeight=beside?body:Math.max(2,Math.floor((body-1)*.5));
     const slots=Math.max(1,Math.floor(listHeight/2));
-    const items=view.actionMenuItems??[],index=view.actionMenuIndex??0;
+    const items=view.menu.items,index=view.menu.index;
     const start=Math.max(0,index-slots+1), list:string[]=[];
     for(const [i,item] of items.slice(start,start+slots).entries()) {
       const label=fit(`${i+start===index?'›':' '} ${item.label}`,Math.max(1,listWidth));
@@ -465,34 +466,34 @@ export function renderTreeFrame(
     if(!items.length)list.push('No matching destinations');
     while(list.length<listHeight)list.push('');
     const previewWidth=beside?width-listWidth-1:width,previewHeight=beside?body:Math.max(1,body-listHeight-1);
-    const preview=renderNavigationDestinationPreview(view.destinationPreview,previewWidth,previewHeight);
+    const preview=renderNavigationDestinationPreview(view.menu.destination.preview,previewWidth,previewHeight);
     const middle=beside?list.map((line,i)=>line+' '.repeat(Math.max(0,listWidth-visibleWidth(line)))+'│'+(preview[i]??'')):[...list,'─'.repeat(width),...preview];
-    const openingOnce = view.destinationPurpose === 'open';
-    const placing = view.destinationPurpose === 'place';
+    const openingOnce = view.menu.destination.purpose === 'open';
+    const placing = view.menu.destination.purpose === 'place';
     const title = placing ? 'New Detail placement · Tree' : openingOnce ? 'Open once in… · Tree' : 'Link destination · Tree';
     const footer = placing ? '↑↓ choose anchor · Enter creates · Esc cancel · saved link unchanged' : openingOnce ? '↑↓ choose · Enter open once · Esc cancel · saved link unchanged' : '↑↓ choose · Enter link · Esc cancel · Alt+L link destination';
-    const lines=[fit(title,width),fit(view.destinationInstructions??(openingOnce ? 'Choose where this item opens once' : 'Choose where links from Tree open'),width),fit(`Find: ${view.actionMenuQuery??''}▏`,width),'─'.repeat(width),...middle,fit(footer,width)];
+    const lines=[fit(title,width),fit(view.menu.destination.instructions,width),fit(`Find: ${view.menu.query??''}▏`,width),'─'.repeat(width),...middle,fit(footer,width)];
     return{frame:(options.clearScreen===false?'':`${ESC}H${ESC}2J`)+lines.slice(0,height).join('\n'),scrollStartEntryIndex:initialScrollStartEntryIndex,mouseTargets:[]};
   }
   const output: string[] = [];
   const clear = options.clearScreen === false ? "" : `${ESC}H${ESC}2J`;
   const mouseTargets: Array<TreeMouseTarget | null | undefined> = [];
 
-  if (view.mode === "goto" && view.goto) {
+  if (view.mode === "goto") {
     const lines = renderGotoFrame(view.goto, width, height, view.actionHelpText ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "goto"));
     return { frame: `${options.clearScreen === false ? "" : `${ESC}H${ESC}2J`}${lines.join("\n")}`, scrollStartEntryIndex: initialScrollStartEntryIndex, mouseTargets: [] };
   }
 
   if (view.mode === "viewer") {
     const bodyHeight = Math.max(0, height - 3);
-    const lines=[`\x1b[1m${truncate(view.viewerPath,width)}\x1b[0m`,"─".repeat(width)];
-    for(const line of view.viewerLines.slice(view.viewerOffset,view.viewerOffset+bodyHeight))
-      lines.push(view.workspaceReport?line:renderMarkdownLine(truncate(line,width)));
+    const lines=[`\x1b[1m${truncate(view.viewer.path,width)}\x1b[0m`,"─".repeat(width)];
+    for(const line of view.viewer.lines.slice(view.viewer.offset,view.viewer.offset+bodyHeight))
+      lines.push(view.viewer.report?line:renderMarkdownLine(truncate(line,width)));
     while(lines.length<height-1)lines.push('');
-    const help=view.workspaceReport?view.viewerHelp: view.actionHelpText??DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree","viewer");
-    lines.push(`\x1b[2m${truncate(view.viewerStatus||help||"",width)}\x1b[0m`);
+    const help=view.viewer.report?view.viewer.help: view.actionHelpText??DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree","viewer");
+    lines.push(`\x1b[2m${truncate(view.viewer.status||help||"",width)}\x1b[0m`);
     return {frame:(options.clearScreen===false?'':`${ESC}H${ESC}2J`)+lines.slice(0,height).join('\n'),scrollStartEntryIndex:initialScrollStartEntryIndex,mouseTargets,
-      viewer:view.workspaceReport?{content:{x:0,y:2,width,height:bodyHeight},identity:view.workspaceReport,offset:view.viewerOffset}:undefined};
+      viewer:view.viewer.report?{content:{x:0,y:2,width,height:bodyHeight},identity:view.viewer.report,offset:view.viewer.offset}:undefined};
   }
 
   const compact = (view.chrome ?? "compact") === "compact";
@@ -540,18 +541,18 @@ export function renderTreeFrame(
   const footerHeight = view.mode === "browse" ? (compact ? compactFooterLines.length : hintRow ? 2 : 1) : 2;
   const bodyHeight = Math.max(minimumBodyHeight, height - headerHeight - footerHeight);
   if (view.mode === "action-menu") {
-    const actionMenuItems = view.actionMenuItems ?? [];
-    const actionMenuIndex = view.actionMenuIndex ?? 0;
-    const actionMenuQuery = view.actionMenuQuery ?? "";
+    const actionMenuItems = view.menu.items;
+    const actionMenuIndex = view.menu.index;
+    const actionMenuQuery = view.menu.query;
     // The menu is where hidden chrome lives: workspace, counts, Inbox and destination, one click each.
-    const info = view.actionMenuInfo && bodyHeight > 1 ? truncateToWidth(view.actionMenuInfo, width) : null;
+    const info = view.menu.pin && bodyHeight > 1 ? truncateToWidth(view.menu.pin.info, width) : null;
     if (info) output.push(info);
     const menuBody = bodyHeight - Number(Boolean(info));
-    const originRow = view.actionMenuOrigin
-      ? Math.max(0, Math.min(menuBody - 1, view.actionMenuOrigin.row - headerHeight - Number(Boolean(info))))
+    const originRow = view.menu.origin
+      ? Math.max(0, Math.min(menuBody - 1, view.menu.origin.row - headerHeight - Number(Boolean(info))))
       : 0;
-    const menuColumn = view.actionMenuOrigin
-      ? Math.max(0, Math.min(view.actionMenuOrigin.column, Math.max(0, width - 24)))
+    const menuColumn = view.menu.origin
+      ? Math.max(0, Math.min(view.menu.origin.column, Math.max(0, width - 24)))
       : 0;
     const menuHeight = Math.max(1, menuBody - originRow);
     const menuWidth = Math.max(1, width - menuColumn);
@@ -563,7 +564,7 @@ export function renderTreeFrame(
     for (let row = 0; row < originRow; row += 1) output.push("");
     for (let index = window.start; index < window.end; index++) {
       const item = actionMenuItems[index]!;
-      const pinned = view.actionMenuPinned?.has(item.id) ? "♦ " : view.actionMenuBar ? "  " : "";
+      const pinned = view.menu.pin?.pinned.has(item.id) ? "♦ " : view.menu.pin ? "  " : "";
       const text = pinned + actionMenuItemText(item);
       const linked = outlinerActionLink(item.id, truncateToWidth(text, Math.max(1, menuWidth - 2)));
       const prefix = " ".repeat(menuColumn);
@@ -576,7 +577,7 @@ export function renderTreeFrame(
     // A pin's result (or any fresh status) takes the description's place while it flashes.
     const description = view.status ? ` · ${sanitizeDynamicText(view.status)}` : selected ? ` · ${selected.description}` : "";
     output.push(truncate(`Find: ${actionMenuQuery}▏${description}`, width));
-    const pin = view.actionMenuBar ? `  ${view.pinKey ?? "⌥↵"}/right-click ♦ pin to ${view.actionMenuBar === "preview" ? "Preview" : "Tree"} bar` : "";
+    const pin = view.menu.pin ? `  ${view.pinKey ?? "⌥↵"}/right-click ♦ pin to ${view.menu.pin.bar === "preview" ? "Preview" : "Tree"} bar` : "";
     output.push(`\x1b[2m${truncate(`↑↓ choose  ↵ run${pin}  ⎋ close`, width)}\x1b[0m`);
     return {
       frame: clear + output.join("\n"),
@@ -650,8 +651,8 @@ export function renderTreeFrame(
     const editingInline = view.mode === "edit" && index === view.selectedIndex;
     if (editingInline) {
       const result = [
-        renderQuickInputRow(view.quickInput, view.quickColumn, row.depth, marker, author, width),
-        ...renderQuickCompletionRows(view.quickCompletion, row.depth + 1, width, view.actionHelpText),
+        renderQuickInputRow(view.quick.input, view.quick.column, row.depth, marker, author, width),
+        ...renderQuickCompletionRows(view.quick.completion, row.depth + 1, width, view.actionHelpText),
       ];
       renderedRows[index] = result;
       return result;
@@ -746,9 +747,10 @@ export function renderTreeFrame(
 
   function getEntryRows(entry: TreeRenderEntry): string[] {
     if (entry.kind === "block") return getBlockRows(entry.blockIndex);
+    if (view.mode !== "add-child" && view.mode !== "add-sibling") return [];
     return [
-      renderQuickInputRow(view.quickInput, view.quickColumn, displayDepth(entry.depth), "•", AUTHOR_MARKERS.user, width),
-      ...renderQuickCompletionRows(view.quickCompletion, displayDepth(entry.depth) + 1, width, view.actionHelpText),
+      renderQuickInputRow(view.quick.input, view.quick.column, displayDepth(entry.depth), "•", AUTHOR_MARKERS.user, width),
+      ...renderQuickCompletionRows(view.quick.completion, displayDepth(entry.depth) + 1, width, view.actionHelpText),
     ];
   }
 
@@ -884,10 +886,10 @@ export function renderTreeFrame(
         ? selectedRow.block.properties.find((property) => property.key === "work-id")?.value
           ?? selectedRow.canonicalId.slice(0, 8)
         : "identifier";
-    output.push(`\x1b[31;1mPurge ${required}: \x1b[0m${view.quickInput}▏`);
+    output.push(`\x1b[31;1mPurge ${required}: \x1b[0m${view.quick.input}▏`);
   } else if (view.mode === "filter" || view.mode === "branch-filter") {
     const label = view.mode === "branch-filter" ? "Find in branch" : "Properties";
-    const completion = view.quickCompletion;
+    const completion = view.quick.completion;
     const selectedCompletion = completion?.items[completion.index];
     let completionSuffix = "";
     if (completion && selectedCompletion) {
@@ -897,7 +899,7 @@ export function renderTreeFrame(
     }
     output.push(
       `\x1b[1m${label}:\x1b[0m ${truncate(
-        `${view.quickInput}▏${completionSuffix}`,
+        `${view.quick.input}▏${completionSuffix}`,
         Math.max(1, width - label.length - 3),
       )}`,
     );

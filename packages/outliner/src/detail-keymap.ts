@@ -77,12 +77,12 @@ export function detailActionScopes(
   if (state.propertyInspector.edit) return ["property-edit"];
   if (state.propertyInspector.filterDraft !== null) return ["property-filter"];
   if (state.backlinks.filterDraft !== null) return ["backlinks-filter"];
-  if (state.buffer?.snippet && (!state.completion?.items.length || state.completion.loading)) return ["snippet", state.mode];
-  if (state.completion) return [...(state.completion.docsRect ? ["completion-docs"] : []), state.completion.items.length?"completion":"completion-empty", state.mode];
-  if (state.buffer?.snippet) return ["snippet", state.mode];
-  if (options.previewFocused) return ["draft-preview", state.mode];
-  if (options.bufferMode ?? (state.mode === "edit" || state.mode === "comment")) {
-    return [state.mode];
+  if (state.buffer?.snippet && (!state.completion?.items.length || state.completion.loading)) return ["snippet", state.mode.kind];
+  if (state.completion) return [...(state.completion.docsRect ? ["completion-docs"] : []), state.completion.items.length?"completion":"completion-empty", state.mode.kind];
+  if (state.buffer?.snippet) return ["snippet", state.mode.kind];
+  if (options.previewFocused) return ["draft-preview", state.mode.kind];
+  if (options.bufferMode ?? (state.mode.kind === "edit" || state.mode.kind === "comment")) {
+    return [state.mode.kind];
   }
 
   const scopes: string[] = [];
@@ -98,7 +98,7 @@ export function detailActionScopes(
   if (state.backlinks.expanded && !propertyOccurrence) scopes.push("backlinks");
   if (state.propertyInspector.model && state.propertyInspector.expanded) scopes.push("property-inspector");
   if (state.backlinks.expanded && propertyOccurrence) scopes.push("backlinks");
-  scopes.push(state.mode);
+  scopes.push(state.mode.kind);
   return scopes;
 }
 
@@ -172,7 +172,7 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
   async function executeAction(actionId: string): Promise<boolean> {
     const contentDirection = contentNavigationDirection(actionId);
     if (contentDirection) {
-      if (controller.state.mode === "file" && controller.state.referencedFile) {
+      if (controller.state.mode.kind === "file" && controller.state.referencedFile) {
         await dispatch({
           type: "file.navigate",
           direction: contentDirection === "top"
@@ -183,7 +183,7 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
         });
       } else if (
         options.navigatePreview &&
-        (controller.state.mode === "preview" || previewFocused())
+        (controller.state.mode.kind === "preview" || previewFocused())
       ) {
         options.navigatePreview(contentDirection);
       } else {
@@ -390,12 +390,12 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
         await dispatch({ type: "file.selection.toggle" });
         return true;
       case "detail.comment.begin": {
-        if (controller.state.mode === "preview") {
+        if (controller.state.mode.kind === "preview") {
           const document = controller.state.document;
           const target = controller.state.target;
           try {
             const capture = (await options.directSelectionCapture?.()) ?? null;
-            if (controller.state.document !== document || controller.state.target !== target || controller.state.mode !== "preview") {
+            if (controller.state.document !== document || controller.state.target !== target || controller.state.mode.kind !== "preview") {
               await setStatus("The document changed while capturing the comment; select the passage again");
               return true;
             }
@@ -507,7 +507,7 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
     }
     if (
       (key.name === "tab" || (key.ctrl && key.name === "space")) &&
-      controller.state.mode === "edit"
+      controller.state.mode.kind === "edit"
     ) {
       await executeAction("detail.completion.open");
       return;
@@ -517,7 +517,7 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       return;
     }
     if (
-      controller.state.mode === "select" &&
+      controller.state.mode.kind === "select" &&
       (command.type === "insert" || command.type === "newline" ||
         command.type === "backspace" || command.type === "delete")
     ) {

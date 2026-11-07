@@ -280,11 +280,20 @@ test("table comments keep independent controls when cell passages share a row or
 });
 
 
+function commentMode(draft: {requestId: string; target: AnnotationTarget}): DetailState["mode"] {
+  return {kind: "comment", draft: {kind: "new", fileRange: null, ...draft}, returnTo: {kind: "preview"}};
+}
+
+function setRead(detail: DetailState, read: "pending" | "ready"): void {
+  if (detail.document.kind === "ready") detail.document.read = read;
+}
+
 function state(text: string, rawText = "raw edit source"): DetailState {
   const selected = block("block-1", rawText);
   return {
     document: {
       kind: "ready",
+      read: "ready",
       document: {
         kind: "block",
         target: { kind: "block", blockId: selected.id },
@@ -300,21 +309,18 @@ function state(text: string, rawText = "raw edit source"): DetailState {
     resolvedProvenance: text===rawText?sourceDocument(observeDocument({kind:"block",blockId:selected.id},rawText,selected.revision)):null,
     resolvedSelectedText: text,
     projectedSelectedText: rawText,
-    readStatus: "ready",
     embedStates: [],
     embedRanges: [],
     embedBackgroundEnabled: true,
     workIdPrefix: "PIE",
     resolvedBreadcrumb: "Resolved block",
-    mode: "preview",
+    mode: {kind: "preview"},
     buffer: new TextBuffer(),
     referencedFile: null,
     previewOffset: 0,
     editorVisualOffset: 0,
     fileOffset: 0,
     fileCursor: 0,
-    selectionAnchor: null,
-    annotationRange: null,
     annotationThreads: [],
     attention: emptyAttentionState("detail-test"),
     attentionRevealSourceLine: null,
@@ -366,7 +372,7 @@ function setBlockDocument(
     blockId: context.selected?.id ?? "",
   },
 ): void {
-  detail.document = { kind: "ready", document: { kind: "block", target, context } };
+  detail.document = { kind: "ready", read: "ready", document: { kind: "block", target, context } };
   Object.assign(detail as unknown as {
     context: SelectionContext;
     target: OutlinerNavigationTarget;
@@ -470,6 +476,7 @@ function webState(markdown: string): DetailState {
   ].join("\n");
   detail.document = {
     kind: "ready",
+    read: "ready",
     document: { kind: "resource", target, description },
   };
   Object.assign(detail as unknown as {
@@ -549,6 +556,7 @@ function filesystemState(markdown: string): DetailState {
   ].join("\n");
   detail.document = {
     kind: "ready",
+    read: "ready",
     document: { kind: "resource", target, description },
   };
   Object.assign(detail as unknown as {
@@ -702,10 +710,10 @@ describe("Pi Markdown detail preview", () => {
   test("does not report a missing reference before resolution has completed", () => {
     const source = "Related ((550e8400-e29b-41d4-a716-446655440123|Reference label))";
     const detail = state(source, source);
-    detail.readStatus = "pending";
+    setRead(detail, "pending");
     const layout = expandedPreview(detail, plainMarkdownTheme, false);
     expect(renderedDocument(layout, 120).join("\n")).not.toContain("Missing target");
-    detail.readStatus = "ready";
+    setRead(detail, "ready");
     expect(renderedDocument(layout, 120).join("\n")).toContain("Reference label · Missing target");
   });
 
@@ -716,7 +724,7 @@ describe("Pi Markdown detail preview", () => {
       const id = "550e8400-e29b-41d4-a716-446655440123";
       const source = `Reference ${id}`;
       const detail = state(source, source);
-      detail.readStatus = "pending";
+      setRead(detail, "pending");
       const layout = expandedPreview(detail, plainMarkdownTheme, true);
       const link = () => {
         layout.syncState();
@@ -724,7 +732,7 @@ describe("Pi Markdown detail preview", () => {
         return getOsc8LinkAtColumn(line, stripTerminalSequences(line).indexOf(id));
       };
       expect(link()).toBeUndefined();
-      detail.readStatus = "ready";
+      setRead(detail, "ready");
       expect(link()).toBe(outlinerLinkUri("block", id));
     } finally {
       setCapabilities(capabilities);
@@ -1570,7 +1578,7 @@ describe("Pi Markdown detail preview", () => {
     const secondThread = annotationThread("annotation-second", { ...target, referenceContext: second }, "Second reference comment");
     const missing: AnnotationThread = { ...firstThread, block: block("annotation-missing", ""), resolvedTarget: null,
       currentResolution: { ...firstThread.currentResolution, status: "ambiguous", resolvedTarget: null } };
-    resource.document = { kind: "ready", document: { ...document, target: { ...document.target, referenceContext: second } } };
+    resource.document = { kind: "ready", read: "ready", document: { ...document, target: { ...document.target, referenceContext: second } } };
     Object.defineProperty(resource, "target", { get: () => resource.document.kind === "ready" ? resource.document.document.target : null });
     resource.annotationThreads = [firstThread, secondThread, global, missing];
     const groups = detailAnnotationGroups(resource);
@@ -1625,7 +1633,7 @@ describe("Pi Markdown detail preview", () => {
     const originalDescription = resourceDocument.description;
     const binaryDescription = { ...originalDescription, resource: { ...originalDescription.resource, mediaType: "application/octet-stream" } };
     const description = { ...binaryDescription, presentation: negotiateResourcePresentation(binaryDescription, TUI_RESOURCE_PRESENTATION_CONTEXT) };
-    detail.document = { kind: "ready", document: { ...resourceDocument, description } };
+    detail.document = { kind: "ready", read: "ready", document: { ...resourceDocument, description } };
     if (!description.filesystem) throw new Error("Filesystem fixture required");
     expect(description.presentation.selected?.representation).toBe("metadata");
     const representation: AnnotationRepresentation = {
@@ -1651,7 +1659,7 @@ describe("Pi Markdown detail preview", () => {
     expect(expanded).toContain("Stable quote");
     const textualDescription = { ...originalDescription, presentation: negotiateResourcePresentation(originalDescription, TUI_RESOURCE_PRESENTATION_CONTEXT) };
     expect(textualDescription.presentation.selected?.representation).toBe("cached-markdown");
-    detail.document = { kind: "ready", document: { ...resourceDocument, description: textualDescription } };
+    detail.document = { kind: "ready", read: "ready", document: { ...resourceDocument, description: textualDescription } };
     expect(layout.render(72).map(stripTerminalSequences).join("\n")).toContain("Unpositioned comments");
     expect(layout.sourcePointAtViewport(3, 5, 72)).toBeNull();
   });
@@ -1806,7 +1814,7 @@ describe("Pi Markdown detail preview", () => {
     expect(layout.handleInput("g")).toBe(true);
     expect(layout.scrollView.scrollTop).toBe(0);
     expect(layout.handleInput("e")).toBe(false);
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     expect(layout.handleInput("\x1b[B")).toBe(false);
   });
 
@@ -1824,9 +1832,9 @@ describe("Pi Markdown detail preview", () => {
     layout.render(20);
     expect(layout.scrollView.scrollTop).toBe(5);
 
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     layout.setActive(false);
-    detail.mode = "preview";
+    detail.mode = {kind: "preview"};
     layout.setActive(true);
     layout.render(20);
     expect(layout.scrollView.scrollTop).toBe(0);
@@ -1880,7 +1888,7 @@ describe("Pi Markdown detail preview", () => {
   test("late enrichment preserves scrolling away from the opened fragment", () => {
     const text = Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n");
     const detail = state(text, text);
-    detail.readStatus = "pending";
+    setRead(detail, "pending");
     setBlockDocument(detail, detail.context, { kind: "block", blockId: "block-1", fragmentId: "decision" });
     detail.previewOffset = 10;
     const layout = previewLayout(detail);
@@ -1892,7 +1900,7 @@ describe("Pi Markdown detail preview", () => {
     const userScroll = layout.scrollView.scrollTop;
 
     detail.resolvedSelectedText = text.replace("line 0", "Resolved opening line");
-    detail.readStatus = "ready";
+    setRead(detail, "ready");
     layout.render(40);
     expect(layout.scrollView.scrollTop).toBe(userScroll);
   });
@@ -2176,7 +2184,7 @@ describe("Pi Markdown detail preview", () => {
     try {
       const targetId = "550e8400-e29b-41d4-a716-446655440000";
       const detail = state("Canonical preview", "Canonical source");
-      detail.mode = "edit";
+      detail.mode = {kind: "edit"};
       detail.buffer = new TextBuffer(`Unsaved ((${targetId})) draft`);
       let editing = true;
       const layout = expandedPreview(
@@ -2205,7 +2213,7 @@ describe("Pi Markdown detail preview", () => {
       );
 
       editing = false;
-      detail.mode = "preview";
+      detail.mode = {kind: "preview"};
       layout.syncState();
       const canonical = layout.markdown.render(80).map(stripTerminalSequences).join(" ");
       expect(canonical).toContain("Canonical preview");
@@ -2218,7 +2226,7 @@ describe("Pi Markdown detail preview", () => {
 
   test("replaces the immediate draft with its generated read projection", async () => {
     const detail = state("Canonical preview", "Canonical source");
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     detail.buffer = new TextBuffer("!((view-next))");
     const projected = Promise.withResolvers<void>();
     const layout = expandedPreview(
@@ -2256,7 +2264,7 @@ describe("Pi Markdown detail preview", () => {
 
   test("retries a failed draft projection after leaving and re-entering edit mode", async () => {
     const detail = state("Canonical preview", "Canonical source");
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     detail.buffer = new TextBuffer("draft source");
     let editing = true;
     let attempts = 0;
@@ -2295,12 +2303,12 @@ describe("Pi Markdown detail preview", () => {
     );
 
     editing = false;
-    detail.mode = "preview";
+    detail.mode = {kind: "preview"};
     layout.syncState();
     expect(renderedDocument(layout, 80).join(" ")).toContain("Canonical preview");
 
     editing = true;
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     layout.syncState();
     await retryFinished.promise;
 
@@ -2312,7 +2320,7 @@ describe("Pi Markdown detail preview", () => {
 
   test("restarts an in-flight projection after split deactivation", async () => {
     const detail = state("Canonical preview", "Canonical source");
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     detail.buffer = new TextBuffer("unchanged draft");
     let attempts = 0;
     const firstStarted = Promise.withResolvers<void>();
@@ -2368,7 +2376,7 @@ describe("Pi Markdown detail preview", () => {
 
   test("does not reuse a same-text projection across selected blocks", async () => {
     const detail = state("Canonical preview", "same draft");
-    detail.mode = "edit";
+    detail.mode = {kind: "edit"};
     detail.buffer = new TextBuffer("same draft");
     let attempts = 0;
     const firstFinished = Promise.withResolvers<void>();
@@ -3156,7 +3164,7 @@ test("keeps reader selection highlighted without changing preview scroll", () =>
   layout.scrollView.scrollBy(5);
   const initialScroll = layout.scrollView.scrollTop;
 
-  detail.mode = "select";
+  detail.mode = {kind: "select"};
   detail.buffer = new TextBuffer(raw);
   detail.buffer.placeCursor(8, 8);
   detail.buffer.placeCursor(8, 23, true);
@@ -3176,12 +3184,10 @@ test("keeps reader selection highlighted without changing preview scroll", () =>
     .toEqual({row:8,column:11});
 
   const start = raw.indexOf("selected phrase");
-  detail.mode = "comment";
-  detail.annotationDraft = {
+  detail.mode = commentMode({
     requestId: "request-1",
-    returnMode: "preview",
     target: textTarget(raw, start, start + "selected phrase".length),
-  };
+  });
   detail.buffer = new TextBuffer("A contextual comment");
   layout.syncState(48);
   const commenting = layout.scrollView.render(48);
@@ -3200,7 +3206,7 @@ test("selection highlights transformed source cells and rejects stale draft coor
     const detail = state(raw, raw);
     const layout = previewLayout(detail);
     layout.scrollView.setScrollbar("hidden");
-    detail.mode = "select";
+    detail.mode = {kind: "select"};
     detail.buffer = new TextBuffer(raw);
     const line = raw.split("\n")[2]!;
     const column = line.lastIndexOf("&amp;");
@@ -3211,18 +3217,17 @@ test("selection highlights transformed source cells and rejects stale draft coor
     expect(selecting.join("\n")).toContain("\x1b[1;4;97;48;5;24m&");
     expect(selecting.join("\n").match(/\x1b\[1;4;97;48;5;24m&/g)?.length).toBe(1);
 
-    detail.mode = "comment";
-    detail.annotationDraft = {requestId: "transformed", returnMode: "preview", target: textTarget(raw, start, start + 5)};
+    detail.mode = commentMode({requestId: "transformed", target: textTarget(raw, start, start + 5)});
     detail.buffer = new TextBuffer("Comment draft");
     layout.syncState(width);
     expect(layout.scrollView.render(width).join("\n")).toContain("\x1b[1;4;97;48;5;24m&");
 
-    detail.annotationDraft.target = textTarget(raw + " stale", start, start + 5);
+    detail.mode = commentMode({requestId: "transformed", target: textTarget(raw + " stale", start, start + 5)});
     layout.syncState(width);
     expect(layout.scrollView.render(width).join("\n")).not.toContain("\x1b[1;4;97;48;5;24m");
 
     const hidden = raw.indexOf("https://");
-    detail.annotationDraft.target = textTarget(raw, hidden, hidden + 5);
+    detail.mode = commentMode({requestId: "transformed", target: textTarget(raw, hidden, hidden + 5)});
     layout.syncState(width);
     expect(layout.scrollView.render(width).join("\n")).not.toContain("\x1b[1;4;97;48;5;24m");
   }
@@ -3336,6 +3341,7 @@ test("renders a no-cache web resource without exposing generated guidance as sou
   const loaded = detail.document.document;
   detail.document = {
     kind: "ready",
+    read: "ready",
     document: {
       ...loaded,
       description: {
@@ -3398,6 +3404,7 @@ test("resets cached web preview scroll by representation identity while hashes r
 
   detail.document = {
     kind: "ready",
+    read: "ready",
     document: {
       kind: "resource",
       target,
@@ -3425,6 +3432,7 @@ test("resets cached web preview scroll by representation identity while hashes r
   };
   detail.document = {
     kind: "ready",
+    read: "ready",
     document: {
       kind: "resource",
       target,
@@ -3549,7 +3557,7 @@ test("highlights keyboard selection in cached web Markdown", () => {
   const detail = webState(markdown);
   const sourceLine = markdown.split("\n")[2]!;
   const selectionStart = sourceLine.indexOf("cached phrase");
-  detail.mode = "select";
+  detail.mode = {kind: "select"};
   detail.buffer = new TextBuffer(markdown);
   detail.buffer.placeCursor(2, selectionStart);
   detail.buffer.placeCursor(2, selectionStart + "cached phrase".length, true);
@@ -3601,6 +3609,7 @@ test("maps keyboard selection through cached PDF Markdown", () => {
   };
   detail.document = {
     kind: "ready",
+    read: "ready",
     document: {
       ...loaded,
       description: {
@@ -3680,7 +3689,7 @@ test("maps keyboard selection through cached PDF Markdown", () => {
   ];
   const sourceLine = markdown.split("\n")[2]!;
   const selectionStart = sourceLine.indexOf("PDF phrase");
-  detail.mode = "select";
+  detail.mode = {kind: "select"};
   detail.buffer = new TextBuffer(markdown);
   detail.buffer.placeCursor(2, selectionStart);
   detail.buffer.placeCursor(2, selectionStart + "PDF phrase".length, true);
@@ -3779,7 +3788,7 @@ test("deleted contextual occurrence stays unpositioned in Resource view", async 
     expect(threads[0]!.resolvedTarget).toBeNull();
     const detail = filesystemState(rendered);
     const navigationTarget = { kind: "resource" as const, resourceId: resource.id };
-    detail.document = { kind: "ready", document: { kind: "resource", target: navigationTarget, description } };
+    detail.document = { kind: "ready", read: "ready", document: { kind: "resource", target: navigationTarget, description } };
     Object.assign(detail, { target: navigationTarget, resource });
     detail.annotationThreads = threads;
     const layout = previewLayout(detail);

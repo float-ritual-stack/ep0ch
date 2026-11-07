@@ -351,24 +351,24 @@ export function visibleBacklinkSources(
 }
 type DetailAnnotationTarget = AnnotationTarget;
 
-export interface DetailAnnotationReplyDraft {
-  requestId: string;
-  annotationId: string;
-  returnMode: "preview" | "file" | "annotation";
-}
+/** What a comment being written will become: a new comment on a target, a reply, or an edit of a posted mark (PIE-763). */
+export type DetailCommentDraft =
+  | { kind: "new"; requestId: string; target: DetailAnnotationTarget; fileRange: DetailLineRange | null }
+  | { kind: "reply"; requestId: string; annotationId: string }
+  | { kind: "edit"; annotationId: string; revision: number };
 
-/** Editing a posted comment or reply (PIE-763): the mark, the revision the edit began from, and where Esc returns. */
-export interface DetailAnnotationEditDraft {
-  annotationId: string;
-  revision: number;
-  returnMode: "preview" | "file" | "annotation";
-}
+/** The modes a person reads in, and the only ones a comment returns to. A file's line selection lives with the file view. */
+export type DetailReadingMode =
+  | { kind: "preview" }
+  | { kind: "file"; lineAnchor: number | null }
+  | { kind: "annotation" };
 
-export interface DetailAnnotationDraft {
-  requestId: string;
-  target: DetailAnnotationTarget;
-  returnMode: "preview" | "file";
-}
+/** Detail's one machine (PIE-1618): each mode holds its own data, and a mode change is one assignment to `state.mode`. */
+export type DetailModeState =
+  | DetailReadingMode
+  | { kind: "edit" }
+  | { kind: "select" }
+  | { kind: "comment"; draft: DetailCommentDraft; returnTo: DetailReadingMode };
 
 const EMPTY_SELECTION_CONTEXT: SelectionContext = {
   selected: null,
@@ -506,11 +506,23 @@ function sameAnnotationThreads(
 
 type DetailLoadOutcome = "applied" | "unchanged" | "cached" | "superseded";
 
+/** How far the ready document's read has got: its references resolve at "ready"; a failed read keeps the raw text. */
+export type DetailReadStatus = "pending" | "ready" | "failed";
+
 export type DetailDocumentState =
   | { kind: "empty" }
   | { kind: "loading"; target: OutlinerNavigationTarget }
-  | { kind: "ready"; document: DetailReadyDocument }
+  | { kind: "ready"; document: DetailReadyDocument; read: DetailReadStatus }
   | { kind: "failed"; target: OutlinerNavigationTarget; message: string };
+
+export function detailReadStatus(state: Pick<DetailState, "document">): DetailReadStatus {
+  return state.document.kind === "ready" ? state.document.read : "pending";
+}
+
+/** The one answer to "is what's on screen about to change": a document on its way, or a ready one still being read. */
+export function detailDocumentRefreshing(state: Pick<DetailState, "document">): boolean {
+  return state.document.kind === "loading" || (state.document.kind === "ready" && state.document.read === "pending");
+}
 
 function detailDocumentTarget(
   document: DetailDocumentState,
@@ -548,7 +560,6 @@ export interface DetailState {
   resolvedSelectedText: string;
   resolvedProvenance: MappedDocument | null;
   projectedSelectedText: string;
-  readStatus: "pending" | "ready" | "failed";
   embedStates: DetailEmbedState[];
   embedRanges: DetailEmbedRange[];
   /** Resource projections in the current read; catalog changes to them repaint the note. */
@@ -560,7 +571,7 @@ export interface DetailState {
   /** Every prefix a ticket key may have here (the service's `ticketPrefixes`): what Detail links, with `workIdPrefix`. */
   ticketPrefixes?: readonly string[];
   resolvedBreadcrumb: string;
-  mode: DetailMode;
+  mode: DetailModeState;
   buffer: TextBuffer;
   referencedFile: ReferencedFile | null;
   previewOffset: number;
@@ -569,16 +580,11 @@ export interface DetailState {
   draftPreviewLinked?: boolean;
   fileOffset: number;
   fileCursor: number;
-  selectionAnchor: number | null;
   annotationThreads: AnnotationThread[];
   /** Comment and reply text with block-reference titles resolved, keyed by stored text. */
   annotationReferences?: ReadonlyMap<string, string>;
-  annotationRange: DetailLineRange | null;
   attention: AttentionClientState;
   attentionRevealSourceLine: number | null;
-  annotationDraft?: DetailAnnotationDraft;
-  annotationReplyDraft?: DetailAnnotationReplyDraft;
-  annotationEditDraft?: DetailAnnotationEditDraft;
   selectedAnnotationId?: string;
   completion: DetailCompletionState | null;
   status: string;
@@ -868,13 +874,23 @@ export function detailDisplayMode(block: Block | null): "preview" | "file" | "an
   return getProperty(block.properties, "file") ? "file" : "preview";
 }
 
+/** The reading mode a block opens in. */
+export function detailReadingMode(block: Block | null): DetailReadingMode {
+  const kind = detailDisplayMode(block);
+  return kind === "file" ? { kind, lineAnchor: null } : { kind };
+}
+
+export function detailFileLineAnchor(state: Pick<DetailState, "mode">): number | null {
+  return state.mode.kind === "file" ? state.mode.lineAnchor : null;
+}
+
 export function detailHelpText(mode: DetailMode): string {
   return DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail", mode);
 }
 
 export function selectedDetailFileRange(state: Readonly<DetailState>): DetailLineRange | null {
   if (!state.referencedFile) return null;
-  const anchor = state.selectionAnchor ?? state.fileCursor;
+  const anchor = detailFileLineAnchor(state) ?? state.fileCursor;
   return {
     startLine: state.referencedFile.firstLine + Math.min(anchor, state.fileCursor),
     endLine: state.referencedFile.firstLine + Math.max(anchor, state.fileCursor),
@@ -1090,7 +1106,6 @@ export function createDetailController(
     resolvedSelectedText: "",
     resolvedProvenance: null,
     projectedSelectedText: "",
-    readStatus: "pending",
     embedStates: [],
     embedRanges: [],
     resourceProjections: [],
@@ -1098,7 +1113,7 @@ export function createDetailController(
     embedBackgroundEnabled: true,
     workIdPrefix: null,
     resolvedBreadcrumb: "",
-    mode: "preview",
+    mode: { kind: "preview" },
     buffer: new TextBuffer(),
     referencedFile: null,
     previewOffset: 0,
@@ -1107,8 +1122,6 @@ export function createDetailController(
     draftPreviewLinked: false,
     fileOffset: 0,
     fileCursor: 0,
-    selectionAnchor: null,
-    annotationRange: null,
     attention: emptyAttentionState(effects.clientId),
     attentionRevealSourceLine: null,
     completion: null,
@@ -1182,7 +1195,7 @@ export function createDetailController(
   };
 
   let lastProtection: string | null | undefined;
-  const protection = (): string | null => isBufferMode() ? "active edit or source selection" : state.selectionAnchor !== null ? "active source selection" : null;
+  const protection = (): string | null => isBufferMode() ? "active edit or source selection" : detailFileLineAnchor(state) !== null ? "active source selection" : null;
   const emit = (): void => {
     const reason = protection();
     if (reason !== lastProtection && effects.setNavigationProtection && serviceConnected) {
@@ -1192,7 +1205,7 @@ export function createDetailController(
     onChange(state);
   };
   const isBufferMode = (): boolean =>
-    state.mode === "edit" || state.mode === "select" || state.mode === "comment" ||
+    state.mode.kind === "edit" || state.mode.kind === "select" || state.mode.kind === "comment" ||
     state.propertyInspector.edit !== null;
 
   const refreshBreadcrumb = (): void => {
@@ -1206,10 +1219,10 @@ export function createDetailController(
   const loadFile = async (block: Block): Promise<boolean> => {
     const fileGeneration = ++fileReadGeneration;
     const generation = loadGeneration;
-    const mode = state.mode;
+    const mode = state.mode.kind;
     const isCurrent = (): boolean => fileGeneration === fileReadGeneration &&
       generation === loadGeneration &&
-      state.context.selected?.id === block.id && state.mode === mode;
+      state.context.selected?.id === block.id && state.mode.kind === mode;
     const previousFile = state.referencedFile;
     state.referencedFile = null;
     try {
@@ -1241,7 +1254,7 @@ export function createDetailController(
       }
       state.fileCursor = 0;
       state.fileOffset = 0;
-      state.selectionAnchor = null;
+      if (state.mode.kind === "file") state.mode = { kind: "file", lineAnchor: null };
       return true;
     } catch (error) {
       if (!isCurrent()) return false;
@@ -1251,12 +1264,17 @@ export function createDetailController(
     }
   };
 
+  // In place: readers hold `state.document` to tell a replaced document from the one they began with.
+  const setReadStatus = (read: DetailReadStatus): void => {
+    if (state.document.kind === "ready") state.document.read = read;
+  };
+
   const applyResolvedReferences = (resolved: ResolvedBlockReferences, projection: MappedDocument): void => {
     state.resolvedSelectedText = resolved.text;
     state.resolvedProvenance = resolvedDocument(projection,resolved);
     state.workIdPrefix = resolved.workIdPrefix ?? null;
     state.ticketPrefixes = resolved.ticketPrefixes ?? [];
-    state.readStatus = "ready";
+    setReadStatus("ready");
   };
 
   const applyBlockRead = ({projection, resolved}: DetailBlockRead): void => {
@@ -1354,7 +1372,8 @@ export function createDetailController(
         state.referencedFile !== fileAtStart || !sameNavigationTarget(state.target, targetAtStart) ||
         (sameAnnotationThreads(state.annotationThreads, threads) &&
           sameAnnotationReferences(state.annotationReferences, references))) return;
-      if (isBufferMode() && !state.annotationReplyDraft && !state.annotationEditDraft) {
+      // A reply or an edit reads the thread it answers; anything else being written waits for the save.
+      if (isBufferMode() && !(state.mode.kind === "comment" && state.mode.draft.kind !== "new")) {
         state.refreshPending = true;
         return;
       }
@@ -1475,7 +1494,7 @@ export function createDetailController(
     }
     const document = state.document.document;
     state.document = {
-      kind: "ready",
+      ...state.document,
       document: {
         ...document,
         context: { ...document.context, selected },
@@ -1502,7 +1521,7 @@ export function createDetailController(
     state.resolvedSelectedText = "";
     state.resolvedProvenance = null;
     state.projectedSelectedText = "";
-    state.readStatus = "pending";
+    setReadStatus("pending");
     state.embedStates = [];
     state.embedRanges = [];
     state.resourceProjections = [];
@@ -1896,13 +1915,13 @@ export function createDetailController(
   ): void => {
     const next = document.context;
     const targetChanged = !sameNavigationTarget(previousTarget, document.target);
-    const preserveAnnotationViewport = !targetChanged && state.mode === "annotation" &&
+    const preserveAnnotationViewport = !targetChanged && state.mode.kind === "annotation" &&
       detailDisplayMode(next.selected) === "annotation";
     const blockChanged =
       detailBlockTarget({ target: previousTarget })?.blockId !== next.selected?.id;
     const revisionChanged = state.context.selected?.revision !== next.selected?.revision;
     if (record) recordNavigation(previousTarget);
-    state.document = { kind: "ready", document };
+    state.document = { kind: "ready", document, read: read ? "ready" : "pending" };
     state.refreshPending = false;
     if (targetChanged) destinationChooser?.dispose();
     if (blockChanged) {
@@ -1927,7 +1946,6 @@ export function createDetailController(
         state.resolvedSelectedText = next.selected.text;
         state.resolvedProvenance = sourceDocument(observeDocument({kind:'block',blockId:next.selected.id},next.selected.text,next.selected.revision));
       }
-      state.readStatus = read ? "ready" : "pending";
     } else {
       clearDocumentPresentation();
     }
@@ -1945,8 +1963,8 @@ export function createDetailController(
       }
     }
     state.mode = state.propertyInspector.presentation === "dedicated"
-      ? "preview"
-      : detailDisplayMode(next.selected);
+      ? { kind: "preview" }
+      : detailReadingMode(next.selected);
     if (next.selected?.deletedAt) {
       state.status = "In Trash — read-only · r restore";
     } else if (next.selected?.effectiveDeletedRootId) {
@@ -1975,7 +1993,7 @@ export function createDetailController(
 
     if (document.kind === "resource") {
       if (record) recordNavigation(previousTarget);
-      state.document = { kind: "ready", document };
+      state.document = { kind: "ready", document, read: "pending" };
       state.refreshPending = false;
       if (targetChanged) destinationChooser?.dispose();
       clearDocumentPresentation();
@@ -1983,9 +2001,9 @@ export function createDetailController(
       state.resolvedProvenance = resourceDocument(document.description);
       state.resolvedSelectedText = state.resolvedProvenance.text;
       state.projectedSelectedText = state.resolvedSelectedText;
-      state.readStatus = "ready";
+      setReadStatus("ready");
       state.resolvedBreadcrumb = resourceDescriptionLabel(document.description);
-      state.mode = "preview";
+      state.mode = { kind: "preview" };
       if (record) recordNavigation(document.target);
       else syncNavigationState();
       emit();
@@ -1998,7 +2016,7 @@ export function createDetailController(
         applyReadyBlockPresentation(document, cachedRead, previousTarget, record, true);
         emit();
       } else {
-        state.document = { kind: "ready", document };
+        state.document = { kind: "ready", document, read: detailReadStatus(state) };
       }
       writeBlockCache({ document, projection: cachedRead?.projection ?? null,
         resolved: cachedRead?.resolved ?? null, stale: false });
@@ -2030,7 +2048,7 @@ export function createDetailController(
                 state.refreshPending = true;
                 return;
               }
-              if (state.readStatus === "ready" && sameDisplayedBlockRead(state, read)) return;
+              if (detailReadStatus(state) === "ready" && sameDisplayedBlockRead(state, read)) return;
               applyBlockRead(read);
               refreshBreadcrumb();
               emit();
@@ -2040,7 +2058,7 @@ export function createDetailController(
               if (!isCurrent()) return;
               if (isBufferMode()) state.refreshPending = true;
               else {
-                state.readStatus = "failed";
+                setReadStatus("failed");
                 state.status = `Preview enrichment failed · ${errorMessage(error)}`;
                 emit();
               }
@@ -2048,7 +2066,7 @@ export function createDetailController(
           }
         })();
       }
-      if (state.mode === "file" && selected) {
+      if (state.mode.kind === "file" && selected) {
         await loadFile(selected);
         if (!isCurrent()) return false;
         emit();
@@ -2085,7 +2103,7 @@ export function createDetailController(
       );
       if (successStatus) routineNotice(successStatus());
       emit();
-      if (state.mode === "file" && cached.document.context.selected) {
+      if (state.mode.kind === "file" && cached.document.context.selected) {
         await loadFile(cached.document.context.selected);
         if (generation !== loadGeneration) return "superseded";
         emit();
@@ -2386,14 +2404,14 @@ export function createDetailController(
     state.editorViewportManual = false;
     state.draftPreviewLinked = false;
     state.completion = null;
-    state.mode = "edit";
+    state.mode = { kind: "edit" };
     state.status = status;
     ensureEditorCursorVisible(viewport);
   };
 
   const editExternalDraft = async (viewport: DetailViewport): Promise<void> => {
-    if (state.mode !== "edit") await beginEdit(viewport);
-    if (state.mode !== "edit") return;
+    if (state.mode.kind !== "edit") await beginEdit(viewport);
+    if (state.mode.kind !== "edit") return;
     const selected = state.context.selected;
     if (state.busy) return;
     const previousViewportOffset = state.editorVisualOffset;
@@ -2428,7 +2446,7 @@ export function createDetailController(
           expectedRevision: filesystem.revision,
         });
         result.cleanup();
-        state.mode = "preview";
+        state.mode = { kind: "preview" };
         await loadCurrentTarget(true);
         state.status = "Filesystem Resource updated from $EDITOR";
         return;
@@ -2518,7 +2536,7 @@ export function createDetailController(
   const recoverWriting = async (viewport:DetailViewport, records?:EditRecovery[]):Promise<void> => {
     const selected=state.context.selected;
     if (!selected || !effects.recovery || !effects.reviewRecovery) {state.status="No block recovery is available in this view";return;}
-    if ((!records || mechanicalMergeUndone()) && state.mode === "edit" &&
+    if ((!records || mechanicalMergeUndone()) && state.mode.kind === "edit" &&
         (state.buffer.text !== selected.text || mechanicalMergeUndone()) && state.recovery?.draftText !== state.buffer.text) {
       state.recovery=await effects.recovery.retain(recoveryInput());
       state.recoveryAccepted=false;
@@ -2537,7 +2555,7 @@ export function createDetailController(
     }
     if(choice.action==="separate") {
       const block=await effects.recovery.separate(choice.record);
-      state.mode="preview";
+      state.mode = { kind: "preview" };
       await loadNavigationTarget({kind:"block",blockId:block.id},true,true);
       state.status="Saved a separate note containing the exact draft as quoted text; original note unchanged";
       return;
@@ -2547,7 +2565,7 @@ export function createDetailController(
     state.recoveryAccepted=true;
     replaceSelectedBlock(choice.record.latest);
     state.buffer=new TextBuffer(choice.action==="proposal" ? choice.record.proposal!.text : choice.record.draftText);
-    state.mode="edit";state.completion=null;state.editorVisualOffset=0;
+    state.mode = { kind: "edit" };state.completion=null;state.editorVisualOffset=0;
     state.status=choice.record.proposal?.unresolved.length
       ? "Review unresolved choices against Latest before Ctrl+S · original draft retained"
       : "Review recovered draft · Ctrl+S saves against the displayed latest revision · Esc retains recovery";
@@ -2642,8 +2660,7 @@ export function createDetailController(
     state.editorViewportManual = false;
     state.draftPreviewLinked = false;
     state.completion = null;
-    state.annotationDraft = undefined;
-    state.mode = "select";
+    state.mode = { kind: "select" };
     state.status = "extend the rendered selection, then press c";
   };
 
@@ -2662,8 +2679,9 @@ export function createDetailController(
       return;
     }
     let target: DetailAnnotationTarget;
-    let returnMode: "preview" | "file";
-    if (state.mode === "select" || sourceRange) {
+    let returnTo: DetailReadingMode = { kind: "preview" };
+    let fileRange: DetailLineRange | null = null;
+    if (state.mode.kind === "select" || sourceRange) {
       const offsets = sourceRange ?? detailBufferRangeOffsets(state.buffer);
       if (!offsets) {
         state.status = "Select a non-empty source range before commenting";
@@ -2690,8 +2708,8 @@ export function createDetailController(
           target = { representation: referenceContext.representation, anchor: referenceContext.anchor, referenceContext };
         }
       }
-      returnMode = "preview";
-    } else if (state.mode === "file") {
+    } else if (state.mode.kind === "file") {
+      returnTo = state.mode;
       const range = selectedDetailFileRange(state);
       const file = state.referencedFile;
       if (!range || !file || !selected) {
@@ -2709,8 +2727,7 @@ export function createDetailController(
         representation: filesystemAnnotationRepresentation(receipt.resource, file),
         anchor: createTextQuoteAnchor(sourceText, offsetRange.start, offsetRange.end),
       };
-      returnMode = "file";
-      state.annotationRange = range;
+      fileRange = range;
     } else {
       const representation = description
         ? resourceAnnotationRepresentation(description)
@@ -2725,22 +2742,20 @@ export function createDetailController(
         ...(state.target?.kind === "resource" && state.target.referenceContext
           ? { referenceContext: state.target.referenceContext } : {}),
       };
-      returnMode = "preview";
     }
-    state.annotationDraft = { requestId: crypto.randomUUID(), target, returnMode };
     state.buffer = new TextBuffer();
     state.editorVisualOffset = 0;
     state.draftPreviewLinked = false;
     state.completion = null;
-    state.mode = "comment";
+    state.mode = { kind: "comment", draft: { kind: "new", requestId: crypto.randomUUID(), target, fileRange }, returnTo };
     const anchor = target.anchor;
     const range = anchor.kind === "text-quote" && anchor.start !== null && anchor.end !== null
       ? `${anchor.start}-${anchor.end}`
       : "unpositioned quote";
     state.status = anchor.kind === "whole-subject"
       ? target.referenceContext ? "Commenting on this reference" : "Commenting on the whole note"
-      : returnMode === "file" && state.annotationRange
-      ? `commenting on ${state.referencedFile?.sourcePath}:${state.annotationRange.startLine}-${state.annotationRange.endLine}`
+      : fileRange
+      ? `commenting on ${state.referencedFile?.sourcePath}:${fileRange.startLine}-${fileRange.endLine}`
       : target.referenceContext
         ? `commenting on this reference${target.representation.subject.kind === "resource" ? ` · Resource passage ${range}` : " occurrence"}`
       : target.representation.subject.kind === "resource"
@@ -2785,16 +2800,11 @@ export function createDetailController(
       state.status = errorMessage(error);
       return;
     }
-    state.annotationDraft = {
-      requestId: crypto.randomUUID(),
-      target,
-      returnMode: "preview",
-    };
     state.buffer = new TextBuffer();
     state.editorVisualOffset = 0;
     state.draftPreviewLinked = false;
     state.completion = null;
-    state.mode = "comment";
+    state.mode = { kind: "comment", draft: { kind: "new", requestId: crypto.randomUUID(), target, fileRange: null }, returnTo: { kind: "preview" } };
     const anchor = target.anchor;
     state.status = anchor.kind === "text-quote" && anchor.start !== null && anchor.end !== null
       ? `commenting on rendered quote ${anchor.start}-${anchor.end}`
@@ -2831,12 +2841,11 @@ export function createDetailController(
       state.status = "The reference context changed after the selection was captured; select the passage again";
       return;
     }
-    state.annotationDraft={requestId:crypto.randomUUID(),target:capture.target,returnMode:'preview'};
     state.buffer=new TextBuffer();
     state.editorVisualOffset=0;
     state.draftPreviewLinked=false;
     state.completion=null;
-    state.mode='comment';
+    state.mode = { kind: "comment", draft: { kind: "new", requestId: crypto.randomUUID(), target: capture.target, fileRange: null }, returnTo: { kind: "preview" } };
     state.status='Commenting on the captured Resource passage';
   };
 
@@ -2872,29 +2881,29 @@ export function createDetailController(
     return true;
   };
 
+  const readingModeNow = (): DetailReadingMode | null =>
+    state.mode.kind === "preview" || state.mode.kind === "file" || state.mode.kind === "annotation" ? state.mode : null;
+
   const beginAnnotationReply = (annotationId?: string): void => {
-    if (isBufferMode() || state.busy) return;
+    const returnTo = readingModeNow();
+    if (!returnTo || isBufferMode() || state.busy) return;
     if (annotationId && !selectAnnotationThread(annotationId, false)) return;
     const thread = selectedAnnotationThread(state);
     if (!thread) {
       state.status = "Select a comment with [ or ] before replying";
       return;
     }
-    state.annotationReplyDraft = {
-      requestId: crypto.randomUUID(), annotationId: thread.block.id,
-      returnMode: state.mode as "preview" | "file" | "annotation",
-    };
-    state.annotationDraft = undefined;
     state.buffer = new TextBuffer();
     state.editorVisualOffset = 0;
     state.editorViewportManual = false;
     state.completion = null;
-    state.mode = "comment";
+    state.mode = { kind: "comment", draft: { kind: "reply", requestId: crypto.randomUUID(), annotationId: thread.block.id }, returnTo };
     state.status = "Reply to selected comment · Ctrl+S saves · Esc cancels";
   };
 
   const beginAnnotationEdit = (annotationId?: string, replyId?: string): void => {
-    if (isBufferMode() || state.busy) return;
+    const returnTo = readingModeNow();
+    if (!returnTo || isBufferMode() || state.busy) return;
     if (annotationId && !selectAnnotationThread(annotationId, false)) return;
     const thread = selectedAnnotationThread(state);
     if (!thread) {
@@ -2911,18 +2920,13 @@ export function createDetailController(
       state.status = "A highlight has no words to edit";
       return;
     }
-    state.annotationEditDraft = {
-      annotationId: mark.block.id, revision: mark.block.revision,
-      returnMode: state.mode as "preview" | "file" | "annotation",
-    };
-    state.annotationDraft = undefined;
     state.buffer = new TextBuffer(mark.body);
     state.buffer.row = state.buffer.lines.length - 1;
     state.buffer.moveEnd();
     state.editorVisualOffset = 0;
     state.editorViewportManual = false;
     state.completion = null;
-    state.mode = "comment";
+    state.mode = { kind: "comment", draft: { kind: "edit", annotationId: mark.block.id, revision: mark.block.revision }, returnTo };
     state.status = `Edit the selected ${noun} · Ctrl+S saves · Esc leaves it as it was`;
   };
 
@@ -2951,7 +2955,7 @@ export function createDetailController(
 
   const cancelBuffer = async (): Promise<void> => {
     let retentionNotice: string | undefined;
-    if (state.mode === "edit" && state.recovery && effects.recovery && state.buffer.text !== state.recovery.draftText) {
+    if (state.mode.kind === "edit" && state.recovery && effects.recovery && state.buffer.text !== state.recovery.draftText) {
       try {
         state.recovery=await effects.recovery.retain(recoveryInput());
       } catch (error) {
@@ -2960,22 +2964,14 @@ export function createDetailController(
       }
       state.recoveryAccepted=false;
     }
-    if (state.annotationEditDraft) {
-      state.mode = state.annotationEditDraft.returnMode;
-      state.annotationEditDraft = undefined;
-      state.status = "Edit cancelled · the comment is as it was";
+    const leaving = state.mode;
+    if (leaving.kind === "comment" && leaving.draft.kind !== "new") {
+      state.mode = leaving.returnTo;
+      state.status = leaving.draft.kind === "edit" ? "Edit cancelled · the comment is as it was" : "Reply cancelled";
       return;
     }
-    if (state.annotationReplyDraft) {
-      state.mode = state.annotationReplyDraft.returnMode;
-      state.annotationReplyDraft = undefined;
-      state.status = "Reply cancelled";
-      return;
-    }
-    const cancelledMode = state.mode;
-    const commentReturnMode = state.annotationDraft?.returnMode;
-    state.mode = commentReturnMode ?? detailDisplayMode(state.context.selected);
-    state.annotationDraft = undefined;
+    const cancelledMode = leaving.kind;
+    state.mode = leaving.kind === "comment" ? leaving.returnTo : detailReadingMode(state.context.selected);
     state.status = cancelledMode === "comment" ? "Comment cancelled" : "Edit cancelled";
     if(cancelledMode==="edit"&&state.recovery)state.status="Writing retained · Alt+R or the actions menu opens Writing history";
     const cancelStatus = state.status;
@@ -2985,7 +2981,7 @@ export function createDetailController(
 
   const saveBuffer = async (viewport:DetailViewport): Promise<void> => {
     if (state.busy) return;
-    if (state.mode === "edit" && state.recovery &&
+    if (state.mode.kind === "edit" && state.recovery &&
         (mechanicalMergeUndone() || !state.recoveryAccepted) && !acceptMechanicalRecovery()) {
       state.recoveryAccepted=false;
       state.status="Review the retained writing against Latest before saving";
@@ -2995,7 +2991,7 @@ export function createDetailController(
     let written = false;
     state.busy = true;
     try {
-      if (state.mode === "edit") {
+      if (state.mode.kind === "edit") {
         const selected = state.context.selected;
         if (selected) {
           const draftText = state.buffer.text;
@@ -3007,7 +3003,7 @@ export function createDetailController(
               state.status = "Draft kept open · item addresses have not been removed";
               return;
             }
-            if (state.mode !== "edit" || state.context.selected?.id !== selected.id ||
+            if (state.mode.kind !== "edit" || state.context.selected?.id !== selected.id ||
               state.context.selected.revision !== selected.revision || state.buffer.text !== draftText ||
               (state.recovery?.latest.revision ?? selected.revision) !== basis.revision) {
               state.status = "Writing changed during confirmation · review the draft and save again";
@@ -3028,8 +3024,8 @@ export function createDetailController(
           const read = await applyReadProjection(updated.text, updated.id, updated.revision);
           cacheCurrentBlockRead(read);
           refreshBreadcrumb();
-          state.mode = detailDisplayMode(updated);
-          if (state.mode === "file") await loadFile(updated);
+          state.mode = detailReadingMode(updated);
+          if (state.mode.kind === "file") await loadFile(updated);
           else state.referencedFile = null;
         } else {
           const description = detailResourceDescription(state);
@@ -3046,35 +3042,33 @@ export function createDetailController(
             text: state.buffer.text,
             expectedRevision: filesystem.revision,
           });
-          state.mode = "preview";
+          state.mode = { kind: "preview" };
           await loadCurrentTarget(true);
           state.status = "Filesystem Resource saved";
         }
-      } else if (state.mode === "comment" && state.annotationEditDraft) {
-        const draft = state.annotationEditDraft;
+      } else if (state.mode.kind === "comment" && state.mode.draft.kind === "edit") {
+        const draft = state.mode.draft, returnTo = state.mode.returnTo;
         const body = state.buffer.text.trim();
         if (!body) throw new Error("A comment cannot be edited down to nothing");
         const isReply = state.annotationThreads.some(thread => thread.replies.some(reply => reply.block.id === draft.annotationId));
         await effects.updateAnnotation({ annotationId: draft.annotationId, expectedRevision: draft.revision, body });
-        state.mode = draft.returnMode;
-        state.annotationEditDraft = undefined;
+        state.mode = returnTo;
         await loadAnnotations();
         state.status = isReply ? "Reply edited" : "Comment edited";
         return;
-      } else if (state.mode === "comment" && state.annotationReplyDraft) {
-        const draft = state.annotationReplyDraft;
+      } else if (state.mode.kind === "comment" && state.mode.draft.kind === "reply") {
+        const draft = state.mode.draft, returnTo = state.mode.returnTo;
         const body = state.buffer.text.trim();
         if (!body) throw new Error("Reply body cannot be empty");
         await effects.replyAnnotation({ requestId: draft.requestId, input: {
           annotationId: draft.annotationId, body, source: "user",
         } });
-        state.mode = draft.returnMode;
-        state.annotationReplyDraft = undefined;
+        state.mode = returnTo;
         await loadAnnotations();
         state.status = "Reply added";
         return;
-      } else if (state.mode === "comment" && state.annotationDraft) {
-        const draft = state.annotationDraft;
+      } else if (state.mode.kind === "comment" && state.mode.draft.kind === "new") {
+        const draft = state.mode.draft, returnTo = state.mode.returnTo;
         const body = state.buffer.text.trim();
         if (!body) throw new Error("Annotation body cannot be empty");
         const receipt = await effects.createAnnotation({
@@ -3085,9 +3079,8 @@ export function createDetailController(
             source: "user",
           },
         });
-        state.mode = draft.returnMode;
-        state.annotationDraft = undefined;
-        state.selectionAnchor = null;
+        // The comment landed: the lines it was about are no longer selected.
+        state.mode = returnTo.kind === "file" ? { kind: "file", lineAnchor: null } : returnTo;
         // Saving this comment may have assigned an item ID. Reconcile against the
         // resulting source, never the pre-save reader snapshot.
         if (receipt.annotations.some(record => record.originalTarget.listItemId)) await loadCurrentTarget(true);
@@ -3100,8 +3093,8 @@ export function createDetailController(
           : "unpositioned quote";
         state.status = anchor.kind === "whole-subject"
           ? draft.target.referenceContext ? "Comment added for this reference" : "Comment added for the whole note"
-          : draft.returnMode === "file" && state.annotationRange
-          ? `Annotation added for lines ${state.annotationRange.startLine}-${state.annotationRange.endLine}`
+          : draft.fileRange
+          ? `Annotation added for lines ${draft.fileRange.startLine}-${draft.fileRange.endLine}`
           : draft.target.referenceContext
             ? "Annotation added for this reference occurrence"
           : draft.target.representation.sourceSnapshot.kind === "rendered"
@@ -3114,14 +3107,14 @@ export function createDetailController(
     } catch (error) {
       state.status = written ? `Saved; display refresh failed · ${errorMessage(error)}` : errorMessage(error);
       // A comment or reply that didn't land stays open with its text (PIE-761): said, with what to do next.
-      if (!written && state.mode === "comment" && (state.annotationDraft || state.annotationReplyDraft || state.annotationEditDraft) && state.buffer.text.trim()) {
-        state.status = state.annotationEditDraft
+      if (!written && state.mode.kind === "comment" && state.buffer.text.trim()) {
+        state.status = state.mode.draft.kind === "edit"
           ? /revision is stale/i.test(errorMessage(error))
             ? "Not saved · this changed since your edit began · your text stays here; Esc leaves it, then edit again to start from the new words"
             : `Not saved · ${errorMessage(error)} · your text stays here; save tries again`
           : `Not sent · ${errorMessage(error)} · your text stays here; save tries again`;
       }
-      if (!written && state.mode === "edit" && state.context.selected && effects.recovery) {
+      if (!written && state.mode.kind === "edit" && state.context.selected && effects.recovery) {
         try {
           state.recovery=await effects.recovery.retain(recoveryInput());
           state.recoveryAccepted=false;
@@ -3152,7 +3145,7 @@ export function createDetailController(
     },
     updateBlock: input => effects.updateBlock(input),
   }, () => state.buffer, () => {state.completion=completions.state;if(completions.state)state.status=completions.state.message??"";ensureEditorCursorVisible(completionViewport);emit();},
-  () => state.mode === "edit", () => state.context.selected ? {blockId:state.context.selected.id,text:state.buffer.text}:undefined);
+  () => state.mode.kind === "edit", () => state.context.selected ? {blockId:state.context.selected.id,text:state.buffer.text}:undefined);
   const openCompletion = () => completions.refresh();
   const applyCompletion = async () => {
     const item=completions.state?.items[completions.state.index];
@@ -3163,10 +3156,10 @@ export function createDetailController(
     direction: "up" | "down" | "pageup" | "pagedown" | "top" | "bottom",
     viewport: DetailViewport,
   ): void => {
-    const lineCount = state.mode === "annotation"
+    const lineCount = state.mode.kind === "annotation"
       ? buildDetailAnnotationView(state, viewport.width).length
       : state.resolvedSelectedText.split(/\r?\n/).length;
-    const maximum = Math.max(0, lineCount - (state.mode === "annotation" ? Math.max(1, viewport.height - 5) : 1));
+    const maximum = Math.max(0, lineCount - (state.mode.kind === "annotation" ? Math.max(1, viewport.height - 5) : 1));
     if (direction === "top") state.previewOffset = 0;
     else if (direction === "bottom") state.previewOffset = maximum;
     else {
@@ -3197,11 +3190,11 @@ export function createDetailController(
   const showChecklistReceipt = async (result: ChecklistResult, generation: number, hostId:string, foldExpanded?:boolean): Promise<void> => {
     const receipt = result.receipt;
     const selected = state.context.selected;
-    if (generation !== openGeneration || state.mode !== "preview" || selected?.id !== hostId) return;
+    if (generation !== openGeneration || state.mode.kind !== "preview" || selected?.id !== hostId) return;
     const source = selected.id === receipt.block.id ? receipt.block : selected;
     const projection = await effects.projectRead(source.text, source.id, source.revision);
     const resolved = await effects.resolveReferences(projection.text);
-    if (generation !== openGeneration || state.mode !== "preview" || state.context.selected?.id !== hostId || state.context.selected.revision > source.revision) return;
+    if (generation !== openGeneration || state.mode.kind !== "preview" || state.context.selected?.id !== hostId || state.context.selected.revision > source.revision) return;
     const read = {projection, resolved};
     replaceSelectedBlock(source);
     applyBlockRead(read);
@@ -3241,7 +3234,7 @@ export function createDetailController(
         const property = state.propertyInspector.expanded
           ? findPropertyInspectorEntry(state.propertyInspector.model, state.previewRegions.focusedRegionId)
           : undefined;
-        if (property?.target?.kind === "resource-reference" && state.mode === "preview") {
+        if (property?.target?.kind === "resource-reference" && state.mode.kind === "preview") {
           await beginComment({ start: property.start, end: property.end });
         } else if (!intent.capture) {
           const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
@@ -3410,7 +3403,7 @@ export function createDetailController(
         state.status = "Opened URL externally";
         break;
       case "annotation.selection.place":
-        if (state.mode === "select") {
+        if (state.mode.kind === "select") {
           state.buffer.placeCursor(intent.row, intent.column, intent.extend);
         }
         break;
@@ -3508,7 +3501,7 @@ export function createDetailController(
       case "reference.open":
       case "reference.follow":
       case "reference.reveal": {
-        if (intent.type !== "reference.open" && state.readStatus !== "ready") {
+        if (intent.type !== "reference.open" && detailReadStatus(state) !== "ready") {
           state.status = "References are not ready · preview enrichment is incomplete";
           break;
         }
@@ -3679,7 +3672,7 @@ export function createDetailController(
       }
       case "checklist.toggle": {
         const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
-        if (!control || state.mode !== "preview" || state.busy) break;
+        if (!control || state.mode.kind !== "preview" || state.busy) break;
         state.busy = true;
         try { await changeChecklist(control, stepClosed(control.item.status) ? "todo" : "done", requestGeneration); }
         finally { state.busy = false; }
@@ -3687,7 +3680,7 @@ export function createDetailController(
       }
       case "checklist.undo": {
         const blockId = state.context.selected?.id;
-        if (!blockId || state.mode !== "preview" || state.busy) break;
+        if (!blockId || state.mode.kind !== "preview" || state.busy) break;
         state.busy = true;
         try {
           const result = await checklist.undo(blockId);
@@ -3700,12 +3693,12 @@ export function createDetailController(
         switch (intent.action.type) {
           case "checklist.open": {
             const control = findChecklistControl(state.previewRegions.regions, intent.action.regionId);
-            if (!control || state.mode !== "preview" || state.busy) break;
+            if (!control || state.mode.kind !== "preview" || state.busy) break;
             state.previewRegions.focusedRegionId = control.id;
             state.busy = true;
             try {
               const choice = await effects.chooseChecklistAction?.();
-              if (choice && requestGeneration === openGeneration && state.mode === "preview") {
+              if (choice && requestGeneration === openGeneration && state.mode.kind === "preview") {
                 await changeChecklist(control, choice, requestGeneration);
               }
             } finally { state.busy = false; }
@@ -4156,7 +4149,7 @@ export function createDetailController(
         if (annotation.currentResolution.status === "resolved" && target?.anchor.kind === "list-item" &&
           target.representation.subject.kind === "block") {
           await loadBlock(target.representation.subject.blockId, true, false, target.anchor.itemId);
-          state.mode = "preview";
+          state.mode = { kind: "preview" };
           state.status = "Opened checklist step · original passage changed";
           break;
         }
@@ -4176,7 +4169,7 @@ export function createDetailController(
         }
         if (target.representation.subject.kind === "block") {
           if (target.representation.sourceSnapshot.kind === "rendered") {
-            state.mode = "preview";
+            state.mode = { kind: "preview" };
             state.status = "Opened source; captured pane quote is unpositioned";
             break;
           } else {
@@ -4217,7 +4210,7 @@ export function createDetailController(
         await beginComment(intent.sourceRange);
         break;
       case "buffer.insert":
-        if (isBufferMode() && state.mode !== "select") {
+        if (isBufferMode() && state.mode.kind !== "select") {
           state.completion = null;
           state.buffer.insert(intent.text);
           state.status = "";
@@ -4225,7 +4218,7 @@ export function createDetailController(
         }
         break;
       case "buffer.newline":
-        if (state.mode === "select") {
+        if (state.mode.kind === "select") {
           state.status = "Source selection is read-only";
           break;
         }
@@ -4234,7 +4227,7 @@ export function createDetailController(
         ensureEditorCursorVisible(viewport);
         break;
       case "buffer.backspace":
-        if (state.mode === "select") {
+        if (state.mode.kind === "select") {
           state.status = "Source selection is read-only";
           break;
         }
@@ -4243,7 +4236,7 @@ export function createDetailController(
         ensureEditorCursorVisible(viewport);
         break;
       case "buffer.delete":
-        if (state.mode === "select") {
+        if (state.mode.kind === "select") {
           state.status = "Source selection is read-only";
           break;
         }
@@ -4411,18 +4404,18 @@ export function createDetailController(
         navigateFile(intent.direction, viewport);
         break;
       case "file.selection.toggle":
-        state.selectionAnchor = state.selectionAnchor === null ? state.fileCursor : null;
+        if (state.mode.kind === "file") state.mode = { kind: "file", lineAnchor: state.mode.lineAnchor === null ? state.fileCursor : null };
         break;
       case "view.file":
-        if (state.mode === "annotation") {
-          if (state.referencedFile) state.mode = "file";
+        if (state.mode.kind === "annotation") {
+          if (state.referencedFile) state.mode = { kind: "file", lineAnchor: null };
         } else if (state.context.selected) {
-          if (await loadFile(state.context.selected)) state.mode = "file";
+          if (await loadFile(state.context.selected)) state.mode = { kind: "file", lineAnchor: null };
         }
         break;
       case "view.block":
         fileReadGeneration += 1;
-        state.mode = "preview";
+        state.mode = { kind: "preview" };
         state.previewOffset = 0;
         break;
       case "focus.outliner":
@@ -4432,7 +4425,7 @@ export function createDetailController(
         state.draftPreviewLinked = false;
         state.editorViewportManual = false;
         if (isBufferMode()) ensureEditorCursorVisible(viewport);
-        else if (state.mode === "file" && state.referencedFile) ensureFileCursorVisible(viewport);
+        else if (state.mode.kind === "file" && state.referencedFile) ensureFileCursorVisible(viewport);
         break;
       case "status.set":
         state.status = intent.message;
@@ -4518,13 +4511,13 @@ export function createDetailController(
     },
     isBufferMode,
     checkpointRecovery() {
-      if (state.mode === "edit" && state.recovery && state.context.selected) effects.recovery?.checkpoint?.(recoveryInput());
+      if (state.mode.kind === "edit" && state.recovery && state.context.selected) effects.recovery?.checkpoint?.(recoveryInput());
     },
     handleUiCommand,
     dispatch,
     captureResourceSelection,
     setPreviewRegions(regions) {
-      reconcilePreviewRegions(state.previewRegions, regions, state.document.kind === 'loading' || (state.document.kind === 'ready' && state.readStatus === 'pending'));
+      reconcilePreviewRegions(state.previewRegions, regions, detailDocumentRefreshing(state));
     },
     releaseDocument() {
       openGeneration++;destinationChooser!.dispose();
@@ -4569,7 +4562,7 @@ export function createDetailController(
             state.status = "Attention source changed; exact mark is stale";
           } else if (mark.target.kind === "file") {
             if (state.referencedFile) {
-              state.mode = "file";
+              state.mode = { kind: "file", lineAnchor: null };
               state.fileCursor = Math.min(
                 state.referencedFile.lines.length - 1,
                 Math.max(0, mark.target.startLine - state.referencedFile.firstLine),
@@ -4581,7 +4574,7 @@ export function createDetailController(
             }
           } else {
             const selected = state.context.selected;
-            state.mode = "preview";
+            state.mode = { kind: "preview" };
             state.attentionRevealSourceLine = selected
               ? attentionSourceLine(selected.text, mark)
               : 0;
