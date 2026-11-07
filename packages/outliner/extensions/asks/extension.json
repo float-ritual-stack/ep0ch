@@ -3,7 +3,7 @@
   "id": "asks",
   "version": 3,
   "name": "Asks",
-  "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them: Jev reads first, a bigger model confirms.",
+  "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them.",
   "run": ["bun", "asks.ts"],
   "demo": "demo",
   "configSchema": {
