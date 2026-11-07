@@ -99,6 +99,20 @@ describe("an answer landing under the ask the cursor is on (PIE-1585)", () => {
     expect(plain.text).toBe(`Shed door\n\n${ASK}\n`);
   });
 
+  test("the ask typed on since it was read: refused whole, so the line isn't split and the cursor stays on it", () => {
+    const d = asking();
+    d.key(char("?"));
+    const before = d.text;
+    const late = reply(d);
+    expect(late.applied).toBe(false);
+    expect(d.text).toBe(before);
+    expect([d.row, d.col]).toEqual([2, ASK.length + 1]);
+    // A line that only starts like it, or ends like it, is not the ask either.
+    const inside = new Draft("note-1", 1, `Shed door\n\nsee ${ASK}`);
+    inside.row = 0; inside.col = 0;
+    expect(reply(inside).applied).toBe(false);
+  });
+
   test("the person's typing on the ask after it landed stays theirs, and undo of the answer still finds it", () => {
     const d = asking();
     reply(d);

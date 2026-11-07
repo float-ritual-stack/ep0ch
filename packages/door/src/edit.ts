@@ -897,6 +897,8 @@ export class Draft {
     // An answer leaves its ask line word for word (the service checks): what it changes is below that line, so the ask's
     // own text is out of the patch: the cursor may be on it (PIE-1585), and the undo unit is the answer alone.
     const askEnd = p.replyTo ? located.spans[0]!.start + p.replyTo.length : -1;
+    // The whole line, as it was read: typed on since (`?` after it), it is a new ask, and the next quiet asks it.
+    if (p.replyTo && ((askEnd < text.length && text[askEnd] !== "\n") || (located.spans[0]!.start > 0 && text[located.spans[0]!.start - 1] !== "\n"))) return no("the ask was typed on since it was read");
     if (p.replyTo) located.spans = [{ ...located.spans[0]!, start: askEnd, replacement: located.spans[0]!.replacement.slice(p.replyTo.length) }];
     if (p.force && p.mark !== undefined) {
       // A mark line the person took out holds nothing back: the passage is placed by its own text.
