@@ -52,7 +52,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "picture-full" || scenario === "picture-identity" || scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "hero-aspect" || scenario === "picture-full" || scenario === "picture-identity" || scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -81,6 +81,23 @@ if (scenario === "box") {
   app.push(new MainMenu());
   app.push(openScreen("detail", { note: note.id, persist: false }));
   await snap("body", 1500);
+  app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "hero-aspect") {
+  // PIE-1631, the walk. SNAP_COLS sets the width (160, 60). A detail tile padded as a person's look can pad it
+  // (pad.y 2, pad.x 6), a 1600×400 header SVG with a disc: cover, contain and its own rows. Look at the PNGs: round.
+  const band = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 400" width="1600" height="400"><rect width="1600" height="400" fill="#101826"/><circle cx="800" cy="200" r="120" fill="#4fb3c7"/></svg>`;
+  const dir = mkdtempSync(join(tmpdir(), "ep0ch-hero-aspect-"));
+  writeFileSync(join(dir, "band.svg"), band);
+  await board.createBlock(null, "Style · tile detail [style-for::tile:detail] [style.pad.y::2] [style.pad.x::6]");
+  app.push(new MainMenu());
+  for (const [name, words] of [["own", ""], ["cover", "[height::12]"], ["contain", "[height::12] [fit::contain]"]] as const) {
+    const n = await board.createBlock(null, `Disc ${name}\n[img::${join(dir, "band.svg")}] [layout::hero] ${words}\n\nwords under the header`);
+    app.push(openScreen("detail", { note: n.id, persist: false }));
+    await snap(name, 2500);
+    console.log(`  ${name}: ${[...emu.placements.values()].map((p: any) => JSON.stringify(p)).join(" ").slice(0, 300)}`);
+    app.pop();
+  }
   app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "picture-full") {

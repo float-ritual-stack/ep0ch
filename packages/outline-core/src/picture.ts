@@ -187,6 +187,23 @@ export function heroBox(m: Pixels, spec: MediaSpec, W: number, cap: number, cell
   return { col: 0, cols: W, rows: most, ...(crop ? { crop } : {}) };
 }
 
+/**
+ * A header laid out by heroBox, drawn `extra` rows taller (PIE-1631: a desk tile's padding above the body, which the
+ * header bleeds up into): laid out again for those rows, never the same crop stretched to fill them (a disc an oval).
+ * Shown whole (`[fit::contain]`, or narrower than `W`): as wide as the taller rows make it, in the middle; else the
+ * full width, cropped to fill around its focus.
+ */
+export function heroBoxGrown(m: Pixels, spec: MediaSpec, box: { col: number; cols: number; rows: number }, extra: number, W: number, cellW: number, cellH: number): { col: number; cols: number; rows: number; crop?: { x: number; y: number; w: number; h: number } } {
+  if (extra <= 0) return box;
+  const rows = box.rows + extra;
+  if (spec.fit === "contain" && box.cols < W) {
+    const cols = Math.max(1, Math.min(W, Math.round((rows * cellH * m.width) / m.height / cellW)));
+    return { col: Math.floor((W - cols) / 2), cols, rows };
+  }
+  const crop = coverCrop(m, W * cellW, rows * cellH, spec.focus);
+  return { col: 0, cols: W, rows, ...(crop ? { crop } : {}) };
+}
+
 /** An SVG's own size: its root's `width` and `height`, else its viewBox's. Null when it names neither. */
 export function svgOwnSize(svg: string): Pixels | null {
   const root = /<svg\b[^>]*>/i.exec(svg)?.[0] ?? "";
