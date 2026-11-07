@@ -1,3 +1,4 @@
+import { quickOf } from "./tree-fixtures";
 import {afterEach,expect,test} from 'bun:test';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
@@ -90,10 +91,10 @@ test('filter controls preserve an open writing draft',async()=>{
  const f=await fixture(),c=await f.open('draft');
  await c.handleRowClick(f.branch.id);await c.handleKeypress('/',{},'pass');await c.handlePaste('DEM-37');await c.handleKeypress('',{name:'return'},'pass');
  await c.handleKeypress('e',{name:'e'},'pass');await c.handlePaste(' unsaved writing');
- const draft=c.view().quickInput;expect(c.mode).toBe('edit');
- await c.handleAction('tree.filter.clear');expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
- await c.handleAction('tree.filter');expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
- await c.handleAction('tree.selection.place:before:'+f.items[0]!.id);expect(c.mode).toBe('edit');expect(c.view().quickInput).toBe(draft);
+ const draft=quickOf(c.view())?.input;expect(c.mode).toBe('edit');
+ await c.handleAction('tree.filter.clear');expect(c.mode).toBe('edit');expect(quickOf(c.view())?.input).toBe(draft);
+ await c.handleAction('tree.filter');expect(c.mode).toBe('edit');expect(quickOf(c.view())?.input).toBe(draft);
+ await c.handleAction('tree.selection.place:before:'+f.items[0]!.id);expect(c.mode).toBe('edit');expect(quickOf(c.view())?.input).toBe(draft);
 });
 
 test('filtered date-sorted branches explain unavailable placement before opening an anchor picker',async()=>{

@@ -8,7 +8,8 @@ import {
   normalizeAttentionMark,
 } from "../src/attention";
 import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
-import type { TreeView } from "../src/tree-controller";
+import type { TreeView, TreeViewCommon } from "../src/tree-controller";
+import type { TreeMenuView, TreeMode, TreeQuickView, TreeViewerView } from "../src/tree-modes";
 import { renderTreeFrame, treeHintRow, treeSemanticState } from "../src/tree-renderer";
 import { renderPaneBar } from "../src/reader-chrome";
 import { composeAuthoredLinkRows, isBlockTreeRow, type TreeDisplayRow } from "../src/tree-rows";
@@ -110,9 +111,12 @@ function branchState(overrides: Partial<VirtualBranchState> = {}): VirtualBranch
   };
 }
 
+type TreeModeOverride = { mode?: TreeMode; quick?: TreeQuickView; viewer?: TreeViewerView; menu?: TreeMenuView };
+const quickLine = (input: string): TreeQuickView => ({ input, column: input.length, completion: null });
+
 function view(
   inputRows: ReadonlyArray<VisibleBlock | TreeRow>,
-  overrides: Omit<Partial<TreeView>, "rows"> & { rows?: TreeDisplayRow[] } = {},
+  overrides: Omit<Partial<TreeViewCommon>, "rows"> & { rows?: TreeDisplayRow[] } & TreeModeOverride = {},
 ): TreeView {
   const originalRows = overrides.rows ?? inputRows.map((row) => (isTreeRow(row) ? row : physical(row)));
   const documents = new Map(originalRows.filter(isBlockTreeRow).map(row => [row.canonicalId, row.block]));
@@ -143,19 +147,13 @@ function view(
     selectedIndex: 0,
     activeFilter: "",
     mode: "browse",
-    quickInput: "",
-    quickColumn: 0,
-    quickCompletion: null,
-    viewerLines: [],
-    viewerPath: "",
-    viewerOffset: 0,
     attention: emptyAttentionState("tree-test"),
     expandedBlockOffset: 0,
     status: "ready",
     refreshPending: false,
     ...rest,
     workspaceContextBlockId: overrides.workspaceContextBlockId ?? null,
-  };
+  } as TreeView;
 }
 
 const hintRow = (width: number) => treeHintRow(view([]), width, {showStatus: false});
@@ -412,12 +410,10 @@ describe("renderTreeFrame", () => {
   test("renders a narrow keyboard menu with clickable pane and action links", () => {
     const rendered = renderTreeFrame(view([], {
       mode: "action-menu",
-      actionMenuItems: [
+      menu: { query: "", index: 0, origin: { column: 5, row: 5 }, items: [
         {id:"tree.location:synthetic",group:"Navigate",label:"\x1b]52;c;Zm9yYmlkZGVu\x07資料🧑‍🔬".repeat(12),description:"",binding:""},
         ...DEFAULT_OUTLINER_ACTION_KEYMAP.menuItems("tree", "browse"),
-      ],
-      actionMenuIndex: 0,
-      actionMenuOrigin: { column: 5, row: 5 },
+      ] },
       status: "Choose an action",
     }), 40, 9).frame.split("\n");
     const header = rendered[0]!;
@@ -598,15 +594,13 @@ describe("renderTreeFrame", () => {
     const rendered = renderTreeFrame(
       view([parent, child], {
         mode: "add-child",
-        quickInput: "[[h",
-        quickColumn: 3,
-        quickCompletion: {
+        quick: { input: "[[h", column: 3, completion: {
           start: 0,
           end: 3,
           index: 0,
           items: [{ label: "Home", insertion: "[[Home]]" }],
           truncatedLimit: null,
-        },
+        } },
       }),
       80,
       11,
@@ -628,15 +622,13 @@ describe("renderTreeFrame", () => {
       view([selected], {
         visibleCompleteness: { kind: "truncated", limit: 500 },
         mode: "edit",
-        quickInput: "[[s",
-        quickColumn: 3,
-        quickCompletion: {
+        quick: { input: "[[s", column: 3, completion: {
           start: 0,
           end: 3,
           index: 0,
           truncatedLimit: 20,
           items: [{ label: "Selected", insertion: "[[Selected]]" }],
-        },
+        } },
       }),
       100,
       10,
@@ -791,7 +783,7 @@ describe("renderTreeFrame", () => {
     };
     const frame = renderTreeFrame(view([physical(parent), physical(definition)], {
       selectedIndex: 1,
-      mode: "add-child",
+      mode: "add-child", quick: quickLine(""),
       branchStates: new Map([
         [definition.id, branchState({ config: writable })],
       ]),
@@ -852,7 +844,7 @@ describe("renderTreeFrame", () => {
     ];
     const rendered = renderTreeFrame(
       view(rows, {
-        mode: "add-sibling",
+        mode: "add-sibling", quick: quickLine(""),
         branchStates: new Map([["definition", branchState({ count: 1 })]]),
       }),
       100,
@@ -871,7 +863,7 @@ describe("renderTreeFrame", () => {
   test("renders filter, delete, and viewer mode-specific frames", () => {
     const selected = block("selected");
     const filterFrame = renderTreeFrame(
-      view([selected], { mode: "filter", quickInput: "type=page", status: "" }),
+      view([selected], { mode: "filter", quick: quickLine("type=page"), status: "" }),
       80,
       8,
     ).frame.split("\n");
@@ -879,7 +871,7 @@ describe("renderTreeFrame", () => {
     const invalidFilterFrame = renderTreeFrame(
       view([selected], {
         mode: "filter",
-        quickInput: 'status="in progress',
+        quick: quickLine('status="in progress'),
         status: "Invalid filter: Unterminated quoted filter value at character 8",
       }),
       120,
@@ -901,7 +893,7 @@ describe("renderTreeFrame", () => {
       effectiveDeletedRootId: "deleted",
     });
     const purgeFrame = renderTreeFrame(
-      view([deletedSelected], { mode: "purge", quickInput: "PIE-" }),
+      view([deletedSelected], { mode: "purge", quick: quickLine("PIE-") }),
       80,
       8,
     ).frame.split("\n");
@@ -911,9 +903,7 @@ describe("renderTreeFrame", () => {
     const viewer = renderTreeFrame(
       view([selected], {
         mode: "viewer",
-        viewerPath: "notes.md:3",
-        viewerLines: ["# Heading", "- item"],
-        viewerOffset: 0,
+        viewer: { path: "notes.md:3", lines: ["# Heading", "- item"], offset: 0, report: null, status: "" },
       }),
       20,
       7,

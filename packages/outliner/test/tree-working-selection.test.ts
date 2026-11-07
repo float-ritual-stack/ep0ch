@@ -1,3 +1,4 @@
+import { menuOf } from "./tree-fixtures";
 import {afterEach, expect, test} from "bun:test";
 import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -61,7 +62,7 @@ test("Tree collects with keys and pointer actions, preserves focus, ranks and co
   expect(stripTerminalSequences(rendered)).toContain("[x] Candidate A");
   await c.handleKeypress("X",{name:"x",shift:true},"pass");
   expect(c.mode).toBe("action-menu");
-  expect(c.view().actionMenuItems?.filter(item=>item.id.startsWith("tree.selection.read:")).map(item=>item.label)).toEqual([
+  expect(menuOf(c.view())?.items.filter(item=>item.id.startsWith("tree.selection.read:")).map(item=>item.label)).toEqual([
     "Read · Candidate A", "Read · Candidate C", "Read · Candidate E",
   ]);
   await c.handleAction("tree.selection.copy-pages");
@@ -73,7 +74,7 @@ test("Tree collects with keys and pointer actions, preserves focus, ranks and co
   expect(f.copies.at(-1)).toBe([0,2,4].map(i=>`((${f.ids[i]}))`).join("\n"));
   await c.handleKeypress("X",{name:"x",shift:true},"pass");
   await c.handlePaste("Read · Candidate C");
-  expect(c.view().actionMenuItems?.[0]?.label).toBe("Read · Candidate C");
+  expect(menuOf(c.view())?.items[0]?.label).toBe("Read · Candidate C");
   await c.handleKeypress("",{name:"return"},"pass");
   expect(c.view().localPreview?.target).toEqual({kind:"block",blockId:f.ids[2]!});
   expect(c.view().collectedIds?.size).toBe(3);
@@ -91,7 +92,7 @@ test("Tree exposes explicit recovery and preserves unavailable targets until the
   expect(c.view().collectedIds?.size).toBe(0);
   expect(c.view().recoverableSelections).toBe(1);
   await c.handleAction("tree.selection.inspect");
-  const recover=c.view().actionMenuItems!.find(item=>item.id.startsWith("tree.selection.resume:"))!;
+  const recover=menuOf(c.view())!.items.find(item=>item.id.startsWith("tree.selection.resume:"))!;
   await c.handleAction(recover.id);
   expect(c.view().selectionCue).toContain("Recovered · 1 selected");
   // A change made through the service while this Tree was disconnected.
@@ -102,7 +103,7 @@ test("Tree exposes explicit recovery and preserves unavailable targets until the
   expect(f.copies).toEqual([]);
   expect(c.view().status).toContain("unavailable");
   await c.handleAction("tree.selection.inspect");
-  expect(c.view().actionMenuItems?.some(item=>item.id===`tree.selection.remove:${f.ids[0]}`)).toBe(true);
+  expect(menuOf(c.view())?.items.some(item=>item.id===`tree.selection.remove:${f.ids[0]}`)).toBe(true);
   await c.handleAction(`tree.selection.remove:${f.ids[0]}`);
   expect(c.view().status).not.toContain("unavailable");
   expect(c.view().collectedIds?.size).toBe(0);
@@ -152,7 +153,7 @@ test("Tree exposes recovery truncation rather than claiming an exhaustive count"
   const rendered=renderTreeFrame({...c.view(),localPreview:null},100,40,0,{clearScreen:false}).frame;
   expect(stripTerminalSequences(rendered)).toContain('100+ retained selections');
   await c.handleAction('tree.selection.inspect');
-  const recoveries=c.view().actionMenuItems!.filter(item=>item.id.startsWith('tree.selection.resume:'));
+  const recoveries=menuOf(c.view())!.items.filter(item=>item.id.startsWith('tree.selection.resume:'));
   expect(recoveries.length).toBe(100);
   expect(recoveries[0]!.description).toContain('newest 100');
 });

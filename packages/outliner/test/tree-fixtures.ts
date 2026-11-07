@@ -2,7 +2,14 @@ import { authoredTextDigest } from "../src/authored-links";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceDisplayText, resolveBlockReferencesWithStatus } from "../src/references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import type { TreeView } from "../src/tree-controller";
 import type { Block, TreeIndexBlock, VisibleBlock } from "../src/types";
+
+/** A mode's data, when the view is in that mode. */
+export const menuOf = (view: TreeView) => view.mode === "action-menu" ? view.menu : undefined;
+export const quickOf = (view: TreeView) => "quick" in view ? view.quick : undefined;
+export const viewerOf = (view: TreeView) => view.mode === "viewer" ? view.viewer : undefined;
+export const gotoOf = (view: TreeView) => view.mode === "goto" ? view.goto : undefined;
 
 // Controller/renderer fixtures retain source documents outside their compact
 // wire/view objects. Exact text is available only through their read effects.

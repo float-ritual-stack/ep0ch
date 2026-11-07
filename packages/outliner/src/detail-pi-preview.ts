@@ -49,7 +49,7 @@ import {
   backlinkGroupRegionId,
   detailBacklinkGroupExpanded,
   detailBacklinkView,
-  detailBlockTarget,
+  detailBlockTarget, detailDocumentRefreshing, detailReadStatus,
   detailResourceDescription,
   type DetailState,
 } from "./detail-controller";
@@ -330,11 +330,11 @@ function annotationSelectionOffsets(state: Readonly<DetailState>): {
 }
 
 function annotationSelectionCells(state: Readonly<DetailState>, frame: DocumentFrame): readonly DocumentCell[] {
-  if (state.mode === "comment") {
-    const matches = annotationTargetMatcher(state.annotationDraft?.target);
+  if (state.mode.kind === "comment") {
+    const matches = annotationTargetMatcher(state.mode.draft.kind === "new" ? state.mode.draft.target : undefined);
     return frame.cells.filter(cell => cell.origins.some(matches));
   }
-  if (state.mode !== "select") return [];
+  if (state.mode.kind !== "select") return [];
   const source = previewSelectionSource(state);
   const offsets = annotationSelectionOffsets(state);
   if (!source || !offsets || state.buffer.text !== source.text) return [];
@@ -1269,7 +1269,7 @@ class DetailPreviewBody implements Component {
     if (this.dedicatedInspector()) {this.renderedFrame=null;this.renderedLines=inspector;return inspector;}
     const selectionSource = previewSelectionSource(this.state);
     const rowShifts=new Map<number,number>();
-    const selecting = this.state.mode === "select" || this.state.mode === "comment";
+    const selecting = this.state.mode.kind === "select" || this.state.mode.kind === "comment";
     const gutter = selecting ? Math.min(2, Math.max(0, width - 1)) : 0;
     const contentWidth = width - gutter;
     let authored = this.decorateBody(this.authored.render(contentWidth), contentWidth);
@@ -1488,7 +1488,7 @@ export class DetailPiPreviewLayout extends VStack {
     this.backlinkMarkdown = backlinkMarkdown;
     this.scrollView = scrollView;
     this.body = body;
-    this.active = state.mode === "preview";
+    this.active = state.mode.kind === "preview";
   }
 
   headerHeight(width: number): number {
@@ -1708,7 +1708,7 @@ export class DetailPiPreviewLayout extends VStack {
   handleInput(data: string): boolean {
     if (
       !this.active ||
-      (this.state.mode !== "preview" && !(this.options.splitActive?.() ?? false))
+      (this.state.mode.kind !== "preview" && !(this.options.splitActive?.() ?? false))
     ) {
       return false;
     }
@@ -1913,7 +1913,7 @@ export class DetailPiPreviewLayout extends VStack {
       authoredCallouts !== previousAuthoredCallouts &&
       ((previousAuthoredCallouts?.regions.length ?? 0) > 0 ||
         authoredCallouts.regions.length > 0);
-    const referencesReady = draftText !== null || this.state.readStatus === "ready";
+    const referencesReady = draftText !== null || detailReadStatus(this.state) === "ready";
     const sourceProvenance=documentProvenanceKey(documentSource);
     const sourceChanged =
       sourceProvenance !== this.renderedSourceProvenance ||
@@ -2001,7 +2001,7 @@ export class DetailPiPreviewLayout extends VStack {
         ...(this.showBacklinks() ? detailBacklinkRegions(this.state) : []),
       ];
     if (this.options.setRegions) this.options.setRegions(regions);
-    else reconcilePreviewRegions(this.state.previewRegions, regions, this.state.document.kind === 'loading' || (this.state.document.kind === 'ready' && this.state.readStatus === 'pending'));
+    else reconcilePreviewRegions(this.state.previewRegions, regions, detailDocumentRefreshing(this.state));
     const focusedProperty = this.state.previewRegions.regions.find((region) =>
       region.id === this.state.previewRegions.focusedRegionId &&
       (region.kind === "property-entry" || region.kind === "property-inspector")
@@ -2150,7 +2150,7 @@ export class DetailPiPreviewLayout extends VStack {
     const ordered=[...regions.filter(region=>region.kind!=="body-link" && region.kind!=="resource" && (region.kind !== "checklist" || this.bodyLinks.has(region.id))),...this.bodyRegions]
       .map(region=>({region,row:row(region)})).sort((a,b)=>a.row-b.row).map(entry=>entry.region);
     if(this.options.setRegions)this.options.setRegions(ordered);
-    else reconcilePreviewRegions(this.state.previewRegions,ordered, this.state.document.kind === 'loading' || (this.state.document.kind === 'ready' && this.state.readStatus === 'pending'));
+    else reconcilePreviewRegions(this.state.previewRegions,ordered, detailDocumentRefreshing(this.state));
     const focused=this.state.previewRegions.focusedRegionId;
     if(focused&&this.bodyLinks.has(focused)&&focused!==this.previousBodyFocusedId)this.pendingBodyFocusScroll=true;
     this.previousBodyFocusedId=focused;

@@ -1,3 +1,4 @@
+import { quickOf } from "./tree-fixtures";
 import {afterEach, expect, test} from "bun:test";
 import {mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -157,9 +158,9 @@ test("Tree refetches rows on reconnect after a view change failed while disconne
   f.controller.handleDisconnect();
   f.connectTo(null);
   await f.controller.handleAction("tree.filter.properties");
-  expect(f.controller.view().quickInput).toBe("status=open");
+  expect(quickOf(f.controller.view())?.input).toBe("status=open");
   for(let i=0;i<"status=open".length;i++)await f.controller.handleKeypress("",{name:"backspace"},"pass");
-  expect(f.controller.view().quickInput).toBe("");
+  expect(quickOf(f.controller.view())?.input).toBe("");
   await f.controller.handleKeypress("",{name:"return"},"pass").catch(()=>{});
   expect(f.controller.view().activeFilter).toBe("");
   expect(f.labels()).toContain("Fictional task");

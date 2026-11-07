@@ -1,5 +1,5 @@
 import type { PreviewRegionAction } from "./detail-preview-regions";
-import type { DetailController, DetailOpenRouting, DetailViewport } from "./detail-controller";
+import { detailFileLineAnchor, type DetailController, type DetailOpenRouting, type DetailViewport } from "./detail-controller";
 import type { OutlinerEvent, OutlinerNavigationTarget, OutlinerUiCommand } from "./types";
 
 export interface DetailReaderRectangle { x: number; y: number; width: number; height: number }
@@ -51,7 +51,7 @@ export class DetailReadingSurface {
   async escapePreview(): Promise<boolean> {
     if (this.active !== this.preview) return false;
     const state = this.preview.state;
-    if (this.preview.isBufferMode() || state.mode === "select" || state.selectionAnchor !== null ||
+    if (this.preview.isBufferMode() || state.mode.kind === "select" || detailFileLineAnchor(state) !== null ||
       state.destinationChooser.active || state.propertyInspector.edit ||
       state.propertyInspector.filterDraft !== null || state.backlinks.filterDraft !== null ||
       state.completion) return false;
@@ -110,7 +110,7 @@ export class DetailReadingSurface {
       this.preview.onServiceError(new Error("Save or cancel the Preview draft before opening another target"));
       return false;
     }
-    if (this.current.isBufferMode() || this.current.state.selectionAnchor !== null) {
+    if (this.current.isBufferMode() || detailFileLineAnchor(this.current.state) !== null) {
       this.preview.onServiceError(new Error("Finish or cancel the Current draft or source selection before keeping Preview"));
       return false;
     }
