@@ -113,6 +113,9 @@ export function lastButton(lines: readonly string[]): { line: string; label: str
 /** "do it", "yes", "press it": an ask with nothing to work out. */
 export const isGo = (request: string) => /^(do it|do that|yes|yep|yeah|yup|press it|go|go ahead|ok|okay|please do)[.!\s]*$/i.test(request.trim());
 
+/** The line under a question's button: nothing was pressed, and how to have it pressed. */
+export const ASKED_HOW = "a question: say `@yo do it` to press it.";
+
 /**
  * Whether an ask is a question by its words (PIE-1629): code decides, before any model runs, so a how-do-I never
  * presses whatever the answer model says. A question word first, a "how"/"is there a way"/"the key for" anywhere, or a

@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { actPrompt, argsOf, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -148,7 +148,10 @@ async function go() {
   const row = doneRow(button.label, pressed.undo, reversible(action, pressed.wrote));
   if (inThread()) return ok({ reply: withSteps([row]) });
   const prefix = /^[>\s]*/.exec(button.line)![0];
-  return ok({ message: `✓ pressed ${button.label} as yo`, patches: [{ observed: button.line, replacement: `${prefix}${row}` }] });
+  // The question's "say do it" line goes with the button it was about: the done row stands alone.
+  const hinted = `${button.line}\n${prefix}${ASKED_HOW}`;
+  const observed = input.note?.text.includes(hinted) ? hinted : button.line;
+  return ok({ message: `✓ pressed ${button.label} as yo`, patches: [{ observed, replacement: `${prefix}${row}` }] });
 }
 
 /** What the line says while the person keeps typing: the action and its first keys. */
@@ -213,7 +216,7 @@ async function respond() {
   const action = candidates.find(a => a.name === (plan as { action: string }).action)!;
   // A question is quoted, whatever the model picked: whether to press is code's (PIE-1629), and only a command presses.
   if (plan.kind === "act" && question) steps.push("the model said press it; it's a question, so code quoted it");
-  if (plan.kind === "quote" || question) return ok({ message: said(action), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? "a question: say `@yo do it` to press it." : undefined)) });
+  if (plan.kind === "quote" || question) return ok({ message: said(action), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? ASKED_HOW : undefined)) });
 
   // An act: code steps up, once, to the model that presses.
   const actCommand = config.act ?? defaults.act.default;

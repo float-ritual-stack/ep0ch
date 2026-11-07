@@ -21,6 +21,8 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
   - **From a shell:** `ep0ch act agent.ask to=yo about=tile`.
   - **Where it lands:** a thread on the note in that tile; a tile with no note, on this page.
 - **Have it pressed:** `@yo do it`, or the button yourself. In a thread, reply `@yo do it`.
+  - **A question never presses:** `how do I…`, `what's the key for…`, `is there a way to…`, or anything ending in `?` gets the quote and the button. Code reads the words before any model runs.
+  - **A command presses:** `@yo lift the agent` (the act model fills it in, once).
 - **Take it back:** the `undo` on the done row. An action that changes no note and no layout has none, and the row says so.
 - **See how it knew:** the steps fold under each answer: what it read and each model call, with its cost.
 - **Banter:** `@yo mamama` gets one line in character, then quiet.
