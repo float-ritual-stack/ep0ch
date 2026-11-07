@@ -26,8 +26,8 @@ describe("showcase: pictures", () => {
     // Tall enough for the whole note: every picture in view.
     const draw = (w = 96) => reader().render(w, 300, false, d);
     const keys = () => (draw().placements ?? []).map(p => p.key);
-    // The header (the render line's svg, [layout::hero]), three cards, three mermaid diagrams, the svg fence, the svg file.
-    try { await until(() => keys().some(k => k.startsWith("hero")) && keys().length >= 10, "the header and nine pictures placed", 20_000); }
+    // The header (the render line's svg, [layout::hero]), three cards, three mermaid diagrams, three svg fences, the svg file.
+    try { await until(() => keys().some(k => k.startsWith("hero")) && keys().length >= 12, "the header and eleven pictures placed", 20_000); }
     catch (e) { console.log(keys()); throw e; }
     const text = draw().lines.map(visible);
     // The render line that's the header says so once; an inline line drawing the same banner is a picture of its own (PIE-1594).
@@ -120,6 +120,19 @@ describe("showcase: pictures", () => {
       await act("image.undo", {}, "reader");
       await act("image.undo", {}, "reader");
       expect(await source()).toContain("plot-banner:: [height::4]");
+    }
+
+    // PIE-1630: the spread written at half the width steps on to the full width and stops there, its caption saying the
+    // rows drawn; the arc's caption names what librsvg leaves out.
+    {
+      draw();
+      const spread = (await act("images", {}, "reader")).images.filter((x: { fence?: string }) => x.fence === "svg")[1] as { line: number };
+      expect(await source()).toContain("```svg size=50%");
+      for (let i = 0; i < 6 && !(await source()).includes("```svg size=full"); i++) { draw(); await act("image.size", { line: spread.line, by: 1 }, "reader"); }
+      expect(await source()).toContain("```svg size=full\n");
+      await until(() => draw().lines.map(visible).some(l => /▣ svg picture: 1600×1000 · \d+ rows · full width/.test(l)), "the spread's caption at the full width");
+      await expect(act("image.size", { line: spread.line, by: 1 }, "reader")).rejects.toThrow(/the full width already/);
+      expect(draw().lines.map(visible).some(l => l.includes("▣ svg picture: 700×350") && l.includes("⚠ text on a path")), draw().lines.map(visible).join("\n")).toBe(true);
     }
 
     // The made-up icat asked, was answered, and drew: one placement in its tile, under its own key.

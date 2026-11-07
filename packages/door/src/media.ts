@@ -3,7 +3,7 @@
 // `[layout::hero]`, `[fit::contain]`, `[dim::0.3]`, `[alt::…]`), turned into PNGs the terminal can place. Decoding and
 // scaling are sharp's (prebuilt libvips for linux and macOS, no system tool); a video's poster frame is ffmpeg's
 // (qlmanage on a Mac without it). Kitty scales a placement into its cell box by itself, so an image is only ever
-// scaled down, to about the box it's drawn in (for bandwidth and memory), never up.
+// scaled down, to about the box it's drawn in (for bandwidth and memory), never up; an SVG is rasterized at that box's size (PIE-1630).
 //
 // Dark first: a bright image is dimmed in the same step, so it's cached dimmed and no frame ever shows it bright. By
 // default its brightness is scaled so the mean luminance of the part drawn (a header's crop), as it shows on the
@@ -32,7 +32,7 @@ type Kind = "img" | "video";
  */
 export type Media =
   | { state: "loading"; path: string; kind: Kind; width?: number; height?: number }
-  | { state: "ready"; path: string; kind: Kind; key: string; width: number; height: number; mean: number }
+  | { state: "ready"; path: string; kind: Kind; key: string; width: number; height: number; mean: number; vector?: boolean }
   | { state: "error"; path: string; kind: Kind; reason: string };
 export type ReadyMedia = Extract<Media, { state: "ready" }>;
 /** The part of an image drawn, as fractions of it (a header's cover crop). */
@@ -48,6 +48,14 @@ export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number;
 const MAX_PX = 1600;
 /** The longest edges an image is scaled to: a box is drawn from the next one up (so a resize rarely scales again). */
 const STEPS = [320, 640, 960, 1280, MAX_PX];
+/**
+ * An SVG has no pixels of its own: it's drawn at the box's size (PIE-1630), up to this edge (a wide reader on a dense
+ * screen: 200 columns of 16-pixel cells), never its own size scaled up.
+ */
+const MAX_VECTOR_PX = 3200;
+const VECTOR_STEPS = [...STEPS, 1920, 2560, MAX_VECTOR_PX];
+/** How an SVG's step is rasterized, in its cache file's name: change it when that changes, so an old file isn't served. */
+const VECTOR_RASTER = "svg2";
 /** How long after a resize what it drew stands in for an image still being made for where it ended. */
 const SETTLE_MS = 3000;
 /** The step made with the first look, before the box it's drawn in is known. */
@@ -201,7 +209,8 @@ function headerSize(path: string): { width: number; height: number } | null {
   } catch { return null; }
 }
 
-interface Source { src: string; key: string; width: number; height: number; png: boolean }
+/** `vector`: an SVG, drawn by librsvg at whatever size it's asked for (its density), so it's sharp at every size. */
+interface Source { src: string; key: string; width: number; height: number; png: boolean; vector: boolean }
 
 /** What to scale from, by content key: the file (or a video's frame), its upright size, and whether it's a PNG. */
 const sources = new Map<string, Promise<Source>>();
@@ -214,7 +223,7 @@ function sourceOf(path: string, key: string, kind: Kind): Promise<Source> {
       if (!meta.width || !meta.height) throw new Error(`not an image the door can read (${meta.format ?? "unknown format"})`);
       // An EXIF quarter turn swaps its sides (rotate() turns it upright when it's scaled).
       const turned = (meta.orientation ?? 1) >= 5;
-      return { src, key, width: turned ? meta.height : meta.width, height: turned ? meta.width : meta.height, png: meta.format === "png" && !turned };
+      return { src, key, width: turned ? meta.height : meta.width, height: turned ? meta.width : meta.height, png: meta.format === "png" && !turned, vector: meta.format === "svg" };
     })();
     sources.set(key, s);
     s.catch(() => sources.delete(key));
@@ -288,13 +297,18 @@ const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d
  */
 async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   const f = look.dim !== undefined && !limited(look) ? brightness(0, look.dim) : brightnessOf(await lightOf(s, look.crop), look);
-  const ref = `${s.key}-${edge}-${lookKey(look)}`;
+  // An SVG's file names its rasterizing too (PIE-1630): one made before it was drawn at its step's size has the same name otherwise.
+  const ref = `${s.key}-${edge}${s.vector ? `-${VECTOR_RASTER}` : ""}-${lookKey(look)}`;
   const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
   if (s.png && f === 1 && !look.mute && !look.blur && !look.tint && !look.fade && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}`, ...(look.crop ? { crop: look.crop } : {}) };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
     mediaWork.scaled++;
     const sharp = await lib();
-    let p = sharp(s.src, { pages: 1 }).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true });
+    // An SVG is rasterized at the size it's drawn, its longest edge `edge` (librsvg's density: 72 is its own size), so
+    // its lines and text are made for that size, never its own pixels scaled up (PIE-1630).
+    let p = s.vector
+      ? sharp(s.src, { pages: 1, density: Math.min(100_000, (72 * edge) / Math.max(1, s.width, s.height)) }).resize({ width: edge, height: edge, fit: "inside" })
+      : sharp(s.src, { pages: 1 }).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true });
     // A header's backdrop: most of its colour gone and its detail softened, so the header's text reads over it.
     if (look.mute) p = p.modulate({ brightness: f, saturation: MUTE_SATURATION }).blur(Math.max(1, edge / 160));
     else if (f < 1) p = p.modulate({ brightness: f });
@@ -325,8 +339,8 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   return { png: b, width: b.readUInt32BE(16), height: b.readUInt32BE(20), key: ref, ...(look.crop ? { crop: look.crop } : {}) };
 }
 
-/** The step that covers `edge` pixels on the longest side, never past the image's own. */
-const stepFor = (edge: number, own: number) => Math.min(STEPS.find(s => s >= edge) ?? MAX_PX, STEPS.find(s => s >= own) ?? MAX_PX);
+/** The step that covers `edge` pixels on the longest side, never past the image's own; an SVG's, any size up to MAX_VECTOR_PX. */
+const stepFor = (edge: number, own: number, vector = false) => vector ? VECTOR_STEPS.find(s => s >= edge) ?? MAX_VECTOR_PX : Math.min(STEPS.find(s => s >= edge) ?? MAX_PX, STEPS.find(s => s >= own) ?? MAX_PX);
 const jobOf = (key: string, edge: number, look: Look) => `${key}\0${edge}\0${lookKey(look)}`;
 
 /** Forget what's held for content `key` (its file changed on disk). */
@@ -361,13 +375,13 @@ export function media(raw: string, kind: Kind): Media {
   (async () => {
     const s = await sourceOf(path, key, kind);
     // The first look (all of it), already dimmed as it will be drawn, so the first frame of it is never bright.
-    const edge = stepFor(FIRST, Math.max(s.width, s.height));
+    const edge = stepFor(FIRST, Math.max(s.width, s.height), s.vector);
     const [first, mean] = await Promise.all([scale(s, edge, {}), meanOf(s)]);
     if (store.get(path) === entry) scaled.put(jobOf(key, edge, {}), first, frame);
     return { s, mean };
   })().then(({ s, mean }) => {
     if (store.get(path) !== entry) return;
-    entry.media = { state: "ready", path, kind, key, width: s.width, height: s.height, mean };
+    entry.media = { state: "ready", path, kind, key, width: s.width, height: s.height, mean, ...(s.vector ? { vector: true } : {}) };
     onChange();
   }, e => {
     if (store.get(path) !== entry) return;
@@ -382,13 +396,13 @@ export function media(raw: string, kind: Kind): Media {
  * The PNG to draw `m` with in a box of `pxW` × `pxH` pixels (covered, as a cropped header is), as `look` says: the
  * scaled one for that box when it's ready; else it's made now (a redraw follows) and the closest one ready with that
  * look is drawn meanwhile, the terminal scaling it; null when none is ready yet (its rows stay dark) or the file has
- * changed since `m` was read. Never bigger than the image. A failure turns `m` into an error its line says.
+ * changed since `m` was read. Never bigger than the image, unless it's an SVG: that one is drawn for the box. A failure turns `m` into an error its line says.
  */
 export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}): PngRef | null {
   // The file as it is now: one changed on disk is read again (media), and nothing old is drawn meanwhile.
   if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
   const fit = Math.max(pxW / m.width, pxH / m.height), own = Math.max(m.width, m.height);
-  const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.key, edge, look);
+  const edge = stepFor(Math.ceil(fit * own), own, m.vector), job = jobOf(m.key, edge, look);
   // A resize going on (src/resize.ts) passes through a width a frame, each wanting a PNG of its own, uploaded and drawn
   // once: what was drawn last is drawn instead (the terminal scales it, and the crop is the placement's), and the one
   // for where it ends is made then. Nothing is scaled, and nothing the terminal hasn't got is drawn, until it ends.

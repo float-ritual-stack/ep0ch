@@ -4,7 +4,7 @@ import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
-import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, notArtifact, NotePictures, pictureEdits, pictureRows, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
+import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, notArtifact, NotePictures, bandBesidePicture, pictureEdits, pictureRows, pictureRowsOf, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
 import { READER_ESC, escNext, escPress } from "../esc-rule";
 import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
@@ -879,7 +879,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
+  drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number]; mcols: number } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -2024,7 +2024,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = pinned ? full : Math.max(0, full - this.scroll);
     h -= heroRows;
-    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : own ? [0, 1] : [0, 0] };
+    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : own ? [0, 1] : [0, 0], mcols: laid.margin.cols };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     if (sm?.place === "inline" && inline) {
@@ -2116,7 +2116,7 @@ export class NoteSurface {
         return host?.focused === false ? item : selectFullText(item);
       }
       const tint = ruled(row) ? RULER_BG : readingBand && row >= readingBand[0] && row < readingBand[1] ? (host?.focused === false ? RULER_IDLE_BG : RULER_BG) : inQuote(row) ? THREAD_BG : null;
-      if (tint) return this.paintSelection(marked(paintRange(pad(l, W), 0, W, tint), row), row);
+      if (tint) return this.paintSelection(marked(pictureRowsOf(doc.images, top - this.scroll).has(i) ? bandBesidePicture(pad(l, W), bx, tint) : paintRange(pad(l, W), 0, W, tint), row), row);
       const under = row >= top ? tints.filter(t => row - top >= t.rows[0] && row - top < t.rows[1]) : [];
       if (!under.length) return this.paintSelection(marked(l, row), row);
       let painted = pad(l, W);
@@ -2685,7 +2685,7 @@ export class NoteSurface {
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
     const ruled = current && !this.framedList(current) ? current.ruler : null;
-    const lines = doc.lines.map((l, r) => (ruled && r >= ruled[0] && r < ruled[1] ? paintRange(pad(l, bw), 0, bw, RULER_BG) : l));
+    const lines = doc.lines.map((l, r) => (ruled && r >= ruled[0] && r < ruled[1] && !pictureRowsOf(doc.images, 0).has(r) ? paintRange(pad(l, bw), 0, bw, RULER_BG) : l));
     const headLines = head.map((l, r) => (ruled && r - head.length >= ruled[0] && r - head.length < ruled[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const targets: Hit[] = [];
     const elemOf = new Map<Link, string>(this.elems.filter(e => e.link).map(e => [e.link!, e.key]));
@@ -2703,7 +2703,7 @@ export class NoteSurface {
     for (const c of copies) if ("block" in c && doc.blocks[c.block]?.kind !== "span") { const t = trims.get(c.row) ?? { cuts: [] }; trims.set(c.row, { ...t, cuts: [...(t.cuts ?? []), [c.from + inset, c.to + inset]] }); }
     return {
       header: { lines: headLines, targets: header.hits },
-      lines: lines.map(l => " ".repeat(inset) + l),
+      lines: lines.map((l, r) => ruled && r >= ruled[0] && r < ruled[1] && pictureRowsOf(doc.images, 0).has(r) ? bandBesidePicture(" ".repeat(inset) + l, inset, RULER_BG) : " ".repeat(inset) + l),
       targets: targets.map(t => ({ ...t, from: t.from + inset, to: t.to + inset })),
       placements: placements.map(p => ({ ...p, col: p.col + inset })),
       current: current ? current.row : null, key: current?.key ?? null, trims,
@@ -5799,7 +5799,7 @@ export class NoteSurface {
   /** One step bigger or smaller for picture `ref` (picture.ts), in the room this reader has for it. */
   pictureStep(ref: ImageRef & { spec: MediaSpec }, by: number, host: SurfaceHost) {
     const d = this.drawn, digest = this.digested, [cellW, cellH] = cellOf(host);
-    const body = d ? d.w - d.bx - this.bxRight : digest ? digest.w - digest.inset : 80;
+    const body = d ? d.w - d.bx - this.bxRight - d.mcols : digest ? digest.w - digest.inset : 80;
     return stepOf(ref, by, this.drawnImages().get(ref.line), this.msg ? this.picturesOf(this.msg) : [], { cellW, cellH, maxImageRows: digest && !d ? digest.maxImageRows : this.imageRowsMost, body, header: { rows: this.hero?.full ?? null, most: this.hero?.max ?? Infinity } });
   }
 

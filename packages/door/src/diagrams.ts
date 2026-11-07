@@ -22,6 +22,8 @@ export interface FencePicture {
   describe(source: string): string;
   /** Its SVG, in the door's colours, laid out for `room`; a thrown error is said under the fence's source. */
   svg(source: string, colours: PictureColours, room: PictureRoom): Promise<string>;
+  /** What in `source` the rasterizer (librsvg, through sharp) leaves out, said on the caption as a known limit. */
+  limits?(source: string): string[];
 }
 
 /** Where a picture goes: the body's width in pixels, and the terminal's text size, so a diagram's words read as the note's. */
@@ -111,6 +113,14 @@ const hex = (c: Rgb) => `#${c.map(v => v.toString(16).padStart(2, "0")).join("")
 
 // ── svg ───────────────────────────────────────────────────────────────────────
 
+/**
+ * What an SVG has that librsvg doesn't draw (PIE-1630): text on a curve (`<textPath>`) comes out as nothing at all, the
+ * curve bare, so the caption says so rather than leave the words missing unexplained.
+ */
+export function svgLimits(source: string): string[] {
+  return /<textPath\b/i.test(source) ? ["text on a path (<textPath>) isn't drawn: librsvg leaves it out"] : [];
+}
+
 /** A ```svg fence: an `<svg>` element, its size if it says one. */
 export function describeSvg(source: string): string {
   const own = svgOwnSize(source);
@@ -142,6 +152,7 @@ export const FENCE_PICTURES: Record<PictureFence, FencePicture> = {
   },
   svg: {
     describe: describeSvg,
+    limits: svgLimits,
     async svg(source) {
       const s = source.trim();
       if (!/^(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg\b/i.test(s)) throw new Error("an svg fence starts with <svg …>");

@@ -52,7 +52,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "picture-identity" || scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "picture-full" || scenario === "picture-identity" || scenario === "pictures" || scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -81,6 +81,47 @@ if (scenario === "box") {
   app.push(new MainMenu());
   app.push(openScreen("detail", { note: note.id, persist: false }));
   await snap("body", 1500);
+  app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
+}
+if (scenario === "picture-full") {
+  // PIE-1630, the walk. SNAP_COLS sets the width (80, 160). A 1600×1000 spread [+]'d to the full width; a 600×230 graph
+  // with monospace text drawn large (sharp: look at the PNG); captions against the rows drawn, in the reader and in the
+  // edit's preview; the band beside a narrow picture; an arc of text on a path. Made-up SVGs, a scratch host.
+  const rows = () => emu.text();
+  const source = async (id: string) => (await board.read(id))!.text.split("\n").filter(l => /^```svg/.test(l)).join(" | ");
+  const clickNth = (text: string, n: number) => {
+    const ys = rows().flatMap((l, y) => l.includes(text) ? [y] : []);
+    const y = ys.at(n);
+    if (y === undefined) throw new Error(`no ${text} #${n} on screen:\n${rows().join("\n")}`);
+    const x = rows()[y]!.indexOf(text) + 1;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+  };
+  const said = (name: string) => console.log(`${name}: ${rows().map(l => l.trim().replace(/^[║│]\s*/, "")).filter(l => /(svg picture|full width|as big)/.test(l)).map(l => l.replace(/\s{3,}/g, "  ")).join(" / ")}`);
+  const fence = (body: string, words = "") => `\`\`\`svg${words}\n${body}\n\`\`\``;
+  const spread = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000"><rect width="1600" height="1000" fill="#121a26"/><rect x="60" y="60" width="700" height="880" rx="18" fill="#1b2738"/><rect x="840" y="60" width="700" height="880" rx="18" fill="#1b2738"/><text x="100" y="170" fill="#c9d4e2" font-family="DejaVu Serif, serif" font-size="72">Beds, autumn</text><text x="880" y="170" fill="#c9d4e2" font-family="DejaVu Serif, serif" font-size="72">The shed</text></svg>`;
+  const graph = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 230"><rect width="600" height="230" fill="#111827"/><text x="20" y="40" font-family="DejaVu Sans Mono, monospace" font-size="16" fill="#9ca3af">load 0.42 · builders 3 · queued 27</text><path d="M20 200L120 150L220 170L320 90L420 120L580 60" stroke="#60a5fa" fill="none" stroke-width="2"/><text x="20" y="220" font-family="DejaVu Sans Mono, monospace" font-size="11" fill="#6b7280">06:00   08:00   10:00   12:00</text></svg>`;
+  const arc = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 350"><defs><path id="hedge" d="M35 250Q350 100 665 250"/></defs><rect width="700" height="350" fill="#141a22"/><path d="M35 250Q350 100 665 250" stroke="#4a5568" fill="none"/><text fill="#c9d4e2" font-size="25"><textPath href="#hedge" startOffset="50%" text-anchor="middle">along the hedge line</textPath></text></svg>`;
+  board.subscribe(e => app.event(e));
+  app.push(new MainMenu());
+  const a = await board.createBlock(null, `Spread\n\n${fence(spread)}\n\nafter`);
+  app.push(openScreen("detail", { note: a.id, persist: false }));
+  await snap("spread-first", 2500); said("spread, unsized"); console.log("  source:", await source(a.id));
+  for (let i = 0; i < 8 && !rows().some(l => l.includes("full width already")); i++) { clickNth("[+]", 0); await snap(`spread+${i + 1}`, 1200); said(`[+] ${i + 1}`); console.log("  source:", await source(a.id)); }
+  console.log("  said:", rows().find(l => /full width already|as big/.test(l))?.trim() ?? "(nothing)");
+  app.pop();
+  const g = await board.createBlock(null, `Graph\n\n${fence(graph, " size=full")}\n\n${fence(graph, " size=25%")}\n\n${fence(arc)}\n\n${fence(spread, " height=800")}\n\nafter`);
+  app.push(openScreen("detail", { note: g.id, persist: false }));
+  await snap("graph-first", 3000); said("graph full, graph 25%, arc, height=800");
+  for (let i = 0; i < 60 && rows().filter(l => l.includes("600x230")).length < 2; i++) { press({ kind: "down" }); await Bun.sleep(30); }
+  clickNth("600x230", -1); await snap("graph-band", 1200); said("the narrow graph selected (the band)");
+  // A tall body for the last fence: scroll to it.
+  for (let i = 0; i < 80 && !rows().some(l => l.includes("asked")); i++) { press({ kind: "down" }); await Bun.sleep(30); }
+  await snap("graph-800", 1500); said("height=800");
+  press({ kind: "esc" }); await Bun.sleep(200);
+  await app.dispatch.act({ action: "edit", args: {} }, USER).catch(e => console.log("  edit:", String(e)));
+  await Bun.sleep(500);
+  await app.dispatch.act({ action: "draft.preview", args: { on: true } }, USER).catch(e => console.log("  preview:", String(e)));
+  await snap("edit-preview", 3500); said("the edit's preview");
   app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "picture-identity") {

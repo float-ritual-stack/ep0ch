@@ -4,7 +4,7 @@
 // media-line.ts stays the one grammar: this module reads it, and adds no syntax.
 
 import { noteCodeFences, noteStructure } from "./component-block";
-import { heroPropStep, heroPropText, imagePrimitiveSpec, MEDIA_ATTRS, noteMediaLines, parseMediaLine, pictureFenceSpec, rewriteImageLine, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "./media-line";
+import { heroPropStep, heroPropText, imagePrimitiveSpec, MAX_CONTENT_HEIGHT, MEDIA_ATTRS, noteMediaLines, parseMediaLine, pictureFenceSpec, rewriteImageLine, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "./media-line";
 
 export type PictureKind = "line" | "fence" | "drawing";
 /** A render line whose script answered with an svg image: the service's answer, as a note's reader has it. */
@@ -126,20 +126,34 @@ function ownCols(m: Pixels, spec: MediaSpec, W: number, c: Pick<Cells, "cellW">)
   return spec.fence || spec.drawn ? Math.max(1, Math.ceil(m.width / PICTURE_SCALE / c.cellW)) : Math.max(Math.min(W, 24), Math.round((m.width / c.cellW) * 0.5));
 }
 
+/** A picture nobody sized: no `[size::…]` and no `[height::…]` written. The reader's cap is for these only (PIE-1630). */
+export const unsized = (spec: MediaSpec) => spec.size === undefined && spec.height === undefined;
+
 /**
  * Where a picture goes in a body `W` wide: its width from `[size::…]` (cells, a share of the body, or all of it) or from
- * `[height::…]`, else its own; its aspect kept, inside both when both are written, at most `maxImageRows` tall; then
- * placed by `[align::…]`.
+ * `[height::…]`, else its own; its aspect kept, inside both when both are written; then placed by `[align::…]`. Unsized,
+ * it's at most `maxImageRows` tall (the reader's share of its rows). Sized, only its own words hold it (PIE-1630): it goes
+ * as wide as they ask, up to the body's width, and a tall one scrolls as any tall block does, at most MAX_CONTENT_HEIGHT.
  */
 export function imageBox(m: Pixels, spec: MediaSpec, W: number, c: Cells): { col: number; cols: number; rows: number } {
   const s = spec.size;
   let cols = s === "full" ? W : s && "percent" in s ? Math.round((W * s.percent) / 100) : s ? s.cells : spec.height ? colsFor(m, spec.height, c) : ownCols(m, spec, W, c);
   cols = Math.max(1, Math.min(W, cols));
   let rows = rowsFor(m, cols, c);
-  const most = Math.min(c.maxImageRows, spec.height ?? Infinity);
+  const most = unsized(spec) ? c.maxImageRows : Math.min(spec.height ?? MAX_CONTENT_HEIGHT, MAX_CONTENT_HEIGHT);
   if (rows > most) { rows = Math.max(1, most); cols = Math.max(1, Math.min(W, colsFor(m, rows, c))); }
   const col = spec.align === "center" ? Math.floor((W - cols) / 2) : spec.align === "right" ? W - cols : 0;
   return { col, cols, rows };
+}
+
+/**
+ * What a caption says of a picture's size: the rows `box` drew (never the words', which the width may not hold), and its
+ * width when it's the body's or a share written; "(N asked)" when `[height::N]` asked for more rows than were drawn.
+ */
+export function drawnSizeText(box: { cols: number; rows: number }, spec: MediaSpec, W: number): string {
+  const width = box.cols >= W && !unsized(spec) ? "full width" : spec.size && spec.size !== "full" && "percent" in spec.size ? `${spec.size.percent}%` : "";
+  const asked = spec.height !== undefined && spec.height > box.rows ? ` (${spec.height} asked)` : "";
+  return [`${box.rows} rows`, width].filter(Boolean).join(" · ") + asked;
 }
 
 /**
@@ -214,9 +228,9 @@ export interface StepRoom extends Cells {
   /** The header's rows as drawn, and the most it can take. */
   header?: { rows: number | null; most: number };
 }
-export type PictureStep = { set: { size?: string; height?: string } } | { stop: string };
+export type PictureStep = { set: { size?: string; height?: string | null } } | { stop: string };
 
-const BIGGEST = "it's as big as it gets here", SMALLEST = "it's at its smallest";
+const BIGGEST = "it's as big as it gets here", SMALLEST = "it's at its smallest", FULL = "it's the full width already";
 
 /**
  * One step bigger or smaller, for every kind: the header and a drawing by rows, a media line by shares of the body. A
@@ -238,7 +252,7 @@ export function pictureStep(p: Pick<Picture, "kind" | "spec" | "header">, by: nu
     let at = size === "full" ? 100 : size && "percent" in size ? size.percent : size ? (size.cells / Math.max(1, room.body)) * 100 : shown ?? 50;
     for (;;) {
       const step = by > 0 ? SIZE_STEPS.find(x => x > at + 1) : [...SIZE_STEPS].reverse().find(x => x < at - 1);
-      if (step === undefined) return { stop: by > 0 ? (size === "full" || at >= 99 ? "it's the full width already" : BIGGEST) : "it's at the smallest step (25%) already: image.size to= any width" };
+      if (step === undefined) return { stop: by > 0 ? (size === "full" || (was && was.cols >= room.body) ? FULL : BIGGEST) : "it's at the smallest step (25%) already: image.size to= any width" };
       const word = step === 100 ? "full" : `${step}%`;
       const after = box({ ...spec, size: step === 100 ? "full" : { percent: step } });
       if (!was || !after || after.cols !== was.cols || after.rows !== was.rows) return { set: { size: word } };
@@ -246,13 +260,18 @@ export function pictureStep(p: Pick<Picture, "kind" | "spec" | "header">, by: nu
       at = step;
     }
   }
-  const at = (room.drawn ?? box(spec))?.rows ?? spec.height ?? HERO_ROWS;
+  // A fence and a drawing by rows, up to the full width: past the last row step, or where the next would reach the
+  // width, the step is `size=full` (its height word taken out), and at the full width [+] stops there (PIE-1630).
+  const now = room.drawn ?? box(spec), at = now?.rows ?? spec.height ?? HERO_ROWS;
+  if (by > 0 && now && now.cols >= room.body) return { stop: FULL };
   const next = heroPropStep("height", String(at), by);
-  if (next === String(at)) return { stop: by > 0 ? BIGGEST : SMALLEST };
-  if (by > 0) {
-    const after = box({ ...spec, height: +next });
-    if (after && after.rows <= at) return { stop: BIGGEST };
-    if (room.drawn && at >= room.maxImageRows) return { stop: BIGGEST };
-  }
-  return { set: { height: next } };
+  if (by < 0) return next === String(at) ? { stop: SMALLEST } : { set: { height: next } };
+  const after = next === String(at) ? null : box({ ...spec, height: +next });
+  if (!room.px && !now) return next === String(at) ? { stop: BIGGEST } : { set: { height: next } };
+  if (after && after.cols < room.body && after.rows > at) return { set: { height: next } };
+  const full = box({ ...spec, size: "full", height: undefined });
+  if (now && full && full.cols <= now.cols && full.rows <= now.rows) return { stop: BIGGEST };
+  // A fence's height word goes; a drawing's line writes the full width's rows instead, since without a height of its own
+  // the script's (its image primitive's `height`) would hold it again, smaller.
+  return { set: { size: "full", height: p.kind === "drawing" && full ? String(full.rows) : null } };
 }
