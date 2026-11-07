@@ -31,6 +31,9 @@ test("a long refusal in a step ends at a sentence, never inside a code span", ()
   const word = `run \`${"x".repeat(170)}\` first`;
   expect(shortReason(word)).toBe("run…");
   expect(shortReason("y".repeat(200))).toBe(`${"y".repeat(159)}…`);
+  // A sentence end inside a code span isn't one: the cut is the sentence before the span.
+  const inCode = `The model refused it. Its words were \`invalid query? ${"z ".repeat(60)}\` and it stopped there for good.`;
+  expect(shortReason(inCode)).toBe("The model refused it");
 });
 
 test("the button takes the label its doc gives, asks for a required argument, and a press remembers", () => {

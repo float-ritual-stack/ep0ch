@@ -84,6 +84,20 @@ describe.skipIf(!outliner)("an edit opened where you're reading", () => {
     typesInView(r, title);
   });
 
+  test("typed on the edit's top row and saved: the line stays below the reader's header, in view (PIE-1585)", async () => {
+    const title = `Top row beans ${cols}`, r = await reading(title);
+    for (let i = 0; i < 30; i++) r.feed(r.wheel);
+    const d = await opened(r);
+    for (let i = 0; i < 40 && draftView(d).cursorRow > 0; i++) h.press({ kind: "up" });
+    screen();
+    expect(draftView(d).cursorRow).toBe(0);
+    for (const c of "zq") h.press({ kind: "char", ch: c });
+    screen();
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => { screen(); return !r.reader.surface.editing; }, "the save");
+    await until(() => rows().some(l => l.includes("zq")), "the line typed on the top row, in view");
+  });
+
   test("saved at the end of a note whose answers the reader draws taller than the edit: the line typed stays in view (PIE-1585)", async () => {
     const answered = Array.from({ length: 12 }, (_, i) => `Cane ${i + 1}\n@yo how do I tie cane ${i + 1}\n> [!note]- @yo answered\n> one\n> two\n> three\n> four`).join("\n\n");
     const title = `Answered beans ${cols}`, r = await reading(title, answered);

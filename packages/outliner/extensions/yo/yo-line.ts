@@ -226,8 +226,10 @@ export function memoryText(asked: string, pressed: string): string {
 export function shortReason(said: string): string {
   const line = said.split("\n", 1)[0]!.trim();
   if (line.length <= 160) return line;
-  const sentences = /^.{20,159}[.!?)](?=\s)/.exec(line)?.[0];
-  if (sentences) return sentences.replace(/\.$/, "");
+  // The last sentence end before the limit that sits outside code spans (an even count of backticks before it).
+  const ends = [...line.slice(0, 160).matchAll(/[.!?)](?=\s)/g)].map(m => m.index! + 1)
+    .filter(at => at >= 21 && (line.slice(0, at).match(/`/g)?.length ?? 0) % 2 === 0);
+  if (ends.length) return line.slice(0, ends.at(-1)).replace(/\.$/, "");
   const cut = line.slice(0, 159).replace(/\s+\S*$/, "");
   return `${(cut.match(/`/g)?.length ?? 0) % 2 ? cut.replace(/`[^`]*$/, "").trimEnd() : cut}…`;
 }

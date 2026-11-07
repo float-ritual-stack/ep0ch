@@ -3301,7 +3301,7 @@ export class NoteSurface {
    */
   private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
-    if (!this.replyParent && !s.draft.stillLanded) { this.position.reading = s.draft.offsetOf(s.draft.row, 0); const c = this.position.caret; if (c?.line === s.draft.row) this.position.view = { line: c.line, row: c.row }; } // the line typed last stays on its row: answers draw taller here than in the edit (PIE-1585)
+    if (!this.replyParent && !s.draft.stillLanded) { this.position.reading = s.draft.offsetOf(s.draft.row, 0); const c = this.position.caret; if (c?.line === s.draft.row) this.position.view = { line: c.line, row: Math.max(c.row, this.positionRows.origin) }; } // the line typed last stays on its row, below this header: answers draw taller here than in the edit (PIE-1585)
     this.endPreviewDraft();
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
