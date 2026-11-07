@@ -212,7 +212,7 @@ export const pictureRowsOf = (images: readonly { line: number; rows: number }[],
   new Set(images.flatMap(im => Array.from({ length: im.rows }, (_, k) => at + im.line + k)));
 
 /** The band's mark on a picture's rows: a thin bar of its colour at the body's edge. */
-const BAND_GLYPH = "▎";
+const BAND_GLYPH = "│";
 /**
  * A picture's row under a band (the ruler, the reading band, a thread's tint), `bx` columns of inset before the body:
  * beside a narrow picture a fill would be a wall of colour round it, so the row keeps the ground and the band's place is

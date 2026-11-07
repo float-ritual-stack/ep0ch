@@ -265,7 +265,7 @@ describe("as big as asked, and said truly (PIE-1630)", () => {
     const ink = RULER_BG.replace("\x1b[48;", "\x1b[38;");
     for (let r = p.row; r < p.row + p.rows; r++) {
       expect(v.lines[r]).not.toContain(RULER_BG);
-      expect(v.lines[r]).toContain(ink + "▎");
+      expect(v.lines[r]).toContain(ink + "│");
     }
     // The caption's row, the element's own, still carries the band.
     expect(v.lines[p.row + p.rows]).toContain(RULER_BG);

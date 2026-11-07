@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A picture grows to the note's width, draws sharp, and says its real size (PIE-1630)
+
+- **`[+]` goes on to the full width:** the reader's share of its rows holds a picture nobody sized; once `[+]` or a written size asks for more, it grows to the body's width and the note scrolls past it. There `[+]` says "it's the full width already".
+- **Sharp at any size:** an SVG (a fence, a script's drawing, an `[img::…svg]` file) is drawn at the size it's shown, so a small one drawn wide keeps its lines and text crisp.
+- **The caption says the size drawn:** `31 rows · full width (200 asked)`, in the reader and in an edit's preview; a narrow caption keeps the size and cuts a warning rather than dropping it.
+- **A quiet place marker:** beside a narrow picture the band is a thin bar on the edge, not a wall of colour.
+- **Text on a curve is named:** librsvg leaves `<textPath>` out, and an svg fence's caption says so.
+- **Run:** `ep0ch install --apply` (door code; the draw rules change, so GRAMMAR moves with it).
+
 ### An @ask answers under the line the cursor is on (PIE-1585)
 
 - **The cursor can stay on the ask:** pause on an `@yo …` line in the editor and the answer opens under it, with the cursor where it was. It used to fail with "the cursor is on the ask being answered", and that failure stuck to the line.
