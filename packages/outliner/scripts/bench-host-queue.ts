@@ -333,7 +333,7 @@ if (phases.includes("laptop")) {
 if (phases.includes("restart")) {
   phase = "between";
   // A restart meets outlines that have been open before: their extensions' pages written, as float-2's are.
-  while (warmLines.length < OTHERS.length + 1) await Bun.sleep(100);
+  for (let i = 0; i < 1200 && warmLines.length < OTHERS.length + 1; i++) await Bun.sleep(100);
   host.kill("SIGTERM");
   await host.exited;
   phase = "restart";
@@ -352,7 +352,7 @@ if (phases.includes("restart")) {
   await Promise.all(doors.map(d => d.stop()));
   report("restart", doors, `${doors.length} doors reconnecting, the first answer ${gap} ms after the host started`);
   for (const { line } of warmLines.filter(w => w.phase === "restart")) console.log(`  ${line}`);
-  if (values.timeline) for (const r of rows.filter(r => r.phase === "restart" && (r.status === "loop_stalled" || (r.queuedMs ?? 0) > 1000 || (r.loopMs ?? 0) > 200)).slice(0, 80)) {
+  if (values.timeline) for (const r of rows.filter(r => r.phase === "restart" && (r.status === "loop_stalled" || (r.queuedMs ?? 0) > 1000 || (r.handleMs ?? 0) > 1000 || (r.loopMs ?? 0) > 200)).slice(0, 80)) {
     console.log(`  ${r.status === "loop_stalled" ? `stall ${(r as { ms?: number }).ms} ${r.during?.join(", ")}` : `${r.action} q=${r.queuedMs} h=${r.handleMs} l=${r.loopMs}`}`);
   }
 }
