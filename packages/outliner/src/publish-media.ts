@@ -50,6 +50,15 @@ export async function componentImageAt(client: Pick<OutlinerClient, "request">, 
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 
+/**
+ * Why a page doesn't show a picture, for the signed-in owner only (PIE-1633): what's wrong and the line that fixes it,
+ * plain text with each `command` in backticks (drawn as code). Outsiders get the picture's words and its file's name.
+ */
+export interface MediaWhy { said: string }
+
+/** A reason's text as HTML: escaped, each backtick span code. */
+const whyHtml = (said: string) => escapeHtml(said).replace(/`([^`]+)`/g, "<code>$1</code>");
+
 /** A width as the page draws it: picture.ts decides, a terminal cell being about a character wide. */
 const width = pictureWidthCss;
 
@@ -57,15 +66,17 @@ const width = pictureWidthCss;
  * An image as HTML: dark behind it until it loads, held a little below full brightness unless `[dim::]` says how much
  * (0 none … 1 black), its alt text its caption (none when `caption` is false: a view's cover, PIE-839).
  */
-export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, caption = true, open?: string, deploy?: ArtifactDeployState): string {
+export function mediaHtml(spec: MediaSpec, from: string | MediaWhy | null, title?: string, caption = true, open?: string, deploy?: ArtifactDeployState): string {
+  const src = typeof from === "string" ? from : null, why = from && typeof from === "object" ? from : undefined;
   if (spec.kind === "artifact" && artifactRepoRef(spec.path)) return repoHtml(spec, title ?? fileName(spec.path), deploy);
   if (spec.kind === "artifact") return artifactHtml(spec, src, title ?? fileName(spec.path), open);
   const alt = spec.alt ?? "";
   const align = spec.align ?? (spec.layout === "hero" ? "center" : "left");
   if (!src || spec.kind !== "img") {
     const what = spec.kind === "video" ? "video" : "image";
-    return `<figure class="media media-missing media-${align}"><span class="media-what">${what}</span> ` +
-      `${alt ? `${escapeHtml(alt)} ` : ""}<code>${escapeHtml(fileName(spec.path))}</code></figure>`;
+    return `<figure class="media media-missing media-${align}${spec.layout === "hero" ? " media-hero" : ""}"><span class="media-what">${what}</span> ` +
+      `${alt ? `${escapeHtml(alt)} ` : ""}<code>${escapeHtml(fileName(spec.path))}</code>` +
+      `${why ? `<span class="media-why">${whyHtml(why.said)}</span>` : ""}</figure>`;
   }
   const styles: string[] = [];
   const w = width(spec);
@@ -140,6 +151,7 @@ export const MEDIA_STYLE = `
 .media-repo{color:var(--dim);border:1px solid var(--rule);border-radius:.25rem;padding:.5rem .75rem}
 .media-repo .media-what{font:12px/1.4 ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.05em}
 .media-missing{color:var(--dim);border:1px dashed var(--rule);border-radius:.25rem;padding:.5rem .75rem}
+.media-why{display:block;margin-top:.35rem;color:var(--fg,inherit);font-size:.9em}
 .media-missing .media-what,.artifact .media-what{font:12px/1.4 ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.05em}
 .artifact-frame{max-width:100%;background:#141413;border:1px solid var(--rule);border-radius:.25rem;overflow:hidden}
 .media-center .artifact-frame{margin:0 auto}.media-right .artifact-frame{margin-left:auto}
@@ -186,12 +198,12 @@ function drawNotePictures(text: string, components: string[], own: Map<number, D
 /**
  * Each note's media lines, drawn in their lines' place (`drawn`, beside the figures already there, which keep theirs):
  * in HTML a component (its sentinel), in Markdown the image or its words. `src` answers where a line's image (or
- * artifact) is served from, or null when it isn't; `title` an artifact's title. `first`: the page's own note, whose first
+ * artifact) is served from, or null when it isn't (why, for the owner: `MediaWhy`); `title` an artifact's title. `first`: the page's own note, whose first
  * line is its title (kept above an image there).
  */
 export function drawNoteMedia(
   notes: readonly { id: string; text: string }[], format: "markdown" | "html", components: string[],
-  drawn: Map<string, Map<number, DrawnComponent>>, src: (blockId: string, line: number, spec: MediaSpec) => string | null,
+  drawn: Map<string, Map<number, DrawnComponent>>, src: (blockId: string, line: number, spec: MediaSpec) => string | MediaWhy | null,
   first?: { id: string; title: string }, title?: (blockId: string, line: number, spec: MediaSpec) => string | undefined,
   open?: (blockId: string, line: number) => string | undefined, deploy?: (blockId: string, line: number) => ArtifactDeployState | undefined,
   pictures?: FenceSvg,
@@ -210,7 +222,7 @@ export function drawNoteMedia(
         if (components.length >= MAX_PUBLISHED_COMPONENTS) break;
         components.push(mediaHtml(spec, at, named, true, spec.kind === "artifact" ? open?.(note.id, line) : undefined, deploy?.(note.id, line)));
         shown = componentSentinel(components.length - 1);
-      } else shown = mediaMarkdown(spec, at, named, spec.kind === "artifact" ? open?.(note.id, line) : undefined, deploy?.(note.id, line));
+      } else shown = mediaMarkdown(spec, typeof at === "string" ? at : null, named, spec.kind === "artifact" ? open?.(note.id, line) : undefined, deploy?.(note.id, line));
       own.set(line, { end: line + 1, markdown: line === 0 && first?.id === note.id ? `${first.title}\n\n${shown}` : shown });
     }
     if (own.size) drawn.set(note.id, own);

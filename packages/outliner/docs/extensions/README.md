@@ -819,7 +819,8 @@ is, and nothing is written to the outline to show it:
   with a background of its own (Tern) would otherwise show an empty box.
 - **A web page** serves it as a note's image (`/p/<id>/media/<line>/<n>`, the `n`th image of the view that line draws,
   read again from the kept view): only a file inside the publish roots, never by its path. One it may not serve is its
-  alt text and its file's name. `caption: false` drops the figure's caption under a served picture.
+  alt text and its file's name; to the signed-in owner it also says why, with the line that fixes it (`--root <folder>`
+  on the publisher for a folder outside its roots; PIE-1633). `caption: false` drops the figure's caption under a served picture.
 - **The `terminal` target** says `[image: alt] path`; **`markdown`** (and `blockdown`, Detail, an export, MCP) say the alt
   text and the file's name, never its folders: a Markdown reader can't reach the outline's files.
 
