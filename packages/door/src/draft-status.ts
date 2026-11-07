@@ -47,8 +47,8 @@ export class DraftStatus {
     if (this.armWords !== null && text !== this.armWords) { this.arms.clear(); this.armWords = null; }
     return (this.said = text);
   }
-  /** The first press: `words` say on the line what the second does, for as long as it would. */
-  arm(what: DraftArm, words: string): string { this.arms.arm(what); this.armWords = words; return (this.said = words); }
+  /** The first press: what's just been said on the line says what the second does, and stays for as long as it would. */
+  arm(what: DraftArm) { this.arms.arm(what); this.armWords = this.said; }
   /** What's armed now, or null. */
   armed(): DraftArm | null { return this.arms.armed(); }
   /** A press that can confirm it: what it confirms (past its pause, inside its window), or null. The arm and its words go either way. */

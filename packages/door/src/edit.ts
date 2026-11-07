@@ -375,8 +375,9 @@ export class Draft {
     // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
-      const words = `saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history`;
-      return { asked: true, said: by.kind === "agent" ? this.status.say(words) : this.status.arm("undo", words) };
+      const said = this.status.say(`saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history`);
+      if (by.kind !== "agent") this.status.arm("undo");
+      return { asked: true, said };
     }
     this.undos.pop();
     s.open = false;
@@ -566,7 +567,7 @@ export class Draft {
     if (bound) return this.run(bound.action, k, was === "undo", bound);
     if (k.kind === "char" && k.ctrl) {
       // ctrl+x ctrl+e: $EDITOR (bash's chord). ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
-      if (k.ch === "x") { this.status.arm("chord", `ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); return "keep"; }
+      if (k.ch === "x") { this.status.say(`ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); this.status.arm("chord"); return "keep"; }
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
@@ -582,9 +583,10 @@ export class Draft {
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
       if (was !== "discard") {
-        this.status.arm("discard", this.restored === this.text
+        this.status.say(this.restored === this.text
           ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves" // says, not a hint row
           : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"); // says, not a hint row
+        this.status.arm("discard");
         return "keep";
       }
       return "discard";
