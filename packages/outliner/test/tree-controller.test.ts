@@ -4291,3 +4291,56 @@ test.each(["this", "inbox", "reference"])("Tree creates under the advertised cre
     expect(child!.properties).toContainEqual({ key: "kind", value: "flower" });
   } finally { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
+
+// PIE-1618: each mode owns its data. Reaching a mode after another left must show nothing of the one that left.
+describe("nothing of a left mode shows in the next", () => {
+  const destinationFixture = () => {
+    const a = block("mode-stale-source");
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([a], a);
+      if (input.action === "navigation.link.get") return {source: {clientId: "tree-test", region: "tree"}, destination: null, destinations: []};
+    });
+    return {fake, controller: createTreeController({...fake.effects, copyText: () => {}})};
+  };
+
+  test("a location menu left by Esc doesn't fill the destination chooser", async () => {
+    const {controller} = destinationFixture();
+    await controller.initialize();
+    await controller.handleAction("tree.location");
+    await controller.handleKeypress("", {name: "escape"}, "pass");
+    await controller.handleAction("tree.navigation.link");
+    expect(controller.view().actionMenuItems!.map(item => item.id)).not.toContain("tree.root.workspace");
+    expect(controller.view().actionMenuItems!.every(item => item.id.startsWith("destination:"))).toBe(true);
+  });
+
+  test("the selected-items menu left by Esc doesn't fill the destination chooser", async () => {
+    const {controller} = destinationFixture();
+    await controller.initialize();
+    await controller.handleAction("tree.selection.inspect");
+    await controller.handleKeypress("", {name: "escape"}, "pass");
+    await controller.handleAction("tree.navigation.link");
+    expect(controller.view().actionMenuItems!.every(item => item.id.startsWith("destination:"))).toBe(true);
+  });
+
+  test("a menu opened by right-click leaves no position for the next one", async () => {
+    const {controller} = destinationFixture();
+    await controller.initialize();
+    await controller.handleSecondaryClick({column: 9, row: 7}, undefined);
+    expect(controller.view().actionMenuOrigin).toEqual({column: 9, row: 7});
+    await controller.handleKeypress("", {name: "escape"}, "pass");
+    await controller.handleAction("tree.selection.inspect");
+    expect(controller.view().actionMenuOrigin).toBeNull();
+  });
+
+  test("the workspace report's copy note doesn't show in the next viewer", async () => {
+    const {controller} = destinationFixture();
+    await controller.initialize();
+    await controller.handleAction("tree.workspace.inspect");
+    await controller.handleAction("tree.viewer.copy");
+    expect(controller.view().viewerStatus).toBe("Value sent to terminal clipboard");
+    await controller.handleKeypress("", {name: "escape"}, "pass");
+    await controller.handleAction("tree.view.inspect");
+    expect(controller.view().viewerPath).toBe("View status");
+    expect(controller.view().viewerStatus).toBe("");
+  });
+});

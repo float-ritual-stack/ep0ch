@@ -6313,3 +6313,45 @@ test("status.flash is a routine notice: it clears itself so compact Detail's hin
   await new Promise(resolve => setTimeout(resolve, 3_100));
   expect(harness.controller.state.status).toBe("Bars unchanged: broken");
 }, 10_000);
+
+// PIE-1618: each mode owns its data. Reaching a mode after another left must show nothing of the one that left.
+describe("nothing of a left mode answers in the next", () => {
+  test("a line selection left with its file view stops protecting navigation", async () => {
+    const reasons: (string | null)[] = [];
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview());
+    harness.effects.setNavigationProtection = async reason => { reasons.push(reason); };
+    await harness.controller.initialize();
+    await harness.controller.onServiceConnect(viewport);
+    await harness.controller.dispatch({ type: "file.selection.toggle" }, viewport);
+    expect(reasons.at(-1)).toContain("source selection");
+    await harness.controller.dispatch({ type: "view.block" }, viewport);
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(reasons.at(-1)).toBeNull();
+  });
+
+  test("a reply draft left without saving doesn't take the next comment", async () => {
+    const text = "Title\nPhrase\nLast line";
+    const harness = createHarness(makeBlock({ text }), null, async text => ({ text, references: [] }));
+    let thread: AnnotationThread;
+    harness.effects.reconcileAnnotations = async input => {
+      thread ??= { ...annotationRecord({ representation: input.newRepresentation,
+        anchor: { kind: "text-quote", start: 6, end: 12, exact: "Phrase", prefix: "", suffix: "" } }), replies: [] };
+      return { threads: [thread], changed: true };
+    };
+    harness.effects.getAnnotation = async () => thread;
+    const replies: string[] = [];
+    harness.effects.replyAnnotation = async input => { replies.push(input.input.body); return { annotations: [], deduplicated: false }; };
+    const { controller } = harness;
+    await controller.initialize();
+    await controller.dispatch({ type: "annotation.thread.move", delta: 1 }, viewport);
+    await controller.dispatch({ type: "annotation.thread.reply" }, viewport);
+    expect(controller.state.mode).toBe("comment");
+    await controller.dispatch({ type: "view.block" }, viewport);
+    await controller.dispatch({ type: "comment.begin" }, viewport);
+    await controller.dispatch({ type: "buffer.insert", text: "A new comment" }, viewport);
+    await controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(replies).toEqual([]);
+    expect(harness.calls.creates.map(input => input.input.body)).toEqual(["A new comment"]);
+  });
+});
