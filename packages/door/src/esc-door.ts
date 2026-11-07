@@ -88,10 +88,9 @@ function drawerEscIn(dr: Drawer, run: DrawerRun): EscRung | null {
   return rungOf(d.escReadFront() ?? word, () => d.escFront() || out());
 }
 /** What the drawer's foot says the next Esc closes: the door's answer, null when something else has the key (a program on the screen); a door with no reader (a test's) asks its own desk. */
-export function drawerFootEsc(dr: Drawer, exited: boolean): string | null {
-  if (exited) return ESC_DRAWER_KEYS;
-  const esc = (dr as unknown as { host: { ctx?(): { esc?: { hint(): string | null } } | undefined } }).host.ctx?.()?.esc;
-  return esc ? esc.hint() : dr.entered ? dr.desk?.escNextFront() ?? ESC_DRAWER_KEYS : ESC_DRAWER;
+export function drawerFootEsc(dr: Drawer): string | null {
+  const esc = (dr as unknown as { host: { ctx?(): { esc?: { next(): string | null } } | undefined } }).host.ctx?.()?.esc;
+  return esc ? esc.next() : dr.entered ? dr.desk?.escNextFront() ?? ESC_DRAWER_KEYS : ESC_DRAWER;
 }
 /** Esc with the person out of the drawer and nothing in front of it (the `drawer-up` step): it goes away. */
 function drawerEscUp(dr: Drawer, run: DrawerRun): EscRung | null {

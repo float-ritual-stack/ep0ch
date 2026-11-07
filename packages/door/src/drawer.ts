@@ -1310,7 +1310,7 @@ export class AgentDrawer {
     canvas.text(0, 0, fg(edge) + title + " " + "═".repeat(Math.max(0, cols - width(title) - 1)) + RESET, cols);
     // Whether a program has the person's keys, or has exited, is the owner's answer (App.person's `program`, PIE-1563), read, not asked again.
     const keysAre = this.entered ? this.host.person?.() : undefined, program = keysAre?.program;
-    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited, !!program?.exited, keysAre?.wayOut === "group", drawerFootEsc(this, !!program?.exited))}${fg(C.dark)}` + RESET, cols - 2);
+    if (!this.folded) canvas.text(1, r.rows - 1, fg(C.dark) + `drawer · ${drawerFoot(this.entered, !!program && !program.exited && !program.over, !!program?.exited, keysAre?.wayOut === "group", drawerFootEsc(this))}${fg(C.dark)}` + RESET, cols - 2);
     const placements = (this.hostFrame.placements ?? []).filter(pl => pl.row >= r.row + 1 && pl.row + pl.rows < r.row + r.rows);
     return { rect: r, lines: canvas.lines(), placements };
   }

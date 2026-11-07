@@ -251,7 +251,7 @@ export interface Ctx {
    */
   nothingToClose?(leave: string): void;
   /** The door's reader of Esc's ladder: what the hint says, a click on it (`esc.close`); a stand-in context has none and the desk answers. */
-  esc?: Pick<DoorEsc, "hint" | "close">;
+  esc?: Pick<DoorEsc, "next" | "hint" | "close">;
   /**
    * Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the
    * screen; `from`: a terminal tile's name, when its program copied it ("copied from <tile>"). False when nothing was

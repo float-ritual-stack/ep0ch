@@ -270,6 +270,34 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
         } finally { d.quit(); }
       });
     }
+    test("a strip's picker open: the foot says the strip, as Esc does (Codex on #1340)", async () => {
+      const d = await upAndOut(120);
+      try {
+        await d.feed("]");
+        await d.app.dispatch.act({ action: "strip.more", args: { strip: "hint" }, tile: d.desk.keys().address }, USER);
+        await until(() => d.A.strips.engaged, "the strip's picker");
+        d.paint();
+        expect(d.app.esc.next()).toBe("the strip");
+        expect(foot(d)).toContain("esc the strip");
+      } finally { d.quit(); }
+    });
+    for (const exited of [false, true]) {
+      test(`the power bar over a drawer program that ${exited ? "exited" : "runs"}: the foot says the bar, as Esc does (Codex on #1340)`, async () => {
+        const d = await door();
+        try {
+          await d.feed("\x1ba");
+          await until(() => d.app.drawer.entered && d.app.drawer.tile?.running === true, "in the drawer's agent");
+          if (exited) { d.app.drawer.tile!.kill(); await until(() => d.app.drawer.tile?.running === false, "the agent exited"); }
+          d.paint();
+          await d.app.dispatch.press("bar.open");
+          await until(() => !!d.A.bar, "the power bar");
+          d.paint();
+          expect(d.app.esc.next()).toBe("the power bar");
+          expect(foot(d)).toContain("esc the power bar");
+          expect(foot(d)).not.toContain("program's");
+        } finally { d.quit(); }
+      });
+    }
     test("a program on the screen has the key: the foot never says Esc puts the drawer away", async () => {
       const d = await upAndOut(120);
       try {
