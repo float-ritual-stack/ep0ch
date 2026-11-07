@@ -30,7 +30,7 @@ const ISOLATED: [string, string | undefined][] = [
 ];
 
 test("the built-ins that name a claude default are the ones this is about", () => {
-  expect(claudeDefaults().map((d) => d.field).sort()).toEqual(["asks.answer", "tidy.answer"]);
+  expect(claudeDefaults().map((d) => d.field).sort()).toEqual(["asks.answer", "tidy.answer", "yo.act", "yo.answer"]);
 });
 
 test("a built-in's default claude command sends its prompt and nothing else", () => {

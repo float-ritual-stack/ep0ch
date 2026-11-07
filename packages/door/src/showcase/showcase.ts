@@ -5,7 +5,7 @@ import { picturesSection } from "./pictures";
 import { spacingSection } from "./spacing";
 import { queryWordSections } from "./query-words";
 import { DropZonesPane } from "./drop-zones";
-import { runbookSections } from "./runbook";
+import { runbookSections } from "./runbook"; import { askYoSection } from "./ask-yo";
 import { COLLECTION_SECTIONS } from "./collections";
 import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
@@ -1041,7 +1041,7 @@ export const SECTIONS: Section[] = [
         layout: ([a, b]) => row(0.5, a!, b!) }, show, [[header, n.lineAsksHeader], [all, n.lineAsksAll]]);
     },
   },
-  ...runbookSections({ stageDesk, deskOf }),
+  ...runbookSections({ stageDesk, deskOf }), askYoSection({ deskOf }),
   {
     key: "sysop", need: "see machine health now and day by day, then restart the process an open trip names",
     part: "the sysop extension's host-wide schedule and attributed actions; NoteSurface draws graph-stat, graph-uptime and shout's warning band",

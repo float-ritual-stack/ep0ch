@@ -23,6 +23,7 @@ import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
 import { READER_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
 import { screenNote } from "./screen-notes";
+import { answeringAgents } from "../answering-agents";
 import { menuScreen } from "./menu-rows";
 /** The main-menu row a screen a person made names (PIE-1525), if any. */
 const madeMenu = (name: string) => screenNote(name)?.spec.menu;
@@ -227,6 +228,22 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
       if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
       return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor, { unnamed: to === undefined && reader === undefined && where === undefined });
+    },
+  }),
+  "tile.ask": def({
+    words: "ask an agent about this tile",
+    summary: "ask the agent an installed extension offers (agents[].ask in its manifest) about tile=<tile>: agent.ask to=<agent> about=<tile>",
+    keys: [{ via: "a row of the tile's menu (ask yo about this), when an installed agent offers one" }],
+    touches: "nothing", replay: "ask",
+    menu: { label: "ask about this", group: TILE, now: () => { const a = answeringAgents().find(g => g.ask); return a ? { label: a.ask!, args: { to: a.name } } : { hide: true }; } },
+    args: { to: { type: "string", optional: true, kind: "agent", about: "the agent; left out, the one that offers a row" } },
+    examples: [{ act: "tile.ask to=wren tile=reader", does: "asks wren about the reader tile" }],
+    run({ to }, { d, reader }, actor) {
+      const who = to ?? answeringAgents().find(g => g.ask)?.name;
+      if (!who) throw new ActionRefused("no installed agent offers an ask about a tile; ask one by name: tile.ask to=<agent>");
+      const app = d.ctx.dispatch;
+      if (!app) throw new ActionRefused("this screen has no door dispatcher");
+      return app.act({ action: "agent.ask", args: { to: who, about: reader ?? "tile" } }, actor);
     },
   }),
   "tile.close": def({
@@ -960,7 +977,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: { label: "undo the last layout change", group: SCREEN, key: "ctrl+z", now: ({ d }: On) => (d.history.size ? null : { hide: true }) },
     args: { anywhere: { type: "boolean", optional: true, about: "the newest change on any of the person's layouts (the screen, the drawer, a group), not only this one" } },
     examples: [{ act: "layout.undo", does: "takes back the newest change to this layout" }, { act: "layout.undo anywhere=true", does: "takes back the newest change on the screen, the drawer or a group, wherever the keys are" }],
-    run: ({ anywhere }, { d }: On, actor: Actor) => (anywhere ? d.undoNewest(actor) : d.undoLayout(actor, TXN.getStore()?.txn)),
+    run: ({ anywhere }, { d }: On, actor: Actor) => (anywhere ? d.undoNewest(actor) : (d.steps.deskHolding(TXN.getStore()?.txn, d, () => d.relatives())).undoLayout(actor, TXN.getStore()?.txn)),
   }),
   "layout.stop": def({
     summary: "stop the script run that is rearranging this screen (a dance in flight): scripts.stop on it, and the layout it changed is put back, as far as nobody changed it since. The person's Esc does this while a run is moving the screen, and only then (a draft, an overlay, a ^W command or a drag keep their Esc)",

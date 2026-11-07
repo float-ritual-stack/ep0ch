@@ -174,6 +174,7 @@ export const SEED = {
   querySources: "Your own words for a filter",
   seedTable: "Seed swap table",
   askAgent: "Potting bench rota",
+  askYo: "Ask yo: the potting shed door",
   shedPlan: "Shed rebuild plan",
   shedPad: "Shed sticky pad",
   zoomPlan: "Orchard winter plan",

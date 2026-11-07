@@ -30,6 +30,8 @@ export interface ExtensionGrant {
   readonly relayed?: true;
   /** The change feed's action for what it writes: `ext.<id>.<action or handler>`. */
   readonly label: string;
+  /** The agent its call answers for (`agents[].name`): who a door action it asks for (`door.act`) is attributed to. */
+  readonly agent?: string;
   /** Who asked for the run: a person, an agent (with its id), or none for a scheduled run. */
   readonly requestedBy?: MutationProvenance;
   /**

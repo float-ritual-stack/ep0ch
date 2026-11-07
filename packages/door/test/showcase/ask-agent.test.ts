@@ -113,7 +113,7 @@ describe("showcase: ask an agent (PIE-1437)", () => {
 
 test("an ask with the outline host down says so and names the commands that start it, not a bare socket error", async () => {
   const down = () => Promise.reject(new Error("connect ENOENT /tmp/scratch-outlines/.host/host.sock"));
-  const host = { near: () => "4f2a9c1e-0000-4000-8000-000000000001", note: down, ctx: { board: { resolveRefs: down } } } as unknown as BarHost;
+  const host = { near: () => "4f2a9c1e-0000-4000-8000-000000000001", note: down, screens: () => [], ctx: { board: { resolveRefs: down } } } as unknown as BarHost;
   const refused = await askAgent(host, { to: "wren", text: "water the beds" }, { kind: "user" } as Actor).then(() => null, (e: Error) => e);
   expect(refused).toBeInstanceOf(ActionRefused);
   expect(refused!.message).toContain("the outline host isn't answering");

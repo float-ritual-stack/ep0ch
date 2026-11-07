@@ -11,9 +11,10 @@ import { agentAtCursor, completionTargetAtCursor, type CompletionTarget } from "
 import { PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, shownLine } from "../surface/actions";
 import { headedTitle } from "../board";
-import { Refused, type Actor } from "../socket";
+import { Refused, USER, type Actor } from "../socket";
 import type { Msg } from "../board";
 import { tildeOf } from "../desk/agent-sessions";
+import { answeringAgents } from "../answering-agents";
 import { registerArgKind, type KindValue } from "./arg-kinds";
 import { filtered } from "./filter";
 import type { BarHost, BarRow, BarSource } from "./source";
@@ -62,6 +63,7 @@ export async function agentsHere(host: BarHost): Promise<KindValue[]> {
     if (!c.persona || !PERSONA_PATTERN.test(c.persona) || out.has(c.persona)) continue;
     out.set(c.persona, { value: c.persona, label: `@${c.persona}`, detail: `agent config ${c.name} · no session here` });
   }
+  for (const a of answeringAgents()) if (!out.has(a.name)) out.set(a.name, { value: a.name, label: `@${a.name}`, detail: a.description ?? "an extension's agent · answers in the thread" });
   return [...out.values()];
 }
 
@@ -72,15 +74,16 @@ const tilesIn = (text: string) => [...new Set([...text.matchAll(/(?:^|\s)%([^\s%
 /** The first `[[page]]` or `((note))` a line names, as written. */
 const firstRef = (text: string) => /\[\[([^\]]+)\]\]|\(\(([^)]+)\)\)/.exec(text)?.[0] ?? null;
 
-export interface Asked { to: string; note: string; title: string; thread: string; tiles: string[]; heard: string }
+export interface Asked { to: string; note: string; title: string; thread: string; tiles: string[]; heard: string; answers: boolean }
 
 /**
  * The note an ask lands on, or why it can't land: `note` when given, else the note in front of the person (an agent's
  * has none), else the first note the words link to, resolved by the service. The one place that decides it: the
  * preview says what ⏎ will do, and ⏎ does it.
  */
-export async function askLanding(host: BarHost, o: { text: string; note?: string }, actor: Pick<Actor, "kind">): Promise<{ note: Msg } | { refused: string }> {
-  const named = o.note?.trim() || (actor.kind === "agent" ? null : host.near()) || firstRef(o.text);
+export async function askLanding(host: BarHost, o: { to?: string; text: string; note?: string; tileNote?: string | null }, actor: Pick<Actor, "kind">): Promise<{ note: Msg } | { refused: string }> {
+  // An ask about a tile with no note in it (a terminal) lands on the page of the extension that answers, when one does.
+  const named = o.note?.trim() || o.tileNote || (actor.kind === "agent" ? null : host.near()) || firstRef(o.text) || answeringAgents().find(a => a.name === o.to)?.page;
   if (!named) return { refused: "the ask goes as a comment on a note: open one, name one in the words (`[[page]]` or `((id))`), or give note=" };
   const [hit] = await hostAnswers(() => host.ctx.board.resolveRefs([named]), false);
   if (!hit?.id) return { refused: `${o.note?.trim() ? "note=" : ""}${named}: ${hit?.error ?? "no such note"}; the ask goes as a comment on a note: open one, or name one that is there` };
@@ -108,29 +111,38 @@ async function hostAnswers<T>(work: () => Promise<T>, sent: boolean): Promise<T>
  * Ask `to`: the words as a comment naming `@to` on the note `askLanding` picks, with a line naming each `%tile` as the
  * door has it, so the agent can act on it (`door_act tile=`).
  */
-export async function askAgent(host: BarHost, o: { to: string; text: string; note?: string }, actor: Actor): Promise<Asked> {
+export async function askAgent(host: BarHost, o: { to: string; text?: string; note?: string; about?: string }, by: Actor): Promise<Asked> {
+  // A key note or a button the person pressed asks as them (a run somebody asked for writes as them, PIE-1462).
+  const actor: Actor = by.kind === "agent" && by.for === "you" && by.id.startsWith("script:") ? USER : by;
   const to = o.to.trim().replace(/^@/, "");
   if (!PERSONA_PATTERN.test(to) || !to) throw new ActionRefused(`to=${JSON.stringify(o.to)} isn't a persona name (letters, digits, . _ -): to=loki`);
-  let words = o.text.trim();
+  let words = (o.text ?? "").trim();
   if (askOf(words)?.to === to) words = askOf(words)!.text;
+  // Where it's asked from (PIE-1585): the door and the tile about= names (`tile` is the one with the keys), carried on the comment.
+  const { keysDispatch, shownTileRows } = await import("./sources");
+  const keys = keysDispatch(host), tile = o.about ? keys?.tile(o.about === "tile" ? "focused" : o.about) ?? null : null;
+  if (o.about && !tile) throw new ActionRefused(`about=${o.about}: no such tile on this screen; about=tile is the one with the keys, or name one (tile.list lists them)`);
+  if (!words && tile) words = "about this tile";
   if (!words) throw new ActionRefused(`what should @${to} do? text="…" (in the bar: @${to} and then the words)`);
-  const landing = await askLanding(host, { text: words, ...(o.note ? { note: o.note } : {}) }, actor);
+  const tileNote = tile?.shows ?? null;
+  const landing = await askLanding(host, { to, text: words, tileNote, ...(o.note ? { note: o.note } : {}) }, actor);
   if ("refused" in landing) throw new ActionRefused(landing.refused);
   const note = landing.note;
-  const { shownTileRows } = await import("./sources");
-  const tiles = tilesIn(words);
+  const tiles = [...new Set([...(tile ? [tile.name] : []), ...tilesIn(words)])];
   const tileLines = tiles.map(name => {
     const row = shownTileRows(host, name).find(r => (r.fill ?? r.label) === name);
     return `- %${name}: ${row ? `the tile ${name} in the door${row.detail ? ` (${row.detail})` : ""}` : `no tile ${name} on the screen shown now`} · door_act tile=${name}`;
   });
   const body = [`@${to} ${words}`, ...(tileLines.length ? ["", ...tileLines] : [])].join("\n");
-  const receipt = await hostAnswers(() => host.ctx.board.comment(crypto.randomUUID(), note.id, note.revision ?? 0, body, null, actor), true);
-  const title = headedTitle(note);
-  return { to, note: note.id, title, thread: receipt.id, tiles, heard: `a comment naming @${to}: each session writing as ${to} hears it at its next addressed check (the Claude mod's settle clock) and answers in the thread` };
+  const here = tile ?? keys?.tile("focused");
+  const props = { "ask-door": [host.ctx.board.clientId], ...(here?.id ? { "ask-tile": [here.id] } : {}), ...(here?.kind ? { "ask-tile-kind": [here.kind] } : {}) };
+  const receipt = await hostAnswers(() => host.ctx.board.comment(crypto.randomUUID(), note.id, note.revision ?? 0, body, null, actor, props), true);
+  const title = headedTitle(note), answers = answeringAgents().some(a => a.name === to);
+  return { to, note: note.id, title, thread: receipt.id, tiles, answers, heard: answers ? `a comment naming @${to}: @${to} answers in the thread` : `a comment naming @${to}: each session writing as ${to} hears it at its next addressed check (the Claude mod's settle clock) and answers in the thread` };
 }
 
 /** What an ask did, in words: who, on which note, and when it's heard. */
-export const askedWords = (a: Asked) => `· asked @${a.to} on ${a.title} · a comment there: @${a.to} hears it at its next check and answers in the thread`;
+export const askedWords = (a: Asked) => `· asked @${a.to} on ${a.title} · a comment there: @${a.to} ${a.answers ? "answers" : "hears it at its next check and answers"} in the thread`;
 
 /** The row a typed ask line is: ⏎ (or a click) sends it. */
 function askRow(a: { to: string; text: string }): BarRow {
@@ -144,10 +156,16 @@ function askRow(a: { to: string; text: string }): BarRow {
  */
 export const AGENTS: BarSource = {
   id: "agents", title: "agents", prefix: "@", inline: true, by: "door",
-  about: "ask an agent: @name and what you ask, [[pages]], ((notes)) and %tiles completed as you type; ⏎ sends it as a comment naming @name on the note in front of you (agent.ask), which that agent's sessions hear and answer in the thread",
+  about: "ask an agent: `ask yo` lists the asks about this tile an installed agent offers; @name and what you ask, [[pages]], ((notes)) and %tiles completed as you type; ⏎ sends it as a comment naming @name on the note in front of you (agent.ask), which that agent's sessions hear and answer in the thread",
   main: { empty: false, typed: true, most: 6 },
   named(query) { const a = askOf(query); return a?.text ? askRow(a) : null; },
   async rows(q, host, scope) {
+    // The tile-menu row's words, typed (`ask yo`): the same ask, about the tile with the keys.
+    const typed = q.trim().toLowerCase();
+    if (typed.length >= 3 && !typed.startsWith("@")) {
+      const hits = answeringAgents().filter(g => g.ask?.toLowerCase().includes(typed));
+      if (hits.length) return hits.map(g => ({ key: `about:${g.name}`, label: g.ask!, detail: g.description ?? `@${g.name}`, data: { to: g.name, text: "", about: "tile" } }));
+    }
     const a = askOf(scope === "agents" && !q.trimStart().startsWith("@") ? `@${q}` : q) ?? ((scope === "agents" && !q.trim()) || q.trim() === "@" ? { to: "", text: "" } : null);
     if (!a) return [];
     if (a.text) return [askRow(a)];
@@ -157,7 +175,8 @@ export const AGENTS: BarSource = {
     return filtered(await agentsHere(host), a.to, r => [r.value, r.detail ?? ""]).map(v => ({ key: `agent:${v.value}`, label: v.label, fill: `@${v.value} `, ...(v.detail ? { detail: v.detail } : {}), ...(first ? { exact: true as const } : {}), data: { to: v.value, text: "" } }));
   },
   async preview(row, host) {
-    const a = row.data as { to: string; text: string };
+    const a = row.data as { to: string; text: string; about?: string };
+    if (a.about) return { markdown: `**${row.label}**\n\n${row.detail ?? ""}\n\n⏎ asks @${a.to} about the tile with your keys: agent.ask to=${a.to} about=tile.` };
     if (!a.text) return { markdown: `**@${a.to}**\n\n${row.detail ?? ""}\n\n⏎ puts @${a.to} on the line: type what to ask, then ⏎ sends it.` };
     // What ⏎ will do, from the same answer ⏎ reads: the note it lands on, or why it can't be sent.
     const landing = await askLanding(host, { text: a.text }, { kind: "user" }).catch((e: unknown) => ({ refused: e instanceof Error ? e.message : String(e) }));
@@ -165,9 +184,10 @@ export const AGENTS: BarSource = {
     return { markdown: `**Ask @${a.to}**\n\n> @${a.to} ${a.text}\n\nSent as a comment on **${headedTitle(landing.note)}**; @${a.to}'s sessions hear it at their addressed check and answer in the thread.` };
   },
   // The note it lands on goes in the line, so the copy runs the same ask from a shell or an agent.
-  command: (row, host) => { const a = row.data as { to: string; text: string }, note = host.near(); return a.text ? shownLine("agent.ask", { to: a.to, text: a.text, ...(note ? { note } : {}) }) : null; },
+  command: (row, host) => { const a = row.data as { to: string; text: string; about?: string }, note = host.near(); if (a.about) return shownLine("agent.ask", { to: a.to, about: a.about }); return a.text ? shownLine("agent.ask", { to: a.to, text: a.text, ...(note ? { note } : {}) }) : null; },
   pick(row, host, how) {
-    const a = row.data as { to: string; text: string };
+    const a = row.data as { to: string; text: string; about?: string };
+    if (a.about) return host.dispatch.act({ action: "agent.ask", args: { to: a.to, about: a.about } }, how.actor);
     if (!a.text) {
       if (how.actor.kind === "agent") throw new ActionRefused(`what should @${a.to} do? agent.ask to=${a.to} text="…"`);
       return host.dispatch.as(how.actor, { action: "bar.open", args: { query: `@${a.to} ` } });

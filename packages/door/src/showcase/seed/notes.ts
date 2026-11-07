@@ -428,6 +428,7 @@ export const ONE_COMPLETER = [
 /** Asking an agent from the bar (PIE-1437): a note to ask about, with the keys written beside it. */
 export const ASK_AGENT = [
   SEED.askAgent,
+  SEED.askYo,
   "",
   "- Sam waters on Mondays, Robin on Thursdays.",
   "- The seed trays go out once the frost has gone.",

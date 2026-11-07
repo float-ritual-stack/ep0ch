@@ -1566,6 +1566,15 @@ secret reference.
   job like "a page for each plugin" runs to the end. Once it has run 5 s its request line, or a thread's reply, says
   "working on it" with how long; every minute after, also the notes it has written so far. The thread's reply then
   becomes the answer. Past the deadline the answer says it stopped, and where to raise it.
+- **An answer that stays open (PIE-1585).** `"answer": "open"` draws the reply unfolded under its line (`> [!note]+`), for a short answer with a button; left out, it stays folded.
+- **Asked by an agent too.** `"fromAgents": true` lets an agent's comment ask it (`ep0ch act agent.ask to=<name> text=…`), never an extension's or a script's, so nothing loops. Left out, only a person's comment asks.
+- **A row in every tile's menu.** `"ask": "ask yo about this"` (with `threads`) is that row and a power-bar row: `agent.ask to=<name> about=tile`. The door puts the tile on a line of the comment, and the door and tile on the thread as `[ask-door::<client>]`, `[ask-tile::<id>]` and `[ask-tile-kind::<kind>]`.
+- **Pressing a door action: `door.act` (PIE-1585).** Over its connection, a process of an agent with `effects: "write"` asks a door for one action line and waits for it to end: `outline({ action: "door.act", line: "agent.lift", label: "▲ lift", door, blockId, tile })`. Only that process's grant can: a client with none is refused, whatever it says it is.
+  - **Attributed to the agent:** an agent's action in the door by its `agents[].name`, so the actor rule holds: it never takes the person's focus or keys, and a refusal is its answer.
+  - **The door:** `door` is `input.door` (the note's holder) or the thread's `ask-door`; left out, the only door here, else it's refused naming them.
+  - **The tile:** `tile` is the thread's `ask-tile`, or `note` the note a line was asked in. The door's dispatcher applies it to a tile's own action and leaves any other action where it runs.
+  - **The answer:** `{ undo, done, wrote, error? }`. `wrote` says the run has writes to take back. `undo` is the run's: its layout changes are one transaction, and `ext.undo run=<undo>` (a press, or a `[undo](act: ext.undo run=…)` link) or a person's ctrl+z takes them back.
+  - [yo](../../extensions/yo) is the worked example.
 - **Its programs write as the agent.** `respond`'s process gets `EP0CH_AGENT=<name>`, so a `claude` it runs signs its
   notes `<name>/claude-code@<machine>` (the mod's persona). The notes it wrote while answering are linked under the
   answer (`Wrote 2 notes: ((id|Title)), …`): they're found by that persona, not by the extension's `ext:<id>`.

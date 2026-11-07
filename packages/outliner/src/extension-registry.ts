@@ -145,6 +145,8 @@ export interface ExtensionAgentEntry {
   readonly effects: "read" | "spend" | "write";
   /** It answers `@name` in comment threads, with the passage (a client's Ask offers it). */
   readonly threads?: boolean;
+  /** Its row in every tile's menu (`ask yo about this`). */
+  readonly ask?: string;
 }
 
 export interface ExtensionEntry {
@@ -622,7 +624,7 @@ export class ExtensionRegistry {
         tiles: serving ? this.tilesOf(extension) : [],
         agents: serving ? (extension.manifest.agents ?? [])
           .filter((agent) => this.boundAgents.get(agent.name)?.extension === extension)
-          .map((agent) => ({ name: agent.name, ...(agent.description ? { description: agent.description } : {}), effects: agent.effects ?? "read", ...(agent.threads ? { threads: true } : {}) })) : [],
+          .map((agent) => ({ name: agent.name, ...(agent.description ? { description: agent.description } : {}), effects: agent.effects ?? "read", ...(agent.threads ? { threads: true } : {}), ...(agent.ask ? { ask: agent.ask } : {}) })) : [],
         bar: serving ? this.barOf(extension) : [],
         completion: serving ? this.completionOf(extension) : [],
       };

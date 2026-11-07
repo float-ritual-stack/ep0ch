@@ -296,6 +296,12 @@ const Agent = Type.Object(
      * A reply without `@name` is never sent.
      */
     threads: Type.Optional(Type.Boolean()),
+    /** How its reply opens under the line: `open` shows it (a short answer with a button); left out, it stays folded. */
+    answer: Type.Optional(Type.Literal("open")),
+    /** An agent's comment asks it too, not only a person's (`ep0ch act agent.ask …`, another agent's how-to): never an extension's or a script's. */
+    fromAgents: Type.Optional(Type.Boolean()),
+    /** The words of its row in every tile's menu (`ask yo about this`): the row runs `agent.ask` with about=tile. Needs `threads`. */
+    ask: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
   },
   { additionalProperties: false },
 );

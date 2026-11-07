@@ -153,6 +153,8 @@ export interface ExtensionActRequest {
   readonly clientId?: string;
   /** A press (PIE-957): the invitation the door minted for it, passed on to every action the run asks the door for. */
   readonly invitation?: string;
+  /** Where an agent's door press was asked from (`door.act`): passed on to the door's dispatcher. */
+  readonly at?: { tile?: string; note?: string };
   /** The button it pressed: the note and line, recorded on the run's note with the button line's author. */
   readonly button?: { readonly block: string; readonly line?: number };
   readonly extension: string;

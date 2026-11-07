@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 312;
+export const PROTOCOL = 313;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 39;
 
@@ -66,6 +66,8 @@ export interface ScriptActionCall {
   requestedBy?: { author: "user" | "agent" | "system"; actorId?: string };
   /** The invitation the person's press minted for this run (a door's, src/surface/invite.ts): it lets the run move the person's tiles. */
   invitation?: string;
+  /** Where an agent's press was asked from (`door.act`): the dispatcher applies it to a tile's own action, and only then. */
+  at?: { tile?: string; note?: string };
 }
 
 /** A script run ended (`scripts.ended` event, PIE-957): the door closes the layout transaction the run held by its end rule. */

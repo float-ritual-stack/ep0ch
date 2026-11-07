@@ -188,6 +188,12 @@ export class ExtensionWrites {
     return id;
   }
 
+  /** Whether a run's receipt holds anything `undo` can take back. */
+  ranWrites(id: string): boolean {
+    const r = this.receipts.get(id);
+    return !!r && (r.steps.length > 0 || r.revisions.size > 0 || (r.deleted?.size ?? 0) > 0 || !!r.drafts?.length);
+  }
+
   finishRun(id: string, drafts: DraftPatchEdit[] = [], problem?: string): void {
     const receipt = this.receipts.get(id)!;
     this.receipts.delete(id);

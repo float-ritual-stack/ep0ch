@@ -2139,6 +2139,10 @@ kitchen sink's actions section.
   `agent.ask`: the line as a comment naming `@wren` on the note in front of you (addressed mail, PIE-1404), each `%tile`
   named on a line of its own; wren's sessions hear it at their addressed check and answer in the thread. `@` on a row
   of the agent panel opens the bar with that agent's name on the line.
+- **Ask yo (PIE-1585):** `ep0ch ext add yo`, then `@yo how do I lift the agent again` on a line of any note: two lines
+  quoted from the action's own doc, and a button. `@yo do it` presses it as yo (`ctrl+z` or the done row's undo takes it
+  back); next time it answers from memory. `ask yo about this` in a tile's menu, `ask yo` in the power bar, or
+  `agent.ask to=yo about=tile`. See [extensions/yo](../outliner/extensions/yo/README.md).
 - **Editing:** the shared editor supports mouse drag or double-click selection, Shift+arrows, delete, Ctrl+X cut,
   paste and Ctrl+Z undo. Ctrl+U clears the line; Alt+Backspace or Ctrl+W deletes the preceding word.
 - **Completing:** Tab extends the common prefix of rows starting with your text, otherwise advances the lit row

@@ -793,6 +793,8 @@ export class AgentRequests {
         agent: line.agent,
         request: line.request,
         mark: line.text,
+        // The door that holds the note's draft: where a door action it asks for (`door.act`) lands.
+        ...(draft.holder ? { door: draft.holder } : {}),
         note: { id: blockId, revision: draft.revision, text: draft.text.slice(0, MAX_NOTE_TEXT) },
         context: {
           ancestors: contextAncestors(context.ancestors),
@@ -851,7 +853,7 @@ export class AgentRequests {
           this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
           () => this.deps.patch({ blockId, revision: draft.revision, mutation: actor, current: true,
             replyTo: line.text, patches: [{ observed: line.text, range: { start: line.end - line.text.length, end: line.end },
-              replacement: `${line.text}\n> [!note]- @${line.agent} answered\n${body.split("\n").map(l => `> ${l}`).join("\n")}` }] }),
+              replacement: `${line.text}\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}` }] }),
         );
         answer = outcome.outcome === "applied"
           ? { status: "replied", message: respond.message ?? "answer in the note" }
@@ -894,11 +896,12 @@ export class AgentRequests {
    * extension's) never sets one off, so agents can't loop. Runs in the background; returns at once.
    */
   threadWritten(records: readonly AnnotationRecord[], author: string | undefined): void {
-    if (this.stopped || author !== "user") return;
+    if (this.stopped || (author !== "user" && author !== "agent")) return;
     const names = this.registry.threadAgentNames();
     for (const record of records) {
-      this.notInThreads(record.block.id, record.body);
-      const line = requestLines(record.body, names)[0];
+      // An agent's comment asks only an agent that takes agents' asks (a how-to, PIE-1585), and never an extension's or a script's: they can't loop.
+      const line = (author === "user" || !/^(?:ext|script):/.test(record.block.actorId ?? "")) ? requestLines(record.body, names).find(l => author === "user" || (l.agent !== record.block.actorId && this.registry.agent(l.agent)?.agent.fromAgents)) : undefined;
+      if (author === "user") this.notInThreads(record.block.id, record.body);
       if (!line) continue;
       void this.answerInThread(record, line).catch(() => {});
     }
@@ -1011,7 +1014,7 @@ export class AgentRequests {
         properties: root.properties ?? {},
         ...(properties?.kind?.[0] === TLDR_KIND ? { tldr: true } : {}),
         context: { now: new Date(this.now).toISOString() },
-      }, deadline, { agent: line.agent });
+      }, deadline, { agent: line.agent, writes: agent.effects === "write", requestedBy: { author: "user" }, label: `ext.${extension.id}.agent.${line.agent}` });
       const respond = validateRespond(result.value);
       if (respond.patches.length) throw new Error("an answer in a thread can't edit the note: reply only");
       // A TL;DR is the thread's face: one the agent didn't write (no reply, only a message saying why) is never posted.

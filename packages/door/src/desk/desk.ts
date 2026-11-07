@@ -273,7 +273,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * A desk on no door yet has its own.
    */
   private looseSteps: StepRecord<Desk> | null = null;
-  private get steps(): StepRecord<Desk> { return this.ctx?.hostLayer?.steps ?? (this.looseSteps ??= new StepRecord<Desk>()); }
+  get steps(): StepRecord<Desk> { return this.ctx?.hostLayer?.steps ?? (this.looseSteps ??= new StepRecord<Desk>()); }
   get history(): DeskSteps<Desk> { return this.steps.of(this); }
   /** Who asked each answer the module gave, and what for: `commit` records the change as theirs. */
   private asked = new WeakMap<object, { actor: Actor; op: string; standing: boolean; left?: boolean }>();
@@ -1379,7 +1379,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return out;
   }
   /** Every desk a link or a follower can reach: this screen's family, and the drawer's and the other screen's. */
-  private relatives(): Desk[] {
+  relatives(): Desk[] {
     const roots = new Set<Desk>([this.top(), ...(this.ctx?.hostLayer?.desks() ?? []).map(d => d.top())]);
     return [...roots].flatMap(r => r.descend());
   }

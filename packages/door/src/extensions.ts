@@ -1,4 +1,5 @@
 import { requesterOf } from "./socket";
+import { setAnsweringAgents } from "./answering-agents";
 import { extensionFacetSource, registerFacetSource, unregisterFacetSource } from "./facet-sources";
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
@@ -431,7 +432,7 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
       : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(asked ? { for: asked } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen", run) ? { invitation: call.invitation } : {}) };
     // Always the run's own transaction: a script can't name another and so escape its end rule.
     // Placed by the press that started it (PIE-1517): a step naming no tile acts where its press does, never the person's focus by default.
-    return ctx.dispatch.act(ctx.dispatch.requestIn({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, INVITES.pressOf(call.invitation)), actor);
+    return ctx.dispatch.act(ctx.dispatch.requestIn({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, INVITES.pressOf(call.invitation) ?? (call.at ? { ...call.at, actor } : undefined)), actor);
   };
 }
 
@@ -889,6 +890,7 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   const saidRules = new Set(current?.ruleProblems ?? []);
   const before = new Set((current?.extensions ?? []).filter(serving).map(e => e.id));
   current = next;
+  setAnsweringAgents((next?.extensions ?? []).flatMap(e => (e.agents ?? []).filter(a => a.threads).map(a => ({ name: a.name, ...(a.description ? { description: a.description } : {}), ...(a.ask ? { ask: a.ask } : {}), ...(next?.pages?.[e.id] ? { page: next.pages[e.id]! } : {}) }))));
   useResourceProviders(next?.resourceProviders ?? []);
   const served = (next?.extensions ?? []).filter(serving);
   const problems: string[] = [];

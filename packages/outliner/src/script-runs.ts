@@ -118,7 +118,7 @@ export class ScriptRuns {
     private readonly writes: ExtensionWrites, private readonly client: AgentToolsClient,
     private readonly publish: (changes: readonly OutlinerChange[]) => void,
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
-    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string; chain: readonly string[]; mcpAccess?: ExtensionActRequest["mcpAccess"] }) => Promise<unknown>,
+    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string; chain: readonly string[]; mcpAccess?: ExtensionActRequest["mcpAccess"]; at?: { tile?: string; note?: string } }) => Promise<unknown>,
     /** A run ended (PIE-957): done, stopped or failed. The door holding its layout transaction closes it by that. */
     private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void,
     /** How long `answered` waits for a run to end before it says the run is still going. */
@@ -332,12 +332,39 @@ export class ScriptRuns {
     } }, request, button);
   }
 
-  start(extension: Pick<LoadedExtension, "id" | "name" | "script">, request: ExtensionActRequest, sequence?: ButtonCall): ExtensionActResult {
+  /** The `door.act` request (its grant named `agent`, src/server.ts `asExtension`): run it and answer when it has ended. */
+  async doorAct(asked: { agent?: unknown; extension?: unknown; line?: unknown; label?: unknown; door?: unknown; blockId?: unknown; tile?: unknown; note?: unknown; requestedBy?: MutationProvenance }): Promise<{ undo: string; done: boolean; wrote: boolean; error?: string }> {
+    if (typeof asked.agent !== "string") throw new Error("door.act is an agent extension's own (over its grant): a client acts in a door through that door's `act`");
+    if (typeof asked.line !== "string" || !asked.line.trim()) throw new Error('door.act needs line: an action line, for example { action: "door.act", line: "agent.lift reach=column" }');
+    if (asked.door !== undefined && typeof asked.door !== "string") throw new Error("door.act door= names a door's client id (a respond's input.door); left out, the only door here");
+    const run = this.startDoorAct({
+      agent: asked.agent, extension: typeof asked.extension === "string" ? asked.extension : asked.agent, line: asked.line.trim(),
+      ...(typeof asked.label === "string" ? { label: asked.label } : {}), ...(asked.door ? { clientId: asked.door } : {}),
+      ...(typeof asked.blockId === "string" ? { blockId: asked.blockId } : {}), ...(asked.requestedBy ? { requestedBy: asked.requestedBy } : {}),
+      ...(typeof asked.tile === "string" || typeof asked.note === "string" ? { at: { ...(typeof asked.tile === "string" ? { tile: asked.tile } : {}), ...(typeof asked.note === "string" ? { note: asked.note } : {}) } } : {}),
+    });
+    const error = await this.finished(run.undo!);
+    return { undo: run.undo!, done: error === undefined, wrote: this.writes.ranWrites(run.undo!), ...(error !== undefined ? { error } : {}) };
+  }
+
+  /**
+   * A door action an agent extension's process asks for (`door.act`, PIE-1585): one step run as a press of one button is,
+   * so it has the run's undo id, layout transaction and door routing, attributed to the agent (`doorActor`).
+   */
+  startDoorAct(o: { agent: string; extension: string; line: string; label?: string; clientId?: string; blockId?: string; requestedBy?: MutationProvenance; at?: { tile?: string; note?: string } }): ExtensionActResult {
+    const label = o.label ?? o.line.split(/\s+/, 1)[0]!;
+    const call: ButtonCall = { line: 0, endLine: 0, steps: [{ kind: "act", source: o.line }], sequence: true, props: {}, label, act: o.line, look: {}, slots: [], empty: [] };
+    return this.start({ id: `door-act:${o.extension}`, name: o.agent, doorActor: o.agent, script: {
+      code: "", effects: "write", keys: [], revision: 0, author: { author: "agent", actorId: `ext:${o.extension}` }, ...(o.blockId ? { blockId: o.blockId } : {}),
+    } }, { extension: o.extension, action: "run", background: true, ...(o.clientId ? { clientId: o.clientId } : {}), ...(o.blockId ? { blockId: o.blockId } : {}), ...(o.requestedBy ? { requestedBy: o.requestedBy } : {}), ...(o.at ? { at: o.at } : {}) }, call);
+  }
+
+  start(extension: Pick<LoadedExtension, "id" | "name" | "script"> & { doorActor?: string }, request: ExtensionActRequest, sequence?: ButtonCall): ExtensionActResult {
     let source = extension.script!;
     // Effects in a file's opt-in header describe it; only its body is executing code.
     const body = (code: string) => source.file ? code.split("\n").slice(1).join("\n") : code;
     const undo = this.writes.beginRun(`script:${extension.name}`);
-    const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
+    const actor: MutationProvenance = { author: "agent", actorId: extension.doorActor ?? `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
     // Whose writes the run's notes record (PIE-1462): a run somebody asked for (a press, `act`, the CLI) writes as them, the
     // script as how (`taskId`); a run nobody asked for (a trigger, a schedule, a background run) writes as the script. The one
@@ -497,14 +524,14 @@ export class ScriptRuns {
       act: async (name: string, args: Record<string, unknown>) => {
         // An extension's action is a step on the run note, as sh and fetch are, and leaves that note.
         const said = (what: string) => {
-          if (!name.startsWith("ext.")) return;
+          if (!name.startsWith("ext.") || sequence) return;   // a button's steps stay in its Sources trace: no run note under the note for a press
           lines.push(`\nact ${name}: ${what}`);
           try { if (log) update(); else keep(); } catch (error) { controller.abort(error); }
         };
         let answer: unknown;
         try {
           answer = await this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, chain: [...(request.chain ?? []), extension.id],
-            ...(request.invitation ? { invitation: request.invitation } : {}), ...(request.mcpAccess ? { mcpAccess: request.mcpAccess } : {}) });
+            ...(request.invitation ? { invitation: request.invitation } : {}), ...(request.mcpAccess ? { mcpAccess: request.mcpAccess } : {}), ...(request.at ? { at: request.at } : {}) });
         } catch (error) { said(error instanceof Error ? error.message : String(error)); throw error; }
         const ended = answer as { state?: string; message?: string; error?: string } | undefined;
         said([ended?.state ?? "done", ended?.error ?? ended?.message].filter(Boolean).join(" · "));

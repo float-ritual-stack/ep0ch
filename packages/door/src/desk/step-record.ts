@@ -109,6 +109,11 @@ export class StepRecord<D extends object = object> {
     const at = (d: D) => (party ? this.of(d).last(party) : this.of(d).newest())?.seq ?? -1;
     return desks.reduce((best, d) => (at(d) > at(best) ? d : best), fallback);
   }
+  /** The desk to undo run `txn` on: `desk` when it has some of it, else the first of `desks` that does (what a run lifted is in the drawer, its done row on a screen). */
+  deskHolding(txn: string | undefined, desk: D, desks: () => D[]): D {
+    if (!txn || this.of(desk).entriesOf(txn).length) return desk;
+    return desks().find(d => this.of(d).entriesOf(txn).length) ?? desk;
+  }
   /** What `actor` takes back on `desk` (a transaction's every entry, newest first, or its newest own), or why there's nothing. */
   takeBack(desk: D, actor: Actor, txn?: string): LayoutEntry<D>[] | { refused: string } {
     const steps = this.of(desk), party = partyOf(actor);
