@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A picture a page can't show tells you why (PIE-1633)
+
+- **Signed in, the page says what to fix:** a published picture outside the publisher's roots, missing, of a type it doesn't serve, or on another machine's service says so where it would be drawn. Outside the roots, it names the `--root <folder>` to add and the `systemctl --user restart <unit>` for that publisher.
+- **Outsiders see what they did:** the alt text and the file's name, with no reason and no path.
+- **Run:** `ep0ch install --apply` (publisher code).
+
+### Ask yo how to do an ep0ch thing, and it can press it (PIE-1585, PIE-1629, PIE-1632)
+
+- **Ask in plain words:** `@yo how do I lift the agent?`, in a comment, the tile menu's ask or the editor, quotes the lines of the docs that answer it and offers the action as a button. It's remembered, so the next ask like it needs no model.
+- **A question never presses:** whether an ask is a question is decided in code before any model runs, so "how do I …" only answers.
+- **`@yo do it` presses it as yo,** on the tile the answer was about, without moving your keys. The status bar names yo, and one undo takes it back. It presses yo's newest button, so earlier answers that read the same can't confuse it.
+- **Run:** `ep0ch install --apply`; yo's memory lives in an outline named `yo` (`ep0ch outline create yo`).
+
 ### A header picture keeps its shape in a padded tile (PIE-1631)
 
 - **A circle stays a circle:** in a tile whose look pads it (`pad.y`), the header bleeds up into the padding. It's now laid out for those rows: cropped to fill (the default) or shown whole in the middle (`[fit::contain]`), never stretched. A narrow tile showed it most.
