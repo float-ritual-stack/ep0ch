@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { outline } from "./outline";
 import { confirmPrompt, verdicts } from "./asks-confirm";
-import { aboutLines, chippedLines, hashOf, isAnswered, isClosed, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
+import { aboutLines, chippedLines, declineKey, hashOf, isAnswered, isClosed, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
 
 interface Block { id: string; revision: number; text: string; parentId?: string | null; properties?: { key: string; value: string }[] }
 interface Reading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
@@ -35,9 +35,12 @@ const listed = (head: string, said: readonly string[]) => {
 };
 
 const prop = (block: Block, key: string) => block.properties?.find(p => p.key === key)?.value;
-/** What this extension wrote on a note, by each line's hash: how many lines sat under it when it last looked. */
-async function records(note: string): Promise<Map<string, { block: Block; under: number }>> {
-  const { blocks } = await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note}`, machinery: "show", limit: 200 } });
+const recordsOf = async (note: string) => (await outline<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note}`, machinery: "show", limit: 200 } })).blocks;
+/** The lines the model said no to on this note, by `declineKey`: its word, kept apart from a mark, which is yours to take off for good. */
+const declinedOf = (blocks: readonly Block[]) => new Set(blocks.flatMap(block => { const key = prop(block, "asks.declined"); return key ? [key] : []; }));
+/** The lines this extension marked on a note, by each line's hash: how many lines sat under it when it last looked. */
+async function records(note: string, blocks?: readonly Block[]): Promise<Map<string, { block: Block; under: number }>> {
+  blocks ??= await recordsOf(note);
   return new Map(blocks.flatMap(block => { const line = prop(block, "asks.line"); return line ? [[line, { block, under: Number(prop(block, "asks.under") ?? 0) }] as const] : []; }));
 }
 
@@ -108,9 +111,10 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   const chipped = chippedLines(read.text);
   const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || (l.reads === "unsure" && !sure)).filter(l => !chipped.has(l.line));
   if (!wanted.length) return done("nothing asks here");
-  const seen = await records(note);
-  const unseen = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)));
-  if (!unseen.length) return done("already marked once");
+  const written = await recordsOf(note);
+  const seen = await records(note, written), declined = declinedOf(written);
+  const unseen = wanted.filter(l => !seen.has(hashOf(lines[l.line]!)) && !declined.has(declineKey(lines, l.line)));
+  if (!unseen.length) return done("already marked or turned down once");
   const yours = await answeredLines(note, read.text);
   const fresh = unseen.filter(l => !yours.has(l.line));
   if (!fresh.length) return done("nothing asks here: you've answered what's left");
@@ -124,20 +128,20 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   const withDown = (answer: string) => [answer, ...down].join("\n");
   // A dry run lists what the write would do. Past it, a line turned down is remembered like a marked one: every later save isn't another call.
   const page = dry ? { block: undefined } : await outline<{ block?: { id: string } }>({ action: "pages.resolve", address: "ext-asks" });
-  const record = async (line: number, tail: string) => (await outline<{ id: string }>({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${wordsOf(lines[line]!)} [machine::asks] [ext.generated::asks] [asks.note::${note}] [asks.line::${hashOf(lines[line]!)}] ${tail}` })).id;
-  if (!dry) for (const l of struck) await record(l.line, "[asks.confirm::no]");
+  const record = async (line: number, tail: string) => (await outline<{ id: string }>({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${wordsOf(lines[line]!)} [machine::asks] [ext.generated::asks] [asks.note::${note}] ${tail}` })).id;
+  if (!dry) for (const l of struck) await record(l.line, `[asks.declined::${declineKey(lines, l.line)}]`);
   if (!kept.length) return done(`nothing confirmed: the model turned down ${struck.length}`, { answer: down.join("\n") });
   if (dry) { const { message, answer } = listed(`would write ${kept.length}`, said); return done(message, { answer: withDown(answer) }); }
   // Remembered either way: a proposal Evan dismisses is his answer, and it isn't sent again on the next save. Written before
   // the chips: a save the moment a chip shows is compared with its count, and an agent's line under it updates that count.
-  const written: string[] = [];
-  for (const l of kept) written.push(await record(l.line, `[asks.under::${linesUnder(lines, l.line)}]`));
+  const made: string[] = [];
+  for (const l of kept) made.push(await record(l.line, `[asks.line::${hashOf(lines[l.line]!)}] [asks.under::${linesUnder(lines, l.line)}]`));
   for (const l of kept) lines[l.line] = withMark(lines[l.line]!, l.reads as "yes" | "unsure");
   let outcome: "applied" | "proposed";
   try { outcome = await patch({ id: note, revision: read.revision, text: read.text }, lines.join("\n")); }
   catch (error) {
     // Nothing landed: the next save asks again.
-    for (const id of written) await outline({ action: "delete", blockId: id });
+    for (const id of made) await outline({ action: "delete", blockId: id });
     throw error;
   }
   const { message, answer } = listed(`${outcome === "proposed" ? "proposed" : "wrote"} ${kept.length}${outcome === "proposed" ? ": you were typing there" : ""}`, said);

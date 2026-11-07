@@ -564,8 +564,8 @@ test("the backfill pages past a page of notes, oldest included, with nothing sai
 const NOISE = [
   "> [!quote] Evan, Oct 20",
   "> You could pick either, it said.",
-  "- **Decision:** a header picture is set one way, should anyone ask",
-  "- Check: the mower takes its keys from your shed",
+  "- **Decision:** a header picture is set one way",
+  "- Check: the mower takes its keys from the tile",
   "- Note to self: please confirm the fence posts later",
   "- Mark a finding below: x when you agree with the gardener",
   "- Wildcards and masks should work as they did on the old board",
@@ -696,4 +696,53 @@ test("a question callout's title can ask; another callout's header, a heading an
   const read = t.asked.flatMap(a => Object.values(a)).join("\n");
   expect(read).toContain("Should the shed face south?");
   for (const line of ["touch the fence", "the hedge go", "the fence stay"]) expect(read).not.toContain(line);
+});
+
+// Codex on #1337: each of these could happen on pie.
+
+const SAME_START = "- Should the shed face south, which we went over at length with the gardener last week and wrote up in the plan, ";
+
+test("Codex on #1337: a declined line whose ending is edited into a new request is asked again, past the chip's hundred characters", async () => {
+  const t = await setup();
+  const note = await t.write(`Yard\n\nSome text.\n\n${SAME_START}turned down by then`);
+  await until("the model's answer", () => t.modelPrompts().length === 1);
+  await t.settled();
+  expect(t.store.require(note.id).text).not.toContain("asks.derived");
+  await t.edit(note.id, text => text.replace("turned down by then", "and you should pick one now"), AGENT);
+  await t.marked(note.id);
+  expect(t.modelPrompts()).toHaveLength(2);
+});
+
+test("Codex on #1337: a declined line moved under another heading is asked again; the same words in the same place aren't", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\n## Beds\n- Wildcards should do what you want here\n\n## Paths\nSome text.");
+  await until("the model's answer", () => t.modelPrompts().length === 1);
+  await t.settled();
+  await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
+  await t.settled();
+  expect(t.modelPrompts()).toHaveLength(1);
+  await t.edit(note.id, text => text.replace("- Wildcards should do what you want here\n\n", "").replace("Some text.", "- Wildcards should do what you want here"), AGENT);
+  await until("the model's second answer", () => t.modelPrompts().length === 2);
+});
+
+test("Codex on #1337: the model's no is kept apart from a chip you took off, which stays off whatever the section", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\n\n- Wildcards should do what you want here\n- Should the hedge be cut low?");
+  await t.marked(note.id);
+  const records = await t.client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `asks.note=${note.id}`, machinery: "show" } } as never);
+  const keys = records.blocks.map(b => b.text.includes("Wildcards") ? "declined" : "marked").sort();
+  expect(keys).toEqual(["declined", "marked"]);
+  for (const b of records.blocks) expect(b.text.includes("[asks.line::")).toBe(!b.text.includes("Wildcards"));
+  await t.edit(note.id, text => text.replace(/ \[needs::[^\]]*\] \[asks\.derived::[^\]]*\]/, "").replace("Some text.", "## Beds"));
+  await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
+  await t.settled();
+  expect(t.store.require(note.id).text).not.toContain("asks.derived");
+});
+
+test("Codex on #1337: a label over a request still reaches Jev and gets its chip; a label over a statement doesn't", async () => {
+  const t = await setup(["Yard\n\nSome text.\n\n- Decision: Evan, please choose cedar or larch\n- Check: Evan, please confirm the shed dimensions\n- Decision: a header picture is set one way\n- Check: the mower takes its keys from the tile"]);
+  const { said } = await dryRun(t);
+  const read = t.asked.flatMap(a => Object.values(a)).join("\n");
+  for (const line of ["please choose cedar", "please confirm the shed"]) { expect(read).toContain(line); expect(said).toContain(line); }
+  for (const line of ["header picture", "takes its keys"]) expect(read).not.toContain(line);
 });

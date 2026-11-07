@@ -27,7 +27,7 @@ Three passes, cheapest first. Each only hands the next what it can't rule out.
 | Jev: addressed and asking | Answered, or a record? | Top `- [ ]`? | The model | Written |
 |---|---|---|---|---|
 | both 0.5 or over | no | no | yes | `[needs::sysop: the line]` |
-| both 0.5 or over | no | no | no | nothing, and it isn't asked about again |
+| both 0.5 or over | no | no | no | nothing, and it isn't asked about again unless its words or its heading change |
 | both 0.5 or over | no | yes | not asked | nothing, it's filed |
 | the lower 0.3 up to 0.5 | no | either | not asked | `[maybe-needs::sysop]`, unconfirmed |
 | the lower under 0.3 | either | either | not asked | nothing |
@@ -51,7 +51,9 @@ Three passes, cheapest first. Each only hands the next what it can't rule out.
   - marked: what an agent writes after that, the same words under another heading too.
 - **Jev reads it in place:** the line's heading, the item it's under and the lines either side.
   - Not marked, whatever its words: a line that reports what happened, says it's already answered, or speaks to someone else, such as an agent's own checklist.
-- **Jev or the model can't be asked?** Nothing is written, not even the maybes: a failed call is never a yes or a no. The rule's last run says why and the next save tries again; `ep0ch review asks` names the note and exits 1.
+- **Jev or the model can't be asked?** Nothing is written, not even the maybes: a failed call is never a yes or a no.
+  - The rule's last run says why, and the next save tries again.
+  - `ep0ch review asks` names the note and exits 1.
 - **What it costs:** about half a cent a note Jev passes anything on, on Sonnet. A note Jev passes nothing on makes no call.
 - **While you're typing there,** it comes as a proposal beside the note instead; dismiss it and that line isn't asked about again.
 - **What it remembers:** a `[machine::asks]` record under this page for each line it marked.
@@ -69,7 +71,10 @@ It reads the whole window, however many notes, and marks the confirmed lines onl
 
 - **Install:** `ep0ch ext add asks --outline-folder ~/outlines/<name>`, for each outline you want it in.
 - **Remove:** `ep0ch ext remove asks --demo remove`. Chips already written stay until you take them off.
-- **The model:** `config.answer` is the command that confirms: the prompt on stdin, a JSON yes or no per line on stdout. It defaults to Sonnet through `claude`, with no skills, tools or settings loaded, which is most of why it's cheap. Change it with `ep0ch act ext.asks.settings answer='…'`; where `claude` can't read its login, such as a host under launchd, start the command with `with-secrets claude --`.
+- **The model:** `config.answer` is the command that confirms: the prompt on stdin, a JSON yes or no per line on stdout.
+  - **Its default:** Sonnet through `claude`, with no skills, tools or settings loaded, which is most of why it's cheap.
+  - **To change it:** `ep0ch act ext.asks.settings answer='…'`.
+  - **Where `claude` can't read its login,** such as a host under launchd: start the command with `with-secrets claude --`.
 
 ## How it's made
 

@@ -16,7 +16,7 @@ import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
-import { asksAt, FIX_BEFORE_DONE, pointsPatch, proseOf, RUBRIC_OF, shapeNext, splitPoints, structuralLines, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksAt, FIX_BEFORE_DONE, mayAsk, pointsPatch, RUBRIC_OF, shapeNext, splitPoints, structuralLines, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -104,10 +104,7 @@ export function sectionsOf(text: string): Section[] {
 function askCandidates(text: string): number[] {
   const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line, structural = structuralLines(lines);
   return lines.flatMap((line, i) => {
-    if (i <= title || structure[i] !== -1 || structural.has(i)) return [];
-    // A chip's words are no ask: `[type::decision]` alone on a line is a property.
-    const words = stripPropertyTokens(proseOf(line));
-    return /\?/.test(words) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(words) ? [i] : [];
+    return i > title && structure[i] === -1 && !structural.has(i) && mayAsk(line) ? [i] : [];
   });
 }
 

@@ -82,6 +82,16 @@ export function hashOf(line: string): string {
   return Bun.hash(wordsOf(line).toLowerCase()).toString(36);
 }
 
+/**
+ * What "the model already said no to this" means: every word of the line (a chip's value and `hashOf` stop at a hundred
+ * characters) and the heading it's under. An edited ending, or the line under another heading, is a new question.
+ */
+export function declineKey(lines: readonly string[], i: number): string {
+  let section = "";
+  for (let k = i - 1; k >= 0 && !section; k--) if (/^[ \t]{0,3}#{1,6}[ \t]/.test(lines[k]!)) section = plainWords(lines[k]!);
+  return Bun.hash(`${section}\n${plainWords(lines[i]!)}`.toLowerCase()).toString(36);
+}
+
 export type Anchor = { kind: string; itemId?: string; start?: number | null; end?: number | null; exact?: string };
 
 /** What a comment's anchor is about, as a test on a line: every line for the whole note, none when it can't be placed. */
