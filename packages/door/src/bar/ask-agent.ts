@@ -113,7 +113,7 @@ async function hostAnswers<T>(work: () => Promise<T>, sent: boolean): Promise<T>
  */
 export async function askAgent(host: BarHost, o: { to: string; text?: string; note?: string; about?: string }, by: Actor): Promise<Asked> {
   // A key note or a button the person pressed asks as them (a run somebody asked for writes as them, PIE-1462).
-  const actor: Actor = by.kind === "agent" && by.for === "you" ? USER : by;
+  const actor: Actor = by.kind === "agent" && by.for === "you" && by.id.startsWith("script:") ? USER : by;
   const to = o.to.trim().replace(/^@/, "");
   if (!PERSONA_PATTERN.test(to) || !to) throw new ActionRefused(`to=${JSON.stringify(o.to)} isn't a persona name (letters, digits, . _ -): to=loki`);
   let words = (o.text ?? "").trim();

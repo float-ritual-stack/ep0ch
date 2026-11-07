@@ -39,7 +39,7 @@
   "actions": [
     { "id": "remember", "label": "Remember that this answer worked", "on": "outline", "effects": "write", "deadline": "30s",
       "description": "A button yo drew runs this after its action: one memory note in yo's memory outline",
-      "args": [{ "name": "act", "type": "text", "label": "Action" }, { "name": "asked", "type": "text", "label": "Asked" }] }
+      "args": [{ "name": "act", "type": "text", "label": "Action" }, { "name": "asked", "type": "text", "label": "Asked" }, { "name": "args", "type": "text", "label": "Arguments", "description": "The arguments that worked, as on:false,reach:full" }] }
   ],
   "agents": [
     { "name": "yo", "description": "Answers how to do an ep0ch thing from the actions' own docs, and presses it when asked", "effects": "write", "deadline": "90s", "threads": true, "fromAgents": true, "answer": "open", "ask": "ask yo about this" }

@@ -442,7 +442,7 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
       : { kind: "agent", id: call.actor.actorId ?? call.actor.author, ...(run ? { run } : {}), ...(asked ? { for: asked } : {}), ...(call.invitation && INVITES.covers(call.invitation, "screen", run) ? { invitation: call.invitation } : {}) };
     // Always the run's own transaction: a script can't name another and so escape its end rule.
     // Placed by the press that started it (PIE-1517): a step naming no tile acts where its press does, never the person's focus by default.
-    return ctx.dispatch.act(ctx.dispatch.requestIn({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, INVITES.pressOf(call.invitation)), actor);
+    return ctx.dispatch.act(ctx.dispatch.requestIn({ action: call.action, args: { ...args, ...(run ? { txn: run } : {}) }, ...(typeof tile === "string" ? { tile } : {}) }, INVITES.pressOf(call.invitation) ?? (call.at ? { ...call.at, actor } : undefined)), actor);
   };
 }
 

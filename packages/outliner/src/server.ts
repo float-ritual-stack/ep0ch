@@ -610,7 +610,7 @@ export class OutlinerServer {
           reject: error => { signal.removeEventListener("abort", abort); reject(error); },
         });
         this.broadcast({ id: requestId, domain: "script", action: "scripts.act", sequence: store.sequence,
-          script: { requestId, targetClientId: target, action, args, actor, requestedBy: meta.requestedBy, ...(meta.invitation ? { invitation: meta.invitation } : {}) } });
+          script: { requestId, targetClientId: target, action, args, actor, requestedBy: meta.requestedBy, ...(meta.invitation ? { invitation: meta.invitation } : {}), ...(meta.at ? { at: meta.at } : {}) } });
       });
     }, ended => this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.ended", sequence: store.sequence, ended }), options.scriptAnswerMs);
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
@@ -4097,7 +4097,7 @@ export class OutlinerServer {
       case "outputs.place":
       case "draft.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
-      case "door.act": return { ...as, agent: grant.agent ?? grant.extensionId, extension: grant.extensionId, ...(grant.requestedBy ? { requestedBy: grant.requestedBy } : {}) } as OutlinerRequest;
+      case "door.act": if (grant.relayed || !grant.agent) throw new Error("door.act needs an agent extension's grant from this machine: a respond call of one of its agents"); return { ...as, agent: grant.agent, extension: grant.extensionId, ...(grant.requestedBy ? { requestedBy: grant.requestedBy } : {}) } as OutlinerRequest;
       case "move":
       case "delete":
         return this.extensionStructureWrite(action, as, actor);
@@ -4293,7 +4293,7 @@ export class OutlinerServer {
         throw new Error("This extension grant isn't valid: EP0CH_EXT_GRANT holds only while the process the service started for it runs");
       }
       grant ??= relayedGrant((request as { relayed?: unknown }).relayed);
-      if (grant) request = this.asExtension(request, grant);
+      if (grant) request = this.asExtension(request, grant); else if (String(request.action) === "door.act") throw new Error("door.act needs an agent extension's grant: its process calls it (EP0CH_EXT_GRANT); anyone else acts in a door through that door's `act`");
       const claimed = grant ? undefined : claimedExtensionActor(request);
       if (claimed) {
         throw new Error(`${claimed} is an extension's own actor id: only the service writes as an extension. ` +

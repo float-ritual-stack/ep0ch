@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { buttonIn, buttonLine, isGo, keysOf, labelOf, lastButton, memoryText, planOf, pressLine, quoted, quoteOf, ranked, recalled, sections, type ActionRecord } from "../extensions/yo/yo-line";
+import { argsOf, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryText, planOf, pressLine, quoted, quoteOf, ranked, recalled, sections, type ActionRecord } from "../extensions/yo/yo-line";
 
 const LIFT: ActionRecord = {
   name: "barrow.lift", summary: "lift the barrow above the bench as a column (reach=full: across the shed), wherever it is: the one you used last. Again drops it",
@@ -41,17 +41,50 @@ test("the button takes the label its doc gives, asks for a required argument, an
 test("code decides: do it needs no model, memory matches on words, and a plan names only what was offered", () => {
   for (const go of ["do it", "Yes!", "press it", "go ahead"]) expect(isGo(go)).toBe(true);
   expect(isGo("do it tomorrow in the shed")).toBe(false);
-  const memory = [{ id: "m", asked: "lift barrow", action: "barrow.lift", kind: "answer", text: "lift barrow: barrow.lift" }];
-  expect(recalled(memory, "how do I lift the barrow again")?.id).toBe("m");
-  expect(recalled(memory, "lift")?.id).toBe("m");
-  expect(recalled(memory, "water the tray")).toBeNull();
-  expect(memoryText("how do I lift the barrow again", "barrow.lift")).toBe("lift barrow: barrow.lift [yo-memory::answer] [yo-action::barrow.lift] [yo-asked::lift barrow]");
+  const memory = [{ id: "m", asked: "lift barrow", action: "barrow.lift", line: "barrow.lift", kind: "answer", text: "lift barrow: barrow.lift" }];
+  expect(recalled(memory, "how do I lift the barrow again")).toEqual({ hit: memory[0]! });
+  expect(recalled(memory, "lift")).toEqual({ hit: memory[0]! });
+  expect(recalled(memory, "water the tray")).toEqual({});
+  expect(memoryText("how do I lift the barrow again", "barrow.lift")).toBe("lift barrow: barrow.lift [yo-memory::answer] [yo-action::barrow.lift] [yo-asked::lift barrow] [yo-line::barrow.lift]");
   expect(ranked([WATER, LIFT], "how do I lift the barrow")[0]!.name).toBe("barrow.lift");
   expect(planOf({ kind: "quote", action: "made.up" }, [LIFT], [])).toBeNull();
   expect(planOf({ kind: "act", action: "barrow.lift", args: { reach: "full" } }, [LIFT], [])).toEqual({ kind: "act", action: "barrow.lift", args: { reach: "full" } });
   expect(planOf({ kind: "doc", quote: "not in the doc" }, [], ["# Doc\nthe real line"])).toBeNull();
   expect(planOf({ kind: "doc", quote: "the real line" }, [], ["# Doc\nthe real line"])).toEqual({ kind: "doc", quote: "the real line" });
   expect(sections("# A\nlift lift lift\n# B\nnothing", "lift")[0]).toContain("# A");
+});
+
+const note = (asked: string, action: string, line = action) => ({ id: `${asked}/${line}`, asked, action, line, kind: "answer", text: `${asked}: ${line}` });
+
+test("memory: an exact ask wins whatever order the notes are in; broader notes that disagree are a conflict, never a guess", () => {
+  const broad = note("lift barrow", "barrow.lift"), exact = note("lift", "tray.lift");
+  for (const notes of [[broad, exact], [exact, broad]]) expect(recalled(notes, "lift")).toEqual({ hit: exact });
+  const other = note("lift tray", "tray.lift");
+  expect(recalled([broad, other], "lift").conflict?.map(m => m.action)).toEqual(["barrow.lift", "tray.lift"]);
+  expect(recalled([broad, note("lift barrow high", "barrow.lift")], "lift").hit?.action).toBe("barrow.lift");
+  expect(recalled([note("lift", "barrow.lift"), note("lift", "tray.lift")], "lift").conflict?.length).toBe(2);
+});
+
+test("memory keeps the arguments that worked, never the tile they ran in", () => {
+  const remembered = memoryText("drop the barrow", "barrow.lift on=false tile=t-1");
+  expect(remembered).toBe("drop barrow: barrow.lift on=false [yo-memory::answer] [yo-action::barrow.lift] [yo-asked::drop barrow] [yo-line::barrow.lift on=false]");
+  expect(argsOf("barrow.lift on=false reach=full tile=t-1")).toEqual({ on: "false", reach: "full" });
+  expect(buttonLine(LIFT, pressLine(LIFT, argsOf("barrow.lift on=false")), "drop the barrow")).toBe('::button{label="▲ lift" act=["barrow.lift on=false", "ext.yo.remember act=barrow.lift asked=drop-barrow args=on:false"]}');
+});
+
+test("do it is tied to yo's own last answer: another button below it is not pressed, and an answer with none presses nothing", () => {
+  const ask = "@yo lift the barrow", fold = ["> [!note]+ @yo answered", '> ::button{label="▲ lift" act="barrow.lift"}', "> > [!note]- 2 steps", "> > - read"];
+  const lines = ["Shed", ask, ...fold, "", '::button{label="close" act="tile.close"}', "[bin it](act: note.trash)"];
+  expect(lastAnswer(lines)).toEqual({ ask: "lift the barrow", button: { line: fold[1]!, label: "▲ lift", act: "barrow.lift" } });
+  expect(lastAnswer(["Shed", '::button{label="close" act="tile.close"}'])).toBeNull();
+  expect(lastAnswer([ask, "> [!note]+ @yo answered", "> ✓ yo pressed ▲ lift · [undo](act: ext.undo run=a)"])?.button).toBeNull();
+  // A newer answer with nothing to press hides an older button.
+  expect(lastAnswer([ask, ...fold, "@yo mamama", "> [!note]+ @yo answered", "> yo mama"])?.button).toBeNull();
+});
+
+test("the done row offers undo only when the run can take it back", () => {
+  expect(doneRow("▲ lift", "run-1", true)).toBe("✓ yo pressed ▲ lift · [undo](act: ext.undo run=run-1)");
+  expect(doneRow("▸ set", "run-1", false)).toBe("✓ yo pressed ▸ set · no undo: it changes no note and no layout");
 });
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -116,7 +149,37 @@ test("an act steps up once to the act model; with no door to press in, it says s
   expect(text).toContain('::button{label="▲ lift"');
 }, 30_000);
 
-test("door.act is an extension's: a client with no grant is refused and told how", async () => {
+test("door.act is an extension's: a client with no grant is refused, whoever it says it is", async () => {
   const t = await setup({ kind: "none", line: "no" });
-  await expect(t.client.request({ action: "door.act", line: "barrow.lift" } as never)).rejects.toThrow("door.act is an agent extension's own");
+  await expect(t.client.request({ action: "door.act", line: "barrow.lift" } as never)).rejects.toThrow("door.act needs an agent extension's grant");
+  await expect(t.client.request({ action: "door.act", line: "barrow.lift", agent: "yo", extension: "yo" } as never)).rejects.toThrow("door.act needs an agent extension's grant");
+}, 30_000);
+
+test("do it presses yo's own answer, not a button written below it", async () => {
+  const t = await setup({ kind: "none", line: "no" });
+  const text = ["Shed list", "", "@yo lift the barrow", "> [!note]+ @yo answered", '> ::button{label="▲ lift" act="barrow.lift"}', "", '::button{label="close" act="tile.close"}', "", "@yo do it"].join("\n");
+  const made = await t.client.request<{ id: string }>({ action: "create", text, author: "user" } as never);
+  const said = await until("the answer", () => { const x = t.store.require(made.id).text; return /refused|nothing/.test(x) ? x : null; });
+  expect(said).toContain("the door refused ▲ lift");
+  expect(said).not.toContain("the door refused close");
+}, 30_000);
+
+test("a memory note whose words are covered isn't written twice; other arguments are another fact", async () => {
+  const t = await setup({ kind: "none", line: "no" });
+  const remember = (args: Record<string, string>) => t.client.request({ action: "extensions.act", extension: "yo", extensionAction: "remember", args } as never);
+  const notes = async () => (await t.client.request<{ blocks: { text: string }[] }>({ action: "blocks.query", query: { where: "yo-memory", limit: 9 } } as never)).blocks.map(b => b.text.split(" [yo-memory")[0]);
+  await remember({ act: "barrow.lift", asked: "lift-barrow" });
+  await remember({ act: "barrow.lift", asked: "lift" });
+  expect(await notes()).toEqual(["lift barrow: barrow.lift"]);
+  await remember({ act: "barrow.lift", asked: "drop-barrow", args: "on:false" });
+  expect((await notes()).sort()).toEqual(["drop barrow: barrow.lift on=false", "lift barrow: barrow.lift"]);
+}, 30_000);
+
+test("a remembered answer's button keeps the arguments that worked", async () => {
+  const t = await setup({ kind: "none", line: "no" });
+  await t.client.request({ action: "extensions.act", extension: "yo", extensionAction: "remember", args: { act: "barrow.lift", asked: "drop-barrow", args: "on:false" } } as never);
+  const made = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo drop the barrow", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(made.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).toContain('act=["barrow.lift on=false"');
+  expect(t.models()).toEqual([]);
 }, 30_000);

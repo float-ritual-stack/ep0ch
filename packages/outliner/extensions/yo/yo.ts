@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { actPrompt, buttonLine, isGo, keysOf, labelOf, lastButton, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -54,7 +54,7 @@ async function memories(): Promise<Memory[]> {
     const { blocks } = await outline<{ blocks: { id: string; text: string; properties?: { key: string; value: string }[] }[] }>({ action: "blocks.query", query: { where: "yo-memory", limit: 200 } }, route);
     const found = blocks.map(b => {
       const prop = (key: string) => b.properties?.find(p => p.key === key)?.value ?? "";
-      return { id: b.id, asked: prop("yo-asked"), action: prop("yo-action"), kind: prop("yo-memory"), text: b.text.split("\n", 1)[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "") };
+      return { id: b.id, asked: prop("yo-asked"), action: prop("yo-action"), line: prop("yo-line") || prop("yo-action"), kind: prop("yo-memory"), text: b.text.split("\n", 1)[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "") };
     });
     steps.push(`read memory: ${found.length} note${found.length === 1 ? "" : "s"}`);
     return found;
@@ -64,13 +64,18 @@ async function memories(): Promise<Memory[]> {
   }
 }
 
-/** One fact, once: nothing if a note already says it; a memory that can't be written is said, and the answer stands. */
-async function remember(asked: string, action: string): Promise<void> {
+/** One fact, once: nothing if a note already covers these words with this line; other arguments are another fact. A memory that can't be written is said, and the answer stands. */
+async function remember(asked: string, pressed: string): Promise<void> {
   try {
-    const text = memoryText(asked, action);
-    const title = text.split(" [yo-memory", 1)[0]!, words = wordsOf(asked);
+    const text = memoryText(asked, pressed);
+    const [, title = "", action = "", line = ""] = /^(.*?) \[yo-memory::answer\] \[yo-action::(.*?)\] .*\[yo-line::(.*?)\]$/.exec(text) ?? [];
+    const words = wordsOf(asked);
     const { blocks } = await outline<{ blocks: { text: string }[] }>({ action: "blocks.query", query: { where: `yo-action=${action}`, limit: 50 } }, route);
-    if (blocks.some(b => { const have = new Set(wordsOf(b.text.split("\n", 1)[0]!)); return words.every(w => have.has(w)); })) return void steps.push("already in memory");
+    const covers = (first: string) => {
+      const said = /\[yo-line::(.*?)\]/.exec(first)?.[1] ?? action, have = new Set(wordsOf(/\[yo-asked::(.*?)\]/.exec(first)?.[1] ?? first));
+      return said === line && words.every(w => have.has(w));
+    };
+    if (blocks.some(b => covers(b.text.split("\n", 1)[0]!))) return void steps.push("already in memory");
     await outline({ action: "create", text }, route);
     steps.push(`wrote to memory: ${title}`);
   } catch (error) { steps.push(`not remembered (${firstLine(error)})`); }
@@ -96,43 +101,51 @@ async function model(command: string[], which: string, prompt: string): Promise<
   return parsed;
 }
 
-/** Press it, as yo: `door.act`, in the door that asked. What came back says whether it ran. */
-async function press(line: string, label: string): Promise<{ undo: string } | { refused: string }> {
-  const door = input.door ?? input.properties?.["ask-door"]?.[0];
-  const answer = await outline<{ undo: string; done: boolean; error?: string }>({
-    action: "door.act", line, label, ...(door ? { door } : {}), ...(input.note && !input.note.id.startsWith("resource:") ? { blockId: input.note.id } : {}),
-  }, { timeoutMs: 30_000 }).catch((error: unknown) => ({ undo: "", done: false, error: firstLine(error) }));
-  steps.push(answer.done ? `pressed ${line} as yo` : `the door refused ${line}: ${answer.error}`);
-  return answer.done ? { undo: answer.undo } : { refused: answer.error ?? "the door refused it" };
-}
-
-const doneRow = (label: string, undo: string) => `✓ yo pressed ${label} · [undo](act: ext.undo run=${undo})`;
-const withSteps = (lines: readonly string[]) => [...lines, ...stepsFold(steps)].join("\n");
+/** The tile the ask was about, from the thread that carried it. */
+const askedTile = () => input.properties?.["ask-tile"]?.[0];
 const inThread = () => Array.isArray(input.thread);
+/** Whether a person's press of `a` should name the asked tile: it's a tile's own action. Asked of the action's own scope. */
+const tileFor = (a: ActionRecord) => (a.scope === "tile" || a.scope === input.properties?.["ask-tile-kind"]?.[0] ? askedTile() : undefined);
 
-/** What the person's earlier words asked: the ask a button answers, for what's kept in memory. */
-function askedBefore(lines: readonly string[]): string {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^\s*(?:[-*+]\s+)?@yo\b[:,]?\s*(.*)$/.exec(lines[i]!);
-    if (m && m[1] && !isGo(m[1])) return m[1];
-  }
-  return "";
+/** Press it, as yo: `door.act`, in the door and tile that asked (the dispatcher decides whether the action takes one). What came back says whether it ran. */
+async function press(line: string, label: string): Promise<{ undo: string; wrote: boolean } | { refused: string }> {
+  const door = input.door ?? input.properties?.["ask-door"]?.[0];
+  const noteId = input.note && !input.note.id.startsWith("resource:") ? input.note.id : undefined;
+  const answer = await outline<{ undo: string; done: boolean; wrote?: boolean; error?: string }>({
+    action: "door.act", line, label, ...(door ? { door } : {}), ...(noteId ? { blockId: noteId } : {}), ...(askedTile() ? { tile: askedTile() } : !inThread() && noteId ? { note: noteId } : {}),
+  }, { timeoutMs: 30_000 }).catch((error: unknown) => ({ undo: "", done: false, wrote: false, error: firstLine(error) }));
+  steps.push(answer.done ? `pressed ${line} as yo` : `the door refused ${line}: ${answer.error}`);
+  return answer.done ? { undo: answer.undo, wrote: !!answer.wrote } : { refused: answer.error ?? "the door refused it" };
 }
 
-/** `@yo do it`: the newest button yo drew here, pressed. Nothing to work out, so no model. */
+/** A run can take back what it wrote or a layout change; the action says whether it changes the layout (`touches`). */
+const reversible = (a: ActionRecord | undefined, wrote: boolean) => wrote || a?.touches === "shape";
+const withSteps = (lines: readonly string[]) => [...lines, ...stepsFold(steps)].join("\n");
+
+/** yo's own newest answer: in a thread its newest reply, in a note the newest fold above the line. Nothing else here is pressed. */
+function pending(): { ask: string; button: { line: string; label: string; act: string } | null } | null {
+  if (inThread()) {
+    const turns = input.thread!, at = turns.findLastIndex(t => t.author.startsWith("ext:yo"));
+    if (at < 0) return null;
+    const ask = turns.slice(0, at).reverse().flatMap(t => t.body.split("\n")).map(l => /^\s*@yo\b[:,]?\s*(.*)$/.exec(l)?.[1] ?? "").find(w => w && !isGo(w)) ?? "";
+    return { ask, button: lastButton(turns[at]!.body.split("\n").filter(l => !l.startsWith(">"))) };
+  }
+  const lines = (input.note?.text ?? "").split("\n");
+  return lastAnswer(lines.slice(0, Math.max(0, lines.lastIndexOf(input.mark ?? ""))));
+}
+
+/** `@yo do it`: the button in yo's own last answer, pressed. Nothing to work out, so no model. */
 async function go() {
-  const text = inThread() ? input.thread!.map(t => t.body).join("\n") : input.note?.text ?? "";
-  const lines = text.split("\n");
-  const above = inThread() ? lines : lines.slice(0, Math.max(0, lines.lastIndexOf(input.mark ?? "")));
-  const button = lastButton(above);
-  if (!button) return ok({ message: "nothing to press yet", reply: "nothing here to press yet: ask me how to do something first." });
+  const answer = pending(), button = answer?.button;
+  if (!button) return ok({ message: "nothing to press yet", reply: "nothing of mine to press here: ask me how to do something first." });
   const pressed = await press(button.act, button.label);
   if ("refused" in pressed) {
     const said = `the door refused ${button.label}: ${pressed.refused}`;
     return ok(inThread() ? { reply: said } : { message: said.slice(0, 480), reply: withSteps([said]) });
   }
-  await remember(askedBefore(above) || button.act, button.act.split(/\s/, 1)[0]!);
-  const row = doneRow(button.label, pressed.undo);
+  await remember(answer!.ask || button.act, button.act);
+  const name = button.act.split(/\s/, 1)[0]!, action = (await catalog().catch(() => [] as ActionRecord[])).find(a => a.name === name);
+  const row = doneRow(button.label, pressed.undo, reversible(action, pressed.wrote));
   if (inThread()) return ok({ reply: withSteps([row]) });
   const prefix = /^[>\s]*/.exec(button.line)![0];
   return ok({ message: `✓ pressed ${button.label} as yo`, patches: [{ observed: button.line, replacement: `${prefix}${row}` }] });
@@ -143,7 +156,7 @@ const said = (a: ActionRecord) => [a.name, keysOf(a, 2)].filter(Boolean).join(" 
 
 /** Quote one action: its two lines and its button. */
 function quoteAnswer(a: ActionRecord, asked: string, args?: Record<string, string>, note?: string): string[] {
-  return [...quoted(a), buttonLine(a, pressLine(a, args), asked, { thread: inThread() }), ...(note ? [note] : [])];
+  return [...quoted(a), buttonLine(a, pressLine(a, args), asked, { thread: inThread(), ...(tileFor(a) ? { tile: tileFor(a)! } : {}) }), ...(note ? [note] : [])];
 }
 
 async function respond() {
@@ -154,12 +167,17 @@ async function respond() {
   const actions = await catalog();
   steps.push(`read ${actions.length} actions' own docs`);
 
-  const hit = recalled(known.filter(m => m.kind === "answer"), asked);
+  const { hit, conflict } = recalled(known.filter(m => m.kind === "answer"), asked);
+  if (conflict) {
+    steps.push(`memory disagrees: ${conflict.map(m => m.text).join("; ")}`);
+    const named = conflict.flatMap(m => { const a = actions.find(x => x.name === m.action); return a ? [`\`${m.line}\`, for "${m.asked}"`, buttonLine(a, pressLine(a, argsOf(m.line)), m.asked, { thread: inThread() })] : []; });
+    return ok({ message: "from memory: which one?", reply: withSteps(["you've used more than one for that. Which?", ...named]) });
+  }
   const remembered = hit ? actions.find(a => a.name === hit.action) : undefined;
   if (remembered) {
     steps.push(`answered from memory: ${hit!.text}`);
     const [quote, keys] = quoted(remembered);
-    return ok({ message: `from memory: ${said(remembered)}`, reply: withSteps([`${quote} · ${keys}`, buttonLine(remembered, pressLine(remembered), asked, { thread: inThread() })]) });
+    return ok({ message: `from memory: ${said(remembered)}`, reply: withSteps([`${quote} · ${keys}`, buttonLine(remembered, pressLine(remembered, argsOf(hit!.line)), asked, { thread: inThread(), ...(tileFor(remembered) ? { tile: tileFor(remembered)! } : {}) })]) });
   }
 
   const boost = tile ? wordsOf(tile) : [];
@@ -206,14 +224,14 @@ async function respond() {
   if (line.slots.length) return ok({ message: action.name, reply: withSteps(quoteAnswer(action, asked, args, `it needs ${line.slots.join(", ")}: press it and say.`)) });
   const pressed = await press(line.line, labelOf(action));
   if ("refused" in pressed) return ok({ message: "the door refused it", reply: withSteps([...quoteAnswer(action, asked, args), `the door refused it as yo: ${pressed.refused}`]) });
-  await remember(asked, action.name);
-  return ok({ message: `✓ pressed ${labelOf(action)} as yo`, reply: withSteps([...quoted(action), doneRow(labelOf(action), pressed.undo)]) });
+  await remember(asked, line.line);
+  return ok({ message: `✓ pressed ${labelOf(action)} as yo`, reply: withSteps([...quoted(action), doneRow(labelOf(action), pressed.undo, reversible(action, pressed.wrote))]) });
 }
 
 try {
   if (operation === "respond") await respond();
   else if (operation === "act" && input.action === "remember") {
-    await remember((input.args?.asked ?? "").replaceAll("-", " "), input.args?.act ?? "");
+    await remember((input.args?.asked ?? "").replaceAll("-", " "), lineOf(input.args?.act ?? "", input.args?.args));
     ok({ message: steps.at(-1) ?? "remembered" });
   } else process.stdout.write(JSON.stringify({ ok: false, code: "invalid-config" }));
 } catch (error) {

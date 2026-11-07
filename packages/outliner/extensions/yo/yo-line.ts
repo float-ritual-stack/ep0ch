@@ -9,8 +9,9 @@ export interface ActionRecord {
   args?: Record<string, { type?: string; optional?: boolean; about?: string; choices?: readonly string[] }>;
   person?: string;
   scope?: string;
+  touches?: string;
 }
-export interface Memory { id: string; asked: string; action: string; kind: string; text: string }
+export interface Memory { id: string; asked: string; action: string; line: string; kind: string; text: string }
 
 const STOP = new Set("a about again all am an and any are at be button can could do does for from get go going help how i if in into is it its just like make me my of on or please press put run set show so that the them then there this to up use want was way what when where which will with would you your yo".split(" "));
 
@@ -62,13 +63,28 @@ export function pressLine(a: ActionRecord, given: Readonly<Record<string, string
 
 const slugOf = (asked: string) => wordsOf(asked).join("-").slice(0, 60);
 
-/** The line that draws the button; a press also tells yo it worked (`ext.yo.remember`). A comment draws no `::` line, so in a thread it's a link. */
-export function buttonLine(a: ActionRecord, press: { line: string; slots: string[] }, asked: string, o: { thread?: boolean } = {}): string {
+/** An action line's arguments, without the tile it ran in: what's kept is what made it right, not where it was. */
+export function argsOf(line: string): Record<string, string> {
+  return Object.fromEntries(line.split(/\s+/).slice(1).flatMap(w => { const at = w.indexOf("="); return at > 0 && w.slice(0, at) !== "tile" ? [[w.slice(0, at), w.slice(at + 1)]] : []; }));
+}
+/** The arguments as one word of an action line: `on:false,reach:full`. */
+export const argsWord = (line: string) => Object.entries(argsOf(line)).filter(([, v]) => !/[,:{}]/.test(v)).map(([k, v]) => `${k}:${v}`).join(",");
+/** That word back as a line. */
+export const lineOf = (action: string, word = "") => [action, ...word.split(",").filter(Boolean).map(p => p.replace(":", "="))].join(" ");
+
+/** The line that draws the button; a press also tells yo it worked (`ext.yo.remember`). A comment draws no `::` line, so in a thread it's a link, naming the tile asked about. */
+export function buttonLine(a: ActionRecord, press: { line: string; slots: string[] }, asked: string, o: { thread?: boolean; tile?: string } = {}): string {
   const label = labelOf(a), slug = slugOf(asked), slots = press.slots.map(s => ` ${s}=`).join("");
-  if (o.thread && !press.slots.length) return `[${label}](act: ${press.line})`;
+  if (o.thread && !press.slots.length) return `[${label}](act: ${press.line}${o.tile ? ` tile=${o.tile}` : ""})`;
+  const word = argsWord(press.line);
   return slug && !press.slots.length
-    ? `::button{label="${label}" act=["${press.line}", "ext.yo.remember act=${a.name} asked=${slug}"]}`
+    ? `::button{label="${label}" act=["${press.line}", "ext.yo.remember act=${a.name} asked=${slug}${word ? ` args=${word}` : ""}"]}`
     : `::button{label="${label}" act="${press.line}"${slots}}`;
+}
+
+/** The row a press leaves: its undo only when the run can take it back. */
+export function doneRow(label: string, undo: string, reversible: boolean): string {
+  return `✓ yo pressed ${label} · ${reversible ? `[undo](act: ext.undo run=${undo})` : "no undo: it changes no note and no layout"}`;
 }
 
 /** The two quoted lines of an answer. */
@@ -97,11 +113,31 @@ export function lastButton(lines: readonly string[]): { line: string; label: str
 /** "do it", "yes", "press it": an ask with nothing to work out. */
 export const isGo = (request: string) => /^(do it|do that|yes|yep|yeah|yup|press it|go|go ahead|ok|okay|please do)[.!\s]*$/i.test(request.trim());
 
-/** The note in memory that answers an ask, when its words cover every word asked (`lift` finds `lift agent`). */
-export function recalled(memories: readonly Memory[], asked: string): Memory | null {
+/** yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note. */
+export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; label: string; act: string } | null } | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!/^>\s*\[!note\][+-]?\s+@yo answered\s*$/.test(lines[i]!)) continue;
+    let end = i + 1;
+    while (end < lines.length && lines[end]!.startsWith(">")) end++;
+    const ask = /^\s*(?:[-*+]\s+)?@yo\b[:,]?\s*(.*)$/.exec(lines[i - 1] ?? "")?.[1] ?? "";
+    return { ask, button: lastButton(lines.slice(i + 1, end).filter(l => !l.startsWith("> >"))) };
+  }
+  return null;
+}
+
+/**
+ * What memory says of an ask: an exact note first, whatever order they're in; else the notes whose words cover it, when
+ * they agree. Notes that disagree are a conflict to show, never a guess.
+ */
+export function recalled(memories: readonly Memory[], asked: string): { hit?: Memory; conflict?: Memory[] } {
   const words = wordsOf(asked);
-  if (!words.length) return null;
-  return memories.find(m => m.action && (() => { const have = new Set(wordsOf(`${m.asked} ${m.action}`)); return words.every(w => have.has(w)); })()) ?? null;
+  if (!words.length) return {};
+  const said = memories.filter(m => m.action);
+  const same = said.filter(m => { const have = wordsOf(m.asked); return have.length === words.length && words.every(w => have.includes(w)); });
+  const covering = same.length ? same : said.filter(m => { const have = new Set(wordsOf(`${m.asked} ${m.action}`)); return words.every(w => have.has(w)); });
+  const lines = [...new Set(covering.map(m => m.line))];
+  if (lines.length > 1) return { conflict: lines.map(l => covering.find(m => m.line === l)!) };
+  return covering[0] ? { hit: covering[0] } : {};
 }
 
 /** The actions an ask's words point at, best first: a name's word counts most, then its own words, then its summary. */
@@ -179,9 +215,11 @@ export function planOf(value: unknown, offered: readonly ActionRecord[], docs: r
 }
 
 /** The title and property line of a memory note: one fact, which Evan reads, fixes and deletes. */
-export function memoryText(asked: string, action: string): string {
+export function memoryText(asked: string, pressed: string): string {
+  const action = pressed.split(/\s+/, 1)[0]!;
+  const line = [action, ...Object.entries(argsOf(pressed)).map(([k, v]) => `${k}=${v}`)].join(" ");
   const said = wordsOf(asked).join(" ") || action;
-  return `${said}: ${action} [yo-memory::answer] [yo-action::${action}] [yo-asked::${said}]`;
+  return `${said}: ${line} [yo-memory::answer] [yo-action::${action}] [yo-asked::${said}] [yo-line::${line}]`;
 }
 
 /** The steps under an answer, folded under their count. */
