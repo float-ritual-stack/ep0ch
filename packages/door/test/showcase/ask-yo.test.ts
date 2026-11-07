@@ -66,6 +66,12 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await untilAsync(async () => ((await h.board.comments(out.note)).find(t => t.id === out.thread)?.replies?.length ?? 0) > 0, "yo's reply in the thread", 30_000);
   }, 60_000);
 
+  test("yo pressing agent.ask at itself doesn't answer itself: an agent's ask never wakes its own name", async () => {
+    const out = await h.app.act({ action: "agent.ask", args: { to: "yo", text: "how do I zoom the tile", about: "tile" }, as: "yo" }) as { note: string; thread: string };
+    await Bun.sleep(2500);
+    expect((await h.board.comments(out.note)).find(t => t.id === out.thread)?.replies ?? []).toEqual([]);
+  }, 30_000);
+
   test("in a thread: the answer's button is a link a comment draws; a reply saying do it presses it", async () => {
     const out = await h.app.act({ action: "agent.ask", args: { to: "yo", text: "how do I zoom the tile", about: "tile" } }) as { note: string; thread: string };
     const replies = async () => (await h.board.comments(out.note)).find(t => t.id === out.thread)?.replies ?? [];

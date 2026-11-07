@@ -900,7 +900,7 @@ export class AgentRequests {
     const names = this.registry.threadAgentNames();
     for (const record of records) {
       // An agent's comment asks only an agent that takes agents' asks (a how-to, PIE-1585), and never an extension's or a script's: they can't loop.
-      const line = (author === "user" || !/^(?:ext|script):/.test(record.block.actorId ?? "")) ? requestLines(record.body, names).find(l => author === "user" || this.registry.agent(l.agent)?.agent.fromAgents) : undefined;
+      const line = (author === "user" || !/^(?:ext|script):/.test(record.block.actorId ?? "")) ? requestLines(record.body, names).find(l => author === "user" || (l.agent !== record.block.actorId && this.registry.agent(l.agent)?.agent.fromAgents)) : undefined;
       if (author === "user") this.notInThreads(record.block.id, record.body);
       if (!line) continue;
       void this.answerInThread(record, line).catch(() => {});

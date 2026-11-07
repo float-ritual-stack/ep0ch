@@ -273,7 +273,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * A desk on no door yet has its own.
    */
   private looseSteps: StepRecord<Desk> | null = null;
-  private get steps(): StepRecord<Desk> { return this.ctx?.hostLayer?.steps ?? (this.looseSteps ??= new StepRecord<Desk>()); }
+  get steps(): StepRecord<Desk> { return this.ctx?.hostLayer?.steps ?? (this.looseSteps ??= new StepRecord<Desk>()); }
   get history(): DeskSteps<Desk> { return this.steps.of(this); }
   /** Who asked each answer the module gave, and what for: `commit` records the change as theirs. */
   private asked = new WeakMap<object, { actor: Actor; op: string; standing: boolean; left?: boolean }>();
@@ -1020,7 +1020,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * container's policy hold.
    */
   undoLayout(actor: Actor, txn?: string, keepKeys = false): { undone: string; what: string; steps: number; screen: string; left?: string; kept?: string[] } {
-    probe("layout.undo"); if (txn && !this.steps.of(this).entriesOf(txn).length) { const there = this.relatives().find(d => this.steps.of(d).entriesOf(txn).length); if (there) return there.undoLayout(actor, txn, keepKeys); }   // a run is undone from wherever it's asked: what it lifted is in the drawer, its done row on a screen
+    probe("layout.undo");
     const entries = this.steps.takeBack(this, actor, txn);
     if (!Array.isArray(entries)) throw new ActionRefused(entries.refused);
     const { steps, kept } = this.undoAcross(entries, actor, keepKeys);
@@ -1379,7 +1379,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return out;
   }
   /** Every desk a link or a follower can reach: this screen's family, and the drawer's and the other screen's. */
-  private relatives(): Desk[] {
+  relatives(): Desk[] {
     const roots = new Set<Desk>([this.top(), ...(this.ctx?.hostLayer?.desks() ?? []).map(d => d.top())]);
     return [...roots].flatMap(r => r.descend());
   }
