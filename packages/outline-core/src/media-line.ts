@@ -343,7 +343,8 @@ export function pictureFenceSpec(info: string): MediaSpec | null {
   if (attrs.height !== undefined) {
     const size = readContentSize({ height: attrs.height });
     if (size.height !== undefined) spec.height = size.height;
-    spec.problems.push(...size.problems);
+    // Past the most: the rows it's drawn at are the caption's to say, from the box drawn (picture.ts drawnSizeText, PIE-1630).
+    spec.problems.push(...size.problems.map(p => p.includes("exceeds") ? `height=${attrs.height} is past the most, ${MAX_CONTENT_HEIGHT} rows` : p));
   }
   if (attrs.align !== undefined) {
     const align = attrs.align.toLowerCase();

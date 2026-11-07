@@ -1,7 +1,7 @@
 // What a picture is (PIE-1594), given only a note's text: which one it is across an insert above it, which is the header,
 // how big it draws from its words and pixels, and one step for every kind. Made-up notes.
 import { describe, expect, test } from "bun:test";
-import { drawingSpec, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
+import { drawingSpec, drawnSizeText, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
 import { parseMediaLine, parsePictureFence } from "../src/media-line";
 
 const fence = (body: string, words = "") => `\`\`\`svg${words}\n${body}\n\`\`\``;
@@ -117,7 +117,9 @@ describe("one step, for every kind", () => {
 
   test("a fence at its full fit stops and writes nothing; below it steps; [-] from what's drawn", () => {
     const at24 = parsePictureFence("```svg height=24")!;
-    expect(pictureStep(of("fence", at24), 1, { ...room, px, drawn: { cols: 85, rows: 24 } })).toEqual({ stop: expect.stringContaining("as big as it gets") });
+    // Its full fit is 85 of 87 columns: the step is the full width (PIE-1630), and there it stops.
+    expect(pictureStep(of("fence", at24), 1, { ...room, px, drawn: { cols: 85, rows: 24 } })).toEqual({ set: { size: "full", height: null } });
+    expect(pictureStep(of("fence", parsePictureFence("```svg size=full")!), 1, { ...room, px, drawn: { cols: 87, rows: 24 } })).toEqual({ stop: "it's the full width already" });
     expect(pictureStep(of("fence", parsePictureFence("```svg height=12")!), 1, { ...room, px, drawn: { cols: 43, rows: 12 } })).toEqual({ set: { height: "14" } });
     expect(pictureStep(of("fence", at24), -1, { ...room, px, drawn: { cols: 85, rows: 24 } })).toEqual({ set: { height: "22" } });
     // Written past its fit, it steps down from what's drawn.
@@ -126,7 +128,7 @@ describe("one step, for every kind", () => {
 
   test("a drawing steps as a fence does, not drawn yet from its pixels", () => {
     const spec = { kind: "img" as const, path: "x.svg", problems: [], drawn: true };
-    expect(pictureStep(of("drawing", spec), 1, { ...room, px })).toEqual({ stop: expect.stringContaining("as big as it gets") });
+    expect(pictureStep(of("drawing", spec), 1, { ...room, px })).toEqual({ stop: "it's the full width already" });
     expect(pictureStep(of("drawing", spec), -1, { ...room, px })).toEqual({ set: { height: "22" } });
     expect(pictureStep(of("drawing", { ...spec, height: 6 }), 1, room)).toEqual({ set: { height: "8" } });
   });
@@ -138,8 +140,8 @@ describe("one step, for every kind", () => {
     expect(pictureStep(of("line", img("[size::25%]")), -1, { ...room, px })).toEqual({ stop: expect.stringContaining("smallest") });
     const tall = { width: 400, height: 4000 }, narrow = { width: 400, height: 800 };
     expect(pictureStep(of("line", img("[size::50%]")), 1, { ...room, px: tall })).toEqual({ stop: expect.stringContaining("as big as it gets") });
-    // Down from a share the rows' cap holds, past the ones that draw the same.
-    expect(pictureStep(of("line", img("[size::full]")), -1, { ...room, px: narrow })).toEqual({ set: { size: "50%" } });
+    // Sized, the reader's cap doesn't hold it (PIE-1630): one share down draws smaller, so that's the step.
+    expect(pictureStep(of("line", img("[size::full]")), -1, { ...room, px: narrow })).toEqual({ set: { size: "75%" } });
   });
 
   test("the header by rows, stopping where the reader's cap is", () => {
@@ -162,5 +164,43 @@ describe("writing it", () => {
     expect(rewritePicture("fence", "```svg", { height: "6" })).toBe("```svg height=6");
     expect(rewritePicture("line", "[img::a.png]", { size: "50%" })).toBe("[img::a.png] [size::50%]");
     expect(rewritePicture("fence", "not a fence", { height: "6" })).toBeNull();
+  });
+});
+
+// PIE-1630: the reader's cap is for a picture nobody sized; a sized one goes to the body's width and the note scrolls.
+describe("asked for more, it fills the width (PIE-1630)", () => {
+  const spread = { width: 1600, height: 1000 }, room = { ...cells, maxImageRows: 30, body: 160 };
+  const of = (kind: "line" | "fence" | "drawing", spec: Parameters<typeof pictureStep>[0]["spec"]) => ({ kind, spec, header: false });
+
+  test("unsized, the reader's cap holds it; sized, only its own words do", () => {
+    expect(imageBox(spread, parsePictureFence("```svg")!, 160, room).rows).toBeLessThanOrEqual(30);
+    expect(imageBox(spread, parsePictureFence("```svg size=full")!, 160, room)).toEqual({ col: 0, cols: 160, rows: 50 });
+    // A height past what the width holds: as wide as it goes, the rows that width makes.
+    expect(imageBox(spread, parsePictureFence("```svg height=200")!, 160, room)).toEqual({ col: 0, cols: 160, rows: 50 });
+    expect(imageBox(spread, parsePictureFence("```svg height=40")!, 160, room)).toEqual({ col: 0, cols: 128, rows: 40 });
+    expect(imageBox(spread, parseMediaLine("[img::a.png] [size::full]")!, 160, room)).toEqual({ col: 0, cols: 160, rows: 50 });
+  });
+
+  test("[+] past the cap and past the last row step goes to the full width, then stops there", () => {
+    const capped = imageBox(spread, parsePictureFence("```svg")!, 160, room);
+    expect(pictureStep(of("fence", parsePictureFence("```svg")!), 1, { ...room, px: spread, drawn: capped })).toEqual({ set: { height: String(capped.rows + 2) } });
+    // height=40 is the last row step: the next is the full width, its height word taken out.
+    expect(pictureStep(of("fence", parsePictureFence("```svg height=40")!), 1, { ...room, px: spread, drawn: { cols: 128, rows: 40 } })).toEqual({ set: { size: "full", height: null } });
+    expect(pictureStep(of("fence", parsePictureFence("```svg size=full")!), 1, { ...room, px: spread, drawn: { cols: 160, rows: 50 } })).toEqual({ stop: "it's the full width already" });
+    expect(pictureStep(of("drawing", { kind: "img", path: "x.svg", problems: [], drawn: true, size: "full" }), 1, { ...room, px: spread, drawn: { cols: 160, rows: 50 } })).toEqual({ stop: "it's the full width already" });
+    expect(pictureStep(of("line", parseMediaLine("[img::a.png] [size::75%]")!), 1, { ...room, px: spread })).toEqual({ set: { size: "full" } });
+  });
+
+  test("[−] from the full width steps down by rows", () => {
+    expect(pictureStep(of("fence", parsePictureFence("```svg size=full")!), -1, { ...room, px: spread, drawn: { cols: 160, rows: 50 } })).toEqual({ set: { height: "40" } });
+  });
+
+  test("the caption's size is the box drawn, and says when the words asked for more than the width holds", () => {
+    expect(drawnSizeText({ cols: 160, rows: 50 }, parsePictureFence("```svg height=200")!, 160)).toBe("50 rows · full width (200 asked)");
+    expect(drawnSizeText({ cols: 128, rows: 40 }, parsePictureFence("```svg height=40")!, 160)).toBe("40 rows");
+    expect(drawnSizeText({ cols: 80, rows: 25 }, parsePictureFence("```svg size=50%")!, 160)).toBe("25 rows · 50%");
+    expect(drawnSizeText({ cols: 160, rows: 50 }, parsePictureFence("```svg size=full")!, 160)).toBe("50 rows · full width");
+    // Past the most rows the grammar takes, the problem never claims a size it wasn't drawn at.
+    expect(parsePictureFence("```svg height=800")!.problems).toEqual(["height=800 is past the most, 200 rows"]);
   });
 });

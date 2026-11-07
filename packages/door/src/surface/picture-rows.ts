@@ -7,6 +7,7 @@ import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { sourceLines } from "@ep0ch/outline-core/code-ranges";
 import { drawingLayout, drawingSpec, imagePrimitiveSpec, locatePicture, media, picturesIn, pictureStep, rewritePicture, type Drawing, type ImagePrimitive, type MediaAttr, type MediaSpec, type Picture, type PictureStep, type StepRoom } from "../media";
 import { C, ellipsize, fg, RESET, width as vwidth } from "../style";
+import { putCell } from "./selection";
 import { tagInto as tagged } from "./blockdown-context";
 import type { ImageRef, LinkTarget as Link } from "../refs";
 
@@ -202,4 +203,21 @@ export function pictureSourceOf(s: { start: { row: number }; end: { row: number 
     return { text, exact: true, from, to: from + text.length, lines: [at + 1, fence.end - 1] };
   }
   return null;
+}
+
+// ── the band beside a picture (PIE-1630) ──────────────────────────────────────
+
+/** The rows `images` take, `at` rows down: drawn or still being made (their rows are kept for them either way). */
+export const pictureRowsOf = (images: readonly { line: number; rows: number }[], at: number): Set<number> =>
+  new Set(images.flatMap(im => Array.from({ length: im.rows }, (_, k) => at + im.line + k)));
+
+/** The band's mark on a picture's rows: a thin bar of its colour at the body's edge. */
+const BAND_GLYPH = "▎";
+/**
+ * A picture's row under a band (the ruler, the reading band, a thread's tint), `bx` columns of inset before the body:
+ * beside a narrow picture a fill would be a wall of colour round it, so the row keeps the ground and the band's place is
+ * said by a thin bar of its colour on the body's edge, dark first. No inset, no bar (the picture may start there).
+ */
+export function bandBesidePicture(line: string, bx: number, bg: string): string {
+  return bx > 0 ? putCell(line, bx - 1, BAND_GLYPH, bg.replace("\x1b[48;", "\x1b[38;")) ?? line : line;
 }

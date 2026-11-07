@@ -3,7 +3,7 @@
 // system tool), and the dimming that keeps a bright image dark-first. Fictional images, drawn here; no outline is written.
 import { draftView } from "../src/draft-view";
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -98,7 +98,9 @@ describe("layout", () => {
     expect(imageBox(m, spec("[size::full]"), 100, env)).toEqual({ col: 0, cols: 100, rows: 25 });
     expect(imageBox(m, spec("[height::5] [align::center]"), 100, env)).toEqual({ col: 40, cols: 20, rows: 5 });
     expect(imageBox(m, spec("[size::full] [height::10]"), 100, env)).toEqual({ col: 0, cols: 40, rows: 10 });
-    expect(imageBox(m, spec("[size::full]"), 100, { ...env, maxImageRows: 10 })).toEqual({ col: 0, cols: 40, rows: 10 });
+    // The reader's cap is for an unsized picture (PIE-1630): a sized one goes to the width it asks, and the note scrolls.
+    expect(imageBox(m, spec("[size::full]"), 100, { ...env, maxImageRows: 10 })).toEqual({ col: 0, cols: 100, rows: 25 });
+    expect(imageBox(m, spec(""), 100, { ...env, maxImageRows: 10 })).toEqual({ col: 0, cols: 40, rows: 10 });
   });
 
   test("a header: whole when it fits under its cap; taller, cropped to fill, or whole and centred with fit::contain", () => {
@@ -532,5 +534,21 @@ describe("pictures in a comment", () => {
       expect(p.row).toBeGreaterThan(at.row);
       expect(p.row).toBeLessThan(at.row + at.rows);
     }
+  });
+});
+
+// PIE-1630: an SVG has no pixels of its own, so it's rasterized at the size it's drawn, never its own size scaled up.
+describe("an SVG drawn large stays sharp (PIE-1630)", () => {
+  const graph = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 230"><rect width="600" height="230" fill="#111827"/><text x="20" y="60" font-family="monospace" font-size="18" fill="#9ca3af">load 0.42 · 3 builders</text><path d="M20 200L120 150L220 170L320 90L420 120L580 40" stroke="#60a5fa" fill="none" stroke-width="2"/></svg>`;
+  test("a 600×230 graph drawn 1440 px wide is made at that width, its lines drawn there (not 600 scaled up)", async () => {
+    writeFileSync(file("graph.svg"), graph);
+    const m = await ready("graph.svg");
+    expect([m.width, m.height]).toEqual([600, 230]);
+    await until(() => (sized(m, 1440, 552)?.width ?? 0) >= 1440, "a PNG made for the box", 10_000);
+    const png = sized(m, 1440, 552)!;
+    expect(png.width).toBeGreaterThanOrEqual(1440);
+    // A file's pixels are still never scaled up.
+    const jpg = await ready("wide.jpg");
+    await until(() => sized(jpg, 2000, 1000)?.width === 1200, "its own size", 10_000);
   });
 });

@@ -11,7 +11,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { ARTIFACT_KIND_LABELS, brightness, fileName, heroBox, imageBox, media, noteMediaLines, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { ARTIFACT_KIND_LABELS, brightness, drawnSizeText, fileName, heroBox, imageBox, media, noteMediaLines, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap, printable } from "./text";
@@ -786,8 +786,18 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           for (const l of drawn.lines.slice(0, drawn.caption)) { edge(out.length); out.push(l); }
           // The caption says what it is and how big its source is (two pictures of one size read apart), with the rows control the header's caption has.
           const controls = sizeControls(env, fence.start), room = Math.max(4, W - vwidth(controls));
-          const facts = [`${[...code.join("\n")].length.toLocaleString("en")} chars`, layout.height ? `${layout.height} rows` : "", sizeText(layout.size), ...layout.problems.map(p => `⚠ ${p}`), ...(drawn.entry.state === "loading" ? [waitingText()] : []), ...(env.pictureSource ? [env.pictureSource] : [])].filter(Boolean);
-          out.push(fg(C.dark) + pad(ellipsize(facts.reduce((t, m) => (vwidth(`${t} · ${m}`) <= room ? `${t} · ${m}` : t), `▣ ${picture.label}`), room), room) + controls + RESET);
+          // The size drawn, kept (short when the caption is narrow: an edit's preview), then what's wrong, cut rather than
+          // dropped (what it can't draw, PIE-1630); the rest only where it fits.
+          const box = drawn.box, sized = box ? [drawnSizeText(box, layout, W), `${box.rows} rows`] : [];
+          const wrong = [...layout.problems, ...((kind && kind.limits?.(code.join("\n"))) || [])].map(p => `⚠ ${p}`);
+          const rest = [`${[...code.join("\n")].length.toLocaleString("en")} chars`, ...(drawn.entry.state === "loading" ? [waitingText()] : []), ...(env.pictureSource ? [env.pictureSource] : [])];
+          const fits = (t: string, m: string) => vwidth(`${t} · ${m}`) <= room;
+          let said = `▣ ${picture.label}`;
+          const size = sized.find(m => fits(said, m));
+          if (size) said += ` · ${size}`;
+          if (wrong.length) said += ` · ${wrong.join(" · ")}`;
+          said = rest.reduce((t, m) => (fits(t, m) ? `${t} · ${m}` : t), said);
+          out.push(fg(C.dark) + pad(ellipsize(said, room), room) + controls + RESET);
           continue;
         }
       }
@@ -1065,24 +1075,25 @@ export function renderDoc(body: string, env: DocEnv): Doc {
  * rows, once it's decoded. A note's image line is drawn with it, and so is an extension view's `image` primitive
  * (PIE-827, the reader's `PrimitiveDraw.image`). `line`: the body line the caption's controls change.
  */
-export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number, entry: Media = media(spec.path, spec.kind === "video" ? "video" : "img")): { lines: string[]; caption: number; entry: Media; image?: DocImage } {
+export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number, entry: Media = media(spec.path, spec.kind === "video" ? "video" : "img")): { lines: string[]; caption: number; entry: Media; image?: DocImage; box?: { col: number; cols: number; rows: number } } {
   const lines: string[] = [];
   const isHero = spec.layout === "hero";
   const hero = isHero ? heroLook(spec, env.look?.values ?? BASE_STYLE) : null;
   const size = entry.state === "ready" ? entry : entry.state === "loading" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null;
-  let image: DocImage | undefined;
+  let image: DocImage | undefined, laid: { col: number; cols: number; rows: number } | undefined;
   if (size && env.graphics) {
     // `[fit::cover]` at full width with its height written is cut to that box, as a header is (a card's cover, PIE-1595).
     const box = isHero ? heroBox(size, hero!, W, Math.min(hero!.height ?? env.maxImageRows, env.maxImageRows), env.cellW, env.cellH)
       : spec.fit === "cover" && spec.size === "full" && spec.height ? heroBox(size, spec, W, Math.min(spec.height, env.maxImageRows), env.cellW, env.cellH)
       : imageBox(size, spec, W, env);
+    laid = box;
     if (entry.state === "ready") image = { line: 0, media: entry, ...(hero ? { look: hero.pixels } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box };
     for (let r = 0; r < box.rows; r++) lines.push("");
     // An SVG's links (PIE-1555): each <a href> a press over the cells it covers, under the picture, as a link in the text is.
     if (entry.state === "ready" && env.tag && !isHero) linkCells(lines, 0, box, pictureLinks(entry.path) ?? [], env.tag);
   }
-  lines.push(caption(entry, spec, W, env, line, isHero));
-  return { lines, caption: lines.length - 1, entry, ...(image ? { image } : {}) };
+  lines.push(caption(entry, spec, W, env, line, isHero, laid));
+  return { lines, caption: lines.length - 1, entry, ...(image ? { image } : {}), ...(laid ? { box: laid } : {}) };
 }
 
 /**
@@ -1124,12 +1135,13 @@ const sizeControls = (env: DocEnv, line: number): string => env.image ? rowsCont
  * written, and its controls when the reader tags them (− + its size, ◂ ▸ where it sits, ▀ the header). It is also
  * the row the image's `[ ]` element is on.
  */
-function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: number, hero: boolean): string {
+function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: number, hero: boolean, box?: { cols: number; rows: number }): string {
   const name = env.printed ? entry.path : entry.path.split("/").pop()!;
   const label = hero ? "▀ header" : spec.kind === "video" ? "▶" : "▣";
   const facts = [
     entry.state === "ready" ? `${entry.width}×${entry.height}${spec.kind === "video" ? " poster frame" : ""}` : "",
-    hero ? [spec.height ? `${spec.height} rows` : "", spec.fit ?? ""].filter(Boolean).join(" ") : sizeText(spec.size),
+    // The size drawn (PIE-1630), not the words': a sized one only, as an unsized one's is its own.
+    hero ? [spec.height ? `${spec.height} rows` : "", spec.fit ?? ""].filter(Boolean).join(" ") : box && (spec.size !== undefined || spec.height !== undefined) ? drawnSizeText(box, spec, W) : sizeText(spec.size),
     hero ? "" : spec.align && spec.align !== "left" ? spec.align : "",
     spec.dim !== undefined ? `dim ${spec.dim}` : entry.state === "ready" && brightness(entry.mean) < 1 ? "dimmed" : "",
     spec.alt ? `“${spec.alt}”` : "",

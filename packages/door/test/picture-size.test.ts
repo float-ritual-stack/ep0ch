@@ -135,17 +135,19 @@ describe("one step, stopping at the full fit (PIE-1584)", () => {
   };
   const USER = { kind: "user" } as any;
 
-  test("[+] at the fit says so and leaves the source alone: height=24 is a 1422x800 fence's fit at 87 columns", async () => {
+  test("[+] at the fit goes to the full width (PIE-1630), and at the full width says so and leaves the source alone", async () => {
     for (let w = 86; w <= 92; w++) {
-      const { s, h, v, saved, draw } = await live(fenced("svg height=24"), w);
+      const { s, h, v, saved } = await live(fenced("svg height=24"), w);
       const p = v.placements![0]!, d = (s as any).drawn;
-      if (d.w - d.bx - (s as any).bxRight !== 87) continue;
+      if (d.w - d.bx - (s as any).bxRight - d.mcols !== 87) continue;
       expect(p.rows).toBe(24);
+      await s.act("image.size", { n: 1, by: 1 }, h, USER);
+      expect(saved[0]).toContain("```svg size=full\n");
+      const full = await live(fenced("svg size=full"), w);
       said.length = 0;
-      await expect(s.act("image.size", { n: 1, by: 1 }, h, USER)).rejects.toThrow(/as big as it gets/);
-      expect(saved).toEqual([]);
-      expect(said.at(-1)).toMatch(/as big as it gets/);
-      draw();
+      await expect(full.s.act("image.size", { n: 1, by: 1 }, full.h, USER)).rejects.toThrow(/the full width already/);
+      expect(full.saved).toEqual([]);
+      expect(said.at(-1)).toMatch(/the full width already/);
       return;
     }
     throw new Error("no width gave a body of 87 columns");
@@ -157,7 +159,7 @@ describe("one step, stopping at the full fit (PIE-1584)", () => {
     expect(saved[0]).toContain("```svg height=22");
   });
 
-  test("an [img::] line capped by the reader's rows: [+] that changes nothing stops too", async () => {
+  test("an [img::] line held by the most rows (200): [+] that changes nothing stops too", async () => {
     const tall = `Beds\n\n[img::${dir}/tall.svg] [size::50%]\n\nafter`;
     await Bun.write(`${dir}/tall.svg`, `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="4000"><rect width="400" height="4000" fill="#123"/></svg>`);
     const { s, h, saved } = await live(tall);
@@ -207,5 +209,65 @@ describe("a selection over the picture says what it is over", () => {
     expect(s.copySelection(false, h)?.text).toBe(A);
     expect(s.copySelection(true, h)?.text).toBe(A);
     expect(copied).toEqual([A, A]);
+  });
+});
+
+// PIE-1630: [+] fills the width, a caption says the size drawn (in the reader and in an edit's preview), a narrow
+// picture has no band round it, and what librsvg can't draw is named. Made-up SVGs: a 1600×1000 spread, an arc of text.
+describe("as big as asked, and said truly (PIE-1630)", () => {
+  const USER = { kind: "user" } as any;
+  const spread = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000"><rect width="1600" height="1000" fill="#1a2233"/><text x="80" y="200" font-family="monospace" font-size="90" fill="#9ab">THE SPREAD</text></svg>`;
+  const arc = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 350"><defs><path id="curve" d="M35 250Q350 100 665 250"/></defs><rect width="700" height="350" fill="#20242c"/><text font-size="25" fill="#ccd"><textPath href="#curve" startOffset="50%">Words along a curve</textPath></text></svg>`;
+
+  test("unsized it's held by the reader's rows; [+] steps on past them to the full width", async () => {
+    const text = fenced("svg", spread);
+    const { s, h, v } = await reader(text, 160);
+    const d = (s as any).drawn, body = d.w - d.bx - (s as any).bxRight - d.mcols, p = v.placements![0]!;
+    expect(p.cols).toBeLessThan(body);
+    let now = text;
+    (h.ctx.board as any).get = async () => note(now);
+    (h.ctx.board as any).update = async (_: string, t: string) => { now = t; return { ...note(t), revision: 3 }; };
+    for (let i = 0; i < 20 && !now.includes("size=full"); i++) { await s.act("image.size", { n: 1, by: 1 }, h, USER); s.show(note(now), h); s.render(160, 60, h); }
+    expect(now).toContain("```svg size=full\n");
+    const { v: full } = await reader(now, 160);
+    expect(full.placements![0]!.cols).toBe(body);
+    expect(full.placements![0]!.rows).toBeGreaterThan(60 * 0.8);
+  });
+
+  test("the caption's rows are the rows drawn, in the reader and in an edit's preview, with what's wrong kept", async () => {
+    const text = fenced("svg height=800", spread);
+    const { v } = await reader(text, 120);
+    const p = v.placements![0]!, said = captions(v.lines)[0]!;
+    expect(said).toContain(`${p.rows} rows · full width (200 asked)`);
+    expect(said).toContain("⚠ height=800 is past the most, 200 rows");
+    expect(said).not.toContain("drawn at");
+    // The edit's preview (snippetDoc, pictures on): its own narrower drawing, its caption saying that drawing's rows.
+    const s = new NoteSurface(), h = host();
+    s.show(note(text), h);
+    let preview = s.snippetDoc(text, 44, h, [], true);
+    for (let i = 0; i < 200 && !preview.images.length; i++) { await Bun.sleep(20); preview = s.snippetDoc(text, 44, h, [], true); }
+    const shown = captions(preview.lines)[0]!;
+    expect(shown).toContain(`${preview.images[0]!.rows} rows`);
+    expect(shown).toContain("⚠");
+  });
+
+  test("text on a curve is named as librsvg's limit, on the caption", async () => {
+    const { v } = await reader(fenced("svg", arc), 160);
+    expect(captions(v.lines)[0]).toContain("text on a path (<textPath>) isn't drawn");
+  });
+
+  test("the band round a narrow picture is a thin bar on the edge, the rest of its rows the ground", async () => {
+    const { s, h } = await reader(fenced("svg size=25%", spread), 120);
+    const pic = (s as any).elems.find((e: any) => e.link?.image);
+    (s as any).cur = pic.key;
+    const v = s.render(120, 60, h), p = v.placements![0]!;
+    const { RULER_BG } = await import("../src/surface/selection");
+    const ink = RULER_BG.replace("\x1b[48;", "\x1b[38;");
+    for (let r = p.row; r < p.row + p.rows; r++) {
+      expect(v.lines[r]).not.toContain(RULER_BG);
+      expect(v.lines[r]).toContain(ink + "▎");
+    }
+    // The caption's row, the element's own, still carries the band.
+    expect(v.lines[p.row + p.rows]).toContain(RULER_BG);
   });
 });
