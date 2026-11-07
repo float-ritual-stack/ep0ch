@@ -762,7 +762,9 @@ export class ExtensionRules {
   /** One trigger at a time per block: each action reads the block as the last one left it. */
   private queue(blockId: string, work: () => Promise<void>): void {
     const before = this.chains.get(blockId) ?? Promise.resolve();
-    const next = before.then(work, work).finally(() => { if (this.chains.get(blockId) === next) this.chains.delete(blockId); });
+    // Stopped while this waited its turn: the store may be closed by now, and nobody would hear the answer.
+    const turn = () => this.stopped ? Promise.resolve() : work();
+    const next = before.then(turn, turn).finally(() => { if (this.chains.get(blockId) === next) this.chains.delete(blockId); });
     this.chains.set(blockId, next);
   }
 

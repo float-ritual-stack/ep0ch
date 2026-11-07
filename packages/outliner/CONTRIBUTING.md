@@ -484,7 +484,8 @@ One host serves every client of every outline on one event loop, and a client gi
   machine in `.remote/` and a restart, one phase each. `--outliner <dir>` runs another checkout's host for a before.
   `--copy <file.sqlite>` serves a snapshot (what only the real shape shows: `extensions/`, `user-extensions/` and
   `extension-schedules.json` beside it come along; its host has no programs on its PATH), and `--others <n>` adds outlines
-  with doors of their own.
+  with doors of their own, `--small <n>` of them small. `--slow-core <n>` pins the host to one core, about float-2's speed.
+  Float-2's restart: `--phase restart --copy <pie.sqlite> --others 7 --small 4 --slow-core 16 --check`.
 - `bun run bench:host` (`scripts/bench-host-fairness.ts`, PIE-1413) is the guard under bulk work: a pie-shaped
   fictional outline (or `--copy` a private copy) with a real door on the Desk (the door's `scripts/bench-door-desk.ts`:
   a board tile and a live query tile, the person reading and saving through the same connection), a watching door, the

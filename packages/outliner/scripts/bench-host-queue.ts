@@ -10,14 +10,16 @@
 //
 //   bun scripts/bench-host-queue.ts [--phase steady,toss,laptop,restart] [--shape pie|small] [--seconds 30] [--warm 8]
 //                                   [--laptop-ms 500] [--outliner <package dir>] [--profile <dir>] [--timeline]
-//                                   [--copy <file.sqlite>] [--others <n>] [--check] [--json <file>] [--keep]
+//                                   [--copy <file.sqlite>] [--others <n>] [--small <n>] [--slow-core <n>] [--check] [--json <file>] [--keep]
 //
 // What it reports is what `journalctl -u outliner-host | grep slow_request` reports: requests with `queuedMs` over 1 s,
 // by action, read from the host's own log. --check exits 1 when any phase has one. Never a real outline: the outlines
 // folder is a temp dir, removed unless --keep. --outliner runs another checkout's host, for a before. --copy serves a
 // private copy of an outline's file instead of the fiction (a snapshot, to see what only the real shape shows); its host
 // finds no programs on its PATH and no home of its own, so a copy's agents and extensions reach nothing outside.
-// --others adds that many more outlines of the same shape, each with a door of its own at the restart (float-2 has four).
+// --others adds that many more outlines of the same shape, each with a door of its own at the restart; --small makes that
+// many of them small (float-2's eight: pie, three as large, four echo outlines of a few notes: `--others 7 --small 4`). --slow-core pins the host to that CPU core, its collector's threads with it: about as slow as float-2's host is
+// next to float-box's (a whole read of pie: 760 ms there, 450 ms here), with the doors' side left alone.
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -29,8 +31,8 @@ import { fixturePaths, makeOutline } from "./host-bench/fixture";
 import { Conn, quantile } from "./host-bench/wire";
 
 const { values } = parseArgs({ options: {
-  phase: { type: "string" }, shape: { type: "string" }, warm: { type: "string" }, seconds: { type: "string" }, "laptop-ms": { type: "string" }, outliner: { type: "string" }, copy: { type: "string" }, others: { type: "string" },
-  profile: { type: "string" }, timeline: { type: "boolean" }, check: { type: "boolean" }, json: { type: "string" }, keep: { type: "boolean" },
+  phase: { type: "string" }, shape: { type: "string" }, warm: { type: "string" }, seconds: { type: "string" }, "laptop-ms": { type: "string" }, outliner: { type: "string" }, copy: { type: "string" }, others: { type: "string" }, small: { type: "string" },
+  "slow-core": { type: "string" }, profile: { type: "string" }, timeline: { type: "boolean" }, check: { type: "boolean" }, json: { type: "string" }, keep: { type: "boolean" },
 } });
 const outliner = resolve(values.outliner ?? join(import.meta.dir, ".."));
 const phases = (values.phase ?? "steady,toss,laptop,restart").split(",");
@@ -89,20 +91,23 @@ if (values.copy) {
   console.log(`outline: ${shape}-shaped, ${fixture.notes} notes, ${MARKS} marks (${((performance.now() - made) / 1000).toFixed(1)} s)`);
 }
 
-for (const other of OTHERS) {
+for (const [i, other] of OTHERS.entries()) {
   const place = fixturePaths(outlines, other);
   mkdirSync(place.workspaceRoot, { recursive: true });
-  copyFileSync(paths.database, place.database);
+  if (i >= OTHERS.length - Number(values.small ?? 0)) makeOutline(place.database, place.workspaceRoot, "small");
+  else copyFileSync(paths.database, place.database);
 }
 
 // ─── The host, and what it logs ────────────────────────────────────────
 interface Row { status: string; action?: string; outline?: string; ms?: number; queuedMs?: number; handleMs?: number; loopMs?: number; during?: string[]; phase: string; actor?: string; who?: string[] }
 const rows: Row[] = [];
+const warmLines: { line: string; phase: string }[] = [];
 let phase = "start-up";
 let host: ReturnType<typeof startHost>;
 const profile = values.profile ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${resolve(values.profile)}`] : [];
+const pinned = values["slow-core"] ? [Bun.which("taskset") ?? "taskset", "-c", values["slow-core"]] : [];
 function startHost() {
-  const child = Bun.spawn([process.execPath, ...profile, join(outliner, "src/host-main.ts")], {
+  const child = Bun.spawn([...pinned, process.execPath, ...profile, join(outliner, "src/host-main.ts")], {
     cwd: outliner, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     env: { PATH: values.copy ? dirname(process.execPath) : process.env.PATH ?? "", HOME: root, EP0CH_OUTLINES: outlines, TMPDIR: root },
   });
@@ -112,7 +117,10 @@ function startHost() {
       for await (const chunk of stream.pipeThrough(new TextDecoderStream())) {
         const lines = (rest + chunk).split("\n");
         rest = lines.pop() ?? "";
-        for (const line of lines) if (line.startsWith("{")) { try { rows.push({ ...JSON.parse(line), phase }); } catch {} }
+        for (const line of lines) {
+          if (line.startsWith("{")) { try { rows.push({ ...JSON.parse(line), phase }); } catch {} }
+          else if (/^Outline ".*" (warmed|did not warm)/.test(line)) warmLines.push({ line, phase });
+        }
       }
     })();
   }
@@ -324,6 +332,8 @@ if (phases.includes("laptop")) {
 }
 if (phases.includes("restart")) {
   phase = "between";
+  // A restart meets outlines that have been open before: their extensions' pages written, as float-2's are.
+  for (let i = 0; i < 1200 && warmLines.length < OTHERS.length + 1; i++) await Bun.sleep(100);
   host.kill("SIGTERM");
   await host.exited;
   phase = "restart";
@@ -340,8 +350,9 @@ if (phases.includes("restart")) {
   await Bun.sleep(seconds * 1000);
   await Promise.all(writers.map(stop => stop()));
   await Promise.all(doors.map(d => d.stop()));
-  report("restart", doors.slice(0, 3), `three doors reconnecting, the first answer ${gap} ms after the host started`);
-  if (values.timeline) for (const r of rows.filter(r => r.phase === "restart" && (r.status === "loop_stalled" || (r.queuedMs ?? 0) > 1000 || (r.loopMs ?? 0) > 200)).slice(0, 80)) {
+  report("restart", doors, `${doors.length} doors reconnecting, the first answer ${gap} ms after the host started`);
+  for (const { line } of warmLines.filter(w => w.phase === "restart")) console.log(`  ${line}`);
+  if (values.timeline) for (const r of rows.filter(r => r.phase === "restart" && (r.status === "loop_stalled" || (r.queuedMs ?? 0) > 1000 || (r.handleMs ?? 0) > 1000 || (r.loopMs ?? 0) > 200)).slice(0, 80)) {
     console.log(`  ${r.status === "loop_stalled" ? `stall ${(r as { ms?: number }).ms} ${r.during?.join(", ")}` : `${r.action} q=${r.queuedMs} h=${r.handleMs} l=${r.loopMs}`}`);
   }
 }
