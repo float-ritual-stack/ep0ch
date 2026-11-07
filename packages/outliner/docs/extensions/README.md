@@ -355,7 +355,7 @@ value, never the value), and one state:
 
 | State | When |
 |---|---|
-| `default` | nothing is set: each field's schema `default` applies (write one, so the row can say what it does: tidy's is `claude -p --model haiku --tools ""`) |
+| `default` | nothing is set: each field's schema `default` applies (write one, so the row can say what it does: tidy's is `claude -p --safe-mode --model haiku …`; a model command's default loads nothing but its prompt, as asks' and tidy's do) |
 | `set` | `config.json` sets a field |
 | `missing` | a `required` field is left out, or a secret has no reference or nothing where it points |
 | `failing` | `config.json` doesn't load (the folder's error), or the extension's last call failed after the file last changed (its error) |

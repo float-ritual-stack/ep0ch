@@ -57,8 +57,8 @@ async function patch(block: { id: string; revision: number; text: string }, next
 // default, read from extension.json so the door's settings say what actually runs.
 const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extension.json")).json()).configSchema.properties.answer.default;
 /** How long the model gets to answer for one note. */
-const MODEL_MS = 120_000; // Run from this folder: a checkout's CLAUDE.md would be read into every judgment, at ten times the cost.
-const FIX = `ep0ch act ext.asks.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}', or sign in with claude`;
+const MODEL_MS = 120_000;
+const FIX = `ep0ch act ext.asks.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => (a === "" || /\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}', or sign in with claude`;
 
 /**
  * The bigger model's word on the lines Jev passed, one call for the note. It throws when there's no word, as the run's

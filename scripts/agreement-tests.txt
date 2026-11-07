@@ -8,6 +8,7 @@ packages/door/test/key-rows.test.ts
 packages/door/test/package-boundary.test.ts
 packages/door/test/architecture-map.test.ts
 packages/outliner/test/extension-call-reference.test.ts
+packages/outliner/test/extension-model-default.test.ts
 packages/outliner/test/extension-outline-client.test.ts -t exactly the clients|same file
 packages/outliner/test/scripts-docs.test.ts -t generated tables|local links|pointer whose line|examples the page
 packages/outline-core/test/protocol.test.ts

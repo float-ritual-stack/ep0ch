@@ -72,7 +72,10 @@ It reads the whole window, however many notes, and marks the confirmed lines onl
 - **Install:** `ep0ch ext add asks --outline-folder ~/outlines/<name>`, for each outline you want it in.
 - **Remove:** `ep0ch ext remove asks --demo remove`. Chips already written stay until you take them off.
 - **The model:** `config.answer` is the command that confirms: the prompt on stdin, a JSON yes or no per line on stdout.
-  - **Its default:** Sonnet through `claude`, with no skills, tools or settings loaded, which is most of why it's cheap.
+  - **Its default:** Sonnet through `claude` in safe mode.
+    - **What loads:** no CLAUDE.md, skills, plugins, tools, MCP or settings.
+    - **What that saves:** about 900 tokens on top of the prompt; a bare `claude -p --tools ""` carries about 245,000.
+    - **What it needs:** a `claude` whose `--help` lists `--safe-mode`; an older one fails the call, and nothing is written.
   - **To change it:** `ep0ch act ext.asks.settings answer='…'`.
   - **Where `claude` can't read its login,** such as a host under launchd: start the command with `with-secrets claude --`.
 

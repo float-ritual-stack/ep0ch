@@ -61,7 +61,7 @@ test("tidy's settings say its default, and an answer set in them is what the nex
   const file = join(extensions, "tidy", "config.json");
   const before = await settings("tidy");
   expect(before).toMatchObject({ file, exists: false, state: "default" });
-  expect(before!.fields).toEqual([expect.objectContaining({ name: "answer", type: "command", state: "default", default: ["claude", "-p", "--model", "haiku", "--tools", ""] })]);
+  expect(before!.fields).toEqual([expect.objectContaining({ name: "answer", type: "command", state: "default", default: expect.arrayContaining(["claude", "-p", "--safe-mode", "--model", "haiku"]) })]);
 
   // A value the schema refuses is refused with its words, and nothing is written.
   await expect(configure("tidy", { config: { answer: "claude -p" } })).rejects.toThrow(/config schema in its extension.json refuses it: .*answer/);

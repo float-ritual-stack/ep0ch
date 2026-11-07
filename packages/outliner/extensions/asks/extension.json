@@ -3,7 +3,7 @@
   "id": "asks",
   "version": 3,
   "name": "Asks",
-  "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them: Jev reads first, a bigger model confirms.",
+  "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them.",
   "run": ["bun", "asks.ts"],
   "demo": "demo",
   "configSchema": {
@@ -13,7 +13,7 @@
         "type": "array",
         "items": { "type": "string" },
         "description": "Confirms what Jev passes: yes or no per line",
-        "default": ["claude", "-p", "--model", "sonnet", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--system-prompt", "You answer with JSON only."]
+        "default": ["claude", "-p", "--safe-mode", "--model", "sonnet", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--system-prompt", "You answer with JSON only."]
       }
     },
     "additionalProperties": false
