@@ -103,3 +103,14 @@ describe("a header keeps its shape at every width (PIE-1631)", () => {
     });
   }
 });
+
+// Codex on #1347: contained, the whole picture shows, at widths where its box meets the tile's (100) and fills it (60).
+describe("a contained header in a padded tile shows all of itself (PIE-1631)", () => {
+  for (const w of [100, 60]) test(`${w} columns: no crop, round, inside the header's rows`, async () => {
+    const [hero] = (await placed(`Band\n[img::${join(dir, "band.svg")}] [layout::hero] [height::12] [fit::contain]\n\nwords`, w, 60, 2)).filter(p => p.key.startsWith("hero"));
+    expect(hero!.crop).toBeUndefined();
+    expect(hero!.col + hero!.cols).toBeLessThanOrEqual(w + 2);
+    round(hero!, stretch(hero!));
+    await disc(hero!);
+  });
+});

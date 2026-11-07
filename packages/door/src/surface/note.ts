@@ -1546,7 +1546,7 @@ export class NoteSurface {
     // A drag going on scales nothing: the picture drawn when it began stands in (renderReading), the terminal scaling it.
     if (now) return { line: ref.line, box, placement: null, loading: false, name: ref.path.split("/").pop() ?? ref.path, look };
     const [placement] = imagePlacements([{ line: 0, media: entry, look: look.pixels, ...heroBoxGrown(entry, look, box, -(bounds?.row ?? 0), cols, cw, chh) }], 0, cw, chh);
-    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: bounds?.row ?? 0 } : null, loading: false, name, look };
+    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: (bounds?.row ?? 0) + placement.row } : null, loading: false, name, look };
   }
 
   /**

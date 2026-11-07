@@ -236,3 +236,15 @@ describe("a header grown into a tile's padding keeps its shape", () => {
     expect(heroBoxGrown(band, spec, box, 0, 60, 9, 18)).toBe(box);
   });
 });
+
+// Codex on #1347: contain is the whole picture, inside both the width and the taller rows, centred in the band.
+describe("a contained header grown into a tile's padding shows all of itself", () => {
+  const band = { width: 1600, height: 400 }, whole = parseMediaLine("[img::a.png] [layout::hero] [fit::contain] [height::12]")!;
+  for (const W of [100, 60, 160]) test(`${W} columns, pad.y 2: no crop, its own shape, inside the band`, () => {
+    const box = heroBox(band, whole, W, 12, 9, 18), grown = heroBoxGrown(band, whole, box, 2, W, 9, 18), rows = box.rows + 2;
+    expect(grown.crop).toBeUndefined();
+    expect(grown.col + grown.cols).toBeLessThanOrEqual(W);
+    expect((grown.line ?? 0) + grown.rows).toBeLessThanOrEqual(rows);
+    expect(Math.abs((grown.cols * 9) / (grown.rows * 18) / 4 - 1)).toBeLessThanOrEqual(0.5 / Math.min(grown.rows, grown.cols) + 0.01);
+  });
+});
