@@ -2459,7 +2459,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * read through (the focused reader; from the list itself, its home; else the one following their columns); that
    * reader becomes its home, its dock slides open, and the keys go to it. Resolves once the service has answered.
    */
-  async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void>; showSelected?(desk: DeskApi, actor: Actor): void }, m: Msg | null, given?: ReaderPane, actor: Actor = USER): Promise<void> {
+  async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void>; showSelected?(desk: DeskApi, actor: Actor): void | Promise<void> }, m: Msg | null, given?: ReaderPane, actor: Actor = USER): Promise<void> {
     const held = this.dispatch.rule("screen", actor, { host: true });
     if (held) throw new ActionRefused(held);
     const lid = this.idOf(L);
@@ -2480,8 +2480,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.focus !== lid) { this.keysTo(lid, actor); this.entered.clear(); }
     this.redraw();
     await L.show(note, this);
-    // Another note's links: a new selection, shown where it goes (giving the list the keys alone shows nothing).
-    L.showSelected?.(this, actor);
+    // Another note's links: a new selection, shown where it goes before this answers (PIE-1628; the keys alone show nothing).
+    await L.showSelected?.(this, actor);
     this.save(); this.redraw();
   }
 

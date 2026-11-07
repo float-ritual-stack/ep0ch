@@ -767,6 +767,25 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
     } finally { await off(); s.done(); }
   }, 30_000);
 
+  // PIE-1628: `links` answered while its selection's note was still being read, so the show landed wherever the wires
+  // went by then. In a nightly run neat's next step, tile.link select → other, got there first: the first link replaced
+  // the second reader's note and the next neat opened a third reader. A slow read here stands for the busy box.
+  test("PIE-1628: links answers once its selection shows where its select wire goes, however slow the read", async () => {
+    const s = await twoReaders();
+    const leaf = await board.createBlock(null, "Seed catalogue\nPeas and beans.");
+    await board.update(s.briefing.id, `Garden briefing\n((${leaf.id}|Seed catalogue))`, s.briefing.revision!);
+    const off = await linksInDrawer(s);
+    const get = board.get;
+    try {
+      await until(() => !!(s.d.resolveTile("backlinks")?.desk.pane("backlinks") as BacklinksPane | undefined)?.rows().some(r => r.kind === "outlink"), "the briefing's link listed");
+      await app.dispatch.act({ action: "tile.link", tile: "backlinks", args: { to: "other", verb: "select" } }, USER);
+      expect(shows(s.d, "other")).toBe(s.testing.id);
+      (board as any).get = async (id: string, ...rest: unknown[]) => { if (id === leaf.id) await Bun.sleep(400); return (get as any).call(board, id, ...rest); };
+      await app.dispatch.act({ action: "links", tile: "briefing" }, USER);
+      expect(shows(s.d, "other")).toBe(leaf.id);
+    } finally { (board as any).get = get; await off(); s.done(); }
+  }, 30_000);
+
   test("4 address: tile= takes the drawer path that links itself answers", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {
