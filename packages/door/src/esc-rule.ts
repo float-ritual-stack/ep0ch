@@ -21,6 +21,9 @@ export interface EscRung {
 /** One layer's steps, by the names its order lists. Reading one changes nothing: the hint row asks on every paint. */
 export type EscSteps<N extends string> = Record<N, () => EscRung | null>;
 
+/** The drawer's own rungs, which its foot says in its own parts ("esc puts it away", "esc steps out"). */
+export const ESC_DRAWER = "the drawer", ESC_DRAWER_KEYS = "the drawer's keys";
+
 /** The door's order, innermost first (App.escSteps). The screen answers twice: all that's in front of the drawer, then its own way home. */
 export const DOOR_ESC = ["probe", "armed", "strip", "bar", "menu", "module", "lift", "in-drawer", "keymap", "screen", "drawer-up", "home"] as const;
 /**

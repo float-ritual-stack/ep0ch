@@ -61,7 +61,7 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
     await desk.dispatch.act({ action: "tile.focus", args: {}, tile: "reader" }, USER);
     paint();
     const feed = async (bytes: string) => { decoder.feed(bytes); paint(); await sleep(60); paint(); };
-    return { app, desk, A, feed, reader, paint, quit: () => { app.quit(); app.drawer.tile?.kill(); } };
+    return { app, desk, A, feed, reader, paint, screen, quit: () => { app.quit(); app.drawer.tile?.kill(); } };
   }
 
   test("an armed edit: Esc lets go of the arm and nothing else, the lit element stays", async () => {
@@ -238,6 +238,81 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
       expect(inner.ctx.esc?.hint()).toBe(word);
       expect(visible(inner.hints(120))).toContain(`esc: ${word}`);
     } finally { d.quit(); }
+  });
+
+  describe("the drawer's foot says what escCloses says, the drawer up and the keys on the screen (PIE-1614's validation)", () => {
+    const foot = (d: Awaited<ReturnType<typeof door>>) => { d.A.flush?.(); return d.screen.map(visible).find(l => l.includes("drawer · "))?.trim() ?? ""; };
+    async function upAndOut(cols: number) {
+      const d = await door(cols);
+      await d.feed("\x1ba");
+      await until(() => d.app.drawer.entered, "into the drawer");
+      await d.app.dispatch.press("host.leave", { quiet: true });
+      d.paint();
+      expect(d.app.drawer.entered).toBe(false);
+      expect(d.app.drawer.shown).toBe(true);
+      return d;
+    }
+    for (const cols of [120, 44]) {
+      test(`at ${cols}: a menu, then a lit element, then the drawer itself`, async () => {
+        const d = await upAndOut(cols);
+        try {
+          await d.feed("]");
+          expect(d.app.esc.next()).toBe("the lit element");
+          expect(foot(d)).toContain("esc the lit element");
+          await d.feed("\x17.");
+          await until(() => d.app.esc.next() === "the menu", "the tile menu");
+          expect(foot(d)).toContain("esc the menu");
+          await d.feed(ESC);
+          expect(d.app.esc.next()).toBe("the lit element");
+          await d.feed(ESC);
+          expect(d.app.esc.next()).toBe("the drawer");
+          expect(foot(d)).toContain("esc puts it away");
+        } finally { d.quit(); }
+      });
+    }
+    test("a strip's picker open: the foot says the strip, as Esc does (Codex on #1340)", async () => {
+      const d = await upAndOut(120);
+      try {
+        await d.feed("]");
+        await d.app.dispatch.act({ action: "strip.more", args: { strip: "hint" }, tile: d.desk.keys().address }, USER);
+        await until(() => d.A.strips.engaged, "the strip's picker");
+        d.paint();
+        expect(d.app.esc.next()).toBe("the strip");
+        expect(foot(d)).toContain("esc the strip");
+      } finally { d.quit(); }
+    });
+    for (const exited of [false, true]) {
+      test(`the power bar over a drawer program that ${exited ? "exited" : "runs"}: the foot says the bar, as Esc does (Codex on #1340)`, async () => {
+        const d = await door();
+        try {
+          await d.feed("\x1ba");
+          await until(() => d.app.drawer.entered && d.app.drawer.tile?.running === true, "in the drawer's agent");
+          if (exited) { d.app.drawer.tile!.kill(); await until(() => d.app.drawer.tile?.running === false, "the agent exited"); }
+          d.paint();
+          await d.app.dispatch.press("bar.open");
+          await until(() => !!d.A.bar, "the power bar");
+          d.paint();
+          expect(d.app.esc.next()).toBe("the power bar");
+          expect(foot(d)).toContain("esc the power bar");
+          expect(foot(d)).not.toContain("program's");
+        } finally { d.quit(); }
+      });
+    }
+    test("a program on the screen has the key: the foot never says Esc puts the drawer away", async () => {
+      const d = await upAndOut(120);
+      try {
+        await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat -v", name: "kettle", where: "right" }, tile: "reader" }, USER);
+        await until(() => d.desk.pane("kettle")?.running === true, "kettle runs");
+        await d.desk.dispatch.act({ action: "tile.focus", args: {}, tile: "kettle" }, USER);
+        d.paint();
+        await d.feed("\r");
+        await until(() => d.desk.rawKeys(), "typing in kettle");
+        d.paint();
+        expect(d.app.esc.next()).toBeNull();
+        expect(foot(d)).not.toContain("esc puts it away");
+        expect(foot(d)).toContain("alt+a puts it away");
+      } finally { d.quit(); }
+    });
   });
 
   test("a reader in the drawer with something lit: Esc lets it go before stepping out", async () => {
