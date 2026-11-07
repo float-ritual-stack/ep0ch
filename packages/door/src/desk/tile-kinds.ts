@@ -3,6 +3,7 @@
 // The desk and the layout never switch on a kind's name; they look the kind up here. The built-ins register
 // at startup (src/desk/builtin-tiles.ts); an extension's kind registers the same way, and its `make` builds a
 // tile whose content the service draws (`serviceKind`, below).
+import { lineEscCloses } from "../surface/completer";
 import { activationOf, type ListPrimitive } from "@ep0ch/outline-core/list-row";
 import type { Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
@@ -428,6 +429,8 @@ export interface ColumnsHost extends DeskApi {
 
 /** A source's model (`TileSource.model`): what a columns container it fills shares, beside its tiles. */
 export interface SourceModel {
+  /** What the next Esc closes among what it holds open, in the hint's words (esc-rule.ts). */
+  escCloses?(): string | null;
   /** A tile it supplied (new, or kept from before), before it starts. */
   supplied?(p: Pane): void;
   /** The container was filled (a hub shown, a view added): the source's title for the screen. */
@@ -646,6 +649,8 @@ export class ServiceTile implements Pane, ListTile<DeskApi> {
     };
   }
   private runList(desk: DeskApi, name: "list.pick" | "list.step" | "list.open" | "list.filter", args: Record<string, unknown>) { void desk.press?.(this, LISTVIEW_ACTIONS, name, args); }
+  /** Esc takes back the filter being typed (esc-rule.ts). */
+  escCloses() { return this.list.typing ? lineEscCloses(this.list.typing, "the filter") : undefined; }
   private filterKey(k: Key, desk: DeskApi): boolean {
     const t = this.list.typing!;
     if (k.kind === "enter") this.list.stopTyping(true);

@@ -67,14 +67,18 @@ export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: 
   return keys.length ? keys.map(keyCaption).join(", ") : undefined;
 }
 
-export type ModeName = "form" | "list-preview" | "placement" | "picker" | "panel" | "draft" | "comment" | "list" | "grip" | "replies" | "sources" | "revision";
+export type ModeName = "form" | "list-preview" | "placement" | "picker" | "panel" | "draft" | "comment" | "list" | "grip" | "replies" | "sources" | "revision" | "leave-ask" | "passage-menu";
 
 /**
  * A step's status choice takes keys before the property panel, which must keep an inline collection's picked row
  * from opening while its settings card is up. The list resumes when the panel closes. The edit and comment are
- * mutually exclusive; moving a comment's box by keys (ctrl+g, PIE-785) goes above it.
+ * mutually exclusive; moving a comment's box by keys (ctrl+g, PIE-785) goes above it. A tie breaks by age: among modes of
+ * one rank the newest goes first (`Modes.push`). The leave ask is the power bar's to answer, so it takes no key here
+ * (rank 0, parked); the passage menu takes the one key after `a`. Not modes, on purpose: zoom and raw are reading state,
+ * which take no keys of their own and outlive any mode; replyOn, editOn, writeNext and pendingLink are what the next
+ * session or the next follow starts from, each spent by it.
  */
-export const PRECEDENCE: Record<ModeName, number> = { form: 1, "list-preview": 2, placement: 4, replies: 2, sources: 2, revision: 2, grip: 3, picker: 3, list: 1, panel: 2, draft: 1, comment: 1 };
+export const PRECEDENCE: Record<ModeName, number> = { form: 1, "list-preview": 2, placement: 4, replies: 2, sources: 2, revision: 2, grip: 3, picker: 3, list: 1, panel: 2, draft: 1, comment: 1, "leave-ask": 0, "passage-menu": 3 };
 
 /** One mode, as the reader asks it. `H` is the reader's host. */
 export interface ReaderMode<H> extends Mode<H> {
@@ -113,6 +117,10 @@ export interface ReaderMode<H> extends Mode<H> {
   changed?(revision: number, partial: boolean): void;
   /** Its name for hints and refusals: "edit", "comment", "property panel", "status choice". */
   readonly word: string;
+  /** What it is open over (another mode's `of`): it goes when that one goes, so nothing of it lingers (PIE-1617). */
+  readonly over?: object;
+  /** Its way out as it goes from the stack: what it kept drawn or being dragged. */
+  dropped?(): void;
   /** How a refusal names it while it holds the note: "the edit", "the comment", "the property value". */
   readonly noun?: string;
 }
@@ -125,6 +133,8 @@ export interface Mode<H> {
   readonly hintCard?: Hint;
   readonly name: string;
   key(k: Key, host: H): boolean;
+  /** What the next Esc closes in it, in the hint's words, when `the <word>` doesn't say it (esc-rule.ts). */
+  escCloses?(): string | null;
   /** It ended by itself: the stack lets it go. */
   ended?(): boolean;
   /** The box it was last drawn in, for the screen's hit map (PIE-1407); one that keeps none answers no clicks there. */
@@ -145,7 +155,7 @@ export class Modes<H, M extends Mode<H>> {
     return m;
   }
   /** Let go of a mode, by name, or only if it's that very one. */
-  drop(m: string | M) { this.modes = this.modes.filter(x => (typeof m === "string" ? x.name !== m : x !== m)); }
+  drop(m: string | M) { const going = this.modes.filter(x => (typeof m === "string" ? x.name === m : x === m)); this.leave(going); }
   get(name: string): M | null { this.prune(); return this.modes.find(x => x.name === name) ?? null; }
   /** The mode the keys go to, or null when none is open. */
   top(): M | null { this.prune(); return this.modes[0] ?? null; }
@@ -156,7 +166,11 @@ export class Modes<H, M extends Mode<H>> {
   key(k: Key, host: H): boolean | null { const t = this.top(); return t ? t.key(k, host) : null; }
 
   /** Modes that ended by themselves go. */
-  private prune() { if (this.modes.some(m => m.ended?.())) this.modes = this.modes.filter(m => !m.ended?.()); }
+  private prune() { if (this.modes.some(m => m.ended?.())) this.leave(this.modes.filter(m => m.ended?.())); }
+  /** The one way out of the stack, let go or ended by itself. */
+  private leave(going: M[]) { this.modes = this.modes.filter(x => !going.includes(x)); for (const x of going) this.gone(x); }
+  /** A mode has left the stack. */
+  protected gone(_m: M) {}
 }
 
 /** A reader's open modes, in PRECEDENCE order. */
@@ -172,7 +186,14 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   focus(mode: ReaderMode<H>, on: boolean) { if (on) this.parked.delete(mode); else this.parked.add(mode); }
   active(mode: ReaderMode<H>) { return !this.parked.has(mode); }
   override top() { return this.all().find(m => this.active(m)) ?? null; }
-  override drop(m: string | ReaderMode<H>) { for (const x of this.all()) if (x === m || x.name === m) this.parked.delete(x); super.drop(m); }
+  /** A mode has gone, let go or ended by itself: what's open over it goes with it, and it runs its way out. */
+  protected override gone(x: ReaderMode<H>) {
+    this.parked.delete(x);
+    x.dropped?.();
+    for (const y of [...this.modes]) if (y.over === x.of) this.drop(y);
+  }
+  /** Open `mode` taking no key (the leave ask: the power bar has it); `all` still sees it, `top` never. */
+  pushParked<N extends ReaderMode<H>>(mode: N): N { this.push(mode); this.parked.add(mode); return mode; }
 
   get holdsKeys() { return this.all().some(m => this.active(m) && m.holdsKeys); }
   get editing() { return this.all().some(m => m.editing()); }

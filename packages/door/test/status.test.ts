@@ -495,7 +495,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       expect(rows.findIndex(l => l.includes("unlocks it")), where).toBeLessThan(rows.length - 1);
       await app.dispatch.act({ action: "strip.more", args: { strip: "hint" }, tile: desk().keys().address }, USER);
       await until(() => { app.flush(); return painted.some(l => visible(l).includes("screen locked")); }, "the lock in the hint strip's picker");
-      const y = painted.findIndex(l => visible(l).includes("screen locked") && !visible(l).includes("closing replies"));
+      const y = painted.findIndex(l => /\d+ \S+ screen locked/.test(visible(l)));   // the picker's row: the hint row beside it can hold the chip too
       const ran: string[] = [];
       const stop = traceActions(a => ran.push(a.name));
       try {

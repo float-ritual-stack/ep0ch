@@ -1,3 +1,4 @@
+import { lineEscCloses } from "../surface/completer";
 import { buttonText } from "../surface/button";
 import { keyTable } from "../surface/keymap";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -684,6 +685,8 @@ export class FacetsPane implements Pane, AttachedOwner {
     };
   }
   /** Typing Matches' filter (`/`): letters narrow the rows as they're typed, ⏎ keeps them, esc goes back. */
+  /** Esc takes back the query or the filter being typed (esc-rule.ts). */
+  escCloses() { return this.draft !== null ? lineEscCloses(this.draft, "the query") : this.list.typing ? lineEscCloses(this.list.typing, "the filter") : undefined; }
   private filterKey(k: Key, desk: DeskApi): boolean {
     if (k.kind === "enter") this.list.stopTyping(true);
     else if (k.kind === "esc") this.list.stopTyping(false);

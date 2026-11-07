@@ -653,6 +653,15 @@ export class PowerBar {
     return this.surface.render(w, h, sh).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));
   }
 
+  /** What Esc closes in the bar, in the hint's words: the order of its own key (esc-rule.ts). */
+  escCloses(): string {
+    const c = this.scope === "ask" && !questionCompletion() ? null : completerOf(this.input) ?? lineCompleter(this.input);
+    if (c?.shown?.items.length && !c.shown.loading) return "the list";
+    if (this.input.snippet) return "the snippet";
+    if (this.docsMode) return "the docs";
+    return this.query && !this.compact() && this.justRan !== this.query ? "the typed line" : "the power bar";
+  }
+
   /** Whether the line's completion takes `k` first: a key for its open list, tab where an argument is being typed, a click on the list. */
   private lineCompletes(k: Key): boolean {
     const c = this.scope === "ask" && !questionCompletion() ? null : completerOf(this.input) ?? lineCompleter(this.input);

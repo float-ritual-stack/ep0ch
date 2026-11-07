@@ -42,6 +42,8 @@ export type ReaderGuard = keyof typeof READER_GUARDS;
 export type ReaderPick = "page" | "fold-all" | "task" | "undo" | "enter" | "detach" | "resolve";
 
 export interface ReaderKey extends ModeKey {
+  /** On an Esc row: what it lets go of, in the hint's words (esc-rule.ts). */
+  readonly closes?: string;
   /** Every guard must hold, else the key falls to the next row (and then out of the reader). */
   readonly when?: readonly ReaderGuard[];
   readonly pick?: ReaderPick;
@@ -63,7 +65,7 @@ const UNDONE = ["edit.strays", "callout.undo", "image.undo", "use.undo", "source
 /** Zoom into a part of a reader's note (PIE-780): W on the part the [ ] position (else the reading line) is in; esc returns. */
 export const ZOOM_KEYS: readonly ReaderKey[] = [
   r("W", "element.zoom", { label: "zoom into this part", when: OUTLINE }),
-  r("esc", "element.zoom", { label: "whole note", args: { on: false }, when: ["zoomed", ...OUTLINE] }),
+  r("esc", "element.zoom", { label: "whole note", closes: "the zoom", args: { on: false }, when: ["zoomed", ...OUTLINE] }),
 ];
 
 /** Every key of a note being read, first first: the first row whose key matches and whose guards hold runs. */
@@ -93,8 +95,8 @@ export const READER_KEYS = keyTable<ReaderKey>("note", "a note being read", [
   r("A", "proposal.apply", { label: "apply anyway", when: ["note", "proposal"] }),
   r("X", "proposal.dismiss", { label: "dismiss", when: ["note", "proposal"] }),
   // esc lets go of the current element, then of a focus mark, then of a zoom.
-  r("esc", "element.select", { args: { n: 0 }, label: "lets go", says: "let go of the element you are on", when: ["element"] }),
-  r("esc", "block.untint", { label: "lets go of the mark", when: ["tinted"] }),
+  r("esc", "element.select", { args: { n: 0 }, label: "lets go", closes: "the lit element", says: "let go of the element you are on", when: ["element"] }),
+  r("esc", "block.untint", { label: "lets go of the mark", closes: "the mark", when: ["tinted"] }),
   ...ZOOM_KEYS,
   r("up", "reading.step", { args: { by: -1 }, label: "blocks/rows", says: UP }), r("down", "reading.step", { args: { by: 1 }, label: "blocks/rows", says: DOWN }),
   // shift+↑ ↓ too: a terminal sends them where a selection isn't held (the if-chain matched ↑ ↓ by kind).

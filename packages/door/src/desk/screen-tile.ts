@@ -20,6 +20,7 @@
 // any desk (PIE-727), or, from inside, comes out. What the mounted screen selects (the board's card) is the tile's selection: a preview
 // tile can follow it. A screen an exhibit makes once (`Exhibit`: the showcase's BBS message reader beside a reader) is
 // drawn the same way.
+import type { EscRead } from "../esc-rule";
 import { nothingToClose, refused } from "../shell-keys";
 import type { Screen } from "../app";
 import type { Msg } from "../board";
@@ -236,6 +237,12 @@ export class ScreenTile implements Pane {
     queueMicrotask(() => desk?.showFrom?.(this, m));
   }
 
+  /** The desk inside answers; with nothing left in it, Esc comes out of a group it's in. */
+  escCloses(): EscRead | undefined {
+    const inner = this.inner;
+    if (!inner) return this.framed ? undefined : null;
+    return inner.escReadFront() ?? inner.escReadHome() ?? (this.inside ? `the ${this.screen ?? "group"}` : null);
+  }
   key(k: Key): boolean {
     if (!this.framed) return false;
     if (this.inside) {

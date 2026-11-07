@@ -242,6 +242,8 @@ export class KeysPane implements Pane {
     this.buttons.push({ y, from, to: from + width(text) + 2, action });
   }
 
+  /** Esc: the rebind waiting, the filter typed, then this window as a tile (esc-rule.ts). */
+  escCloses() { return this.record ? "the rebind" : this.field ? "the filter" : !this.screen ? "the keys window" : undefined; }
   key(k: Key, desk: DeskApi): boolean {
     if (this.record && k.kind !== "mouse") return this.recordKey(k, desk);
     if (this.field && k.kind !== "mouse") {

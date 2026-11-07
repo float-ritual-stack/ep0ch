@@ -1,5 +1,5 @@
 {
-  "revision": "c1933510cc8f031546a8ae664c266a2b3037e438",
+  "revision": "2cfa058a30320f1961b9bbdee67952fb5ac98f2e",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -369,11 +369,11 @@
   },
   "files": {
     "packages/claude-mod/hooks/register.ts": 2898,
-    "packages/door/src/desk/desk.ts": 8490,
+    "packages/door/src/desk/desk.ts": 8472,
     "packages/door/src/desk/screen-layout.ts": 2324,
     "packages/door/src/screens.ts": 2239,
     "packages/door/src/showcase/showcase.ts": 2135,
-    "packages/door/src/surface/note.ts": 12786,
+    "packages/door/src/surface/note.ts": 12785,
     "packages/outliner/pi-extension/index.ts": 3475,
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4664,

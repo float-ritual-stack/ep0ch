@@ -56,6 +56,8 @@ const ACCESS_KEYS: readonly ModeKey[] = [
 ];
 
 export class AccessMatrixPane implements Pane {
+  /** Esc takes back the plan staged (esc-rule.ts). */
+  escCloses() { return this.staged ? "the plan" : undefined; }
   readonly kind = ACCESS_MATRIX_KIND_NAME;
   /** `env`: where the caps are read and written (the process's; the showcase gives its own folder). */
   constructor(readonly env: Record<string, string | undefined> = process.env) {}

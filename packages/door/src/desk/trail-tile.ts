@@ -37,6 +37,8 @@ type Options = Omit<TrailView, "view"> & { view: View };
 type Row = TrailRow & { stop?: HistoryRow };
 
 export class TrailPane implements Pane {
+  /** Esc closes this tile, a trail being a look aside (esc-rule.ts). */
+  escCloses() { return "the trail"; }
   readonly kind = "trail";
   readonly bindings = TRAIL_KEYS;
   private at = 1;

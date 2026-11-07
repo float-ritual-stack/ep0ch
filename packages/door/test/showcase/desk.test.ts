@@ -271,14 +271,18 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => lit() !== null, "a link lit in the reader");
     press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "." });
     await until(() => overlay()?.name === "tile menu", "the reader's menu");
-    // Esc: the menu, then the link, then the zoom, one each.
+    // Esc: the menu, then the link, then the zoom, one each; what's next said first, to the person and to an agent (PIE-1614).
+    const next = () => (app.describe() as { escCloses: string | null }).escCloses;
+    expect(next()).toBe("the menu");
     press({ kind: "esc" });
     expect(overlay()).toBeNull();
     expect(lit()).not.toBeNull();
     expect(stage().zoom).not.toBeNull();
+    expect(next()).toBe("the lit element");
     press({ kind: "esc" });
     expect(lit()).toBeNull();
     expect(stage().zoom).not.toBeNull();
+    expect(next()).toBe("the zoom");
     press({ kind: "esc" });
     expect(stage().zoom).toBeNull();
     // Nothing left in the stage: the keys come back to the index (section.leave); then nothing to close, and it stays.

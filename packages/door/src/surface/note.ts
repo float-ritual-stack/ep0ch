@@ -5,6 +5,8 @@ export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, notArtifact, NotePictures, pictureEdits, pictureRows, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
+import { READER_ESC, escNext, escPress } from "../esc-rule";
+import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
@@ -160,7 +162,7 @@ import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outli
 import { hostname } from "node:os";
 import { clipboardImage, dropActions, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
-import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, draftEscCloses, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -812,8 +814,8 @@ export class NoteSurface {
   private foldedThreads = new Set<string>();
   /** The margin (ADR 0004 contract 6): cards trimmed to a row, whole, or off (the spans stay). The person's reading state. */
   marginMode: MarginMode = "trim";
-  /** `a` was pressed with text selected: the passage toolbar has the next key. */
-  passageMenu = false;
+  /** `a` was pressed with text selected: the passage toolbar has the next key (a mode: it ends with the selection). */
+  get passageMenu(): boolean { return this.modes.get("passage-menu") !== null; }
   /**
    * The person's Comment or Ask from the toolbar: the comment the next session on the selection starts writing. `at`:
    * the passage it's on when that isn't the selection (passage.act's quote=: EchoNet's reply and quote-reply).
@@ -900,8 +902,13 @@ export class NoteSurface {
   private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { target: AttachmentKind; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
-  /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
-  private leaving: LeaveAsk | null = null;
+  /** Where the person asked to go while their comment is unsent (PIE-785): a mode over the comment, waiting on their answer in the power bar. */
+  private get leaving(): LeaveAsk | null { return (this.modes.get("leave-ask") as (ReaderMode<SurfaceHost> & { ask: LeaveAsk }) | null)?.ask ?? null; }
+  private set leaving(ask: LeaveAsk | null) {
+    this.modes.drop("leave-ask");
+    const cs = this.session;
+    if (ask && cs) this.modes.pushParked({ ...quietMode(this.modes, "leave-ask", "leave question", cs, () => ""), ask });
+  }
   /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
   private keptCursor: { d: Draft; row: number; col: number; anchor: Draft["anchor"]; follow: boolean } | null = null;
   /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
@@ -1004,17 +1011,10 @@ export class NoteSurface {
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
   set session(s: CommentSession | null) {
     // The person's comment takes the keys from the compare (an agent's never does), and gives them back when it closes.
+    if (!s) { this.modes.drop("comment"); return; }
+    this.modes.push(this.commentMode(s));
     const rv = this.revisionMode;
-    if (s) { this.modes.push(this.commentMode(s)); if (rv && s.startedBy.kind !== "agent") this.modes.focus(rv, false); return; }
-    const cs = this.session;
-    this.modes.drop("comment");
-    if (rv) this.modes.focus(rv, true);
-    if (this.modes.get("grip")?.of === cs) this.modes.drop("grip");
-    if (this.sourcesMode) this.modes.focus(this.sourcesMode, true);
-    if (this.placementMenu?.target === "comment") this.modes.drop("placement");
-    this.leaving = null;
-    if (this.frameDrag?.target === "comment") this.frameDrag = null;
-    this.boxRect = null;
+    if (rv && s.startedBy.kind !== "agent") this.modes.focus(rv, false);
   }
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
@@ -3682,6 +3682,7 @@ export class NoteSurface {
       get keys() { return d.views.raw.preview ? EDIT_PREVIEW_READER_KEYS : undefined; },
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
+      escCloses: () => (d.views.raw.preview ? "the preview" : elementEdit(d).on ? "the table edit" : draftEscCloses(d, "the edit")),
       changed: revision => { if (!this.replyParent) s.changedTo(revision); },
       editing: () => true, covers: () => !this.replyParent,
       key: (k, host) => this.draftKey(k, host),
@@ -3743,6 +3744,14 @@ export class NoteSurface {
       // ctrl+r is the draft's own key (DRAFT_KEYS); it's named here only when there's something to reload.
       get keys() { return cs.mode === "compose" ? [...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row), ...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload") : [])] : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
+      // Its way out: what was over it went with it (a grip, the placement menu, the leave ask); the keys it took go back.
+      dropped: () => {
+        if (this.revisionMode) this.modes.focus(this.revisionMode, true);
+        if (this.sourcesMode) this.modes.focus(this.sourcesMode, true);
+        if (this.frameDrag?.target === "comment") this.frameDrag = null;
+        this.boxRect = null;
+      },
+      escCloses: () => (cs.mode === "compose" && cs.composer ? draftEscCloses(cs.composer, "the comment") : cs.mode === "threads" ? "the thread list" : "the comment"),
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
       // In its own tile (PIE-846) the list and the picker are drawn there, and the note here stays as it was.
       editing: () => true, covers: () => cs.mode !== "compose" && cs.place !== "tile",
@@ -4032,7 +4041,7 @@ export class NoteSurface {
     const side = (to: AttachedSide, host: SurfaceHost) => void this.runKey(actions.place as keyof NoteActionArgs, { place: "tile", side: to } as never, host, true);
     const tiled = () => cs.place === "tile";
     return {
-      name: "grip", of: cs, holdsKeys: true, word: "composer move",
+      name: "grip", of: cs, ...(target === "comment" ? { over: cs } : {}), holdsKeys: true, word: "composer move",
       editing: () => false, covers: () => false,
       ended: () => (cs.place === "tile" ? false : (target === "comment" && cs.mode !== "compose") || cs.place !== "floating"),
       key: (k, host) => {
@@ -4375,11 +4384,8 @@ export class NoteSurface {
 
   key(k: Key, host: SurfaceHost): boolean {
     this.use(host);
+    if (k.kind === "esc") return escPress(READER_ESC, readerEscSteps(this as never, host));
     // A step's status choice, the property panel, the edit or the comment: the first open one takes the key.
-    if (k.kind === "esc" && !this.modes.top()) {
-      const attachment = this.modes.all().find(m => m.name === "sources" || m.name === "comment" || m.name === "replies" || m.name === "panel");
-      if (attachment) return attachment.key(k, host);
-    }
     const taken = this.modes.key(k, host);
     if (taken !== null) return taken;
     const c = ch(k);
@@ -4410,6 +4416,8 @@ export class NoteSurface {
     return true;
   }
 
+  /** What the next Esc closes in this reader, in the hint's words, or null. */
+  escNext(host: SurfaceHost): string | null { return escNext(READER_ESC, readerEscSteps(this as never, host)); }
   /** Whether reader guard `g` holds now (READER_GUARDS says each in words). */
   private holds(g: ReaderGuard, host: SurfaceHost): boolean {
     const m = this.msg;
@@ -6149,7 +6157,7 @@ export class NoteSurface {
     if (h && "margin" in h) { void this.runKey("margin", {}, host); return true; }
     if (h && "start" in h) { if (host.startSession) void host.startSession(h.start); else void this.startAsPerson(h.start, host); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
-    if (h && "passage" in h) { this.passageMenu = false; this.passagePick(h.passage, host); return true; }
+    if (h && "passage" in h) { this.modes.drop("passage-menu"); this.passagePick(h.passage, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.
     if (this.selection) void this.runKey("select.clear", {}, host);
     if (!h) return false;
@@ -6981,7 +6989,7 @@ export class NoteSurface {
       },
     });
     list.sel = list.items.indexOf(place);
-    this.modes.push({ name: "placement", of: list, word: "placement", noun: "the placement menu", list, target,
+    this.modes.push({ name: "placement", of: list, ...(target === "comment" && this.session ? { over: this.session } : {}), word: "placement menu", noun: "the placement menu", list, target,
       holdsKeys: true, editing: () => false, covers: () => false,
       key: k => {
         if (k.kind === "esc") void this.runKey("placement.close", {}, host);
@@ -8412,19 +8420,10 @@ export class NoteSurface {
       return true;
     }
     // `a`: the passage toolbar takes the next key (ADR 0004 contract 5); that key runs its choice on the selection.
-    if (this.passageMenu) {
-      this.passageMenu = false;
-      const pick = this.passageChoices().find(x => x.key === c);
-      if (pick) this.passagePick(pick.action, host);
-      else if (k.kind !== "esc") host.ctx.flash(`a then ${this.passageChoices().filter(x => x.key).map(x => `${x.key} ${x.label.toLowerCase()}`).join(" · ")}`);
-      host.redraw();
-      return true;
-    }
-    if (c === "a" && s.text(rows).trim()) { this.passageMenu = true; host.redraw(); return true; }
+    if (c === "a" && s.text(rows).trim()) { this.modes.push(passageMenuMode(this as never, s)); host.redraw(); return true; }
     if (c === "y" || c === "Y") { void this.runKey("select.copy", c === "Y" ? { source: true } : {}, host); return true; }
     if (!s.keys) {
       if (c === "v") { void this.runKey("select.mode", {}, host); return true; }
-      if (k.kind === "esc") { void this.runKey("select.clear", {}, host); return true; }
       return false;
     }
     const d = this.drawn!;

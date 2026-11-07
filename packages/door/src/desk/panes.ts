@@ -1,3 +1,4 @@
+import type { EscRead } from "../esc-rule";
 import { holdsEdit } from "../whereabouts";
 import type { LineField } from "../surface/line";
 import { modeHint, type ModeKey } from "../surface/modes";
@@ -251,6 +252,11 @@ export interface Pane {
    * while its current element is a live figure's (its tabs, its density).
    */
   claims?(k: Key): boolean;
+  /**
+   * What the next Esc closes in it, in the hint's words (esc-rule.ts): null, nothing, and the key goes on past it; ESC_TAKEN,
+   * it has the key and nothing to name; left out, it says nothing and is still asked.
+   */
+  escCloses?(desk: DeskApi): EscRead | undefined;
   /**
    * A screen of its own is drawn in it (a mount, a group): a refusal of the person's key is said on the focused tile in
    * there (PIE-727), so this tile's frame doesn't say it again. Its tiles have frames of their own, so the desk draws
@@ -803,6 +809,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   /** A tile following a file on disk (a preview of a path): never a Resource's text. */
   protected fileSource(): boolean { return false; }
 
+  escCloses(desk: DeskApi): string | null { return this.surface.escNext(this.host(desk)); }
   key(k: Key, desk: DeskApi): boolean {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
     if (this.holdsKeys || this.surface.claims(k)) return this.surface.key(k, this.host(desk));
