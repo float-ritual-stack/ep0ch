@@ -9,7 +9,7 @@
 // kinds: they add findings of their own beside `writeShape`'s (same `ShapeFinding`, a `rule` and a `key`), and the
 // agent tools' `shapeWarnings` is the one place the lists meet.
 
-import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { figureRow } from "./figure-markdown";
@@ -669,6 +669,30 @@ export function asksAt(lines: readonly string[], i: number, jev?: "yes" | "no"):
   // Jev read the whole line: when its only ? is quoted or code, a yes is about someone else's question (PIE-1597).
   const othersQuestion = lines[i]!.includes("?") && !proseOf(lines[i]!).includes("?");
   return asksEvan(lines[i]!) || (jev === "yes" && !othersQuestion) || (jev !== "no" && endsAsking(lines, i));
+}
+
+/** A lead that files a line under what it is. With a question mark of its own the line may still ask ("Decision: cedar or larch?"), so only the bare statement is filed. */
+const FILING_LEAD = /^(?:decision|decided|check|note to self)[ \t]*:/i;
+const LIST_LEAD = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+(?:\[.\][ \t]+)?)?/;
+
+/**
+ * The lines that can't be asking, by what they are rather than what they say (PIE-1620), so no model reads them: a
+ * callout's header (one of the question type excepted: its title is the question) and everything in a quote callout,
+ * someone's words in a `>` block, an answered box, a question only quoted, a heading, a table row, and a `Decision:` or
+ * note to self that holds no question of its own.
+ */
+export function structuralLines(lines: readonly string[]): Set<number> {
+  const out = new Set<number>();
+  for (const callout of calloutBlocks(lines)) {
+    if (BUILTIN_CALLOUT_REGISTRY.resolve(callout.type)?.name === "quote") for (let i = callout.line; i < callout.end; i++) out.add(i);
+    else if (BUILTIN_CALLOUT_REGISTRY.resolve(callout.type)?.name !== "question") out.add(callout.line);
+  }
+  lines.forEach((line, i) => {
+    const content = quoteDepth(line).content;
+    if (!asksAt(lines, i, "yes") || HEADING.test(content) || TABLE_ROW.test(content)) out.add(i);
+    else if (FILING_LEAD.test(content.replace(LIST_LEAD, "").replace(/^[*_]+/, "")) && !proseOf(line).includes("?")) out.add(i);
+  });
+  return out;
 }
 
 /** Line `i` is in a plain `>` block: someone's words. A callout's lines (`> [!type]` opens one) are the writer's own. */

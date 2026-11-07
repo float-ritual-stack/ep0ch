@@ -12,7 +12,8 @@
   "qa": "Does `{section}` ask Evan, the outline's owner, to try, test, verify or check work someone did (a change, a fix, a build) himself? The note's own instructions, steps and chores for whoever reads it (a recipe, a runbook, a to-do list) are not such an ask.",
   "proof": "Does `proof` show someone using the change in the running application (opening it, driving it or looking at what it draws), rather than only tests passing?",
   "experience": "Does `ticket` say what Evan will do, or see happen, in the app once it is done?",
-  "askRecord": "Does `{line}` report something that already happened, as a log entry or a summary does? `{around}` is where it sits in the note.",
-  "askSettled": "Does `{line}` or `{around}` say this question has already been answered or decided?",
-  "askOther": "Is `{line}` addressed to someone other than Evan, such as an agent working through its own checklist? `{around}` is where it sits in the note."
+  "askDecide": "Does `{line}` ask its reader to decide something or do something? `{around}` is where it sits in the note.",
+  "askAddressed": "Is `{line}` addressed to Evan, the outline's owner, and not to an agent working through its own checklist? `{around}` is where it sits in the note.",
+  "askSettled": "Is what `{line}` asks already answered or decided, by the line itself or by what follows it in `{around}`?",
+  "askRecord": "Does `{line}` report something that already happened, as a log entry or a summary does? `{around}` is where it sits in the note."
 }
