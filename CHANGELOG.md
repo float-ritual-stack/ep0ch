@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A header picture keeps its shape in a padded tile (PIE-1631)
+
+- **A circle stays a circle:** in a tile whose look pads it (`pad.y`), the header bleeds up into the padding. It's now laid out for those rows: cropped to fill (the default) or shown whole in the middle (`[fit::contain]`), never stretched. A narrow tile showed it most.
+- **Run:** `ep0ch install --apply` (door code).
+
 ### A picture grows to the note's width, draws sharp, and says its real size (PIE-1630)
 
 - **`[+]` goes on to the full width:** the reader's share of its rows holds a picture nobody sized; once `[+]` or a written size asks for more, it grows to the body's width and the note scrolls past it. There `[+]` says "it's the full width already".

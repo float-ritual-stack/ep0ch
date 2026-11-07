@@ -102,7 +102,7 @@ import { baseTextOf, copyNote, copyOf, diffNote, keptName, oldUnsentLine, settle
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, fileName, HERO_ROWS, heroBox, locatePicture, type Picture, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseImageLine, parseMediaLine, parsePictureFence, parseSize, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, fileName, HERO_ROWS, heroBox, heroBoxGrown, locatePicture, type Picture, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseImageLine, parseMediaLine, parsePictureFence, parseSize, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { TONE_INDEX, surfaceMix } from "../theme";
@@ -1545,8 +1545,8 @@ export class NoteSurface {
     const box = heroBox(entry, look, cols, cap, cw, chh);
     // A drag going on scales nothing: the picture drawn when it began stands in (renderReading), the terminal scaling it.
     if (now) return { line: ref.line, box, placement: null, loading: false, name: ref.path.split("/").pop() ?? ref.path, look };
-    const [placement] = imagePlacements([{ line: 0, media: entry, look: look.pixels, ...box }], 0, cw, chh);
-    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: bounds?.row ?? 0, rows: placement.rows - (bounds?.row ?? 0) } : null, loading: false, name, look };
+    const [placement] = imagePlacements([{ line: 0, media: entry, look: look.pixels, ...heroBoxGrown(entry, look, box, -(bounds?.row ?? 0), cols, cw, chh) }], 0, cw, chh);
+    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: (bounds?.row ?? 0) + placement.row } : null, loading: false, name, look };
   }
 
   /**

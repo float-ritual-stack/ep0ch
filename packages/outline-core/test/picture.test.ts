@@ -1,7 +1,7 @@
 // What a picture is (PIE-1594), given only a note's text: which one it is across an insert above it, which is the header,
 // how big it draws from its words and pixels, and one step for every kind. Made-up notes.
 import { describe, expect, test } from "bun:test";
-import { drawingLayout, drawingSpec, drawnSizeText, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
+import { drawingLayout, drawingSpec, drawnSizeText, heroBox, heroBoxGrown, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
 import { parseMediaLine, parsePictureFence } from "../src/media-line";
 
 const fence = (body: string, words = "") => `\`\`\`svg${words}\n${body}\n\`\`\``;
@@ -218,5 +218,33 @@ describe("a script drawing's own height (PIE-1630)", () => {
     const after = imageBox(px, drawingLayout(node, rewritePicture("drawing", line, (step as { set: Record<string, string | null> }).set)!, "x.svg"), 160, room);
     expect(after.cols).toBe(160);
     expect(after.rows).toBe(50);
+  });
+});
+
+// PIE-1631: a header drawn taller than laid out (a desk tile's padding it bleeds into) is laid out again, never stretched.
+describe("a header grown into a tile's padding keeps its shape", () => {
+  const band = { width: 1600, height: 400 }, spec = parseMediaLine("[img::a.png] [layout::hero]")!;
+  test("cover: the full width, cropped for the taller rows; contain: as wide as they make it, in the middle", () => {
+    const box = heroBox(band, spec, 60, 12, 9, 18);
+    const grown = heroBoxGrown(band, spec, box, 2, 60, 9, 18);
+    expect(grown.rows).toBe(box.rows + 2);
+    const c = grown.crop!;
+    expect((c.w * band.width) / (c.h * band.height)).toBeCloseTo((grown.cols * 9) / (grown.rows * 18), 3);
+    const whole = parseMediaLine("[img::a.png] [layout::hero] [fit::contain] [height::12]")!;
+    const fit = heroBox(band, whole, 160, 12, 9, 18), wider = heroBoxGrown(band, whole, fit, 2, 160, 9, 18);
+    expect(wider.cols / wider.rows).toBeCloseTo(fit.cols / fit.rows, 0);
+    expect(heroBoxGrown(band, spec, box, 0, 60, 9, 18)).toBe(box);
+  });
+});
+
+// Codex on #1347: contain is the whole picture, inside both the width and the taller rows, centred in the band.
+describe("a contained header grown into a tile's padding shows all of itself", () => {
+  const band = { width: 1600, height: 400 }, whole = parseMediaLine("[img::a.png] [layout::hero] [fit::contain] [height::12]")!;
+  for (const W of [100, 60, 160]) test(`${W} columns, pad.y 2: no crop, its own shape, inside the band`, () => {
+    const box = heroBox(band, whole, W, 12, 9, 18), grown = heroBoxGrown(band, whole, box, 2, W, 9, 18), rows = box.rows + 2;
+    expect(grown.crop).toBeUndefined();
+    expect(grown.col + grown.cols).toBeLessThanOrEqual(W);
+    expect((grown.line ?? 0) + grown.rows).toBeLessThanOrEqual(rows);
+    expect(Math.abs((grown.cols * 9) / (grown.rows * 18) / 4 - 1)).toBeLessThanOrEqual(0.5 / Math.min(grown.rows, grown.cols) + 0.01);
   });
 });

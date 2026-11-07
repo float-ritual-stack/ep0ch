@@ -187,6 +187,26 @@ export function heroBox(m: Pixels, spec: MediaSpec, W: number, cap: number, cell
   return { col: 0, cols: W, rows: most, ...(crop ? { crop } : {}) };
 }
 
+/**
+ * A header laid out by heroBox, drawn `extra` rows taller (PIE-1631: a desk tile's padding above the body, which the
+ * header bleeds up into): laid out again for those rows, never the same crop stretched to fill them (a disc an oval).
+ * `[fit::contain]`: the whole picture, inside both the width `W` and the taller rows, in the middle of that band
+ * (`line`: the rows down from its top), as the published page's object-fit:contain shows it. Else the full width,
+ * cropped to fill around its focus.
+ */
+export function heroBoxGrown(m: Pixels, spec: MediaSpec, box: { col: number; cols: number; rows: number }, extra: number, W: number, cellW: number, cellH: number): { col: number; cols: number; rows: number; line?: number; crop?: { x: number; y: number; w: number; h: number } } {
+  if (extra <= 0) return box;
+  const band = box.rows + extra;
+  if (spec.fit === "contain") {
+    const wide = (W * cellW) / (band * cellH) > m.width / m.height;
+    const cols = wide ? Math.max(1, Math.min(W, Math.round((band * cellH * m.width) / m.height / cellW))) : W;
+    const rows = wide ? band : Math.max(1, Math.min(band, Math.round((W * cellW * m.height) / m.width / cellH)));
+    return { col: Math.floor((W - cols) / 2), cols, rows, line: Math.floor((band - rows) / 2) };
+  }
+  const crop = coverCrop(m, W * cellW, band * cellH, spec.focus);
+  return { col: 0, cols: W, rows: band, ...(crop ? { crop } : {}) };
+}
+
 /** An SVG's own size: its root's `width` and `height`, else its viewBox's. Null when it names neither. */
 export function svgOwnSize(svg: string): Pixels | null {
   const root = /<svg\b[^>]*>/i.exec(svg)?.[0] ?? "";
