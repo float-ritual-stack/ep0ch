@@ -1512,7 +1512,8 @@ export class App implements Ctx {
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
       if (k.action === "down") void this.dispatch.press("status.log");
-      return;
+      // A drag or a release that came down here is the press's that started it (PIE-1615): the bar takes only presses.
+      if (k.action === "down" || (k.action !== "drag" && k.action !== "up") || isHover(k)) return;
     }
     // The door's own keys on every screen: each asks the top screen, once, whether it's using the key (a terminal tile's
     // program, an edit, a filter, a picker): its own answer. Which layer has the key was decided above (person()).

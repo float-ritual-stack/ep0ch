@@ -4865,19 +4865,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * The pointer moved with no button held while a border or a float's corner was being dragged: the release never came
-   * (it fell outside the window, or an overlay took it, or the link dropped it), and the drag is over. A held drag stays
-   * a resize until it is let go (resizeHeld), so this is what ends one whose end was lost, soon rather than at the ceiling.
+   * The pointer moved with no button, or a new press came, while a press held on: its release never came (outside the window, an overlay took it,
+   * the link dropped it). A reader's press ends with nothing fired (PIE-1615); a held border or float corner stops holding a resize.
    */
   private releaseLost(): void {
-    const sizing = this.floatDrag?.size;
-    if (!this.drag && !sizing) return;
-    this.gesture = null; this.save();
-    resizeEnded();
+    const reader = this.pressed ?? this.editPressed;
+    if (reader) { this.gesture = null; reader.pane.surface.endPress(); return this.redraw(); }
+    if (!this.drag && !this.floatDrag?.size) return;
+    this.gesture = null; this.save(); resizeEnded();
     this.redraw();
   }
 
   key(k: Key, ctx: Ctx): void {
+    if (k.kind === "mouse" && k.action === "down" && (this.pressed || this.editPressed)) this.releaseLost();
     if (k.kind === "mouse" && (k.mods ?? 0) === ZOOM_WHEEL.mods && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
       if (hit && this.onFrame(hit[0], k.x, k.y)) {
@@ -6909,7 +6909,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (this.entered.in(p)) this.entered.clear();
     }
     const g = this.gesture;
-    if ((g?.kind === "float" || g?.kind === "tile" || g?.kind === "head") && g.id === id) { if (g.kind === "float" && g.size) resizeEnded(); this.gesture = null; }
+    if ((g?.kind === "float" || g?.kind === "tile" || g?.kind === "head") && g.id === id || (g?.kind === "reader" || g?.kind === "edit") && g.pane === p) { if (g.kind === "float" && g.size) resizeEnded(); if (g.kind === "reader" || g.kind === "edit") g.pane.surface.endPress(); this.gesture = null; }
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);

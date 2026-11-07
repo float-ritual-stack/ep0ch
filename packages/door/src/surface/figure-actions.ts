@@ -151,15 +151,14 @@ export const figureActions = {
       if (phase === "start") {
         const edge = sizing.edge(x, y);
         if (!edge) throw new ActionRefused("that cell isn't a figure's bottom or right edge");
-        sizing.drag = { ...edge, x, y, scroll: surface.scroll }; resizeHeld();
+        sizing.hold({ ...edge, x, y, scroll: surface.scroll }); resizeHeld();
       } else if (phase === "move" || phase === "end") {
         sizing.move(x, y);
         surface.scroll = sizing.follow(surface.scroll);
-        const d = sizing.drag;
-        if (phase === "end" && d && !d.saving) {
-          d.saving = true;
-          try { if (d.now) await surface.act("figure.size", { figure: String(d.frame.figure.n), ...d.now }, host, actor); }
-          finally { sizing.cancel(); host.redraw(); }
+        const d = sizing.held;
+        if (phase === "end" && d) {
+          try { await sizing.landing(async () => { if (d.now) await surface.act("figure.size", { figure: String(d.frame.figure.n), ...d.now }, host, actor); }); }
+          finally { host.redraw(); }
         }
       } else throw new ActionRefused("phase is start, move or end");
       host.redraw();

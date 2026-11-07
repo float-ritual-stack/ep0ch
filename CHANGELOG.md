@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A press or drag in a reader is one gesture (PIE-1615)
+
+- **One thing at a time:** a press that becomes a drag never also clicks. A release outside the tile, a tile closing or a mode opening ends the gesture cleanly, and the next click starts fresh.
+- **Forms too:** a drag across a settings field selects the whole span.
+- **Run:** `ep0ch install --apply` (door code).
+
+### Esc closes the innermost thing, and says what it will close (PIE-1614, PIE-1617)
+
+- **One thing a press, in one written order:** a popup, then a menu, then the comment, then what's lit, and so on out. A selection, a lit element or a zoom now closes before a drawer you're out of.
+- **The hint row's last part names the next Esc:** `esc: the popup`. A click on it does the same. With the drawer up, its foot says it too.
+- **The reader's asks and menus live in its mode stack,** so none outlives what opened it.
+- **An agent never spends your Esc.**
+- **Run:** `ep0ch install --apply` (door code).
+
+### A model call from asks or tidy sends only its prompt (PIE-1622)
+
+- **Cheaper by about 200 times:** tidy's call drops from about 220k input tokens to about 1.2k, and an asks confirm stays under 3k in any folder.
+- **Run:** `ep0ch install --apply`.
+
 ### Keys typed during a save land, and a press-again never fires late (PIE-1613, PIE-1616)
 
 - **Keep typing after ctrl+s:** what you type while a save, a send or a create is out waits and goes in. Refused, it lands where you typed it; written, the note has what you saved, and the extra is kept and said ("e brings it back"). esc or ctrl+s pressed meanwhile doesn't run late: the line says to press it again.
