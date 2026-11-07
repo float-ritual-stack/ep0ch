@@ -552,3 +552,14 @@ describe("an SVG drawn large stays sharp (PIE-1630)", () => {
     await until(() => sized(jpg, 2000, 1000)?.width === 1200, "its own size", 10_000);
   });
 });
+
+// Codex on #1346: a cache made before PIE-1630 holds an SVG step rasterized at its own (smaller) size under the same name.
+describe("an SVG cached before it was drawn at its size (PIE-1630)", () => {
+  test("a stale raster under the old name is never served: the step is made again at its size", async () => {
+    writeFileSync(file("old-graph.svg"), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 115"><rect width="300" height="115" fill="#111827"/></svg>`);
+    const m = await ready("old-graph.svg");
+    // What an install before this change left for the 960 step: the picture at its own 300 px.
+    await sharp({ create: { width: 300, height: 115, channels: 3, background: { r: 17, g: 24, b: 39 } } }).png().toFile(join(mediaCache(), `${m.key}-960-a.png`));
+    await until(() => (sized(m, 900, 345)?.width ?? 0) >= 900, "the 960 step made at 960", 10_000);
+  });
+});

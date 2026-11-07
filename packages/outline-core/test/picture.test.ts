@@ -1,7 +1,7 @@
 // What a picture is (PIE-1594), given only a note's text: which one it is across an insert above it, which is the header,
 // how big it draws from its words and pixels, and one step for every kind. Made-up notes.
 import { describe, expect, test } from "bun:test";
-import { drawingSpec, drawnSizeText, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
+import { drawingLayout, drawingSpec, drawnSizeText, HERO_ROWS, imageBox, locatePicture, pictureStep, pictureWidthCss, picturesIn, rewritePicture, svgOwnSize } from "../src/picture";
 import { parseMediaLine, parsePictureFence } from "../src/media-line";
 
 const fence = (body: string, words = "") => `\`\`\`svg${words}\n${body}\n\`\`\``;
@@ -202,5 +202,21 @@ describe("asked for more, it fills the width (PIE-1630)", () => {
     expect(drawnSizeText({ cols: 160, rows: 50 }, parsePictureFence("```svg size=full")!, 160)).toBe("50 rows · full width");
     // Past the most rows the grammar takes, the problem never claims a size it wasn't drawn at.
     expect(parsePictureFence("```svg height=800")!.problems).toEqual(["height=800 is past the most, 200 rows"]);
+  });
+});
+
+// Codex on #1346: a drawing's script can give a height of its own, under its line's. Going full must not take the line's
+// height away and let the script's (smaller) one hold it again.
+describe("a script drawing's own height (PIE-1630)", () => {
+  test("[+] to the full width on a drawing whose script says height:10 draws wider, never narrower", () => {
+    const px = { width: 1600, height: 1000 }, room = { ...cells, maxImageRows: 30, body: 160 };
+    const node = { svg: "<svg/>", height: 10 }, line = "banner:: [height::40]";
+    const before = imageBox(px, drawingLayout(node, line, "x.svg"), 160, room);
+    expect(before).toEqual({ col: 0, cols: 128, rows: 40 });
+    const step = pictureStep({ kind: "drawing", spec: drawingSpec(line), header: false }, 1, { ...room, px, drawn: before });
+    expect("set" in step).toBe(true);
+    const after = imageBox(px, drawingLayout(node, rewritePicture("drawing", line, (step as { set: Record<string, string | null> }).set)!, "x.svg"), 160, room);
+    expect(after.cols).toBe(160);
+    expect(after.rows).toBe(50);
   });
 });

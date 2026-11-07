@@ -271,3 +271,21 @@ describe("as big as asked, and said truly (PIE-1630)", () => {
     expect(v.lines[p.row + p.rows]).toContain(RULER_BG);
   });
 });
+
+// Codex on #1346: a host's digest (a river column) lost the band round a picture but drew no bar in its place.
+describe("a digest's picture keeps its place marker (PIE-1630)", () => {
+  const spread = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000"><rect width="1600" height="1000" fill="#1a2233"/></svg>`;
+  test("the band's bar is drawn in the host's inset on the picture's rows", async () => {
+    const text = fenced("svg size=25%", spread), h = host(), body = new NoteSurface();
+    body.show(note(text), h);
+    let d = body.digest(note(text), 90, h, 8, 2);
+    for (let i = 0; i < 200 && !(body as any).digested.doc.images.length; i++) { await Bun.sleep(20); d = body.digest(note(text), 90, h, 8, 2); }
+    (body as any).cur = (body as any).elems.find((e: any) => e.link?.image).key;
+    d = body.digest(note(text), 90, h, 8, 2);
+    const im = (body as any).digested.doc.images[0], { RULER_BG } = await import("../src/surface/selection");
+    for (let r = im.line; r < im.line + im.rows; r++) {
+      expect(d.lines[r]).toContain(RULER_BG.replace("\x1b[48;", "\x1b[38;") + "│");
+      expect(d.lines[r]).not.toContain(RULER_BG);
+    }
+  });
+});

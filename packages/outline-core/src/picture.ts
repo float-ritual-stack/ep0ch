@@ -271,5 +271,7 @@ export function pictureStep(p: Pick<Picture, "kind" | "spec" | "header">, by: nu
   if (after && after.cols < room.body && after.rows > at) return { set: { height: next } };
   const full = box({ ...spec, size: "full", height: undefined });
   if (now && full && full.cols <= now.cols && full.rows <= now.rows) return { stop: BIGGEST };
-  return { set: { size: "full", height: null } };
+  // A fence's height word goes; a drawing's line writes the full width's rows instead, since without a height of its own
+  // the script's (its image primitive's `height`) would hold it again, smaller.
+  return { set: { size: "full", height: p.kind === "drawing" && full ? String(full.rows) : null } };
 }

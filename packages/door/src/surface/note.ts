@@ -2703,7 +2703,7 @@ export class NoteSurface {
     for (const c of copies) if ("block" in c && doc.blocks[c.block]?.kind !== "span") { const t = trims.get(c.row) ?? { cuts: [] }; trims.set(c.row, { ...t, cuts: [...(t.cuts ?? []), [c.from + inset, c.to + inset]] }); }
     return {
       header: { lines: headLines, targets: header.hits },
-      lines: lines.map(l => " ".repeat(inset) + l),
+      lines: lines.map((l, r) => ruled && r >= ruled[0] && r < ruled[1] && pictureRowsOf(doc.images, 0).has(r) ? bandBesidePicture(" ".repeat(inset) + l, inset, RULER_BG) : " ".repeat(inset) + l),
       targets: targets.map(t => ({ ...t, from: t.from + inset, to: t.to + inset })),
       placements: placements.map(p => ({ ...p, col: p.col + inset })),
       current: current ? current.row : null, key: current?.key ?? null, trims,

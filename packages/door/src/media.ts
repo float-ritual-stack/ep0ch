@@ -54,6 +54,8 @@ const STEPS = [320, 640, 960, 1280, MAX_PX];
  */
 const MAX_VECTOR_PX = 3200;
 const VECTOR_STEPS = [...STEPS, 1920, 2560, MAX_VECTOR_PX];
+/** How an SVG's step is rasterized, in its cache file's name: change it when that changes, so an old file isn't served. */
+const VECTOR_RASTER = "svg2";
 /** How long after a resize what it drew stands in for an image still being made for where it ended. */
 const SETTLE_MS = 3000;
 /** The step made with the first look, before the box it's drawn in is known. */
@@ -295,7 +297,8 @@ const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d
  */
 async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   const f = look.dim !== undefined && !limited(look) ? brightness(0, look.dim) : brightnessOf(await lightOf(s, look.crop), look);
-  const ref = `${s.key}-${edge}-${lookKey(look)}`;
+  // An SVG's file names its rasterizing too (PIE-1630): one made before it was drawn at its step's size has the same name otherwise.
+  const ref = `${s.key}-${edge}${s.vector ? `-${VECTOR_RASTER}` : ""}-${lookKey(look)}`;
   const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
   if (s.png && f === 1 && !look.mute && !look.blur && !look.tint && !look.fade && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}`, ...(look.crop ? { crop: look.crop } : {}) };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
