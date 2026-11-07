@@ -327,7 +327,7 @@ export class BacklinksPane implements Pane {
     },
   };
 
-  /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
+  /** Ask the service for `m`'s backlinks and authored links (the list keeps its view options, as Detail's panel does): resolves once both are read and what they show is shown. */
   async load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
     if (!this.travelling && this.target && m && m.id !== this.target.id) {
       this.backs.push(this.target);
@@ -348,19 +348,20 @@ export class BacklinksPane implements Pane {
     if (this.groups.includes("children")) void this.loadChildren(m, desk);
     if (this.groups.includes("parents")) void this.loadParents(m, desk);
     // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
-    void board.request("blocks.authored-links", { ownerBlockId: m.id }).then(v => {
+    // The read resolves once what it shows is shown (PIE-1628): an aim answers after it, never with a show still due.
+    const authored = board.request("blocks.authored-links", { ownerBlockId: m.id }).then(async v => {
       if (!turn.alive()) return;
       const before = rowKey(this.rows()[this.sel]);
       this.keepSel(() => { this.authored = { kind: "ready", value: v }; }, !keepSel && !this.data);
-      // The selection moved onto a link that came with them: shown, as moving to it would, while the list has the keys.
-      if (this.data && rowKey(this.rows()[this.sel]) !== before && desk.hasFocus?.(this)) this.showSelected(desk, USER);
       desk.redraw();
+      // The selection moved onto a link that came with them: shown, as moving to it would, while the list has the keys.
+      if (this.data && rowKey(this.rows()[this.sel]) !== before && desk.hasFocus?.(this)) await this.showSelected(desk, USER);
     },
       (e: Error) => { if (turn.alive()) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
     // A tile that doesn't list Backlinks doesn't ask for them: an empty collection stands in, so a slow or failed
     // backlinks read never holds up (or hides) the groups it does list.
     const backlinks = this.groups.includes("backlinks") ? board.backlinks(m.id, undefined, true) : Promise.resolve<BacklinkCollection>({ targetBlockId: m.id, sources: [], completeness: { kind: "complete" } } as BacklinkCollection);
-    return backlinks.then(data => {
+    const listed = backlinks.then(async data => {
       if (!turn.alive()) return;
       // A re-read keeps the selected row: the one selected now, not when it was asked (the person may have moved since).
       const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
@@ -371,9 +372,10 @@ export class BacklinksPane implements Pane {
       this.sel = kept >= 0 && (isLinkEntry(rows[kept]) || this.headerPicked) ? kept : firstEntry(rows);
       const by = this.showOnLoad;
       this.showOnLoad = null;
-      if (by) this.showSelected(desk, by);
       desk.redraw();
+      if (by) await this.showSelected(desk, by);
     }, (e: Error) => { if (turn.alive()) { this.problem = `couldn't ask for backlinks: ${e.message}`; this.data = null; desk.redraw(); } });
+    await Promise.all([authored, listed]);
   }
 
   /** The notes under `m` and their facets (the Children group), drawn as they land, the selection kept. */
@@ -398,17 +400,18 @@ export class BacklinksPane implements Pane {
   }
 
   /** Given the keys: its selection fills a preview that shows nothing yet, and never replaces what one shows (PIE-1426). */
-  focused(desk: DeskApi, actor: Actor) { if (desk.previewsEmpty?.(this)) this.showSelected(desk, actor); }
+  focused(desk: DeskApi, actor: Actor) { if (desk.previewsEmpty?.(this)) void this.showSelected(desk, actor); }
 
   /**
    * Show the selected row's note (a group's header shows nothing): when the selection changes (a step, a pick, `b`
    * listing another note's links), never because the tile was given the keys (PIE-1426: a preview gone back stays).
-   * Asked before its rows are read, it shows once they are.
+   * Asked before its rows are read, it shows once they are. Resolves once it's shown: the note is read first, and what
+   * asked (`b`) answers after, so a wire made next never takes a show meant for the wires there were (PIE-1628).
    */
-  showSelected(desk: DeskApi, actor: Actor) {
+  async showSelected(desk: DeskApi, actor: Actor): Promise<void> {
     if (!this.data) { if (this.target) this.showOnLoad = actor; return; }
     if (!isLinkEntry(this.rows()[this.sel])) return;
-    void this.pick(this.sel, "show", desk, actor).catch(() => {});
+    await this.pick(this.sel, "show", desk, actor).catch(() => {});
   }
 
   /** Something changed in the outline: the list is asked again (once per burst), its selection kept. A draft isn't a change to what links here. */

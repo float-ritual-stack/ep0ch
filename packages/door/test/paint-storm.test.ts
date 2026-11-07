@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App, type Screen } from "../src/app";
+import { FRAME_MS } from "../src/frame-pace";
 import { Desk } from "../src/desk/desk";
 import { softLinkIgnoreOf } from "../src/refs";
 import { MainMenu } from "../src/screens";
@@ -130,10 +131,26 @@ describe.skipIf(!outliner)("a terminal tile streaming on a heavy screen keeps it
   let board: SocketBoard, app: App, desk: Desk;
   const A = () => app as any;
   const FRAME = 25;
-  const framesPerSecond = async () => {
-    const before = A().speed.frames, at = performance.now();
-    await Bun.sleep(1500);
-    return (A().speed.frames - before) / ((performance.now() - at) / 1000);
+  /**
+   * The rests the door's loop took between frames over 1.5 s of streaming, by the door's own clock: from one frame's end
+   * to the next one's start, which is the pace's choice. Frames per second by the wall clock measured the machine too:
+   * a box busy with other tests made each frame cost 80 ms instead of 30, so 10 a second, with the rest still 16 ms
+   * (PIE-1624). A tile's frames resting like an outline change's (three times the frame) is the bug this guards.
+   */
+  const rests = async () => {
+    const pace = A().pace, begin = pace.begin, end = pace.end, gaps: number[] = [];
+    let ended = 0;
+    pace.begin = function () { if (ended) gaps.push(performance.now() - ended); return begin.call(pace); };
+    pace.end = function (drawn?: boolean) { ended = performance.now(); return end.call(pace, drawn); };
+    try { await Bun.sleep(1500); } finally { pace.begin = begin; pace.end = end; }
+    gaps.sort((a, b) => a - b);
+    return { frames: gaps.length, median: gaps[gaps.length >> 1]! };
+  };
+  /** The loop paints at a frame's pace: the typical rest is one frame's wait (FRAME_MS), never three frames' length. */
+  const keepsPace = async () => {
+    const { frames, median } = await rests();
+    expect(frames).toBeGreaterThan(5);
+    expect(median).toBeLessThan(2 * FRAME_MS);
   };
 
   beforeAll(async () => {
@@ -168,13 +185,13 @@ describe.skipIf(!outliner)("a terminal tile streaming on a heavy screen keeps it
     await scratch.dispose();
   });
 
-  test("about 20 frames a second with nobody pressing", async () => {
-    expect(await framesPerSecond()).toBeGreaterThan(18);
+  test("a frame's pace with nobody pressing", async () => {
+    await keepsPace();
   }, 20_000);
 
   test("and in a storm of outline changes too", async () => {
     let n = 0;
     const storm = setInterval(() => app.event({ domain: "content", action: "edit", blockId: `storm-${n}`, change: { kind: "edit", blockId: `storm-${n++}`, sequence: 1e6 + n, recordedAt: new Date().toISOString(), actor: { author: "agent", actorId: "storm" } } } as any), 50);
-    try { expect(await framesPerSecond()).toBeGreaterThan(18); } finally { clearInterval(storm); }
+    try { await keepsPace(); } finally { clearInterval(storm); }
   }, 20_000);
 });
