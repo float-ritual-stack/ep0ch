@@ -369,6 +369,9 @@ export class ExtensionPages {
     return parts.join("\n");
   }
 
+  /** What the pages' long hold waits for: a pass of the loop, or the host's, after every outline's waiting requests (PIE-1610). */
+  giveWay: () => Promise<void> = () => new Promise<void>(resolve => setImmediate(resolve));
+
   /** `sync`, when what the pages are made from changed since the last one (the registry's reloads call this). */
   syncIfChanged(): Promise<void> {
     const print = this.fingerprint();
@@ -380,7 +383,7 @@ export class ExtensionPages {
   /** Writes the hub and the pages again from the folders, and seeds demos not yet seeded. One at a time. */
   sync(): Promise<void> {
     // A pass of the loop first: this follows a registry load, and on a host's first look at pie the two are a long hold together.
-    const next = this.queue.then(() => new Promise<void>(resolve => setImmediate(resolve))).then(() => heldBy(`open ${this.options.outline?.() ?? "outline"}: extension pages`, () => this.syncOnce())).then(
+    const next = this.queue.then(this.giveWay).then(() => heldBy(`open ${this.options.outline?.() ?? "outline"}: extension pages`, () => this.syncOnce())).then(
       () => { this.problem = undefined; },
       (error) => { this.problem = error instanceof Error ? error.message : String(error); },
     );
