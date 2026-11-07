@@ -21,7 +21,7 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
   - **From a shell:** `ep0ch act agent.ask to=yo about=tile`.
   - **Where it lands:** a thread on the note in that tile; a tile with no note, on this page.
 - **Have it pressed:** `@yo do it`, or the button yourself. In a thread, reply `@yo do it`.
-- **Take it back:** the `undo` on the done row.
+- **Take it back:** the `undo` on the done row. An action that changes no note and no layout has none, and the row says so.
 - **See how it knew:** the steps fold under each answer: what it read and each model call, with its cost.
 - **Banter:** `@yo mamama` gets one line in character, then quiet.
 - **Not yo's:** anything about your projects or the repository. It says so in a line.
@@ -30,6 +30,8 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 
 - **Where:** one note per fact in the `yo` outline (`config.memory`), each `[yo-memory::answer]` or `[yo-memory::habit]`. Read, fix and delete them like any note.
 - **When:** a pressed button or a `do it`, never on every ask.
+- **With what:** the arguments that worked, so `agent.lift on=false` comes back as that.
+- **When notes disagree:** an exact ask wins; otherwise yo shows each and asks which.
 - **Not kept:** what you're in the middle of, and what your projects are about.
 - **A habit** you write yourself (`the lift goes on hyper [yo-memory::habit]`) goes with every ask.
 
