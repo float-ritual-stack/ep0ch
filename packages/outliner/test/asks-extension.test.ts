@@ -30,18 +30,26 @@ async function until<T>(what: string, check: () => T | undefined | null | false 
 
 /** The fake Jev's word on a line: by the words in it. */
 const NOUL: [RegExp, number][] = [[/shed|fence|hedge|quoted/i, 0.92], [/maybe/i, 0.5], [/idle/i, 0.1]];
+/** Its word on the questions beside "does it ask": each reads the line and where it sits, so these can only pass if the note's context reached Jev. */
+const BESIDE: Record<string, (line: string, around: { heading?: string; parent?: string; before?: string; after?: string }) => boolean> = {
+  record: line => /^- \*\*\d+:\d+/.test(line),
+  settled: (line, around) => /with the owner's yes/.test(line) || /answered: south/i.test(around.after ?? ""),
+  other: (_, around) => /checklist/i.test(around.heading ?? ""),
+};
 
-async function setup(past: readonly string[] = []) {
+async function setup(past: readonly string[] = [], ruleQuietMs = 100) {
   const asked: Record<string, string>[] = [];
   const jev = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
-      const body = await request.json() as { state: { asks?: Record<string, string> }; questions: Record<string, unknown> };
+      const body = await request.json() as { state: { asks?: Record<string, string>; around?: Record<string, Record<string, string>> }; questions: Record<string, unknown> };
       asked.push(body.state.asks ?? {});
       const answers: Record<string, { type: string; noul: number }> = {};
       for (const id of Object.keys(body.questions)) {
-        const line = body.state.asks?.[id.split("::")[1]!] ?? "";
-        answers[id] = { type: "noul", noul: NOUL.find(([pattern]) => pattern.test(line))?.[1] ?? 0.1 };
+        const [question, at] = id.split("::") as [string, string];
+        const line = body.state.asks?.[at] ?? "";
+        const beside = BESIDE[question];
+        answers[id] = { type: "noul", noul: beside ? (beside(line, body.state.around?.[at] ?? {}) ? 0.9 : 0.05) : NOUL.find(([pattern]) => pattern.test(line))?.[1] ?? 0.1 };
       }
       return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 10, output_tokens: 1 } });
     },
@@ -56,7 +64,7 @@ async function setup(past: readonly string[] = []) {
   // Notes from before the rule: a rule starts from now, so only a backfill reaches them.
   const older = past.map(text => store.create(text, null, "agent", { actorId: "builder" }));
   const socket = join(root, "outliner.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, ruleQuietMs: 100 });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, ruleQuietMs });
   await server.start();
   const client = new OutlinerClient(socket);
   cleanups.push(async () => {
@@ -74,7 +82,7 @@ async function setup(past: readonly string[] = []) {
   const marked = (id: string, count = 1) => until(`${count} marks on ${id}`, () => { const text = store.require(id).text; return (text.match(/\[asks\.derived::/g)?.length ?? 0) === count ? text : null; });
   const settled = async () => { await Bun.sleep(400); await until("the rules to finish", async () => true); };
   const waiting = () => client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "needs", propertyScope: "all", limit: 50 } });
-  return { older, store, client, write, edit, marked, settled, waiting, asked };
+  return { older, store, server, client, write, edit, marked, settled, waiting, asked };
 }
 
 test("the table: a sure ask gets a needs chip on its line, an unsure one its own lane, a no nothing, a filed top box nothing", async () => {
@@ -114,9 +122,7 @@ test("a person's save never marks; each line is marked once, so a chip you took 
   expect(t.store.require(mine.id).text).not.toContain("asks.derived");
   // Taken off by hand, then an agent saves the note again: the same words aren't marked a second time.
   await t.edit(note.id, text => text.replace(/ \[needs::[^\]]*\] \[asks\.derived::[^\]]*\]/, ""));
-  const before = t.asked.length;
   await t.edit(note.id, text => `${text}\n\nAnother line.`, AGENT);
-  await until("the review asked again", () => t.asked.length > before);
   await t.settled();
   expect(t.store.require(note.id).text).not.toContain("asks.derived");
 });
@@ -308,4 +314,230 @@ test("a ninth question is read too, each request to Jev at most eight lines", as
   const note = await t.write(`Yard\n\nSome text.\n\n${asks.join("\n")}`);
   await t.marked(note.id, 12);
   expect(Math.max(...t.asked.map(a => Object.keys(a).length))).toBeLessThanOrEqual(8);
+});
+
+// PIE-1620: the dry run a person reads lists what still waits on him. Every note made up.
+
+const boardOf = (t: Awaited<ReturnType<typeof setup>>) => ({ address: { outline: "yard" }, send: (action: string, params: Record<string, unknown>) => t.client.request({ action, ...params } as never) });
+const dryRun = async (t: Awaited<ReturnType<typeof setup>>, o: { pageSize?: number } = {}) => {
+  const lines: string[] = [];
+  const code = await asksBackfill(boardOf(t), { since: "30d", write: false, ...o }, { out: s => { lines.push(s); }, err: s => { lines.push(s); } });
+  return { code, said: lines.join("\n") };
+};
+
+test("the dry run lists only open asks: records, closed notes, answered lines, prose and someone else's checklist stay out", async () => {
+  const t = await setup([
+    // Still waiting.
+    "Open yard\n\nSome text.\n\n- Should the shed face south?",
+    "Open plot\n\nSome text.\n\n- Maybe we could move the beans, what do you think?",
+    // Records and closed notes, by what they carry.
+    "Asked: allow Bash: mow the shed? [type::permission-ask] [ask-tool::Bash]\n\n- ~~allow this once~~\n- ~~deny~~\n\nShould the shed run this? Tick one: only your tick counts here.",
+    "Walked the shed [type::proof]\n\n- Should the shed have failed? It didn't.",
+    "Shed landed [type::landed]\n\n- Should the shed face south? It does now.",
+    "Yard log, Mar 3 [type::build-log]\n\n- Should the shed move? Picked it.",
+    "Hedge parked [work-stage::later]\n\n- Should the hedge be high?",
+    "A call made [type::decision]\n\n- Should the fence be pine?",
+    "Fence closed [status::closed]\n\n- Should the fence be cedar?",
+    "Fence answered [status::answered]\n\n- Should the fence be larch?",
+    "Fence decided [status::decided]\n\n- Should the fence be oak?",
+    // The line says what its surroundings make of it.
+    "Sweep\n\n## Sweep, Mar 3\n- Should the hedge wait? To later, with the owner's yes.",
+    "Shed thread\n\nSome text.\n\n- Should the shed face south first?\n- Answered: south, on the phone.",
+    "Yard diary\n\n- **9:41:** Should the fence wait? Picked it from the queue.",
+    "Runbook\n\n## The deployer's checklist\n1. Should the shed go out? Check the queue.",
+  ]);
+  const open = t.older.slice(0, 2) as [Block, Block];
+  const { code, said } = await dryRun(t);
+  expect(said).toContain(open[0].id);
+  expect(said).toContain("L5 needs (0.92): Should the shed face south?");
+  // The maybe lane is for what was just written: a run over the past leaves it unmarked.
+  expect(said).not.toContain(open[1].id);
+  for (const closed of t.older.slice(2)) expect(said).not.toContain(closed.id);
+  expect(said).toContain("1 would be written");
+  expect(code).toBe(0);
+});
+
+test("Codex on #1332: a question in a capability or design note is still a question; the records are the rule's query, a person can edit it", async () => {
+  const t = await setup(["Shed design [type::capability]\n\n## Open questions\n- Should the shed face east?", "Hedge design [type::design]\n\n- Should the hedge be low?"], 60_000);
+  const { said } = await dryRun(t);
+  for (const note of t.older) expect(said).toContain(note.id);
+  const manifest = await Bun.file(join(REPO_EXTENSIONS, "asks", "extension.json")).json() as { rules: { id: string; match: { query: string } }[] };
+  expect(manifest.rules.find(rule => rule.id === "settle")!.match.query).toContain("NOT type=permission-ask");
+});
+
+test("Codex on #1332: a comment on one question answers that one; the next is still marked", async () => {
+  const t = await setup(["Yard\n\nSome text.\n\n- Should the shed face south?\n- Should the hedge be low?"], 60_000);
+  const note = t.older[0]!;
+  await comment(t, note.id, "Should the shed face south?");
+  await t.edit(note.id, text => `${text}\n\nAgent's aside.`, AGENT);
+  const { said } = await dryRun(t);
+  expect(said).toContain("Should the hedge be low?");
+  expect(said).not.toContain("Should the shed face south?");
+});
+
+test("Codex on #1332: the same words an agent writes again under another heading are a new line, above or below the old one", async () => {
+  const t = await setup(["Below\n\n## Front\n- Should the shed move?", "Above\n\n## Front\n- Should the fence move?"], 60_000);
+  const [below, above] = t.older as [Block, Block];
+  await t.edit(below.id, text => `${text}\n\nA thought.`);
+  await t.edit(below.id, text => `${text}\n\n## Back\n- Should the shed move?`, AGENT);
+  await t.edit(above.id, text => `${text}\n\nA thought.`);
+  await t.edit(above.id, text => text.replace("## Front", "## Back\n- Should the fence move?\n\n## Front"), AGENT);
+  const { said } = await dryRun(t);
+  expect(said).toContain("L9 needs (0.92): Should the shed move?");
+  expect(said).not.toContain("L4 needs (0.92): Should the shed move?");
+  expect(said).toContain("L4 needs (0.92): Should the fence move?");
+  expect(said).not.toContain("L7 needs (0.92): Should the fence move?");
+});
+
+test("a line older than a person's last save or comment is answered; a line an agent adds after it still asks", async () => {
+  const t = await setup([
+    "Ticked yard\n\nSome text.\n\n- Should the shed face south?\n- [ ] Water the beds",
+    "Commented yard\n\nSome text.\n\n- Should the fence be cedar?",
+    "Asked again\n\nSome text.\n\n- Should the hedge be low?",
+  // The rule stays quiet: this is what a run over the past reads, with no settle of the same saves racing it.
+  ], 60_000);
+  const [ticked, commented, again] = t.older as [Block, Block, Block];
+  // A tick is a person's save, and leaves an agent the last word on the note as a later save would.
+  await t.edit(ticked.id, text => text.replace("- [ ] Water", "- [x] Water"));
+  await t.edit(ticked.id, text => `${text}\n\nAgent's aside.`, AGENT);
+  await comment(t, commented.id, undefined);
+  await t.edit(commented.id, text => `${text}\n\nAgent's aside.`, AGENT);
+  await t.edit(again.id, text => `${text}\n\nA thought of mine.`);
+  await t.edit(again.id, text => `${text}\n\n- Should the hedge be cut in spring?`, AGENT);
+  const { said } = await dryRun(t);
+  expect(said).not.toContain(ticked.id);
+  expect(said).not.toContain(commented.id);
+  expect(said).toContain(again.id);
+  expect(said).toContain("Should the hedge be cut in spring?");
+  expect(said).not.toContain("needs (0.92): Should the hedge be low?");
+});
+
+test("the live settle reads the same: a permission record isn't marked, a person's own line isn't, what an agent adds is", async () => {
+  const t = await setup();
+  const record = await t.write("Allow Bash: mow the shed? [type::permission-ask]\n\nSome text.\n\n- Should the shed run this?");
+  const mine = await t.write("My yard\n\nSome text.\n\n- Should the shed face south?", PERSON);
+  await t.edit(mine.id, text => `${text}\n- Should the hedge be low?`, AGENT);
+  const text = await t.marked(mine.id, 1);
+  expect(text).toContain("- Should the shed face south?\n");
+  expect(text).toContain("- Should the hedge be low? [needs::");
+  await t.settled();
+  expect(t.store.require(record.id).text).not.toContain("asks.derived");
+});
+
+test("a done key beyond status=done closes a note both ways: nothing is marked on it, and reaching it takes the marks off", async () => {
+  const t = await setup();
+  const note = await t.write("Yard\n\nSome text.\n\n- Should the shed face south?");
+  await t.marked(note.id, 1);
+  await t.edit(note.id, text => text.replace("Yard", "Yard [status::decided]"));
+  await t.marked(note.id, 0);
+  const closed = await t.write("Old yard [answered::2026-03-03]\n\nSome text.\n\n- Should the shed face south?");
+  await t.settled();
+  expect(t.store.require(closed.id).text).not.toContain("asks.derived");
+});
+
+test("Jev reads a line where it sits: its heading, the item it's under and the lines either side", async () => {
+  const bodies: { state: { title?: string; kind?: string; around?: Record<string, Record<string, string>> } }[] = [];
+  const answers = (ids: string[]) => Object.fromEntries(ids.map(id => [id, { type: "noul", noul: 0.05 }]));
+  const { readAsks } = await import("../src/write-review");
+  await readAsks("Yard plan [type::plan]\n\n## Beds\n- Beans\n  - Should the shed move?\n  - It shades them", {
+    apiKey: "fake", env: { OUTLINER_FIGURE_FIT: "on" }, fetch: (async (_: unknown, init: { body: string }) => {
+      const body = JSON.parse(init.body); bodies.push(body);
+      return Response.json({ model: "jev-1.13.0", answers: answers(Object.keys(body.questions)), usage: { input_tokens: 1, output_tokens: 1 } });
+    }) as never,
+  });
+  expect(bodies[0]!.state.kind).toBe("plan");
+  expect(bodies[0]!.state.around?.L4).toEqual({ heading: "Beds", parent: "- Beans", before: "- Beans", after: "- It shades them" });
+});
+
+test("a note of many asks: the dry run prints every line whole, and a live settle's message still fits", async () => {
+  const many = Array.from({ length: 12 }, (_, i) => `- Should the shed have ${i + 1} doors, and what about the long list of hinges they need?`);
+  const t = await setup([`Yard\n\nSome text.\n\n${many.join("\n")}`]);
+  const { code, said } = await dryRun(t);
+  expect(code).toBe(0);
+  for (let i = 1; i <= 12; i++) expect(said).toContain(`Should the shed have ${i} doors`);
+  const note = t.older[0]!;
+  const answer = await t.client.request<{ message?: string; answer?: string }>({ action: "extensions.act", extension: "asks", extensionAction: "settle", blockId: note.id, mutation: AGENT } as never);
+  expect(answer.message!.length).toBeLessThanOrEqual(500);
+  expect(answer.message).toStartWith("wrote 12");
+  expect(answer.answer).toContain("Should the shed have 12 doors");
+  expect(t.store.require(note.id).text.match(/\[needs::/g)?.length).toBe(12);
+}, 20_000);
+
+test("a line of nothing but chips is no ask, whatever its chips say", async () => {
+  const t = await setup(["Yard\n[type::note] [topic::decision] [who::you]\n\nSome text."]);
+  const before = t.asked.length;
+  const { said } = await dryRun(t);
+  expect(t.asked.length).toBe(before);
+  expect(said).toContain("0 would be written");
+});
+
+test("a person's run reads what that person saved: an agent's line written before the run starts is no reply", async () => {
+  const t = await setup(["Yard\n\nSome text.\n\n- Should the hedge be low?"], 60_000);
+  const note = t.older[0]!;
+  await t.client.request({ action: "extensions.act", extension: "asks", extensionAction: "settle", blockId: note.id, mutation: AGENT } as never);
+  await t.edit(note.id, text => `${text}\n\nA thought.`);
+  await t.edit(note.id, text => text.replace(/(Should the hedge be low\?[^\n]*)/, "$1\n  - An agent's thought"), AGENT);
+  // The run for the person's save was queued, and starts only now.
+  await t.client.request({ action: "extensions.act", extension: "asks", extensionAction: "clear", blockId: note.id, mutation: PERSON } as never);
+  expect(t.store.require(note.id).text).toContain("[asks.derived::");
+});
+
+test("a stopped service runs nothing still queued behind a trigger: its database may be closed by then", async () => {
+  const t = await setup();
+  const rules = (t.server as unknown as { extensionRules: { stop(): void; settle(): Promise<void>; queue(block: string, work: () => Promise<void>): void } }).extensionRules;
+  rules.stop();
+  let ran = false;
+  rules.queue("a-note", async () => { ran = true; });
+  await rules.settle();
+  expect(ran).toBe(false);
+});
+
+test("a mark's record is there before its chip, so a save right after it has a count to compare", async () => {
+  const asks = Array.from({ length: 12 }, (_, i) => `- Should the shed have ${i + 1} doors?`);
+  const t = await setup();
+  const note = await t.write(`Yard\n\nSome text.\n\n${asks.join("\n")}`);
+  await t.marked(note.id, 12);
+  const records = t.store.queryBlocks({ where: `asks.note=${note.id}`, machinery: "show", limit: 50 });
+  expect(records.blocks.length).toBe(12);
+});
+
+test("a done value reads the same in any case", async () => {
+  const t = await setup(["Yard [status::Done]\n\nSome text.\n\n- Should the shed face south?"], 60_000);
+  const { said } = await dryRun(t);
+  expect(said).not.toContain(t.older[0]!.id);
+});
+
+test("a note saved while the window is listed is listed once, and pushes no other note off a page", async () => {
+  const t = await setup(Array.from({ length: 5 }, (_, i) => `Yard ${i}\n\nSome text.\n\n- Should the shed have ${i} doors?`), 60_000);
+  const board = boardOf(t), lines: string[] = [];
+  let pages = 0;
+  const spy = { ...board, send: async (action: string, params: Record<string, unknown>) => {
+    const answer = await board.send(action, params);
+    // An agent saves the oldest note just after the first page is read: "updated desc" would move it to the front.
+    if (action === "blocks.query" && ++pages === 1) await t.edit(t.older[0]!.id, text => `${text}\n\nAn aside.`, AGENT);
+    return answer;
+  } };
+  await asksBackfill(spy, { since: "30d", write: false, pageSize: 2 }, { out: s => { lines.push(s); }, err: s => { lines.push(s); } });
+  const said = lines.join("\n");
+  for (const note of t.older) expect(said.split(note.id).length).toBe(2);
+  expect(said).toContain("5 notes read");
+});
+
+test("a chip's words fit however long the line is", () => {
+  const marked = withMark(`- Should the shed ${"really ".repeat(200)}face south?`, "yes");
+  const chip = /\[needs::([^\]]*)\]/.exec(marked)![1]!;
+  expect(chip.length).toBeLessThanOrEqual(120);
+});
+
+test("the backfill pages past a page of notes, oldest included, with nothing said about a cut", async () => {
+  const t = await setup(Array.from({ length: 5 }, (_, i) => `Yard ${i}\n\nSome text.\n\n- Should the shed have ${i} doors?`));
+  const lines: string[] = [], offsets: unknown[] = [];
+  const board = boardOf(t);
+  const spy = { ...board, send: (action: string, params: Record<string, unknown>) => { if (action === "blocks.query") offsets.push((params.query as { offset?: number }).offset ?? 0); return board.send(action, params); } };
+  await asksBackfill(spy, { since: "30d", write: false, pageSize: 2 }, { out: s => { lines.push(s); }, err: s => { lines.push(s); } });
+  const said = lines.join("\n");
+  expect(offsets.slice(0, 3)).toEqual([0, 2, 4]);
+  for (const note of t.older) expect(said).toContain(note.id);
+  expect(said).toContain("5 notes read, 5 would be written");
+  expect(said).not.toContain("more than");
 });
