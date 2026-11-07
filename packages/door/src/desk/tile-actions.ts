@@ -23,7 +23,7 @@ import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
 import { READER_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
 import { screenNote } from "./screen-notes";
-import { answeringAgents } from "../extensions";
+import { answeringAgents } from "../answering-agents";
 import { menuScreen } from "./menu-rows";
 /** The main-menu row a screen a person made names (PIE-1525), if any. */
 const madeMenu = (name: string) => screenNote(name)?.spec.menu;

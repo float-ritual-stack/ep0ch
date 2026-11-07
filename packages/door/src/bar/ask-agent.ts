@@ -14,7 +14,7 @@ import { headedTitle } from "../board";
 import { Refused, USER, type Actor } from "../socket";
 import type { Msg } from "../board";
 import { tildeOf } from "../desk/agent-sessions";
-import { answeringAgents } from "../extensions";
+import { answeringAgents } from "../answering-agents";
 import { registerArgKind, type KindValue } from "./arg-kinds";
 import { filtered } from "./filter";
 import type { BarHost, BarRow, BarSource } from "./source";

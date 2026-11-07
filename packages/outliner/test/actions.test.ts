@@ -28,9 +28,9 @@ const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 test("each list main kept is now one column of the table", () => {
-  expect(sorted(DECLARED.async)).toEqual(MAIN.async);
+  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
-  expect(sorted(DECLARED.extensionWrites)).toEqual(MAIN.extensionWrites);
+  expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act"]));
   expect(sorted(DECLARED.events)).toEqual(MAIN.events);
   // Watchable reads stay listed in outline-core, the wire's side; the rows must say the same.
   expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
@@ -38,7 +38,7 @@ test("each list main kept is now one column of the table", () => {
   expect(sorted(DECLARED.host)).toEqual(MAIN.host);
   expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope"]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
-  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "references.soft", "references.soft-scope",
+  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope",
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group"]));
 });
 

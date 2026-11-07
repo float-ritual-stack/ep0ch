@@ -13,9 +13,8 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, heroBox, imageBox, media, noteMediaLines, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { printable } from "./props";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
-import { colourBody, waitingText, wrap } from "./text";
+import { colourBody, waitingText, wrap, printable } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FigureInfo, type FiguresEnv, type RowInline } from "./graphs";
 import { linkBlockAt, renderLinkBlock, type LinkBlocksEnv } from "./links";

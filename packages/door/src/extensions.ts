@@ -1,4 +1,5 @@
 import { requesterOf } from "./socket";
+import { setAnsweringAgents } from "./answering-agents";
 import { extensionFacetSource, registerFacetSource, unregisterFacetSource } from "./facet-sources";
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
@@ -114,17 +115,6 @@ const boundKinds = new Map<string, string>();
 // and unbound before the next one runs (PIE-1412). Nothing outside tests sets it.
 (globalThis as { [k: symbol]: { set(what: string, left: () => string[], reset: () => void): void } | undefined })[Symbol.for("ep0ch.test.leftovers")]
   ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
-
-/** An agent an installed extension answers as, in comment threads: its name, its tile-menu words and its extension's page. */
-export interface AnsweringAgent { name: string; description?: string; ask?: string; page?: string }
-
-/** The agents that answer in comment threads, as the service last listed them (an `agent.ask` to one is answered at once). */
-export function answeringAgents(): AnsweringAgent[] {
-  return (current?.extensions ?? []).flatMap(e => (e.agents ?? []).filter(a => a.threads).map(a => {
-    const page = current?.pages?.[e.id];
-    return { name: a.name, ...(a.description ? { description: a.description } : {}), ...(a.ask ? { ask: a.ask } : {}), ...(page ? { page } : {}) };
-  }));
-}
 
 /**
  * An extension the service serves from: active, or failed but still on its last good version (it has a name).
@@ -900,6 +890,7 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   const saidRules = new Set(current?.ruleProblems ?? []);
   const before = new Set((current?.extensions ?? []).filter(serving).map(e => e.id));
   current = next;
+  setAnsweringAgents((next?.extensions ?? []).flatMap(e => (e.agents ?? []).filter(a => a.threads).map(a => ({ name: a.name, ...(a.description ? { description: a.description } : {}), ...(a.ask ? { ask: a.ask } : {}), ...(next?.pages?.[e.id] ? { page: next.pages[e.id]! } : {}) }))));
   useResourceProviders(next?.resourceProviders ?? []);
   const served = (next?.extensions ?? []).filter(serving);
   const problems: string[] = [];
