@@ -13,7 +13,7 @@ import {detailTitle} from "./detail-renderer";
 import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ReaderMenu} from "./reader-chrome";
 import {chromeToggleLabel, chromeToggledText, OutlinerUiConfig, pinResultText} from "./ui-config";
 import { renderDetailLines } from "./detail-renderer";
-import { treeMenuPinnable, treeShowsWorkspaceReport } from "./tree-controller";
+import { treeMenuPinnable, treeShowsWorkspaceReport } from "./tree-modes";
 import { treeLinkAtClick } from "./tree-mouse";
 import {EditRecoveryInput} from "./edit-recovery-input";
 import {EditRecoveryClient} from "./edit-recovery-client";
@@ -1326,7 +1326,6 @@ function activeDetailActionScopes(): readonly string[] {
   });
 }
 
-
 function editorSourceLineAtViewport(): number | null {
   const layout = layoutDetailEditor(
     controller.state.buffer.lines,
@@ -1802,8 +1801,7 @@ const readerVertical = new DetailReaderVerticalLayout(preview, inspectionLayout)
 const composer = new BufferComposer(() => {
   const reader = focusedReader();
   const draft = reader.state.mode.kind === "comment" ? reader.state.mode.draft : null;
-  const reply = draft?.kind === "reply" ? draft : null;
-  const editing = draft?.kind === "edit" ? draft : null;
+  const reply = draft?.kind === "reply" ? draft : null, editing = draft?.kind === "edit" ? draft : null;
   const thread = reply ? reader.state.annotationThreads.find(thread => thread.block.id === reply.annotationId) : null;
   const target = draft?.kind === "new" ? draft.target : undefined;
   const context = target?.anchor.kind === "text-quote"

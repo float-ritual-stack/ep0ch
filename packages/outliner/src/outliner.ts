@@ -33,7 +33,8 @@ import { reportCurrentPaneWorkspace,
 import { parsePropertySummaryKeys } from "./property-summary";
 import { resolveClientPaths } from "./paths";
 import { TerminalInputDecoder, type TerminalKey } from "./terminal";
-import { createTreeController, treeMenuPinnable } from "./tree-controller";
+import { createTreeController } from "./tree-controller";
+import { treeMenuPinnable } from "./tree-modes";
 import {
   isTreeMouseSequence,
   parseTreePrimaryClick,

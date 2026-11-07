@@ -49,9 +49,7 @@ import {
   backlinkGroupRegionId,
   detailBacklinkGroupExpanded,
   detailBacklinkView,
-  detailBlockTarget,
-  detailDocumentRefreshing,
-  detailReadStatus,
+  detailBlockTarget, detailDocumentRefreshing, detailReadStatus,
   detailResourceDescription,
   type DetailState,
 } from "./detail-controller";

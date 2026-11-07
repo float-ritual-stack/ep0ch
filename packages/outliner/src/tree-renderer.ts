@@ -28,7 +28,8 @@ import { layoutExpandedBlock } from "./tree-layout";
 import { renderMarkdownLine, sanitizeDynamicText, truncate } from "./terminal";
 import { hideLiteralMarkers } from "./document-presentation";
 import type { Block, TreeIndexBlock } from "./types";
-import type { TreeQuickCompletion, TreeView } from "./tree-controller";
+import type { TreeView } from "./tree-controller";
+import type { TreeQuickCompletion } from "./tree-modes";
 import {
   isBlockTreeRow,
   type AuthoredLinkHeaderRow,

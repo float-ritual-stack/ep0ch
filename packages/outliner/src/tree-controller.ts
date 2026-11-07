@@ -3,12 +3,12 @@ import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol
 import { ticketScope } from "./work-ids";
 import {TreeComments} from "./tree-comments";
 import {TreeBranchFilter} from "./tree-branch-filter";
-import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ChromeLevel, type PaneBarButton, type PaneBarState, type ReaderMenu} from "./reader-chrome";
+import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ChromeLevel, type PaneBarButton, type PaneBarState} from "./reader-chrome";
 import {chromeToggleLabel, chromeToggledText, OutlinerUiConfig, pinResultText, type PaneKind} from "./ui-config";
 import {wrapTextWithAnsi} from '@earendil-works/pi-tui';
-import {inspectWorkspaceConnection,type WorkspaceReport} from './workspace-diagnostics';
+import {inspectWorkspaceConnection} from './workspace-diagnostics';
 import {layoutWorkspaceReport} from './workspace-report-view';
-import { ReferenceCompletionSession, referenceCompletionProvider, type ReferenceCompletionItem } from "./reference-completion";
+import { ReferenceCompletionSession, referenceCompletionProvider } from "./reference-completion";
 import {TreeConnections} from "./tree-connections";
 import {TreeWorkingSelection} from "./tree-working-selection";
 import {OpenDestinationChooser, destinationRecoveryKey, missingNavigationDestination, type OpenDestinationTarget} from "./open-destination-chooser";
@@ -70,6 +70,7 @@ import {
 } from "./tree-rows";
 import { handOrderRefusal, isVirtualBranchDefinition } from "./virtual-branches";
 import { TextBuffer } from "./text-buffer";
+import { TREE_BROWSE, type TreeActionMenuMode, type TreeDestinationContent, type TreeInputMode, type TreeMenuContent, type TreeMode, type TreeModeState, type TreeModeView, type TreeQuickCompletionItem, type TreeQuickDraft, type TreeQuickMode, type TreeRestingMode, type TreeViewerMode } from "./tree-modes";
 import type {
   AttentionClientState,
   Block,
@@ -112,84 +113,9 @@ export interface ExpandedTreeDocument {
   readonly resolved: ResolvedBlockReferences;
 }
 
-export type TreeInputMode =
-  | "edit"
-  | "add-child"
-  | "add-sibling"
-  | "filter"
-  | "branch-filter"
-  | "goto"
-  | "purge";
-export type TreeQuickMode = Exclude<TreeInputMode, "goto">;
-export type TreeMode = "browse" | "delete" | "viewer" | "action-menu" | TreeInputMode;
-
-export type TreeQuickCompletionItem = ReferenceCompletionItem;
-
-export interface TreeQuickCompletion {
-  readonly start: number;
-  readonly end: number;
-  readonly index: number;
-  readonly truncatedLimit: number | null;
-  readonly message?:string;
-  readonly loading?:boolean;
-  readonly generation?:number;
-  readonly items: readonly TreeQuickCompletionItem[];
-}
-
 export interface TreeRoot { readonly rowId: string; readonly canonicalId: string; readonly label: string }
 
-/** The one-line input's text, cursor column and open completion. */
-export interface TreeQuickView {
-  readonly input: string;
-  readonly column: number;
-  readonly completion: TreeQuickCompletion | null;
-}
-
-export interface TreeViewerView {
-  readonly lines: readonly string[];
-  readonly path: string;
-  readonly offset: number;
-  readonly report: WorkspaceReport | null;
-  readonly status: string;
-  readonly help?: string;
-}
-
-/** The menu as the destination chooser: what its preview shows and what picking does. */
-export interface TreeDestinationView {
-  readonly preview: NavigationDestinationPreview;
-  readonly purpose: "link" | "open" | "place";
-  readonly instructions: string;
-}
-
-export interface TreeMenuView {
-  readonly items: readonly OutlinerActionMenuItem[];
-  readonly index: number;
-  readonly query: string;
-  readonly origin: { column: number; row: number } | null;
-  /** Where a pin goes, what is pinned there, and the workspace line: only the full action list has them. */
-  readonly pin?: { readonly bar: PaneKind; readonly pinned: ReadonlySet<string>; readonly info: string };
-  readonly destination?: TreeDestinationView;
-}
-
-/** Each mode draws from its own data; the other modes' data isn't there to read (PIE-1618). */
-export type TreeModeView =
-  | { readonly mode: "browse" | "delete" }
-  | { readonly mode: "goto"; readonly goto: GotoController }
-  | { readonly mode: TreeQuickMode; readonly quick: TreeQuickView }
-  | { readonly mode: "viewer"; readonly viewer: TreeViewerView }
-  | { readonly mode: "action-menu"; readonly menu: TreeMenuView };
-
 export type TreeView = TreeViewCommon & TreeModeView;
-
-/** The workspace report is showing: a drag in it selects text to copy. */
-export function treeShowsWorkspaceReport(view: TreeView): boolean {
-  return view.mode === "viewer" && Boolean(view.viewer.report);
-}
-
-/** The full action list is open: a right-click there pins instead of opening a menu. */
-export function treeMenuPinnable(view: TreeView): boolean {
-  return view.mode === "action-menu" && Boolean(view.menu.pin);
-}
 
 export interface TreeViewCommon {
   /** Tree chrome from ui.json: compact is one bar and one hint row. */
@@ -300,76 +226,6 @@ export interface TreeController {
   handleConnect(): Promise<void>;
   handleDisconnect(): void;
   handleError(error: unknown): void;
-}
-
-/** A draft in the one-line input. A menu opened over it keeps it whole in `returnTo`. */
-interface TreeQuickDraft {
-  readonly buffer: TextBuffer;
-  completion: MutableQuickCompletion | null;
-  /** The revision an edit began from. */
-  readonly editSource: Pick<Block, "id" | "revision"> | null;
-  /** A child being added under a projected occurrence. */
-  readonly childDraft: { parent: VirtualBranchOccurrenceRow; created?: Block; rowId?: (id: string) => string } | null;
-}
-
-interface TreeViewerMode {
-  readonly kind: "viewer";
-  lines: string[];
-  path: string;
-  offset: number;
-  wrap: boolean;
-  report: WorkspaceReport | null;
-  field: number;
-  status: string;
-}
-
-interface TreeDestinationContent {
-  readonly kind: "destination";
-  readonly state: NavigationLinkState;
-  readonly purpose: "link" | "open";
-  recoveryTarget?: OpenDestinationTarget;
-  placing: "right" | "down" | null;
-  showOther: boolean;
-}
-
-/** What the open menu lists. */
-type TreeMenuContent =
-  | { readonly kind: "actions"; readonly scope: string; readonly bar: PaneKind; category: ReaderMenu }
-  | { readonly kind: "selection"; readonly placement: "before" | "after" | null }
-  | { readonly kind: "location"; readonly items: OutlinerActionMenuItem[] }
-  | TreeDestinationContent;
-
-type TreeRestingMode =
-  | { readonly kind: "browse" }
-  | { readonly kind: "delete" }
-  | { readonly kind: "goto" }
-  | ({ readonly kind: TreeQuickMode } & TreeQuickDraft)
-  | TreeViewerMode;
-
-interface TreeActionMenuMode {
-  readonly kind: "action-menu";
-  /** The mode it opened over, data and all. */
-  readonly returnTo: TreeRestingMode;
-  readonly origin: { column: number; row: number } | null;
-  index: number;
-  query: string;
-  content: TreeMenuContent;
-}
-
-/** Tree's one machine (PIE-1618): each mode holds its own data, and a mode change is one assignment to `mode`. */
-type TreeModeState = TreeRestingMode | TreeActionMenuMode;
-
-const TREE_BROWSE: TreeRestingMode = { kind: "browse" };
-
-interface MutableQuickCompletion {
-  start: number;
-  end: number;
-  index: number;
-  items: TreeQuickCompletionItem[];
-  truncatedLimit: number | null;
-  message?:string;
-  loading?:boolean;
-  generation?:number;
 }
 
 interface TreeNavigationEntry {

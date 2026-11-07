@@ -8,7 +8,8 @@ import {
   normalizeAttentionMark,
 } from "../src/attention";
 import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
-import type { TreeMenuView, TreeMode, TreeQuickView, TreeView, TreeViewCommon, TreeViewerView } from "../src/tree-controller";
+import type { TreeView, TreeViewCommon } from "../src/tree-controller";
+import type { TreeMenuView, TreeMode, TreeQuickView, TreeViewerView } from "../src/tree-modes";
 import { renderTreeFrame, treeHintRow, treeSemanticState } from "../src/tree-renderer";
 import { renderPaneBar } from "../src/reader-chrome";
 import { composeAuthoredLinkRows, isBlockTreeRow, type TreeDisplayRow } from "../src/tree-rows";
