@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { actPrompt, argsOf, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -59,7 +59,7 @@ async function memories(): Promise<Memory[]> {
     steps.push(`read memory: ${found.length} note${found.length === 1 ? "" : "s"}`);
     return found;
   } catch (error) {
-    steps.push(`memory skipped (${firstLine(error)}): make it with ep0ch outline create ${memoryAt.outline}`);
+    steps.push(memoryStep(firstLine(error), memoryAt.outline ?? "yo"));
     return [];
   }
 }
@@ -78,7 +78,7 @@ async function remember(asked: string, pressed: string): Promise<void> {
     if (blocks.some(b => covers(b.text.split("\n", 1)[0]!))) return void steps.push("already in memory");
     await outline({ action: "create", text }, route);
     steps.push(`wrote to memory: ${title}`);
-  } catch (error) { steps.push(`not remembered (${firstLine(error)})`); }
+  } catch (error) { steps.push(memoryStep(firstLine(error), memoryAt.outline ?? "yo", "write")); }
 }
 
 const firstLine = (error: unknown) => shortReason(error instanceof Error ? error.message : String(error));
@@ -123,7 +123,7 @@ const reversible = (a: ActionRecord | undefined, wrote: boolean) => wrote || a?.
 const withSteps = (lines: readonly string[]) => [...lines, ...stepsFold(steps)].join("\n");
 
 /** yo's own newest answer: in a thread its newest reply, in a note the newest fold above the line. Nothing else here is pressed. */
-function pending(): { ask: string; button: { line: string; label: string; act: string } | null } | null {
+function pending(): { ask: string; button: { line: string; at?: number; label: string; act: string } | null } | null {
   if (inThread()) {
     const turns = input.thread!, at = turns.findLastIndex(t => t.author.startsWith("ext:yo"));
     if (at < 0) return null;
@@ -147,11 +147,12 @@ async function go() {
   const name = button.act.split(/\s/, 1)[0]!, action = (await catalog().catch(() => [] as ActionRecord[])).find(a => a.name === name);
   const row = doneRow(button.label, pressed.undo, reversible(action, pressed.wrote));
   if (inThread()) return ok({ reply: withSteps([row]) });
-  const prefix = /^[>\s]*/.exec(button.line)![0];
-  // The question's "say do it" line goes with the button it was about: the done row stands alone.
-  const hinted = `${button.line}\n${prefix}${ASKED_HOW}`;
-  const observed = input.note?.text.includes(hinted) ? hinted : button.line;
-  return ok({ message: `✓ pressed ${button.label} as yo`, patches: [{ observed, replacement: `${prefix}${row}` }] });
+  const prefix = /^[>\s]*/.exec(button.line)![0], text = input.note!.text;
+  // Its own answer's button by where it is (PIE-1632): the same answer can be above it word for word. The question's
+  // "say do it" line goes with the button it was about: the done row stands alone.
+  const start = lineStart(text, button.at!), hinted = `${button.line}\n${prefix}${ASKED_HOW}`;
+  const observed = text.startsWith(hinted, start) ? hinted : button.line;
+  return ok({ message: `✓ pressed ${button.label} as yo`, patches: [{ observed, range: { start, end: start + observed.length }, replacement: `${prefix}${row}` }] });
 }
 
 /** What the line says while the person keeps typing: the action and its first keys. */

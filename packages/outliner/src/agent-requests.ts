@@ -179,10 +179,16 @@ function validateRespond(value: unknown): RespondValue {
     ...(typeof value.reply === "string" ? { reply: cleanExtensionText(value.reply, true) } : {}),
     patches: patches.map((patch, index) => {
       if (!isObject(patch) || typeof patch.observed !== "string" || !patch.observed || typeof patch.replacement !== "string") {
-        throw new Error(`patches[${index}] must be { observed, replacement, before?, after? }`);
+        throw new Error(`patches[${index}] must be { observed, replacement, range?, before?, after? }`);
+      }
+      const range = patch.range;
+      if (range !== undefined && (!isObject(range) || !Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end))) {
+        throw new Error(`patches[${index}].range is { start, end }: where the observed text is (UTF-16 offsets in input.note.text)`);
       }
       return {
         observed: patch.observed, replacement: patch.replacement,
+        // Where it saw it: the patch takes that copy when the same words are in the note more than once (PIE-1632).
+        ...(range ? { range: { start: range.start as number, end: range.end as number } } : {}),
         ...(typeof patch.before === "string" ? { before: patch.before } : {}),
         ...(typeof patch.after === "string" ? { after: patch.after } : {}),
       };
