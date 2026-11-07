@@ -2,6 +2,8 @@ How an ask lands [demo::asks]
 
 The chips here are in a fence, so this note never joins your waiting list.
 
+Jev reads first and a bigger model confirms, so a chip is a question still waiting on you. A quote, a `Decision:` or an agent's note to itself gets none.
+
 ```text
 Before, an agent's line:
 - Should the shed face south or east?

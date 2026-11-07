@@ -233,15 +233,17 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string, inst
   const settings = (manifest.configSchema as { properties?: Record<string, { description?: string; default?: unknown }> } | undefined)?.properties;
   if (settings && Object.keys(settings).length) {
     const fallback = (value: unknown) => Array.isArray(value) && value.every((word) => typeof word === "string") ? commandLine(value) : JSON.stringify(value);
-    const said = (spec: { description?: string; default?: unknown } | undefined) => {
+    // A default gets its own nested item beside a description: a whole command is a point of its own, and long.
+    const said = (key: string, spec: { description?: string; default?: unknown } | undefined) => {
       const fallen = spec?.default !== undefined ? `default \`${fallback(spec.default).replaceAll("`", "'")}\`` : "";
-      return spec?.description ? `${words(spec.description).replace(/\.$/, "")}${fallen ? ` (${fallen})` : ""}` : fallen;
+      if (!spec?.description) return [`  - \`${key}\`${fallen ? `: ${fallen}` : ""}`];
+      return [`  - \`${key}\`: ${words(spec.description).replace(/\.$/, "")}`, ...(fallen ? [`    - ${fallen}`] : [])];
     };
     // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
     out.push(installed
       ? `- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`
       : `- **Settings,** once it's installed: ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
-      ...Object.entries(settings).map(([key, spec]) => { const line = said(spec); return `  - \`${key}\`${line ? `: ${line}` : ""}`; }));
+      ...Object.entries(settings).flatMap(([key, spec]) => said(key, spec)));
   }
   return out;
 }

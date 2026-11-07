@@ -67,7 +67,7 @@ export interface ExtensionCallReference {
    * an extension's one-request connection can't.)
    */
   "blocks.query": Call<Ask<"blocks.query", "fields" | "watch" | "generation">, ReturnType<OutlinerStore["queryBlocks"]>>;
-  /** The write review's `asks` judgment on a note as it is now, line by line, with the text and revision it read (PIE-1612). `jev` says why when it couldn't be asked. */
+  /** Jev's first pass over a note as it is now, line by line, with the text and revision it read (PIE-1612): `reads: "yes"` has only passed, and a bigger model confirms it before a chip is written (PIE-1620). `jev` says why when it couldn't be asked. */
   "blocks.asks": Call<Ask<"blocks.asks">, Awaited<ReturnType<typeof import("./jev-service").answerAsks>>>;
   /** The block a page address names (`[page::readwise]` answers `readwise`), or why none does. */
   "pages.resolve": Call<Ask<"pages.resolve">, ReturnType<OutlinerStore["resolvePageAddress"]>>;

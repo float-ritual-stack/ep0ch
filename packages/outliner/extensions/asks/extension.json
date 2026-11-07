@@ -1,13 +1,25 @@
 {
   "contract": 2,
   "id": "asks",
-  "version": 2,
+  "version": 3,
   "name": "Asks",
   "description": "Marks the lines that ask you something once a note settles, so Waiting on Evan lists them.",
   "run": ["bun", "asks.ts"],
   "demo": "demo",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Confirms what Jev passes: yes or no per line",
+        "default": ["claude", "-p", "--safe-mode", "--model", "sonnet", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--system-prompt", "You answer with JSON only."]
+      }
+    },
+    "additionalProperties": false
+  },
   "actions": [
-    { "id": "settle", "label": "Mark the lines that ask for a decision", "on": "block", "effects": "write", "deadline": "2m",
+    { "id": "settle", "label": "Mark the lines that ask for a decision", "on": "block", "effects": "write", "deadline": "4m",
       "args": [{ "name": "dry", "type": "choice", "options": ["no", "yes"], "default": "no", "label": "Dry run", "description": "yes: say what it would write, and write nothing" },
         { "name": "sure", "type": "choice", "options": ["no", "yes"], "default": "no", "label": "Sure ones only", "description": "yes: leave the unsure lines unmarked, as a run over past notes does" }] },
     { "id": "clear", "label": "Take off the marks a tick, a reply or done answered", "on": "block", "effects": "write", "deadline": "30s" },

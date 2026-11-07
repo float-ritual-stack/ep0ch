@@ -355,7 +355,7 @@ value, never the value), and one state:
 
 | State | When |
 |---|---|
-| `default` | nothing is set: each field's schema `default` applies (write one, so the row can say what it does: tidy's is `claude -p --model haiku --tools ""`) |
+| `default` | nothing is set: each field's schema `default` applies (write one, so the row can say what it does: tidy's is `claude -p --safe-mode --model haiku …`; a model command's default loads nothing but its prompt, as asks' and tidy's do) |
 | `set` | `config.json` sets a field |
 | `missing` | a `required` field is left out, or a secret has no reference or nothing where it points |
 | `failing` | `config.json` doesn't load (the folder's error), or the extension's last call failed after the file last changed (its error) |
@@ -2159,7 +2159,7 @@ Answers `VisibleBlockCollection`.
 
 #### `blocks.asks`
 
-The write review's `asks` judgment on a note as it is now, line by line, with the text and revision it read (PIE-1612). `jev` says why when it couldn't be asked.
+Jev's first pass over a note as it is now, line by line, with the text and revision it read (PIE-1612): `reads: "yes"` has only passed, and a bigger model confirms it before a chip is written (PIE-1620). `jev` says why when it couldn't be asked.
 
 | Field | Type | |
 |---|---|---|

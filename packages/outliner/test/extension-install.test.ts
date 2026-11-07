@@ -418,3 +418,37 @@ test("every flag ext remove and ext update list parses, and a flag not listed is
     expect((await extFrom(root, root, [verb, name, "--no-such-flag"])).output).toContain("Unknown option");
   }
 }));
+
+// PIE-1620, seen on a running scratch host: `ext add --outline-folder` asked the service of the outline this shell names,
+// so the folder's own outline loaded the rule on its watcher's time. A note written in that gap became the rule's baseline
+// and never started it.
+test("ext add --outline-folder has that folder's outline load the extension before it returns, whichever outline the shell names", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ext-add-live-"));
+  const outlines = join(root, "outlines");
+  const env = { ...process.env, EP0CH_OUTLINES: outlines, XDG_CONFIG_HOME: join(root, "config"), EP0CH_DEFAULT_WS: "elsewhere", EP0CH_WS: "elsewhere", OUTLINER_EXTENSIONS_DIR: join(root, "user-extensions"), OUTLINER_RESOURCE_EXTENSIONS: join(root, "no-registry.json") };
+  const main = join(import.meta.dir, "../../door/src/main.ts");
+  const host = Bun.spawn([process.execPath, join(import.meta.dir, "../src/host-main.ts")], { cwd: root, env, stdout: "ignore", stderr: "ignore" });
+  const run = async (...args: string[]) => {
+    const child = Bun.spawn([process.execPath, main, ...args], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    return { code, out, err };
+  };
+  try {
+    for (const name of ["elsewhere", "yard"]) {
+      const end = Date.now() + 15_000;
+      for (;;) {
+        const made = await run("outline", "create", name);
+        if (made.code === 0) break;
+        if (Date.now() > end) throw new Error(made.err);
+        await Bun.sleep(100);
+      }
+    }
+    const added = await run("ext", "add", "asks", "--outline-folder", join(outlines, "yard"));
+    expect(added).toMatchObject({ code: 0 });
+    expect(added.out).toContain("service: asks is active");
+  } finally {
+    host.kill();
+    await host.exited;
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
