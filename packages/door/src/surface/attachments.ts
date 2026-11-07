@@ -88,6 +88,8 @@ export interface AttachmentDef<H extends AttachmentHost = AttachmentHost, V exte
 
 /** A split drawn this frame: its divider is dragged to size it. */
 export type SplitFrame = { target: AttachmentKind; beside: boolean; w: number; h: number; edge: number };
+/** A press on a floating attachment's frame: which, what that part of the frame does, and where it was. */
+export type FrameGrip = { target: AttachmentKind; zone: NonNullable<ReturnType<typeof frameZone>>; from: FloatRect };
 
 const CHIP = (place: AttachedPlace) => `[${place} ▸]`;
 
@@ -290,7 +292,7 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
   /** The float under `x`, `y`: the last painted wins, border and all. */
   at(x: number, y: number): AttachmentKind | null { return attachedAt(this.floats.filter(f => this.defs.get(f.target)?.owner()), x, y); }
   /** A press on a float's frame: its top edge moves it, its ◢ corner and edges size it (floating only). */
-  grip(x: number, y: number): { target: AttachmentKind; zone: NonNullable<ReturnType<typeof frameZone>>; from: FloatRect } | null {
+  grip(x: number, y: number): FrameGrip | null {
     const target = this.at(x, y);
     const o = target && this.def(target).owner();
     if (!target || !o || o.place !== "floating" || !o.frame) return null;

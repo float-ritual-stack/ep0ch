@@ -176,11 +176,13 @@ export class Modes<H, M extends Mode<H>> {
 /** A reader's open modes, in PRECEDENCE order. */
 export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   private parked = new Set<ReaderMode<H>>();
-  constructor() { super(PRECEDENCE); }
+  /** `onChange`: a mode opened or went, so a press held under it is over (the reader's gesture, PIE-1615). */
+  constructor(private readonly onChange: () => void = () => {}) { super(PRECEDENCE); }
 
   override push<N extends ReaderMode<H>>(mode: N): N {
     if (mode.editing()) this.drop("list");
     this.drop(mode.name);
+    this.onChange();
     return super.push(mode);
   }
   focus(mode: ReaderMode<H>, on: boolean) { if (on) this.parked.delete(mode); else this.parked.add(mode); }
@@ -188,6 +190,7 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   override top() { return this.all().find(m => this.active(m)) ?? null; }
   /** A mode has gone, let go or ended by itself: what's open over it goes with it, and it runs its way out. */
   protected override gone(x: ReaderMode<H>) {
+    this.onChange();
     this.parked.delete(x);
     x.dropped?.();
     for (const y of [...this.modes]) if (y.over === x.of) this.drop(y);

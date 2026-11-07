@@ -177,7 +177,8 @@ import { createPage, followSoft, offerPage, PAGE_OFFER_MS, type PageOffer, type 
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { AGENT_BG, selectText, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
+import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-pointer";
+import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -634,7 +635,9 @@ interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, Surfa
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
 /** A note at a revision, beside how it is now (PIE-1433): the compare's view, its header's controls and where it was drawn. */
 type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; want?: number; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
-type ReplyLinksMode = ReaderMode<SurfaceHost> & { controls: { from: number; to: number; action: (typeof REPLIES_CONTROLS)[number] }[]; dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
+/** Where a press that brought the keys back found the cursor (PIE-812). */
+const putBackCursor = (k: KeptCursor) => { k.d.row = k.row; k.d.col = k.col; k.d.anchor = k.anchor; k.d.follow = k.follow; };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { controls: { from: number; to: number; action: (typeof REPLIES_CONTROLS)[number] }[]; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
@@ -830,7 +833,9 @@ export class NoteSurface {
   private inlineLists = new Map<number, InlineList>();
   /** The figures the last layout drew (their tabs, counts, what's chosen): what `figure.tab` and `figures` name. */
   figuresDrawn: FigureInfo[] = [];
-  readonly figureSizing = new FigureSizing();
+  /** What the button held down is doing here: one gesture, set by a press and ended by its release (src/surface/reader-pointer.ts). */
+  private readonly pointer = new ReaderPointer();
+  readonly figureSizing = new FigureSizing(this.pointer);
   /**
    * The list of each inline component this reader draws (PIE-693, PIE-747), by its key (`^name`, else its place among the
    * note's components): the person's and the agents' picks and filters, the typed filter and the scroll. Like
@@ -886,9 +891,6 @@ export class NoteSurface {
   selection: Selection | null = null;
   /** What an agent selected here: drawn in its own tint, never the person's, never on their clipboard. */
   agentSelection: { id: string; sel: Selection } | null = null;
-  private gesture = new Gesture();
-  /** A press landed in the draft's text: a drag from it selects there. */
-  private editPress = false;
   /** Bring the comment being written into view at the next paint (it opened, the person typed, it moved: PIE-770). */
   private revealComposer = false; private composerDrawn = 0; private composerAsked: number | null = null;
   /** The rows of the comment's passage in the last paint, in the reader's cells (a floating box goes beside them). */
@@ -900,8 +902,6 @@ export class NoteSurface {
   readonly attachments: Attachments<SurfaceHost, SurfaceView> = new Attachments<SurfaceHost, SurfaceView>(this.attachmentKinds(), () => this.lastLook?.values);
   private innerFrame?: FloatRect;
   private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
-  /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
-  private frameDrag: { target: AttachmentKind; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): a mode over the comment, waiting on their answer in the power bar. */
   private get leaving(): LeaveAsk | null { return (this.modes.get("leave-ask") as (ReaderMode<SurfaceHost> & { ask: LeaveAsk }) | null)?.ask ?? null; }
   private set leaving(ask: LeaveAsk | null) {
@@ -909,29 +909,11 @@ export class NoteSurface {
     const cs = this.session;
     if (ask && cs) this.modes.pushParked({ ...quietMode(this.modes, "leave-ask", "leave question", cs, () => ""), ask });
   }
-  /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
-  private keptCursor: { d: Draft; row: number; col: number; anchor: Draft["anchor"]; follow: boolean } | null = null;
-  /** A double or triple click's word or line being selected in a draft (two draft.place): its release copies it after. */
-  private draftSelecting: Promise<void> | null = null;
-  /** The last press in a draft was a shift+click (it extended the selection). */
-  private shiftPress = false;
-  private dragging = false;
-  /**
-   * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
-   * panel, the edit, the comment session, in their precedence. The fields below are views of it.
-   */
-  private splitDrag: SplitFrame | null = null;
-  /**
-   * The header image being dragged (PIE-1361): its bottom row sizes it (`height`), the picture moves what its crop keeps
-   * (`focus`). Drawn from `now` while the button is down; one image.size or image.look on release, so the line takes
-   * one save. A press that doesn't move is a click on the header.
-   */
   /**
    * The header image as last placed, by its line: it stands in while it's dragged, and while a changed look (a blur, a
    * tint) is being made, so the header never goes blank under its rows (PIE-1361: the "margin" left behind).
    */
   private heroPlaced: { line: number; p: Placement } | null = null;
-  private heroDrag: { kind: "height" | "focus"; x: number; y: number; rows: number; cols: number; focus: Focus; line: number; now?: { height?: number; focus?: Focus }; saving?: boolean } | null = null;
   private readonly forms = new Map<string, NoteForm>();
   get form(): NoteForm | null { return this.msg ? this.formOf(this.msg) : null; }
   private formOf(m: Msg): NoteForm | null {
@@ -949,8 +931,12 @@ export class NoteSurface {
     if (!form) throw new ActionRefused("this note has no form-field properties");
     form.focus = field === "@submit" ? form.fields.length : form.fields.findIndex(f => f.name === field);
     if (form.focus < 0) throw new ActionRefused(`the form has no field ${field}`);
-    let saidEnded = false;
-    const mode: ReaderMode<SurfaceHost> = {
+    if (this.modes.get("form")?.of !== form) this.modes.push(this.formMode(form, host));   // already open, it stays: a drag's form.place isn't a mode going (PIE-1615)
+    const element = this.elems.find(e => e.link?.form?.field === field); if (element) { this.setElem(element); this.reveal = true; }
+    host.enterMode?.(); host.redraw();
+  }
+  private formMode(form: NoteForm, host: SurfaceHost): ReaderMode<SurfaceHost> {
+    let saidEnded = false; return {
       name: "form", of: form, word: "form", noun: "the form", holdsKeys: true,
       keys: FORM_KEYS,
       ended: () => {
@@ -969,16 +955,16 @@ export class NoteSurface {
       hint: () => "filling the form",
       state: () => "form", describe: () => ({ focus: form.fields[form.focus]?.name ?? "@submit", answers: form.values(USER) }),
     };
-    this.modes.push(mode);
-    const element = this.elems.find(e => e.link?.form?.field === field);
-    if (element) { this.setElem(element); this.reveal = true; }
-    host.enterMode?.(); host.redraw();
   }
   leaveForm() { this.modes.drop("form"); }
   private formHit(x: number, y: number) {
     return this.hits.find(h => "link" in h && h.link.form && h.row === y - (this.drawn?.heroRows ?? 0) && x >= h.from && x < h.to);
   }
-  readonly modes = new ModeStack<SurfaceHost>();
+  /**
+   * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
+   * panel, the edit, the comment session, in their precedence. The fields below are views of it.
+   */
+  readonly modes = new ModeStack<SurfaceHost>(() => this.pointer.end());
   /**
    * An open edit of `msg`: a draft session with the block adapter (src/draft-session.ts). While it exists
    * every key goes to it and the surface stays on its note.
@@ -1260,7 +1246,7 @@ export class NoteSurface {
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
-    if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.figureSizing.cancel(); this.settled = null; this.notice = ""; this.pageOffer.clear(); this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { if (this.msg) host.retirePeeks?.(by); this.pointer.reset(); this.settled = null; this.notice = ""; this.pageOffer.clear(); this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.drawnFolds = []; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.ancestors = []; this.pathNote = "…"; this.unread = "";
@@ -1458,7 +1444,7 @@ export class NoteSurface {
 
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
   private renderReading(w: number, h: number, host: SurfaceHost | undefined, writing: ReturnType<NoteSurface["composing"]>): SurfaceView {
-    const hero = this.heroOf(w, h, host);
+    const hero = this.heroOf(w, h, host); if (!hero) this.heroHits = [];
     this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over", max: Math.floor(h / 2), picture: hero.box.rows };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
@@ -1466,11 +1452,11 @@ export class NoteSurface {
       const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
       if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · ${waitingText()}`, w));
       // A drag going on says what it will write (PIE-1361), on the header's bottom row.
-      const dn = this.heroDrag?.now;
+      const dn = this.pointer.hero?.now;
       if (dn) lines[shown - 1] = fg(C.yellow) + pad(`  ${dn.height !== undefined ? `↕ ${dn.height} rows` : `✥ focus ${dn.focus!.x},${dn.focus!.y}`} · let go to write it on the hero line`, w) + RESET;
       const above = hero.placement?.row ?? 0;
       const was = this.heroPlaced?.line === hero.line ? this.heroPlaced.p : null;
-      const held = (this.heroDrag?.now || (!hero.placement && !hero.loading && !cut)) && was;
+      const held = (this.pointer.hero?.now || (!hero.placement && !hero.loading && !cut)) && was;
       const p = held ? { ...held, rows: Math.max(1, Math.min(h, hero.box.rows) - cut - held.row) } : hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
       if (!held && p && !cut) this.heroPlaced = { line: hero.line, p };
       // Its SVG's links (PIE-1555): presses over the header's rows (a click), and elements ([ ], ⏎) on its first row under it.
@@ -1541,7 +1527,7 @@ export class NoteSurface {
     const found = this.heroRef(m);
     if (!found) return null;
     // A drag going on draws where it is (heroDrag), before its one save.
-    const now = this.heroDrag?.line === found.line ? this.heroDrag.now : undefined;
+    const dragged = this.pointer.hero, now = dragged?.line === found.line ? dragged.now : undefined;
     const ref = now ? { ...found, spec: { ...found.spec, ...(now.height !== undefined ? { height: now.height, heightShare: undefined } : {}), ...(now.focus ? { focus: now.focus } : {}) } } : found;
     const look = heroLook(ref.spec, values);
     const bounds = look.bleed === "full" ? host.heroBounds : undefined;
@@ -1929,7 +1915,7 @@ export class NoteSurface {
     // A note with no header rows at all (PIE-1319: `[header::none]`) starts its body on the first row: no blank, no rule,
     // except once the person has selected words: the row above the body holds the selection's count and toolbar. It
     // comes when the drag ends, so nothing moves under the mouse while it's down (the selection moves with the body).
-    if (this.panel || (headed ? !host?.header || head.length + 1 < h : !!this.selection && !this.dragging)) head.push(this.panel ? rule(w) : "");
+    if (this.panel || (headed ? !host?.header || head.length + 1 < h : !!this.selection && !this.pointer.text?.selecting)) head.push(this.panel ? rule(w) : "");
     const headerRule = headerBlock.length ? this.headerRule(w) : "";
     if (headerRule) head.push(headerRule);
     const top = head.length;
@@ -3748,7 +3734,6 @@ export class NoteSurface {
       dropped: () => {
         if (this.revisionMode) this.modes.focus(this.revisionMode, true);
         if (this.sourcesMode) this.modes.focus(this.sourcesMode, true);
-        if (this.frameDrag?.target === "comment") this.frameDrag = null;
         this.boxRect = null;
       },
       escCloses: () => (cs.mode === "compose" && cs.composer ? draftEscCloses(cs.composer, "the comment") : cs.mode === "threads" ? "the thread list" : "the comment"),
@@ -3769,9 +3754,8 @@ export class NoteSurface {
         if (this.sourcesMode && this.boxRect && x >= this.boxRect.col && x < this.boxRect.col + this.boxRect.cols && y >= this.boxRect.row && y < this.boxRect.row + this.boxRect.rows) void this.runKey("sources.focus", { on: false }, host);
         if (!d) return false;
         // The floating box's top edge moves it, its ◢ corner and edges size it (PIE-785): comment.move, as ctrl+g's keys run it.
-        if (this.frameDrag) { if (drag) this.dragFrame(x, y, host); return true; }
         const r = !drag && cs.place === "floating" && !completerOf(d)?.within(x, y) ? this.boxRect : null, z = r && frameZone(r, x, y);
-        if (z) { this.frameDrag = { target: "comment", zone: z, x, y, from: r! }; return true; }
+        if (z) { this.pointer.hold({ kind: "frame", target: "comment", zone: z, x, y, from: r! }); return true; }
         return this.writePress(d, x, y, drag);
       },
       // While a comment is written the wheel over its box scrolls the box's text or preview (PIE-846, its open completion's
@@ -4115,8 +4099,8 @@ export class NoteSurface {
   }
 
   /** A drag from the floating box's top edge or ◢ corner (PIE-785): comment.move to where the pointer is. */
-  private dragFrame(x: number, y: number, host: SurfaceHost) {
-    const g = this.frameDrag!, f = g.from, dx = x - g.x, dy = y - g.y;
+  private dragFrame(g: Extract<ReaderGesture, { kind: "frame" }>, x: number, y: number, host: SurfaceHost) {
+    const f = g.from, dx = x - g.x, dy = y - g.y;
     const to = g.zone.kind === "move" ? { row: f.row + dy, col: f.col + dx, cols: f.cols, rows: f.rows }
       : { row: f.row, col: f.col, cols: f.cols + (g.zone.cols ? dx : 0), rows: f.rows + (g.zone.rows ? dy : 0) };
     const o = this.attachments.def(g.target).owner(), now = o?.float ?? o?.frame ?? (g.target === "comment" ? this.boxRect : null);
@@ -4193,9 +4177,9 @@ export class NoteSurface {
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
-    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
-    if (this.editPress) host.redraw();
-    return this.editPress;
+    const placed = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
+    if (placed) host.redraw();
+    return placed;
   }
   /**
    * Follow link `l` from the edit or comment being written (`edit.follow`, PIE-592): where a reader's link opens, which
@@ -4312,24 +4296,20 @@ export class NoteSurface {
     if (!d) return false;
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
     if (k.action === "down") {
-      this.tileDrag = false;
-      const n = d.clicks.press(x, y);
-      if (this.writePress(d, x, y, false)) this.draftSelecting = n > 1 ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null;
+      const n = d.clicks.press(x, y), placed = this.writePress(d, x, y, false);
+      this.pointer.hold({ kind: "draft", placed, shift: false, kept: null, selecting: placed && n > 1 ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null });
       host.redraw(); return true;
     }
-    if (k.action === "drag") { this.tileDrag = true; this.writePress(d, x, y, true); host.redraw(); return true; }
+    if (k.action === "drag") { if (this.pointer.draft) { d.clicks.drag(x, y); this.writePress(d, x, y, true); host.redraw(); } return true; }
     if (k.action === "up") {
-      const r = d.clicks.release(x, y);
-      if (!this.tileDrag && r.click) this.writeClick(d, x, y, host);
-      else if (this.tileDrag || r.copy) void (this.draftSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host); host.redraw(); });
-      this.tileDrag = false;
+      const g = this.pointer.take(), r = d.clicks.release(x, y);
+      if (r.click) this.writeClick(d, x, y, host);
+      else if (r.copy) void ((g?.kind === "draft" ? g.selecting : null) ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
       host.redraw();
       return true;
     }
     return false;
   }
-  /** A drag in the comment's own tile is selecting (its release copies, never clicks). */
-  private tileDrag = false;
 
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
   private writePress(d: Draft, x: number, y: number, drag: boolean, host?: SurfaceHost): boolean {
@@ -7208,7 +7188,6 @@ export class NoteSurface {
     if (this.modes.get("grip")?.of === sm) this.modes.drop("grip");
     this.modes.drop("sources");
     if (this.placementMenu?.target === "sources") this.modes.drop("placement");
-    if (this.frameDrag?.target === "sources") this.frameDrag = null;
     void this.attachments.close("sources", host);
     host.redraw();
     return { closed: true };
@@ -8051,10 +8030,12 @@ export class NoteSurface {
   renderedWidth() { return this.drawn?.w ?? 0; }
   renderedTop() { return this.drawn?.top ?? 0; }
 
-  clearSelections() { this.selection = null; this.agentSelection = null; this.gesture.cancel(); this.dragging = false; }
+  clearSelections() { this.selection = null; this.agentSelection = null; this.pointer.end(); }
+  /** The press held here is over, with nothing fired: its release never came (the pointer moved with no button). */
+  endPress() { this.pointer.end(); }
 
   /** The last press placed the cursor in a draft the person opened here (not an agent's): a click that enters it. */
-  get pressedIntoOwn(): boolean { const w = this.editing ? this.drafting ?? this.session?.writing : null; return this.editPress && !!w && w.openedBy.kind === "user"; }
+  get pressedIntoOwn(): boolean { const w = this.editing ? this.drafting ?? this.session?.writing : null; return !!this.pointer.draft?.placed && !!w && w.openedBy.kind === "user"; }
 
   /**
    * The mouse button went down at `x`, `y`. Nothing happens yet (release decides: a click, or a drag that
@@ -8062,53 +8043,50 @@ export class NoteSurface {
    */
   press(x: number, y: number, host: SurfaceHost, shift = false, keepCursor = false): void {
     this.use(host);
+    const pointer = this.pointer;
+    // A press while another is held: that one's release never came. It's over, and this one starts clean.
+    pointer.end();
     const hit = !this.draft && this.formHit(x, y);
     if (hit && "link" in hit && hit.link.form) {
       const field = hit.link.form.field, spec = this.form?.fields.find(f => f.name === field);
       if (spec && spec.type !== "choice") {
         void this.runKey("form.place", { field, col: x - hit.from, extend: shift }, host);
-        this.gesture.press(x, y); this.shiftPress = shift; return;
+        pointer.clicks.press(x, y); pointer.hold({ kind: "form", shift }); return;
       }
     }
-    this.dragging = false;
     const control = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
     if (!this.editing && !(control && "link" in control && control.link.role === "figure") && !this.floatAt(x, y, host) && this.figureSizing.edge(x, y)) { void this.runKey("figure.resize", { phase: "start", x, y }, host); return; }
-    if (this.placementMenu) { this.gesture.press(x, y); return; }
+    if (this.placementMenu) { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
     // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
     const heroRows = host.attachment || !(this.drawn?.heroRows) || !this.hero ? 0 : this.hero.pinned || !this.scroll ? this.hero.picture : this.drawn.heroRows;
     // A header link is a press like any link's: it opens on the release, where the click reads alt and the middle button (click).
-    if (this.heroLinkAt(x, y) && !this.editing && !this.floatAt(x, y, host)) { this.gesture.press(x, y); return; }
+    if (this.heroLinkAt(x, y) && !this.editing && !this.floatAt(x, y, host)) { pointer.clicks.press(x, y); pointer.hold({ kind: "text", selecting: false }); return; }
     if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows && !this.floatAt(x, y, host)) {
       const spec = this.msg && this.imagesIn(this.msg).find(r => r.line === this.hero!.line)?.spec;
-      this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };
-      this.gesture.press(x, y);
+      pointer.clicks.press(x, y);
+      pointer.hold({ kind: "hero", part: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line });
       return;
     }
     const float = this.floatAt(x, y, host);
     // A floating attachment's top edge moves it, its ◢ corner and edges size it; a split's divider sizes the split.
     const grip = float && float !== "comment" ? this.attachments.grip(x, y) : null;
-    if (grip) { this.frameDrag = { ...grip, x, y }; return; }
+    if (grip) { pointer.hold({ kind: "frame", ...grip, x, y }); return; }
     const split = !float && this.attachments.divider(x, y);
-    if (split) { this.splitDrag = split; return; }
+    if (split) { pointer.hold({ kind: "split", frame: split }); return; }
     const sm = this.sourcesMode, r = sm?.rect;
     if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && (!float || float === "sources") && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
-      if (y >= r.y + sm.footer) { this.gesture.press(x, y); return; }
+      if (y >= r.y + sm.footer) { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y - 1 + sm.view.top, col: x - r.x }, host);
+      pointer.hold({ kind: "sources", letGo: () => sm.view.release() });
       return;
     }
-    if (float === "sources") { this.gesture.press(x, y); return; }
+    if (float === "sources") { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
     // On a property value being typed: the line field's own press (its cursor, a word on a double click), PIE-1290.
-    if (this.panel?.fieldMouse("down", x, y)) { host.redraw(); return; }
-    const n = this.gesture.press(x, y);
+    if (this.panel?.fieldMouse("down", x, y)) { pointer.hold({ kind: "field" }); host.redraw(); return; }
+    const n = pointer.clicks.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
-    const replies = this.replyLinks;
-    if (replies) {
-      const row = this.replyRowAt(x, y);
-      replies.dragFrom = !this.editing && row?.kind === "child" ? { block: row.child.block, y } : undefined;
-    }
-    this.editPress = false;
     const beside = this.attachments.besideRect;
     if (this.editing && (!this.replyParent || !beside || (x >= beside.x && y >= beside.y))) {
       // The composer is drawn in the note (PIE-770), under its header image: its cells are the note's, as a click's are.
@@ -8116,15 +8094,20 @@ export class NoteSurface {
       // `keepCursor`: the press that brought the keys back to a draft left open here (PIE-812). It still presses (a
       // frame control runs on its release), but the cursor and selection stay where the person left them.
       const d0 = keepCursor ? this.writingDraft : null;
-      this.keptCursor = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor, follow: d0.follow } : null;
-      this.editPress = this.modes.press(x, y, host, shift);
-      this.restoreCursor(false);
-      this.shiftPress = shift && this.editPress;
+      const kept: KeptCursor | null = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor, follow: d0.follow } : null;
+      const placed = this.modes.press(x, y, host, shift);
+      // The floating box's frame took it (commentMode's press): no cursor moved, and it's a frame's from here.
+      if (pointer.frame) return;
+      if (kept) putBackCursor(kept);
       const d = this.writingDraft;
-      this.draftSelecting = this.editPress && d && n > 1 && !shift ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null;
-      if (this.editPress) host.redraw();
+      // Beside a reply's box a press that placed nothing is the note's: a drag from it selects the note.
+      if (!this.replyParent || placed) pointer.hold({ kind: "draft", placed, shift: shift && placed, kept, selecting: placed && d && n > 1 && !shift ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null });
+      else pointer.hold({ kind: "text", selecting: false });
+      if (placed) host.redraw();
       return;
     }
+    const row = this.replyLinks && !this.editing ? this.replyRowAt(x, y) : null;
+    pointer.hold(row?.kind === "child" ? { kind: "reply", from: { block: row.child.block, y } } : { kind: "text", selecting: false });
     if (n < 2) return;
     const rows = this.selRows(), p = this.posAt(x, y);
     if (!rows || !p || !rows.cells(p.row).length) return;
@@ -8132,146 +8115,160 @@ export class NoteSurface {
     host.redraw();
   }
 
-  /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
+  /** The pointer moved with the button down: what it does is the held gesture's, and only its. */
   drag(x: number, y: number, host: SurfaceHost): void {
-    if (this.figureSizing.drag) { void this.runKey("figure.resize", { phase: "move", x, y }, host); return; }
-    if (this.panel?.fieldMouse("drag", x, y)) { host.redraw(); return; }
-    const hd = this.heroDrag;
-    if (hd) {
-      if (hd.saving || (x === hd.x && y === hd.y && !hd.now)) return;
-      const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 100) / 100));
-      hd.now = hd.kind === "height"
-        ? { height: Math.max(3, Math.min(this.hero?.max ?? hd.rows, hd.rows + y - hd.y)) }
-        // The picture follows the pointer: dragged right, the crop shows more of its left.
-        : { focus: { x: clamp(hd.focus.x - (x - hd.x) / Math.max(1, hd.cols)), y: clamp(hd.focus.y - (y - hd.y) / Math.max(1, hd.rows)) } };
-      host.redraw();
-      return;
-    }
-    if (this.modes.get("form")) {
-      const hit = this.formHit(x, y);
-      if (hit && "link" in hit && hit.link.form?.field === this.form?.fields[this.form.focus]?.name) {
-        this.gesture.drag(x, y);
-        void this.runKey("form.place", { field: hit.link.form!.field, col: x - hit.from, extend: true }, host);
+    const g = this.pointer.held, clicks = this.pointer.clicks;
+    switch (g?.kind) {
+      case "figure": void this.runKey("figure.resize", { phase: "move", x, y }, host); return;
+      case "field": if (this.panel?.fieldMouse("drag", x, y)) host.redraw(); return;
+      case "hero": {
+        if (x === g.x && y === g.y && !g.now) return;
+        clicks.drag(x, y);
+        const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 100) / 100));
+        g.now = g.part === "height"
+          ? { height: Math.max(3, Math.min(this.hero?.max ?? g.rows, g.rows + y - g.y)) }
+          // The picture follows the pointer: dragged right, the crop shows more of its left.
+          : { focus: { x: clamp(g.focus.x - (x - g.x) / Math.max(1, g.cols)), y: clamp(g.focus.y - (y - g.y) / Math.max(1, g.rows)) } };
+        host.redraw();
+        return;
+      }
+      case "form": {
+        clicks.drag(x, y);
+        const hit = this.formHit(x, y);
+        if (hit && "link" in hit && hit.link.form?.field === this.form?.fields[this.form.focus]?.name) void this.runKey("form.place", { field: hit.link.form!.field, col: x - hit.from, extend: true }, host);
+        return;
+      }
+      case "split": {
+        const s = g.frame;
+        void this.runKey("attachment.split", { target: s.target, share: 1 - (s.beside ? x / s.w : y / s.h) }, host);
+        return;
+      }
+      // The comment's frame was pressed in the composer's cells, under the header image.
+      case "frame": this.dragFrame(g, x, g.target === "comment" ? y - (this.drawn?.heroRows ?? 0) : y, host); return;
+      case "sources": {
+        const sm = this.sourcesMode;
+        if (sm) void this.runKey("sources.select", { phase: "drag", row: Math.max(0, y - sm.rect.y - 1) + sm.view.top, col: Math.max(0, x - sm.rect.x) }, host);
+        return;
+      }
+      case "reply": case "control": clicks.drag(x, y); return;
+      case "draft":
+        clicks.drag(x, y);
+        if (g.placed && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw();
+        return;
+      case "text": {
+        const p = clicks.pressed;
+        if (!p || !clicks.drag(x, y) || !this.drawn) return;
+        if (!g.selecting) {
+          // After a double or triple click, the drag extends from the word or row it selected.
+          const from = p.n > 1 && this.selection ? this.selection.start : this.posAt(p.x, p.y);
+          if (!from) { this.pointer.end(); return; }
+          g.selecting = true;
+          this.selection = this.stamp(new Selection({ ...from }, { ...from }));
+        }
+        const at = this.posAt(x, y, true);
+        if (at && this.selection) this.selection.head = at;
+        host.redraw();
         return;
       }
     }
-    if (this.splitDrag) {
-      const s = this.splitDrag;
-      void this.runKey("attachment.split", { target: s.target, share: 1 - (s.beside ? x / s.w : y / s.h) }, host);
-      return;
-    }
-    if (this.frameDrag && this.frameDrag.target !== "comment") { this.dragFrame(x, y, host); return; }
-    const sm = this.sourcesMode;
-    if (sm?.view.pressed) { void this.runKey("sources.select", { phase: "drag", row: Math.max(0, y - sm.rect.y - 1) + sm.view.top, col: Math.max(0, x - sm.rect.x) }, host); return; }
-    if (this.replyLinks?.dragFrom) { this.gesture.drag(x, y); return; }
-    const g = this.gesture.pressed;
-    if (this.editing && (!this.replyParent || this.editPress)) { this.gesture.drag(x, y); if (this.editPress && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw(); return; }
-    if (!g || !this.gesture.drag(x, y) || !this.drawn) return;
-    if (!this.dragging) {
-      // After a double or triple click, the drag extends from the word or row it selected.
-      const from = g.n > 1 && this.selection ? this.selection.start : this.posAt(g.x, g.y);
-      if (!from) { this.gesture.cancel(); return; }
-      this.dragging = true;
-      this.selection = this.stamp(new Selection({ ...from }, { ...from }));
-    }
-    const at = this.posAt(x, y, true);
-    if (at && this.selection) this.selection.head = at;
-    host.redraw();
   }
 
   /**
-   * The button came up. On the cell it went down on, with no drag, it's a click (`click`: a link, a fold, a
-   * panel row, the copy control; anywhere else it lets go of the selection). A drag, a double or a triple
-   * click keeps what it selected and copies it (copy on select, selection.ts): `select.copy`, as `y` runs
-   * it. A selection of blanks, or none, copies nothing. True when the release did something.
+   * The button came up: the gesture ends here, whatever its kind does at the end. On the cell it went down on, with no
+   * drag, a text press is a click (`click`: a link, a fold, a panel row, the copy control; anywhere else it lets go of
+   * the selection). A drag, a double or a triple click keeps what it selected and copies it (copy on select,
+   * selection.ts): `select.copy`, as `y` runs it. A selection of blanks, or none, copies nothing. A press with nothing
+   * held (ended under it: `ReaderPointer.end`) does nothing. True when the release did something.
    */
-  /** Put back the cursor a press that brought the keys back kept (PIE-812); `done` at its release, which ends it. */
-  private restoreCursor(done: boolean) {
-    const k = this.keptCursor;
-    if (k) { k.d.row = k.row; k.d.col = k.col; k.d.anchor = k.anchor; k.d.follow = k.follow; }
-    if (done) { if (k) this.gesture.forget(); this.keptCursor = null; }
-  }
-
   release(x: number, y: number, host: SurfaceHost): boolean {
-    try { return this.releaseNow(x, y, host); } finally { this.restoreCursor(true); }
+    const clicks = this.pointer.clicks;
+    // Its own save, which ends it: figure.resize's `end`, as an agent's act runs it.
+    if (this.pointer.heldFigure) { void this.runKey("figure.resize", { phase: "end", x, y }, host); return true; }
+    const at = clicks.pressed, g = this.pointer.take(), r = clicks.release(x, y);
+    const still = !!at && !r.moved && at.x === x && at.y === y;
+    switch (g?.kind) {
+      case undefined: host.redraw(); return false;
+      case "figure": return false;
+      case "field": this.panel?.fieldMouse("up", x, y); host.redraw(); return true;
+      case "hero": {
+        if (!g.now) return still ? this.click(x, y, host) : false;
+        // Drawn where it was let go until its save lands, so the header never snaps back first.
+        this.pointer.land(g);
+        const v = (n: number) => String(Math.round(n * 100) / 100);
+        const saved = g.now.height !== undefined ? this.runKey("image.size", { line: g.line + 1, height: String(g.now.height) }, host)
+          : this.runKey("image.look", { line: g.line + 1, focus: `${v(g.now.focus!.x)},${v(g.now.focus!.y)}` }, host);
+        void saved.finally(() => { this.pointer.landed(g); host.redraw(); });
+        host.redraw();
+        return true;
+      }
+      case "control":
+        if (this.placementMenu) return still ? this.modes.click(x, y, host) ?? false : false;
+        return this.pressEnded(g, r, x, y, host);
+      case "split": case "frame": host.redraw(); return true;
+      case "sources": {
+        const sm = this.sourcesMode;
+        if (!sm) return false;
+        const selected = !!sm.view.selection || sm.view.editorPressed && !!sm.view.field?.session.draft.selectedText();
+        sm.view.release();
+        if (selected) void this.runKey("sources.copy", {}, host);
+        else this.click(x, y, host);
+        return true;
+      }
+      case "reply": {
+        if (r.click) return this.pressEnded(g, r, x, y, host);
+        const row = this.replyRowAt(x, y), links = this.replyLinks;
+        if (links && row?.kind === "child" && row.child.block.id !== g.from.block.id) {
+          const target = row.child.block.id;
+          void this.runKey("note.move", { id: g.from.block.id, revision: g.from.block.revision,
+            ...(x < links.rect.x + 4 ? y > g.from.y ? { after: target } : { before: target } : { to: target }) }, host);
+        }
+        return true;
+      }
+      case "form": case "draft":
+        try {
+          if (g.kind === "draft" && this.listEditor.field && this.listEditor.pressed) {
+            const selected = this.listEditor.editorPressed && !!this.listEditor.field.session.draft.selectedText();
+            this.listEditor.release();
+            if (r.click && !selected) this.click(x, y, host);
+            host.redraw(); return true;
+          }
+          // A shift+click in a draft extended its selection: the release copies it (copy on select), never places the cursor again.
+          if (g.shift) {
+            const d = this.writingDraft;
+            if (d?.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host);
+            host.redraw();
+            return true;
+          }
+          return this.pressEnded(g, r, x, y, host);
+        } finally {
+          // The press that brought the keys back to a draft (PIE-812) leaves its cursor where it was, its click run.
+          if (g.kind === "draft" && g.kept) { putBackCursor(g.kept); clicks.forget(); }
+        }
+      case "text": return this.pressEnded(g, r, x, y, host);
+    }
   }
 
-  private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
-    if (this.figureSizing.drag) { void this.runKey("figure.resize", { phase: "end", x, y }, host); return true; }
-    if (this.panel?.fieldMouse("up", x, y)) { host.redraw(); return true; }
-    const hd = this.heroDrag;
-    if (hd && !hd.saving) {
-      this.gesture.release(x, y);
-      if (!hd.now) { this.heroDrag = null; return this.click(x, y, host); }
-      // Drawn where it was let go until its save lands, so the header never snaps back first.
-      hd.saving = true;
-      const r = (v: number) => String(Math.round(v * 100) / 100);
-      const saved = hd.now.height !== undefined ? this.runKey("image.size", { line: hd.line + 1, height: String(hd.now.height) }, host)
-        : this.runKey("image.look", { line: hd.line + 1, focus: `${r(hd.now.focus!.x)},${r(hd.now.focus!.y)}` }, host);
-      void saved.finally(() => { if (this.heroDrag === hd) this.heroDrag = null; host.redraw(); });
-      host.redraw();
-      return true;
-    }
-    if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
-    if (this.splitDrag) { this.splitDrag = null; host.redraw(); return true; }
-    if (this.frameDrag && this.frameDrag.target !== "comment") { this.frameDrag = null; host.redraw(); return true; }
-    if (this.listEditor.field && this.listEditor.pressed) {
-      const selected = this.listEditor.editorPressed && !!this.listEditor.field.session.draft.selectedText();
-      const gesture = this.gesture.release(x, y);
-      this.listEditor.release();
-      if (gesture.click && !selected) this.click(x, y, host);
-      host.redraw(); return true;
-    }
-    const sm = this.sourcesMode;
-    if (sm?.view.pressed) {
-      const selected = !!sm.view.selection || sm.view.editorPressed && !!sm.view.field?.session.draft.selectedText();
-      sm.view.release();
-      if (selected) void this.runKey("sources.copy", {}, host);
-      else this.click(x, y, host);
-      return true;
-    }
-    const r = this.gesture.release(x, y);
-    const from = this.replyLinks?.dragFrom;
-    if (this.replyLinks) this.replyLinks.dragFrom = undefined;
-    if (from && !r.click) {
-      const row = this.replyRowAt(x, y);
-      if (row?.kind === "child" && row.child.block.id !== from.block.id) {
-        const target = row.child.block.id;
-        void this.runKey("note.move", { id: from.block.id, revision: from.block.revision,
-          ...(x < this.replyLinks!.rect.x + 4 ? y > from.y ? { after: target } : { before: target } : { to: target }) }, host);
-      }
-      return true;
-    }
-    this.dragging = false;
-    // The end of a drag that moved or sized the floating composer: nothing else (not a click in it).
-    if (this.frameDrag) { this.frameDrag = null; this.editPress = false; host.redraw(); return true; }
-    // A shift+click in a draft extended its selection: the release copies it (copy on select), never places the cursor again.
-    if (this.shiftPress) {
-      this.shiftPress = false;
-      const d = this.writingDraft;
-      if (d?.selectedText()?.trim() && copyOnSelect()) void this.runKey("draft.copy", {}, host);
-      host.redraw();
-      return true;
-    }
+  /** The end of a press that may be a click or may have selected: a candidate, the click, or the copy of what it selected. */
+  private pressEnded(g: ReaderGesture, r: ReturnType<ReaderPointer["clicks"]["release"]>, x: number, y: number, host: SurfaceHost): boolean {
     const completion = this.writingDraft && completerOf(this.writingDraft);
     if (completion?.click(y, x, text => host.ctx.copy?.(text, "component preview"))) {
-      this.gesture.forget(); host.redraw(); return true;
+      this.pointer.clicks.forget(); host.redraw(); return true;
     }
     if (r.click) {
       // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
       const acted = this.click(x, y, host);
       // In a draft a click only places the cursor: the next on its cell is still a double click (the word).
-      if (acted && (!this.editing || this.writingDraft && completionOf(this.writingDraft))) this.gesture.forget();
+      if (acted && (!this.editing || this.writingDraft && completionOf(this.writingDraft))) this.pointer.clicks.forget();
       return acted;
     }
     // In a draft: the draft's own selection, copied the same way (draft.copy), when the mouse made it (a double or
     // triple click's word or line once it's selected).
-    const d = this.editing && (!this.replyParent || this.editPress) && r.copy ? this.writingDraft : null;
+    const d = g.kind === "draft" && r.copy ? this.writingDraft : null;
     if (d) {
-      void (this.draftSelecting ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
+      void (g.kind === "draft" && g.selecting || Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
       return true;
     }
-    const s = this.selection, rows = s && (!this.editing || (this.replyParent && !this.editPress)) && r.copy ? this.selRows() : null;
+    const s = this.selection, rows = s && g.kind !== "draft" && r.copy ? this.selRows() : null;
     if (s && rows && s.text(rows).trim()) void this.runKey("select.copy", {}, host);
     host.redraw();
     return r.moved || r.n > 1;
