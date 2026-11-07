@@ -40,10 +40,10 @@ export type Outcome =
   | { ok: false; why: string; stale?: boolean; again?: boolean; said?: string };
 
 /**
- * How a target reports while it writes (PIE-1560): the phase it's in (asking how the properties read, saving, creating;
- * null once the write has landed or failed), for its session's one status line. A target never writes the draft's fields.
+ * How a target reports while it writes (PIE-1560): the phase it's in (asking how the properties read, saving, creating),
+ * for its session's one status line. The session starts the write's phase and ends it. A target never writes the draft's fields.
  */
-export interface TargetReport { phase(p: DraftPhase | null): void }
+export interface TargetReport { phase(p: DraftPhase): void }
 
 /** Where a draft goes when it's written: one adapter per kind of destination. */
 export interface DraftTarget {
@@ -152,7 +152,12 @@ const WRITES = new Set<Key["kind"]>(["char", "paste", "enter", "alt-enter", "bac
 const TABLE_EDITS = new Set(["draft.go", "draft.select", "draft.line", "draft.erase", "draft.cut", "draft.wrap"]);
 /** A held key that only adds text: what's safe wherever it lands. */
 const inserts = (k: Key) => k.kind === "paste" || (k.kind === "char" && !k.ctrl);
-const writes = (k: Key, d: Draft) => (WRITES.has(k.kind) || (k.kind === "alt" || k.kind === "super" || k.kind.startsWith("alt-")) && TABLE_EDITS.has(d.binding(k)?.action ?? "")) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
+const writes = (k: Key, d: Draft) => {
+  // A key the table binds (the person's keymap applied) is what it's bound to: edit.save on Enter is a command, whatever Enter usually is.
+  const bound = d.binding(k)?.action;
+  if (bound) return TABLE_EDITS.has(bound);
+  return WRITES.has(k.kind) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
+};
 
 export class DraftSession {
   readonly draft: Draft;
@@ -223,33 +228,33 @@ export class DraftSession {
   /**
    * A key in the draft. Typing, the cursor, the list keys and the completion popup are the draft's; what ends
    * or hands it off is a command the host runs as its action (`run`): save, close (esc on nothing changed),
-   * discard (the second esc on changed text: put aside), editor, pick (insert from a picker), reload, copy. Nothing while a write lands.
+   * discard (the second esc on changed text: put aside), editor, pick (insert from a picker), reload, copy. While a write or
+   * a reload is out, keys wait for it (`holding`).
    */
-  /** A submit is on its way to its target: keys wait for it (`key`). */
-  private submitting = false;
   /** What the last reload said on the line: a newer change retires it (`changedTo`). */
   private reloadSaid: string | null = null;
-  /** Keys and pastes that came during a reload, in order, each with its host's key path. */
+  /** Keys and pastes that came during a write or a reload, in order, each with its host's key path. */
   private heldKeys: { k: Key; replay: (k: Key) => void }[] = [];
   /** The reload took away or changed the table the held keys were typed in: how, in words. */
   private tableLost: "is gone" | "changed" | null = null;
-  /** Commands pressed during that reload: never run, said when it ends. */
+  /** Commands pressed meanwhile: never run, said when it ends. */
   private heldBack = new Set<string>();
   /** Its held keys are going in: a host's key path runs no command for them. */
   replaying = false;
   /** `replay`: the host's whole key path, for one with steps before this (`holding`); by default a held key comes back here. */
   key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null; replay?(k: Key): void }): void {
     if (this.holding(k, host.replay ?? (held => this.key(held, { ...host, run() {} })))) return;
-    // While a submit is in flight the keys are held (PIE-1542 review): typing then would show and be lost with the field.
-    if (!this.open || this.draft.busy || this.submitting) return;
+    if (!this.open) return;
     // The default attachment (PIE-626): a session's draft completes from its own connection, whoever hosts it; a host
     // that passes `completer: null` opts out, one that passes its own (a note's, with the draft's note as context) keeps it.
     const completer = host.completer === undefined ? defaultCompleter(this.draft, this.env.board, () => this.env.redraw?.()) : host.completer;
     const a: DraftAction = completionKey(this.draft, k, completer);
     this.watchPaste(k, host);
     // A draft with nothing behind it to read (a new card, a note reply, a field) says so, whoever hosts it.
+    // A replayed key runs no command, whichever host's path it comes back by.
+    if (a === "keep" || this.replaying) return;
     if (a === "reload" && !this.target.reload) { void this.reload(); return; }
-    if (a !== "keep") host.run(a);
+    host.run(a);
   }
 
   /** What the last paste holds, when it is nothing but image files: its host's `drop` command takes it (draft.drop). */
@@ -285,24 +290,51 @@ export class DraftSession {
     // an approval); a write underneath someone else's open draft of the same block is not.
     const why = this.target.blockId ? agentRefusal(actor, { board: this.env.board, blockId: this.target.blockId, except: this }) : null;
     if (why) return { ok: false, why };
-    this.submitting = true;
+    // The phase is the one fact: from here until the answer, keys wait (`holding`) and nothing else may touch the draft.
+    d.status.phase = this.target.verb === "create" ? "creating" : "saving";
     let r: Awaited<ReturnType<DraftTarget["submit"]>>;
     const report: TargetReport = { phase: p => { d.status.phase = p; this.env.redraw?.(); } };
-    try { r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away, confirmed, report }); } finally { this.submitting = false; d.status.phase = null; }
+    try { r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away, confirmed, report }); }
+    catch (e) { d.status.phase = null; this.replayHeld(); throw e; }
+    d.status.phase = null;
     if (r.ok) {
       // Undo survives the save: an edit of this note opened again on what was written takes up its history, stopping
       // at the save to ask before it takes saved text back (PIE-1414).
       if (r.revision !== undefined && d.undos.length) keepHistory(this.target.place, r.revision, d.undos);
+      const kept = this.open ? this.keepWhatCameAfter(r.revision) : null;
       if (this.open) this.end("written");
+      if (kept) this.env.said?.(kept);
       return r;
     }
-    if (r.said !== undefined && this.open) { d.status.say(r.said); this.env.redraw?.(); }
-    if (r.stale && this.open) {
+    if (r.said !== undefined && this.open) d.status.say(r.said);
+    // Refused: what was typed goes in where it was typed, then any copy holds it too.
+    this.replayHeld(() => {
+      if (!r.stale) return;
       d.status.conflict = r.why;
       const copied = d.copyOut(this.target.label);
       d.status.say(`your draft is kept and copied to ${copied}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`);
-    }
+    });
+    this.env.redraw?.();
     return r;
+  }
+
+  /**
+   * It was written with keys waiting: the session is ending, so what they add can't go in the note. It goes on from what
+   * was written (an edit) or from nothing (a comment or a card: its words are sent, never kept to go twice), through their
+   * key path, and is put aside as anything unsent is. Keys that added nothing, and commands, have nothing left to act on.
+   * Returns what to say.
+   */
+  private keepWhatCameAfter(revision: number | undefined): string | null {
+    const held = this.heldKeys, d = this.draft, t = this.target;
+    this.heldKeys = []; this.heldBack = new Set();
+    if (!held.length) return null;
+    const from = t.verb === "save" ? d.text : "";
+    d.wentOnFrom(from, revision);
+    this.replaying = true;
+    try { for (const { k, replay } of held) replay(k); } finally { this.replaying = false; }
+    if (d.text === from) return null;
+    const copy = this.keep(), did = t.verb === "save" ? "saved" : t.verb === "send" ? "sent" : "was created";
+    return `${did === "was created" ? "created" : did} · what you typed while it ${did} is kept · ${t.back} · a copy is at ${tidy(copy)}`;
   }
 
   /**
@@ -432,27 +464,36 @@ export class DraftSession {
   }
 
   /**
-   * A key during a reload (PIE-1560): true when this session took it. Every host asks this first, before anything of its
-   * own acts on the key. What a person writes always lands, so what they wrote (characters, pastes and the moves between
-   * them) waits for `replayHeld`, through `replay`: their key path. A command (ctrl+s, esc, ctrl+r, anything else) never
-   * runs later on text they haven't seen: it doesn't run at all, and the line says to press it again.
+   * A key during a write or a reload (PIE-1560, PIE-1613): true when this session took it. Every host asks this first,
+   * before anything of its own acts on the key, so it also hears every key for what's armed (PIE-1616). What a person
+   * writes always lands, so what they wrote (characters, pastes and the moves between them) waits for `replayHeld`, through
+   * `replay`: their key path. A command (ctrl+s, esc, ctrl+r, anything else) never runs later on text they haven't seen:
+   * it doesn't run at all, and the line says to press it again.
    */
   holding(k: Key, replay: (k: Key) => void): boolean {
-    if (this.status.phase !== "reloading") return false;
+    this.draft.heard(k);
+    const phase = this.status.phase;
+    if (!phase) return false;
     if (writes(k, this.draft)) { this.heldKeys.push({ k, replay }); return true; }
-    const name = keyName(k) ?? "that key";
-    this.heldBack.add(name);
-    this.status.say(`reloading · press ${[...this.heldBack].join(", ")} again once it has loaded`);
+    // A click or a modifier alone is no command to press again.
+    if (k.kind === "mouse" || k.kind === "modifier") return true;
+    this.heldBack.add(keyName(k) ?? "that key");
+    const verb = this.target.verb, what = phase === "reloading" ? ["reloading", "loaded"] : verb === "send" ? ["sending", "sent"] : verb === "create" ? ["creating", "landed"] : ["saving", "saved"];
+    this.status.say(`${what[0]} · press ${[...this.heldBack].join(", ")} again once it has ${what[1]}`);
     this.env.redraw?.();
     return true;
   }
 
-  /** What was typed or pasted during the reload goes in now, in order, where it landed. */
-  private replayHeld() {
+  /**
+   * What was typed or pasted while it waited goes in now, in order, where it landed; `line` then says what the wait ended
+   * with, and what wasn't run is said first.
+   */
+  private replayHeld(line?: () => void) {
     const held = this.heldKeys, back = [...this.heldBack], d = this.draft, said = d.note, lost = this.tableLost;
     this.heldKeys = []; this.heldBack = new Set(); this.tableLost = null;
-    // Disposed while the read was out (its reader went elsewhere): no key path is left to take them.
-    if (!this.open || (!held.length && !back.length)) return;
+    // Disposed while it was out (its reader went elsewhere): no key path is left to take them.
+    if (!this.open) return;
+    if (!held.length && !back.length) { line?.(); return; }
     this.replaying = true;
     // Where the keys were meant for is gone (a table): a delete or a move would act on text they weren't pressed for.
     const gone = !!lost, off = gone ? [...new Set(held.filter(h => !inserts(h.k)).map(h => keyName(h.k) ?? h.k.kind))] : [];
@@ -461,6 +502,7 @@ export class DraftSession {
     const reloads = !d.note || d.note === said;
     if (!d.note) this.status.say(said);
     if (off.length) this.status.say(`${off.join(", ")} didn't apply: the table they were for ${lost} · ${d.note}`);
+    line?.();
     // What to do first: a narrow line cuts its end, never this.
     if (back.length) this.status.say(`${back.join(", ")} didn't run: press ${back.length > 1 ? "them" : "it"} again${d.note ? ` · ${d.note}` : ""}`);
     // The line is still the reload's, for a newer change to retire (`changedTo`), only when no replayed key spoke over it.
@@ -498,9 +540,22 @@ export class DraftSession {
    * Text only agents wrote is only copied: it never covers the person's put-aside text there.
    */
   keep(): string {
+    this.typedWhileOut();
     const copy = this.draft.copyOut(this.target.label);
     if (this.persons) shelve(this.target.place, this.draft, copy);
     return copy;
+  }
+
+  /**
+   * Keys still waiting when the door is ending or the session is going (`keep`, `dispose`): no key path may be left, so
+   * they go straight into the text, where the draft's own keys put them, and nothing they could ask of a host runs. Says
+   * whether the text changed.
+   */
+  private typedWhileOut(): boolean {
+    const held = this.heldKeys, d = this.draft, was = d.text;
+    this.heldKeys = []; this.heldBack = new Set();
+    for (const { k } of held) d.key(k);
+    return d.text !== was;
   }
 
   /** The person had a hand in the text (or nobody is recorded, as for text typed before writers were kept). */
@@ -663,8 +718,12 @@ export class DraftSession {
     return a.applied;
   }
 
-  /** The surface is going away with its screen: let go of the hold, keeping nothing (keepDrafts already did). */
-  dispose() { if (this.open) this.end("closed"); }
+  /** The surface is going away with its screen: let go of the hold, keeping nothing keepDrafts already did, and keeping keys still waiting for a write. */
+  dispose() {
+    if (!this.open) return;
+    if (this.typedWhileOut()) this.keep();
+    this.end("closed");
+  }
 
   private end(how: Ended) {
     this.ended = how;
@@ -846,8 +905,7 @@ export function blockTarget(m: Msg, o: {
       // A new note being written (PIE-544) has no properties to lose: it's written at once.
       if (warned !== text && !confirmed && !o.isNew) {
         report.phase("checking");
-        let next: PropertyList | null = null;
-        try { next = await o.board.previewPropertyList(text).catch(() => null); } finally { report.phase(null); }
+        const next: PropertyList | null = await o.board.previewPropertyList(text).catch(() => null);
         // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
         if (!s.open || d.text !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
         const change = next ? propertyChange(d.baseProps, next) : "";
@@ -862,14 +920,12 @@ export function blockTarget(m: Msg, o: {
       report.phase("saving");
       try {
         const saved = await o.board.update(m.id, text, d.base, by);
-        report.phase(null);
         // An edit put aside on an older revision can't come back over this one: it's left to its copy on disk.
         const old = unsent(`edit:${m.id}`);
-        if (old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
+        if (s.open && old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
         o.saved?.(saved, by, asked, propertyChange(d.baseProps, propertyListOf(saved)));
         return { ok: true, revision: saved.revision, result: by };
       } catch (e) {
-        report.phase(null);
         if (e instanceof EditConflict) return { ok: false, stale: true, why: "changed elsewhere since you started · not saved" };
         const why = e instanceof Error ? e.message : String(e);
         return { ok: false, why, said: `not saved: ${why}` };
@@ -975,11 +1031,9 @@ export function commentTarget(o: {
           : o.note.resource ? await b.commentOnResource(requestId, o.note.resource, t.revision, body, t.kind === "quote" ? t.passage : null, by, t.props)
           : await b.comment(requestId, t.blockId, t.revision, body, t.kind === "quote" ? t.passage : null, by, t.props);
         o.out.done();
-        report.phase(null);
         await o.landed(r, t, body);
         return { ok: true, result: r };
       } catch (e) {
-        report.phase(null);
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof Refused) {
           o.out.refused();
@@ -1035,12 +1089,10 @@ export function commentEditTarget(o: {
       report.phase("saving");
       try {
         const r = await o.board().updateComment(mark.id, mark.revision, body, by);
-        report.phase(null);
         mark = { ...mark, revision: r.revision, body: r.body };
         await o.landed(r);
         return { ok: true, revision: r.revision, result: r };
       } catch (e) {
-        report.phase(null);
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof Refused && /revision is stale/i.test(msg)) return no(`the ${what} changed since you started editing · not saved`, true);
         if (e instanceof Refused) return no(`refused, not saved: ${msg} · your text is kept here and copied to ${tidy(d.copyOut(label))}`);
@@ -1082,10 +1134,8 @@ export function cardTarget(o:
       report.phase("creating");
       try {
         const result = await o.create(d.text, by);
-        report.phase(null);
         return { ok: true, result };
       } catch (e) {
-        report.phase(null);
         const why = e instanceof Error ? e.message : String(e);
         return { ok: false, why: `not created: ${why}`, said: `not created: ${why}${d.dirty ? ` · your text is kept (and copied to ${d.copyOut(label)})` : ""}` };
       }

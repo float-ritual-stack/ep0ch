@@ -127,6 +127,7 @@ function frameCtx(f: FramedScreen): Ctx {
     refuse: (m, at) => f.refuse(m, at),
     recordAction: (req, replay, run) => o().recordAction ? o().recordAction!(req, replay, run) : run(),
     pressNow: () => o().pressNow?.() ?? 0,
+    get pressAgain() { return o().pressAgain; },
     refusal: () => o().refusal?.() ?? null,
     nothingToClose: leave => f.nothingToClose(leave),
     copy: (text, from, write) => o().copy?.(text, from, write) ?? false,

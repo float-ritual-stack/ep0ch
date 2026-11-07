@@ -569,6 +569,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       };
       click();
       expect(d.inDrawer("kettle")).toBe(true);                   // running: asked first
+      // The menu opened and let go, then close: another press came between, so it asks again (PIE-1616).
+      const chipAt = () => { const lines = d.paint(), row = d.app.drawer.rect!.row + 1; return { col: lines[row]!.lastIndexOf("\u2261"), row }; };
+      const { col: c0, row: r0 } = chipAt();
+      d.key(mouse("down", c0, r0)); d.key(mouse("up", c0, r0));
+      d.paint();
+      d.key({ kind: "esc" });
+      click();
+      expect(d.inDrawer("kettle")).toBe(true);
+      // Opening the menu to press close again isn't another press: the second click closes it.
       click();
       await until(() => !d.inDrawer("kettle"), "the second click closed it");
       // A terminal opened in the drawer (alt+s) that exited: one click.

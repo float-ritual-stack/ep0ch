@@ -1,7 +1,8 @@
 import { SnippetSession, type SnippetSlot } from "@ep0ch/outline-core/completion-snippet";
 import { ReaderPosition, PositionRows } from "./reader-position";
 import { DraftViews, draftView } from "./draft-view";
-import { DraftStatus } from "./draft-status";
+import { disarms } from "./arm";
+import { DraftStatus, UNDO_ASK_PAUSE_MS, type DraftArm } from "./draft-status";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
@@ -35,7 +36,7 @@ const PATCH_UNDO_KEEP = 20;
 /** How many steps a draft's history keeps (PIE-621). */
 export const UNDO_KEEP = 300;
 /** A ctrl+z this long after undo asked at a save goes past it; sooner (a held key's repeats) it asks again (ms). */
-export const UNDO_ASK_PAUSE_MS = 400;
+export { UNDO_ASK_PAUSE_MS };
 /** Typing within this long of the last key, next to it, is the same undo step (ms). */
 export const TYPING_PAUSE_MS = 1200;
 /** A paste over this many lines or bytes says how big it was, and that ctrl+z takes it back. */
@@ -154,10 +155,6 @@ export class Draft {
   readonly status: DraftStatus = new DraftStatus();
   /** The last thing said on its status line. */
   get note(): string { return this.status.note; }
-  /** When ctrl+z last stopped at a save and asked (0: it isn't asking): a ctrl+z after a pause goes past it (PIE-1414). */
-  private undoArmed = 0;
-  /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
-  private ctrlX = false;
   /** Its host offers to attach it to open work (a new roadmap card with a twin, PIE-1258): ctrl+x a does that. */
   attachChord = false;
   /** Its host saves on ⏎ (an inspector field, PIE-1542): a typed ⏎ asks "save", a pasted one is a line break. */
@@ -230,6 +227,7 @@ export class Draft {
 
   constructor(readonly blockId: string, public base: number, text: string, props: PropertyList = []) {
     this.baseProps = props;
+    this.status.lapsed = () => this.redraw?.();
     this.original = text;
     this.seen = text;
     this.lines = text.split("\n");
@@ -307,7 +305,7 @@ export class Draft {
     if (after === before) return;
     this.seen = after;
     this.redos = [];
-    this.undoArmed = 0;
+    this.status.letGo();
     const c = changeOf(before, after), now = Date.now(), top = this.undos.at(-1);
     if (this.snippet && top && this.snippetStep === top && sameParty(top.by, by) && !unit && this.snippet.update(before, after)) {
       top.after = after; top.at = now; top.caret = c.at + c.added;
@@ -355,7 +353,7 @@ export class Draft {
     }
     this.seen = to;
     this.flashes = [];
-    this.status.discard.clear(); this.undoArmed = 0;
+    this.status.letGo();
     this.markWriter(by);
   }
 
@@ -377,8 +375,9 @@ export class Draft {
     // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
-      this.undoArmed = Date.now();
-      return { asked: true, said: this.status.say(`saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history`) };
+      const said = this.status.say(`saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history`);
+      if (by.kind !== "agent") this.status.arm("undo");
+      return { asked: true, said };
     }
     this.undos.pop();
     s.open = false;
@@ -503,7 +502,6 @@ export class Draft {
     const cursor = position(selection?.end ?? text.length);
     this.row = cursor.row; this.col = cursor.col;
     this.anchor = selection ? position(selection.start) : null; this.goal = null;
-    this.status.discard.clear(); this.undoArmed = 0;
     this.status.say("");
     if (this.text !== before) this.wrote(by, "the insert");
     if (selection) this.markTypesOver();
@@ -545,9 +543,9 @@ export class Draft {
   }
 
   key(k: Key): DraftAction {
+    // What was armed goes with this press, whoever takes the key: what it confirms, if anything, is `was`.
+    const was = this.keepsArm(k) ? null : this.status.press();
     if (!this.busy && this.snippetKey(k)) return "keep";
-    // Whatever comes after ctrl+x lets the chord go (only a ctrl+e right after it is $EDITOR).
-    const chord = this.letChordGo();
     if (k.kind === "mouse") return "keep";
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
@@ -565,14 +563,11 @@ export class Draft {
     if (bound?.action === "draft.copy") return "copy";
     // A cmd (super) key nothing binds never types; one the table binds (a rebind to cmd+z) runs below.
     if (k.kind === "super" && !bound) return "keep";
-    const was = this.status.discard.take(true), armed = this.undoArmed > 0 && Date.now() - this.undoArmed >= UNDO_ASK_PAUSE_MS;
-    this.status.discard.clear(); this.undoArmed = 0;
-    if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
-    if (chord && k.kind === "char" && k.ctrl && k.ch === "e") return "editor";
-    if (bound) return this.run(bound.action, k, armed, bound);
+    if (was === "chord" && this.confirmsArm(was, k)) return k.kind === "char" && k.ctrl ? "editor" : "attach";
+    if (bound) return this.run(bound.action, k, was === "undo", bound);
     if (k.kind === "char" && k.ctrl) {
       // ctrl+x ctrl+e: $EDITOR (bash's chord). ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
-      if (k.ch === "x") { this.ctrlX = true; this.status.say(`ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); return "keep"; }
+      if (k.ch === "x") { this.status.say(`ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); this.status.arm("chord"); return "keep"; }
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
@@ -587,11 +582,11 @@ export class Draft {
       if (!this.written) return "close";
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
-      if (!was) {
-        this.status.discard.arm(true);
+      if (was !== "discard") {
         this.status.say(this.restored === this.text
           ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves" // says, not a hint row
           : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"); // says, not a hint row
+        this.status.arm("discard");
         return "keep";
       }
       return "discard";
@@ -1039,11 +1034,9 @@ export class Draft {
       }
       this.patches.push(unit);
       if (this.patches.length > PATCH_UNDO_KEEP) this.patches.shift();
-      this.status.discard.clear(); this.undoArmed = 0;
       if (this.text !== before) { this.markWriter(by); this.record(by, `${patchLabel(by)}'s edit`, unit); }
       return;
     }
-    this.status.discard.clear(); this.undoArmed = 0;
     if (this.text !== before) { this.markWriter(by); this.record(by, "taking back an edit", removed, !!removed); }
   }
 
@@ -1205,16 +1198,40 @@ export class Draft {
     this.selectAsk();
     // Back on where it started, nothing is selected: no anchor for esc to let go. A drag going on starts from the same place.
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col) this.anchor = null;
-    this.goal = null; this.status.discard.clear(); this.undoArmed = 0;
-    // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
-    this.letChordGo();
+    this.goal = null;
+    // A click lets what's armed go, as any key does: the ctrl+e after ctrl+x and a click is the line's end.
+    this.status.letGo();
   }
 
-  /** Let a pending ctrl+x go (its note too); true when one was pending. */
-  private letChordGo(): boolean {
-    if (!this.ctrlX) return false;
-    this.ctrlX = false; this.status.say("");
-    return true;
+  /** A key that leaves what's armed as it was: a button's release; for esc and ctrl+z, cmd+c and a cmd key nothing binds (only ctrl+e right after ctrl+x is $EDITOR). */
+  private keepsArm(k: Key): boolean {
+    if (!disarms(k)) return true;
+    if (this.status.armed() === "chord") return false;
+    const bound = this.binding(k);
+    return bound?.action === "draft.copy" || (k.kind === "super" && !bound);
+  }
+  /** `k` is the second press of `what`. */
+  private confirmsArm(what: DraftArm, k: Key): boolean {
+    if (what === "discard") return k.kind === "esc";
+    if (what === "undo") return this.binding(k)?.action === "draft.undo" && !("shift" in k && k.shift);
+    return k.kind === "char" && (k.ctrl ? k.ch === "e" : this.attachChord && k.ch === "a");
+  }
+  /** A key was pressed, whoever goes on to take it (a host's own key comes first): what it can't confirm is let go. */
+  heard(k: Key) {
+    const what = this.status.armed();
+    if (what && !this.keepsArm(k) && !this.confirmsArm(what, k)) this.status.letGo();
+  }
+
+  /**
+   * A write landed and this text is what it wrote (`at`, its revision): the draft goes on from there. What's typed next
+   * is a change to it. Its last step stops at the save, as a draft opened again on it does (PIE-1414).
+   */
+  wentOnFrom(text: string, at?: number) {
+    if (text !== this.text) { this.lines = text.split("\n"); this.place(this.lines.length - 1, Infinity); this.undos = []; this.redos = []; }
+    else this.undos = this.undos.map((s, i, all) => ({ ...s, open: false, ...(i === all.length - 1 && at !== undefined ? { saved: at } : {}) }));
+    this.original = this.seen = text;
+    if (at !== undefined) this.base = at;
+    this.restored = null; this.writers = []; this.lastWriter = null;
   }
 
   // ── the view: soft-wrapped rows, the wheel, the mouse ──────────────────────

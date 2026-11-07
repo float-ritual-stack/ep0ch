@@ -278,6 +278,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       pane.key(ctrl("s"), d);
       expect(sent).toBe(1);                                          // held back
       expect(pane.session!.error).toContain("second comment");
+      await idle(pane);                                              // the first answer is in: keys typed before it wait (PIE-1613)
       pane.key(ctrl("s"), d);
       await until(() => pane.session?.mode === "threads", "the confirmed send");
       expect(sent).toBe(2);

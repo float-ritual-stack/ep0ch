@@ -194,6 +194,12 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     key(ctrl("w")); key(char("x"));
     expect(tile("scratch-sh")).toBeTruthy();
     expect(message()).toContain("again within 3s closes");
+    key({ kind: "left" });                                              // another key lets it go (PIE-1616): the next ^W x asks again
+    D().focus = idOf("scratch-sh");
+    (app as any).message = "";
+    key(ctrl("w")); key(char("x"));
+    expect(tile("scratch-sh")).toBeTruthy();
+    expect(message()).toContain("again within 3s closes");
     key(ctrl("w")); key(char("x"));
     expect(tile("scratch-sh")).toBeUndefined();
   });

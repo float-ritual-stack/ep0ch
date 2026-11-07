@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Keys typed during a save land, and a press-again never fires late (PIE-1613, PIE-1616)
+
+- **Keep typing after ctrl+s:** what you type while a save, a send or a create is out waits and goes in. Refused, it lands where you typed it; written, the note has what you saved, and the extra is kept and said ("e brings it back"). esc or ctrl+s pressed meanwhile doesn't run late: the line says to press it again.
+- **Press it again means now:** esc twice, ctrl+z at a save, ctrl+x ctrl+e, q to quit, ^W x on a running program: any other key lets the first press go, and so does an agent's edit, a reload or $EDITOR coming back. ctrl+z's ask now lasts 5 seconds, and the line stops saying what's armed when it isn't.
+
 ### A door open across a deploy answers at once after the host restarts (PIE-1610)
 
 - **The host warms what you use:** outlines written in the last three days open first, a door's own outline before the rest, and the warm steps aside for any waiting request.

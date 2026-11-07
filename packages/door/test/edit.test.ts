@@ -358,6 +358,10 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     app.pop();                                                          // e.g. Esc/q reaching the desk
     expect((app.describe() as any).screen).toBe(desk.title);
     expect(draft.status.savedCopy).toBeNull();
+    key({ kind: "left" });                                              // another key lets it go (PIE-1616): the next one asks again
+    app.pop();
+    expect((app.describe() as any).screen).toBe(desk.title);
+    expect(draft.status.savedCopy).toBeNull();
     app.pop();                                                          // again within 3s: leave, draft copied out
     expect((app.describe() as any).screen).not.toBe(desk.title);
     expect(readFileSync(draft.status.savedCopy!, "utf8")).toBe("Guarded [stage::queued] typedq1!\nbody\n");

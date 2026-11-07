@@ -17,7 +17,7 @@ describe("the one status line", () => {
   test("rich cells say a save is under way while it lands", async () => {
     let land!: (o: Outcome) => void;
     const target: DraftTarget = { place: "edit:plan", back: "e", label: "plan", what: "the plan", verb: "save", leaveWrites: true,
-      async submit(_s, _by, { report }) { report.phase("saving"); const o = await new Promise<Outcome>(r => { land = r; }); report.phase(null); return o; } };
+      async submit(_s, _by, { report }) { report.phase("saving"); const o = await new Promise<Outcome>(r => { land = r; }); return o; } };
     const s = DraftSession.open(target, { text: "Beds\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |", base: 2 });
     const d = s.draft, rich = elementEdit(d);
     d.place(d.lines.length - 1, 3); rich.open(USER);
