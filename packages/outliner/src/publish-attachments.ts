@@ -254,9 +254,9 @@ export function imageRefusalWhy(check: Extract<ImageCheck, { ok: false }>, sourc
   switch (check.refusal) {
     case "outside-roots": {
       const folder = dirname(real);
-      return `${folder} is outside this publisher's roots. Add \`--root ${folder}\` to \`${publisher}\`, then restart it.`;
+      return `${folder} is outside this publisher's roots. Add \`--root ${folder}\` to \`${publisher}\`, then \`systemctl --user restart ${publisher}\`.`;
     }
-    case "no-roots": return `This publisher has no roots to serve pictures from. Add \`--root ${dirname(real)}\` to \`${publisher}\`, then restart it.`;
+    case "no-roots": return `This publisher has no roots to serve pictures from. Add \`--root ${dirname(real)}\` to \`${publisher}\`, then \`systemctl --user restart ${publisher}\`.`;
     case "missing": return `${where} isn't there${check.reason.includes("dangling") ? " (a link to nothing)" : ""}: fix the path on the line, or put the file back.`;
     case "unsupported-type": return `Pages show ${listed(Object.keys(PUBLISHED_IMAGE_TYPES))} pictures, not ${extname(real) || "a file with no extension"}.`;
     case "remote-service": return `The outline's service runs on another machine, so this publisher can't read its files: run \`${publisher}\` on that machine.`;

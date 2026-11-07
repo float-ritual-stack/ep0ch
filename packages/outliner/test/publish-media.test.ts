@@ -343,7 +343,7 @@ test("a picture a page can't show says why to the signed-in owner, with the line
     "tailnet", undefined, signedIn ? { sessionId: "web-moth" } : undefined).then((response) => response.text());
   const owner = await ask(true);
   // Outside the roots: the folder to add, on the publisher that serves this outline. The hero follows the same rule.
-  const outside = `${elsewhere} is outside this publisher&#39;s roots. Add <code>--root ${elsewhere}</code> to <code>outliner-publish</code>, then restart it.`;
+  const outside = `${elsewhere} is outside this publisher&#39;s roots. Add <code>--root ${elsewhere}</code> to <code>outliner-publish</code>, then <code>systemctl --user restart outliner-publish</code>.`;
   expect(owner.split(outside).length - 1).toBe(2);
   expect(owner).toMatch(/class="media media-missing media-center media-hero"><span class="media-what">image<\/span> the sheet at dusk <code>private.png<\/code><span class="media-why">[^<]*outside this publisher/);
   expect(owner).toContain(`${join(workspace, "images", "gone.png")} isn&#39;t there`);
@@ -354,6 +354,11 @@ test("a picture a page can't show says why to the signed-in owner, with the line
   expect(outsider).not.toContain('class="media-why"');
   expect(outsider).not.toContain(elsewhere);
   expect(outsider).not.toContain("--root");
+  // The public listener, where the page is open to anyone with the link, says no more.
+  const anyone = await (await publisher.handle(new Request("http://127.0.0.1/share/p/sheet-night?view=html", { headers: { accept: "text/html" } }), "public")).text();
+  expect(anyone).toContain("<code>private.png</code>");
+  expect(anyone).not.toContain('class="media-why"');
+  expect(anyone).not.toContain(elsewhere);
 });
 
 test("the fix names the publisher's own unit: its cgroup's outliner-publish service, else outliner-publish-<outline> (PIE-1633)", () => {
