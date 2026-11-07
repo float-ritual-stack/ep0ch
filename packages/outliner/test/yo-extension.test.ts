@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { argsOf, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryText, planOf, pressLine, quoted, quoteOf, ranked, recalled, sections, shortReason, type ActionRecord } from "../extensions/yo/yo-line";
+import { argsOf, asksHow, buttonIn, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, memoryText, planOf, planPrompt, pressLine, quoted, quoteOf, ranked, recalled, sections, shortReason, type ActionRecord } from "../extensions/yo/yo-line";
 
 const LIFT: ActionRecord = {
   name: "barrow.lift", summary: "lift the barrow above the bench as a column (reach=full: across the shed), wherever it is: the one you used last. Again drops it",
@@ -142,6 +142,33 @@ test("a quote runs only the answer model; the reply is the doc's words, with its
   expect(text).toMatch(/> > \[!note\]- \d+ steps\n> > - read memory: 0 notes/);
   expect(t.models()).toEqual(["answer"]);
 }, 30_000);
+
+test("PIE-1629: a how-do-I question never reaches the act model, even when the answer model says act; a command does", async () => {
+  // The answer model here always says act: what it did, unprompted, in one of two fresh doors.
+  const t = await setup({ kind: "act", action: "barrow.lift" });
+  for (const asked of ["how do I lift the barrow again", "how can I lift the barrow?", "what's the key for lifting the barrow", "is there a way to lift the barrow"]) {
+    const note = await t.client.request<{ id: string }>({ action: "create", text: `Shed list\n\n@yo ${asked}`, author: "user" } as never);
+    const text = await until(`the answer to ${asked}`, () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+    expect(text).toContain('::button{label="▲ lift"');
+    expect(text).toContain("a question: say `@yo do it` to press it");
+    expect(text).not.toContain("refused");
+  }
+  expect(t.models()).toEqual(["answer", "answer", "answer", "answer"]);
+  const command = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo lift the barrow", author: "user" } as never);
+  await until("the command's answer", () => t.store.require(command.id).text.includes("@yo answered"));
+  expect(t.models()).toEqual(["answer", "answer", "answer", "answer", "answer", "act"]);
+}, 60_000);
+
+test("a question is told by its words, not by the model: how, what, where, is there; a command or a polite ask to do it is not one", () => {
+  for (const q of ["how do I lift the agent again", "How can I lift the agent?", "what's the key for lift", "whats the key to lift it", "is there a way to lift the agent", "where is the lift", "which key lifts the agent", "lift the agent?", "can I lift the agent from a shell", "tell me how to lift the agent", "show me how to lift it", "the key for lifting the agent"])
+    expect([q, asksHow(q)]).toEqual([q, true]);
+  for (const c of ["lift the agent", "lift the agent again", "do it", "please lift the agent", "can you lift the agent", "could you lift the agent for me", "drop the agent"])
+    expect([c, asksHow(c)]).toEqual([c, false]);
+  // A question's prompt doesn't offer the model an act at all.
+  const prompt = (asked: string) => planPrompt({ asked, question: asksHow(asked), candidates: [LIFT], docs: [], habits: [] });
+  expect(prompt("how do I lift the barrow")).not.toContain('"kind":"act"');
+  expect(prompt("lift the barrow")).toContain('"kind":"act"');
+});
 
 test("banter gets one line in character and no steps, and memory is left alone", async () => {
   const t = await setup({ kind: "chat", line: "yo mama reads the manual." });

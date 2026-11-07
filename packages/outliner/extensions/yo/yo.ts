@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { actPrompt, argsOf, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -188,12 +188,15 @@ async function respond() {
   const docs = (await Promise.all(["scripts", "extensions"].map(d => ep0ch(["docs", d]).catch(() => "")))).flatMap(d => sections(d, asked));
   if (docs.length) steps.push(`read ${docs.length} doc section${docs.length === 1 ? "" : "s"}`);
 
+  // Code reads the words first: a question never offers the model an act, and never presses (PIE-1629).
+  const question = asksHow(asked);
+  if (question) steps.push("a question by its words: quote and button, nothing pressed");
   const answerCommand = config.answer ?? defaults.answer.default;
   let plan: Plan | null = null;
   let trouble = "";
   if (answerCommand.length) {
     try {
-      plan = planOf(await model(answerCommand, "the answer model", planPrompt({ asked, candidates, docs, habits: known.filter(m => m.kind === "habit").map(m => m.text), ...(tile ? { tile } : {}) })), candidates, docs);
+      plan = planOf(await model(answerCommand, "the answer model", planPrompt({ asked, question, candidates, docs, habits: known.filter(m => m.kind === "habit").map(m => m.text), ...(tile ? { tile } : {}) })), candidates, docs);
       if (!plan) trouble = "the model's pick wasn't one of what it was offered";
     } catch (error) { trouble = firstLine(error); steps.push(`no answer from the model: ${trouble}`); }
   } else trouble = "no model set";
@@ -208,7 +211,9 @@ async function respond() {
   if (plan.kind === "doc") return ok({ message: "from the docs", reply: withSteps([`> ${plan.quote}`]) });
 
   const action = candidates.find(a => a.name === (plan as { action: string }).action)!;
-  if (plan.kind === "quote") return ok({ message: said(action), reply: withSteps(quoteAnswer(action, asked, plan.args)) });
+  // A question is quoted, whatever the model picked: whether to press is code's (PIE-1629), and only a command presses.
+  if (plan.kind === "act" && question) steps.push("the model said press it; it's a question, so code quoted it");
+  if (plan.kind === "quote" || question) return ok({ message: said(action), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? "a question: say `@yo do it` to press it." : undefined)) });
 
   // An act: code steps up, once, to the model that presses.
   const actCommand = config.act ?? defaults.act.default;
