@@ -793,7 +793,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           const rest = [`${[...code.join("\n")].length.toLocaleString("en")} chars`, ...(drawn.entry.state === "loading" ? [waitingText()] : []), ...(env.pictureSource ? [env.pictureSource] : [])];
           const fits = (t: string, m: string) => vwidth(`${t} · ${m}`) <= room;
           let said = `▣ ${picture.label}`;
-          const size = sized.find(m => fits(said, m));
+          // With a warning, the short size when the long one would leave the warning no room to be read.
+          const size = sized.find(m => fits(said, wrong.length ? `${m} · ${wrong[0]!.slice(0, 24)}` : m)) ?? sized.find(m => fits(said, m));
           if (size) said += ` · ${size}`;
           if (wrong.length) said += ` · ${wrong.join(" · ")}`;
           said = rest.reduce((t, m) => (fits(t, m) ? `${t} · ${m}` : t), said);
