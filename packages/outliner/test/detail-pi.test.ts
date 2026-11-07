@@ -42,7 +42,7 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
     (context.selected ? { kind: "block" as const, blockId: context.selected.id } : null);
   const document = overrides.document ??
     (target?.kind === "block"
-      ? { kind: "ready" as const, document: { kind: "block" as const, target, context } }
+      ? { kind: "ready" as const, read: "ready" as const, document: { kind: "block" as const, target, context } }
       : { kind: "empty" as const });
   return {
     context,
@@ -54,21 +54,18 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
     resolvedProvenance: null,
     resolvedSelectedText: "",
     projectedSelectedText: "",
-    readStatus: "ready",
     embedStates: [],
     embedRanges: [],
     embedBackgroundEnabled: true,
     workIdPrefix: null,
     resolvedBreadcrumb: "",
-    mode: "preview",
+    mode: {kind: "preview"},
     buffer: new TextBuffer(),
     referencedFile: null,
     previewOffset: 0,
     editorVisualOffset: 0,
     fileOffset: 0,
     fileCursor: 0,
-    selectionAnchor: null,
-    annotationRange: null,
     annotationThreads: [],
     attention: emptyAttentionState("detail-test"),
     attentionRevealSourceLine: null,
@@ -239,7 +236,7 @@ describe("Pi TUI Detail component", () => {
     const detailState = state({
       context: { selected, ancestors: [], children: [] },
       resolvedSelectedText: "resolved display source",
-      mode: "edit",
+      mode: {kind: "edit"},
       buffer: new TextBuffer(selected.text),
     });
     const component = new DetailPiComponent({
@@ -317,7 +314,7 @@ describe("Pi TUI Detail component", () => {
   test("marks the focused split region and advertises local focus routing", () => {
     const detailState = state({
       context: { selected: block("draft"), ancestors: [], children: [] },
-      mode: "edit",
+      mode: {kind: "edit"},
       buffer: new TextBuffer("draft"),
       
     });

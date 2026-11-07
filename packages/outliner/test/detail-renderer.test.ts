@@ -85,10 +85,11 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
   };
   const document = overrides.document ??
     (target?.kind === "block"
-      ? { kind: "ready" as const, document: { kind: "block" as const, target, context } }
+      ? { kind: "ready" as const, read: "ready" as const, document: { kind: "block" as const, target, context } }
       : target?.kind === "resource" && resource
       ? {
           kind: "ready" as const,
+          read: "ready" as const,
           document: {
             kind: "resource" as const,
             target,
@@ -117,21 +118,18 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
     resolvedProvenance: null,
     resolvedSelectedText: "",
     projectedSelectedText: "",
-    readStatus: "ready",
     embedStates: [],
     embedRanges: [],
     embedBackgroundEnabled: true,
     workIdPrefix: null,
     resolvedBreadcrumb: "",
-    mode: "preview",
+    mode: {kind: "preview"},
     buffer: new TextBuffer(),
     referencedFile: null,
     previewOffset: 0,
     editorVisualOffset: 0,
     fileOffset: 0,
     fileCursor: 0,
-    selectionAnchor: null,
-    annotationRange: null,
     annotationThreads: [],
     attention: emptyAttentionState("detail-test"),
     attentionRevealSourceLine: null,
@@ -381,7 +379,7 @@ describe("detail ANSI renderer", () => {
     const detail = state({
       context: { selected, ancestors: [], children: [] },
       resolvedBreadcrumb: "Block",
-      mode: "edit",
+      mode: {kind: "edit"},
       buffer,
       editorVisualOffset: 3,
       completion: {
@@ -424,7 +422,7 @@ describe("detail ANSI renderer", () => {
     const rendered = renderDetailLines(state({
       context: { selected, ancestors: [], children: [] },
       resolvedBreadcrumb: "Block",
-      mode: "edit",
+      mode: {kind: "edit"},
       buffer,
       completion: {
         start: 0,
@@ -459,10 +457,9 @@ describe("detail ANSI renderer", () => {
       context: { selected: fileBlock, ancestors: [], children: [] },
       resolvedBreadcrumb: "Source",
       resolvedSelectedText: "Source",
-      mode: "file",
+      mode: {kind: "file", lineAnchor: 0},
       referencedFile,
       fileCursor: 2,
-      selectionAnchor: 0,
     });
 
     const fileFrame = renderDetailLines(fileState, { width: 48, height: 9 }).join("\n");
@@ -546,7 +543,7 @@ describe("detail ANSI renderer", () => {
       context: { selected: annotationBlock, ancestors: [], children: [] },
       resolvedBreadcrumb: "Annotation",
       resolvedSelectedText: annotationBlock.text,
-      mode: "annotation",
+      mode: {kind: "annotation"},
       referencedFile,
       annotationThreads: [{
         block: annotationBlock,
@@ -629,7 +626,7 @@ test("wraps wide edit text while reserving one cell for the software cursor", ()
   buffer.moveEnd();
   const lines = renderDetailLines(state({
     context: { selected, ancestors: [], children: [] },
-    mode: "edit",
+    mode: {kind: "edit"},
     buffer,
   }), { width: 10, height: 8 });
 
@@ -645,7 +642,7 @@ test("keeps a joined emoji intact when its grapheme exactly fills a wrapped row"
   buffer.moveEnd();
   const lines = renderDetailLines(state({
     context: { selected, ancestors: [], children: [] },
-    mode: "edit",
+    mode: {kind: "edit"},
     buffer,
   }), { width: 8, height: 8 });
 
@@ -660,7 +657,7 @@ test("wraps a long physical editor line without ellipsizing or changing its sour
   buffer.moveEnd();
   const lines = renderDetailLines(state({
     context: { selected, ancestors: [], children: [] },
-    mode: "edit",
+    mode: {kind: "edit"},
     buffer,
   }), { width: 18, height: 10 });
 
@@ -682,7 +679,7 @@ test("renders a selection across wrapped rows with the cursor at its active edge
   buffer.moveWordRight(true);
   const lines = renderDetailLines(state({
     context: { selected, ancestors: [], children: [] },
-    mode: "edit",
+    mode: {kind: "edit"},
     buffer,
   }), { width: 18, height: 10 });
 
@@ -756,7 +753,6 @@ test("renders exact Detail attention with a non-color rail and return summary", 
     target: { kind: "block", blockId: selected.id },
     resolvedSelectedText: selected.text,
     projectedSelectedText: selected.text,
-    readStatus: "ready",
     attention: attentionClientState("detail-test", [mark], 2),
   }), { width: 48, height: 10 });
   const visible = lines.map(stripTerminalSequences);

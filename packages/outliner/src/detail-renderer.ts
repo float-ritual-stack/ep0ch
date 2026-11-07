@@ -30,6 +30,7 @@ import {
   selectedDetailFileRange,
   type DetailState,
   type DetailViewport,
+  type DetailMode,
 } from "./detail-controller";
 import { layoutDetailEditor } from "./detail-editor-layout";
 import { openDestinationChooserHelp } from "./open-destination-chooser";
@@ -259,7 +260,7 @@ export function renderDetailHeader(
 export function renderDetailFooter(
   state: Readonly<DetailState>,
   width: number,
-  mode: DetailState["mode"] = state.mode,
+  mode: DetailMode = state.mode.kind,
   helpText = detailHelpText(mode),
   chooserHelpText = openDestinationChooserHelp(),
   chrome: ChromeLevel = "full",
@@ -327,11 +328,11 @@ export function renderDetailLines(
 ): string[] {
   const width = viewport.width;
   const height = viewport.height;
-  const chrome = ["edit", "select", "comment"].includes(state.mode) ? "full" : options.header?.chrome ?? "full";
+  const chrome = ["edit", "select", "comment"].includes(state.mode.kind) ? "full" : options.header?.chrome ?? "full";
   const output = renderDetailHeader(state, width, {...options.header,chrome});
   const helpText = options.helpText ??
-    (options.helpPrefix ? `${options.helpPrefix}  ${detailHelpText(state.mode)}` : detailHelpText(state.mode));
-  const footer = renderDetailFooter(state,width,state.mode,helpText,options.chooserHelpText,chrome,options.hints);
+    (options.helpPrefix ? `${options.helpPrefix}  ${detailHelpText(state.mode.kind)}` : detailHelpText(state.mode.kind));
+  const footer = renderDetailFooter(state,width,state.mode.kind,helpText,options.chooserHelpText,chrome,options.hints);
   const bodyHeight = Math.max(1, height - output.length - footer.length);
   const bodyStart = output.length;
   let sourceRowsInViewport: number | undefined;
@@ -346,7 +347,7 @@ export function renderDetailLines(
     output.push(fitDynamicText(state.document.message, width));
   } else if (state.document.kind === "empty") {
     output.push("Select a block or resource in the outliner pane.");
-  } else if (state.mode === "edit" || state.mode === "select" || state.mode === "comment") {
+  } else if (state.mode.kind === "edit" || state.mode.kind === "select" || state.mode.kind === "comment") {
     const editorHeight = detailVisibleEditorHeight(state, viewport);
     const layout = layoutDetailEditor(
       state.buffer.lines,
@@ -385,14 +386,14 @@ export function renderDetailLines(
     output.push(fitDynamicText(inspector.filterDraft !== null
       ? `Filter: ${inspector.filterDraft}▏ · Enter applies · Esc cancels`
       : propertyInspectorHint(state, options.actionKeymap ?? DEFAULT_OUTLINER_ACTION_KEYMAP), width));
-  } else if (state.mode === "annotation") {
+  } else if (state.mode.kind === "annotation") {
     for (const line of buildDetailAnnotationView(state, width).slice(
       state.previewOffset,
       state.previewOffset + bodyHeight,
     )) {
       output.push(line);
     }
-  } else if (state.mode === "file" && state.referencedFile) {
+  } else if (state.mode.kind === "file" && state.referencedFile) {
     const file = state.referencedFile;
     const range = selectedDetailFileRange(state);
     const attention = currentAttentionMark(state.attention, detailBlockTarget(state)?.blockId ?? null);
@@ -443,7 +444,7 @@ export function renderDetailLines(
   }
 
   while (output.length < height - footer.length) output.push("");
-  if (state.mode === "preview") {
+  if (state.mode.kind === "preview") {
     const mark = currentAttentionMark(state.attention, detailBlockTarget(state)?.blockId ?? null);
     const count = sourceRowsInViewport ?? output.length - bodyStart;
     const decorated = decorateAttentionLines(

@@ -24,11 +24,11 @@ function reader() {
   let releases = 0;
   const controller = {
     state: {
-      target: {kind: "block", blockId: "retained"}, mode: "preview", selectionAnchor: null as number | null,
+      target: {kind: "block", blockId: "retained"}, mode: {kind: "preview"} as {kind: string; lineAnchor?: number | null},
       destinationChooser: {active: false}, propertyInspector: {edit: null, filterDraft: null},
       backlinks: {filterDraft: null}, completion: null, buffer: {text: "retained draft"},
     },
-    isBufferMode() { return this.state.mode === "edit" || this.state.mode === "comment"; },
+    isBufferMode() { return this.state.mode.kind === "edit" || this.state.mode.kind === "comment"; },
     releaseDocument() { releases++; },
   };
   return {state: controller.state, controller: controller as unknown as DetailController, releases: () => releases};
@@ -37,8 +37,7 @@ function reader() {
 test("Escape closes only focused Preview and leaves Current draft and selection intact", async () => {
   const current = reader(); const preview = reader(); let released = 0;
   const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {released++;});
-  current.state.mode = "edit";
-  current.state.selectionAnchor = 4;
+  current.state.mode = {kind: "edit"};
   const before = JSON.stringify(current.controller.state);
   surface.previewVisible = true;
   expect(await surface.escapePreview()).toBe(false);
@@ -57,10 +56,10 @@ test("Escape defers to Preview local editors, filters, chooser and source select
   const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
   surface.previewVisible = true; surface.focused = "preview";
   for (const mode of ["edit", "comment", "select"] as const) {
-    preview.state.mode = mode;
+    preview.state.mode = {kind: mode};
     expect(await surface.escapePreview()).toBe(false);
   }
-  preview.state.mode = "preview";
+  preview.state.mode = {kind: "preview"};
   preview.controller.state.destinationChooser.active = true;
   expect(await surface.escapePreview()).toBe(false);
   preview.controller.state.destinationChooser.active = false;
@@ -77,8 +76,7 @@ test("Escape defers to file-line selection without releasing Preview", async () 
   const current = reader(); const preview = reader(); let released = 0;
   const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {released++;});
   surface.previewVisible = true; surface.focused = "preview";
-  preview.state.mode = "file";
-  preview.state.selectionAnchor = 0;
+  preview.state.mode = {kind: "file", lineAnchor: 0};
   const before = JSON.stringify(preview.state);
 
   expect(await surface.escapePreview()).toBe(false);
@@ -89,7 +87,7 @@ test("Escape defers to file-line selection without releasing Preview", async () 
   expect(released).toBe(0);
 
   // Once the file reader has cleared its selection, the next Escape can close it.
-  preview.state.selectionAnchor = null;
+  preview.state.mode = {kind: "file", lineAnchor: null};
   expect(await surface.escapePreview()).toBe(true);
   expect(preview.releases()).toBe(1);
   expect(released).toBe(1);
