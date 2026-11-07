@@ -1,5 +1,6 @@
 // The door's own hint parts and hot-line rows (PIE-1293): the keys a frame, a foot or a BBS list's hot line names,
 // each on the action it runs, so a rebind shows wherever they're drawn (partsHint, hotParts). No literal key lists.
+import { C, fg } from "./style";
 import { ESCAPE_CHORD } from "./desk/pty";
 import { keyCaption } from "./surface/actions";
 import { effective } from "./surface/keymap";
@@ -26,6 +27,8 @@ export const listKeys = (enter: string, then: readonly ModeKey[] = []): readonly
 export const BACK_KEY: readonly ModeKey[] = [{ key: "q", action: "screen.back", label: "back" }];
 /** The BBS reader's n and p (message.next, message.previous): parts, so a click on each reads on as its key does. */
 export const messageNavHint = () => partsHint([{ key: "n", action: "message.next", label: "next" }, { key: "p", action: "message.previous", label: "prev" }]);
+/** A float can lie over the hint row, so with the keys in it its own foot says what the next Esc closes too (PIE-1614). */
+export const escFoot = (hint: string, closes: string | null) => (closes ? [partsHint([{ action: "esc.close", key: "esc", label: closes }]), hint].join(fg(C.dark) + " · ") : hint);
 /** The drawer's folded title row: + or ⏎ opens it, esc leaves. */
 export const drawerTitleHint = () => partsHint([DRAWER_OPEN_PART, DRAWER_LEAVE_PART]);
 /**

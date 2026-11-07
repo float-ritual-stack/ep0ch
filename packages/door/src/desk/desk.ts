@@ -2,7 +2,7 @@ import { Again } from "../arm";
 import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, escRead, type EscRead, type EscRung } from "../esc-rule";
 import { deskEscFront, deskEscSteps, deskLiftEsc, type DeskEscHost } from "./desk-esc";
 import { returnPlace, mapPlace } from "./return-place";
-import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
+import { AGAIN_PART, LEAVE_PART, readerHeldParts, escFoot } from "../hint-parts";
 import type { Visit } from "../trail";
 import { openCause, opening, landed as openLanded } from "./open-event";
 import type { DoorOpen } from "@ep0ch/outline-core/door-open";
@@ -4089,9 +4089,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
-    // A float can lie over the hint row, so with the keys in it its own foot says what the next Esc closes too (PIE-1614).
-    const escSaid = keys && float && !no ? (this.ctx?.esc?.hint() ?? null) : null;
-    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}${modeHint([{ key: "enter", action: "tile.open", label: "opens it" }], () => undefined)} · any other key cancels` : escSaid ? `${fg(C.grey)}esc: ${escSaid}${fg(C.dark)} · ${hint}` : hint, Math.max(0, r.cols - 4)).text;
+    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}${modeHint([{ key: "enter", action: "tile.open", label: "opens it" }], () => undefined)} · any other key cancels` : escFoot(hint, keys && float && !no ? this.ctx?.esc?.hint() ?? null : null), Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     if (badgeWidth) canvas.text(at.liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
     const row = r.row, button = (kind: Press["kind"], x: number, glyph: string, sgr: string, does: Pick<Press, "label" | "action" | "args" | "alt" | "altMods">) =>
