@@ -22,7 +22,8 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
   const writes: string[] = [];
   let board: SocketBoard, app: App, desk: Desk, key: (k: Key) => void = () => {};
   let beans: Msg, plan: Msg, hero: Msg, sized: Msg;
-  const decoder = new KeyDecoder({ cols: 120, rows: 44, cellW: 9, cellH: 16, kitty: true } as never);
+  const INFO = { cols: 120, rows: 44, cellW: 9, cellH: 16, kitty: true };
+  const decoder = new KeyDecoder(INFO);
   const D = () => desk as any;
 
   // ── the terminal's bytes ───────────────────────────────────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
     hero = await board.createBlock(null, `Evening beds\n[img::${SHOWCASE_ASSETS}/evening-beds.jpg] [layout::hero] [height::8] [fit::cover]\n\nThe beds at dusk, with the shed lit.\nWater them before the light goes.`);
     for (const n of [1, 2, 3]) await board.createBlock(null, `Landing ${n} [type::gesture-landing] [landed::2026-10-2${n}]`);
     sized = await board.createBlock(null, `Sizing log\n\n${TIMELINE}\n\nThe log ends here.`);
-    const term = { info: { cols: 120, rows: 44, cellW: 9, cellH: 16, kitty: true }, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: (k: Key) => void) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: INFO, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: (k: Key) => void) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     decoder.keyHandler = k => key(k);
     board.subscribe(e => app.event(e));
@@ -168,6 +169,24 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
       await D().dispatch.press("sources.close", {}, T);
       selectClean("Water the seedlings");
       expect(moved.row).toBe(f.row - 2);
+    });
+
+    test("sources: a drag over its rows selects and copies, and a drag in the note then selects there", async () => {
+      await open(plan, "Water the seedlings");
+      await D().dispatch.press("sources.open", {}, T);
+      await D().dispatch.press("sources.place", { place: "split" }, T);
+      await until(() => { try { where("generated"); return true; } catch { return false; } }, "the Sources rows");
+      const r = where("generated");
+      writes.length = 0;
+      const spy = watch(surface());
+      down(r.x, r.y); drag(r.x + 1, r.y); drag(r.x + 4, r.y);
+      expect(surface().sourcesMode!.view.pressed).not.toBeNull();
+      up(r.x + 4, r.y);
+      spy.stop();
+      expect(spy.did).toEqual(["sources.select", "sources.select", "sources.select", "sources.copy"]);
+      expect(surface().sourcesMode!.view.pressed).toBeNull();
+      await D().dispatch.press("sources.close", {}, T);
+      selectClean("Water the seedlings");
     });
 
     test("figure: the held edge previews, its release saves once, and a drag in the note selects", async () => {
@@ -291,6 +310,20 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
   });
 
   describe("what ends a press under it", () => {
+    test("a press on Sources' rows whose release never came is let go by the next press", async () => {
+      await open(plan, "Water the seedlings");
+      await D().dispatch.press("sources.open", {}, T);
+      await D().dispatch.press("sources.place", { place: "split" }, T);
+      await until(() => { try { where("generated"); return true; } catch { return false; } }, "the Sources rows");
+      const r = where("generated");
+      down(r.x, r.y); drag(r.x + 2, r.y);
+      const w = where("Water the");
+      down(w.x, w.y);
+      expect(surface().sourcesMode!.view.pressed).toBeNull();
+      up(w.x, w.y);
+      await D().dispatch.press("sources.close", {}, T);
+    });
+
     test("a tile closing: the release on its link opens nothing", async () => {
       const made = await app.act({ action: "tile.open", args: { kind: "reader", note: plan.id, where: "right" }, as: "gesture-test" }) as { name: string };
       await open(plan, "Water the", made.name);
@@ -366,7 +399,7 @@ describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () =
       expect((await board.get(plan.id))!.text).toBe(plan.text);
     });
 
-    test("a figure's save under way: a press on the note isn't lost to it", async () => {
+    test("a hero's save under way: a press on the note isn't lost to it", async () => {
       await open(hero, "The beds at dusk");
       const o = tile(), s = surface() as any, runKey = s.runKey;
       let land = () => {};

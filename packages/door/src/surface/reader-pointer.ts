@@ -52,7 +52,7 @@ export type ReaderGesture =
   | { kind: "form"; shift: boolean }
   | { kind: "reply"; from: { block: Msg; y: number } }
   | { kind: "sources"; letGo: () => void }
-  | { kind: "field"; letGo: () => void }
+  | { kind: "field" }
   | { kind: "control" };
 
 export interface HeroDrag { kind: "hero"; part: "height" | "focus"; x: number; y: number; rows: number; cols: number; focus: Focus; line: number; now?: { height?: number; focus?: Focus } }
@@ -82,7 +82,7 @@ export class ReaderPointer {
   hold<G extends ReaderGesture>(g: G): G { this.letGo(); this.gesture = g; return g; }
 
   /** Over, with nothing fired: no click, no save, no copy. What it selected stays selected. */
-  end() { this.letGo(); this.clicks.cancel(); }
+  end() { if (!this.gesture) return; this.letGo(); this.clicks.cancel(); }
 
   /** The release: it's over, and the caller does what its kind does. */
   take(): ReaderGesture | null { const g = this.gesture; this.gesture = null; return g; }
@@ -99,6 +99,6 @@ export class ReaderPointer {
     const g = this.gesture;
     this.gesture = null;
     if (g?.kind === "figure") resizeEnded();
-    if (g?.kind === "sources" || g?.kind === "field") g.letGo();
+    if (g?.kind === "sources") g.letGo();
   }
 }

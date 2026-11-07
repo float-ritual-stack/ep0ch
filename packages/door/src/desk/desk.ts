@@ -6909,7 +6909,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (this.entered.in(p)) this.entered.clear();
     }
     const g = this.gesture;
-    if ((g?.kind === "float" || g?.kind === "tile" || g?.kind === "head") && g.id === id || (g?.kind === "reader" || g?.kind === "edit") && g.pane === p) { if (g.kind === "float" && g.size) resizeEnded(); this.gesture = null; }
+    if ((g?.kind === "float" || g?.kind === "tile" || g?.kind === "head") && g.id === id || (g?.kind === "reader" || g?.kind === "edit") && g.pane === p) { if (g.kind === "float" && g.size) resizeEnded(); if (g.kind === "reader" || g.kind === "edit") g.pane.surface.endPress(); this.gesture = null; }
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     for (const set of this.selected.values()) set.delete(id);
     for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);

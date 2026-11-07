@@ -8083,7 +8083,7 @@ export class NoteSurface {
     }
     if (float === "sources") { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
     // On a property value being typed: the line field's own press (its cursor, a word on a double click), PIE-1290.
-    if (this.panel?.fieldMouse("down", x, y)) { pointer.hold({ kind: "field", letGo: () => { this.panel?.fieldMouse("up", x, y); } }); host.redraw(); return; }
+    if (this.panel?.fieldMouse("down", x, y)) { pointer.hold({ kind: "field" }); host.redraw(); return; }
     const n = pointer.clicks.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
