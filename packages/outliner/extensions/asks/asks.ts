@@ -90,11 +90,19 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   if (dry) { const { message, answer } = listed(`would write ${fresh.length}`, said); return done(message, { answer }); }
   const made = fresh.map(l => ({ under: linesUnder(lines, l.line), hash: hashOf(lines[l.line]!), words: wordsOf(lines[l.line]!) }));
   for (const l of fresh) lines[l.line] = withMark(lines[l.line]!, l.reads as "yes" | "unsure");
-  const outcome = await patch({ id: note, revision: read.revision, text: read.text }, lines.join("\n"));
-  // Remembered either way: a proposal Evan dismisses is his answer, and it isn't sent again on the next save.
+  // Remembered either way: a proposal Evan dismisses is his answer, and it isn't sent again on the next save. Written before
+  // the chips: a save the moment a chip shows is compared with its count, and an agent's line under it updates that count.
   const page = await outline<{ block?: { id: string } }>({ action: "pages.resolve", address: "ext-asks" });
+  const written: string[] = [];
   for (const r of made) {
-    await outline({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${r.words} [machine::asks] [ext.generated::asks] [asks.note::${note}] [asks.line::${r.hash}] [asks.under::${r.under}]` });
+    written.push((await outline<{ id: string }>({ action: "create", ...(page.block ? { parentId: page.block.id } : {}), text: `${r.words} [machine::asks] [ext.generated::asks] [asks.note::${note}] [asks.line::${r.hash}] [asks.under::${r.under}]` })).id);
+  }
+  let outcome: "applied" | "proposed";
+  try { outcome = await patch({ id: note, revision: read.revision, text: read.text }, lines.join("\n")); }
+  catch (error) {
+    // Nothing landed: the next save asks again.
+    for (const id of written) await outline({ action: "delete", blockId: id });
+    throw error;
   }
   const { message, answer } = listed(`${outcome === "proposed" ? "proposed" : "wrote"} ${fresh.length}${outcome === "proposed" ? ": you were typing there" : ""}`, said);
   done(message, { answer });
@@ -108,11 +116,22 @@ async function takeOff(block: Block, which: (mark: Mark, lines: readonly string[
   done(`${outcome === "proposed" ? "proposed taking" : "took"} ${going.length} off: ${why}`);
 }
 
+/** How many lines sat under each line, by its hash, in your newest save of the note. */
+async function underInYourSave(note: string): Promise<Map<string, number>> {
+  const { revisions } = await outline<{ revisions: { revision: number; author?: string }[] }>({ action: "block.revisions", blockId: note });
+  const yours = revisions.find(r => r.author === "user")?.revision;
+  if (yours === undefined) return new Map();
+  const lines = (await outline<{ text: string }>({ action: "block.revisions", blockId: note, revision: yours })).text.split("\n");
+  return new Map(lines.map((line, i) => [hashOf(line), linesUnder(lines, i)] as const));
+}
+
 async function clear(note: string): Promise<void> {
   const block = await outline<Block>({ action: "get", blockId: note });
   if (isClosed(block.properties)) return takeOff(block, () => true, "the note is done");
   const seen = await records(note), person = input.requestedBy?.author === "user";
-  const replied = (i: number, lines: readonly string[]) => person && linesUnder(lines, i) > (seen.get(hashOf(lines[i]!))?.under ?? 0);
+  // A run starts after its quiet wait and behind others: an agent may have saved since, so a reply is counted in the text you saved.
+  const underYours = person ? await underInYourSave(note) : new Map<string, number>();
+  const replied = (i: number, lines: readonly string[]) => (underYours.get(hashOf(lines[i]!)) ?? 0) > (seen.get(hashOf(lines[i]!))?.under ?? 0);
   // An agent's own lines under its ask are no reply: they count as already there, so your next save isn't taken for one.
   if (!person) {
     const lines = block.text.split("\n");

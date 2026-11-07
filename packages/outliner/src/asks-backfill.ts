@@ -16,16 +16,17 @@ export async function asksBackfill(board: Sender, o: { since: string; write: boo
   const list = await board.send("extensions.list", {}, 60_000) as { rules?: { name: string; match: { query?: string } }[] };
   const query = list.rules?.find(rule => rule.name === "asks/settle")?.match.query;
   if (!query) { io.err(`ep0ch review asks: ${board.address.outline} has no asks extension: ep0ch ext add asks --outline-folder <that outline's folder>`); return 1; }
-  // The whole window is listed before anything is read: a write moves a note up "updated", which would shift later pages.
-  type Note = { id: string; author?: string; actorId?: string; text: string };
+  // The whole window is listed before anything is read, oldest note first: a note saved meanwhile keeps its place, and a
+  // new one lands after the last page, so no page shifts. Read newest save first, as a run cut short would want.
+  type Note = { id: string; author?: string; actorId?: string; updatedAt: string; text: string };
   const found: Note[] = [];
   for (let offset: number | undefined = 0; offset !== undefined;) {
-    const page = await board.send("blocks.query", { query: { where: `(${query}) AND updated >= -${o.since}`, sort: "updated desc", limit: o.pageSize ?? PAGE, ...(offset ? { offset } : {}) } }, 60_000) as { blocks: Note[]; nextOffset?: number };
+    const page = await board.send("blocks.query", { query: { where: `(${query}) AND updated >= -${o.since}`, sort: "created", limit: o.pageSize ?? PAGE, ...(offset ? { offset } : {}) } }, 60_000) as { blocks: Note[]; nextOffset?: number };
     found.push(...page.blocks);
     offset = page.nextOffset;
   }
   // A note you alone wrote isn't marked, as the rule hears only agents.
-  const notes = found.filter(b => b.author === "agent" && b.actorId && !/^(?:ext:|jev\/)/.test(b.actorId)).slice(0, o.limit ?? Infinity);
+  const notes = found.filter(b => b.author === "agent" && b.actorId && !/^(?:ext:|jev\/)/.test(b.actorId)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, o.limit ?? Infinity);
   let marked = 0, failed = 0;
   for (let i = 0; i < notes.length; i += AT_ONCE) {
     await Promise.all(notes.slice(i, i + AT_ONCE).map(async note => {

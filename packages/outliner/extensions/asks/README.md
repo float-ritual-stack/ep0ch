@@ -30,10 +30,19 @@ Once a note an agent wrote goes quiet, the lines in it that still ask you for a 
 - **Only after an agent's save.** A note you alone wrote is never marked, and a chip goes on a line once, however often it's saved.
 - **A chip you wrote is yours.** Only the chip an `[asks.derived::…]` on its line names is taken off; if you edit that chip's words it's yours too.
 - **A comment answers what it's on:** the line its words are on, a checklist item's line, or, on the whole note, every mark.
-- **Left out:** comments, proposals, snapshots, views, tool bookkeeping, EchoNet copies (`[from::…]`), records (a permission ask, a proof, a day's log, what landed, a decision: the settle rule's query in `extension.json`, yours to edit) and notes closed or parked (`status` done, closed, answered, decided, resolved, shipped, complete or verified; `work-stage` done, superseded or later; `outbox=done`; `answered`).
+- **Left out:**
+  - comments, proposals, snapshots, views, tool bookkeeping and EchoNet copies (`[from::…]`);
+  - records: a permission ask, a proof, a day's log, what landed, a decision. The settle rule's query in `extension.json` lists them, and it's yours to edit;
+  - notes closed or parked, by any of these:
+    - `status`: done, closed, answered, decided, resolved, shipped, complete or verified
+    - `work-stage`: done, superseded or later
+    - `outbox=done`, or an `answered` property
 - **Reaching one of those keys** takes the note's marks off too.
-- **A line you've seen is yours:** a line still as it was at your last save, tick or comment on the whole note isn't marked, nor is a line a comment of yours is on. What an agent writes after that is, the same words under another heading too.
-- **Jev reads it in place:** the line's heading, the item it's under and the lines either side. A line that reports what happened, says it's already answered, or speaks to someone else (an agent's own checklist) isn't marked, whatever its words.
+- **A line you've seen is yours:**
+  - not marked: a line still as it was at your last save, tick or comment on the whole note, and a line a comment of yours is on;
+  - marked: what an agent writes after that, the same words under another heading too.
+- **Jev reads it in place:** the line's heading, the item it's under and the lines either side.
+  - Not marked, whatever its words: a line that reports what happened, says it's already answered, or speaks to someone else, such as an agent's own checklist.
 - **Jev can't be asked?** Nothing is written; the rule's last run says why and the next save tries again.
 - **While you're typing there,** it comes as a proposal beside the note instead; dismiss it and that line isn't asked about again.
 - **What it remembers:** a `[machine::asks]` record under this page for each line it marked.

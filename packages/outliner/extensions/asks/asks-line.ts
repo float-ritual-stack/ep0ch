@@ -113,7 +113,7 @@ const DONE: readonly (readonly [key: string, value?: string])[] = [
 ];
 type Property = { key: string; value?: string; values?: string[] };
 const valuesOf = (p: Property) => p.values ?? (p.value === undefined ? [] : [p.value]);
-export const isClosed = (properties: readonly Property[] = []) => properties.some(p => DONE.some(([key, value]) => p.key === key && (value === undefined || valuesOf(p).includes(value))));
+export const isClosed = (properties: readonly Property[] = []) => properties.some(p => DONE.some(([key, value]) => p.key === key && (value === undefined || valuesOf(p).some(v => v.toLowerCase() === value))));
 
 /**
  * The lines of `after` still there from `before`, by words (chips and a box's mark aside), each occurrence once: common

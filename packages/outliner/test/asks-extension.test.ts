@@ -82,7 +82,7 @@ async function setup(past: readonly string[] = [], ruleQuietMs = 100) {
   const marked = (id: string, count = 1) => until(`${count} marks on ${id}`, () => { const text = store.require(id).text; return (text.match(/\[asks\.derived::/g)?.length ?? 0) === count ? text : null; });
   const settled = async () => { await Bun.sleep(400); await until("the rules to finish", async () => true); };
   const waiting = () => client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "needs", propertyScope: "all", limit: 50 } });
-  return { older, store, client, write, edit, marked, settled, waiting, asked };
+  return { older, store, server, client, write, edit, marked, settled, waiting, asked };
 }
 
 test("the table: a sure ask gets a needs chip on its line, an unsure one its own lane, a no nothing, a filed top box nothing", async () => {
@@ -469,6 +469,58 @@ test("a line of nothing but chips is no ask, whatever its chips say", async () =
   const { said } = await dryRun(t);
   expect(t.asked.length).toBe(before);
   expect(said).toContain("0 would be written");
+});
+
+test("a person's run reads what that person saved: an agent's line written before the run starts is no reply", async () => {
+  const t = await setup(["Yard\n\nSome text.\n\n- Should the hedge be low?"], 60_000);
+  const note = t.older[0]!;
+  await t.client.request({ action: "extensions.act", extension: "asks", extensionAction: "settle", blockId: note.id, mutation: AGENT } as never);
+  await t.edit(note.id, text => `${text}\n\nA thought.`);
+  await t.edit(note.id, text => text.replace(/(Should the hedge be low\?[^\n]*)/, "$1\n  - An agent's thought"), AGENT);
+  // The run for the person's save was queued, and starts only now.
+  await t.client.request({ action: "extensions.act", extension: "asks", extensionAction: "clear", blockId: note.id, mutation: PERSON } as never);
+  expect(t.store.require(note.id).text).toContain("[asks.derived::");
+});
+
+test("a stopped service runs nothing still queued behind a trigger: its database may be closed by then", async () => {
+  const t = await setup();
+  const rules = (t.server as unknown as { extensionRules: { stop(): void; settle(): Promise<void>; queue(block: string, work: () => Promise<void>): void } }).extensionRules;
+  rules.stop();
+  let ran = false;
+  rules.queue("a-note", async () => { ran = true; });
+  await rules.settle();
+  expect(ran).toBe(false);
+});
+
+test("a mark's record is there before its chip, so a save right after it has a count to compare", async () => {
+  const asks = Array.from({ length: 12 }, (_, i) => `- Should the shed have ${i + 1} doors?`);
+  const t = await setup();
+  const note = await t.write(`Yard\n\nSome text.\n\n${asks.join("\n")}`);
+  await t.marked(note.id, 12);
+  const records = t.store.queryBlocks({ where: `asks.note=${note.id}`, machinery: "show", limit: 50 });
+  expect(records.blocks.length).toBe(12);
+});
+
+test("a done value reads the same in any case", async () => {
+  const t = await setup(["Yard [status::Done]\n\nSome text.\n\n- Should the shed face south?"], 60_000);
+  const { said } = await dryRun(t);
+  expect(said).not.toContain(t.older[0]!.id);
+});
+
+test("a note saved while the window is listed is listed once, and pushes no other note off a page", async () => {
+  const t = await setup(Array.from({ length: 5 }, (_, i) => `Yard ${i}\n\nSome text.\n\n- Should the shed have ${i} doors?`), 60_000);
+  const board = boardOf(t), lines: string[] = [];
+  let pages = 0;
+  const spy = { ...board, send: async (action: string, params: Record<string, unknown>) => {
+    const answer = await board.send(action, params);
+    // An agent saves the oldest note just after the first page is read: "updated desc" would move it to the front.
+    if (action === "blocks.query" && ++pages === 1) await t.edit(t.older[0]!.id, text => `${text}\n\nAn aside.`, AGENT);
+    return answer;
+  } };
+  await asksBackfill(spy, { since: "30d", write: false, pageSize: 2 }, { out: s => { lines.push(s); }, err: s => { lines.push(s); } });
+  const said = lines.join("\n");
+  for (const note of t.older) expect(said.split(note.id).length).toBe(2);
+  expect(said).toContain("5 notes read");
 });
 
 test("a chip's words fit however long the line is", () => {
