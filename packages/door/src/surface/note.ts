@@ -3257,17 +3257,18 @@ export class NoteSurface {
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const s = this.drafting!;
     if (s.holding(k, held => void this.draftKey(held, host))) { host.redraw(); return true; }
-    if (s.draft.views.raw.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
-    if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
+    // A replayed key runs no command, on this path either: it was held as text.
+    if (!s.replaying && s.draft.views.raw.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
+    if (!s.replaying && this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
-    if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
+    if (elementEdit(s.draft).key(k, (action, args = {}) => { if (!s.replaying || action !== "rich.toggle") void this.runKey(action, args, host); })) { host.redraw(); return true; }
     // A note's own edit runs actions where the person types (PIE-1076): ctrl+k lists them, ⏎ on a / line runs it.
-    if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
+    if (s.draft === this.draft && !s.replaying && !completionOf(s.draft)?.items.length) {
       const own = modeBinding(NOTE_EDIT_KEYS, k);
       if (own && !("shift" in k && k.shift)) { void this.runKey(own.action as never, (own.args ?? {}) as never, host); return true; }
       // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
       const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length, s.draft.lines, s.draft.row) : null;
-      if (here && !s.replaying && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
+      if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
     }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {

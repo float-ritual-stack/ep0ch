@@ -5924,7 +5924,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running) {
-      if (!this.closeArm.take(t.id)) { this.closeArm.arm(t.id); throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`); }
+      if (!this.pressedAgain(`close ${t.id}`)) throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`);
     }
     this.keepTrailPlace(t.id);
     const kind = this.panes.get(t.id)!.kind;
@@ -6852,7 +6852,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(this.focus), mark: m.n };
   }
   private markAt = -1;
-  private readonly closeArm = new Again<number>({ ms: 3000 });
+  /** A desk on no door yet (a test's) asks itself; on a door, its one owner lets any other press let it go. */
+  private readonly looseAgain = new Again<string>({ ms: 3000 });
+  private pressedAgain(what: string): boolean {
+    if (this.ctx?.pressedAgain) return this.ctx.pressedAgain(what);
+    if (this.looseAgain.take(what)) return true;
+    this.looseAgain.arm(what);
+    return false;
+  }
 
   // ── borders, evening out, swapping: actions too (a drag of a border ends in layout.resize) ──
 

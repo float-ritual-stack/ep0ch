@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Msg } from "../src/board";
 import { CommentSession } from "../src/comment";
-import { DraftSession, unsent, type DraftTarget, type Outcome } from "../src/draft-session";
+import { blockTarget, DraftSession, unsent, type DraftTarget, type Outcome } from "../src/draft-session";
+import { reloadKeymap } from "../src/surface/keymap";
 import { Inspector } from "../src/surface/inspector";
 import type { Key } from "../src/term";
 
@@ -172,6 +173,104 @@ describe("the session holds keys during a write (a fake target)", () => {
     expect(() => s.close(true)).toThrow("still landing");
     write.open({ ok: false, why: "offline" });
     await landing;
+    s.dispose();
+  });
+});
+
+describe("quitting or ending the door while a write is out (Codex on #1334)", () => {
+  test("what's kept at shutdown holds the keys typed during the save, and runs nothing they name", async () => {
+    const { s, d, press, target, run, write } = saving();
+    const landing = s.submit();
+    for (const c of " soon") press(char(c));
+    press({ kind: "enter" });
+    press(char("!"));
+    const copy = s.keep();
+    expect(await Bun.file(copy).text()).toBe("Sowing beans soon\n!\n");
+    expect(unsent(target.place)!.text).toBe("Sowing beans soon\n!");
+    expect(run).toEqual([]);
+    s.dispose();
+    write.open({ ok: true, revision: 2 });
+    await landing;
+    expect(d.text).toBe("Sowing beans soon\n!");     // once, however it ends
+    expect(run).toEqual([]);
+  });
+
+  test("a session disposed with keys waiting keeps them", async () => {
+    const { s, press, target, write } = saving();
+    const landing = s.submit();
+    press(char("!"));
+    s.dispose();
+    expect(unsent(target.place)!.text).toBe("Sowing beans!");
+    write.open({ ok: false, why: "offline" });
+    await landing;
+    expect(unsent(target.place)!.text).toBe("Sowing beans!");
+  });
+
+  test("a session disposed with only moves waiting keeps nothing", async () => {
+    const { s, press, target, write } = saving();
+    const landing = s.submit();
+    press({ kind: "left" });
+    s.dispose();
+    expect(unsent(target.place)).toBeNull();
+    write.open({ ok: true });
+    await landing;
+  });
+
+  test("the save landing after the door kept them doesn't take the kept text away", async () => {
+    const answer = gated<void>();
+    const m = { id: "note-kept", text: "Sowing", revision: 1, properties: [] } as unknown as Msg;
+    const target = blockTarget(m, { isNew: true, board: { update: async () => { await answer.answer; return { ...m, text: "Sowing!", revision: 2 }; } } as never });
+    const s = DraftSession.open(target, { text: "Sowing", base: 1 });
+    const host = { completer: null, run() {} };
+    s.key({ kind: "end" }, host); s.key(char("!"), host);
+    const landing = s.submit();
+    await until(() => s.status.saving, "the save");
+    s.key(char("?"), host);
+    s.keep();
+    s.dispose();
+    answer.open();
+    await landing;
+    expect(unsent(target.place)!.text).toBe("Sowing!?");
+  });
+});
+
+describe("a key rebound to a command (Codex on #1334)", () => {
+  const stateKeymap = () => join(state, "keybindings.json");
+  const bound = async <T>(map: Record<string, string[]>, then: () => Promise<T>) => {
+    await Bun.write(stateKeymap(), JSON.stringify(map));
+    process.env.EP0CH_KEYMAP = stateKeymap();
+    reloadKeymap();
+    try { return await then(); } finally { delete process.env.EP0CH_KEYMAP; rmSync(stateKeymap(), { force: true }); reloadKeymap(); }
+  };
+
+  test("edit.save on Enter: Enter during a save is a command, said and never run, so one press is one write", () => bound({ "edit.save": ["enter"] }, async () => {
+    const { s, d, write, seen } = saving();
+    const run: string[] = [];
+    const host = { completer: null, run: (cmd: string) => { run.push(cmd); if (cmd === "save") void s.submit(); }, replay: (k: Key) => s.key(k, host) };
+    const landing = s.submit();
+    s.key({ kind: "enter" }, host);
+    expect(d.note).toBe("saving · press enter again once it has saved");
+    write.open({ ok: false, why: "offline", said: "not saved: offline" });
+    await landing;
+    await Bun.sleep(5);
+    expect(run).toEqual([]);
+    expect(seen.length).toBe(1);
+    expect(d.text).toBe("Sowing beans");
+    expect(d.note).toStartWith("enter didn't run: press it again");
+    s.dispose();
+  }));
+
+  test("a replay runs no command through a host's own key path, whatever the key turns out to be", async () => {
+    const { s, write } = saving();
+    const run: string[] = [];
+    const host = { completer: null, run: (cmd: string) => { run.push(cmd); }, replay: (k: Key) => s.key(k, host) };
+    const landing = s.submit();
+    s.key({ kind: "enter" }, host);        // text now
+    await bound({ "edit.save": ["enter"] }, async () => {  // and a command by the time it comes back
+      write.open({ ok: false, why: "offline" });
+      await landing;
+    });
+    expect(run).toEqual([]);
     s.dispose();
   });
 });

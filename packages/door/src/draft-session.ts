@@ -152,7 +152,12 @@ const WRITES = new Set<Key["kind"]>(["char", "paste", "enter", "alt-enter", "bac
 const TABLE_EDITS = new Set(["draft.go", "draft.select", "draft.line", "draft.erase", "draft.cut", "draft.wrap"]);
 /** A held key that only adds text: what's safe wherever it lands. */
 const inserts = (k: Key) => k.kind === "paste" || (k.kind === "char" && !k.ctrl);
-const writes = (k: Key, d: Draft) => (WRITES.has(k.kind) || (k.kind === "alt" || k.kind === "super" || k.kind.startsWith("alt-")) && TABLE_EDITS.has(d.binding(k)?.action ?? "")) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
+const writes = (k: Key, d: Draft) => {
+  // A key the table binds (the person's keymap applied) is what it's bound to: edit.save on Enter is a command, whatever Enter usually is.
+  const bound = d.binding(k)?.action;
+  if (bound) return TABLE_EDITS.has(bound);
+  return WRITES.has(k.kind) && !(k.kind === "char" && k.ctrl && k.ch !== "a" && k.ch !== "e") && !(k.kind === "enter" && d.enterSaves);
+};
 
 export class DraftSession {
   readonly draft: Draft;
@@ -246,8 +251,10 @@ export class DraftSession {
     const a: DraftAction = completionKey(this.draft, k, completer);
     this.watchPaste(k, host);
     // A draft with nothing behind it to read (a new card, a note reply, a field) says so, whoever hosts it.
+    // A replayed key runs no command, whichever host's path it comes back by.
+    if (a === "keep" || this.replaying) return;
     if (a === "reload" && !this.target.reload) { void this.reload(); return; }
-    if (a !== "keep") host.run(a);
+    host.run(a);
   }
 
   /** What the last paste holds, when it is nothing but image files: its host's `drop` command takes it (draft.drop). */
@@ -533,9 +540,22 @@ export class DraftSession {
    * Text only agents wrote is only copied: it never covers the person's put-aside text there.
    */
   keep(): string {
+    this.typedWhileOut();
     const copy = this.draft.copyOut(this.target.label);
     if (this.persons) shelve(this.target.place, this.draft, copy);
     return copy;
+  }
+
+  /**
+   * Keys still waiting when the door is ending or the session is going (`keep`, `dispose`): no key path may be left, so
+   * they go straight into the text, where the draft's own keys put them, and nothing they could ask of a host runs. Says
+   * whether the text changed.
+   */
+  private typedWhileOut(): boolean {
+    const held = this.heldKeys, d = this.draft, was = d.text;
+    this.heldKeys = []; this.heldBack = new Set();
+    for (const { k } of held) d.key(k);
+    return d.text !== was;
   }
 
   /** The person had a hand in the text (or nobody is recorded, as for text typed before writers were kept). */
@@ -698,8 +718,12 @@ export class DraftSession {
     return a.applied;
   }
 
-  /** The surface is going away with its screen: let go of the hold, keeping nothing (keepDrafts already did). */
-  dispose() { if (this.open) this.end("closed"); }
+  /** The surface is going away with its screen: let go of the hold, keeping nothing keepDrafts already did, and keeping keys still waiting for a write. */
+  dispose() {
+    if (!this.open) return;
+    if (this.typedWhileOut()) this.keep();
+    this.end("closed");
+  }
 
   private end(how: Ended) {
     this.ended = how;
@@ -898,7 +922,7 @@ export function blockTarget(m: Msg, o: {
         const saved = await o.board.update(m.id, text, d.base, by);
         // An edit put aside on an older revision can't come back over this one: it's left to its copy on disk.
         const old = unsent(`edit:${m.id}`);
-        if (old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
+        if (s.open && old && old.base < (saved.revision ?? Infinity)) unshelve(`edit:${m.id}`);
         o.saved?.(saved, by, asked, propertyChange(d.baseProps, propertyListOf(saved)));
         return { ok: true, revision: saved.revision, result: by };
       } catch (e) {
