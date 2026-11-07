@@ -7,9 +7,11 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
+import { ScreenTile } from "../src/desk/screen-tile";
 import { SocketBoard } from "../src/socket";
 import { KeyDecoder } from "../src/term";
 import { completerOf } from "../src/surface/completer";
+import { reloadKeymap, setKeys } from "../src/surface/keymap";
 import { visible } from "../src/style";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -164,6 +166,77 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
       expect(S.passageMenu).toBe(false);
       await d.feed("]");
       expect(S.cur).toBeTruthy();
+    } finally { d.quit(); }
+  });
+
+  /** Reader and a terminal gathered into a group, the person in it. */
+  async function grouped(d: Awaited<ReturnType<typeof door>>) {
+    await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat -v", name: "kettle", where: "right" }, tile: "reader" }, USER);
+    for (const name of ["reader", "kettle"]) {
+      await d.desk.dispatch.act({ action: "tile.focus", args: {}, tile: name }, USER);
+      d.paint();
+      await d.feed("\x17 ");
+    }
+    await d.feed("\x17G");
+    await until(() => d.desk.all().some((id: unknown) => d.desk.panes.get(id) instanceof ScreenTile), "the group");
+    const tile = d.desk.all().map((id: unknown) => d.desk.panes.get(id)).find((p: unknown) => p instanceof ScreenTile) as ScreenTile;
+    await d.desk.dispatch.act({ action: "tile.focus", args: {}, tile: d.desk.nameOfPane(tile) }, USER);
+    d.paint();
+    await d.feed("\x17e");
+    expect(tile.inside).toBe(true);
+    return { tile, inner: tile.inner as any };
+  }
+
+  test("typing in a terminal in a group: the hint names nothing, and Esc is the program's (Codex on #1338)", async () => {
+    const d = await door();
+    try {
+      const { tile, inner } = await grouped(d);
+      await inner.dispatch.act({ action: "tile.focus", args: {}, tile: "kettle" }, USER);
+      await inner.dispatch.press("tile.enter", {}, "kettle");
+      const kettle = inner.pane("kettle");
+      await until(() => kettle?.running === true, "kettle runs");
+      expect(inner.rawKeys()).toBe(true);
+      d.paint();
+      expect(d.app.esc.next()).toBeNull();
+      expect(tile.escCloses()).not.toBe("the group");
+      await d.feed(ESC);
+      await sleep(150);
+      expect((kettle.text() as string[]).join("\n")).toContain("^[");
+      expect(tile.inside).toBe(true);
+    } finally { d.quit(); }
+  });
+
+  test("a binding of the person's for Esc takes the key: the hint names nothing behind it (Codex on #1338)", async () => {
+    const d = await door();
+    try {
+      await d.feed("]");
+      expect(d.app.esc.next()).toBe("the lit element");
+      const was = process.env.EP0CH_KEYMAP;
+      process.env.EP0CH_KEYMAP = join(state, "keybindings.json"); reloadKeymap();
+      try {
+        setKeys("theme.cycle", ["esc"]); reloadKeymap();
+        expect(d.app.esc.next()).toBeNull();                  // the binding runs: "the lit element" would be a lie
+        const lit = (d.reader().surface as any).cur;
+        await d.feed(ESC);
+        expect((d.reader().surface as any).cur).toBe(lit);
+      } finally { if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was; reloadKeymap(); }
+    } finally { d.quit(); }
+  });
+
+  test("in a group with something lit and the power bar over it: the group's own hint names the bar (Codex on #1338)", async () => {
+    const d = await door();
+    try {
+      const { inner } = await grouped(d);
+      await inner.dispatch.act({ action: "tile.focus", args: {}, tile: "reader" }, USER);
+      d.paint();
+      await d.feed("]");
+      expect(inner.escNextFront()).toBe("the lit element");
+      await d.app.dispatch.press("bar.open");
+      await until(() => !!d.A.bar, "the power bar");
+      const word = d.app.esc.next();
+      expect(word).toContain("power bar");
+      expect(inner.ctx.esc?.hint()).toBe(word);
+      expect(visible(inner.hints(120))).toContain(`esc: ${word}`);
     } finally { d.quit(); }
   });
 

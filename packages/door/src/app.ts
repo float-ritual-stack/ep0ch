@@ -1,4 +1,5 @@
 import { DoorEsc, type DoorEscHost } from "./esc-door";
+import type { EscRead } from "./esc-rule";
 import type { Trail } from "./trail";
 import { OpenEvents } from "./open-events";
 import { TRAIL_QUERIES } from "./trail-actions";
@@ -361,7 +362,7 @@ export interface Screen {
   /** Arguments that reopen this named screen through `screen.open` after a session handoff. */
   openArgs?(): Record<string, unknown> | null;
   /** A screen that isn't a desk: what its next Esc closes, in the hint's words (esc-rule.ts): in front of a drawer, or (`front` false) past it. */
-  escNext?(front: boolean): string | null;
+  escNext?(front: boolean): EscRead;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
   /** False: the key is not this screen's and the holder may take it (a reader framed in a tile gives ctrl+z on to the desk's layout undo, PIE-1470). */

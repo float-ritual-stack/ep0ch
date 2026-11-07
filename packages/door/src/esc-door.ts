@@ -5,7 +5,7 @@ import type { Screen } from "./app";
 import type { AgentDrawer as Drawer, DrawerRun } from "./drawer";
 import type { Desk } from "./desk/desk";
 import { rawKey } from "./kbd";
-import { DOOR_ESC, ESC_KEY, escNext, escPress, type EscRung, type EscSteps } from "./esc-rule";
+import { DOOR_ESC, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
 import { runningModules } from "./door-modules";
 import { nothingToClose } from "./shell-keys";
 import { keyName } from "./surface/actions";
@@ -62,13 +62,19 @@ export function doorEscSteps(a: DoorEscHost): EscSteps<(typeof DOOR_ESC)[number]
       // The person's keymap gave Esc an action, or a script's binding did: never while the screen is using the key.
       keymap: () => {
         const mine = typed ? layerEntry(typed) : undefined, binding = !raw && !held ? scriptBindings().find((b: { key: string }) => b.key === typed) : undefined;
-        if (mine && !raw && !held && a.dispatch.has(mine.action)) return { closes: null, maybe: true, run: () => { void a.dispatch.press(mine.action, mine.args); } };
-        return binding ? { closes: null, maybe: true, run: () => { const no = a.dispatch.bindingProblem(binding, scriptBindings()); if (no) a.flash(no); else void a.dispatch.pressBinding(binding); return !no; } } : null;
+        if (mine && !raw && !held && a.dispatch.has(mine.action)) return { closes: null, run: () => { void a.dispatch.press(mine.action, mine.args); } };
+        if (!binding) return null;
+        const no = a.dispatch.bindingProblem(binding, scriptBindings());
+        return no ? { closes: null, maybe: true, run: () => { a.flash(no); return false; } } : { closes: null, run: () => { void a.dispatch.pressBinding(binding); } };
       },
       // A desk answers what's in front of the drawer; any other screen is asked when it's using the key.
-      screen: () => (desk ? { closes: desk.escNextFront(), ...(desk.rawKeys() ? {} : { maybe: true as const }), run: () => desk.escFront() } : top && (raw || held || top.escNext?.(true)) ? { closes: top.escNext?.(true) ?? null, run: () => { top.key(ESC_KEY, a as never); } } : null),
+      screen: () => {
+        if (desk) return rungOf(desk.escReadFront(), () => desk.escFront());
+        const read = top?.escNext?.(true) ?? null;
+        return top && (raw || held || read) ? rungOf(read === null ? ESC_TAKEN : read, () => { top.key(ESC_KEY, a as never); }) : null;
+      },
       "drawer-up": () => (top?.noDrawer ? null : drawerEscUp(a.drawer, a.drawerRun)),
-      home: () => (top ? { closes: desk ? desk.escNextHome() : top.escNext?.(false) ?? null, run: () => { if (desk) { if (!desk.escHome()) nothingToClose(a as never, desk.floatCloseWord() ?? undefined); } else top.key(ESC_KEY, a as never); } } : null),
+      home: () => (top ? { closes: desk ? desk.escNextHome() : ((r: unknown) => (typeof r === "string" ? r : null))(top.escNext?.(false)), run: () => { if (desk) { if (!desk.escHome()) nothingToClose(a as never, desk.floatCloseWord() ?? undefined); } else top.key(ESC_KEY, a as never); } } : null),
     };
 }
 
@@ -79,7 +85,7 @@ function drawerEscIn(dr: Drawer, run: DrawerRun): EscRung | null {
   const word = dr.glassHasKeys() ? "the glass tile" : "the drawer's keys";
   const out = () => { run("host.leave", { quiet: true }); return true; };
   if (!d || strip || d.waitsOnExit()) return { closes: word, run: out };
-  return { closes: d.programKeys().typing ? d.escNextFront() : d.escNextFront() ?? word, run: () => d.escFront() || out() };
+  return rungOf(d.escReadFront() ?? word, () => d.escFront() || out());
 }
 /** Esc with the person out of the drawer and nothing in front of it (the `drawer-up` step): it goes away. */
 function drawerEscUp(dr: Drawer, run: DrawerRun): EscRung | null {

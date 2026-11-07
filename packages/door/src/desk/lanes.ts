@@ -263,7 +263,7 @@ export class Lanes implements SourceModel {
    * Its own keys before the screen's: an open overlay (the composer, the steps, the mover, the hub picker) holds every
    * key and click; a key that isn't `d` lets go of a trash armed.
    */
-  escCloses(): string | null { return this.composer ? draftEscCloses(this.composer.session.draft, "the new card") : null; }
+  escCloses(): string | null { return this.composer ? draftEscCloses(this.composer.session.draft, "the new card") : this.overlays.top() ? "the picker" : null; }
   key(k: Key): boolean {
     const c = ch(k);
     // A card or note being written holds every key, like an edit.

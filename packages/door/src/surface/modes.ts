@@ -155,7 +155,7 @@ export class Modes<H, M extends Mode<H>> {
     return m;
   }
   /** Let go of a mode, by name, or only if it's that very one. */
-  drop(m: string | M) { this.modes = this.modes.filter(x => (typeof m === "string" ? x.name !== m : x !== m)); }
+  drop(m: string | M) { const going = this.modes.filter(x => (typeof m === "string" ? x.name === m : x === m)); this.leave(going); }
   get(name: string): M | null { this.prune(); return this.modes.find(x => x.name === name) ?? null; }
   /** The mode the keys go to, or null when none is open. */
   top(): M | null { this.prune(); return this.modes[0] ?? null; }
@@ -166,7 +166,11 @@ export class Modes<H, M extends Mode<H>> {
   key(k: Key, host: H): boolean | null { const t = this.top(); return t ? t.key(k, host) : null; }
 
   /** Modes that ended by themselves go. */
-  private prune() { if (this.modes.some(m => m.ended?.())) this.modes = this.modes.filter(m => !m.ended?.()); }
+  private prune() { if (this.modes.some(m => m.ended?.())) this.leave(this.modes.filter(m => m.ended?.())); }
+  /** The one way out of the stack, let go or ended by itself. */
+  private leave(going: M[]) { this.modes = this.modes.filter(x => !going.includes(x)); for (const x of going) this.gone(x); }
+  /** A mode has left the stack. */
+  protected gone(_m: M) {}
 }
 
 /** A reader's open modes, in PRECEDENCE order. */
@@ -182,15 +186,11 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   focus(mode: ReaderMode<H>, on: boolean) { if (on) this.parked.delete(mode); else this.parked.add(mode); }
   active(mode: ReaderMode<H>) { return !this.parked.has(mode); }
   override top() { return this.all().find(m => this.active(m)) ?? null; }
-  /** Let go of a mode: what's open over it goes with it, and each runs its way out. */
-  override drop(m: string | ReaderMode<H>) {
-    const going = this.all().filter(x => x === m || x.name === m);
-    for (const x of going) this.parked.delete(x);
-    super.drop(m);
-    for (const x of going) {
-      x.dropped?.();
-      for (const y of this.all()) if (y.over === x.of) this.drop(y);
-    }
+  /** A mode has gone, let go or ended by itself: what's open over it goes with it, and it runs its way out. */
+  protected override gone(x: ReaderMode<H>) {
+    this.parked.delete(x);
+    x.dropped?.();
+    for (const y of [...this.modes]) if (y.over === x.of) this.drop(y);
   }
   /** Open `mode` taking no key (the leave ask: the power bar has it); `all` still sees it, `top` never. */
   pushParked<N extends ReaderMode<H>>(mode: N): N { this.push(mode); this.parked.add(mode); return mode; }

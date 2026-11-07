@@ -1,5 +1,5 @@
 import { Again } from "../arm";
-import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, type EscRung } from "../esc-rule";
+import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, escRead, type EscRead, type EscRung } from "../esc-rule";
 import { deskEscFront, deskEscSteps, deskLiftEsc, type DeskEscHost } from "./desk-esc";
 import { returnPlace, mapPlace } from "./return-place";
 import { AGAIN_PART, LEAVE_PART, readerHeldParts } from "../hint-parts";
@@ -3939,7 +3939,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * The screen's key map (its spec's `keys`): a key there runs its action as the person, before the focused tile's own
    * keys, unless the person is typing (an edit, a filter, a picker, a ^W chord, a terminal) or picking a tile to link.
    */
-  private boundKey(k: Key): boolean {
+  boundKey(k: Key): boolean {
     const keys = this.spec.keys;
     if (!keys?.length || k.kind === "mouse" || this.holdsKeys() || this.linking) return false;
     const name = keyName(k);
@@ -3950,7 +3950,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return true;
   }
 
-  private screenKeys() {
+  screenKeys() {
     const kind = this.focusedKind();
     return withKeymap(this.spec.keys ?? []).filter(x => !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
   }
@@ -5166,6 +5166,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   escHome(): boolean { const took = escPress(DESK_HOME_ESC, this.escSteps()); if (took) this.afterKey(); return took; }
   escNextFront(): string | null { return escNext(DESK_ESC, this.escSteps()); }
   escNextHome(): string | null { return escNext(DESK_HOME_ESC, this.escSteps()); }
+  escReadFront(): EscRead { return escRead(DESK_ESC, this.escSteps()); }
+  escReadHome(): EscRead { return escRead(DESK_HOME_ESC, this.escSteps()); }
 
   /** In a float with nothing left to close, what Esc says closes it: the screen's own x (the river's, the board's), else ^W x. */
   floatCloseWord(): string | null {

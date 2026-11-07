@@ -1,5 +1,8 @@
 // PIE-1614: the order is data, read one way by the hint and by the key.
 import { describe, expect, test } from "bun:test";
+import { DRAWER_ACTIONS } from "../src/drawer";
+import { actorRule } from "../src/surface/dispatch";
+import { INVITES } from "../src/surface/invite";
 import { DESK_ESC, DOOR_ESC, DRAFT_ESC, READER_ESC, escNext, escPress, type EscSteps } from "../src/esc-rule";
 
 const ORDER = ["inner", "silent", "outer"] as const;
@@ -29,6 +32,12 @@ describe("Esc's rule", () => {
   });
   test("a wordless owner that has the key (a program) ends the hint: it never names what's behind it", () => {
     expect(escNext(ORDER, steps({ silent: null, outer: "the drawer" }, [], null))).toBeNull();
+  });
+  test("esc.close is the person's alone: no invitation lifts it (Codex on #1338)", () => {
+    const def = DRAWER_ACTIONS.def("esc.close") as never as { personAlways?: string };
+    const invited = { kind: "agent", id: "table-agent", invitation: INVITES.mint("you") } as const;
+    expect(def.personAlways).toBeTruthy();
+    expect(actorRule(def as never, invited as never, { busy: false } as never, {})).toBe(def.personAlways!);
   });
   test("nothing open: nothing took it", () => expect(escPress(ORDER, steps({}, []))).toBe(false));
   test("the stated order: what's over a tile, then the tile, then the screen's own; the drawer after what's in front of it", () => {

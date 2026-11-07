@@ -44,6 +44,31 @@ describe("the stack", () => {
     expect(s.key(char("x"), h)).toBeNull();                 // the next key is the reader's
   });
 
+  test("a mode that ends by itself takes the same way out as one let go: what's over it goes too (Codex on #1338)", () => {
+    const s = new ModeStack<Host>();
+    let done = false, out = 0;
+    const comment = s.push(fake("comment", { ended: () => done, dropped: () => { out++; } }));
+    s.push(fake("placement", { over: comment.of }));
+    done = true;
+    expect(s.top()).toBeNull();                             // the menu doesn't outlive its owner and hold Esc
+    expect(s.all()).toEqual([]);
+    expect(out).toBe(1);
+  });
+
+  test("letting go of one mode doesn't run another's expiry early, and an expiry runs its way out once", () => {
+    const s = new ModeStack<Host>();
+    let done = false, out = 0;
+    s.push(fake("panel", { ended: () => done, dropped: () => { out++; } }));
+    s.push(fake("draft"));
+    done = true;
+    s.drop("draft");
+    expect(out).toBe(0);                                    // the drop leaves the other mode to its own expiry
+    expect(s.all()).toEqual([]);
+    expect(out).toBe(1);                                    // read, it goes once, by the one way out
+    expect(s.all()).toEqual([]);
+    expect(out).toBe(1);
+  });
+
   test("ties are stated: among modes of one rank the newest takes the keys", () => {
     const s = new ModeStack<Host>();
     s.push(fake("draft"));

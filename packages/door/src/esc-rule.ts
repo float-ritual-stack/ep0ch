@@ -34,14 +34,28 @@ export const READER_ESC = ["mode", "selection", "collection", "lit"] as const;
 /** A draft's own, innermost first (`draftEsc`): the popup, then snippet stops, then the selection, then its put-aside steps. */
 export const DRAFT_ESC = ["popup", "snippet", "selection", "draft"] as const;
 
-/** The rung the next Esc closes: what a hint says. */
-export function escNext<N extends string>(order: readonly N[], steps: EscSteps<N>): string | null {
+/** An owner has the key and closes nothing the hint can name (a program, the person's binding for Esc): apart from nothing open, which lets the next layer answer. */
+export const ESC_TAKEN = Symbol("the key is taken, with nothing to name");
+/** One layer's answer to the next Esc: what it closes, taken, or null: nothing open here. */
+export type EscRead = string | typeof ESC_TAKEN | null;
+
+/** The layer's answer: the first open rung's word, or that a wordless owner has the key. */
+export function escRead<N extends string>(order: readonly N[], steps: EscSteps<N>): EscRead {
   for (const n of order) {
     const r = steps[n]();
     if (r?.closes) return r.closes;
-    if (r && !r.maybe) return null;
+    if (r && !r.maybe) return ESC_TAKEN;
   }
   return null;
+}
+/** The rung the next Esc closes: what a hint says. */
+export function escNext<N extends string>(order: readonly N[], steps: EscSteps<N>): string | null {
+  const read = escRead(order, steps);
+  return typeof read === "string" ? read : null;
+}
+/** A rung from the answer of the layer inside: what `run` then asks. Nothing open inside passes the key on when `run` says it took nothing. */
+export function rungOf(read: EscRead, run: () => boolean | void): EscRung {
+  return typeof read === "string" ? { closes: read, run } : read === ESC_TAKEN ? { closes: null, run } : { closes: null, maybe: true, run };
 }
 /** The key: the first rung open closes, and only that one. False: nothing took it. */
 export function escPress<N extends string>(order: readonly N[], steps: EscSteps<N>): boolean {

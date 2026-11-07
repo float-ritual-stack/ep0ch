@@ -1,7 +1,7 @@
 // The desk's rung of Esc (esc-rule.ts): what's open on it at each step of DESK_ESC and DESK_HOME_ESC, in the hint's words, and how
 // it closes. Part of the Desk, kept apart for its size: `DeskEscHost` lists the desk's own state and steps these read.
 import type { Ctx } from "../app";
-import { DESK_ESC, DESK_HOME_ESC, ESC_KEY, escPress, type EscRung, type EscSteps } from "../esc-rule";
+import { DESK_ESC, DESK_HOME_ESC, ESC_KEY, ESC_TAKEN, escPress, type EscRead, type EscRung, type EscSteps } from "../esc-rule";
 import type { Key } from "../term";
 import { chainOf, docks, dockOf, leaves, type Dock } from "./layout";
 import { peekSource, policyOfNode } from "./screen-layout";
@@ -11,7 +11,7 @@ import { sessionName, type Pane, type ReaderPane } from "./panes";
 /** The desk as these steps read it. */
 export interface DeskEscHost {
   ctx: Ctx; layout: any; root: any; spec: any; focus: number; zoom: number | null; moving: unknown; prefix: string; pending: any; hintCard: unknown; xray: boolean; modeHintKey: string; gesture: unknown; dragging: unknown; floatDrag: unknown; linking: any; entered: { in(r: ReaderPane): boolean }; overlays: any; models: Map<unknown, any>; panes: Map<number, Pane>; liftedRect: unknown;
-  run(name: string, args?: Record<string, unknown>, tile?: string): void; nameOf(id: number): string; redraw(): void; rawKeys(): boolean; holdsKeys(): boolean; keysHere(): boolean; focusedReader(): ReaderPane | null; choosingReader(): ReaderPane | undefined; boundKey(k: Key): boolean; keyIn(k: Key, ctx: Ctx): void; command(k: Key): void; endGroupGhost(): void; runningScripts(): unknown[]; contentCover(id: number): { fold?: unknown }; pickedBy(a: unknown): unknown[]; homeTile(): number | undefined; atHome(): boolean; settle(): void; render(ctx: Ctx): unknown; reenter(): void; afterKey(): void; dropLiftElsewhere(): void; key(k: Key, ctx: Ctx): void; escNextFront(): string | null;
+  run(name: string, args?: Record<string, unknown>, tile?: string): void; nameOf(id: number): string; redraw(): void; rawKeys(): boolean; holdsKeys(): boolean; keysHere(): boolean; focusedReader(): ReaderPane | null; choosingReader(): ReaderPane | undefined; boundKey(k: Key): boolean; keyIn(k: Key, ctx: Ctx): void; command(k: Key): void; endGroupGhost(): void; runningScripts(): unknown[]; contentCover(id: number): { fold?: unknown }; pickedBy(a: unknown): unknown[]; homeTile(): number | undefined; atHome(): boolean; settle(): void; render(ctx: Ctx): unknown; reenter(): void; afterKey(): void; dropLiftElsewhere(): void; key(k: Key, ctx: Ctx): void; escReadFront(): EscRead; screenKeys(): { key: string }[];
 }
 const USER = { kind: "user" } as const;
 export type DeskEscName = (typeof DESK_ESC)[number] | (typeof DESK_HOME_ESC)[number];
@@ -20,7 +20,7 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
     const ctx = d.ctx, focused = d.focusedReader(), pane = d.panes.get(d.focus);
     const step = (closes: string, name: string, args: Record<string, unknown>, tile: string): EscRung => ({ closes, run: () => { d.run(name, args, tile); return true; } });
     const shuts = (k: Dock<any> | null) => !!k?.open && k.policy?.overlay !== false && policyOfNode(d.layout, k).collapsible;
-    const say = (closes: string | null | undefined, run: () => boolean | void): EscRung | null => (closes === null ? null : { closes: closes ?? null, maybe: true, run });
+    const say = (closes: string | typeof ESC_TAKEN | null | undefined, run: () => boolean | void): EscRung | null => (closes === null ? null : closes === ESC_TAKEN ? { closes: null, run } : { closes: closes ?? null, maybe: true, run });
     return {
       // The person's own edit or comment is still opening: it's cancelled, and nothing else is.
       opening: () => (d.pending && d.pending.pane === focused && !d.overlays.top() ? { closes: "the opening", run: () => { d.pending = null; ctx.flash("not opened"); d.redraw(); } } : null),
@@ -28,7 +28,8 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
       card: () => ((d.hintCard && !d.modeHintKey) || d.xray ? { closes: d.xray ? "x-ray" : "the hint card", run: () => { d.run("hint.dismiss"); return true; } } : null),
       overlay: () => { const o = d.overlays.top(); return o ? { closes: o.escCloses?.() ?? "the picker", run: () => { d.overlays.key(ESC_KEY, d as never); d.redraw(); } } : null; },
       model: () => (d.overlays.top() ? null : { closes: [...d.models.values()].map(m => m.escCloses?.() ?? null).find(Boolean) ?? null, maybe: true, run: () => [...d.models.values()].some(m => m.key?.(ESC_KEY)) }),
-      bound: () => ({ closes: null, maybe: true, run: () => d.boundKey(ESC_KEY) }),
+      // The screen's key map gave Esc an action: it runs, and closes nothing the hint can name.
+      bound: () => (d.spec.keys?.length && !d.holdsKeys() && !d.linking && d.screenKeys().some((b: { key: string }) => b.key === "esc") ? { closes: null, run: () => d.boundKey(ESC_KEY) } : null),
       link: () => {
         const l = d.linking;
         if (!l) return null;
@@ -40,7 +41,8 @@ export function deskEscSteps(d: DeskEscHost): EscSteps<DeskEscName> {
       // A group, a board or a river tile holding the keys in its own edit, comment or panel; a chord for its window goes first.
       "held-tile": () => {
         const kind = pane && kindOf(pane);
-        return pane && kind?.takesKeys?.(pane) && !(kind.windowKeys && d.prefix) ? { closes: pane.escCloses?.(d as never) ?? null, run: () => { pane.key(ESC_KEY, d as never); return true; } } : null;
+        const said = pane?.escCloses?.(d as never);
+        return pane && kind?.takesKeys?.(pane) && !(kind.windowKeys && d.prefix) ? { closes: typeof said === "string" ? said : null, run: () => { pane.key(ESC_KEY, d as never); return true; } } : null;
       },
       drag: () => (d.dragging ? { closes: "the move", run: () => { d.gesture = null; d.endGroupGhost(); ctx.flash("not moved"); d.redraw(); } } : null),
       choosing: () => { const c = d.choosingReader(); return c ? { closes: "the status choice", run: () => { c.key(ESC_KEY, d as never); d.redraw(); } } : null; },
@@ -92,6 +94,6 @@ export function deskEscFront(d: DeskEscHost): boolean {
 export function deskLiftEsc(d: DeskEscHost): EscRung | null {
   const lift = d.layout.lift;
   if (!lift || !d.liftedRect) return null;
-  if (d.keysHere() && d.focus === lift.tile) return { closes: d.escNextFront(), run: () => { d.key(ESC_KEY, d.ctx); return true; } };
+  if (d.keysHere() && d.focus === lift.tile) { const read = d.escReadFront(); return { closes: typeof read === "string" ? read : null, run: () => { d.key(ESC_KEY, d.ctx); return true; } }; }
   return { closes: null, maybe: true, run: () => { d.dropLiftElsewhere(); return false; } };
 }

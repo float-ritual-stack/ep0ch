@@ -1,3 +1,4 @@
+import type { EscRead } from "../esc-rule";
 import { holdsEdit } from "../whereabouts";
 import type { LineField } from "../surface/line";
 import { modeHint, type ModeKey } from "../surface/modes";
@@ -252,10 +253,10 @@ export interface Pane {
    */
   claims?(k: Key): boolean;
   /**
-   * What the next Esc closes in it, in the hint's words (esc-rule.ts): null, nothing, and the key goes on past it; left out,
-   * it says nothing and is still asked.
+   * What the next Esc closes in it, in the hint's words (esc-rule.ts): null, nothing, and the key goes on past it; ESC_TAKEN,
+   * it has the key and nothing to name; left out, it says nothing and is still asked.
    */
-  escCloses?(desk: DeskApi): string | null | undefined;
+  escCloses?(desk: DeskApi): EscRead | undefined;
   /**
    * A screen of its own is drawn in it (a mount, a group): a refusal of the person's key is said on the focused tile in
    * there (PIE-727), so this tile's frame doesn't say it again. Its tiles have frames of their own, so the desk draws

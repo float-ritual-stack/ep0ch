@@ -1679,7 +1679,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "esc.close": def({
     summary: "close the innermost temporary thing where the person's keys are, as their Esc does: the one the hint row names (`esc: the popup`). The person's only",
     keys: [{ keys: "esc", does: "close the innermost thing" }, { keys: "click", does: "on the hint row's esc:" }],
-    touches: "screen", replay: "safe", person: "Esc closes what the person has open; an agent reads what it would close as `escCloses` in peek and closes what it opened by that thing's own action",
+    touches: "screen", replay: "safe", personAlways: "Esc closes what the person has open, and an agent's action never takes the person's keys; an agent reads what it would close as `escCloses` in peek and closes what it opened by that thing's own action",
     says: out => (out.closed ? `· closed ${out.closed}` : null),
     args: {},
     examples: [{ act: "esc.close", does: "closes what the hint row's esc: names" }],

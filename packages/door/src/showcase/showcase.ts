@@ -1803,7 +1803,7 @@ export class Showcase implements Screen {
       : `|14 in ${SECTIONS[this.sel]!.key}|08 · the part's own keys and mouse (its hints are on its bottom row) · |15esc|08 backs out, to the sections at last`), cols);
   }
 
-  escNext(front: boolean): string | null { const d = this.focus === "stage" ? this.stage(this.sel)?.top as Partial<Desk> | undefined : null; return this.focus !== "stage" ? null : front ? d?.escNextFront?.() ?? null : d?.escNextHome?.() ?? "the section"; }
+  escNext(front: boolean) { const d = this.focus === "stage" ? this.stage(this.sel)?.top as Partial<Desk> | undefined : null; return this.focus !== "stage" ? null : front ? d?.escReadFront?.() ?? null : d?.escReadHome?.() ?? "the section"; }
   key(k: Key, ctx: Ctx) {
     if (k.kind === "mouse") return this.mouse(k);
     if (this.focus === "stage") { const f = this.stage(this.sel); if (f) f.key(k); else this.focus = "index"; return ctx.redraw(); }
