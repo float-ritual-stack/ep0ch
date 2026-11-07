@@ -13,6 +13,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, heroBox, imageBox, media, noteMediaLines, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
+import { printable } from "./props";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
@@ -39,6 +40,9 @@ import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
 import { BASE_STYLE, headingComponentLayer, listLayers, parseStyleAttrs, resolveStyle, styleFieldsOf, type StyleLayer, type StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { STEP_BOX, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+
+/** A `::button` where a press can't land (a draft's preview, the answer beside it): its label, never its source line. */
+export const inertButton = (call: ButtonCall): string[] => [fg(C.dark) + `[${printable(call.label)}]` + RESET];
 
 export interface DocEnv {
   /** A component's line in the owning note, including through boxes and other nested drawings. */

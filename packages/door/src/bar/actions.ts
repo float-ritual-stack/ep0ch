@@ -233,21 +233,23 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     },
   }),
   "agent.ask": def({
-    summary: "ask an agent (PIE-1437): the words as a comment naming @to on a note, addressed mail, which every session writing as that persona hears at its addressed check and answers in the thread. [[pages]] and ((notes)) in the words stay links; each %tile gets a line naming that tile in this door. The note: note=, else (the person's) the note in front of them, else the first note the words link to. The person's says what was sent where; an agent's is attributed to it",
+    summary: "ask an agent (PIE-1437): the words as a comment naming @to on a note, addressed mail, which every session writing as that persona hears at its addressed check and answers in the thread. [[pages]] and ((notes)) in the words stay links; each %tile gets a line naming that tile in this door. The note: note=, else about='s tile's note, else (the person's) the note in front of them, else the first note the words link to, else the answering extension's page. about=tile asks about the tile with the keys (about=<tile> another): the tile gets a line, and text may be left out. Every ask carries the door and that tile as the thread's [ask-door::] and [ask-tile::], so an agent can act where it was asked. The person's says what was sent where; an agent's is attributed to it",
     keys: [{ keys: "enter", does: "on an ask line in the power bar: @name and the words" }, { keys: "click", does: "on the bar's ask @name row" }, { keys: "@", does: "on a row of the agent panel: the bar with @name on its line" }],
     touches: "nothing", replay: "ask",
     says: (out: Asked) => askedWords(out),
     args: {
       to: { type: "string", kind: "agent", about: "the agent's persona (loki, kitty): the agents here are listed, and any persona's name is sent as typed" },
-      text: { type: "string", about: "what you ask, with [[pages]], ((notes)) and %tiles in it" },
+      text: { type: "string", optional: true, about: "what you ask, with [[pages]], ((notes)) and %tiles in it; may be left out with about=" },
+      about: { type: "string", optional: true, about: "`tile`: the tile with the keys, or a tile by name; the ask is about it" },
       note: { type: "string", optional: true, kind: "note", about: "the note it's a comment on; left out, the note in front of you, else the first one the words link to" },
     },
     examples: [
       { act: 'agent.ask to=wren text="looking at [[seed trays]] can you pop it into %jobs"', does: "a comment naming @wren on the note in front of you, %jobs named as this door's tile" },
       { act: 'agent.ask to=wren text="sort these" note="[[seed trays]]"', does: "asks wren on the seed trays page" },
+      { act: "agent.ask to=wren about=tile", does: "asks wren about the tile with the keys, on the note in it" },
     ],
-    async run({ to, text, note }, { on }, actor: Actor) {
-      const host = on.host(), out = await askAgent(host, { to, text, ...(note ? { note } : {}) }, actor);
+    async run({ to, text, note, about }, { on }, actor: Actor) {
+      const host = on.host(), out = await askAgent(host, { to, ...(text !== undefined ? { text } : {}), ...(note ? { note } : {}), ...(about ? { about } : {}) }, actor);
       // The person's is said where they look; an agent's is said by the dispatcher, attributed (`says`).
       if (actor.kind !== "agent") host.ctx.flash(askedWords(out));
       return out;

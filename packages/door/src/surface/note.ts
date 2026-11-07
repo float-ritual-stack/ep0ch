@@ -75,7 +75,7 @@ import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentA
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
-import { childEnv, codeSpans, compareFoldPosition, foldPoints, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { childEnv, codeSpans, compareFoldPosition, foldPoints, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl, inertButton } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
@@ -2609,7 +2609,7 @@ export class NoteSurface {
   }
 
   static draftPreviewDoc(text: string, width: number, src: Source | null, links: LinkTarget[]): Doc & { pending: boolean } {
-    const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) };
+    const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src), button: inertButton };
     const hooks = blockdownHooks(NO_READER, null, [], env, src, links);
     const doc = drawIn("preview", presentLinks(text, expandsEmbeds(!!hooks.embed), src, text, links), env, hooks);
     return { ...doc, pending: !!src && embedsLoading(src.board) };
@@ -2621,7 +2621,7 @@ export class NoteSurface {
     const m = this.msg, src = this.src;
     // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
     const graphics = pictures && !!host?.ctx.graphics;
-    const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 8), graphics, noImages: undefined, unfold: true };
+    const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 8), graphics, noImages: undefined, unfold: true, button: inertButton };
     const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
     // One of its own embeds still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
     let pending = false;
@@ -6588,15 +6588,15 @@ export class NoteSurface {
 
   /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
   /** Undo (ctrl+z, `ext.undo`): the last extension action `actor` ran on this note, its write group whole (PIE-784). */
-  async undoExtension(host: SurfaceHost, actor: Actor) {
+  async undoExtension(host: SurfaceHost, actor: Actor, run?: string) {
     const m = this.requireNote();
-    const e = EXT_UNDO.last(partyOf(actor), m.id);
+    const e = run ? { undo: run, label: "that action" } : EXT_UNDO.last(partyOf(actor), m.id);
     if (!e) throw new ActionRefused(actor.kind === "agent" ? "no extension action or quote you ran on this note to undo" : "no extension action or quote run on this note to undo");
     const say = asActor(host.ctx, actor);
     try {
       host.ctx.scriptUndos?.add(e.undo);
       const r = await host.ctx.board.undoExtension(e.undo, actor);
-      EXT_UNDO.drop(e);
+      if (!run) EXT_UNDO.drop(e as never);
       outlineChanged(r.written);
       // The layout the run changed goes back with its writes (PIE-957, one undo id for both): the answer says which parts were
       // undone and which were refused.
@@ -6613,7 +6613,7 @@ export class NoteSurface {
       host.ctx.scriptUndos?.delete(e.undo);
       const why = `couldn't undo ${e.label.toLowerCase()}: ${err instanceof Error ? err.message : String(err)}`;
       // Gone from the service (undone elsewhere, or the host restarted): it can't be undone here either.
-      if (/No extension change/.test(why)) EXT_UNDO.drop(e);
+      if (!run && /No extension change/.test(why)) EXT_UNDO.drop(e as never);
       say.flash(why, undefined, errorDetails(err)); host.redraw();
       throw new ActionRefused(why);
     }
@@ -12340,11 +12340,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "ext.undo": def({
-    summary: "undo the last extension action run on this note (PIE-784: its write group, whole: the blocks it made to the Trash, its edits, moves and orders put back), or the last quote of its marks (the quoting block to the Trash), as whoever ran it (an agent undoes its own, the person theirs); refused, with nothing changed, if any of it changed since",
+    summary: "undo the last extension action run on this note (PIE-784: its write group, whole: the blocks it made to the Trash, its edits, moves and orders put back), or the last quote of its marks (the quoting block to the Trash), as whoever ran it (an agent undoes its own, the person theirs); refused, with nothing changed, if any of it changed since. run=<id> takes back that run whichever came since: an agent's door action, from its done row",
     keys: readerKeys("ext.undo", { via: "when an extension action or a quote was the last change made here" }),
     touches: "nothing", replay: "ask",
-    args: {},
-    run: (_, { surface, host }, actor) => surface.undoExtension(host, actor),
+    args: { run: { type: "string", optional: true, about: "the run's id: what its done row's undo carries" } },
+    run: ({ run }, { surface, host }, actor) => surface.undoExtension(host, actor, run),
   }),
   "script.stop": def({
     summary: "stop one running script by its run id (run=: the undo a script run answered with, also its run note's [script-run::…]): its remaining calls are refused and the run note says who stopped it. Writes it already made stay; ext.undo takes them back. Says so when the run isn't running",

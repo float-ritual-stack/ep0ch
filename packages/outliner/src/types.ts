@@ -2445,7 +2445,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "scripts.sequence"; blockId: string; line: number; clientId: string; invitation?: string; mutation: MutationProvenance }
   | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.run"; blockId: string; /** The note the run is about: the script's `this`, as a press in that note gives it (PIE-1272). */ this?: string; /** The slots' values, the script's props, as a button's line would fill them. */ slots?: Record<string, string>; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
-  | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
+  | { id: string; action: "door.act"; line: string; label?: string; door?: string; blockId?: string; agent?: string; extension?: string; requestedBy?: MutationProvenance } | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**
    * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
    * when not given: what a client prompts with. `{ extension, action, args: [{ name, type, …, choices?, value? }] }`.

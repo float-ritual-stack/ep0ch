@@ -340,6 +340,7 @@ export const ACTIONS = {
   "roadmap.items.similar": { async: true },
   "rules.preview": {},
   "scripts.answer": {},
+  "door.act": { ext: "write", async: true, once: true },
   "scripts.render": { ext: "read", async: true, detached: true },
   "scripts.run": { async: true },
   "scripts.sequence": { async: true, once: true },

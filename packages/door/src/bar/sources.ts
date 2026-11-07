@@ -300,7 +300,7 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
  * actions scope's, and a row runs there, so "unlock your drawer" is the drawer's when the keys are in it.
  */
 const keysScreen = (host: BarHost) => host.here ?? host.ctx.keysScreen?.() ?? host.screens().at(-1);
-const keysDispatch = (host: BarHost) => keysScreen(host)?.dispatch;
+export const keysDispatch = (host: BarHost) => keysScreen(host)?.dispatch;
 
 const ACTIONS: BarSource = {
   id: "actions", title: "actions", prefix: ">", by: "door",

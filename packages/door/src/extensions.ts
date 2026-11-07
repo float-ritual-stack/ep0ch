@@ -115,6 +115,17 @@ const boundKinds = new Map<string, string>();
 (globalThis as { [k: symbol]: { set(what: string, left: () => string[], reset: () => void): void } | undefined })[Symbol.for("ep0ch.test.leftovers")]
   ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
 
+/** An agent an installed extension answers as, in comment threads: its name, its tile-menu words and its extension's page. */
+export interface AnsweringAgent { name: string; description?: string; ask?: string; page?: string }
+
+/** The agents that answer in comment threads, as the service last listed them (an `agent.ask` to one is answered at once). */
+export function answeringAgents(): AnsweringAgent[] {
+  return (current?.extensions ?? []).flatMap(e => (e.agents ?? []).filter(a => a.threads).map(a => {
+    const page = current?.pages?.[e.id];
+    return { name: a.name, ...(a.description ? { description: a.description } : {}), ...(a.ask ? { ask: a.ask } : {}), ...(page ? { page } : {}) };
+  }));
+}
+
 /**
  * An extension the service serves from: active, or failed but still on its last good version (it has a name).
  * What it serves is the service's call: a folder it doesn't serve lists no handlers, actions or tiles.

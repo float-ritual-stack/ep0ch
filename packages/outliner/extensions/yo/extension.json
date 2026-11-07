@@ -1,0 +1,47 @@
+{
+  "contract": 2,
+  "id": "yo",
+  "version": 1,
+  "name": "Yo",
+  "description": "Ask @yo how to do an ep0ch thing: two lines quoted from the action's own doc, and a button.",
+  "run": ["bun", "yo.ts"],
+  "demo": "demo",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "The command that picks what an ask is about: prompt on stdin, JSON on stdout; empty, yo quotes its closest match with no model",
+        "default": ["claude", "-p", "--safe-mode", "--model", "haiku", "--output-format", "json", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--system-prompt", "You answer with JSON only."]
+      },
+      "act": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "The command that fills in an action yo will press: yo's code steps up to it once on an act; empty, yo only offers the button",
+        "default": ["claude", "-p", "--safe-mode", "--model", "sonnet", "--output-format", "json", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--system-prompt", "You answer with JSON only."]
+      },
+      "memory": {
+        "type": "object",
+        "description": "Where yo keeps what worked: an outline by name, on a machine (an ssh name) when it isn't here; empty, this outline",
+        "properties": { "outline": { "type": "string" }, "machine": { "type": "string" } },
+        "additionalProperties": false,
+        "default": { "outline": "yo" }
+      },
+      "ep0ch": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "The command yo reads actions and docs through; left out, this checkout's door, else ep0ch on the PATH"
+      }
+    },
+    "additionalProperties": false
+  },
+  "actions": [
+    { "id": "remember", "label": "Remember that this answer worked", "on": "outline", "effects": "write", "deadline": "30s",
+      "description": "A button yo drew runs this after its action: one memory note in yo's memory outline",
+      "args": [{ "name": "act", "type": "text", "label": "Action" }, { "name": "asked", "type": "text", "label": "Asked" }] }
+  ],
+  "agents": [
+    { "name": "yo", "description": "Answers how to do an ep0ch thing from the actions' own docs, and presses it when asked", "effects": "write", "deadline": "90s", "threads": true, "fromAgents": true, "answer": "open", "ask": "ask yo about this" }
+  ]
+}

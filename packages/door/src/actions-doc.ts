@@ -31,10 +31,12 @@ export async function registryActions(): Promise<ActionInfo[]> {
   return allActionSets().flatMap(s => s.list()).filter(a => (seen.has(a.name) ? false : (seen.add(a.name), true)));
 }
 
-/** `ep0ch actions` asks for a page (`--doc`), rather than the screen's list. */
-export const wantsDoc = (args: readonly string[]): boolean => args.includes("--doc");
+/** `ep0ch actions` asks for a page (`--doc`) or every action's record (`--all`), rather than the screen's list. */
+export const wantsDoc = (args: readonly string[]): boolean => args.includes("--doc") || args.includes("--all");
 
 export async function actionsDoc(args: readonly string[]): Promise<number> {
+  // Every built-in action's own description as JSON, no door needed: what a reader of them (yo, PIE-1585) searches.
+  if (args.includes("--all")) { console.log(JSON.stringify(await registryActions())); return 0; }
   const at = args.indexOf("--doc"), name = args[at + 1];
   if (at < 0 || !name || name.startsWith("--")) { console.error(`which action? ${USAGE}`); return 2; }
   const wi = args.indexOf("--width"), width = wi >= 0 ? Number(args[wi + 1]) : process.stdout.columns || 80;

@@ -2180,6 +2180,7 @@ export class OutlinerServer {
       const result = await this.scriptRuns.answered(this.scriptRuns.startSequence(asked), asked);
       return this.answered(request, result);
     }
+    if (request.action === "door.act") return this.answered(request, await this.scriptRuns.doorAct(request));
     if (request.action === "scripts.stop") {
       if (typeof request.run !== "string" || !request.run.trim()) throw new Error("scripts.stop needs run: the id a script run answered with (its undo), for example { action: \"scripts.stop\", run: \"<undo id>\" }");
       const stopped = this.scriptRuns.stopRun(request.run, declaredRequester(request, "scripts.stop") ?? { author: "user" });
@@ -2405,9 +2406,7 @@ export class OutlinerServer {
             : await this.draftPatches.read(request.blockId);
       return this.answered(request, result);
     }
-    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" ||
-      request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args" ||
-      request.action === "extensions.configure") {
+    if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" || request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args" || request.action === "extensions.configure") {
       try {
         let result: WireAnswer<typeof request.action>;
         if (request.action === "extensions.undo") {
@@ -4098,6 +4097,7 @@ export class OutlinerServer {
       case "outputs.place":
       case "draft.patch":
         return { ...as, mutation: actor } as OutlinerRequest;
+      case "door.act": return { ...as, agent: grant.agent ?? grant.extensionId, extension: grant.extensionId, ...(grant.requestedBy ? { requestedBy: grant.requestedBy } : {}) } as OutlinerRequest;
       case "move":
       case "delete":
         return this.extensionStructureWrite(action, as, actor);

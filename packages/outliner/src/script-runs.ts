@@ -332,12 +332,38 @@ export class ScriptRuns {
     } }, request, button);
   }
 
-  start(extension: Pick<LoadedExtension, "id" | "name" | "script">, request: ExtensionActRequest, sequence?: ButtonCall): ExtensionActResult {
+  /** The `door.act` request (its grant named `agent`, src/server.ts `asExtension`): run it and answer when it has ended. */
+  async doorAct(asked: { agent?: unknown; extension?: unknown; line?: unknown; label?: unknown; door?: unknown; blockId?: unknown; requestedBy?: MutationProvenance }): Promise<{ undo: string; done: boolean; error?: string }> {
+    if (typeof asked.agent !== "string") throw new Error("door.act is an agent extension's own (over its grant): a client acts in a door through that door's `act`");
+    if (typeof asked.line !== "string" || !asked.line.trim()) throw new Error('door.act needs line: an action line, for example { action: "door.act", line: "agent.lift reach=column" }');
+    if (asked.door !== undefined && typeof asked.door !== "string") throw new Error("door.act door= names a door's client id (a respond's input.door); left out, the only door here");
+    const run = this.startDoorAct({
+      agent: asked.agent, extension: typeof asked.extension === "string" ? asked.extension : asked.agent, line: asked.line.trim(),
+      ...(typeof asked.label === "string" ? { label: asked.label } : {}), ...(asked.door ? { clientId: asked.door } : {}),
+      ...(typeof asked.blockId === "string" ? { blockId: asked.blockId } : {}), ...(asked.requestedBy ? { requestedBy: asked.requestedBy } : {}),
+    });
+    const error = await this.finished(run.undo!);
+    return { undo: run.undo!, done: error === undefined, ...(error !== undefined ? { error } : {}) };
+  }
+
+  /**
+   * A door action an agent extension's process asks for (`door.act`, PIE-1585): one step run as a press of one button is,
+   * so it has the run's undo id, layout transaction and door routing, attributed to the agent (`doorActor`).
+   */
+  startDoorAct(o: { agent: string; extension: string; line: string; label?: string; clientId?: string; blockId?: string; requestedBy?: MutationProvenance }): ExtensionActResult {
+    const label = o.label ?? o.line.split(/\s+/, 1)[0]!;
+    const call: ButtonCall = { line: 0, endLine: 0, steps: [{ kind: "act", source: o.line }], sequence: true, props: {}, label, act: o.line, look: {}, slots: [], empty: [] };
+    return this.start({ id: `door-act:${o.extension}`, name: o.agent, doorActor: o.agent, script: {
+      code: "", effects: "write", keys: [], revision: 0, author: { author: "agent", actorId: `ext:${o.extension}` }, ...(o.blockId ? { blockId: o.blockId } : {}),
+    } }, { extension: o.extension, action: "run", background: true, ...(o.clientId ? { clientId: o.clientId } : {}), ...(o.blockId ? { blockId: o.blockId } : {}), ...(o.requestedBy ? { requestedBy: o.requestedBy } : {}) }, call);
+  }
+
+  start(extension: Pick<LoadedExtension, "id" | "name" | "script"> & { doorActor?: string }, request: ExtensionActRequest, sequence?: ButtonCall): ExtensionActResult {
     let source = extension.script!;
     // Effects in a file's opt-in header describe it; only its body is executing code.
     const body = (code: string) => source.file ? code.split("\n").slice(1).join("\n") : code;
     const undo = this.writes.beginRun(`script:${extension.name}`);
-    const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
+    const actor: MutationProvenance = { author: "agent", actorId: extension.doorActor ?? `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
     // Whose writes the run's notes record (PIE-1462): a run somebody asked for (a press, `act`, the CLI) writes as them, the
     // script as how (`taskId`); a run nobody asked for (a trigger, a schedule, a background run) writes as the script. The one
@@ -497,7 +523,7 @@ export class ScriptRuns {
       act: async (name: string, args: Record<string, unknown>) => {
         // An extension's action is a step on the run note, as sh and fetch are, and leaves that note.
         const said = (what: string) => {
-          if (!name.startsWith("ext.")) return;
+          if (!name.startsWith("ext.") || sequence) return;   // a button's steps stay in its Sources trace: no run note under the note for a press
           lines.push(`\nact ${name}: ${what}`);
           try { if (log) update(); else keep(); } catch (error) { controller.abort(error); }
         };

@@ -659,6 +659,7 @@ export class ResourceExtensionRuntime {
       ...(callFor.wrote ? { wrote: callFor.wrote } : {}),
       ...(callFor.requestedBy ? { requestedBy: callFor.requestedBy } : {}),
       ...(callFor.trigger ? { trigger: callFor.trigger } : {}),
+      ...(callFor.agent ? { agent: callFor.agent } : {}),
     });
     // The host variables its manifest names (`env`), when the service has them: never a secret's place.
     const passed: Record<string, string> = {};

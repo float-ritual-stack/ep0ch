@@ -33,6 +33,7 @@ export const marks: Record<string, string[]> = {
   "one-completer": ["Seed tray jobs", "editing · Seed tray jobs"],
   // A note to ask about beside wren, a demo agent session (PIE-1437).
   "ask-agent": ["Potting bench rota", "wren, a demo agent"],
+  "ask-yo": ["Ask yo: the potting shed door", "write @yo"],
   twins: ["Fix the back gate latch", "Queued"],
   "at-revision": ["Jev's suggestions", "What Jev said, and what happened", "Roof on"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "What Jev said, and what happened"],

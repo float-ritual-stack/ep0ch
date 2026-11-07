@@ -28,6 +28,7 @@ import { USER, hostRequest, type Actor, type RoadmapItemInput, SocketBoard, muta
 import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
+import { seedAskYo } from "./ask-yo";
 import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, installSysopDemo, PROGRAM_EXAMPLES, RULE_EXAMPLES, SOURCE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
@@ -644,6 +645,7 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.querySources = await make(notes.root.id, QUERY_SOURCES);
   notes.seedTable = await make(notes.root.id, QUERY_SEED_TABLE);
   notes.askAgent = await make(notes.root.id, ASK_AGENT);
+  notes.askYo = await seedAskYo(make, notes.root.id, opts);
   notes.shedPlan = await make(notes.root.id, SHED_PLAN);
   for (const job of SHED_JOBS) await make(notes.shedPlan.id, job);
   notes.shedPad = await make(notes.root.id, SHED_PAD);

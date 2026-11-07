@@ -1020,7 +1020,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * container's policy hold.
    */
   undoLayout(actor: Actor, txn?: string, keepKeys = false): { undone: string; what: string; steps: number; screen: string; left?: string; kept?: string[] } {
-    probe("layout.undo");
+    probe("layout.undo"); if (txn && !this.steps.of(this).entriesOf(txn).length) { const there = this.relatives().find(d => this.steps.of(d).entriesOf(txn).length); if (there) return there.undoLayout(actor, txn, keepKeys); }   // a run is undone from wherever it's asked: what it lifted is in the drawer, its done row on a screen
     const entries = this.steps.takeBack(this, actor, txn);
     if (!Array.isArray(entries)) throw new ActionRefused(entries.refused);
     const { steps, kept } = this.undoAcross(entries, actor, keepKeys);
