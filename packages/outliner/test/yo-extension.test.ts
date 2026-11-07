@@ -160,7 +160,7 @@ test("PIE-1629: a how-do-I question never reaches the act model, even when the a
 }, 60_000);
 
 test("a question is told by its words, not by the model: how, what, where, is there; a command or a polite ask to do it is not one", () => {
-  for (const q of ["how do I lift the agent again", "How can I lift the agent?", "what's the key for lift", "whats the key to lift it", "is there a way to lift the agent", "where is the lift", "which key lifts the agent", "lift the agent?", "can I lift the agent from a shell", "tell me how to lift the agent", "show me how to lift it", "the key for lifting the agent"])
+  for (const q of ["how do I lift the agent again", "How can I lift the agent?", "what's the key for lift", "whats the key to lift it", "is there a way to lift the agent", "where is the lift", "which key lifts the agent", "lift the agent?", "can I lift the agent from a shell", "tell me how to lift the agent", "show me how to lift it", "the key for lifting the agent", "can you lift the agent?", "could you lift the agent for me?"])
     expect([q, asksHow(q)]).toEqual([q, true]);
   for (const c of ["lift the agent", "lift the agent again", "do it", "please lift the agent", "can you lift the agent", "could you lift the agent for me", "drop the agent"])
     expect([c, asksHow(c)]).toEqual([c, false]);

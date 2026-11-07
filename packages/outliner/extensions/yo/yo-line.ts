@@ -119,13 +119,15 @@ export const ASKED_HOW = "a question: say `@yo do it` to press it.";
 /**
  * Whether an ask is a question by its words (PIE-1629): code decides, before any model runs, so a how-do-I never
  * presses whatever the answer model says. A question word first, a "how"/"is there a way"/"the key for" anywhere, or a
- * closing "?" is a question; a polite ask to do it ("can you lift the agent") is a command, and stays the model's to read.
+ * closing "?" is a question, "can you lift the agent?" too; a polite ask to do it with no "?" ("can you lift the agent") is a
+ * command, and stays the model's to read.
  */
 export function asksHow(request: string): boolean {
   const asked = request.trim().toLowerCase().replace(/[’']/g, "'");
+  if (/\?\s*$/.test(asked)) return true;
   if (/^(can|could|would|will) you\b/.test(asked) && !/\bhow\b/.test(asked)) return false;
   if (/^(how|what|what's|whats|where|where's|which|why|when|who|is|are|does|do i|did|can i|could i|should i|may i|tell me|show me|remind me|explain)\b/.test(asked)) return true;
-  return /\bhow (do|can|could|would|should|to)\b|\b(is|are) there (a|any) (way|key|button)\b|\b(the|a|which|what) (key|keys|shortcut|button|command) (for|to)\b|\?\s*$/.test(asked);
+  return /\bhow (do|can|could|would|should|to)\b|\b(is|are) there (a|any) (way|key|button)\b|\b(the|a|which|what) (key|keys|shortcut|button|command) (for|to)\b/.test(asked);
 }
 
 /** yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note. */
