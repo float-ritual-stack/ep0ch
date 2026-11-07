@@ -2,6 +2,7 @@
 // was put aside), type, write or leave, put aside as unsent, restore, the service hold, a stale refusal,
 // recordAs, the agent rule and an invitation. The lifecycle runs on a fake target and a fake hold; the three
 // target adapters run against a scratch outliner service (never a real outline). Fictional notes throughout.
+import { draftEscCloses } from "../src/surface/completer";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -171,6 +172,19 @@ describe("the lifecycle, on a fake target", () => {
     keys(c, ["!"]);
     expect(await c.leave()).toMatchObject({ left: "saved" });
     expect(sent).toEqual(["Quince jam -- wrong idea!"]);
+  });
+
+  test("a draft brought back untouched: what's said about Esc is what it does, the kept draft goes and a copy stays", () => {
+    const t = (): DraftTarget => fake({ place: "edit:note-sloe", blockId: "note-sloe" }).t;
+    const a = DraftSession.open(t(), { text: "Sloe gin", base: 2 });
+    keys(a, [" -- too sweet"]); a.close(true);
+    const b = DraftSession.open(t(), { text: "Sloe gin", base: 2 });
+    expect(b.draft.note).toContain("esc twice drops it");
+    expect(draftEscCloses(b.draft, "the edit")).toBe("the edit, twice drops it");   // the hint row says the same, not "puts it aside"
+    b.draft.key({ kind: "esc" });
+    expect(draftEscCloses(b.draft, "the edit")).toBe("the edit, dropped");
+    b.close(true);
+    expect(unsent("edit:note-sloe")).toBeFalsy();
   });
 
   test("an edit put aside on an older revision stays put aside (and on the reader's line) when the note has moved on", () => {

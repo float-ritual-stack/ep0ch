@@ -957,7 +957,11 @@ export function draftEscCloses(d: Draft, noun: string): string | null {
     popup: () => word(ready || (shown && !d.snippet) ? "the popup" : null),
     snippet: () => word(d.snippet ? "the snippet" : null),
     selection: () => word(d.selection() ? "the selection" : null),
-    draft: () => word(!d.written || d.stray() !== null ? noun : d.status.armed() === "discard" ? `${noun}, put aside` : `${noun}, twice puts it aside`),
+    // Brought back and untouched, the second press lets the kept draft go (a copy stays on disk); with anything typed it puts it aside.
+    draft: () => {
+      const goes = d.restored !== null && d.restored === d.text;
+      return word(!d.written || d.stray() !== null ? noun : d.status.armed() === "discard" ? `${noun}, ${goes ? "dropped" : "put aside"}` : `${noun}, twice ${goes ? "drops it" : "puts it aside"}`);
+    },
   });
 }
 

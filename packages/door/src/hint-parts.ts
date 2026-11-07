@@ -1,5 +1,6 @@
 // The door's own hint parts and hot-line rows (PIE-1293): the keys a frame, a foot or a BBS list's hot line names,
 // each on the action it runs, so a rebind shows wherever they're drawn (partsHint, hotParts). No literal key lists.
+import { ESC_DRAWER, ESC_DRAWER_KEYS } from "./esc-rule";
 import { C, fg } from "./style";
 import { ESCAPE_CHORD } from "./desk/pty";
 import { keyCaption } from "./surface/actions";
@@ -14,6 +15,9 @@ export const AGAIN_PART: HintPart = { action: "tile.enter", key: "enter", label:
 /** The drawer's own hint parts: its title row (folded) and its foot (entered) name these, so a rebind shows on them. */
 const DRAWER_OPEN_PART: HintPart = { action: "tile.collapse", args: { on: false }, key: "+", also: "⏎", label: "opens it, or a click" }, DRAWER_FOLD_PART: HintPart = { action: "tile.collapse", args: { on: true }, key: "-", label: "folds it" };
 const DRAWER_LEAVE_PART: HintPart = { action: "host.leave", key: "esc", label: "leaves" }, DRAWER_AWAY_PART: HintPart = { action: "host.toggle", args: { open: false }, key: "esc", label: "again puts it away" };
+
+/** The drawer's foot with a program on the screen having Esc: alt+a still puts it away. */
+const DRAWER_ALT_AWAY_PART: HintPart = { action: "host.toggle", args: { open: false }, key: "alt+a", label: "puts it away" };
 
 /** Hot line parts drawn from key rows (the keymap's, so a rebind shows): one part per label, its keys joined, a click on it sending the first. */
 const sendOf = (key: string): Key => key === "enter" ? { kind: "enter" } : key === "up" || key === "down" ? { kind: key } : { kind: "char", ch: key };
@@ -36,6 +40,6 @@ export const drawerTitleHint = () => partsHint([DRAWER_OPEN_PART, DRAWER_LEAVE_P
  * PIE-1554); its program exited, ⏎ runs it again and esc or ctrl+] steps out (PIE-1563); entered, - folds it, esc steps
  * out and esc again puts it away; else esc puts it away. In a group there, ctrl+] comes out of the group first.
  */
-export const drawerFoot = (entered: boolean, typing = false, exited = false, inGroup = false, closes: string | null = null) => partsHint(closes && !typing ? [{ action: "esc.close", key: "esc", label: closes }, ...(entered ? [DRAWER_FOLD_PART] : [])] : inGroup && !typing && !exited ? [{ ...LEAVE_PART, label: "comes out of the group" }, DRAWER_FOLD_PART] : entered && exited ? [AGAIN_PART, { ...DRAWER_LEAVE_PART, label: `or ${keyCaption(ESCAPE_CHORD)} back` }]
+export const drawerFoot = (entered: boolean, typing = false, exited = false, inGroup = false, closes: string | null = null) => partsHint(closes && closes !== ESC_DRAWER && closes !== ESC_DRAWER_KEYS && !typing ? [{ action: "esc.close", key: "esc", label: closes }, ...(entered ? [DRAWER_FOLD_PART] : [])] : !entered && !closes ? [DRAWER_ALT_AWAY_PART] : inGroup && !typing && !exited ? [{ ...LEAVE_PART, label: "comes out of the group" }, DRAWER_FOLD_PART] : entered && exited ? [AGAIN_PART, { ...DRAWER_LEAVE_PART, label: `or ${keyCaption(ESCAPE_CHORD)} back` }]
   : entered && typing ? [{ ...LEAVE_PART, label: "steps out · esc is the program's" }]
   : entered ? [DRAWER_FOLD_PART, { ...DRAWER_LEAVE_PART, label: "steps out" }, DRAWER_AWAY_PART] : [{ ...DRAWER_AWAY_PART, label: "puts it away" }]);

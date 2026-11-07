@@ -5,7 +5,7 @@ import type { Screen } from "./app";
 import type { AgentDrawer as Drawer, DrawerRun } from "./drawer";
 import type { Desk } from "./desk/desk";
 import { rawKey } from "./kbd";
-import { DOOR_ESC, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
+import { DOOR_ESC, ESC_DRAWER, ESC_DRAWER_KEYS, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
 import { runningModules } from "./door-modules";
 import { nothingToClose } from "./shell-keys";
 import { keyName } from "./surface/actions";
@@ -82,12 +82,18 @@ export function doorEscSteps(a: DoorEscHost): EscSteps<(typeof DOOR_ESC)[number]
 function drawerEscIn(dr: Drawer, run: DrawerRun): EscRung | null {
   if (!dr.entered) return null;
   const d = dr.desk, strip = dr.folded && (dr as unknown as { liftIn: unknown }).liftIn === null && !dr.glassHasKeys();
-  const word = dr.glassHasKeys() ? "the glass tile" : "the drawer's keys";
+  const word = dr.glassHasKeys() ? "the glass tile" : ESC_DRAWER_KEYS;
   const out = () => { run("host.leave", { quiet: true }); return true; };
   if (!d || strip || d.waitsOnExit()) return { closes: word, run: out };
   return rungOf(d.escReadFront() ?? word, () => d.escFront() || out());
 }
+/** What the drawer's foot says the next Esc closes: the door's answer, null when something else has the key (a program on the screen); a door with no reader (a test's) asks its own desk. */
+export function drawerFootEsc(dr: Drawer, exited: boolean): string | null {
+  if (exited) return ESC_DRAWER_KEYS;
+  const esc = (dr as unknown as { host: { ctx?(): { esc?: { hint(): string | null } } | undefined } }).host.ctx?.()?.esc;
+  return esc ? esc.hint() : dr.entered ? dr.desk?.escNextFront() ?? ESC_DRAWER_KEYS : ESC_DRAWER;
+}
 /** Esc with the person out of the drawer and nothing in front of it (the `drawer-up` step): it goes away. */
 function drawerEscUp(dr: Drawer, run: DrawerRun): EscRung | null {
-  return dr.shown && !dr.entered ? { closes: "the drawer", run: () => { run("host.toggle", { open: false }); return true; } } : null;
+  return dr.shown && !dr.entered ? { closes: ESC_DRAWER, run: () => { run("host.toggle", { open: false }); return true; } } : null;
 }
