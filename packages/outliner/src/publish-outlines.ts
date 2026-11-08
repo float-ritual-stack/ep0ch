@@ -15,8 +15,11 @@ export interface OutlinePublishersOptions {
   homeName?: string;
   /** The outlines the host serves now (`outlines.list`). */
   names: () => Promise<string[]>;
-  /** A publisher for another outline, mounted at `<webRoot>/o/<name>`; started here. */
-  open: (name: string, basePath: string) => Publisher;
+  /**
+   * A publisher for another outline, mounted at `<webRoot>/o/<name>`; started here. `inherited` is what it takes from
+   * the home's: the publish roots its `--root`s name, so a picture under one serves on every outline's pages (PIE-1634).
+   */
+  open: (name: string, basePath: string, inherited: { roots: readonly string[] }) => Publisher;
   /** Other machines' outlines (`EP0CH_MCP_MIRRORS`), each at `<webRoot>/o/<name>@<machine>`. */
   remotes?: readonly RemoteOutline[];
   log?: (line: string) => void;
@@ -129,7 +132,7 @@ export class OutlinePublishers {
   private publisher(name: string): Promise<Publisher> {
     let pending = this.others.get(name);
     if (!pending) {
-      const publisher = this.options.open(name, `${this.webRoot}/o/${name}`);
+      const publisher = this.options.open(name, `${this.webRoot}/o/${name}`, { roots: this.options.home.configuredRoots });
       pending = publisher.start().then(() => publisher);
       // A start that failed is tried again next time.
       pending.catch(() => { if (this.others.get(name) === pending) this.others.delete(name); void publisher.stop(); });

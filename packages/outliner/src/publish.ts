@@ -1107,6 +1107,11 @@ export class Publisher {
     return this.policy?.roots ?? [];
   }
 
+  /** The roots it was given (`--root`), before its outline's own folder is added: what another outline's publisher takes. */
+  get configuredRoots(): readonly string[] {
+    return this.options.roots ?? [];
+  }
+
   private requirePolicy(): AttachmentPolicy {
     if (!this.policy) throw new Error("Publisher has not started");
     return this.policy;
