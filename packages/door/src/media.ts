@@ -393,7 +393,8 @@ export function media(raw: string, kind: Kind): Media {
   const { path, exists } = resolveMediaPath(raw);
   const kept = current(path);
   if (kept) return kept.media;
-  if (!exists && fetchMedia && kind === "img") return fetchRemote(path, kind);
+  // Asked as the note writes it (`~/` is the host's home, not this machine's).
+  if (!exists && fetchMedia && kind === "img") return fetchRemote(raw.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " "), kind);
   const now = Date.now(), key = exists ? contentKey(path) : null;
   if (!key) {
     const m: Media = { state: "error", path, kind, reason: "file not found" };

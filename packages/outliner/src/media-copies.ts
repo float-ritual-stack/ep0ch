@@ -29,6 +29,8 @@ export interface MediaCopierOptions {
   env?: NodeJS.ProcessEnv;
   home?: string;
   log?: (line: string) => void;
+  /** A read-only copy of an outline: it answers from the records it carries and never writes one. */
+  readOnly?: boolean;
 }
 
 /** How long the bucket's settings are kept before they're read again (a group file edited while the host runs). */
@@ -69,6 +71,7 @@ export class MediaCopier {
 
   /** A note was saved: its pictures are copied after the save, in order with every other copy. */
   blockChanged(blockId: string): void {
+    if (this.options.readOnly) return;
     const text = this.store.get(blockId)?.text;
     const paths = text ? notePicturePaths(text) : [];
     if (!paths.length) return;

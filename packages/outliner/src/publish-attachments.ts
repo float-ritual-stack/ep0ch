@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, rea
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, relative, sep } from "node:path";
 import { MAX_TEXT_FILE_BYTES, resolveReferencedPath } from "./files";
-import { copyWhy, type PictureCopies } from "./publish-pictures";
+import type { MediaCopy } from "@ep0ch/outline-core/media-copy";
 
 /**
  * Which files the publisher may serve. A published block's `[file::path]` is
@@ -271,3 +271,15 @@ export function imageRefusalWhy(check: Extract<ImageCheck, { ok: false }>, sourc
 }
 
 const listed = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
+/** What the host has of a page's pictures, by the path as each note writes it. */
+export interface PictureCopies { bucket: boolean; problem?: string; byPath: Map<string, MediaCopy> }
+
+/** Why a picture with no copy isn't on the page, for the owner, when the bucket is what would show it; null to say what the file check says. */
+export function copyWhy(copies: PictureCopies | undefined, path: string): string | null {
+  const copy = copies?.byPath.get(path);
+  if (copy?.error) return `Its copy to the media bucket didn't land: ${copy.error}. Saving the note tries again.`;
+  if (copies?.problem) return `The outline host can't copy pictures: ${copies.problem}.`;
+  if (copies?.bucket) return copy ? "Its copy to the media bucket is on its way: reload in a moment." : "It isn't in the media bucket yet: saving the note copies it (the file must be on the outline's machine).";
+  return null;
+}

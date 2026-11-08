@@ -426,7 +426,7 @@ export class OutlinerServer {
 
   private artifactStore?: ArtifactStore; private mediaCopier?: MediaCopier;
   /** Pictures notes name, copied to the media bucket on save (media-copies.ts, PIE-1634). */
-  get media(): MediaCopier { return this.mediaCopier ??= new MediaCopier(this.store, { log: (line) => console.error(line) }); }
+  get media(): MediaCopier { return this.mediaCopier ??= new MediaCopier(this.store, { readOnly: this.readOnly, log: (line) => console.error(line) }); }
 
   constructor(
     readonly store: OutlinerStore,

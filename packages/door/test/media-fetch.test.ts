@@ -33,5 +33,9 @@ test("a picture not on this machine loads from the host's copy, asked once; one 
   media("/nowhere/laptop/gone.png", "img");
   await changed.promise;
   expect(media("/nowhere/laptop/gone.png", "img")).toMatchObject({ state: "error", reason: expect.stringContaining("no copy of it is in the media bucket") });
+  changed = Promise.withResolvers();
+  media("~/laptop/heron.png", "img");
+  await changed.promise;
+  expect(asked.at(-1)).toBe("~/laptop/heron.png");
   useMediaFetch(null);
 });

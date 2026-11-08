@@ -3,14 +3,11 @@
 // machine) and the publisher's disk holds none. The address a page writes is unchanged (`/p/<id>/media/<line>`, the
 // note and the line, never a path); it redirects to a short-lived address in the private bucket the host signs. A
 // picture whose copy hasn't landed is read from its file as before, inside the publish roots.
-import type { MediaCopies, MediaCopy } from "@ep0ch/outline-core/media-copy";
+import type { MediaCopies } from "@ep0ch/outline-core/media-copy";
 import { notePicturePaths } from "@ep0ch/outline-core/picture-address";
-import { checkImage, readCheckedImage, type AttachmentPolicy } from "./publish-attachments";
+import { checkImage, readCheckedImage, type AttachmentPolicy, type PictureCopies } from "./publish-attachments";
 
 type Asks = { request<T>(request: never): Promise<T> };
-
-/** What the host has of a page's pictures, by the path as each note writes it. */
-export interface PictureCopies { bucket: boolean; problem?: string; byPath: Map<string, MediaCopy> }
 
 const NONE: PictureCopies = { bucket: false, byPath: new Map() };
 
@@ -47,13 +44,4 @@ export async function pictureResponse(client: Asks, path: string, policy: Attach
       ...(check.mime === "image/svg+xml" ? { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
     },
   });
-}
-
-/** Why a picture with no copy isn't on the page, for the owner, when the bucket is what would show it; null to say what the file check says. */
-export function copyWhy(copies: PictureCopies | undefined, path: string): string | null {
-  const copy = copies?.byPath.get(path);
-  if (copy?.error) return `Its copy to the media bucket didn't land: ${copy.error}. Saving the note tries again.`;
-  if (copies?.problem) return `The outline host can't copy pictures: ${copies.problem}.`;
-  if (copies?.bucket) return copy ? "Its copy to the media bucket is on its way: reload in a moment." : "It isn't in the media bucket yet: saving the note copies it (the file must be on the outline's machine).";
-  return null;
 }
