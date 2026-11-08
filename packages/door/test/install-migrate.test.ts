@@ -170,7 +170,7 @@ store.close();
   source.run("VACUUM INTO ?", [join(outlines, "seed-bank.sqlite")]);
   source.close();
   const old = new Database(join(outlines, "seed-bank.sqlite"));
-  old.exec("DROP TABLE create_requests; DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
+  old.exec("DROP TABLE media_copies; DROP TABLE create_requests; DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
   old.close();
   // Compost needs only a settings rewrite: install must not decide from note changes alone.
   mkdirSync(join(outlines, "compost/extensions/readwise"), { recursive: true });
