@@ -28,7 +28,7 @@ const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 test("each list main kept is now one column of the table", () => {
-  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act"]));
+  expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
   expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act"]));
   expect(sorted(DECLARED.events)).toEqual(MAIN.events);
@@ -36,7 +36,7 @@ test("each list main kept is now one column of the table", () => {
   expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
   // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
   expect(sorted(DECLARED.host)).toEqual(MAIN.host);
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope"]));
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read"]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope",
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group"]));

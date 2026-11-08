@@ -152,6 +152,8 @@ export const ACTIONS = {
   "artifacts.upload.chunk": { async: true },
   "artifacts.upload.finish": { async: true },
   "artifacts.versions": { copy: true, async: true },
+  "media.copies": { copy: true, async: true },
+  "media.read": { copy: true, async: true },
   "attention.acknowledge": { event: attentionCleared },
   "attention.advance": { event: attentionMarked },
   "attention.clear": { event: attentionCleared },

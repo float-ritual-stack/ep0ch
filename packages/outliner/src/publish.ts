@@ -46,10 +46,10 @@ import {
   checkAttachment,
   checkImage,
   imageSource,
-  readCheckedImage,
   type AttachmentPolicy,
   type PublishedFileType,
 } from "./publish-attachments";
+import { pictureCopies, pictureResponse } from "./publish-pictures";
 import { calloutExtension, CALLOUT_STYLE, publishedCalloutRegistry } from "./publish-callouts";
 import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
@@ -1103,14 +1103,9 @@ export class Publisher {
     this.watcher = null;
   }
 
-  get roots(): readonly string[] {
-    return this.policy?.roots ?? [];
-  }
-
+  get roots(): readonly string[] { return this.policy?.roots ?? []; }
   /** The roots it was given (`--root`), before its outline's own folder is added: what another outline's publisher takes. */
-  get configuredRoots(): readonly string[] {
-    return this.options.roots ?? [];
-  }
+  get configuredRoots(): readonly string[] { return this.options.roots ?? []; }
 
   private requirePolicy(): AttachmentPolicy {
     if (!this.policy) throw new Error("Publisher has not started");
@@ -2146,23 +2141,13 @@ export class Publisher {
    */
   private async serveMedia(request: Request, blockId: string, line: number, audience: PublishAudience, share?: PageShare, image?: number): Promise<Response> {
     const policy = this.requirePolicy();
-    if (policy.remoteService) return notFound();
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
     if (audience === "public" && !share && !(await this.reachedFromPublic(blockId))) return notFound();
     const spec = image === undefined ? await this.mediaLineAt(blockId, line) : await componentImageAt(this.client, blockId, line, image);
     if (!spec || spec.kind !== "img") return notFound();
-    const check = checkImage(spec.path, policy);
-    if (!check.ok) return notFound();
-    const bytes = readCheckedImage(check);
-    if (!bytes) return notFound();
-    return new Response(request.method === "HEAD" ? null : new Uint8Array(bytes), {
-      headers: {
-        ...COMMON_HEADERS, "content-type": check.mime, "content-length": String(bytes.length), "cache-control": "private, max-age=300",
-        // An SVG opened on its own runs nothing.
-        ...(check.mime === "image/svg+xml" ? { "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
-      },
-    });
+    // Its copy in the media bucket (PIE-1634), else its file inside the publish roots.
+    return pictureResponse(this.client as never, spec.path, policy, request.method === "HEAD", COMMON_HEADERS);
   }
 
   /** The media line `line` of note `blockId` is, read now. */
@@ -2546,10 +2531,11 @@ export class Publisher {
         }
       }
     }
+    const copies = await pictureCopies(this.client as never, rows.map((row) => row.block.text ?? ""));
     drawNoteMedia(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), options.format ?? "html", components, drawn,
       (blockId, line, spec) => spec.kind === "artifact"
         ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
-        : imageSource(this.policy, spec.path, `${base}${mediaPath(blockId, line)}`, !linked.labelsOnly, this.signedInOwner(), this.outlineName),
+        : imageSource(this.policy, spec.path, `${base}${mediaPath(blockId, line)}`, !linked.labelsOnly, this.signedInOwner(), this.outlineName, copies),
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
       (blockId, line) => artifactPages.get(`${blockId}:${line}`), (blockId, line) => repos.get(`${blockId}:${line}`), await fenceSvg(rows.map((row) => row.block.text ?? "")));
     if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
@@ -2580,7 +2566,7 @@ export class Publisher {
         // A public page links only to published notes; a tailnet page (and a share's) to any note it shows.
         return audience === "public" && !share ? null : `${base}/p/${encodeURIComponent(blockId)}`;
       },
-      mediaSrc: (blockId, at, spec) => !index.labelsOnly && this.policy && checkImage(spec.path, this.policy).ok ? `${base}${mediaPath(blockId, at.line, at.image)}` : null,
+      mediaSrc: (blockId, at, spec, copied) => !index.labelsOnly && this.policy && (copied || checkImage(spec.path, this.policy).ok) ? `${base}${mediaPath(blockId, at.line, at.image)}` : null,
     };
   }
 

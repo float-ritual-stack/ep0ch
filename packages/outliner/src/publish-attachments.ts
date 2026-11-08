@@ -2,6 +2,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, rea
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, relative, sep } from "node:path";
 import { MAX_TEXT_FILE_BYTES, resolveReferencedPath } from "./files";
+import { copyWhy, type PictureCopies } from "./publish-pictures";
 
 /**
  * Which files the publisher may serve. A published block's `[file::path]` is
@@ -227,10 +228,12 @@ function checkServable<T>(sourcePath: string, policy: AttachmentPolicy, cap: num
  * Where a picture on a page is served from (`at`) when `shown` and `checkImage` allows it; when it doesn't, the
  * signed-in owner's reason with the line that fixes it (PIE-1633), and null for anyone else.
  */
-export function imageSource(policy: AttachmentPolicy | null, path: string, at: string, shown: boolean, owner: boolean, outline: string | undefined): string | { said: string } | null {
+export function imageSource(policy: AttachmentPolicy | null, path: string, at: string, shown: boolean, owner: boolean, outline: string | undefined, copies?: PictureCopies): string | { said: string } | null {
   if (!shown || !policy) return null;
+  // Its copy in the media bucket (PIE-1634) shows wherever its file is.
+  if (copies?.byPath.get(path)?.copied) return at;
   const check = checkImage(path, policy);
-  return check.ok ? at : owner ? { said: imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
+  return check.ok ? at : owner ? { said: copyWhy(copies, path) ?? imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
 }
 
 /**

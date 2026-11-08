@@ -25,3 +25,9 @@ export function pictureAddress(text: string, path: string): { line: number; imag
 /** The picture a property names at that place: what `/p/<id>/media/<line>/<image>` serves when no component draws on the line. */
 export const propertyPictureAt = (text: string, line: number, image: number): string | undefined =>
   propertyPictures(text).find(picture => picture.line === line && picture.image === image)?.path;
+
+/** Every picture path a note names, once each: its picture lines and its properties' pictures (what the media bucket copies, PIE-1634). */
+export const notePicturePaths = (text: string): string[] => [...new Set([
+  ...[...noteMediaLines(text).values()].filter(spec => spec.kind === "img" && !spec.fence).map(spec => spec.path),
+  ...propertyPictures(text).map(picture => picture.path).filter(path => !/^[a-z][a-z0-9+.-]*:/i.test(path)),
+])];
