@@ -9,7 +9,7 @@ import {readAuthoredLinks} from '../src/authored-links';
 import {MentionRepository} from '../src/mentions';
 import {outlinerReferenceOccurrences} from '../src/reference-occurrences';
 import {createOutlinerTextLinker,outlinerLinkUri,parseOutlinerLinkUri,resolveOutlinerLinkTarget} from '../src/outliner-links';
-import {ticketKeyReferences,workIdReferences} from '../src/work-ids';
+import {ticketKeyReferences,workIdReferences} from '@ep0ch/outline-core/work-ids';
 
 test('external keys preserve provider spelling without widening allocator recognition',()=>{
  const text='PC-7 PC-515 ABC-1234 HUB-001 HUB-7 HUB-0001 PC-0 pc-42 foo_PC-515 PC-515_bar éPC-8 PC-8é PC-9007199254740992';

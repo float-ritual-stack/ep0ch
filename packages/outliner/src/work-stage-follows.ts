@@ -1,4 +1,4 @@
-import { parseWorkId } from "./work-ids";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { patchPropertyText } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { PropertyPatchOperation, PropertyRecord } from "./types";

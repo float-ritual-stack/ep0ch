@@ -1,6 +1,6 @@
 import type { OutlinerActionKeymap } from "./outliner-actions";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
-import { ticketScope, type TicketPrefixes } from "./work-ids";
+import { ticketScope, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import {resourceDocumentObservation} from './document-resources';
 import {passageDocumentRepresentation} from './annotation-passages';
 import {createTextQuoteAnchor} from './annotations';

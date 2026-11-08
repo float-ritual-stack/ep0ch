@@ -8,7 +8,7 @@ import {
   normalizeWorkIdPrefix,
   parseWorkId,
   workIdReferences,
-} from "../src/work-ids";
+} from "@ep0ch/outline-core/work-ids";
 
 test("normalizes project prefixes and formats monotonic Work IDs", () => {
   expect(normalizeWorkIdPrefix(" pie ")).toBe("PIE");

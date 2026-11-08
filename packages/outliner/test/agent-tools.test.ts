@@ -436,6 +436,8 @@ test("set-property replaces a header chip in place or adds one at the line's end
   const note = store.create("Seed list - [crop::bean] [bed::north]\nRunner beans.");
   const replaced = await agent("set-property", { ref: note.id, key: "crop", value: "leek", revision: note.revision });
   expect(replaced.json).toMatchObject({ outcome: "applied", key: "crop", previous: "bean", value: "leek" });
+  // A property set isn't the note's words: its answer has no review and no next check (patchDraft's suggest: false).
+  expect([replaced.json.review, replaced.json.next]).toEqual([undefined, undefined]);
   expect(store.get(note.id)!.text).toBe("Seed list - [crop::leek] [bed::north]\nRunner beans.");
   const added = await agent("set-property", { ref: note.id, key: "sown", value: "2026-03-01", revision: store.get(note.id)!.revision });
   expect(added.json).toMatchObject({ outcome: "applied", previous: null });
@@ -1115,6 +1117,7 @@ test("a bad or unresolved reference never blocks a save: edit, create, comment, 
   expect(patch.exitCode).toBe(0);
   expect(store.get(note.id)!.text).toStartWith(`Seed swap ((${target.id}^zz))`);
   expect(patch.json.warnings).toHaveLength(1);
+  expect(patch.json.next).toContain(`ep0ch show ${note.id}`);
 
   const update = await cli(["update", "--id", note.id, "--expected", String(store.get(note.id)!.revision), "--text", `Seed swap ((${target.id}`]);
   expect(update.exitCode).toBe(0);

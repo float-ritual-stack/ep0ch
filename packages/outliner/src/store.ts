@@ -102,7 +102,7 @@ import {
   parseWorkId,
   workIdReferences,
   type ParsedWorkId,
-} from "./work-ids";
+} from "@ep0ch/outline-core/work-ids";
 import type {
   AnnotationAgentEvidenceSummary,
   AnnotationAgentPromptPackage,

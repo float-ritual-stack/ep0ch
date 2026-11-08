@@ -1,7 +1,7 @@
 import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
-import { ticketScope } from "./work-ids";
+import { ticketScope } from "@ep0ch/outline-core/work-ids";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';

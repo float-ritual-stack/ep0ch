@@ -56,7 +56,7 @@ import { blockDisplayTitle } from "../src/references";
 import {
   containsWorkIdPlaceholder,
   formatWorkIdPlaceholder,
-} from "../src/work-ids";
+} from "@ep0ch/outline-core/work-ids";
 import {
   classifyWorkEnvironment,
   type WorkOrientation,

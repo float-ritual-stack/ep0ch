@@ -17,7 +17,7 @@ import {
   type PropertyReferenceOccurrence,
 } from "./reference-occurrences";
 import { blockDisplayTitle, blockHeadedTitle } from "./references";
-import { workIdReferences, type TicketPrefixes } from "./work-ids";
+import { workIdReferences, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import type {
   BacklinkCollection,
   BacklinkOccurrence,
