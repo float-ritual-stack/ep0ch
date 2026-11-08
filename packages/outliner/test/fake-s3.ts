@@ -21,7 +21,7 @@ export function fakeS3(bucket = "scratch-media"): FakeS3 {
       }
       const object = objects.get(key);
       if (!object) return new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
-      return new Response(request.method === "HEAD" ? null : object.bytes, { headers: { "content-type": object.type, "content-length": String(object.bytes.length) } });
+      return new Response(request.method === "HEAD" ? null : new Uint8Array(object.bytes), { headers: { "content-type": object.type, "content-length": String(object.bytes.length) } });
     },
   });
   const url = `http://127.0.0.1:${server.port}`;

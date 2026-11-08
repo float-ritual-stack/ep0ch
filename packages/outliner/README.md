@@ -945,6 +945,25 @@ rebinding) cannot read what is published. Unpublishing (removing the property or
 setting it to `false`) removes the URL on the next request: any content change
 clears the cached index, which is otherwise at most five seconds old.
 
+### Pictures live in a bucket (PIE-1634)
+
+A note's pictures (`[img::path]` lines and pictures its properties name) are copied to the media bucket when the note
+is saved, wherever the file is on the outline's machine: the outline host reads it after the save (never before),
+keys it by its sha256 and uploads it once (`src/media-copies.ts`, recorded in the store's `media_copies`, never as a
+property). A page's picture address (`/p/<id>/media/<line>`) redirects to a ten-minute address in the private bucket
+the host signs, on every listener and through a share, for this outline and for `/o/<name>` and another machine's;
+a picture with no copy yet is read from its file inside the roots, as before. The door asks the host
+(`media.read`) for a picture that isn't on its own machine. Settings (`src/media-bucket.ts`), from the host's
+environment or the `hetzner-s3` with-secrets group file:
+
+```sh
+EP0CH_MEDIA_BUCKET=ep0ch-media
+EP0CH_MEDIA_ENDPOINT=https://hel1.your-objectstorage.com
+AWS_ACCESS_KEY_ID=…   AWS_SECRET_ACCESS_KEY=…   # as with-secrets hetzner-s3 has them
+```
+
+With none set nothing is copied and pages read files as before.
+
 Anyone who can write to the outline can publish: an agent that adds
 `[publish::true]` publishes that block. The publisher is built for a tailnet,
 where every reader is already trusted.
