@@ -366,25 +366,30 @@ function current(path: string): Entry | undefined {
  */
 type Fetch = (path: string) => Promise<{ base64: string; mime: string; sha256?: string }>;
 let fetchMedia: Fetch | null = null;
-export function useMediaFetch(fetch: Fetch | null) { fetchMedia = fetch; }
-/** A picture asked of the host: where its bytes are kept in the cache, or why it couldn't be had. */
-const fetched = new Map<string, { at?: string; reason?: string }>();
+/** How long a failed ask stands before the next redraw asks again: a copy on its way lands, a dropped forward comes back. */
+let retryMs = 15_000;
+export function useMediaFetch(fetch: Fetch | null, retry = 15_000) { fetchMedia = fetch; retryMs = retry; }
+/** A picture asked of the host: where its bytes are kept in the cache, or why it couldn't be had and when. */
+const fetched = new Map<string, { at?: string; reason?: string; failedAt?: number }>();
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/avif": "avif", "image/svg+xml": "svg" };
 
 /** `path` from the host, cached by its content's hash; a redraw follows when it lands. */
 function fetchRemote(path: string, kind: Kind): Media {
   const had = fetched.get(path);
   if (had?.at) return media(had.at, kind);
-  if (had?.reason) return { state: "error", path, kind, reason: had.reason };
-  if (!had) {
+  if (had?.reason && Date.now() - (had.failedAt ?? 0) < retryMs) return { state: "error", path, kind, reason: had.reason };
+  if (!had || had.reason) {
     fetched.set(path, {});
+    const failed = (why: string) => fetched.set(path, { reason: why, failedAt: Date.now() });
     fetchMedia!(path).then(answer => {
-      const bytes = Buffer.from(answer.base64, "base64");
-      const sha = answer.sha256 ?? createHash("sha256").update(bytes).digest("hex");
-      const at = join(mediaCache(), "copies", `${sha}.${EXT[answer.mime] ?? "img"}`);
-      if (!existsSync(at)) { mkdirSync(dirname(at), { recursive: true }); const tmp = `${at}.${process.pid}.tmp`; writeFileSync(tmp, bytes); renameSync(tmp, at); }
-      fetched.set(path, { at });
-    }, e => { fetched.set(path, { reason: `file not found here, and the outline's host has none: ${String((e as Error).message ?? e)}` }); }).finally(() => onChange());
+      try {
+        const bytes = Buffer.from(answer.base64, "base64");
+        const sha = answer.sha256 ?? createHash("sha256").update(bytes).digest("hex");
+        const at = join(mediaCache(), "copies", `${sha}.${EXT[answer.mime] ?? "img"}`);
+        if (!existsSync(at)) { mkdirSync(dirname(at), { recursive: true }); const tmp = `${at}.${process.pid}.tmp`; writeFileSync(tmp, bytes); renameSync(tmp, at); }
+        fetched.set(path, { at });
+      } catch (e) { failed(`the outline's host sent it, but the door couldn't keep it: ${String((e as Error).message ?? e)}`); }
+    }, e => { failed(`file not found here, and the outline's host has none: ${String((e as Error).message ?? e)}`); }).finally(() => onChange());
   }
   return { state: "loading", path, kind };
 }

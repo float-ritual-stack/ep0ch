@@ -233,7 +233,10 @@ export function imageSource(policy: AttachmentPolicy | null, path: string, at: s
   // Its copy in the media bucket (PIE-1634) shows wherever its file is.
   if (copies?.byPath.get(path)?.copied) return at;
   const check = checkImage(path, policy);
-  return check.ok ? at : owner ? { said: copyWhy(copies, path) ?? imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
+  if (check.ok) return at;
+  // What the copier skips (too large, not a picture a page shows, not a file) keeps its own reason: a save never fixes it.
+  const copyable = !["too-large", "unsupported-type", "not-a-file"].includes(check.refusal);
+  return owner ? { said: (copyable ? copyWhy(copies, path) : null) ?? imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
 }
 
 /**

@@ -134,3 +134,17 @@ test("the bucket's settings: the environment first, then the with-secrets group 
   expect(half).toEqual({ problem: expect.stringContaining("EP0CH_MEDIA_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY") });
   expect(JSON.stringify(half)).not.toContain("fake-secret");
 });
+
+test("a picture the copier never copies keeps its real reason for the owner, not 'saving the note copies it'", async () => {
+  const { server, write, get, workspace } = await setup();
+  writeFileSync(join(workspace, "images", "moth.bmp"), MOTH);
+  mkdirSync(join(workspace, "images", "folder.png"));
+  await write("Odd pictures [publish::public:odd-pictures]\n[img::images/moth.bmp]\n[img::images/folder.png]\n[img::images/missing.png]");
+  await server.media.settled();
+  const owner = await (await get("/pub/p/odd-pictures?view=html", "tailnet", true)).text();
+  expect(owner).toContain("Pages show .png, .jpg, .jpeg, .gif, .webp, .avif and .svg pictures, not .bmp");
+  expect(owner).toContain("isn&#39;t a regular file");
+  // One that could be copied, once its file is there: the bucket's reason.
+  expect(owner).toContain("It isn&#39;t in the media bucket yet");
+  expect(owner.split("saving the note copies it").length - 1).toBe(1);
+});
