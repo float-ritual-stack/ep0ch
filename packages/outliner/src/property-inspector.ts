@@ -9,7 +9,7 @@ import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { PropertyPlacement, PropertyRecord, PropertyScope, PropertySyntax } from "./types";
-import { isCanonicalWorkId } from "./work-ids";
+import { isCanonicalWorkId } from "@ep0ch/outline-core/work-ids";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 

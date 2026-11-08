@@ -11,7 +11,7 @@
 import { parseArgs } from "node:util";
 import { createOutlinerClient } from "../src/client";
 import { resolveClientPaths } from "../src/paths";
-import { workIdReferences } from "../src/work-ids";
+import { workIdReferences } from "@ep0ch/outline-core/work-ids";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import type { AnnotationThread, Block } from "../src/types";
 

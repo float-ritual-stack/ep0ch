@@ -1,4 +1,4 @@
-import { ticketScope } from "./work-ids";
+import { ticketScope } from "@ep0ch/outline-core/work-ids";
 import type { OutlinerRequester } from "./client-target";
 import { projectDetailRead } from "./detail-embeds";
 import type { DetailReadPreviewDocument, DetailDraftProjection } from "./detail-pi-preview";

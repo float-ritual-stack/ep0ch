@@ -22,7 +22,7 @@ import {
   dispatchNavigation,
   resolveNavigationDestination,
 } from "./navigation-routes";
-import { isWorkIdAddress, type TicketPrefixes } from "./work-ids";
+import { isWorkIdAddress, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import { authoredResourceReferenceOccurrences, resourcePropertyKeys } from "./resource-references";
 import { softLinkTokens } from "@ep0ch/outline-core/soft-links";
 import type { SoftLinkAnswer } from "./soft-links";

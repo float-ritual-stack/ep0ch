@@ -1838,7 +1838,6 @@ Herdr Detail split, else it says why it can't and gives the `((id))`.
 ```text
 src/store.ts                  SQLite block graph, property index, and symbolic-address registry
 src/page-addresses.ts         symbolic-address validation, normalization, and syntax scanning
-src/work-ids.ts              Work-ID prefix validation, parsing, and formatting
 src/server.ts                 protocol and subscriptions
 src/client.ts                 request/watch client
 src/host-main.ts              the outline host process

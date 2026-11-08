@@ -51,7 +51,7 @@ import { recordProperties, type BlockRecord } from "@ep0ch/outline-core/block-re
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
-import { parseWorkId } from "./work-ids";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { refuseDroppedStructure, replaceSectionText, WorkToolRefusal, type WorkToolsClient } from "./work-tools";
 import type {
   AnnotationBatchReceipt,
@@ -948,7 +948,7 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
         id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, previousRevision: block.revision,
         diff: shortDiff(block.text, updated.text), section: updated.section,
         ...(dropped.length ? { dropped } : {}),
-        ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } })),
+        ...(await warned(client, updated.text, { near: updated.id, gate: { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } } })),
       };
     }
   } else {
@@ -982,23 +982,32 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     previousRevision: block.revision,
     diff: shortDiff(block.text, updated.text),
     ...(dropped.length ? { dropped } : {}),
-    ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } })),
+    ...(await warned(client, updated.text, { near: updated.id, gate: { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } } })),
   };
 }
 
 /**
  * What a write's answer says about the text it wrote (PIE-1270): the references and components it read, then what to fix
  * before calling it done: the house rules measured in code (outline-core's write-shape), and, when `gate` is given (a
- * create's or an edit's, with the text before), the figure it would read best as (figure-fit.ts). Every finding is a
- * warning worded as a gate, never a refusal; `next` always ends the answer.
+ * create's, an edit's or a patch's, with the text before), the figure it would read best as (figure-fit.ts). Every
+ * finding is a warning worded as a gate, never a refusal; `next` always ends the answer. The one place a write's answer
+ * about itself is put together: create, edit, patch, comment, reply and comment edit all ask it.
+ *
+ * - `near`: the note the text is in, for references' context and the figure rows; `self` (default `near`) the block
+ *   it was written as, which the references, `::use` calls and scripts are read against.
+ * - `had`: the text before a patch, when only the warnings this write brought in are news (PIE-761): a warning the
+ *   note already had isn't this write's.
  */
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string }> {
-  const [{ warnings, components }, review, rows] = await Promise.all([
+type WriteAnswer = { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string };
+async function warned(client: AgentToolsClient, text: string, o: { near?: string; self?: string; gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }; had?: string } = {}): Promise<WriteAnswer> {
+  const { near, self = near, gate } = o;
+  const [{ warnings, components }, review, rows, had] = await Promise.all([
     writtenReading(client, text, near, self),
     gate ? reviewOf(client, text, gate.before, gate.at) : null,
     gate && near ? figureRowReport(client, near, text, gate.before) : null,
+    o.had === undefined ? null : referenceWarningsFor(client, o.had, near, self).then(w => new Set(w)),
   ]);
-  const all = [...warnings, ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
+  const all = [...(had ? warnings.filter(w => !had.has(w)) : warnings), ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
   return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review } : {}), ...(near ? { next: review?.next ?? shapeNext(near) } : {}) };
 }
 
@@ -1009,13 +1018,13 @@ export async function createBlock(
   client: AgentToolsClient,
   input: { parent: string; text: string; position?: number; requestId?: string },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null; deduplicated?: true; warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; deduplicated?: true } & WriteAnswer> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
   const position = input.position === undefined ? undefined : boundedInteger(input.position, "position", 0, 0, 1_000_000);
   const block = await client.request<Block & { deduplicated?: true }>({ action: "create", text, parentId, position, requestId: input.requestId, author: actor.author ?? "agent", provenance: creationOf(actor) });
-  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(block.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, block.text, block.id, block.id, { at: { note: block.id, revision: block.revision, actorId: actor.actorId } })) };
+  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(block.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, block.text, { near: block.id, gate: { at: { note: block.id, revision: block.revision, actorId: actor.actorId } } })) };
 }
 
 // ─── A view's hand-set order ────────────────────────────────────────────────
@@ -1171,7 +1180,7 @@ async function commentOnBlock(client: AgentToolsClient, input: Parameters<typeof
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no comment");
-  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, block.id, record.block.id)) });
+  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, { near: block.id, self: record.block.id })) });
 }
 
 /**
@@ -1239,7 +1248,7 @@ export async function replyTo(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");
-  const read = await warned(client, body, undefined, record.block.id);
+  const read = await warned(client, body, { self: record.block.id });
   // The house rules on a reply's words, as on a comment's (PIE-1270, PIE-1589).
   const warnings = [...(read.warnings ?? []), ...shapeWarnings(body, undefined, { kind: "comment" })];
   return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...read, ...(warnings.length ? { warnings } : {}) }), thread: annotationId, reply: record.block.id };
@@ -1265,7 +1274,7 @@ export async function editComment(
     input: { annotationId, expectedRevision: input.revision ?? now.block.revision, body },
     mutation: mutationOf(actor),
   });
-  return { ...commentResult(record, await warned(client, body, undefined, record.block.id)), mark: record.block.id, revision: record.block.revision, edited: record.edited ?? "" };
+  return { ...commentResult(record, await warned(client, body, { self: record.block.id })), mark: record.block.id, revision: record.block.revision, edited: record.edited ?? "" };
 }
 
 /** Resolves (or reopens) a comment thread, as the agent. */
@@ -1404,7 +1413,7 @@ export async function patchDraft(
   actor: AgentActor,
   /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing, measures nothing and has no next check. */
   o: { suggest?: boolean } = {},
-): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string }> {
+): Promise<DraftPatchResult & WriteAnswer> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1434,18 +1443,10 @@ export async function patchDraft(
   // The note as it is now, read whole (a replacement alone loses its context); a warning the note had before isn't this write's (PIE-761).
   const after = await read();
   if (after === undefined || after === was) return result;
-  const before = new Set(await referenceWarningsFor(client, was, block.id));
-  const [now, review, rows] = await Promise.all([
-    writtenReading(client, after, block.id),
-    o.suggest === false ? null : reviewOf(client, after, was, { note: block.id, revision: (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision, actorId: actor.actorId }),
-    o.suggest === false ? null : figureRowReport(client, block.id, after, was),
-  ]);
-  const warnings = [
-    ...now.warnings.filter(w => !before.has(w)),
-    ...(review ? reviewWarnings(review) : []),
-    ...(rows?.warnings ?? []),
-  ];
-  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review, next: review.next } : {}) };
+  const revisionNow = (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision;
+  const gate = o.suggest === false ? undefined : { before: was, at: { note: block.id, revision: revisionNow, actorId: actor.actorId } };
+  const { next, ...answer } = await warned(client, after, { near: block.id, had: was, ...(gate ? { gate } : {}) });
+  return { ...result, ...answer, ...(gate && next ? { next } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────

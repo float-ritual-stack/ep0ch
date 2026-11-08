@@ -21,7 +21,7 @@ import { formatProperty, getProperty, matchesFilters, normalizePropertyKey, patc
 import { recordsRoot } from "./records";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
-import { parseWorkId } from "./work-ids";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { ticketOf } from "./work-stage-follows";
 import { keptBecause } from "./work-keep";
 import {

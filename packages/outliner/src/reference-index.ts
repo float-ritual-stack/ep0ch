@@ -3,7 +3,7 @@ import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import type { Database } from "bun:sqlite";
 import { blockReferenceOccurrences, pageAddressReferences, normalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { ticketKeyReferences } from "./work-ids";
+import { ticketKeyReferences } from "@ep0ch/outline-core/work-ids";
 
 /** Candidate addresses, not resolved edges: renaming a page or claiming a ticket needs no source rewrite.
  * The backlink resolver still owns protected regions, prefix scope and all other semantic decisions.

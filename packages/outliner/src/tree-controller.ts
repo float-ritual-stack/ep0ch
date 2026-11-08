@@ -1,6 +1,6 @@
 import { eraseBack, wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
-import { ticketScope } from "./work-ids";
+import { ticketScope } from "@ep0ch/outline-core/work-ids";
 import {TreeComments} from "./tree-comments";
 import {TreeBranchFilter} from "./tree-branch-filter";
 import {adjacentReaderMenu, paneBarButtons, readerMenuFromAction, readerMenuItems, type ChromeLevel, type PaneBarButton, type PaneBarState} from "./reader-chrome";

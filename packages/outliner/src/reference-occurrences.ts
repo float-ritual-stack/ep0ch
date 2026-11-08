@@ -10,7 +10,7 @@ import { isResourcePropertyKey } from "./resource-references";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { PropertyRecord } from "./types";
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
-import { ticketKeyReferences, type TicketPrefixes } from "./work-ids";
+import { ticketKeyReferences, type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 
 export interface TextRange {
   start: number;

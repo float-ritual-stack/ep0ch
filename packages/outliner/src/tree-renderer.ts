@@ -1,4 +1,4 @@
-import { ticketScope } from "./work-ids";
+import { ticketScope } from "@ep0ch/outline-core/work-ids";
 import {renderHintRow, renderPaneBar} from "./reader-chrome";
 import type {TextViewerFrame} from "./text-viewer-input";
 import { renderReferenceCompletion } from "./reference-completion-renderer";

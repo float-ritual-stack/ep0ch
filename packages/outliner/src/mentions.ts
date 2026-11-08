@@ -4,7 +4,7 @@ import { blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
 import { pageAddressReferences } from '@ep0ch/outline-core/link-syntax';
 import { offsetInRanges, protectedCodeRanges } from '@ep0ch/outline-core/code-ranges';
 import {outlinerReferenceOccurrences} from './reference-occurrences';
-import type {TicketPrefixes} from './work-ids';
+import type {TicketPrefixes} from '@ep0ch/outline-core/work-ids';
 import {marked} from 'marked';
 import {parseOutlinerLinkUri} from './outliner-links';
 import type {OutlinerStore} from './store';

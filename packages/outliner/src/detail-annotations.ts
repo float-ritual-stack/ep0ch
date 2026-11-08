@@ -1,4 +1,4 @@
-import { type TicketPrefixes } from "./work-ids";
+import { type TicketPrefixes } from "@ep0ch/outline-core/work-ids";
 import { checklistItems } from "./checklist-items";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { outlinerActionLink } from "./outliner-actions";
