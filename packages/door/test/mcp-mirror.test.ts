@@ -191,14 +191,14 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     rmSync(join(mirrorsFolder, ".restic"), { recursive: true, force: true });
   }, 30_000);
 
-  /** A copy one schema behind this build (before create requests, 0008), at `path`. */
+  /** A copy one schema behind this build (before media copies, 0009), at `path`. */
   const asSchemaBehind = (name: string, path: string) => {
     rmSync(path, { force: true });
     const source = new Database(join(home.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [path]); } finally { source.close(); }
     const db = new Database(path);
     try {
-      db.exec("DROP TABLE create_requests;");
+      db.exec("DROP TABLE media_copies;");
       db.run(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
     } finally { db.close(); }
   };

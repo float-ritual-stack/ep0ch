@@ -2,6 +2,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, rea
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, relative, sep } from "node:path";
 import { MAX_TEXT_FILE_BYTES, resolveReferencedPath } from "./files";
+import type { MediaCopy } from "@ep0ch/outline-core/media-copy";
 
 /**
  * Which files the publisher may serve. A published block's `[file::path]` is
@@ -227,10 +228,15 @@ function checkServable<T>(sourcePath: string, policy: AttachmentPolicy, cap: num
  * Where a picture on a page is served from (`at`) when `shown` and `checkImage` allows it; when it doesn't, the
  * signed-in owner's reason with the line that fixes it (PIE-1633), and null for anyone else.
  */
-export function imageSource(policy: AttachmentPolicy | null, path: string, at: string, shown: boolean, owner: boolean, outline: string | undefined): string | { said: string } | null {
+export function imageSource(policy: AttachmentPolicy | null, path: string, at: string, shown: boolean, owner: boolean, outline: string | undefined, copies?: PictureCopies): string | { said: string } | null {
   if (!shown || !policy) return null;
+  // Its copy in the media bucket (PIE-1634) shows wherever its file is.
+  if (copies?.byPath.get(path)?.copied) return at;
   const check = checkImage(path, policy);
-  return check.ok ? at : owner ? { said: imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
+  if (check.ok) return at;
+  // What the copier skips (too large, not a picture a page shows, not a file) keeps its own reason: a save never fixes it.
+  const copyable = !["too-large", "unsupported-type", "not-a-file"].includes(check.refusal);
+  return owner ? { said: (copyable ? copyWhy(copies, path) : null) ?? imageRefusalWhy(check, path, policy, publisherUnit(outline)) } : null;
 }
 
 /**
@@ -268,3 +274,15 @@ export function imageRefusalWhy(check: Extract<ImageCheck, { ok: false }>, sourc
 }
 
 const listed = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
+/** What the host has of a page's pictures, by the path as each note writes it. */
+export interface PictureCopies { bucket: boolean; problem?: string; byPath: Map<string, MediaCopy> }
+
+/** Why a picture with no copy isn't on the page, for the owner, when the bucket is what would show it; null to say what the file check says. */
+export function copyWhy(copies: PictureCopies | undefined, path: string): string | null {
+  const copy = copies?.byPath.get(path);
+  if (copy?.error) return `Its copy to the media bucket didn't land: ${copy.error}. Saving the note tries again.`;
+  if (copies?.problem) return `The outline host can't copy pictures: ${copies.problem}.`;
+  if (copies?.bucket) return copy ? "Its copy to the media bucket is on its way: reload in a moment." : "It isn't in the media bucket yet: saving the note copies it (the file must be on the outline's machine).";
+  return null;
+}

@@ -445,9 +445,9 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     }));
     const web = new OutlinePublishers({
       home: publisher, ...(status.outline?.name ? { homeName: status.outline.name } : {}), names: outlineNames, remotes, log: line => console.error(line),
-      open: (name, basePath) => new Publisher({
+      open: (name, basePath, inherited) => new Publisher({
         client: createOutlinerClient({ ...resolveClientPaths(), outline: name }),
-        basePath, webRoot: publisher.basePath,
+        basePath, webRoot: publisher.basePath, ...inherited,
         artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
         ...(publishUrl ? { url: `${publishUrl}/o/${name}` } : {}),
         ...(values.url ?? process.env.OUTLINER_PUBLISH_URL ? { tailnetUrl: `${publisherUrl((values.url ?? process.env.OUTLINER_PUBLISH_URL)!)}/o/${name}` } : {}),

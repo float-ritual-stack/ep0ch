@@ -366,3 +366,36 @@ test("the fix names the publisher's own unit: its cgroup's outliner-publish serv
   expect(publisherUnit("gurgle", "0::/user.slice/user-1000.slice/user@1000.service/claude-builder.service\n")).toBe("outliner-publish-gurgle");
   expect(publisherUnit(undefined, "")).toBe("outliner-publish");
 });
+
+test("another outline's page below /o/<name> serves a picture under the publisher's --root, as the home's pages do (PIE-1634)", async () => {
+  const { OutlinePublishers } = await import("../src/publish-outlines");
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-publish-o-roots-")));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const screenshots = join(root, "inbox", "screenshots");
+  mkdirSync(screenshots, { recursive: true });
+  writeFileSync(join(screenshots, "kite.png"), PNG);
+  const servers = await Promise.all(["garden", "orchard"].map(async (name) => {
+    const folder = join(root, name);
+    mkdirSync(folder, { recursive: true });
+    const paths = scratchOutline(join(root, `${name}-host`), { name, folder });
+    const store = new OutlinerStore(paths.database, { workspaceRoot: folder });
+    const server = new OutlinerServer(store, paths.socket);
+    await server.start();
+    cleanups.push(async () => { await server.close(); store.close(); });
+    return { store, client: new OutlinerClient(paths.socket) };
+  }));
+  const [garden, orchard] = servers as [typeof servers[0], typeof servers[0]];
+  const home = new Publisher({ client: garden.client, roots: [screenshots] });
+  await home.start();
+  const web = new OutlinePublishers({
+    home, homeName: "garden", names: async () => ["garden", "orchard"],
+    open: (_name, basePath, inherited) => new Publisher({ client: orchard.client, basePath, webRoot: home.basePath, ...inherited }),
+  });
+  cleanups.push(async () => { await web.stop(); await home.stop(); });
+  const note = orchard.store.create(`Kites [publish::public:kites]\n[img::${join(screenshots, "kite.png")}] [alt::a red kite]`);
+  const page = await (await web.handle(new Request("http://127.0.0.1/o/orchard/p/kites?view=html", { headers: { accept: "text/html" } }))).text();
+  expect(page).toContain(`/o/orchard/p/${note.id}/media/1`);
+  const image = await web.handle(new Request(`http://127.0.0.1/o/orchard/p/${note.id}/media/1`));
+  expect(image.status).toBe(200);
+  expect(new Uint8Array(await image.arrayBuffer())).toEqual(PNG);
+});

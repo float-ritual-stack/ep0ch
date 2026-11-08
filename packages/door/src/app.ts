@@ -23,7 +23,7 @@ import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { lookFor, tuningOf } from "./look";
-import { nextFrame, onMediaChange } from "./media";
+import { nextFrame, onMediaChange, useMediaFetch } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import { uncover, within, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
@@ -716,6 +716,8 @@ export class App implements Ctx {
     onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
+    // A picture not on this machine is asked of the outline's host: its file there, else its media bucket copy (PIE-1634).
+    useMediaFetch(path => board.request("media.read", { path }, 30_000));
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     // A terminal being resized sends a size a moment: a resize (src/resize.ts) until they stop. When one ends, the
     // frame after lays out and scales for where it ended.

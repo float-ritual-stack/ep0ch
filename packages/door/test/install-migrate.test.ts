@@ -170,7 +170,7 @@ store.close();
   source.run("VACUUM INTO ?", [join(outlines, "seed-bank.sqlite")]);
   source.close();
   const old = new Database(join(outlines, "seed-bank.sqlite"));
-  old.exec("DROP TABLE create_requests; DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
+  old.exec("DROP TABLE media_copies; DROP TABLE create_requests; DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
   old.close();
   // Compost needs only a settings rewrite: install must not decide from note changes alone.
   mkdirSync(join(outlines, "compost/extensions/readwise"), { recursive: true });
@@ -213,7 +213,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(plan.out).toContain("away, workstation");
     expect(existsSync(sshLog)).toBe(false);
     expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\n");
-    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, 0008-create-requests.ts, ${STEP_FILE}`);
+    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, 0008-create-requests.ts, 0009-media-copies.ts, ${STEP_FILE}`);
     expect(plan.out).toContain("systemctl --user stop outliner-host.service");
     expect(git("rev-parse", "HEAD")).toBe(oldHead);
 

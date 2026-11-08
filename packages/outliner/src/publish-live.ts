@@ -28,6 +28,7 @@ import { checklistItems } from "./checklist-items";
 import { placeFigureStep, type PublishedStep } from "./publish-steps";
 import { DEFAULT_PROPERTY_SUMMARY_KEYS, parsePropertySummaryKeys, propertySummarySegments } from "./property-summary";
 import type { BacklinkCollection, BlockProperty, ProjectedBlockCollection, SavedViewReadResult, VisibleBlock } from "./types";
+import { pictureCopies } from "./publish-pictures";
 
 /** What the components on one page ask of the publisher: the service, and what this page may show and link. */
 export interface LiveHost {
@@ -39,7 +40,7 @@ export interface LiveHost {
   /** Where a shown note opens from this page. */
   href(blockId: string): string | null;
   /** The address the picture `spec` at this place of a note is served from, or null when this page may not serve it. */
-  mediaSrc?(blockId: string, at: { line: number; image?: number }, spec: MediaSpec): string | null;
+  mediaSrc?(blockId: string, at: { line: number; image?: number }, spec: MediaSpec, copied?: boolean): string | null;
 }
 
 /** A component drawn in place of its lines (`start` to `end`, inclusive): its sentinel's Markdown. */
@@ -121,10 +122,10 @@ async function drawCovers(host: LiveHost, rows: readonly ListRow[], html: string
   if (!pictures.size || !host.mediaSrc) return html;
   // A view holds at most 1000 rows, as many as one read takes.
   const { blocks } = await host.request<{ blocks: { id: string; text?: string }[] }>({ action: "blocks.read", ids: [...pictures.keys()], fields: ["text"] });
-  const texts = new Map(blocks.map(block => [block.id, block.text ?? ""]));
+  const texts = new Map(blocks.map(block => [block.id, block.text ?? ""])), copies = await pictureCopies(host as never, [...texts.values()]);
   return html.replace(/<figure class="media media-missing ext-image" data-card-cover="([^"]+)">[\s\S]*?<\/figure>/g, (whole, id: string) => {
     const spec = pictures.get(id), at = spec && pictureAddress(texts.get(id) ?? "", spec.path);
-    const src = at ? host.mediaSrc!(id, at, spec!) : null;
+    const src = at ? host.mediaSrc!(id, at, spec!, !!copies.byPath.get(spec!.path)?.copied) : null;
     return src ? mediaHtml({ kind: "img", path: spec!.path, problems: [], ...(spec!.alt ? { alt: spec!.alt } : {}), ...(spec!.focus ? { focus: spec!.focus } : {}), ...(spec!.dim !== undefined ? { dim: spec!.dim } : {}) }, src, undefined, false) : whole;
   });
 }

@@ -5,6 +5,7 @@ import { waitingAsks } from "./waiting-you";
 import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
 import { deployArtifact, deployNote, artifactDns, artifactRepoInfo, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
+import { MediaCopier } from "./media-copies";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
@@ -423,7 +424,9 @@ export class OutlinerServer {
   /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
   readonly watches: QueryWatches;
 
-  private artifactStore?: ArtifactStore;
+  private artifactStore?: ArtifactStore; private mediaCopier?: MediaCopier;
+  /** Pictures notes name, copied to the media bucket on save (media-copies.ts, PIE-1634). */
+  get media(): MediaCopier { return this.mediaCopier ??= new MediaCopier(this.store, { readOnly: this.readOnly, log: (line) => console.error(line) }); }
 
   constructor(
     readonly store: OutlinerStore,
@@ -1182,10 +1185,7 @@ export class OutlinerServer {
     return this.reconcileClientRuntime(stored);
   }
 
-  private currentCaptureOwner(): CaptureOwner | null {
-    this.pruneDestroyedSubscribers();
-    return this.captureOwner;
-  }
+  private currentCaptureOwner(): CaptureOwner | null { this.pruneDestroyedSubscribers(); return this.captureOwner; }
 
   private requireCaptureOwner(clientId?: string): void {
     const owner = this.currentCaptureOwner();
@@ -2099,9 +2099,7 @@ export class OutlinerServer {
   }
 
   /** The artifact store beside this outline's (the machine's one, in the outlines folder). */
-  private artifacts(): ArtifactStore {
-    return this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename));
-  }
+  private artifacts(): ArtifactStore { return this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename)); }
 
   private async handleAsyncOnce(
     request: OutlinerRequest,
@@ -2119,6 +2117,7 @@ export class OutlinerServer {
         : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
       return this.answered(request, result);
     }
+    if (request.action === "media.copies" || request.action === "media.read") return this.answered(request, await this.media.request(request) as never);
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (this.linkReader) {
@@ -3775,9 +3774,10 @@ export class OutlinerServer {
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(ruleKind)) {
         this.extensionRules.blockChanged(event.blockId, event.change!.actor, ruleKind as "create" | "edit" | "move" | "restore" | "delete");
       }
-      // Routing (PIE-1010) hears a note made or saved (a comment is a block of its own; a rule's query decides what matches).
+      // Routing (PIE-1010) hears a note made or saved, and its pictures are copied to the media bucket after it (PIE-1634) (a comment is a block of its own; a rule's query decides what matches).
       if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit")) {
         this.routing.blockChanged(event.blockId, event.change.actor, event.change.kind);
+        this.media.blockChanged(event.blockId);
       }
     }
     return events;

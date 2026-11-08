@@ -12,7 +12,7 @@
 // (image-size), so its rows are known before it's decoded and the note never moves when it arrives. Work happens off
 // the render path; a redraw follows when it settles.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { imageSize } from "image-size";
@@ -360,10 +360,46 @@ function current(path: string): Entry | undefined {
   return store.get(path);
 }
 
+/**
+ * A picture that isn't on this machine (PIE-1634: a laptop outline's picture seen on float-2) is asked of the outline's
+ * host: its file there, else its media bucket copy. The door sets this to its connection's `media.read`.
+ */
+type Fetch = (path: string) => Promise<{ base64: string; mime: string; sha256?: string }>;
+let fetchMedia: Fetch | null = null;
+/** How long a failed ask stands before the next redraw asks again: a copy on its way lands, a dropped forward comes back. */
+let retryMs = 15_000;
+export function useMediaFetch(fetch: Fetch | null, retry = 15_000) { fetchMedia = fetch; retryMs = retry; }
+/** A picture asked of the host: where its bytes are kept in the cache, or why it couldn't be had and when. */
+const fetched = new Map<string, { at?: string; reason?: string; failedAt?: number }>();
+const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/avif": "avif", "image/svg+xml": "svg" };
+
+/** `path` from the host, cached by its content's hash; a redraw follows when it lands. */
+function fetchRemote(path: string, kind: Kind): Media {
+  const had = fetched.get(path);
+  if (had?.at) return media(had.at, kind);
+  if (had?.reason && Date.now() - (had.failedAt ?? 0) < retryMs) return { state: "error", path, kind, reason: had.reason };
+  if (!had || had.reason) {
+    fetched.set(path, {});
+    const failed = (why: string) => fetched.set(path, { reason: why, failedAt: Date.now() });
+    fetchMedia!(path).then(answer => {
+      try {
+        const bytes = Buffer.from(answer.base64, "base64");
+        const sha = answer.sha256 ?? createHash("sha256").update(bytes).digest("hex");
+        const at = join(mediaCache(), "copies", `${sha}.${EXT[answer.mime] ?? "img"}`);
+        if (!existsSync(at)) { mkdirSync(dirname(at), { recursive: true }); const tmp = `${at}.${process.pid}.tmp`; writeFileSync(tmp, bytes); renameSync(tmp, at); }
+        fetched.set(path, { at });
+      } catch (e) { failed(`the outline's host sent it, but the door couldn't keep it: ${String((e as Error).message ?? e)}`); }
+    }, e => { failed(`file not found here, and the outline's host has none: ${String((e as Error).message ?? e)}`); }).finally(() => onChange());
+  }
+  return { state: "loading", path, kind };
+}
+
 export function media(raw: string, kind: Kind): Media {
   const { path, exists } = resolveMediaPath(raw);
   const kept = current(path);
   if (kept) return kept.media;
+  // Asked as the note writes it (`~/` is the host's home, not this machine's).
+  if (!exists && fetchMedia && kind === "img") return fetchRemote(raw.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " "), kind);
   const now = Date.now(), key = exists ? contentKey(path) : null;
   if (!key) {
     const m: Media = { state: "error", path, kind, reason: "file not found" };

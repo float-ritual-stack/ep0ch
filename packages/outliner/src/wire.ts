@@ -110,6 +110,8 @@ export interface WireAnswers {
   "artifacts.upload.chunk": { bytes: number; };
   "artifacts.upload.finish": ArtifactInfo;
   "artifacts.versions": { versions: any[]; };
+  "media.copies": import("@ep0ch/outline-core/media-copy").MediaCopies;
+  "media.read": import("@ep0ch/outline-core/media-copy").MediaRead;
   "attention.acknowledge": AttentionClientState;
   "attention.advance": AttentionClientState;
   "attention.clear": AttentionClientState;
