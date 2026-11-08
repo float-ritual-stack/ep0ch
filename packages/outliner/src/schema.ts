@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -185,6 +185,17 @@ export const SCHEMA_SQL = `
     block_id TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS media_copies (
+    path TEXT PRIMARY KEY,
+    sha256 TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    bytes INTEGER NOT NULL,
+    mtime_ns TEXT NOT NULL,
+    block_id TEXT NOT NULL,
+    copied_at TEXT,
+    error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS media_copies_sha256 ON media_copies(sha256);
   CREATE TABLE IF NOT EXISTS capture_requests (
     request_id TEXT PRIMARY KEY,
     block_id TEXT NOT NULL,
