@@ -60,6 +60,7 @@ export function useShowcaseScreen(cols = 200): ShowcaseScreen {
     // As the door does at start: the extensions and rules the service lists (the seed installed the example rules).
     await h.app.loadExtensions(true);
     await h.app.waitingAsks.seed(h.board);
+    await h.app.marks.seed(h.board);
     h.sc = new Showcase();
     h.app.push(new MainMenu()); h.app.push(h.sc);
     await until(() => !!h.S().notes, "the showcase outline", 8000);

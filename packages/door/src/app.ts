@@ -1058,7 +1058,9 @@ export class App implements Ctx {
     this.heldAsks.heard(e);
     this.waitingAsks.heard(e);
     this.marks.heard(e);
-    if (e.domain === "marks") return;
+    // A mark made or taken off (PIE-1237): the frames redraw once the marks are read again (marks.subscribe), and the
+    // tiles hear it, so a facets tile on `marked:today` asks again (watched figures and views are the service's to say).
+    if (e.domain === "marks") { this.stack.at(-1)?.onEvent?.(e, this); this.drawer.made?.onEvent(e); this.redraw(); return; }
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
