@@ -385,7 +385,12 @@ export class PageMarginalia {
   private async mark(input: Record<string, unknown>, view: PageView, share?: PageShare): Promise<[number, Record<string, unknown>]> {
     if (share) return [403, { ok: false, error: "a link takes comments, not marks: only the outline's owner marks, from their own page, the door or ep0ch mark" }];
     const text = (value: unknown) => typeof value === "string" ? value : "";
-    const block = text(input.block) || view.root.id;
+    // Words selected or tapped (PIE-1639) mark the row they're in, with their span, as a comment anchors to them.
+    const quote = text(input.quote).trim();
+    const found = quote ? findDrawnPassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
+    if (found && !found.ok) return [404, { ok: false, error: "those words aren't on this page now: select them again" }];
+    const block = found?.ok ? found.block.id : text(input.block) || view.root.id;
+    const span = found?.ok ? { start: found.passage.start, end: found.passage.end, revision: found.block.revision } : undefined;
     if (!view.blocks.some((shown) => shown.id === block)) return [404, { ok: false, error: "that note isn't on this page now" }];
     try {
       if (input.remove === true) {
@@ -394,7 +399,7 @@ export class PageMarginalia {
       }
       const at = text(input.at), words = text(input.words).trim();
       const { mark, already } = await this.host.request<{ mark: { n: number; at: string }; already: boolean }>({
-        action: "marks.add", input: { blockId: block, surface: "web", ...(at ? { at } : {}), ...(words ? { words } : {}) }, mutation: { author: "user" },
+        action: "marks.add", input: { blockId: block, surface: "web", ...(span ? { span } : {}), ...(at ? { at } : {}), ...(words ? { words } : {}) }, mutation: { author: "user" },
       });
       return [200, { ok: true, block, marked: true, n: mark.n, at: mark.at, said: already ? "already marked" : "marked" }];
     } catch (error) {
@@ -654,6 +659,8 @@ export class PageMarginalia {
       const choices: PageChoice[] = [
         ...kit.actions.filter((action) => action.id === "highlight").map((action) => ({ action: action.id, label: action.label })),
         { action: "comment", label: "Comment" },
+        // Only the owner marks (PIE-1639): a share link's page takes comments, never marks.
+        ...(share ? [] : [{ action: "mark", label: "Mark" }]),
         ...(kit.agent ? [{ action: "ask", label: "Ask" }] : []),
         { action: "copy", label: "Copy" },
         ...(kit.agent ? [{ action: "explain", label: "Explain" }] : []),

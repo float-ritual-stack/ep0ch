@@ -8,6 +8,8 @@
 //   dismisses. Nothing is required: what's typed is saved as typed.
 // - Comment and Ask open a sheet to write in; what's written stays in it until the outline has it (a refusal keeps
 //   the text, says why, and Send tries again with the same request id, so a retry never writes twice).
+// - A long press or a right-click on a row or a passage (PIE-1639) opens a menu of what it can do: the same choices for
+//   its words (Mark on the owner's page), then Open and Copy link. The foot's Mark this note marks the whole note.
 // - Threads are cards: beside the text when the window is wide, under their passage when it's narrow, with Reply,
 //   Resolve and Quote. A highlight alone has no card until its words are tapped.
 // - A card's own words select like the note's: Highlight, Comment or Ask on them lands on that mark (threads of
@@ -511,7 +513,10 @@
   /** Copy with citation: the words as a Blockdown quote, then the note they're from (a reference and this page's link). */
   async function copy(words) {
     const title = document.title;
-    const text = `> ${words.quote.replace(/\s*\n\s*/g, " ")}\n— ((${words.in || noteId}|${title.replace(/[|)]/g, " ")})) ${location.origin}${location.pathname}`;
+    await clip(`> ${words.quote.replace(/\s*\n\s*/g, " ")}\n— ((${words.in || noteId}|${title.replace(/[|)]/g, " ")})) ${location.origin}${location.pathname}`, "copied, with where it's from");
+  }
+  /** Text to the clipboard (a hidden box where the page has no clipboard access), and what happened, said. */
+  async function clip(text, said) {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -522,7 +527,7 @@
       document.execCommand("copy");
       area.remove();
     }
-    say("copied, with where it's from");
+    say(said);
   }
 
   // ---- Threads as cards.
@@ -1038,7 +1043,9 @@
     if (lost.length) foot.append(el("h2", { text: "Couldn't place" }), el("p", { class: "who", text: "Their words aren't on the page as it's drawn now." }), ...lost);
     if (readOnly) foot.append(el("div", { class: "who", text: readOnly }));
     else if (choices.some((choice) => choice.action === "comment")) {
-      foot.append(el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) })));
+      foot.append(el("div", { class: "mg-row" }, el("button", { type: "button", class: "quiet", text: "Comment on this note", onclick: () => compose("comment", null) }),
+        // The owner's own page marks the whole note (PIE-1639): the mark is in every door and in marked:today.
+        ...(choices.some((choice) => choice.action === "mark") ? [el("button", { type: "button", class: "quiet", text: "Mark this note", onclick: () => markNote() })] : [])));
     }
     host.append(foot);
     formatTimes(main);
@@ -1236,6 +1243,8 @@
     return range;
   }
   document.addEventListener("click", (event) => {
+    // The click that ends a long press leaves its menu, and the words it selected, as they are.
+    if (heldRow) { heldRow = null; return; }
     if (pointer === "mouse" || readOnly || busy() || !(event.target instanceof Element)) return;
     const host = article();
     const item = host && host.contains(event.target) && !event.target.closest(SKIP) ? event.target.closest(ITEM) : null;
@@ -1251,6 +1260,70 @@
     selection.addRange(range);
     tapped = item;
   });
+
+  // ---- What a row or a passage can do (PIE-1639): a long press (touch) or a right-click on a list item, a paragraph or a
+  // table's row selects its words, as a tap does, and opens a menu at the press: the page's own choices for those words,
+  // as the threads route describes them (Mark on the owner's page only, Comment, Copy, …), then the row's Open and Copy
+  // link. A choice runs as the bar's does, so the menu adds no write of its own.
+  const pages = api.replace(/\/_marginalia$/, "");
+  let rowMenu = null, rowHeld = 0, heldRow = null, rowFrom = [0, 0];
+  function closeRowMenu() { if (rowMenu) { rowMenu.remove(); rowMenu = null; } }
+  function rowAt(target) {
+    const host = article();
+    if (!(target instanceof Element) || !host || !host.contains(target) || target.closest(SKIP)) return null;
+    const item = target.closest(ITEM);
+    return item && host.contains(item) ? item : null;
+  }
+  function openRowMenu(item, x, y) {
+    closeRowMenu();
+    const range = itemRange(item.closest("tr") || item), selection = window.getSelection();
+    if (selection && range.toString().trim()) { selection.removeAllRanges(); selection.addRange(range); tapped = item; }
+    const words = readSelection();
+    if (words) selected = words;
+    const id = blockOf(item) || noteId;
+    const rows = [
+      ...(words ? choices : []).map((choice) => [choice.label, () => choose(choice.action)]),
+      ["Open", () => { location.href = `${pages}/p/${id}`; }],
+      ["Copy link", () => clip(`${location.origin}${pages}/p/${id}`, "copied the link")],
+    ];
+    const items = rows.map(([label, run]) => el("button", {
+      type: "button", role: "menuitem", text: label,
+      // Pressing a row mustn't drop the selection first.
+      onpointerdown: (event) => event.preventDefault(), onmousedown: (event) => event.preventDefault(),
+      onclick: () => { closeRowMenu(); run(); },
+    }));
+    const node = el("div", { class: "mark-menu step-menu mg-ui", role: "menu", "aria-label": "what this can do" }, ...items);
+    node.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeRowMenu(); } });
+    document.body.append(node);
+    const room = document.documentElement.clientWidth;
+    node.style.left = `${window.scrollX + Math.max(8, Math.min(x, room - node.offsetWidth - 8))}px`;
+    node.style.top = `${window.scrollY + y + 4}px`;
+    rowMenu = node;
+    // The menu holds the choices: the bar along the bottom would offer them twice.
+    hideBar();
+    items[0]?.focus({ preventScroll: true });
+  }
+  async function markNote() {
+    sending += 1;
+    try { say((await send({ action: "mark" })).said || "marked"); } catch (error) { say(error.message); } finally { sending -= 1; doneWriting(); }
+  }
+  document.addEventListener("contextmenu", (event) => {
+    const item = !stepAt(event) && !busy() ? rowAt(event.target) : null;
+    if (!item) return;
+    event.preventDefault();
+    clearTimeout(rowHeld);
+    openRowMenu(item, event.clientX, event.clientY);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    clearTimeout(rowHeld);
+    heldRow = null;
+    if (rowMenu && !(event.target instanceof Element && event.target.closest(".mark-menu"))) closeRowMenu();
+    const item = (event.pointerType || "mouse") !== "mouse" && !stepAt(event) && !busy() ? rowAt(event.target) : null;
+    if (item) { rowFrom = [event.clientX, event.clientY]; rowHeld = setTimeout(() => { heldRow = item; openRowMenu(item, event.clientX, event.clientY); }, 500); }
+  }, true);
+  // A press that moves (a scroll, a drag to select) is no long press; a finger's own wobble is.
+  document.addEventListener("pointermove", (event) => { if (Math.hypot(event.clientX - rowFrom[0], event.clientY - rowFrom[1]) > 10) clearTimeout(rowHeld); }, { capture: true, passive: true });
+  for (const type of ["pointerup", "pointercancel", "scroll"]) document.addEventListener(type, () => clearTimeout(rowHeld), { capture: true, passive: true });
 
   // Tapping words marked in a card opens that mark's card, in the nest under them.
   document.addEventListener("click", (event) => {
