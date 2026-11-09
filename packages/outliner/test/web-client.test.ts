@@ -719,6 +719,18 @@ test("a ::graph-check row on a page (PIE-864): its words drawn as the note's, it
   expect((await write({ page: plan.id, action: "step", status: "todo", block: chore.id, evidence: "x", live: { note: survey.id, figure: Number(live.figure), revision: store.get(survey.id)!.revision, from: "done" } })).status).toBe(404);
 });
 
+test("the owner's page offers Mark, and words selected (or tapped) mark the row they are in, with their span (PIE-1639)", async () => {
+  const note = store.create("Seed potatoes", null, "user");
+  const row = store.create("Chit them on the windowsill, eyes up.", note.id, "user");
+  expect((await threads(note.id)).choices.map((choice) => choice.action)).toContain("mark");
+  const answer = await write({ page: note.id, view: "full", action: "mark", quote: "on the windowsill", prefix: "Chit them ", suffix: ", eyes up." });
+  expect(await answer.json()).toMatchObject({ ok: true, marked: true, block: row.id });
+  const [mark] = new Marks(store.database).list({ blockId: row.id });
+  expect(mark).toMatchObject({ block: row.id, span: { start: 10, end: 27, revision: row.revision }, surface: "web" });
+  // Words that aren't on the page mark nothing.
+  expect((await write({ page: note.id, view: "full", action: "mark", quote: "under the bench" })).status).toBe(404);
+});
+
 test("the owner marks from a page (PIE-1237): the page's note or one it shows, as the person, at the time given; unmarking takes only theirs", async () => {
   const note = store.create("Hedge cutting dates", null, "user");
   let answer = await write({ page: note.id, action: "mark", at: "2026-11-08T07:15:00Z" });
