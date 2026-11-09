@@ -718,6 +718,22 @@ test("a ::graph-check row on a page (PIE-864): its words drawn as the note's, it
   expect((await write({ page: plan.id, action: "step", status: "todo", block: chore.id, evidence: "x", live: { note: survey.id, figure: Number(live.figure), revision: store.get(survey.id)!.revision, from: "done" } })).status).toBe(404);
 });
 
+test("the owner marks from a page (PIE-1237): the page's note or one it shows, as the person, at the time given; unmarking takes only theirs", async () => {
+  const note = store.create("Hedge cutting dates", null, "user");
+  let answer = await write({ page: note.id, action: "mark", at: "2026-11-08T07:15:00Z" });
+  expect(await answer.json()).toMatchObject({ ok: true, marked: true, at: "2026-11-08T07:15:00.000Z", said: "marked" });
+  expect(store.marks.list({ blockId: note.id })).toMatchObject([{ author: "user", by: "user", surface: "web" }]);
+  // A note this page doesn't show can't be marked through it.
+  expect((await write({ page: note.id, action: "mark", block: survey.id })).status).toBe(404);
+  // An agent's look-here on it stays when the person unmarks.
+  store.marks.add({ blockId: note.id, reason: "needs your call" }, { author: "agent", actorId: "loki" }, () => true);
+  answer = await write({ page: note.id, action: "mark", remove: true });
+  expect(await answer.json()).toMatchObject({ ok: true, marked: false, said: "unmarked" });
+  expect(store.marks.list({ blockId: note.id }).map(m => m.by)).toEqual(["loki"]);
+  // From another site: refused.
+  expect((await write({ page: note.id, action: "mark" }, "https://example.com")).status).toBe(403);
+});
+
 test("a link in a figure's cell is a real link on the page (PIE-1334): table and compare cells hold [[page]] and ((short id|label)), drawn by their label", async () => {
   const short = survey.id.slice(0, 8);
   const note = store.create(["Asks this week", `In prose: ((${swap.id.slice(0, 8)}|the swap)).`, "",

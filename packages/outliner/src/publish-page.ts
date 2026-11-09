@@ -378,6 +378,31 @@ export class PageMarginalia {
   }
 
   /**
+   * The owner's mark from a page (PIE-1237): `marks.add` on a note this page shows (the page's own note when none is
+   * named), as the person, `surface: web`; `remove` takes the person's own pocket marks on it off. `at` keeps when it was
+   * marked (an offline phone's share). Only the owner's page: a share link takes comments, never marks.
+   */
+  private async mark(input: Record<string, unknown>, view: PageView, share?: PageShare): Promise<[number, Record<string, unknown>]> {
+    if (share) return [403, { ok: false, error: "a link takes comments, not marks: only the outline's owner marks, from their own page, the door or ep0ch mark" }];
+    const text = (value: unknown) => typeof value === "string" ? value : "";
+    const block = text(input.block) || view.root.id;
+    if (!view.blocks.some((shown) => shown.id === block)) return [404, { ok: false, error: "that note isn't on this page now" }];
+    try {
+      if (input.remove === true) {
+        const { removed } = await this.host.request<{ removed: { n: number }[] }>({ action: "marks.remove", input: { blockId: block, by: "user", reason: "" }, mutation: { author: "user" } });
+        return [200, { ok: true, block, marked: false, removed: removed.map((m) => m.n), said: removed.length ? "unmarked" : "it had no mark of yours" }];
+      }
+      const at = text(input.at), words = text(input.words).trim();
+      const { mark, already } = await this.host.request<{ mark: { n: number; at: string }; already: boolean }>({
+        action: "marks.add", input: { blockId: block, surface: "web", ...(at ? { at } : {}), ...(words ? { words } : {}) }, mutation: { author: "user" },
+      });
+      return [200, { ok: true, block, marked: true, n: mark.n, at: mark.at, said: already ? "already marked" : "marked" }];
+    } catch (error) {
+      return [400, { ok: false, error: error instanceof Error ? error.message : String(error) }];
+    }
+  }
+
+  /**
    * A mark on a live `::graph-check` row (PIE-864): the row's own note gets the property its figure's `done:` names (`x`
    * that query's value, any other mark its status word), one `properties.patch` as the person, as the door's is. The
    * figure's note must be on this page; the row's note is whatever the figure listed.
@@ -672,6 +697,7 @@ export class PageMarginalia {
         return said(200, { ok: true, undone: done.written, said: "undone: the quote is in the Trash" });
       }
       if (action === "step") return said(...await this.step(input, view, share));
+      if (action === "mark") return said(...await this.mark(input as Record<string, unknown>, view, share));
       const { marks: shown } = await this.onPage(view, share);
       if (action === "quote") {
         const wanted = Array.isArray(input.marks) ? input.marks.map(text).filter(Boolean) : [];

@@ -146,6 +146,8 @@ export interface MarkRemoveInput {
   line?: number;
   /** Only the marks with this reason ("" for pocket marks). */
   reason?: string;
+  /** Only the marks this actor made (`user` for the person). */
+  by?: string;
 }
 
 /** One live mark, as every surface reads it. `n` is its number (stays while it lives); `by` is `user` or an agent's actor id. */

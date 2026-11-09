@@ -116,6 +116,7 @@ export class Marks {
       where.push("file = ? AND line = ?"); args.push(input.file, input.line);
     } else throw new Error("marks.remove names a mark: n (marks.list numbers them), blockId, resourceId, or file and line");
     if (input.reason !== undefined) { where.push("coalesce(reason, '') = ?"); args.push(input.reason?.trim() ?? ""); }
+    if (input.by !== undefined) { where.push("actor = ?"); args.push(input.by); }
     const at = this.now().toISOString();
     return this.database.transaction(() => {
       const rows = this.database.query(`SELECT * FROM marks m WHERE ${where.join(" AND ")} ORDER BY id`).all(...args) as Row[];
