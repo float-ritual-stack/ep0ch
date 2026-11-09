@@ -1680,3 +1680,6 @@ The destination keeps its id, name and place. A replaced note in a reader no lis
 newest nearest the destination; unrelated readers keep their shape. Only the person's open (including a pressed
 script) moves the person's keys or the outline's cursor. An unpressed script, rule or agent changes only its destination. Wires use tile ids
 across desks and survive grouping, drawer moves and renames. `room` squeezes flows; it never folds ordinary readers.
+With no wire, container, mount or reader to take an open, placement answers a new reader at the screen's right edge
+(the whole screen when it's empty): an empty desk opens what you pick, and only a locked screen refuses, saying how to
+unlock it (PIE-1641).

@@ -682,8 +682,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const readers = route && "to" in route ? [] : leaves(s.tree).filter(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !s.collapsed.has(id) && f.available !== false; });
     const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from : readers.find(id => !ctx.tile(id).pinned) ?? readers[0];
     if (target === undefined) {
-      if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
-      else if (ctx.screen !== undefined) result.destination = handOut(ctx.screen);
+      if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };   // else the drawer's hand-off, else no reader here (PIE-1641): a new one at the screen's right edge (all of it when empty); a locked screen refuses there, saying how to unlock it
+      else if (ctx.screen !== undefined) result.destination = handOut(ctx.screen); else if (verb !== "hover" && !request.history) Object.assign(result, { destination: { kind: "new", at: { kind: "edge", dir: "right" } }, why: "no reader here: a new one opened for it" });
       return result;
     }
     const facts = ctx.tile(target);

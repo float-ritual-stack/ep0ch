@@ -842,14 +842,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * The screen mounted in tile `id` takes an open naming no tile (PIE-1306, `Ctx.inside`): the path to the tile that open
    * starts from, when that screen's own landing (`landingRequest`) keeps it inside (a reader there, or in a mount below),
-   * never back out through `outward` or a wire.
+   * never back out through `outward` or a wire, nor a new reader made there (PIE-1641: the screen around it makes its own).
    */
   private inside(id: number, actor: Actor): string | undefined {
     const p = this.panes.get(id), inner = p instanceof ScreenTile ? p.inner : null, start = inner?.panes.get(inner.focus);
     if (!inner || !start) return undefined;
     const d = placement(inner.layout, inner.landingRequest(inner.focus, ""), inner.layoutCtx(actor)).destination;
     const down = (path: string) => { const t = inner.storedPane(path); return !!t && inner.pathDown(t) !== undefined; };
-    if (d.kind === "none" || d.kind === "into" || (d.kind === "across" && !down(d.target))) return undefined;
+    if (d.kind === "none" || d.kind === "into" || (d.kind === "new" && d.at.kind === "edge") || (d.kind === "across" && !down(d.target))) return undefined;
     return this.pathDown(start);
   }
   /**
@@ -3306,9 +3306,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (o.from !== undefined && !t) throw new ActionRefused(`no tile ${o.from}`);
     const d = t?.desk ?? this;
     // A reader named is picked before the note is fetched: `expected=` was checked against the layout as it is now, so a
-    // `#2` means this layout's second tile, not whatever moved there while the service answered.
+    // `#2` means this layout's second tile, not whatever moved there while the service answered. None on the screen: placement makes one (PIE-1641).
     const place = !t && (o.tile === "detail" || o.tile === "new-detail" || o.tile === "float") && d.hasPlaces() ? d.layout.policy.opensInto! : undefined;
-    const r = !t && !place && (o.tile !== undefined || (o.standing !== false && !o.fresh && !d.focusInFlow())) ? d.pickReader(o.tile) : undefined;
+    const r = !t && !place && (o.tile !== undefined || (o.standing !== false && !o.fresh && !d.focusInFlow() && d.namedReaders().length > 0)) ? d.pickReader(o.tile) : undefined;
     const m = r ? await readNote(this.ctx, id) : o.standing === false && !t && !place && !o.fresh ? await readNote(this.ctx, id) : d.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     if (r && (!d.all().includes(r.id) || d.panes.get(r.id) !== r.pane)) throw new ActionRefused(`reader ${r.name} closed while the note was fetched; nothing was opened`);

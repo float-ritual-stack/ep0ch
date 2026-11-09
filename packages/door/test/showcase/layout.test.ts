@@ -1220,11 +1220,13 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       expect([r2.name, await shows(r2.tile)]).toEqual(["inside", two!.id]);
       expect(app.dispatch.where().keys).toBe(keys);
       // The group carried into the drawer: an open naming no tile lands on the screen shown, which has no reader now, so
-      // it is refused saying what gives it one (the drawer's tiles aren't the screen's).
+      // the screen makes one of its own for it (PIE-1641; the drawer's tiles aren't the screen's).
       await app.dispatch.press("host.toggle", { open: false });
       await d.dispatch.act({ action: "tile.drawer", tile: g }, USER);
       (app as any).paint(true);
-      await expect(open(three!.id)).rejects.toThrow(/no reader takes this open; tile.open kind=reader/);
+      const r3 = await open(three!.id);
+      expect(d.layoutGet().tiles.find((t: any) => t.name === r3.name)?.kind).toBe("reader");
+      expect(await shows(r3.tile)).toBe(three!.id);
     } finally {
       const carried = app.drawer.made?.layoutGet().tiles.find((t: any) => t.mount?.group)?.name;
       if (carried) await app.drawer.made!.dispatch.act({ action: "tile.drawer", tile: carried }, USER);

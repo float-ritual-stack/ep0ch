@@ -953,7 +953,8 @@ describe("an open naming no tile reaches the readers inside mounts (PIE-1306)", 
   const open = (s: LayoutState, inside: Record<number, string>, focus = 4, actor: Actor = AGENT) =>
     placement(s, { from: focus, note: "arrival", default: true }, { ...ctxOf(actor, { focus }), inside: id => inside[id] });
   const hop = (target: string) => ({ kind: "across" as const, target, rule: "tile" as const, source: true as const });
-  const none = { kind: "none" as const, reason: "no reader takes this open" };
+  // No reader on the screen and no mount that takes it: a new reader at the screen's right edge (PIE-1641).
+  const none = { kind: "new" as const, at: { kind: "edge" as const, dir: "right" as const } };
 
   test("the first mount with a reader in it takes it, the one with the person's keys first; the keys stay", () => {
     extra = { 5: SCREEN, 6: SCREEN };
@@ -968,7 +969,7 @@ describe("an open naming no tile reaches the readers inside mounts (PIE-1306)", 
     } finally { extra = {}; }
   });
 
-  test("a folded mount, one kept from the actor or one with no reader inside doesn't take it; a reader of the screen's own, even a busy one, keeps it on the screen", () => {
+  test("a folded mount, one kept from the actor or one with no reader inside doesn't take it (the screen makes a reader of its own); a reader of the screen's own, even a busy one, keeps it on the screen", () => {
     extra = { 5: SCREEN, 6: SCREEN };
     try {
       const s = mounted(), one = { 6: "group/notes" };
@@ -1006,6 +1007,8 @@ describe("where an open lands: one table of requests and destinations (PIE-1522)
     ["an act's open from= a welcome tile, fresh: not the welcome's action (a new tile beside it, by the rule)", () => fresh(), { from: 1, note: "n", fresh: true, act: true }, { freshAction: "welcome.read" }, {}, { kind: "new", at: { kind: "split", target: 1, dir: "right" } }],
     ["a drawer list wired to its reader: the wire", () => ok(drawer(), { op: "link", tile: 1, to: 2 }).state, { from: 1, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, { kind: "swap", tile: 2 }],
     ["a drawer list with no screen to take it: refused, said", () => drawer(), { from: 1, note: "n" }, { screen: null }, { 1: LIST }, { kind: "none", reason: "this screen has no tiles to open it in · q goes back to one", refused: true }],
+    ["a screen with no reader (PIE-1641): a new one at its right edge, the person's keys in it", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 3, note: "n" }, {}, {}, { kind: "new", at: { kind: "edge", dir: "right" } }],
+    ["the same on an empty screen (the focus a tile that left)", () => init({ tree: splitOf("row", [], []), names: new Map() }), { from: 9, note: "n", default: true }, {}, { 9: { kind: undefined, notes: false } }, { kind: "new", at: { kind: "edge", dir: "right" } }],
     ["a tile's open off the drawer (no Ctx.screen): its own reader", () => drawer(), { from: 1, note: "n" }, {}, { 1: LIST }, { kind: "swap", tile: 2 }],
     ["an open naming no tile in the drawer (an agent's): the drawer's reader", () => drawer(), { from: 1, note: "n", default: true }, { screen: "@desk/reader" }, { 1: LIST }, { kind: "swap", tile: 2 }, AGENT],
     ["a drawer tile with no reader to land in (the terminal, the reader gone): the screen shown", () => drawer(splitOf("row", [leaf(1), leaf(3)], [0.5, 0.5])), { from: 3, note: "n" }, { screen: "@desk/reader" }, { 1: LIST }, out],

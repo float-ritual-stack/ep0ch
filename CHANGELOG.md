@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Opening a note on an empty desk opens a reader for it (PIE-1641)
+
+- **No extra step:** pick a note in the power bar on a screen with no reader (the empty desk, home's buttons in its middle) and press ⏎: a new reader shows it, your keys in it. A link, `act open` and an agent's open do the same; an agent's leaves your keys where they are.
+- **Where it goes:** the screen's open rule first, else a new reader along the screen's right edge. A locked screen still refuses, saying how to unlock it.
+- **Run:** `ep0ch install --apply` (door code only).
+
 ### Marks live in the outline: mark in one door, see it in every door (PIE-1237)
 
 - **`alt+m` marks the note in front of you,** or takes your own mark off. Every door showing that note draws `◆ marked · by you`. `alt+'` jumps to the next mark (it was `alt+m`).
