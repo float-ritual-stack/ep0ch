@@ -1,6 +1,7 @@
 // PIE-1237's demo, and its end-to-end test: the marks section marks by key (alt+m), by click (the tile menu's "mark
 // this note", a ◆ label clicked off) and by act (an agent's block.mark), and the guide's `marked:today` view and the
 // facets tile list what was marked today, an agent's look-here (a mark with a reason) left out. Seeded scratch outline.
+import { doorMarks } from "../../src/desk/marks";
 import { describe, expect, test } from "bun:test";
 import { FacetsPane } from "../../src/desk/facets";
 import { USER } from "../../src/socket";
@@ -24,10 +25,10 @@ describe("showcase: marks", () => {
     // Key: alt+m on the bed reader marks its note, framed in the tile and listed by marked:today.
     await act("tile.focus", {}, "bed");
     h.press({ kind: "alt", ch: "m" });
-    await until(() => h.app.marks.list().some(m => m.block === potatoes.id), "the person's mark in the service");
+    await until(() => doorMarks(h.board).list().some(m => m.block === potatoes.id), "the person's mark in the service");
     await until(() => h.screen().includes("◆ marked · by you"), "the frame on the bed reader");
     await until(() => listed().includes(potatoes.id), "marked:today in the facets tile");
-    const [mine] = h.app.marks.list();
+    const [mine] = doorMarks(h.board).list();
     expect(mine).toMatchObject({ block: potatoes.id, author: "user", by: "user", surface: "door" });
     // The guide's own ::view{query="marked:today"} is the service's watched answer: it lists the note too.
     // (a row of the view's table, ┊-framed in the guide's reader)
@@ -35,7 +36,7 @@ describe("showcase: marks", () => {
 
     // Key again: the person's mark comes off.
     h.press({ kind: "alt", ch: "m" });
-    await until(() => !h.app.marks.list().length, "unmarked");
+    await until(() => !doorMarks(h.board).list().length, "unmarked");
     await until(() => !listed().includes(potatoes.id), "out of marked:today");
     await until(() => !/┊\s+Seed potatoes chitting/.test(h.screen()), "out of the guide's view");
 
@@ -60,7 +61,7 @@ describe("showcase: marks", () => {
     // A click on the ◆ label takes that mark off.
     const rows = h.screen().split("\n"), y = rows.findIndex(l => l.includes("◆ needs your call")), x = rows[y]!.indexOf("◆ needs your call") + 2;
     h.press({ kind: "mouse", action: "down", button: 0, x, y }); h.press({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => !h.app.marks.list().some(m => m.reason), "the look-here taken off");
+    await until(() => !doorMarks(h.board).list().some(m => m.reason), "the look-here taken off");
     expect((await act("marks.list") as { marks: { block?: string }[] }).marks.map(m => m.block).sort()).toEqual([potatoes.id, frost.id].sort());
   }, 40_000);
 });

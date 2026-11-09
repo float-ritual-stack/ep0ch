@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { MarkAddInput, MarkRecord, MutationProvenance, OutlinerEvent, VisibleBlockCollection } from "../src/types";
+import type { MarkAddInput, MarkRecord } from "../src/marks";
+import type { MutationProvenance, OutlinerEvent, VisibleBlockCollection } from "../src/types";
 
 let root: string;
 let store: OutlinerStore;

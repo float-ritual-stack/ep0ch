@@ -87,7 +87,7 @@ export function alive(pid: number): boolean {
 
 /**
  * Say this door is on its outline (doors/<pid> in the outline's folder, removed when it exits) and return the other
- * doors that are, so the second is warned: the desk layout is last-writer-wins between them (marks merge, LocalMarks).
+ * doors that are, so the second is warned: the desk layout is last-writer-wins between them (marks are the service's, PIE-1237).
  * A pid file whose door is gone (kill -9) is swept.
  */
 export function claimState(): number[] {

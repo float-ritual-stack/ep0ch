@@ -118,55 +118,6 @@ export interface BlockProvenance {
   taskId?: string;
 }
 
-/** What `marks.add` takes (PIE-1237): exactly one subject, and what the surface knows of where it was made. */
-export interface MarkAddInput {
-  blockId?: string;
-  resourceId?: string;
-  /** A line of a file (an nvim tile's): the file's path and its 1-based line. */
-  file?: string;
-  line?: number;
-  /** A passage of the block's text: offsets, and the revision they were read at (the comment anchor's shape, no words). */
-  span?: { start: number; end: number; revision?: number };
-  /** Where it was made: `door`, `web`, `cli`, `mcp`, `phone`… */
-  surface?: string;
-  /** The query or note it was found through. */
-  via?: string;
-  /** When the person marked it (ISO), when it isn't now: an offline share keeps its time. */
-  at?: string;
-  words?: string;
-  /** Why: a mark with a reason is an attention mark ("needs your call"), drawn as a frame and left out of `marked:`. */
-  reason?: string;
-}
-
-export interface MarkRemoveInput {
-  n?: number;
-  blockId?: string;
-  resourceId?: string;
-  file?: string;
-  line?: number;
-  /** Only the marks with this reason ("" for pocket marks). */
-  reason?: string;
-  /** Only the marks this actor made (`user` for the person). */
-  by?: string;
-}
-
-/** One live mark, as every surface reads it. `n` is its number (stays while it lives); `by` is `user` or an agent's actor id. */
-export interface MarkRecord {
-  n: number;
-  block?: string;
-  resource?: string;
-  file?: string;
-  line?: number;
-  span?: { start: number; end: number; revision?: number };
-  surface?: string;
-  via?: string;
-  at: string;
-  author: BlockAuthor;
-  by: string;
-  words?: string;
-  reason?: string;
-}
-
 export interface MutationProvenance {
   /** Exact request keys copied from the person; only these inherit their ask. */
   invocationRequests?: readonly string[];
@@ -1912,7 +1863,7 @@ export interface ComputedExecutionResult {
 export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string };
 
 export type OutlinerRequestAction =
-  | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest))
+  | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest | import("./marks").MarkRequest))
   | { id: string; action: "properties.preview"; text: string }
   | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
   | { id: string; action: "ping" }
@@ -2368,15 +2319,6 @@ export type OutlinerRequestAction =
       action: "annotations.agent-evidence";
       limit?: number;
     }
-  /**
-   * A mark (PIE-1237, marks.ts): on a block, a Resource or a line of a file, by the request's mutation (the person when
-   * left out; an agent with its actor id). With a `reason` it is an attention mark ("look here"); without, a pocket mark.
-   */
-  | { id: string; action: "marks.add"; input: MarkAddInput; mutation?: MutationProvenance }
-  /** Unmark: mark `n`, or every live mark on a block (a Resource, a file's line). Recorded as a second fact. */
-  | { id: string; action: "marks.remove"; input: MarkRemoveInput; mutation?: MutationProvenance }
-  /** The live marks, oldest first: every one, those on a block, or since a time. */
-  | { id: string; action: "marks.list"; input?: { blockId?: string; since?: string } }
   /**
    * A thread read (PIE-708): its comment and replies marked read by `reader` (`user`, the person, when left out; an
    * agent passes its actor id). Clears its replies from `unread:` views.
@@ -2852,10 +2794,8 @@ export type OutlinerEventDomain = "door"
   | "extensions"
   /** `agents.yolo`: yolo went on or off for the outline (`yolo`), sent to every client (PIE-973). */
   | "agents"
-  /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004). */
-  | "queries"
-  /** `marks.add`, `marks.remove` (PIE-1237): a mark made or taken off, with its block; every door's marks follow. */
-  | "marks";
+  /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004); `marks`: a mark made or taken off (PIE-1237). */
+  | "queries" | "marks";
 
 export interface OutlinerEvent {
   door?: import("@ep0ch/outline-core/door-open").DoorEvent;

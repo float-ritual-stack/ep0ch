@@ -7,7 +7,7 @@
  * Types only. The record is closed over `ActionName`: a new action fails the check until it has a row here, as it does
  * in actions.ts. The door checks this file (and what it imports) under its own, stricter settings.
  */
-import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, AnnotationAgentProposalReceipt, AnnotationBatchReceipt, AnnotationReconcileReceipt, AnnotationRecord, AnnotationThread, AttentionClientState, BacklinkCollection, Block, BlockEditActivityPage, BlockReadCollection, BlockRevisionEntry, BlockRevisions, BlockTarget, BookmarkRemoveReceipt, BookmarkResolution, BookmarkStatus, BookmarkToggleReceipt, CaptureOwner, CaptureOwnerClaim, CaptureReceipt, ChangeFeedPage, ChecklistCollection, ChecklistSearchCollection, ChecklistUpdateReceipt, DeliveryReceipt, DeliverySyncReceipt, GotoSearchCollection, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline, LinkTargetFacets, MarkRecord, NavigationLinkState, NavigationState, NewNoteReceipt, OutlinerClientRegistration, OutlinerHostStatus, OutlinerNavigationDispatch, OutlinerNavigationIntent, OutlinerNavigationTarget, OutlinerRegion, OutlinerRequest, OutlinerUiCommand, PageAddressCollection, PageAddressFollowResult, PageAddressRecord, PageAddressRemoval, PageAddressResolution, ProjectedBlockCollection, PropertyCatalogItem, PropertyInventory, PropertyParsePreview, QuickCaptureDraft, ResolvedBlockReferences, RoadmapItemCreateReceipt, SavedViewReadResult, SelectionContext, TreeFocusCollection, TreeIndexBlock, TreeIndexCollection, TreeIndexSnapshot, ViewWritePlanResult, VirtualBranchOrder, VirtualOccurrenceMoveResult, VirtualOccurrenceRank, VisibleBlock, VisibleBlockCollection, WorkIdAllocation, WorkIdAllocatorStatus, WorkflowPromotionPreview, WorkflowPromotionReceipt, WorkflowRun, WorkflowStartReceipt, WorkflowStructure, WorkingSelection, WorkingSelectionRecovery, WorkspaceSnapshot } from "./types";
+import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, AnnotationAgentProposalReceipt, AnnotationBatchReceipt, AnnotationReconcileReceipt, AnnotationRecord, AnnotationThread, AttentionClientState, BacklinkCollection, Block, BlockEditActivityPage, BlockReadCollection, BlockRevisionEntry, BlockRevisions, BlockTarget, BookmarkRemoveReceipt, BookmarkResolution, BookmarkStatus, BookmarkToggleReceipt, CaptureOwner, CaptureOwnerClaim, CaptureReceipt, ChangeFeedPage, ChecklistCollection, ChecklistSearchCollection, ChecklistUpdateReceipt, DeliveryReceipt, DeliverySyncReceipt, GotoSearchCollection, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline, LinkTargetFacets, NavigationLinkState, NavigationState, NewNoteReceipt, OutlinerClientRegistration, OutlinerHostStatus, OutlinerNavigationDispatch, OutlinerNavigationIntent, OutlinerNavigationTarget, OutlinerRegion, OutlinerRequest, OutlinerUiCommand, PageAddressCollection, PageAddressFollowResult, PageAddressRecord, PageAddressRemoval, PageAddressResolution, ProjectedBlockCollection, PropertyCatalogItem, PropertyInventory, PropertyParsePreview, QuickCaptureDraft, ResolvedBlockReferences, RoadmapItemCreateReceipt, SavedViewReadResult, SelectionContext, TreeFocusCollection, TreeIndexBlock, TreeIndexCollection, TreeIndexSnapshot, ViewWritePlanResult, VirtualBranchOrder, VirtualOccurrenceMoveResult, VirtualOccurrenceRank, VisibleBlock, VisibleBlockCollection, WorkIdAllocation, WorkIdAllocatorStatus, WorkflowPromotionPreview, WorkflowPromotionReceipt, WorkflowRun, WorkflowStartReceipt, WorkflowStructure, WorkingSelection, WorkingSelectionRecovery, WorkspaceSnapshot } from "./types";
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ImportReport } from "./outline-import";
 import type { GrepResult } from "@ep0ch/outline-core/text-search";
@@ -90,9 +90,9 @@ export interface WireAnswers {
   "annotations.list": AnnotationThread[];
   "annotations.propose-agent": AnnotationAgentProposalReceipt;
   "annotations.read": { thread: string; marked: number; };
-  "marks.add": { mark: MarkRecord; already: boolean };
-  "marks.remove": { removed: MarkRecord[] };
-  "marks.list": { marks: MarkRecord[] };
+  "marks.add": { mark: import("./marks").MarkRecord; already: boolean };
+  "marks.remove": { removed: import("./marks").MarkRecord[] };
+  "marks.list": { marks: import("./marks").MarkRecord[] };
   "annotations.reconcile": AnnotationReconcileReceipt;
   "annotations.reply": AnnotationBatchReceipt;
   "annotations.review-agent": AnnotationRecord;
@@ -382,4 +382,5 @@ export type { Decoration, RuleListEntry } from "./extension-rules";
 export type { ResourceDescription } from "./resources";
 export type { LinkTargetFacets } from "./types";
 export type { ViewCreatePlan, ViewMovePlan, ViewWriteChange } from "./view-writes";
-export type { AnnotationAnchor, AnnotationRecord, AnnotationThread, MarkAddInput, MarkRecord, MarkRemoveInput } from "./types";
+export type { AnnotationAnchor, AnnotationRecord, AnnotationThread } from "./types";
+export type { MarkAddInput, MarkRecord, MarkRemoveInput } from "./marks";

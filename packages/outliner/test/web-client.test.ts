@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { Publisher } from "../src/publish";
 import { OutlinerServer } from "../src/server";
+import { Marks } from "../src/marks";
 import { OutlinerStore } from "../src/store";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { AnnotationThread, Block } from "../src/types";
@@ -722,14 +723,14 @@ test("the owner marks from a page (PIE-1237): the page's note or one it shows, a
   const note = store.create("Hedge cutting dates", null, "user");
   let answer = await write({ page: note.id, action: "mark", at: "2026-11-08T07:15:00Z" });
   expect(await answer.json()).toMatchObject({ ok: true, marked: true, at: "2026-11-08T07:15:00.000Z", said: "marked" });
-  expect(store.marks.list({ blockId: note.id })).toMatchObject([{ author: "user", by: "user", surface: "web" }]);
+  expect(new Marks(store.database).list({ blockId: note.id })).toMatchObject([{ author: "user", by: "user", surface: "web" }]);
   // A note this page doesn't show can't be marked through it.
   expect((await write({ page: note.id, action: "mark", block: survey.id })).status).toBe(404);
   // An agent's look-here on it stays when the person unmarks.
-  store.marks.add({ blockId: note.id, reason: "needs your call" }, { author: "agent", actorId: "loki" }, () => true);
+  new Marks(store.database).add({ blockId: note.id, reason: "needs your call" }, { author: "agent", actorId: "loki" }, () => true);
   answer = await write({ page: note.id, action: "mark", remove: true });
   expect(await answer.json()).toMatchObject({ ok: true, marked: false, said: "unmarked" });
-  expect(store.marks.list({ blockId: note.id }).map(m => m.by)).toEqual(["loki"]);
+  expect(new Marks(store.database).list({ blockId: note.id }).map(m => m.by)).toEqual(["loki"]);
   // From another site: refused.
   expect((await write({ page: note.id, action: "mark" }, "https://example.com")).status).toBe(403);
 });

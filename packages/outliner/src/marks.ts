@@ -9,7 +9,57 @@
 // (the capability's build order); nothing here stores them.
 import type { Database } from "bun:sqlite";
 import type { PocketMark } from "@ep0ch/outline-core/query-expression";
-import type { BlockAuthor, MarkAddInput, MarkRecord, MarkRemoveInput, MutationProvenance } from "./types";
+import type { BlockAuthor, MutationProvenance } from "./types";
+
+/** What `marks.add` takes: exactly one subject, and what the surface knows of where it was made. */
+export interface MarkAddInput {
+  blockId?: string;
+  resourceId?: string;
+  /** A line of a file (an nvim tile's): the file's path and its 1-based line. */
+  file?: string;
+  line?: number;
+  /** A passage of the block's text: offsets, and the revision they were read at (the comment anchor's shape, no words). */
+  span?: { start: number; end: number; revision?: number };
+  /** Where it was made: `door`, `web`, `cli`, `mcp`, `phone`… */
+  surface?: string;
+  /** The query or note it was found through. */
+  via?: string;
+  /** When the person marked it (ISO), when it isn't now: an offline share keeps its time. */
+  at?: string;
+  words?: string;
+  /** Why: a mark with a reason is an attention mark ("needs your call"), drawn as a frame and left out of `marked:`. */
+  reason?: string;
+}
+
+/** What `marks.remove` takes: mark `n`, or every live mark on a subject; narrowed by reason ("" for pocket marks) or actor. */
+export interface MarkRemoveInput { n?: number; blockId?: string; resourceId?: string; file?: string; line?: number; reason?: string; by?: string }
+
+/** One live mark, as every surface reads it. `n` is its number (stays while it lives); `by` is `user` or an agent's actor id. */
+export interface MarkRecord {
+  n: number;
+  block?: string;
+  resource?: string;
+  file?: string;
+  line?: number;
+  span?: { start: number; end: number; revision?: number };
+  surface?: string;
+  via?: string;
+  at: string;
+  author: BlockAuthor;
+  by: string;
+  words?: string;
+  reason?: string;
+}
+
+/**
+ * The marks' requests (types.ts's request union holds them): a mark by the request's mutation (the person when left out;
+ * an agent with its actor id), unmarking as a second fact, and the live marks (every one, a block's, or since a time).
+ */
+export type MarkRequest =
+  | { action: "marks.add"; input: MarkAddInput; mutation?: MutationProvenance }
+  | { action: "marks.remove"; input: MarkRemoveInput; mutation?: MutationProvenance }
+  | { action: "marks.list"; input?: { blockId?: string; since?: string } };
+export type MarkAnswer = { mark: MarkRecord; already: boolean } | { removed: MarkRecord[] } | { marks: MarkRecord[] };
 
 type Row = {
   id: number; block_id: string | null; resource_id: string | null; file: string | null; line: number | null;
@@ -54,6 +104,14 @@ export function markActor(mutation: MutationProvenance | undefined): { author: B
   const actor = mutation?.actorId?.trim();
   if (!actor) throw new Error(`marks: an ${author}'s mark names its actor id (mutation.actorId)`);
   return { author, actor };
+}
+
+/** The service's answer to `marks.add`, `marks.remove` and `marks.list` (server.ts dispatches them here). */
+export function answerMarks(store: { database: Database; get(id: string): { effectiveDeletedRootId?: string | null } | undefined | null }, request: MarkRequest): MarkAnswer {
+  const marks = new Marks(store.database);
+  if (request.action === "marks.add") return marks.add(request.input ?? {}, request.mutation, id => { const b = store.get(id); return !!b && !b.effectiveDeletedRootId; });
+  if (request.action === "marks.remove") return { removed: marks.remove(request.input ?? {}, request.mutation) };
+  return { marks: marks.list(request.input ?? {}) };
 }
 
 export class Marks {

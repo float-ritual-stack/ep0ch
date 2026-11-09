@@ -4,7 +4,6 @@ import { STRIP_SECTION } from "./strip";
 import { picturesSection } from "./pictures";
 import { spacingSection } from "./spacing";
 import { queryWordSections } from "./query-words";
-import { markingSections } from "./marking";
 import { DropZonesPane } from "./drop-zones";
 import { runbookSections } from "./runbook"; import { askYoSection } from "./ask-yo";
 import { COLLECTION_SECTIONS } from "./collections";
@@ -1381,7 +1380,6 @@ export const SECTIONS: Section[] = [
     },
   },
   ...queryWordSections({ deskOf, row, fill }),
-  ...markingSections({ deskOf, row, fill }),
   {
     key: "navigator", need: "browse an outline as Notebook Navigator does: properties, tags and saved views on the left, the notes they pick grouped by day in the middle (pinned first, each with its chips and a line of preview), the picked note read on the right; narrow with a click, pin or tag a row with one key, pick a day on the calendar, save the pick as a view",
     part: "the navigator screen (PIE-1443, `--screen navigator`): the facets tile (PIE-881) whose Matches is its attachment, placed as Sources and comments are (inline, split, floating, popup or a tile of its own: facets.place, ctrl+o), here in a tile (`matches`) wired select and open to a reader, in a flow that folds to spines when narrow. Matches is the one ListView: the service groups the notes (`group=updated:recent`: Today, Yesterday, Previous 7 days, Previous 30 days, months) and answers each one's excerpt (`excerpt`, outline-core `noteExcerpt`); the notes carrying `[pinned::true]` come first from a question of their own; a row's chips are the keys the tile shows (`show=`, tags unless it says). Saved views are the shortcuts at the top (facets.view), the calendar's day narrows the selection (facets.day), * pins (facets.pin), t asks for a tag or property in the power bar's form (facets.tag, the one completer)",

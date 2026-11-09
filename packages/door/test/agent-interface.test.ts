@@ -3,6 +3,7 @@
 // focus.changed, viewport, cursor, layout.changed and marks.changed as they happen; view.scrollTo and block.mark
 // point the person at something without moving their focus; an nvim tile listens on a socket an agent edits
 // through without moving their cursor. Scratch services and fictional notes only; nvim tests run where nvim is.
+import { doorMarks } from "../src/desk/marks";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
@@ -165,7 +166,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     // The person clicks the label: dismissed.
     const rows = drawn(), y = rows.findIndex(l => l.includes(label)), x = rows[y]!.indexOf(label) + 2;
     mouse("down", x, y); mouse("up", x, y);
-    await until(() => app.marks.list().length === 0, "the mark taken off in the service");
+    await until(() => doorMarks(board).list().length === 0, "the mark taken off in the service");
     expect(await act("marks.list")).toMatchObject({ marks: [] });
     f.close();
   }, 20_000);
@@ -227,7 +228,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     key({ kind: "alt", ch: "'" });                                  // alt+' steps to a mark (alt+m marks, PIE-1237)
     await until(() => desk.dispatch.tile(person().focus!)?.shows === notes.long.id, "the keys at the mark");
     key({ kind: "alt", ch: "x" });                                  // dismisses the marks on the focused tile's note
-    await until(() => app.marks.list().length === 0, "the mark taken off in the service");
+    await until(() => doorMarks(board).list().length === 0, "the mark taken off in the service");
     expect(await act("marks.list")).toMatchObject({ marks: [] });
   });
 

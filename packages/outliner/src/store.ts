@@ -896,8 +896,6 @@ export class OutlinerStore {
   readonly changes: ChangeFeed;
   /** What each reader has read (PIE-708). */
   readonly readMarks: ReadMarks;
-  /** The marks every surface makes (PIE-1237, marks.ts). */
-  readonly marks: Marks;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
   /** Which database instance this file holds (outline-instance.ts); changes when the database is replaced. */
@@ -933,7 +931,6 @@ export class OutlinerStore {
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.readMarks = new ReadMarks(this.database);
-      this.marks = new Marks(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
         outline: outlineOfFile(basename(path)) ?? undefined,
@@ -3450,15 +3447,8 @@ export class OutlinerStore {
         }
         return found;
       },
-      readRevisions: (reader) => {
-        let found = reads.get(reader);
-        if (!found) {
-          found = this.readMarks.revisions(reader);
-          reads.set(reader, found);
-        }
-        return found;
-      },
-      pocketMarks: () => (pocket ??= this.marks.pocket()),
+      readRevisions: (reader) => reads.get(reader) ?? reads.set(reader, this.readMarks.revisions(reader)).get(reader)!,
+      pocketMarks: () => (pocket ??= new Marks(this.database).pocket()),
       threadBlocks: (reader) => {
         let found = threads.get(reader);
         if (!found) {

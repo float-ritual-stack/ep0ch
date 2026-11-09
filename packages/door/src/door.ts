@@ -1,3 +1,4 @@
+import { doorMarks } from "./desk/marks";
 import { errorDetails } from "./status-log";
 import { useMotion } from "./motion";
 import { useReadingRuler } from "./surface/selection";
@@ -86,7 +87,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     void app.heldAsks.seed(o.board);
     void app.waitingAsks.seed(o.board);
     // The outline's marks (PIE-1237): every door's frames and alt+' read them; a mark anywhere is here at once.
-    void app.marks.seed(o.board);
+    void doorMarks(o.board).seed(o.board);
     // The service's extensions (PIE-512): their lines, actions, tile kinds and screens, bound as soon as the list is read.
     const extensions = app.loadExtensions();
     // Whether another door already handed the outline's agents the person's permissions (PIE-973): the chip says so from the start.

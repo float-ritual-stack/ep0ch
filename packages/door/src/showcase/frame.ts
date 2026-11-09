@@ -113,7 +113,6 @@ function frameCtx(f: FramedScreen): Ctx {
     get whatChanged() { return o().whatChanged; },
     get waitingAsks() { return o().waitingAsks; },
     get heldAsks() { return o().heldAsks; },
-    get marks() { return o().marks; },
     get lastCall() { return o().lastCall; },
     set lastCall(v: number) { o().lastCall = v; },
     get events() { return o().events; },
