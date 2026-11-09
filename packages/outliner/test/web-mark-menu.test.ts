@@ -78,7 +78,7 @@ async function open(path: string, audience: "tailnet" | "public") {
   const words = (text: string) => [...article.querySelectorAll("p, li")].find((node) => node.textContent?.includes(text))!;
   const menu = () => doc.querySelector(".mark-menu");
   const rows = () => [...(menu()?.querySelectorAll("button") ?? [])].map((button) => button.textContent ?? "");
-  const press = (label: string) => ([...(menu()?.querySelectorAll("button") ?? [])].find((button) => button.textContent === label) as HTMLElement | undefined)?.click();
+  const press = (label: string) => ([...(menu()?.querySelectorAll("button") ?? [])].find((button) => button.textContent === label) as unknown as HTMLElement | undefined)?.click();
   return { window, doc, words, menu, rows, press, copied };
 }
 
@@ -105,7 +105,7 @@ test("signed in at phone width: a right-click opens the row's menu, Mark marks t
   // The foot: Mark this note, beside Comment on this note.
   const foot = [...page.doc.querySelectorAll(".mg-whole button")].map((button) => button.textContent);
   expect(foot).toEqual(expect.arrayContaining(["Comment on this note", "Mark this note"]));
-  ([...page.doc.querySelectorAll(".mg-whole button")].find((button) => button.textContent === "Mark this note") as HTMLElement).click();
+  ([...page.doc.querySelectorAll(".mg-whole button")].find((button) => button.textContent === "Mark this note") as unknown as HTMLElement).click();
   await until("the note's mark", () => new Marks(store.database).list({ blockId: plan.id }).length);
 });
 
