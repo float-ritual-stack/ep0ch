@@ -168,6 +168,7 @@ if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "wait") process.exit(await waitCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "revisions") process.exit(await revisionsCommand(args));
+if (args[0] === "mark" || args[0] === "marks") process.exit(await (await import("./mark-cli")).markCommand(args));
 if (args[0] === "mcp") process.exit(await mcpCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
