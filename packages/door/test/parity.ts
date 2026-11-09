@@ -14,6 +14,7 @@
 // (below), the longest takes 231 s on float-box where the longest of three took 331 s. The showcase now runs
 // separately so its long walks don't wait behind the desk and its tiles (PIE-901). PARITY_ONLY=<label,…> narrows
 // any of them (it splits on commas; `-t` picks a label holding one).
+import { doorMarks } from "../src/desk/marks";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -350,6 +351,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
+    // Marks are the outline's (PIE-1237), no longer the state dir's marks.json: one probe's alt+m is taken off before the next
+    // build. The door's own copy says whether there are any (a mark it made is read back at once), so a build asks nothing more.
+    const board = A().board, marks = doorMarks(board).list();
+    for (const m of marks) await board.request("marks.remove", { input: { n: m.n } });
+    if (marks.length) await doorMarks(board).seed(board);
     // A probe's alt+t (theme.cycle) changes every screen's colours: each screen starts in the default theme.
     setTheme(DEFAULT_THEME);
     A().stack.push(new MainMenu());
