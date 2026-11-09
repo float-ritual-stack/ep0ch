@@ -1296,30 +1296,41 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 
 #### Artifacts
 
-An artifact is a plain folder in one machine-wide store, outside every outline.
-Write a path on its own note line and the host takes it into the store:
+An artifact is a plain folder in one store, outside every outline. Write a path
+or a name on its own note line, in any outline on any machine, and it runs: in
+the door's card, on the web client and through a share (PIE-1644).
 
 ```text
 - [artifact::/path/to/lantern.jsx]
 - [artifact::artifacts/lantern.jsx]
 - [artifact::~/sketches/lantern.html]
+- [artifact::/srv/sites/moth site]
+- [artifact::lantern]
 ```
 
-Paths are absolute, relative to the outline's folder, or start with `~/` for the
-host's home folder. The host must be able to read the file. Supported kinds are
-`.jsx`, `.tsx`, `.html`, `.svg` and `.mermaid`. The store names it from the file's
-stem, adding a number when another artifact has that name; the same absolute
-path keeps its name across reads and host restarts. Nothing rewrites the note.
-On the next read, changed content creates a new numbered snapshot. An unchanged
-file keeps its snapshot without rereading or hashing its source; the store checks
-its device, inode, size and modification time, and concurrent resolves share work.
-Symlinks use the target's kind. Paths with any hidden segment in the canonical
-target are refused: copy the file somewhere visible or use `ep0ch artifact put
-<file> --name <n>` explicitly. A deleted file keeps serving its last snapshot and the
-door's card says `file gone since <time>`. A file that cannot be read names the
-host and the concrete `ep0ch artifact put` command; a folder asks for its entry
-file. The web note frames the stored URL and the door opens it through the same
-`artifact.open` action as a named artifact.
+- **Paths** are absolute, relative to the outline's folder, or start with `~/` for
+  the host's home folder. Supported kinds are `.jsx`, `.tsx`, `.html`, `.svg` and
+  `.mermaid`; a folder (a path from `/` or `~/` with no extension) runs whole, its
+  `index.html` and what it loads, hidden files left out, under the artifact caps.
+- **A file on another machine:** when the host can't find an absolute path on its
+  own disk, it asks the machines it reaches (their forwards in `.remote/`, the
+  artifact machine first) and copies what it gets. The copy is PIE-1634's: every
+  saved note's artifact files land in the media bucket by their sha256, beside its
+  pictures (`media_copies`), and the store imports a copy from the bucket.
+- **One store:** `.host/artifact-machine` (its first line, an ssh name) or
+  `EP0CH_ARTIFACT_MACHINE` names the machine whose store keeps this machine's
+  artifacts. Its outlines ask that store for names, pages, frames and shares; with
+  neither, or naming this machine, the store is this machine's own. A share made
+  in an outline on another machine is checked there (`/s/<outline>@<machine>/…`).
+- The store names an import from the file's stem, adding a number when another
+  artifact has that name; the same path keeps its name. Nothing rewrites the note.
+  Changed content creates a new numbered snapshot; an unchanged file is not reread
+  (device, inode, size and modification time). Symlinks use the target's kind; a
+  hidden path is refused. A deleted file keeps serving its last snapshot and the
+  door's card says `file gone since <time>`.
+- **What can't be found** says what was tried, on which machines, and the one
+  thing to do. The web note frames the stored URL and the door opens it through
+  the same `artifact.open` action as a named artifact.
 
 For dropping built folders or syncing from another machine, set up the inbox:
 
