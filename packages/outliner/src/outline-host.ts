@@ -23,6 +23,9 @@ import { grantOf } from "./extension-grants";
 import { forwardFor } from "./machine-forward";
 import { publishes } from "./echonet-mail";
 import { localMachineName } from "./machine-name";
+import { artifactMachine, askMachine } from "./artifact-machine";
+import { readMachineFile } from "./media-copies";
+import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { scrubCredentials } from "./resource-extensions";
 import { ensureDefaultOnFor } from "./extension-install";
 import { OutlinerServer } from "./server";
@@ -101,6 +104,8 @@ export interface OutlineHostOptions {
   readOnly?: boolean;
   /** A read-only copy of another machine's outline: what its OutlinerServer is told (its `copy` option, PIE-1091). */
   copy?: { address: string; state: string };
+  /** Which absolute paths are on this machine's disk: all, unless a test's two machines share one disk (PIE-1644). */
+  filesHere?: (path: string) => boolean;
 }
 
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
@@ -809,7 +814,7 @@ export class OutlineHost {
       await this.giveWay();
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: this.options.copy } : {}) });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: this.options.copy } : {}), ...(this.options.filesHere ? { filesHere: this.options.filesHere } : {}) });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.extensionPages.giveWay = this.giveWay;
@@ -940,7 +945,9 @@ export class OutlineHost {
       }
     }
     const artifact = request?.outline === undefined && String(request?.action).startsWith("artifacts.") && request?.action !== "artifacts.import";
-    const hostAction = request && (isHostAction(request.action) || artifact);
+    // Another machine asking for a file a note there names (PIE-1644): this machine's disk alone, by its absolute path.
+    const machineFile = request?.outline === undefined && request?.action === "media.read" && !this.defaultOutline;
+    const hostAction = request && (isHostAction(request.action) || artifact || machineFile);
     if (request && hostAction && (request.relayed !== undefined || request.machine !== undefined)) {
       // Which outlines here another machine's extensions may ask: the list, through the relay, and nothing else of the host's.
       const listing = request.action === "outlines.list" || request.action === "echonet.list";
@@ -956,8 +963,8 @@ export class OutlineHost {
         return;
       }
       try {
-        const result = artifact
-          ? await (this.artifactStore ??= new ArtifactStore(this.outlinesFolder)).request(request as unknown as ArtifactRequest)
+        const result = artifact ? await this.artifactRequest(request as unknown as ArtifactRequest)
+          : machineFile ? readMachineFile(String(request.path), localMachineName(this.outlinesFolder))
           : await this.handleHostAction(request);
         this.reply(socket, { id, ok: true, result, sequence: 0 });
       } catch (error) {
@@ -994,6 +1001,19 @@ export class OutlineHost {
     if (socket.destroyed) return;
     outline.server.acceptConnection(socket, buffered);
     socket.resume();
+  }
+
+  /**
+   * The machine's artifact store, answering a client that names no outline (`ep0ch artifact …`): on a machine whose
+   * artifacts are kept on another (artifact-machine.ts), a name or a store action is asked there; a path is this
+   * machine's to read, so it stays here.
+   */
+  private artifactRequest(request: ArtifactRequest) {
+    const machine = artifactMachine(this.outlinesFolder);
+    const path = request.action === "artifacts.show" && (!artifactReference(request.name) || !!artifactKind(request.name) || !!request.copy);
+    const own = ["artifacts.lease", "artifacts.deploy", "artifacts.dns", "artifacts.backfill"].includes(request.action);
+    if (machine && !own && !path) return askMachine<unknown>(this.outlinesFolder, machine, request as never);
+    return (this.artifactStore ??= new ArtifactStore(this.outlinesFolder)).request(request);
   }
 
   /** `ping` on a host with no default outline: the host alone. */

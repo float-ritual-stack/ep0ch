@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 import { artifactKey, DEFAULT_OUTLINE, parseGrant, type Grant } from "./artifact-grants";
 import { OutlinerClient } from "./client";
+import { forwardFor } from "./machine-forward";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 
 /**
@@ -15,12 +16,22 @@ export interface ArtifactAccess {
   web?: string;
 }
 
-/** Whether a share is open, asked of the outline host over `socket` (every request, so a revoke holds from the next). */
-export function sharesFromSocket(socket: string): NonNullable<ArtifactAccess["shareOpen"]> {
+/**
+ * Whether a share is open, asked of the outline host over `socket` (every request, so a revoke holds from the next). A
+ * share made in an outline on another machine (`<name>@<machine>`, PIE-1644) is asked of that machine's host, through
+ * its forward in `outlines`.
+ */
+export function sharesFromSocket(socket: string, outlines?: string): NonNullable<ArtifactAccess["shareOpen"]> {
   const clients = new Map<string, OutlinerClient>();
   return async (outline, share) => {
-    const name = outline === DEFAULT_OUTLINE ? undefined : outline;
+    const [named, machine] = outline.split("@");
+    const name = named === DEFAULT_OUTLINE ? undefined : named;
     let client = clients.get(outline);
+    if (!client && machine) {
+      if (!outlines) return false;
+      client = new OutlinerClient((await forwardFor(machine, outlines)).socket, 5_000, name);
+      clients.set(outline, client);
+    }
     if (!client) clients.set(outline, (client = new OutlinerClient(socket, 5_000, name)));
     const { shares } = await client.request<{ shares: ShareSession[] }>({ action: "shares.list" });
     return shares.some(row => row.id === share && !row.snapshot && row.state === "active");

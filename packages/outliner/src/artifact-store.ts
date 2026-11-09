@@ -3,9 +3,10 @@ import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { localMachineName } from "./machine-name";
 import { deployedArtifacts } from "./artifact-deploy";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, fstatSync, realpathSync, constants, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
-import { join, dirname, extname, basename, resolve } from "node:path";
+import { join, dirname, extname, basename, resolve, isAbsolute } from "node:path";
 import { ArtifactCompiler, fileArtifactPage, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
-import { artifactReference, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
+import { artifactReference, type ArtifactCopy, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
+import { MediaBucket, mediaBucketConfig } from "./media-bucket";
 import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
 import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, DROP_FILE_KINDS, type ArrivalKind, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip, stripRoot, unzip } from "./artifact-archive";
@@ -95,7 +96,9 @@ export class ArtifactStore {
     if (!parsed) throw new Error("Use an artifact name, or <name>@<number> for a snapshot.");
     const { name, version } = parsed, pin = version?.toString();
     const folder = pin ? join(this.root, "snapshots", name, pin, "files") : join(this.live, name);
-    if (!existsSync(folder)) throw new Error(`No artifact ${ref}; use ep0ch artifact put <file-or-folder> --name ${name}.`);
+    if (!existsSync(folder)) throw new Error(pin && existsSync(join(this.live, name))
+      ? `${name} has no version ${pin} on ${localMachineName(dirname(this.root))}: write [artifact::${name}] for the newest`
+      : `No artifact is called “${ref}” on ${localMachineName(dirname(this.root))}: write the file's path instead, [artifact::/path/to/${name}.html]`);
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
     const files = artifactFiles(folder), bytes = files.reduce((n, p) => n + lstatSync(join(folder, p)).size, 0);
     return { name, ...(pin ? { version: Number(pin) } : {}), files, bytes, url: artifactPageUrl(ref) ?? null };
@@ -108,7 +111,8 @@ export class ArtifactStore {
     const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, "");
     if (!origin) return null;
     const ref = info.version ? `${info.name}@${info.version}` : info.name;
-    return `${origin}${grantPath(artifactKey(this.root, true)!, reader, ref, { outline })}`;
+    // A share made in an outline on another machine names it (`<name>@<machine>`): the artifact host asks there.
+    return `${origin}${grantPath(artifactKey(this.root, true)!, reader, ref, { outline: ("share" in reader && reader.share.outline) || outline })}`;
   }
   async compile(name: string, folder = join(this.live, name), rejectErrors = false) {
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -317,6 +321,45 @@ export class ArtifactStore {
     } finally { rmSync(stage, { recursive: true, force: true }); }
   }
 
+  /** A name for the artifact a path imports: its file's stem, numbered past any name already taken. */
+  private freshName(paths: Record<string, { name: string }>, path: string): string {
+    const stem = artifactSlug(basename(path, extname(path))) || "artifact";
+    let name = stem;
+    for (let suffix = 2; existsSync(join(this.live, name)) || existsSync(join(this.root, "snapshots", name)) || Object.values(paths).some(row => row.name === name); suffix++) name = `${stem}-${suffix}`;
+    return name;
+  }
+
+  /**
+   * A file a note on another machine names, from its copy in the media bucket (PIE-1644), kept as a snapshot as a path
+   * here is: a new version when its content changed, the same one when it didn't. Keyed by `<machine>:<path>`, never
+   * read from this machine's disk (`~/notes/x.html` there is not this machine's).
+   */
+  private showCopy(copy: ArtifactCopy): Promise<ArtifactInfo> {
+    if (!/^[0-9a-f]{64}$/.test(copy.sha256) || !isAbsolute(copy.path) || !artifactKind(copy.path) || !copy.machine) throw new Error("An artifact copy names a machine, an absolute path to a page and its sha256");
+    const result = this.pending.then(async () => {
+      const indexFile = join(this.root, "paths.json"), key = `${copy.machine}:${copy.path}`;
+      const paths: Record<string, { name: string; hash: string; version: number }> = existsSync(indexFile) ? JSON.parse(readFileSync(indexFile, "utf8")) : {};
+      const entry = paths[key];
+      if (entry?.hash === copy.sha256 && existsSync(join(this.root, "snapshots", entry.name, String(entry.version), "files"))) return this.info(`${entry.name}@${entry.version}`);
+      const here = localMachineName(dirname(this.root)), config = mediaBucketConfig();
+      if (!config || "problem" in config) throw new Error(`${copy.path} is on ${copy.machine} and was copied to the media bucket, but ${here} can't read the bucket: ${config ? config.problem : "add EP0CH_MEDIA_BUCKET and EP0CH_MEDIA_ENDPOINT to its hetzner-s3 secrets"}`);
+      let bytes: Uint8Array;
+      try { bytes = await new MediaBucket(config).get(copy.sha256); }
+      catch (error) { throw new Error(`${copy.path} from ${copy.machine} isn't in the media bucket yet (${error instanceof Error ? error.message : String(error)}): save its note again`); }
+      if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== copy.sha256) throw new Error(`${copy.path}'s copy in the media bucket isn't the file ${copy.machine} read: save its note again`);
+      checkArtifactSize(1, bytes.length);
+      const name = entry?.name ?? this.freshName(paths, copy.path);
+      await this.put(name, { [basename(copy.path)]: bytes });
+      const snapshot = await this.snapshot(name);
+      paths[key] = { name, hash: copy.sha256, version: snapshot.version };
+      writeFileSync(`${indexFile}.tmp`, JSON.stringify(paths));
+      renameSync(`${indexFile}.tmp`, indexFile);
+      return this.info(`${name}@${snapshot.version}`);
+    });
+    this.pending = result.then(() => {}, () => {});
+    return result;
+  }
+
   private async resolveFile(ref: string, workspace: string): Promise<ArtifactInfo> {
     const path = resolve(workspace, ref.startsWith("~/") ? join(homedir(), ref.slice(2)) : ref);
     const indexFile = join(this.root, "paths.json");
@@ -325,13 +368,9 @@ export class ArtifactStore {
     const aliasesFile = join(this.root, "aliases", basename(workspace));
     const aliases: Record<string, string> = existsSync(aliasesFile) ? JSON.parse(readFileSync(aliasesFile, "utf8")) : {};
     const imported = Object.hasOwn(aliases, path) ? aliases[path] : undefined;
-    const stem = artifactSlug(basename(path, extname(path))) || "artifact";
-    let name = entry?.name ?? imported ?? stem;
-    for (let suffix = 2; !entry && !imported && (existsSync(join(this.live, name)) || existsSync(join(this.root, "snapshots", name)) || Object.values(paths).some(row => row.name === name)); suffix++) name = `${stem}-${suffix}`;
-    const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
+    const name = entry?.name ?? imported ?? this.freshName(paths, path);
     const machine = localMachineName(dirname(this.root));
     let canonical = path;
-    const put = () => `ep0ch artifact put ${quote(canonical)} --name ${name} --machine ${machine}`;
     const save = () => {
       const temporary = `${indexFile}.tmp`;
       writeFileSync(temporary, JSON.stringify(paths));
@@ -342,13 +381,13 @@ export class ArtifactStore {
     let fingerprint: { dev: number; ino: number; size: number; mtime: number };
     try {
       canonical = realpathSync(path);
-      if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`The target ${canonical} isn't an artifact for automatic import: hidden path; copy it somewhere visible or run ${put()}.`);
+      if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`${canonical} is hidden (a name starting with “.” on its way), which an artifact line doesn't read: move it somewhere visible.`);
       const fd = openSync(canonical, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = fstatSync(fd);
         if (stat.isDirectory()) throw new Error(`${path} is a folder; name its entry file, for example [artifact::${join(path, "index.html")}].`);
-        if (!artifactKind(canonical)) throw new Error(`The target ${canonical} isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid); to store it explicitly, run ${put()}.`);
-        if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}; run ${put()} with a regular file.`);
+        if (!artifactKind(canonical)) throw new Error(`${canonical} isn't a page an artifact line runs (.jsx, .tsx, .html, .svg or .mermaid).`);
+        if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}.`);
         checkArtifactSize(1, stat.size);
         fingerprint = { dev: stat.dev, ino: stat.ino, size: stat.size, mtime: stat.mtimeMs };
         const cached = this.fileHashes.get(canonical);
@@ -366,7 +405,8 @@ export class ArtifactStore {
         if (!entry.gone) { entry.gone = new Date().toISOString(); save(); }
         return { ...this.info(`${entry.name}@${entry.version}`), warning: `file gone since ${entry.gone}: ${path}` };
       }
-      if (code) throw new Error(`Can't read ${path} on ${machine} (${code}); from the machine with the file, run ${put()}.`);
+      if (code === "ENOENT") throw Object.assign(new Error(`${path} isn't on ${machine}.`), { code });
+      if (code) throw Object.assign(new Error(`Can't read ${path} on ${machine} (${code}).`), { code });
       throw error;
     }
     if (entry?.hash !== hash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files"))) {
@@ -454,7 +494,7 @@ export class ArtifactStore {
       }
       case "artifacts.put": return this.put(request.name, request.files);
       case "artifacts.show": {
-        const info = await this.show(request.name, workspace);
+        const info = request.copy ? await this.showCopy(request.copy) : await this.show(request.name, workspace);
         return request.frame ? { ...info, frame: this.frame(info, request.frame, outline) } : info;
       }
       case "artifacts.list": {

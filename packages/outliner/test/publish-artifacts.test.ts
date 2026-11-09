@@ -725,7 +725,7 @@ test("artifact file lines enter the store, follow edits and retain the last snap
 }, COMPILE_TIMEOUT);
 
 
-test("artifact file refusals name the host, supported kinds and concrete repair calls", async () => {
+test("artifact file refusals name the host, supported kinds and the one thing to do, never a command that moves files (PIE-1644)", async () => {
   const { client, write, workspace, store } = await setup();
   const oldMachine = process.env.EP0CH_MACHINE_NAME;
   process.env.EP0CH_MACHINE_NAME = "garden-host";
@@ -741,13 +741,11 @@ test("artifact file refusals name the host, supported kinds and concrete repair 
   const note = store.create(text);
   const show = (name: string) => client.request({ action: "artifacts.show", name });
   await expect(show(wrong)).rejects.toThrow(`.jsx, .tsx, .html, .svg or .mermaid`);
-  await expect(show(wrong)).rejects.toThrow(`ep0ch artifact put '${wrong}' --name sketch --machine garden-host`);
+  await expect(show(wrong)).rejects.not.toThrow(/artifact put|--machine/);
   // Root reads a mode-0 file anyway (a cloud sandbox runs tests as root): there, only the missing file can be refused.
-  const cases = [...(process.getuid?.() === 0 ? [] : [[unreadable, "private", "EACCES"]]), [missing, "missing", "ENOENT"]];
-  for (const [file, name, code] of cases) {
-    await expect(show(file!)).rejects.toThrow(`on garden-host (${code})`);
-    await expect(show(file!)).rejects.toThrow(`ep0ch artifact put '${file}' --name ${name} --machine garden-host`);
-  }
+  if (process.getuid?.() !== 0) await expect(show(unreadable)).rejects.toThrow(`Can't read ${unreadable} on garden-host (EACCES)`);
+  await expect(show(missing)).rejects.toThrow(`${missing} isn't on garden-host`);
+  for (const file of [unreadable, missing]) await expect(show(file)).rejects.not.toThrow(/artifact put|--machine|EP0CH_SOCKET/);
   await expect(show(folder)).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
   await expect(show("entry")).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
   expect(store.get(note.id)?.text).toBe(text);
@@ -843,19 +841,19 @@ test("artifact symlinks use the target kind and read the checked open file", asy
   expect(readFileSync(join(root, ".artifacts/snapshots", html.name, String(html.version), "files/index.html"), "utf8")).toBe(jsx);
   expect(html.version).toBe(compiled.version! + 1);
   rmSync(link); symlinkSync(write("credentials.txt", "fictional key"), link);
-  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
+  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/isn't a page an artifact line runs/i);
   rmSync(link); symlinkSync(write(".env", "FICTIONAL=value"), link);
-  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
+  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/is hidden/i);
 }, COMPILE_TIMEOUT);
 
-test("artifact paths refuse canonical hidden segments and explain the visible copy or explicit put", async () => {
+test("artifact paths refuse canonical hidden segments and say to move it somewhere visible", async () => {
   const { client, write, workspace } = await setup();
   for (const relative of [".secret.html", ".config/panel.html", ".ssh/panel.html"]) {
     const target = write(relative, "<p>Fictional private panel</p>");
     const link = join(workspace, "visible.html"); symlinkSync(target, link);
     for (const name of [target, link]) {
-      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(/hidden.*copy.*visible.*ep0ch artifact put/i);
-      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(`ep0ch artifact put '${target}' --name `);
+      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(`${target} is hidden`);
+      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(/move it somewhere visible/);
     }
     rmSync(link);
   }

@@ -14,8 +14,17 @@ export interface ArtifactDeployState {
   url?: string; where?: string; commit?: string; deployedAt?: string; recorded?: string;
   said?: string; command?: string; run?: { id: string; title: string; at: string };
 }
-/** Who a frame is for: the signed-in owner (a short while), or one open share by its id. */
-export type ArtifactReader = { owner: true } | { share: { id: string } };
+/**
+ * Who a frame is for: the signed-in owner (a short while), or one open share by its id. A share's `outline` names the
+ * outline it was made in when that isn't the store's own (`<name>@<machine>`, an outline on another machine), so the
+ * artifact host asks that machine whether it is still open.
+ */
+export type ArtifactReader = { owner: true } | { share: { id: string; outline?: string } };
+/**
+ * A file a note on another machine names, already in the media bucket (PIE-1644): the machine it was read on, its path
+ * there, and its content's sha256, which the store fetches from the bucket and keeps as a snapshot.
+ */
+export interface ArtifactCopy { machine: string; path: string; sha256: string }
 export type ArtifactRequest =
   /** `note` deploys every repo that note's artifact lines name (the deploy rule's script), `repo` the one named. */
   | { action: "artifacts.deploy"; repo?: string; note?: string; domain?: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }
@@ -24,7 +33,7 @@ export type ArtifactRequest =
   /** A one-time link to hand a file to the inbox for this outline's day note (PIE-1267); the name is optional. */
   | { action: "artifacts.lease"; name?: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }
   | { action: "artifacts.put"; name: string; files: Record<string, string> }
-  | { action: "artifacts.show"; name: string; frame?: ArtifactReader }
+  | { action: "artifacts.show"; name: string; frame?: ArtifactReader; copy?: ArtifactCopy }
   | { action: "artifacts.snapshot" | "artifacts.versions" | "artifacts.rm"; name: string }
   | { action: "artifacts.list" | "artifacts.import" }
   | { action: "artifacts.upload.begin"; name: string }
