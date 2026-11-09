@@ -821,11 +821,10 @@
       ]
     },
     {
-      "id": "door.marks", "name": "Attention marks", "group": "door", "chapter": "agents", "ladder": "accidental", "dependsOn": ["door.state"],
-      "does": "block.mark: a block framed and labelled in every tile showing it, an extmark in nvim. How an agent points the person at something.",
-      "built": "LocalMarks in marks.json, re-read before each change so two doors don't lose each other's.",
-      "refs": [ { "r": "door", "p": "src/desk/marks.ts", "l": 43, "m": "export class LocalMarks" } ],
-      "questions": [ { "text": "Marks belong in the service (marks.* and feed events), so Detail, Tree and agents see them.", "finding": "A-F14", "route": "PIE-423" } ]
+      "id": "door.marks", "name": "Marks", "group": "door", "chapter": "agents", "ladder": "shared", "dependsOn": ["door.state"],
+      "does": "block.mark and alt+m: a block framed and labelled in every tile of every door showing it, an extmark in nvim; a pocket mark (no reason) is what marked:today gathers. How the person gathers and an agent points the person at something.",
+      "built": "The service's marks (PIE-1237): outliner Marks over the marks and mark_removals tables, one verb (marks.add/remove/list) the door, outline_mark, ep0ch mark and the web page call, and the marked: atoms. The door's copy is DoorMarks (a ServiceList, one per board), read again on the service's marks event.",
+      "refs": [ { "r": "door", "p": "src/desk/marks.ts", "l": 17, "m": "export class DoorMarks" }, { "r": "outliner", "p": "src/marks.ts", "l": 117, "m": "export class Marks" } ]
     },
     {
       "id": "cli.ep0ch", "name": "ep0ch act | peek | snap", "group": "clients", "chapter": "agents", "ladder": "shared", "dependsOn": ["door.control"],

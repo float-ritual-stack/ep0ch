@@ -643,7 +643,8 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tab.select` | `tile`, `by` | never hides the person's tab |
 | `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where an agent's open naming neither puts it: where the focused tile's opens land, never a reader the person types in). The board takes `from` too (unlinked, its detail). A program in a tile passes `from=$EP0CH_TILE_ID` (or `from=$EP0CH_TILE`) and never names a reader. `ep0ch open <id>` is this action. The person's own open gives the tile the keys, an agent's never does. On the welcome and the brief (desks) an agent's lands their own way (the welcome's preview, the brief's step). A screen with no `open` of its own (the menu, a list, a message reader) has the shell's: a message reader opens over it once the person is idle, as for any screen change |
 | `view.scrollTo` | `tile`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
-| `block.mark` | `id` (default: the note `tile` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
+| `block.mark` | `id` (default: the note `tile` points at), or `line` for an nvim tile; `reason` (a look-here mark), `words` | the outline's mark: framed and labelled in every tile of every door showing it, or an nvim extmark; without `reason`, `marked:today` lists it |
+| `block.mark-toggle` | | the actor's own pocket mark on the note `tile` points at, made or taken off |
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
 | `marks.next` | | refused while the person is typing, and within 2s of their last key |
 | `tile.resize`, `tile.zoom` | `tile`; `by`, `axis`; `on` | resize by steps; an agent zooms only the person's tile, never one that hides it |
@@ -890,14 +891,20 @@ the person does:
 
 ## Marks
 
-`block.mark` is the door side of PIE-423's focus mark, kept in a `MarkStore` (`src/desk/marks.ts`):
-- The store is door-local for now, in the door's `marks.json`. PIE-423's service-backed store replaces it,
-  so Detail and other clients show marks too. Two doors on one state dir share the file: each change reads it
-  first, so neither loses the other's marks or reuses a number (a door sees the other's marks on its next read).
-- A marked note is framed in magenta, and labelled `◆ <reason> · by <who>` in the header of every tile that
-  shows it.
-- `alt+m` steps through marks: to a tile showing it, else it opens where the focused tile's opens go.
-- A click on the label, or `alt+x` on the focused tile, dismisses it.
+Marks are the outline's (PIE-1237): the service's `marks.add` / `marks.remove` (outliner `src/marks.ts`), which
+`block.mark`, alt+m, `ep0ch mark`, an agent's `outline_mark` and the web page's mark all call. The door keeps a copy
+(`DoorMarks`, `src/desk/marks.ts`), read again when the service says a mark was made or taken off, so a mark made in
+one door, on the phone or by an agent is in every door at once:
+- A mark with a reason is an attention mark ("look here"); one without is a pocket mark, which the views' atoms read
+  (`marked:today`, `marked-by:me`, `marked-since:-7d`) and which leave attention marks out.
+- A marked note is framed in magenta, and labelled `◆ <reason> · by <who>` (`◆ marked · by you` for a pocket mark) in
+  the header of every tile, in every door, that shows it. A marked line of a file is labelled on the nvim tile editing
+  it; the extmark is set by the door that marked it.
+- `alt+m` marks the note the focused tile points at, or takes the person's own mark off (`block.mark-toggle`; the
+  tile menu's "mark this note").
+- `alt+'` steps through marks (`marks.next`, as vim's `'` jumps to one): to a tile showing it, else it opens where
+  the focused tile's opens go.
+- A click on the label, or `alt+x` on the focused tile, takes it off (`block.unmark`); the unmark is kept, attributed.
 - A tint (`block.tint`, a block or passage tinted inside one reader) is the in-reader counterpart: no reason,
   no frame, gone when the reader shows another note or the person presses `esc`.
 

@@ -164,6 +164,10 @@ test("comments through a share land as the person's, marked by the share; the pa
   const comment = threads.find((thread) => thread.block.id === written.thread)!;
   expect(comment.block.author).toBe("user");
   expect(comment.properties?.via).toEqual([`share:${share.id}`]);
+  // A mark through a link is refused, with why (PIE-1237): only the owner marks.
+  const marking = await post(`${base}/_marginalia/write`, { page: survey.id, action: "mark" });
+  expect(marking.status).toBe(403);
+  expect((await marking.json()).error).toContain("a link takes comments, not marks");
   // A write from another site, or about a note outside the share, is refused.
   expect((await post(`${base}/_marginalia/write`, { ...words, action: "comment", body: "x" }, { origin: "https://example.com" })).status).toBe(403);
   expect((await post(`${base}/_marginalia/write`, { page: letter.id, action: "comment", quote: "", body: "x" })).status).toBe(404);

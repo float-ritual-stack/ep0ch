@@ -112,6 +112,7 @@ import { probeSocket } from "./socket-probe";
 import { actionOf, forget, heldBy, inFlightRequest, landed, thisTurn, timeRequest, turnKeyOf, turnOwner, type InFlight, type TurnKey, loopWatched, noteWork, Turns } from "./loop-watch";
 import { QueryWatches, type WatchConnection } from "./query-watches";
 import { machineryBlind, watchesHear } from "./watch-machinery";
+import { answerMarks } from "./marks";
 import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
@@ -3309,6 +3310,7 @@ export class OutlinerServer {
         case "annotations.agent-evidence":
           result = wired(action, this.store.summarizeAnnotationAgentEvidence(request.limit));
           break;
+        case "marks.add": case "marks.remove": case "marks.list": result = wired(action, answerMarks(this.store, request)); break;
         case "annotations.read":
           result = wired(action, this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER)));
           break;
@@ -3673,11 +3675,8 @@ export class OutlinerServer {
         case "navigation.state":
           result = wired(action, this.store.navigationState());
           break;
-        case "navigation.back":
-          result = wired(action, this.store.navigateHistory("back"));
-          break;
-        case "navigation.forward":
-          result = wired(action, this.store.navigateHistory("forward"));
+        case "navigation.back": case "navigation.forward":
+          result = wired(action, this.store.navigateHistory(action === "navigation.back" ? "back" : "forward"));
           break;
         default: {
           // What's left is declared async or the host's (actions.ts), refused above: a new sync action fails here until handled.
@@ -4094,8 +4093,7 @@ export class OutlinerServer {
         // A triggered call's new block carries the trigger's mark, as its returned writes' do.
         return { ...as, ...(grant.trigger && typeof as.text === "string" ? { text: markTriggered(as.text, grant.trigger) } : {}),
           author: "agent", provenance: { actorId: actor.actorId, ...(actor.taskId ? { taskId: actor.taskId } : {}) } } as OutlinerRequest;
-      case "outputs.place":
-      case "draft.patch":
+      case "outputs.place": case "draft.patch": case "marks.add": case "marks.remove":
         return { ...as, mutation: actor } as OutlinerRequest;
       case "door.act": if (grant.relayed || !grant.agent) throw new Error("door.act needs an agent extension's grant from this machine: a respond call of one of its agents"); return { ...as, agent: grant.agent, extension: grant.extensionId, ...(grant.requestedBy ? { requestedBy: grant.requestedBy } : {}) } as OutlinerRequest;
       case "move":

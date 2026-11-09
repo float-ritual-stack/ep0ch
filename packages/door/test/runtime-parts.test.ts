@@ -7,7 +7,6 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { snapPath, startControl } from "../src/control";
-import { LocalMarks } from "../src/desk/marks";
 import { DOOR_START_VARS, HERDR_PANE_VARS, HERDR_VARS, tileEnv } from "../src/desk/pty";
 import { mediaCache } from "../src/media";
 import { Offline, SocketBoard } from "../src/socket";
@@ -132,21 +131,7 @@ describe("one env list for terminal tiles (F6)", () => {
   });
 });
 
-describe("two doors on one state dir (F19)", () => {
-  test("marks from two stores on one file are all kept and never numbered alike", async () => {
-    const a = new LocalMarks(), b = new LocalMarks();
-    const m1 = a.add({ block: "0000aaaa", reason: "check the rope", by: "you" });
-    await Bun.sleep(5);
-    const m2 = b.add({ block: "0000bbbb", reason: "check the sails", by: "deckhand-1" });
-    await Bun.sleep(5);
-    const m3 = a.add({ block: "0000cccc", reason: "check the keel", by: "you" });
-    expect(new Set([m1.n, m2.n, m3.n]).size).toBe(3);
-    for (const s of [a, b]) expect(s.list().map(m => m.reason).sort()).toEqual(["check the keel", "check the rope", "check the sails"]);
-    await Bun.sleep(5);
-    expect(b.remove(m1.n)?.reason).toBe("check the rope");
-    expect(a.list().map(m => m.n).sort()).toEqual([m2.n, m3.n].sort());
-  });
-
+describe("two doors on one state dir (F19; their marks are the service's now, PIE-1237)", () => {
   test("a door says which other doors use its state dir; a gone door's claim is swept", () => {
     const doors = join(stateDir(), "doors");
     mkdirSync(doors, { recursive: true });

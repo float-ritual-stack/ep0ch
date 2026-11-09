@@ -3,6 +3,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
+import { doorMarks } from "../../src/desk/marks";
 import { afterAll, beforeAll, describe, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
@@ -60,6 +61,7 @@ export function useShowcaseScreen(cols = 200): ShowcaseScreen {
     // As the door does at start: the extensions and rules the service lists (the seed installed the example rules).
     await h.app.loadExtensions(true);
     await h.app.waitingAsks.seed(h.board);
+    await doorMarks(h.board).seed(h.board);
     h.sc = new Showcase();
     h.app.push(new MainMenu()); h.app.push(h.sc);
     await until(() => !!h.S().notes, "the showcase outline", 8000);

@@ -183,9 +183,11 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       if (page.name === "tile.drawer" && example.act.includes("on=false")) await act("tile.drawer", { on: true }, "activity");
       // An example naming drawer.agent needs an agent tab open (PIE-1331: one opens by itself only in a drawer never saved).
       if (example.act.includes("drawer.agent") && !h.app.drawer.tile) h.app.drawer.newAgentTab({ kind: "agent", id: "example" });
+      // Marks are the outline's (PIE-1237): numbered by the service, so the example's n is the second mark's own.
+      let markN: number | undefined;
       if (page.name === "block.unmark") {
         await act("block.mark", { id: h.seeded.notes.hub.id, reason: "first mark" });
-        await act("block.mark", { id: note.id, reason: "second mark" });
+        markN = ((await act("block.mark", { id: note.id, reason: "second mark" })) as { mark: { n: number } }).mark.n;
       }
       if (needsNvim) await until(() => !!(d.pane("shed-notes") as import("../src/desk/pty").PtyPane).nvim, "the example nvim socket");
       if (page.name === "note.untrash") await act("note.trash", { ref: note.id, confirm: note.id });
@@ -193,6 +195,7 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       let line = example.act.replaceAll("7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", note.id).replaceAll("7d9a1f40", note.id.slice(0, 8))
         .replaceAll("3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650", note.id).replaceAll("5e2b8c14-7a3d-4f19-b6e2-0c9d8a1f3e57", pad?.id ?? note.id).replaceAll("4c1e9a73-8d20-4f65-b3a9-6e7d2c0f1b84", note.id).replaceAll("/tmp/garden-plan.md", file);
       if (line.includes("split=s1")) line = line.replace("split=s1", `split=${d.layoutGet().tree.id}`);
+      if (markN !== undefined) line = line.replace(/\bn=2\b/, `n=${markN}`);
       const answer = await h.app.dispatch.act(actRequestOf(lineWords(line)), USER) as { tile: string; name: string };
       if (answer?.tile && !(page.name === "tile.group" && line.includes("on=false"))) {
       expect(answer.tile).toBeString();

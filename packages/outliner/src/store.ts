@@ -84,6 +84,7 @@ import { answerSite, pathValues } from "./site-answer";
 import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
 import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
 import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
@@ -3400,6 +3401,7 @@ export class OutlinerStore {
     const calls = new Map<string, ReadonlySet<string>>();
     const reads = new Map<string, ReadonlyMap<string, number>>();
     const threads = new Map<string, ReadonlySet<string>>();
+    let pocket: ReturnType<Marks["pocket"]> | undefined;
     return {
       linkTargets: (blockId) => {
         let found = targets.get(blockId);
@@ -3445,14 +3447,8 @@ export class OutlinerStore {
         }
         return found;
       },
-      readRevisions: (reader) => {
-        let found = reads.get(reader);
-        if (!found) {
-          found = this.readMarks.revisions(reader);
-          reads.set(reader, found);
-        }
-        return found;
-      },
+      readRevisions: (reader) => reads.get(reader) ?? reads.set(reader, this.readMarks.revisions(reader)).get(reader)!,
+      pocketMarks: () => (pocket ??= new Marks(this.database).pocket()),
       threadBlocks: (reader) => {
         let found = threads.get(reader);
         if (!found) {

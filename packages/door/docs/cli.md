@@ -379,6 +379,30 @@ line of JSON {id, uri, text, site}: its text as written and, when it holds a {{ 
 the service's whole answer for it (outline_read's site: each placeholder's values,
 or problem and nearest keys, how it was found, and the notes it came from)
 
+## mark
+
+```text
+ep0ch mark <id> [--reason <words>] [--words <text>] [--remove] [--as <agent id>] [--json] [--ws <name>] [--machine <ssh-name>]
+```
+
+mark a note (PIE-1237): one fact in the outline, yours (--as: that agent's),
+that every door, the web page and a query see at once. Without --reason it is
+a pocket mark, which `marked:today`, `marked-by:me` and `marked-since:-7d` read;
+with --reason a look-here mark, framed in every door showing the note and left
+out of those. Marking what you already marked answers that mark; --remove takes
+your marks on the note off (kept as a second fact). In the door: alt+m, the tile
+menu's "mark this note", act block.mark; agents: outline_mark
+
+## marks
+
+```text
+ep0ch marks [--today] [--json] [--ws <name>] [--machine <ssh-name>]
+```
+
+the outline's live marks, oldest first: number, when, who, the note (or file
+and line) and a look-here mark's reason; --today only today's; --json the
+service's records (marks.list)
+
 ## revisions
 
 ```text

@@ -129,7 +129,7 @@ power bar's run asks a choice from its options, and a button's empty `note` slot
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:46` |
 | `propsUsed` | `packages/outliner/src/script-sources.ts:60` |
-| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:506` |
+| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:515` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
@@ -180,7 +180,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. Render lines and `of=` buttons keep repeats (`tag=a tag=b` is two values); other action run paths give one value per key. Runbook’s `\| as name` formatter calls supply `props.lines` (previous output lines) and `props.cwd[0]`; return the next stage’s text. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:37` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:89` |
-| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:597` |
+| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:625` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -248,7 +248,8 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 | `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:581` |
 | `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:600` |
 | `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:631` |
-| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:649` |
+| `tools.outline_mark` | writes | **ref**, reason, words, remove | Mark the note `ref` (PIE-1237): one fact in the outline, attributed to you, that every door, the web page and a query see at once. | `packages/outline-core/src/agent-tool-definitions.ts:649` |
+| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:674` |
 
 <!-- generated:tools:end -->
 
@@ -256,7 +257,7 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 |---|---|
 | `hostApi` | `packages/outliner/src/host-api.ts:262` |
 | `AGENT_TOOL_DEFINITIONS` | `packages/outline-core/src/agent-tool-definitions.ts:123` |
-| `AGENT_TOOL_SURFACES` | `packages/outline-core/src/agent-tool-definitions.ts:691` |
+| `AGENT_TOOL_SURFACES` | `packages/outline-core/src/agent-tool-definitions.ts:716` |
 
 ## view.*
 
@@ -402,8 +403,8 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:76` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1048` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:512` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1068` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:521` |
 
 ## A render script is a component
 
@@ -470,13 +471,13 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:339` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:367` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:787` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1771` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:221` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4169` |
-| `viaYolo` | `packages/outliner/src/server.ts:4192` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:620` |
+| `viaYolo` | `packages/outliner/src/server.ts:4197` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:648` |
 
 ## Lifecycle
 
@@ -510,11 +511,11 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 | Entry | Source |
 |---|---|
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:327` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:356` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:384` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:302` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:364` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:392` |
 | `scripts.stop` | `packages/outliner/src/server.ts:698` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2448` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2502` |
 
 ## Traps
 

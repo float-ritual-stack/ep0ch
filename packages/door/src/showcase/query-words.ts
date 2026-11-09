@@ -1,6 +1,7 @@
 import { FacetsPane } from "../desk/facets";
 import { ReaderPane } from "../desk/panes";
 import type { Section, deskOf, row, fill } from "./showcase";
+import { markingSections } from "./marking";
 
 export function queryWordSections(parts: { deskOf: typeof deskOf; row: typeof row; fill: typeof fill }): Section[] {
   const { deskOf, row, fill } = parts;
@@ -33,5 +34,7 @@ export function queryWordSections(parts: { deskOf: typeof deskOf; row: typeof ro
       return deskOf({ title: "showcase · tags", panes: [t, r], names: ["tags", "reader"], layout: ([x, y]) => row(0.45, x!, y!) }, show, [[r, n.notebook]], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
+  // Marks (PIE-1237): what a query like marked:today gathers.
+  ...markingSections(parts),
   ];
 }

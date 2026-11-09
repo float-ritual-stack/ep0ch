@@ -3,6 +3,7 @@
 // focus.changed, viewport, cursor, layout.changed and marks.changed as they happen; view.scrollTo and block.mark
 // point the person at something without moving their focus; an nvim tile listens on a socket an agent edits
 // through without moving their cursor. Scratch services and fictional notes only; nvim tests run where nvim is.
+import { doorMarks } from "../src/desk/marks";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { writeFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
@@ -165,6 +166,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     // The person clicks the label: dismissed.
     const rows = drawn(), y = rows.findIndex(l => l.includes(label)), x = rows[y]!.indexOf(label) + 2;
     mouse("down", x, y); mouse("up", x, y);
+    await until(() => doorMarks(board).list().length === 0, "the mark taken off in the service");
     expect(await act("marks.list")).toMatchObject({ marks: [] });
     f.close();
   }, 20_000);
@@ -223,9 +225,10 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     await act("block.mark", { id: notes.long.id, reason: "look here" });
     await mine("tile.focus", "tree");
     expect(person().focus).toBe("tree");
-    key({ kind: "alt", ch: "m" });
-    expect(desk.dispatch.tile(person().focus!)?.shows).toBe(notes.long.id);
+    key({ kind: "alt", ch: "'" });                                  // alt+' steps to a mark (alt+m marks, PIE-1237)
+    await until(() => desk.dispatch.tile(person().focus!)?.shows === notes.long.id, "the keys at the mark");
     key({ kind: "alt", ch: "x" });                                  // dismisses the marks on the focused tile's note
+    await until(() => doorMarks(board).list().length === 0, "the mark taken off in the service");
     expect(await act("marks.list")).toMatchObject({ marks: [] });
   });
 
@@ -333,7 +336,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(await nv.request("nvim_win_get_cursor", [0])).toEqual(before);
     await until(() => !!tile("draft-preview")?.showing?.title.includes("retitled by an agent"), "the preview after the agent's write", 5000);
     // A mark on a line is an extmark with virtual text.
-    expect(await act("block.mark", { line: 25, reason: "check this line" }, "draft")).toMatchObject({ mark: { extmark: expect.any(Number) } });
+    expect(await act("block.mark", { line: 25, reason: "check this line" }, "draft")).toMatchObject({ mark: { file: expect.stringContaining("draft.md"), line: 25, reason: "check this line" } });
     const marks = await nv.lua(`return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace("ep0ch_marks"), 0, -1, {})`);
     expect(marks).toBe(1);
     expect(tile("draft-preview")).toMatchObject({ source: "tile:draft" });

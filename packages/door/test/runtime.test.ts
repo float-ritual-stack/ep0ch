@@ -352,9 +352,10 @@ describe("a ctrl+e edit tile's file (F5)", () => {
 });
 
 describe("two doors on one outline (F19)", () => {
-  test("marks from both doors are kept and numbered apart, and the door that started second is warned", async () => {
+  test("marks from both doors are the outline's, numbered apart, in both at once; the door that started second is warned", async () => {
     const shared = join(root, "shared-state");
-    const a = new Door(sandbox(shared).env), b = new Door(sandbox(shared).env);
+    // Each door hears the service's events here (the rest of this file turns them off): a mark is said by the service.
+    const a = new Door({ ...sandbox(shared).env, EP0CH_OBSERVE: "1" }), b = new Door({ ...sandbox(shared).env, EP0CH_OBSERVE: "1" });
     await a.up(); await b.up();
     // Whichever door started second is warned (both, when they start at the same moment); read before the
     // marks' own flashes replace it.
@@ -366,17 +367,16 @@ describe("two doors on one outline (F19)", () => {
     expect((await mark(a, "tide-one")).code).toBe(0);
     expect((await mark(b, "tide-two")).code).toBe(0);
     expect((await mark(a, "tide-three")).code).toBe(0);
-    const list = async (d: Door) => JSON.parse((await d.cli("act", "marks.list")).out) as { n: number; reason: string }[] | { marks: { n: number; reason: string }[] };
+    const list = async (d: Door) => (JSON.parse((await d.cli("act", "marks.list")).out) as { marks: { n: number; reason: string }[] }).marks;
+    // The service's marks (PIE-1237): a mark made in one door is in the other as soon as it hears the service say so.
     for (const d of [a, b]) {
-      const l = await list(d);
-      const marks = Array.isArray(l) ? l : l.marks;
-      expect(marks.map(m => m.reason).sort()).toEqual(["tide-one", "tide-three", "tide-two"]);
+      let marks = await list(d);
+      for (let tries = 0; marks.length < 3 && tries < 50; tries++) { await Bun.sleep(100); marks = await list(d); }
+      expect(marks.map(m => m.reason).sort(), d === a ? "door a" : "door b").toEqual(["tide-one", "tide-three", "tide-two"]);
       expect(new Set(marks.map(m => m.n)).size).toBe(3);
     }
-    // In the outline's folder of the state dir (src/session/place.ts), never the state dir itself.
-    expect(existsSync(join(shared, "marks.json"))).toBe(false);
-    const saved = JSON.parse(readFileSync(new Bun.Glob("sessions/*/*/marks.json").scanSync({ cwd: shared, absolute: true }).next().value as string, "utf8")) as { reason: string }[];
-    expect(saved.map(m => m.reason).sort()).toEqual(["tide-one", "tide-three", "tide-two"]);
+    // Nothing kept in the door's state: no marks.json anywhere.
+    expect([...new Bun.Glob("**/marks.json").scanSync({ cwd: shared })]).toEqual([]);
     for (const d of [a, b]) d.kill("SIGTERM");
     for (const d of [a, b]) await d.ended();
   }, 60_000);

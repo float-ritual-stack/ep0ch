@@ -41,7 +41,7 @@ import type { SocketBoard } from "./socket";
 export type WriteBoard = SocketBoard & { address?: BoardAddress };
 
 /** The write tools, in the order tools/list offers them. */
-export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_proposal_apply", "outline_proposal_dismiss", "outline_proposal_resolve"] as const;
+export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_mark", "outline_proposal_apply", "outline_proposal_dismiss", "outline_proposal_resolve"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
 /**
  * Every tool whose answer or record names who made it (an actor id from `actorOf`, shown as `by`, stored on a mutation,
@@ -347,6 +347,7 @@ const ACCESS_NOTES: Readonly<Record<string, string>> = {
   outline_move: "At propose access it becomes a comment on the note naming the move.",
   outline_trash: "At propose access it becomes a comment on the note proposing it.",
   outline_restore: "It needs full access (a restore is no proposal).",
+  outline_mark: "A mark changes no note, so propose access allows it.",
   outline_assign_id: "It stamps the note, so it can't be a proposal: it needs full access, and a note that changed since is refused.",
 };
 

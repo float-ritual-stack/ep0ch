@@ -90,6 +90,9 @@ export interface WireAnswers {
   "annotations.list": AnnotationThread[];
   "annotations.propose-agent": AnnotationAgentProposalReceipt;
   "annotations.read": { thread: string; marked: number; };
+  "marks.add": { mark: import("./marks").MarkRecord; already: boolean };
+  "marks.remove": { removed: import("./marks").MarkRecord[] };
+  "marks.list": { marks: import("./marks").MarkRecord[] };
   "annotations.reconcile": AnnotationReconcileReceipt;
   "annotations.reply": AnnotationBatchReceipt;
   "annotations.review-agent": AnnotationRecord;
@@ -380,3 +383,4 @@ export type { ResourceDescription } from "./resources";
 export type { LinkTargetFacets } from "./types";
 export type { ViewCreatePlan, ViewMovePlan, ViewWriteChange } from "./view-writes";
 export type { AnnotationAnchor, AnnotationRecord, AnnotationThread } from "./types";
+export type { MarkAddInput, MarkRecord, MarkRemoveInput } from "./marks";

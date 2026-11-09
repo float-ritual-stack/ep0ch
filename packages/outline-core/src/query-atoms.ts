@@ -1,5 +1,5 @@
 // The relation and text atoms of the query grammar: `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`,
-// `text~`, `call:`, and the reader's `unread:` and `thread:`. A relation's target may be `this`, a role (ADR 0001): the block the question is asked for, which
+// `text~`, `call:`, the reader's `unread:` and `thread:`, and the marks' `marked:`, `marked-by:` and `marked-since:`. A relation's target may be `this`, a role (ADR 0001): the block the question is asked for, which
 // the service binds (`blocks.query`'s `this`) and refuses a question without. This file is the
 // one place that says what an atom looks like and what a malformed one is told; the service's query parser
 // (outliner `block-query.ts`) calls it and evaluates the result (the reference index, the tree, the text). Every
@@ -8,6 +8,7 @@
 // A change to what an atom matches bumps GRAMMAR (protocol.ts).
 
 import { CALL_PATTERN } from "./attribution";
+import { readDateBound } from "./dates";
 import { HASHTAG_VALUE_PATTERN } from "./property-grammar";
 
 export type QueryAtom =
@@ -24,7 +25,19 @@ export type QueryAtom =
   /** Comments and replies in the threads `reader` started or wrote in. */
   | { kind: "thread"; reader: string }
   /** Blocks whose latest write was by `who`: an author (`user`, `agent`, `system`) or an actor id (PIE-867). */
-  | { kind: "by"; who: string };
+  | { kind: "by"; who: string }
+  /**
+   * Blocks with a pocket mark (PIE-1237: a mark with no `reason`; one with a reason is an attention mark and stays out),
+   * made `when`: `any`, or a day or moment as a date bound reads (`today`, `yesterday`, `-7d`, `2026-11-09`, `-2h`).
+   */
+  | { kind: "marked"; when: string }
+  /** Blocks with a pocket mark made by `who`: `me` (the person), `agent`, or an actor id. */
+  | { kind: "marked-by"; who: string }
+  /** Blocks with a pocket mark made at or after `when` (a date bound: `-7d`, `yesterday`, `2026-11-01`). */
+  | { kind: "marked-since"; when: string };
+
+/** `marked:any`: any pocket mark, whenever it was made. A bare `marked` stays a property clause (has `[marked::…]`). */
+export const MARKED_ANY = "any";
 
 /** A reader's atom names who reads: `me` (the person: the door, the web client and the CLI read as them) or an agent's actor id. */
 export type QueryReaderAtom = "unread" | "thread";
@@ -70,6 +83,9 @@ export const QUERY_ATOM_HELP: readonly { atom: string; means: string; example: s
   { atom: "{{this.key}}", gist: "this note's own value for key", means: "as a value, what the note the question is asked for has for key; {{this.page}} is its page address (a daily note's date): one line serves every note", example: "owner={{this.owner}}  when={{this.page}}" },
   { atom: "unread:<reader>", gist: "blocks the reader hasn't read", means: "blocks the reader hasn't read at their current revision (never opened, or changed since); me is the person, and an agent names its own actor id", example: "unread:me  type=annotation-reply unread:me" },
   { atom: "by:<who>", gist: "last written by user, agent or an actor id", means: "blocks whose latest write was by who: an author (user, agent, system) or an actor id (claude-code@float-2, loki, ext:jira); with revision >= 2 and NOT machine, what people wrote", example: "by:user  by:agent NOT machine  by:loki updated >= today  revision >= 2" },
+  { atom: "marked:<when>", gist: "blocks marked then (marked:today)", means: "blocks with a pocket mark (one with no reason: an agent's \"look here\" mark with a reason stays out) made then: any, or a day or moment as dates read (today, yesterday, -7d, 2026-11-09, -2h); a bare marked is still the property", example: "marked:today  marked:any  marked:yesterday type=ticket" },
+  { atom: "marked-by:<who>", gist: "blocks marked by me, agent or an actor", means: "blocks with a pocket mark made by who: me (the person), agent, or an actor id (loki)", example: "marked-by:me  marked-by:loki marked:today" },
+  { atom: "marked-since:<when>", gist: "blocks marked since a day", means: "blocks with a pocket mark made at or after the day or moment (-7d, yesterday, 2026-11-01, -2h)", example: "marked-since:-7d  marked-since:2026-11-01" },
   { atom: "thread:<reader>", gist: "comments in the reader's threads", means: "comments and replies in the threads the reader started or wrote in; me is the person, an agent names its actor id", example: "type=annotation-reply thread:me NOT annotation-source=user" },
 ];
 
@@ -90,7 +106,7 @@ export const QUERY_RANGE_HELP: readonly { key: string; means: string }[] = [
   { key: "created", means: "when the block was made" },
 ];
 
-const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread|by):|(?:title|text)~)/i;
+const ATOM_HEAD = /^(?:#|(?:links|linkedfrom|under|parent|call|unread|thread|by|marked|marked-by|marked-since):|(?:title|text)~)/i;
 
 /** Whether `word` is written as an atom (it may still be malformed: `parseQueryAtom` says how). */
 export function isQueryAtomWord(word: string): boolean {
@@ -180,6 +196,19 @@ export function parseQueryAtom(word: string): QueryAtom | null {
       if (!READER.test(who)) throw new QueryAtomError(`by:${who} names no writer: write by:user, by:agent, by:system or by:<an actor id> (claude-code@float-2, loki)`);
       return { kind: "by", who };
     }
+    if (name === "marked" || name === "marked-since") {
+      const when = word.slice(colon + 1);
+      const example = name === "marked" ? "marked:today, marked:any, marked:-7d or marked:2026-11-09" : "marked-since:-7d, marked-since:yesterday or marked-since:2026-11-01";
+      if (!when) throw new QueryAtomError(`${name}: needs a day after the colon, like ${example}`);
+      if (name === "marked" && when.toLowerCase() === MARKED_ANY) return { kind: "marked", when: MARKED_ANY };
+      if (!readDateBound(when)) throw new QueryAtomError(`${name}:${when} is not a day or a moment: write ${example}`);
+      return { kind: name, when };
+    }
+    if (name === "marked-by") {
+      const who = word.slice(colon + 1);
+      if (!READER.test(who)) throw new QueryAtomError(`marked-by:${who} names nobody: write marked-by:me (the person), marked-by:agent or marked-by:<an actor id> (loki)`);
+      return { kind: "marked-by", who: who.toLowerCase() === ME_READER ? ME_READER : who };
+    }
     if (name === "unread" || name === "thread") {
       const reader = word.slice(colon + 1);
       if (!READER.test(reader)) throw new QueryAtomError(`${name}:${reader} names no reader: write ${name}:me (the person asking) or ${name}:<an agent's actor id>`);
@@ -208,6 +237,10 @@ export function showQueryAtom(atom: QueryAtom): string {
       return `${atom.kind}:${atom.target}`;
     case "call": return `call:${atom.call}`;
     case "by": return `by:${atom.who}`;
+    case "marked":
+    case "marked-since":
+      return `${atom.kind}:${atom.when}`;
+    case "marked-by": return `marked-by:${atom.who}`;
     case "unread":
     case "thread":
       return `${atom.kind}:${atom.reader}`;

@@ -23,6 +23,9 @@ const MAIN = {
   events: ["annotations.approve-resolution","annotations.batch","annotations.create","annotations.lifecycle","annotations.propose-agent","annotations.read","annotations.reconcile","annotations.reply","annotations.review-agent","annotations.update","attention.acknowledge","attention.advance","attention.clear","attention.mark","blocks.markRead","bookmarks.remove","bookmarks.toggle","browsing-context.publish","capture.create","capture.draft.clear","capture.draft.save","capture.retitle","checklist.update","computed.execute","computed.invocations.create","computed.invocations.revise","create","delete","deliveries.ensure","deliveries.sync","edit-recovery.commit","edit-recovery.separate","fragments.ensure","mcp.access.configure","mentions.clear","mentions.ingest","mentions.save","move","navigation.back","navigation.dispatch","navigation.forward","notes.create","pages.alias","pages.follow","pages.remove","pages.rename","properties.patch","quote","resource-sources.create","resources.collect","resources.command.execute","resources.follow-authored","resources.intern","resources.intern-filesystem","resources.refresh","resources.relocate","resources.retention.configure","resources.retention.pin","resources.retention.reference","resources.retention.unpin","resources.retention.unreference","resources.write-filesystem","roadmap.items.create","selection.set","template.stamp","trash.purge","trash.restore","ui.command.send","update","virtual.occurrences.move","virtual.occurrences.place","virtual.occurrences.reorder","work-ids.allocate","work-ids.configure","workflows.promotion.commit"],
 };
 
+/** Marks (PIE-1237), added after main's lists: an extension may mark (attributed `ext:<id>`) and read them. */
+const MARKS = { reads: ["marks.list"], writes: ["marks.add", "marks.remove"] };
+
 const sorted = (set: Iterable<string>) => [...new Set(set)].sort();
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -30,15 +33,15 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 test("each list main kept is now one column of the table", () => {
   expect(sorted(DECLARED.async)).toEqual(sorted([...MAIN.async, "door.act", "media.copies", "media.read"]));
   expect(sorted(DECLARED.whole)).toEqual(MAIN.whole);
-  expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act"]));
-  expect(sorted(DECLARED.events)).toEqual(MAIN.events);
+  expect(sorted(DECLARED.extensionWrites)).toEqual(sorted([...MAIN.extensionWrites, "door.act", ...MARKS.writes]));
+  expect(sorted(DECLARED.events)).toEqual(sorted([...MAIN.events, ...MARKS.writes]));
   // Watchable reads stay listed in outline-core, the wire's side; the rows must say the same.
   expect(sorted(DECLARED.watch)).toEqual(sorted(WATCHABLE_ACTIONS));
   // outlines.list: the host's, answered by a read-only host too (outline-host.ts named it outright before).
   expect(sorted(DECLARED.host)).toEqual(MAIN.host);
-  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read"]));
+  expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
-  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope",
+  expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
     "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group"]));
 });
 

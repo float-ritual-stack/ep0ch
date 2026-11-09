@@ -33,6 +33,7 @@ import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
+import { doorMarks } from "./desk/marks";
 import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
@@ -710,8 +711,7 @@ export class App implements Ctx {
     this.reportStatus();
     this.openEvents.start();
     this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
-    this.waitingAsks.subscribe(() => this.redraw(true));
-    this.heldAsks.subscribe(() => this.redraw(true));
+    for (const list of [this.waitingAsks, this.heldAsks, doorMarks(this.board)]) list.subscribe(() => this.redraw(true));
     // A source that came or went (an extension added or removed) is asked, or dropped, by the open bar at once.
     onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
@@ -749,7 +749,7 @@ export class App implements Ctx {
     if (this.reportTimer) clearTimeout(this.reportTimer);
     this.timer = null; this.publishTimer = null; this.reportTimer = null;
     this.openEvents.close();
-    this.waitingAsks.stop();
+    for (const list of [this.waitingAsks, doorMarks(this.board)]) list.stop();
     unbindExtensions(this.board);
   }
 
@@ -1049,8 +1049,8 @@ export class App implements Ctx {
 
   event(e: OutlineEvent) { this.pace.hearing(() => this.heard(e)); }
   private heard(e: OutlineEvent) {
-    this.heldAsks.heard(e);
-    this.waitingAsks.heard(e);
+    for (const list of [this.heldAsks, this.waitingAsks, doorMarks(this.board)]) list.heard(e);
+    if (e.domain === "marks") { this.stack.at(-1)?.onEvent?.(e, this); this.drawer.made?.onEvent(e); return this.redraw(); } // PIE-1237: tiles on marked:today ask again
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
@@ -1356,7 +1356,7 @@ export class App implements Ctx {
     this.display.programStatus?.(null);
     this.disarm();
     this.openEvents.close();
-    this.waitingAsks.stop();
+    for (const list of [this.waitingAsks, doorMarks(this.board)]) list.stop();
     // The extensions it bound (their actions, tile kinds, passage choices) go with the door that read them.
     unbindExtensions(this.board);
     outlineBoards(this).close();

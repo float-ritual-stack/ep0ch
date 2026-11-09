@@ -1863,7 +1863,7 @@ export interface ComputedExecutionResult {
 export type OutlinerRequest = OutlinerRequestAction & { outline?: string; grant?: string; scriptRun?: string };
 
 export type OutlinerRequestAction =
-  | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest))
+  | ({ id: string } & (import("@ep0ch/outline-core/artifacts").ArtifactRequest | import("@ep0ch/outline-core/media-copy").MediaRequest | import("./marks").MarkRequest))
   | { id: string; action: "properties.preview"; text: string }
   | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
   | { id: string; action: "ping" }
@@ -2794,8 +2794,8 @@ export type OutlinerEventDomain = "door"
   | "extensions"
   /** `agents.yolo`: yolo went on or off for the outline (`yolo`), sent to every client (PIE-973). */
   | "agents"
-  /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004). */
-  | "queries";
+  /** `queries.changed`: watched answers that changed, sent only to the connection that watches them (ADR 0004); `marks`: a mark made or taken off (PIE-1237). */
+  | "queries" | "marks";
 
 export interface OutlinerEvent {
   door?: import("@ep0ch/outline-core/door-open").DoorEvent;

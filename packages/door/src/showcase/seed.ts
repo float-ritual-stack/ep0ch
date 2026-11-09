@@ -2,6 +2,7 @@ import { SPACING_NOTE, HYPER_NOTE } from "./spacing";
 import { COLLECTION_TUNE } from "./seed/collection-tune";
 import { FIGURE_SETTINGS } from "./seed/figure-settings";
 import { QUERY_WORDS, QUERY_TRELLIS, QUERY_FENCE, QUERY_SOURCES, QUERY_SEED_TABLE } from "./seed/query-words";
+import { MARKING, MARK_POTATOES, MARK_FROST } from "./seed/marking";
 import { pickId } from "@ep0ch/outline-core/completion-source";
 import { PEEK } from "./seed/peek";
 import { shellLineDemo } from "./seed/sh-lines";
@@ -639,6 +640,9 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   notes.oneCompleter = await make(notes.root.id, ONE_COMPLETER);
   notes.spacing = await make(notes.root.id, SPACING_NOTE);
   notes.hyperBinding = await make(notes.root.id, HYPER_NOTE);
+  notes.marking = await make(notes.root.id, MARKING);
+  notes.markPotatoes = await make(notes.root.id, MARK_POTATOES);
+  notes.markFrost = await make(notes.root.id, MARK_FROST);
   notes.queryWords = await make(notes.root.id, QUERY_WORDS);
   notes.queryTrellis = await make(notes.root.id, QUERY_TRELLIS);
   notes.queryFence = await make(notes.root.id, QUERY_FENCE);
