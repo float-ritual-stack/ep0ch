@@ -2442,6 +2442,8 @@ rating > 3
   | `title~text` | blocks whose title (first line, without property tokens) contains the text, ignoring case |
   | `text~text` | blocks whose whole text contains the text, ignoring case |
   | `by:user`, `by:agent`, `by:system`, `by:<actor id>` | blocks whose latest write was by that author or actor (case ignored): `by:user updated >= today` is what a person wrote today. `revision >= 2` compares the block's own revision (a note saved more than once) beside any other comparison |
+  | `marked:today`, `marked:any`, `marked:<day>` | blocks with a pocket mark (PIE-1237: a mark with no reason, from alt+m, `ep0ch mark`, `outline_mark` or a page) made that day, or ever; an attention mark (one with a reason) is left out. A bare `marked` is still the property |
+  | `marked-by:me`, `marked-by:<actor id>`, `marked-since:<day>` | the same, made by the person (`me`), an agent, or since a day (`-7d`, `yesterday`, `2026-11-01`) |
   | `unread:me`, `unread:<actor id>` | blocks the reader hasn't read at their current revision (never opened, or changed since; PIE-708's read marks, set by `annotations.read` when a thread is opened). `me` is the person; an agent names its own actor id |
   | `thread:me`, `thread:<actor id>` | comments and replies in the threads the reader started or wrote in. Recent replies is `type=annotation-reply AND thread:me AND NOT annotation-source=user` (outline-core `recent-replies.ts`) |
 
