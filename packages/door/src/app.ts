@@ -33,6 +33,7 @@ import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
+import { DoorMarks } from "./desk/marks";
 import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
@@ -207,6 +208,8 @@ export interface Ctx {
   /** Requests an agent or an extension wrote that wait for the person's `r` (PIE-888): the status bar's count and the waiting-on-you list. */
   heldAsks?: HeldAsks;
   waitingAsks?: WaitingAsks;
+  /** The outline's marks (PIE-1237): the service's, kept for this door and read again when one is made or taken off. */
+  marks?: DoorMarks;
   /** The backup job's alert on this machine (PIE-607): the status bar's mark and what it says, or null. */
   backupAlert?(): { text: string; say: string } | null;
   board: SocketBoard;
@@ -524,6 +527,7 @@ export class App implements Ctx {
   /** The requests held for the person's `r` (PIE-888), as the service lists them. */
   readonly heldAsks = new HeldAsks();
   readonly waitingAsks = new WaitingAsks();
+  readonly marks = new DoorMarks();
   reconnects = 0;
   /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
   machineryChanges = false;
@@ -712,6 +716,7 @@ export class App implements Ctx {
     this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
     this.waitingAsks.subscribe(() => this.redraw(true));
     this.heldAsks.subscribe(() => this.redraw(true));
+    this.marks.subscribe(() => this.redraw(true));
     // A source that came or went (an extension added or removed) is asked, or dropped, by the open bar at once.
     onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
@@ -750,6 +755,7 @@ export class App implements Ctx {
     this.timer = null; this.publishTimer = null; this.reportTimer = null;
     this.openEvents.close();
     this.waitingAsks.stop();
+    this.marks.stop();
     unbindExtensions(this.board);
   }
 
@@ -1051,6 +1057,8 @@ export class App implements Ctx {
   private heard(e: OutlineEvent) {
     this.heldAsks.heard(e);
     this.waitingAsks.heard(e);
+    this.marks.heard(e);
+    if (e.domain === "marks") return;
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
@@ -1357,6 +1365,7 @@ export class App implements Ctx {
     this.disarm();
     this.openEvents.close();
     this.waitingAsks.stop();
+    this.marks.stop();
     // The extensions it bound (their actions, tile kinds, passage choices) go with the door that read them.
     unbindExtensions(this.board);
     outlineBoards(this).close();

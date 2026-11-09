@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { MarkRecord, OutlinerEvent, VisibleBlockCollection } from "../src/types";
+import type { MarkAddInput, MarkRecord, MutationProvenance, OutlinerEvent, VisibleBlockCollection } from "../src/types";
 
 let root: string;
 let store: OutlinerStore;
@@ -39,7 +39,7 @@ const until = async (what: string, check: () => boolean, ms = 5000) => {
 };
 const title = (text: string) => text.split("\n")[0]!;
 const where = async (query: string) => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: query, limit: 50 } })).blocks.map(b => title(b.text));
-const add = (input: Record<string, unknown>, mutation?: Record<string, unknown>) => client.request<{ mark: MarkRecord; already: boolean }>({ action: "marks.add", input, ...(mutation ? { mutation } : {}) });
+const add = (input: MarkAddInput, mutation?: MutationProvenance) => client.request<{ mark: MarkRecord; already: boolean }>({ action: "marks.add", input, ...(mutation ? { mutation } : {}) });
 
 test("a mark is a fact: the person's, an agent's (attributed), at a given time; a second press answers the same mark", async () => {
   const beans = store.create("Bean poles need tying");

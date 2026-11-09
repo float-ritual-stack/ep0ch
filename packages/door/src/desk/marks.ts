@@ -1,87 +1,41 @@
-// Attention marks (PIE-423's door side): "look here", from an agent or the person, on a block or on a line of an
-// nvim tile. A marked block is framed and labelled in every tile that shows it ("◆ needs your call · by
-// claude-float-2"); a marked nvim line gets an extmark with virtual text. A mark stays until it's dismissed,
-// and `alt+m` (or `marks.next`) steps through them. Marks never move the person's focus, selection or cursor.
+// Marks in the door (PIE-1237's door side; the attention marks of PIE-423): the service's marks (`marks.add`,
+// `marks.remove`, `marks.list`, outliner src/marks.ts), kept as the service last answered and read again when it says a
+// mark was made or taken off (its `marks` event), so a mark made in one door, on the phone or by an agent is in every
+// door at once. One store per door (the App's), handed to every desk through its ctx: nothing here decides alone.
 //
-// The store is behind `MarkStore` so PIE-423's service-backed focus marks (shared, so Detail shows them too)
-// can replace this door-local one, kept in the outline's folder of the door's state (marks.json, `outlineState()`): a
-// mark is on that outline's blocks or its session's tiles.
-import { statSync } from "node:fs";
-import { join } from "node:path";
-import { outlineState, readState, writeState } from "../state";
-import { authorName } from "../socket";
+// A marked block is framed and labelled in every tile that shows it ("◆ needs your call · by loki" for an attention
+// mark, a mark with a reason; "◆ marked · by you" for a pocket mark, the person's alt+m); a marked line of a file gets an
+// extmark with virtual text in the nvim tile editing it (the extmark's id is this door's own, kept beside). `alt+'` (or
+// `marks.next`) steps through them. Marks never move the person's focus, selection or cursor.
+import type { MarkAddInput, MarkRecord, MarkRemoveInput } from "@ep0ch/outliner/wire";
+import { ServiceList } from "../outline-store";
+import { authorName, requesterOf, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 
-export interface Mark {
-  /** Its number, for dismissing and stepping: stays the same while the mark lives. */
-  n: number;
-  /** A block (a note) the mark is on. */
-  block?: string;
-  /** Or a line of what a terminal tile edits (nvim): the tile's name, the 1-based line, the file, nvim's extmark id. */
-  tile?: string;
-  line?: number;
-  file?: string;
-  extmark?: number;
-  reason: string;
-  /** Who set it: "you", or the agent's id. */
-  by: string;
-  at: number;
-}
+export type Mark = MarkRecord;
 
-export interface MarkStore {
-  list(): Mark[];
-  add(m: Omit<Mark, "n" | "at">): Mark;
-  remove(n: number): Mark | null;
-  /** Called after every change. */
-  onChange(f: () => void): void;
-}
+/** The door's copy of the service's live marks. */
+export class DoorMarks extends ServiceList<Mark, SocketBoard> {
+  constructor() { super(30); }
+  protected read(board: SocketBoard) { return board.request("marks.list", {}).then(r => r.marks); }
+  protected wants(e: OutlineEvent): boolean { return e.domain === "marks" || e.action === "reconnected" || e.action === "reset"; }
 
-/**
- * Door-local marks, kept in marks.json in the outline's folder. The file is the store: every read and change
- * reads it first (only when it changed on disk), so two doors on one outline see each other's marks and
- * never number two marks alike; a change is a read, the edit, and an atomic write (writeState).
- */
-export class LocalMarks implements MarkStore {
-  private marks: Mark[] = [];
-  /** The highest number this door has given, so its own numbers never repeat while it runs. */
-  private last = 0;
-  private seen = "";
-  private listeners: (() => void)[] = [];
-  constructor(private readonly persist = true) { this.load(); }
-  /** marks.json again, if it changed since it was last read (its size and time say). */
-  private load() {
-    if (!this.persist) return;
-    let stamp = "";
-    try { const st = statSync(join(outlineState(), "marks.json")); stamp = `${st.mtimeMs}:${st.size}`; } catch { /* none yet */ }
-    if (stamp === this.seen) return;
-    this.seen = stamp;
-    const saved = readState<Mark[]>("marks.json", outlineState());
-    this.marks = Array.isArray(saved) ? saved.filter(m => m && typeof m.n === "number" && typeof m.reason === "string") : [];
+  /** Mark, as `actor`; the list is read again at once, so the frame is there when the answer is. */
+  async add(board: SocketBoard, input: MarkAddInput, actor: Actor): Promise<{ mark: Mark; already: boolean }> {
+    const answer = await board.request("marks.add", { input: { surface: "door", ...input }, mutation: requesterOf(actor) });
+    await this.seed(board);
+    return answer;
   }
-  list() { this.load(); return [...this.marks]; }
-  add(m: Omit<Mark, "n" | "at">): Mark {
-    this.load();
-    const mark: Mark = { ...m, n: (this.last = Math.max(this.last, 0, ...this.marks.map(x => x.n)) + 1), at: Date.now() };
-    this.marks.push(mark);
-    this.changed();
-    return mark;
-  }
-  remove(n: number): Mark | null {
-    this.load();
-    const i = this.marks.findIndex(m => m.n === n);
-    if (i < 0) return null;
-    const [m] = this.marks.splice(i, 1);
-    this.changed();
-    return m!;
-  }
-  onChange(f: () => void) { this.listeners.push(f); }
-  private changed() {
-    if (this.persist) {
-      writeState("marks.json", this.marks, outlineState());
-      try { const st = statSync(join(outlineState(), "marks.json")); this.seen = `${st.mtimeMs}:${st.size}`; } catch { /* re-read next time */ }
-    }
-    for (const f of this.listeners) f();
+
+  /** Unmark, as `actor`: the marks taken off. */
+  async remove(board: SocketBoard, input: MarkRemoveInput, actor: Actor): Promise<Mark[]> {
+    const { removed } = await board.request("marks.remove", { input, mutation: requesterOf(actor) });
+    await this.seed(board);
+    return removed;
   }
 }
 
-/** How a mark reads in a tile's header. */
-export const markLabel = (m: Mark) => `◆ ${m.line ? `line ${m.line}: ` : ""}${m.reason} · by ${authorName(m.by)}`;
+/** Who made a mark, as a label says it: "you" for the person. */
+export const markBy = (m: Mark) => (m.author === "user" ? "you" : authorName(m.by));
+
+/** How a mark reads in a tile's header: its reason (an attention mark), else "marked" (a pocket mark). */
+export const markLabel = (m: Mark) => `◆ ${m.line ? `line ${m.line}: ` : ""}${m.reason ?? m.words ?? "marked"} · by ${markBy(m)}`;

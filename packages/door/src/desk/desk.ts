@@ -100,7 +100,7 @@ import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
 import { fileOpenNote } from "./file-open";
 import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
-import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
+import { markLabel, type Mark } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
 import { KeysPane } from "./keys-window";
@@ -588,7 +588,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private area: Rect = { col: 0, row: 0, cols: 80, rows: 22 };
   private rootArea = this.area;
   /** Attention marks (door-local until PIE-423's service store; only the desk's are saved). */
-  private marksStore: MarkStore;
+  /** The door's marks (PIE-1237): the service's, one copy per door, handed down through the ctx (src/desk/marks.ts). */
+  private marksNow(): readonly Mark[] { return this.ctx?.marks?.list() ?? []; }
+  /** This door's extmarks on the nvim lines it marked, by mark number: the service keeps the file and line, not the editor's id. */
+  private readonly extmarks = new Map<number, { tile: string; extmark: number; file?: string }>();
   private headOut = "";
   private titlePresses = new RowPresses();
   /** Tiles the host made itself (the showcase's exhibits), by the name the spec gives them: built as given, never saved. */
@@ -612,7 +615,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.outward = opts.outward ?? null;
     this.outerChain = opts.chain ?? [];
     this.screenOpenArgs = opts.openArgs ?? null;
-    this.marksStore = new LocalMarks(!!spec.layouts);
     // An extension's kind that comes or goes while the door runs (PIE-512): its tiles are made again.
     watchTileKinds(this);
     const want = opts.layout && spec.layouts ? layoutNamed(opts.layout) : null;
@@ -5090,7 +5092,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const layout = modeBinding(DAILY_LAYOUT_KEYS, k);
       if (layout) return this.run(layout.action, layout.args ?? {});
       if (k.ch === "n" || k.ch === "p") return this.run("tab.select", { by: k.ch === "n" ? 1 : -1 }, this.nameOf(this.focus));
-      if (k.ch === "m") return this.run("marks.next");
+      // alt+m marks what the tile points at, or takes the person's mark off (PIE-1237); alt+' steps to the next mark (vim's ').
+      if (k.ch === "m") return this.run("block.mark-toggle", {}, this.nameOf(this.focus));
+      if (k.ch === "'") return this.run("marks.next");
       if (k.ch === "x") return this.run("block.unmark", {}, this.nameOf(this.focus));
       // alt+h folds the focused tile to a spine (alt+H a horizontal one), or opens it: a screen's key map rebinds them.
       if (k.ch === "h" || k.ch === "H") return this.run("tile.collapse", k.ch === "H" ? { dir: "h" } : {}, this.nameOf(this.focus));
@@ -6767,66 +6771,99 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── attention marks (PIE-423's door side) ──
 
   private markList() {
-    return this.marksStore.list().map(m => ({ ...m, showing: m.block ? this.all().filter(id => this.showsBlock(id, m.block!)).map(id => this.nameOf(id)) : m.tile ? [m.tile] : [] }));
+    return this.marksNow().map(m => ({ ...m, showing: this.all().filter(id => this.marksOn(id).some(x => x.n === m.n)).map(id => this.nameOf(id)) }));
   }
   private showsBlock(id: number, block: string): boolean {
     return this.showing(this.panes.get(id))?.id === block;
   }
-  /** The marks drawn on a tile: on the note it shows, or on lines of what it edits. */
+  /** The marks drawn on a tile: on the note it shows, or on lines of the file it edits (an nvim tile's). */
   private marksOn(id: number): Mark[] {
-    const name = this.nameOf(id);
-    return this.marksStore.list().filter(m => (m.block ? this.showsBlock(id, m.block) : m.tile === name));
+    const p = this.panes.get(id);
+    return this.marksNow().filter(m => (m.block ? this.showsBlock(id, m.block) : !!m.file && p instanceof PtyPane && p.file === m.file));
   }
 
-  async markBlock(sel: string | undefined, m: { id?: string; line?: number; reason: string }, actor: Actor): Promise<unknown> {
-    const by = whoOf(actor);
-    const reason = m.reason.trim();
-    if (!reason) throw new ActionRefused("block.mark needs reason=<a few words>");
+  /**
+   * A mark (PIE-1237), the service's (`marks.add`): with a reason, an attention mark ("look here"); without, the
+   * person's pocket mark (alt+m, the tile menu's "mark"), which `marked:today` lists. On block id=, else the note the
+   * tile points at (a reader's note, a list's selected row); or on line= of an nvim tile's file.
+   */
+  async markBlock(sel: string | undefined, m: { id?: string; line?: number; reason?: string; words?: string }, actor: Actor): Promise<unknown> {
+    const marks = this.ctx?.marks;
+    if (!marks) throw new ActionRefused("marks are the outline's: this desk is on no outline");
+    const reason = m.reason?.trim() || undefined, words = m.words?.trim() || undefined;
+    // An agent's mark is "look here": it says why (a pocket mark is the person's own gathering).
+    if (actor.kind === "agent" && !reason && m.line !== undefined) throw new ActionRefused("block.mark line= needs reason=<a few words>");
     if (m.line !== undefined) {
       const t = this.tile(sel);
       const p = this.panes.get(t.id);
-      if (!(p instanceof PtyPane) || !p.nvim) throw new ActionRefused(`${t.name} isn't an nvim tile the door is connected to; line= marks a line there`);
-      const extmark = await p.nvim.mark(m.line, `${reason} · by ${authorName(by)}`, p.file);
-      const mark = this.marksStore.add({ tile: t.name, line: m.line, file: p.file, extmark, reason, by });
+      if (!(p instanceof PtyPane) || !p.nvim || !p.file) throw new ActionRefused(`${t.name} isn't an nvim tile the door is connected to, editing a file; line= marks a line there`);
+      const { mark } = await marks.add(this.ctx.board, { file: p.file, line: m.line, ...(reason ? { reason } : {}), ...(words ? { words } : {}) }, actor);
+      if (!this.extmarks.has(mark.n)) this.extmarks.set(mark.n, { tile: t.name, extmark: await p.nvim.mark(m.line, `${reason ?? words ?? "marked"} · by ${whoOf(actor) === "you" ? "you" : authorName(whoOf(actor))}`, p.file), file: p.file });
       this.redraw();
       return { mark };
     }
     let block = m.id;
     if (!block) {
       const t = this.tile(sel);
-      const p = this.panes.get(t.id);
-      block = this.showing(p)?.id;
-      if (!block) throw new ActionRefused(`${t.name} shows no note; block.mark id=<block id> names one`);
+      const at = this.noteAtTile(sel);
+      if (!at) throw new ActionRefused(`${t.name} points at no note; block.mark id=<block id> names one`);
+      if (at.address?.outline && at.address.outline !== await ownOutline(this.ctx)) throw new ActionRefused(`that note is in ${at.address.outline}: mark it in a door on that outline`);
+      block = at.id;
     } else {
       const found = await this.ctx.board.get(block);
       if (!found) throw new ActionRefused(`no block ${block}`);
       block = found.id;
     }
-    const mark = this.marksStore.add({ block, reason, by });
+    const { mark, already } = await marks.add(this.ctx.board, { blockId: block, ...(reason ? { reason } : {}), ...(words ? { words } : {}) }, actor);
     this.redraw();
-    return { mark, showing: this.markList().find(x => x.n === mark.n)?.showing ?? [] };
+    return { mark, already, showing: this.markList().find(x => x.n === mark.n)?.showing ?? [] };
   }
 
-  async unmark(n: number | undefined, id: string | undefined, _actor: Actor): Promise<unknown> {
-    const all = this.marksStore.list();
+  /**
+   * The person's alt+m (`block.mark-toggle`): marks the note the tile points at, or, when it has their pocket mark,
+   * takes it off. Any other mark on it (an agent's look-here) stays: alt+x dismisses those.
+   */
+  async toggleMark(sel: string | undefined, actor: Actor): Promise<unknown> {
+    const t = this.tile(sel), at = this.noteAtTile(sel);
+    if (!at) throw new ActionRefused(`${t.name} points at no note to mark`);
+    const me = requesterOf(actor).actorId ?? "user";
+    const mine = this.marksNow().filter(m => m.block === at.id && !m.reason && m.by === me);
+    if (!mine.length) {
+      const r = await this.markBlock(sel, {}, actor) as { mark: Mark };
+      if (actor.kind === "user") this.ctx.flash?.("marked · in marked:today · alt+m again takes it off");
+      return { ...r, marked: true };
+    }
+    const removed: Mark[] = [];
+    for (const m of mine) removed.push(...await this.ctx.marks!.remove(this.ctx.board, { n: m.n }, actor));
+    this.redraw();
+    if (actor.kind === "user") this.ctx.flash?.("unmarked");
+    return { marked: false, dismissed: removed.map(m => m.n) };
+  }
+
+  async unmark(n: number | undefined, id: string | undefined, actor: Actor): Promise<unknown> {
+    const marks = this.ctx?.marks;
+    if (!marks) throw new ActionRefused("marks are the outline's: this desk is on no outline");
+    const all = this.marksNow();
     const gone = n !== undefined ? all.filter(m => m.n === n) : id ? all.filter(m => m.block?.startsWith(id)) : this.marksOn(this.focus);
     if (!gone.length) throw new ActionRefused(n !== undefined ? `no mark ${n}` : "no mark there");
+    const removed: Mark[] = [];
     for (const m of gone) {
-      this.marksStore.remove(m.n);
-      if (m.extmark !== undefined && m.tile) { const t = this.idNamed(m.tile); const p = t !== undefined ? this.panes.get(t) : null; if (p instanceof PtyPane) await p.nvim?.unmark(m.extmark, m.file).catch(() => {}); }
+      removed.push(...await marks.remove(this.ctx.board, { n: m.n }, actor));
+      const ext = this.extmarks.get(m.n);
+      if (ext) { this.extmarks.delete(m.n); const t = this.idNamed(ext.tile); const p = t !== undefined ? this.panes.get(t) : null; if (p instanceof PtyPane) await p.nvim?.unmark(ext.extmark, ext.file).catch(() => {}); }
     }
     this.redraw();
-    return { dismissed: gone.map(m => m.n) };
+    return { dismissed: removed.map(m => m.n) };
   }
 
   marks() { return { marks: this.markList() }; }
 
   nextMark(actor: Actor): TileDone | { mark: null } {
-    const all = this.marksStore.list();
+    const all = this.marksNow();
     if (!all.length) return { mark: null };
     this.markAt = (this.markAt + 1) % all.length;
     const m = all[this.markAt]!;
-    const there = m.block ? this.all().find(id => this.showsBlock(id, m.block!)) : m.tile ? this.idNamed(m.tile) : undefined;
+    const there = this.all().find(id => this.marksOn(id).some(x => x.n === m.n));
     if (there !== undefined) { this.focusTile(this.nameOf(there), actor); return { ...this.tileAnswer(there), mark: m.n }; }
     if (m.block) {
       // Nowhere on screen: it opens where the focused tile's opens go (its wire), else in the first reader not pinned.

@@ -85,6 +85,8 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     // Requests held for the person's r (PIE-888): the status bar's count and the waiting-on-you list.
     void app.heldAsks.seed(o.board);
     void app.waitingAsks.seed(o.board);
+    // The outline's marks (PIE-1237): every door's frames and alt+' read them; a mark anywhere is here at once.
+    void app.marks.seed(o.board);
     // The service's extensions (PIE-512): their lines, actions, tile kinds and screens, bound as soon as the list is read.
     const extensions = app.loadExtensions();
     // Whether another door already handed the outline's agents the person's permissions (PIE-973): the chip says so from the start.
@@ -96,7 +98,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
   let refused = "";
   const control = await startControl({ app, mirror: o.mirror, info: o.info }).catch(e => { refused = `no control socket: ${(e as Error).message}`; return null; });
-  // Another door on the same outline: marks are shared (marks.json is merged), the desk layout is whoever saves last.
+  // Another door on the same outline: the desk layout is whoever saves last (marks are the service's, PIE-1237).
   const others = o.place ? claimState() : [];
   // ctrl+e files a door killed with kill -9 left behind: copied to drafts/ and said.
   const recovered = recoverEdits(alive);
