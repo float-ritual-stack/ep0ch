@@ -762,8 +762,10 @@ exist for them.
 
 ## Artifacts stay outside notes
 
-Use `[artifact::<name>]` on its own line to frame a live artifact folder, or
-`[artifact::<name>@<n>]` for a snapshot. Upload through `ep0ch artifact put <file-or-dir>
+Use `[artifact::<path>]` on its own line for a file or folder on any machine the person uses
+(the host copies it on save and it runs from the one store), `[artifact::<name>]` for a stored
+artifact, or `[artifact::<name>@<n>]` for a snapshot. A name means the same in every outline.
+To store one without a note, `ep0ch artifact put <file-or-dir>
 --name <name> --ws <outline>` (add `--machine` for its host), or MCP `artifact_put`
 with `{name, kind, content}` / `{name, files: {"index.html": "…"}}`. Put requires
 MCP write access; `artifact_list` and `artifact_versions` read. Keep the source

@@ -5,7 +5,7 @@ import { waitingAsks } from "./waiting-you";
 import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
 import { deployArtifact, deployNote, artifactDns, artifactRepoInfo, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
-import { MediaCopier } from "./media-copies";
+import type { MediaCopier } from "./media-copies"; import { answerArtifact, lineCopier, type ArtifactLineHost } from "./artifact-lines";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
@@ -116,7 +116,7 @@ import { answerMarks } from "./marks";
 import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
-import { boundFolderOf } from "./paths";
+import { boundFolderOf, resolveOutlinesFolder } from "./paths";
 import {
   type OutlinerServiceOutline,
   type OutlinerHostStatus,
@@ -425,9 +425,9 @@ export class OutlinerServer {
   /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
   readonly watches: QueryWatches;
 
-  private artifactStore?: ArtifactStore; private mediaCopier?: MediaCopier;
+  private artifactStore?: ArtifactStore; private mediaCopier?: MediaCopier; private filesHere?: (path: string) => boolean;
   /** Pictures notes name, copied to the media bucket on save (media-copies.ts, PIE-1634). */
-  get media(): MediaCopier { return this.mediaCopier ??= new MediaCopier(this.store, { readOnly: this.readOnly, log: (line) => console.error(line) }); }
+  get media(): MediaCopier { return this.mediaCopier ??= lineCopier(this.store, { readOnly: this.readOnly, outlinesFolder: this.outlinesFolder, filesHere: this.filesHere }); }
 
   constructor(
     readonly store: OutlinerStore,
@@ -448,7 +448,7 @@ export class OutlinerServer {
        * client (`float-hub@laptop`, the path a snapshot link names) and the folder beside the mirror its snapshot
        * sessions, files and readers are kept in, shared by every process that serves the copy and every generation.
        */
-      copy?: { address: string; state: string } } = {},
+      copy?: { address: string; state: string }; /** Which absolute paths are on this machine's disk (a test's two machines share one; PIE-1644). */ filesHere?: (path: string) => boolean } = {},
   ) {
     this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
@@ -457,7 +457,7 @@ export class OutlinerServer {
     this.shares = new ShareSessions(this.copy ? fileStorage(join(this.copy.state, "shares.json")) : { read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
     this.readers = new ReaderPresence(Date.now, this.copy ? fileStorage(join(this.copy.state, "readers.json")) : undefined);
     this.snapshots = new OutlineSnapshots(store, this.shares, join(this.copy?.state ?? this.stateDirectory, "snapshots"), !this.readOnly);
-    this.outlinesFolder = options.outlinesFolder;
+    this.outlinesFolder = options.outlinesFolder; this.filesHere = options.filesHere;
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
       sequence: () => this.store.sequence,
@@ -2099,8 +2099,8 @@ export class OutlinerServer {
     return { id: request.id, ok: true, result, sequence: this.store.sequence };
   }
 
-  /** The artifact store beside this outline's (the machine's one, in the outlines folder). */
-  private artifacts(): ArtifactStore { return this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename)); }
+  /** The artifact store beside this outline's (the machine's one, in the outlines folder; a copy's, this machine's own), and what answers its artifact lines (artifact-lines.ts). */
+  private artifacts(): ArtifactStore { return this.artifactStore ??= new ArtifactStore(this.copy ? resolveOutlinesFolder() : this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename)); } private artifactLines(): ArtifactLineHost { return { store: this.store, outlinesFolder: this.outlinesFolder, outline: this.outline?.name, media: this.media, artifacts: () => this.artifacts(), filesHere: this.filesHere, ...(this.copy ? { copyOf: this.copy.address.split("@")[1] } : {}) }; }
 
   private async handleAsyncOnce(
     request: OutlinerRequest,
@@ -2115,7 +2115,7 @@ export class OutlinerServer {
         : request.action === "artifacts.show" && artifactRepoRef(request.name) ? artifactRepoInfo(this.artifacts(), this.store, request.name)!
         : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
         : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
-        : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
+        : await answerArtifact(this.artifactLines(), request as import("@ep0ch/outline-core/artifacts").ArtifactRequest);
       return this.answered(request, result);
     }
     if (request.action === "media.copies" || request.action === "media.read") return this.answered(request, await this.media.request(request) as never);
@@ -3953,7 +3953,7 @@ export class OutlinerServer {
         if (artifactAsked) {
           if (typeof request.artifact !== "string" || !request.artifact.trim()) throw new Error("artifact is an artifact's name (ep0ch artifact ls lists them), or name@number for a snapshot");
           if (narrowed || request.open !== undefined) throw new Error("A share of one artifact takes no scope or open: it shows that artifact and nothing else");
-          const found = await this.artifacts().request({ action: "artifacts.show", name: request.artifact.trim() }, this.store.workspaceRoot, this.outline?.name) as ArtifactInfo;
+          const found = await answerArtifact(this.artifactLines(), { action: "artifacts.show", name: request.artifact.trim() }) as ArtifactInfo;
           scope = { kind: "artifact", name: found.version ? `${found.name}@${found.version}` : found.name, title: found.name };
         }
         // The page the link opens on: inside what's shared.

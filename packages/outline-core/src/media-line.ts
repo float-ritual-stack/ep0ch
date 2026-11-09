@@ -124,7 +124,7 @@ export function parseMediaLine(line: string): MediaSpec | null {
   if (media.length !== 1 || !media[0]!.value || t.toks.some(x => !MEDIA_KEY.test(x.key) && !ATTRS.has(x.key.toLowerCase()))) return null;
   const key = media[0]!.key.toLowerCase();
   const spec: MediaSpec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0]!.value, problems: [] };
-  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
+  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path) && !artifactFolderPath(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set<string>();
   for (const { key, value } of t.toks) {
     const k = key.toLowerCase(), v = value.trim().toLowerCase();
@@ -285,6 +285,15 @@ export function artifactRepoRef(value: string): { owner: string; name: string; r
   const [owner, name] = parts as [string, string];
   if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(owner) || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(name) || artifactKind(name)) return null;
   return { owner, name, repo: `${owner}/${name}` };
+}
+/**
+ * Whether an artifact line's value names a folder that runs whole (a site: its `index.html` and what it loads; PIE-1644):
+ * a path from the root or home (`/…`, `~/…`), or any path ending in `/`, whose last part has no extension.
+ */
+export function artifactFolderPath(value: string): boolean {
+  const path = value.trim();
+  if (!/^(?:\/|~\/)/.test(path) && !/[^/]\/$/.test(path)) return false;
+  return !/\.[A-Za-z0-9]+$/.test(fileName(path));
 }
 /** The kind of artifact `path` is, by its extension; null when it's none claude.ai runs. */
 export function artifactKind(path: string): ArtifactKind | null {

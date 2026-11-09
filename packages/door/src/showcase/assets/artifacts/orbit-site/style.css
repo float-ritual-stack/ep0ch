@@ -1,0 +1,5 @@
+:root { color-scheme: dark; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #141413; color: #e8e6df; font: 16px/1.5 ui-sans-serif, system-ui, sans-serif; }
+.orbit { width: 160px; height: 160px; margin: 2rem auto; border: 1px dashed #6b6a64; border-radius: 50%; position: relative; animation: spin 8s linear infinite; }
+.moon { position: absolute; top: -8px; left: 72px; width: 16px; height: 16px; border-radius: 50%; background: #e0b35a; }
+@keyframes spin { to { transform: rotate(360deg); } }

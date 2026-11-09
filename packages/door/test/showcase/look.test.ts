@@ -1071,7 +1071,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(screen()).toContain("○ not deployed");
     expect(screen()).toContain("run: ep0ch artifact deploy ep0ch-artifacts/orbit-lamp-site");
     expect(screen()).not.toContain("isn't an artifact");
-    await expect(app.act({ action: "artifact.open", args: { n: 4 }, as: "test-agent" })).rejects.toThrow(/ep0ch-artifacts\/orbit-lamp-site isn't live: .*run ep0ch artifact deploy ep0ch-artifacts\/orbit-lamp-site/);
+    await expect(app.act({ action: "artifact.open", args: { n: 5 }, as: "test-agent" })).rejects.toThrow(/ep0ch-artifacts\/orbit-lamp-site isn't live: .*run ep0ch artifact deploy ep0ch-artifacts\/orbit-lamp-site/);
     await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
   }, 30_000);
 
@@ -1088,6 +1088,10 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(file.version).toBe(1);
     expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
+    // A folder runs whole (PIE-1644): its page and the stylesheet beside it, opened like any other card.
+    const site = await board.request("artifacts.show", { name: list[3].path });
+    expect(site.files.sort()).toEqual(["index.html", "style.css"]);
+    expect(await app.act({ action: "artifact.open", args: { n: 4 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: site.url, launched: false });
     const opened: string[][] = [], run = external.run;
     const display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, sshClient = process.env.SSH_CLIENT, tty = process.env.SSH_TTY;
     process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_CLIENT; delete process.env.SSH_TTY;

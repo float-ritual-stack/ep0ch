@@ -93,3 +93,39 @@ export function stripRoot(files: Record<string, Buffer>): Record<string, Buffer>
   if (!paths.every(path => path.includes("/") && path.split("/")[0] === first)) return files;
   return Object.fromEntries(paths.map(path => [path.slice(first.length + 1), files[path]!]));
 }
+
+/**
+ * A folder's files as one ustar archive, the same bytes for the same files (sorted, no times, no owners): how a folder
+ * an artifact line names is kept in the media bucket by its content's hash (PIE-1644). The store's `untar` reads it.
+ */
+export function packTar(files: Record<string, Uint8Array>): Buffer {
+  const blocks: Buffer[] = [];
+  for (const name of Object.keys(files).sort()) {
+    const data = files[name]!, header = Buffer.alloc(512);
+    const path = Buffer.from(name, "utf8");
+    let prefix = Buffer.alloc(0), base = path;
+    if (path.length > 100) {
+      const cut = name.lastIndexOf("/", name.length - 1);
+      const head = Buffer.from(name.slice(0, cut), "utf8"), tail = Buffer.from(name.slice(cut + 1), "utf8");
+      if (cut < 0 || head.length > 155 || tail.length > 100) throw new Error(`${name} is too long a path for a folder artifact`);
+      prefix = head; base = tail;
+    }
+    base.copy(header, 0);
+    const octal = (value: number, width: number) => value.toString(8).padStart(width - 1, "0") + "\0";
+    header.write(octal(0o644, 8), 100, "latin1");
+    header.write(octal(0, 8), 108, "latin1");
+    header.write(octal(0, 8), 116, "latin1");
+    header.write(octal(data.length, 12), 124, "latin1");
+    header.write(octal(0, 12), 136, "latin1");
+    header.write("        ", 148, "latin1");
+    header.write("0", 156, "latin1");
+    header.write("ustar\0", 257, "latin1");
+    header.write("00", 263, "latin1");
+    prefix.copy(header, 345);
+    const sum = header.reduce((total, byte) => total + byte, 0);
+    header.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, "latin1");
+    blocks.push(header, Buffer.from(data), Buffer.alloc((512 - (data.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024));
+  return Buffer.concat(blocks);
+}

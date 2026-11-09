@@ -169,6 +169,12 @@ export function readCheckedImage(check: Extract<ImageCheck, { ok: true }>): Buff
   }
 }
 
+/**
+ * Whether a path has a hidden part (`.ssh`, `.env`, `.git`): the one rule for what a page never serves and the bucket
+ * never copies from an artifact line (PIE-1644). Give it a canonical path (links followed), or the part below a root.
+ */
+export const hiddenPath = (path: string): boolean => path.split(/[\\/]/).some((segment) => segment.startsWith("."));
+
 function checkServable<T>(sourcePath: string, policy: AttachmentPolicy, cap: number, typeOf: (extension: string) => T | undefined):
   | { ok: true; path: string; type: T; size: number; mtimeNs: string; updatedAt: string; dev: bigint; ino: bigint }
   | { ok: false; refusal: AttachmentRefusal; reason: string } {
@@ -199,7 +205,7 @@ function checkServable<T>(sourcePath: string, policy: AttachmentPolicy, cap: num
     if (below !== null) break;
   }
   if (below === null || below === "") return refuse("outside-roots", "Attachment is outside the publish roots");
-  if (below.split(sep).some((segment) => segment.startsWith("."))) {
+  if (hiddenPath(below)) {
     return refuse("hidden-path", "Attachment is in a hidden file or folder");
   }
   let stat;

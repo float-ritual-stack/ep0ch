@@ -2,7 +2,8 @@
 // (artifacts.ep0ch.sh), where it can never act as the person with their session; that origin therefore knows nobody and
 // opens a path only for a grant in it, made by the one place that already decided who may see what:
 //   `/k/<expires>.<mac>/<ref>/…`            the signed-in owner's page, for a short while
-//   `/s/<outline>/<share>.<mac>/<ref>/…`    a share's page, for as long as that share is open (the host is asked)
+//   `/s/<outline>/<share>.<mac>/<ref>/…`    a share's page, for as long as that share is open (the host is asked;
+//                                         `<outline>@<machine>` for an outline on another machine, asked there)
 // The mac binds the grant to one artifact (`name` or `name@n`), so a link to one opens no other. The key is a file
 // beside the store, made on first use and read by both the service that mints and the server that checks.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -69,7 +70,7 @@ export function parseGrant(key: Buffer | undefined, parts: string[], now = Date.
     const outline = parts[1]!;
     const [share, given] = parts[2]!.split(".");
     const ref = parts[3]!;
-    if (!share || !given || !/^[a-z0-9_-]{1,32}$/.test(outline) || !/^[0-9a-f]{8}$/.test(share) || !same(given, mac(key, "share", outline, share, ref))) return null;
+    if (!share || !given || !/^[a-z0-9_-]{1,32}(@[A-Za-z0-9][A-Za-z0-9._-]{0,31})?$/.test(outline) || !/^[0-9a-f]{8}$/.test(share) || !same(given, mac(key, "share", outline, share, ref))) return null;
     return { grant: { kind: "share", outline, share }, ref, rest: parts.slice(4) };
   }
   return null;
