@@ -229,7 +229,9 @@ export function softMentionRead(db: Database, target: Block | null, limit: numbe
   if (!needles.length) return { rows: [] };
   const shared = sharedLookups(source);
   const soft: SoftMentionsOf = { addresses, days, ignore: softLinkIgnored(db), ...(pr !== undefined ? { pr } : {}), prLands: (number, blockId, line) => prLandsOn(number, { blockId, line }, target, shared) };
-  const read = softMentionRows(db, needles, row => row.id !== target.id && softOccurrences(row, soft).length > 0, limit);
+  // A note that can't be read here is kept: the relation reads it again and names it as skipped (PIE-1640).
+  const mentions = (row: { id: string; text: string }) => { try { return softOccurrences(row, soft).length > 0; } catch { return true; } };
+  const read = softMentionRows(db, needles, row => row.id !== target.id && mentions(row), limit);
   return { rows: read.rows, soft: { ...soft, ...(read.truncated ? { truncated: true } : {}) } };
 }
 

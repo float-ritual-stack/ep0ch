@@ -1734,7 +1734,7 @@ export interface BacklinkQuery {
   limit: number;
 }
 
-export interface BacklinkCollection {
+export interface BacklinkCollection extends Pick<import("@ep0ch/outline-core/backlink-view").BacklinkCollection, "skipped"> { // skipped: PIE-1640
   away?: AwayMachine[];
   targetBlockId: string;
   targetDeletedRootId?: string;
