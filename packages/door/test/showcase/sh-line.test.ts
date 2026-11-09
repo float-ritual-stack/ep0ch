@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { ReaderPane } from "../../src/desk/panes";
-import { outliner, until } from "../scratch";
+import { outliner, ScratchHost, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("sh:: lines in the showcase", () => {
@@ -58,6 +58,36 @@ describe.skipIf(!outliner)("sh:: lines in the showcase", () => {
     await h.board.update(note.id, "Garden formatter\n\nsh:: printf beds | as nothere", saved.revision!);
     await expect(run()).rejects.toThrow(/script.*nothere.*(nearest|mean|Scripts)/i);
     expect(findOutputRegions((await h.board.get(note.id))!.text)).toHaveLength(0);
+  }, 45000);
+
+  test("a step's ep0ch --machine reaches that machine, over the socket the host hands it (PIE-1643)", async () => {
+    // The other machine: a scratch host behind the fake ssh, holding an outline this one doesn't.
+    const far = new ScratchHost();
+    await far.start();
+    await far.create("far-orchard");
+    const bin = join(h.scratch.root, "fake-bin");
+    mkdirSync(bin, { recursive: true });
+    const main = resolve(import.meta.dir, "../../src/main.ts");
+    writeFileSync(join(bin, "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test", "fake-ssh.ts")} "$@"\n`);
+    writeFileSync(join(bin, "ep0ch"), `#!/bin/sh\nexec ${process.execPath} ${main} "$@"\n`);
+    // A step gets the host's variables, not the test's: this wrapper says which ssh is the fake one.
+    const fake = { EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_BIN: bin, FAKE_SSH_HOME: join(h.scratch.root, "far-home"), FAKE_SSH_OUTLINES: far.outlines,
+      FAKE_SSH_LOG: join(h.scratch.root, "ssh.log"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE! };
+    mkdirSync(fake.FAKE_SSH_HOME, { recursive: true });
+    writeFileSync(join(bin, "ep0ch-step"), `#!/bin/sh\n${Object.entries(fake).map(([k, v]) => `export ${k}='${v}'`).join("\n")}\nexec ${process.execPath} ${main} "$@"\n`);
+    for (const f of ["ssh", "ep0ch", "ep0ch-step"]) chmodSync(join(bin, f), 0o755);
+    try {
+      const note = await h.board.createBlock(null, `Orchard on box-a\n\nsh:: printenv EP0CH_SOCKET\n\nsh:: ${join(bin, "ep0ch-step")} outline list --machine box-a --json`);
+      await act("ext.runbook.run-sh", { block: note.id, line: 2 });
+      expect(findOutputRegions((await h.board.get(note.id))!.text)[0]?.body).toContain(".sock");
+      const at = (await h.board.get(note.id))!.text.split("\n").findIndex(l => l.includes("--machine box-a"));
+      await act("ext.runbook.run-sh", { block: note.id, line: at });
+      const regions = findOutputRegions((await h.board.get(note.id))!.text);
+      expect(regions.at(-1)?.body).toContain("far-orchard");
+    } finally {
+      try { process.kill(Number(readFileSync(join(h.scratch.outlines, ".remote", "box-a.ctl"), "utf8"))); } catch { /* not started */ }
+      await far.dispose();
+    }
   }, 45000);
 
   test("stale shell opens warn once per read and leave the host answering", async () => {

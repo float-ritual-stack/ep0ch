@@ -4,7 +4,8 @@
 // (src/home.ts), never a guess and never a default. The host is this machine's (its socket under
 // the outlines folder, EP0CH_OUTLINES or ~/outlines); another machine's, through its forward, when one is named
 // (`--machine <ssh-name>`, EP0CH_MACHINE, the `.ep0ch`'s `machine`: src/machine.ts); or EP0CH_SOCKET, the low-level
-// way to name any host's socket.
+// way to name any host's socket. A typed `--machine` wins over EP0CH_SOCKET, as a flag wins over the environment: a
+// host hands its socket to every program it starts (a sh:: step), and the person never set it (PIE-1643).
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -79,7 +80,7 @@ function flagValue(args: readonly string[], flag: string, what: string): string 
 const said = new Set<string>();
 
 /**
- * The target: the host (EP0CH_SOCKET, else the named machine's forward, else this machine's),
+ * The target: the host (`--machine`'s forward, else EP0CH_SOCKET, else the named machine's forward, else this machine's),
  * and the outline by the rule (`--ws`, EP0CH_WS, the nearest `.ep0ch` from `cwd`; the machine by `--machine`,
  * EP0CH_MACHINE, that `.ep0ch`). Reads only; asks nothing of the host and starts no forward.
  */
@@ -92,8 +93,8 @@ export function resolveTarget(args: readonly string[], env: Env = process.env, c
   if (path0) return { error: `${path0}: a host's socket is named by EP0CH_SOCKET=${path0} (or the machine it is on by --machine <ssh-name>), not as an argument` };
   const machineFlag = flagValue(args, "--machine", "a machine: an ssh config name (a Host in ~/.ssh/config)");
   if (typeof machineFlag === "object") return machineFlag;
-  const explicit = env.EP0CH_SOCKET?.trim();
-  if (explicit && machineFlag) return { error: `--machine ${machineFlag} and EP0CH_SOCKET both name a host; leave one out` };
+  // A typed --machine wins over EP0CH_SOCKET: the environment carries the socket of whatever started this (PIE-1643).
+  const explicit = machineFlag ? undefined : env.EP0CH_SOCKET?.trim();
   let which;
   try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, machineFlag, machineEnv: env.EP0CH_MACHINE, here: args.includes("--here"), scratch: scratchEnv(env), folder: resolve(cwd), home: homeOf(env), fs: disk }); }
   catch (e) { return { error: (e as Error).message }; }

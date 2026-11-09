@@ -100,9 +100,10 @@ describe("a read of a name this machine doesn't have", () => {
     expect((await ep0ch(["find", "--ws", "seedbed", "--lines", "--here"])).code).toBe(0);
   }, 60_000);
 
-  test("under EP0CH_SOCKET the remote command unsets it (a socket and a machine can't both name the host)", async () => {
+  test("under EP0CH_SOCKET the remote command needs no unset: its --machine wins (PIE-1643)", async () => {
     const r = await ep0ch(["show", "--ws", "garden", "abc12345"], { EP0CH_SOCKET: local.sock });
-    expect(r.err).toContain("env -u EP0CH_SOCKET ep0ch show --ws garden abc12345 --machine far-box");
+    expect(r.err).toContain("ep0ch show --ws garden abc12345 --machine far-box");
+    expect(r.err).not.toContain("env -u EP0CH_SOCKET");
   }, 60_000);
 
   test("with no host answering here, a forward still says where the outline is", async () => {
