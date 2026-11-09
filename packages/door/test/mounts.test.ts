@@ -391,17 +391,29 @@ describe.skipIf(!outliner)("an open naming no tile reaches the readers inside mo
   }, SEEDED_SETUP_MS);
   afterAll(async () => { D()?.dispose?.(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
-  test("with no mount it is refused, saying what gives it a destination", async () => {
-    await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open; tile.open kind=reader/);
+  /** PIE-1641: an open with nowhere to land makes a reader on the screen; the person's keys stay where they were, and the reader is closed again. */
+  const madeReader = async (id: string) => {
+    const before = get().focus;
+    const r = await act("open", { id });
+    const reader = get().tiles.find(t => t.kind === "reader");
+    expect(reader?.name).toBe(r.name);
+    expect(await shows(r.tile)).toBe(id);
+    expect(get().focus).toBe(before);
+    await act("tile.close", {}, r.tile);
+  };
+
+  test("with no mount, the screen makes a reader of its own for it (PIE-1641)", async () => {
+    await madeReader(seeded.cards[0]!.id);
   });
 
-  test("a mount with no reader inside never hands it back out to the screen around it: still refused", async () => {
+  test("a mount with no reader inside never takes it: the screen around it makes its own reader", async () => {
     await act("tile.open", { kind: "activity", name: "a-1306" }, "activity");
     await act("tile.open", { kind: "activity", name: "b-1306" }, "a-1306");
     const g = await act("tile.group", { with: "b-1306" }, "a-1306");
     try {
       await settle();
-      await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open/);
+      await madeReader(seeded.cards[0]!.id);
+      expect(get().tiles.filter(t => t.kind === "reader")).toEqual([]);
     } finally {
       await act("tile.group", { on: false }, g.tile);
       for (const t of ["a-1306", "b-1306"]) await act("tile.close", {}, t);

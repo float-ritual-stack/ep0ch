@@ -200,6 +200,8 @@ export const marks: Record<string, string[]> = {
   "line-field": ["Allotment notebook", "Bike shed"],
   // A blank screen: its rows, each a first step.
   made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
+  // A screen with no tiles: home's buttons in its middle, the power bar first (PIE-1641).
+  "empty-desk": ["Search or command", "New note"],
   // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.
   esc: ["Allotment notebook", "Bike shed"],
   // The shed note folded to a spine (the keys on it) beside the notebook: a key the spine refuses says why on its frame.
