@@ -153,3 +153,16 @@ test("an agent's outline_mark: a pocket mark, a look-here with a reason, and its
   expect((await client.request<{ marks: MarkRecord[] }>({ action: "marks.list" })).marks.map(m => m.by)).toEqual(["user"]);
   expect(() => runAgentOperation(client, "mark", { ref: shed.id }, undefined)).toThrow(/--actor/);
 });
+
+test("an extension's process marks with its grant, attributed ext:<id> (PIE-1237)", async () => {
+  const { issueGrant, revokeGrant } = await import("../src/extension-grants");
+  const beans = store.create("Bean poles need tying");
+  const grant = issueGrant({ extensionId: "garden-bot", label: "ext.garden-bot.mark", writes: true, secrets: [] });
+  try {
+    const { mark } = await client.request<{ mark: MarkRecord }>({ action: "marks.add", input: { blockId: beans.id }, grant } as never);
+    expect(mark).toMatchObject({ author: "agent", by: "ext:garden-bot" });
+    const { removed } = await client.request<{ removed: MarkRecord[] }>({ action: "marks.remove", input: { n: mark.n }, grant } as never);
+    expect(removed.map(m => m.n)).toEqual([mark.n]);
+    expect(store.database.query("SELECT actor FROM mark_removals").all()).toEqual([{ actor: "ext:garden-bot" }]);
+  } finally { revokeGrant(grant); }
+});

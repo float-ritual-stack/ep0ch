@@ -4093,8 +4093,7 @@ export class OutlinerServer {
         // A triggered call's new block carries the trigger's mark, as its returned writes' do.
         return { ...as, ...(grant.trigger && typeof as.text === "string" ? { text: markTriggered(as.text, grant.trigger) } : {}),
           author: "agent", provenance: { actorId: actor.actorId, ...(actor.taskId ? { taskId: actor.taskId } : {}) } } as OutlinerRequest;
-      case "outputs.place":
-      case "draft.patch":
+      case "outputs.place": case "draft.patch": case "marks.add": case "marks.remove":
         return { ...as, mutation: actor } as OutlinerRequest;
       case "door.act": if (grant.relayed || !grant.agent) throw new Error("door.act needs an agent extension's grant from this machine: a respond call of one of its agents"); return { ...as, agent: grant.agent, extension: grant.extensionId, ...(grant.requestedBy ? { requestedBy: grant.requestedBy } : {}) } as OutlinerRequest;
       case "move":

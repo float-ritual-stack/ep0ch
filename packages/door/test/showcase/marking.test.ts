@@ -4,6 +4,7 @@
 import { doorMarks } from "../../src/desk/marks";
 import { describe, expect, test } from "bun:test";
 import { FacetsPane } from "../../src/desk/facets";
+import { MainMenu } from "../../src/screens";
 import { USER } from "../../src/socket";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -63,5 +64,13 @@ describe("showcase: marks", () => {
     h.press({ kind: "mouse", action: "down", button: 0, x, y }); h.press({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => !doorMarks(h.board).list().some(m => m.reason), "the look-here taken off");
     expect((await act("marks.list") as { marks: { block?: string }[] }).marks.map(m => m.block).sort()).toEqual([potatoes.id, frost.id].sort());
+
+    // A mark taken off while another screen is on top: the facets tile beneath hears it too, and is right on return.
+    h.app.push(new MainMenu());
+    await h.board.request("marks.remove", { input: { blockId: frost.id } });
+    await until(() => !doorMarks(h.board).list().some(m => m.block === frost.id), "the unmark heard");
+    await Bun.sleep(400);
+    h.app.pop();
+    await until(() => !listed().includes(frost.id), "marked:today without frost after the screen above went");
   }, 40_000);
 });
