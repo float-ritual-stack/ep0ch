@@ -106,6 +106,10 @@ describe("reading keys", () => {
   test("Alt+/ arrives as one key, without an Escape leaving the tile before its strip opens", () => {
     expect(read("\x1b/")).toEqual([{ kind: "alt", ch: "/" }]);
   });
+  test("alt+' (marks.next, PIE-1637) arrives as one key without the kitty protocol: ESC and the quote together", () => {
+    expect(read("\x1b'")).toEqual([{ kind: "alt", ch: "'" }]);
+    expect(read("\x1b'j")).toEqual([{ kind: "alt", ch: "'" }, { kind: "char", ch: "j" }]);
+  });
   test("a mouse report with a modifier carries it; ctrl+] is its own key (a terminal tile's escape chord)", () => {
     expect(read("\x1b[<16;5;3M")).toEqual([{ kind: "mouse", action: "down", button: 0, x: 4, y: 2, mods: 16 }]);
     expect(read("\x1d")).toEqual([{ kind: "char", ch: "]", ctrl: true }]);

@@ -6789,8 +6789,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.redraw();
       return { mark };
     }
-    const at = m.id ? await this.ctx.board.get(m.id) : this.noteAtTile(sel);
-    if (!at) throw new ActionRefused(m.id ? `no block ${m.id}` : `${this.tile(sel).name} points at no note; block.mark id=<block id> names one`);
+    const named = m.id ? (await this.ctx.board.resolveRefs([m.id]))[0] : undefined, at = !m.id ? this.noteAtTile(sel) : named?.id ? await this.ctx.board.get(named.id) : null;
+    if (!at) throw new ActionRefused(m.id ? named?.error ?? `no block ${m.id}` : `${this.tile(sel).name} points at no note; block.mark id=<block id> names one`);
     if (at.address?.outline && at.address.outline !== await ownOutline(this.ctx)) throw new ActionRefused(`that note is in ${at.address.outline}: mark it in a door on that outline`);
     const { mark, already } = await marks.add(this.ctx.board, { blockId: at.id, ...what }, actor);
     this.redraw();
