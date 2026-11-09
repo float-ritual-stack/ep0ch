@@ -137,3 +137,18 @@ test("every client hears a mark, and a watched marked:today answers again", asyn
     await watcher.stop();
   }
 });
+
+test("an agent's outline_mark: a pocket mark, a look-here with a reason, and its own marks off again", async () => {
+  const { runAgentOperation } = await import("../src/agent-tools");
+  const shed = store.create("Shed roof leaks");
+  const loki = { actorId: "loki/claude-code@float-box", author: "agent" as const };
+  expect(await runAgentOperation(client, "mark", { ref: shed.id }, loki)).toMatchObject({ outcome: "applied", said: expect.stringContaining("marked:today lists it") });
+  expect(await runAgentOperation(client, "mark", { ref: shed.id }, loki)).toMatchObject({ outcome: "unchanged" });
+  expect(await runAgentOperation(client, "mark", { ref: shed.id, reason: "needs your call" }, loki)).toMatchObject({ outcome: "applied", said: expect.stringContaining("look-here") });
+  await add({ blockId: shed.id });
+  expect(await where("marked-by:loki")).toEqual(["Shed roof leaks"]);
+  // Off again: the agent's own marks only; the person's stays.
+  expect(await runAgentOperation(client, "mark", { ref: shed.id, remove: true }, loki)).toMatchObject({ outcome: "applied", marks: [1, 2] });
+  expect((await client.request<{ marks: MarkRecord[] }>({ action: "marks.list" })).marks.map(m => m.by)).toEqual(["user"]);
+  expect(() => runAgentOperation(client, "mark", { ref: shed.id }, undefined)).toThrow(/--actor/);
+});

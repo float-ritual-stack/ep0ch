@@ -6,7 +6,7 @@ import { gate, gateRefusal } from "./write-gate";
 
 
 export interface WriteActor { actorId: string; sessionId?: string; taskId?: string }
-export type McpWriteTool = "outline_create" | "outline_patch" | "outline_comment" | "outline_reply" | "outline_resolve_thread" | "outline_quote" | "outline_set_property" | "outline_move" | "outline_trash" | "outline_restore" | "outline_assign_id" | "outline_proposal_apply" | "outline_proposal_dismiss" | "outline_proposal_resolve";
+export type McpWriteTool = "outline_create" | "outline_patch" | "outline_comment" | "outline_reply" | "outline_resolve_thread" | "outline_quote" | "outline_set_property" | "outline_move" | "outline_trash" | "outline_restore" | "outline_assign_id" | "outline_mark" | "outline_proposal_apply" | "outline_proposal_dismiss" | "outline_proposal_resolve";
 export interface WriteBoard {
   address?: { outline: string; machine: string };
   request<T>(action: string, args: Record<string, unknown>, timeoutMs?: number): Promise<T>;
@@ -56,6 +56,7 @@ interface AgentTools {
   moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
   trashBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
   restoreBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied"; said: string } & Record<string, unknown>>;
+  markNote(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
   resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
   resourceRefOf(ref: string): unknown | null;
   readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
@@ -198,6 +199,10 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
         return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not ${move ? "moves" : "trashing"}`, detail: c };
       }
       const r = await (move ? tools.moveBlock : tools.trashBlock)(client, { ref: write.blockId, ...write.input, ...((o.revision ?? write.revision) !== undefined ? { revision: o.revision ?? write.revision } : {}) }, o.actor);
+      return { outcome: r.outcome, uri: o.uri(write.blockId), said: r.said, detail: r };
+    }
+    case "outline_mark": {
+      const r = await tools.markNote(client, { ref: write.blockId, ...write.input }, o.actor);
       return { outcome: r.outcome, uri: o.uri(write.blockId), said: r.said, detail: r };
     }
     case "outline_restore": {

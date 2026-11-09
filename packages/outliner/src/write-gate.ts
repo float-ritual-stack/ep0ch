@@ -59,6 +59,8 @@ const AT_PROPOSE: Readonly<Record<string, Exclude<Becomes, "refused"> | { fullOn
   outline_comment: "applied",
   outline_reply: "applied",
   outline_resolve_thread: "applied",
+  // A mark changes no note (PIE-1237): it is a fact beside the outline, as a comment is a thread.
+  outline_mark: "applied",
   // A script runs at propose: its own writes are proposals (place() and its tools ask this gate again).
   script_run: "applied",
   outline_assign_id: { fullOnly: "stamps the note" },

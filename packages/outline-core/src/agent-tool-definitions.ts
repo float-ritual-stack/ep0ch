@@ -21,7 +21,7 @@ import type { ToolArgsSpec, ToolSchema } from "./tool-args";
 export type AgentToolOperation =
   | "artifact-deploy"
   | "read" | "find" | "resolve" | "site" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
-  | "proposal-apply" | "proposal-dismiss" | "proposal-resolve" | "proposals" | "script-run" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
+  | "proposal-apply" | "proposal-dismiss" | "proposal-resolve" | "proposals" | "script-run" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order" | "mark";
 
 /**
  * How a surface names the block a tool acts on, filled into a description's `{note}` and `{parent}`: the mod says
@@ -646,6 +646,31 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     },
   },
   {
+    name: "outline_mark",
+    operation: "mark",
+    example: { ref: "PIE-123", reason: "needs your call" },
+    writes: true,
+    target: "ref",
+    description:
+      "Mark {note} (PIE-1237): one fact in the outline, attributed to you, that every door, the web page and a query see at once. " +
+      "With `reason` (a few words: \"needs your call\") it is a look-here mark, framed in every door showing the note, " +
+      "for Evan to see; without, a pocket mark, gathered by the query atoms (`marked:today`, `marked-by:<you>`, `marked-since:-7d`), " +
+      "which leave look-here marks out. Marking what you already marked with the same reason answers that mark. " +
+      "`remove: true` takes your marks on the note off (the unmark is kept, attributed). `words` is a note kept with the mark.",
+    properties: {
+      ref: REF,
+      reason: { type: "string", description: "Why Evan should look, in a few words: makes it a look-here mark (left out: a pocket mark)" },
+      words: { type: "string", description: "A note kept with the mark" },
+      remove: { type: "boolean", description: "Take your marks on the note off instead" },
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref)) return "Give the ref of the note to mark.";
+      if (input.remove === true && (input.reason !== undefined || input.words !== undefined)) return "remove takes your marks off: give it alone, with the ref.";
+      return { operation: "mark", input: inputOf(input, ["ref", "reason", "words", "remove"]) };
+    },
+  },
+  {
     name: "outline_restore",
     operation: "restore",
     example: { ref: `((${NOTE}))` },
@@ -712,6 +737,7 @@ export const AGENT_TOOL_SURFACES: Readonly<Record<string, Readonly<Record<AgentT
   outline_move: { mod: true, gateway: true },
   outline_trash: { mod: true, gateway: true },
   outline_restore: { mod: true, gateway: true },
+  outline_mark: { mod: true, gateway: true },
   // Defined on one surface only, for now.
   outline_quote: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
   outline_threads: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },

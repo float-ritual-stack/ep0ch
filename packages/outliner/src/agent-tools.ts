@@ -1651,6 +1651,29 @@ export async function trashBlock(client: AgentToolsClient, input: { ref: string;
   return { outcome: "applied", id: block.id, ref: `((${block.id}))`, children, said: `trashed ${label(block)}${children ? ` with its ${children} ${children === 1 ? "child" : "children"}` : ""}; outline_restore brings it back` };
 }
 
+export type MarkResult = { outcome: "applied" | "unchanged"; id: string; ref: string; marks: number[]; said: string };
+
+/**
+ * An agent's mark on a note (PIE-1237, `outline_mark`): `marks.add`, attributed; with a reason a look-here mark, framed in
+ * every door; without, a pocket mark `marked:` reads. `remove` takes the actor's own marks on it off.
+ */
+export async function markNote(client: AgentToolsClient, input: { ref: string; reason?: string; words?: string; remove?: boolean }, actor: AgentActor): Promise<MarkResult> {
+  const { block } = await resolveReference(client, input.ref);
+  if (block.effectiveDeletedRootId) throw new WorkToolRefusal(`${label(block)} is in Trash: outline_restore it before marking it`);
+  const mine = actor.author === "user" ? "user" : actor.actorId;
+  if (input.remove) {
+    const { marks } = await client.request<{ marks: { n: number; by: string }[] }>({ action: "marks.list", input: { blockId: block.id } });
+    const own = marks.filter(m => m.by === mine);
+    for (const m of own) await client.request({ action: "marks.remove", input: { n: m.n }, mutation: mutationOf(actor) });
+    return own.length
+      ? { outcome: "applied", id: block.id, ref: `((${block.id}))`, marks: own.map(m => m.n), said: `took ${own.length === 1 ? "your mark" : `your ${own.length} marks`} off ${label(block)}` }
+      : { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, marks: [], said: `${label(block)} has no mark of yours` };
+  }
+  const { mark, already } = await client.request<{ mark: { n: number }; already: boolean }>({ action: "marks.add", input: { blockId: block.id, surface: "mcp", ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}), ...(input.words?.trim() ? { words: input.words.trim() } : {}) }, mutation: mutationOf(actor) });
+  const kind = input.reason?.trim() ? `a look-here mark (“${input.reason.trim()}”), framed in every door showing it` : "a pocket mark: marked:today lists it";
+  return { outcome: already ? "unchanged" : "applied", id: block.id, ref: `((${block.id}))`, marks: [mark.n], said: already ? `${label(block)} already has that mark of yours (${mark.n})` : `marked ${label(block)}: ${kind}` };
+}
+
 export type RestoreResult = { outcome: "applied"; id: string; ref: string; revision: number; renamedPages?: unknown; said: string };
 
 /** Brings a note back from Trash, with what went under it, where it was. Only a note trashed itself (a Trash root). */
@@ -1709,7 +1732,7 @@ export async function runScriptBlock(client: AgentToolsClient, input: { ref: str
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "proposals", "script-run", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit"] as const;
+export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "proposals", "script-run", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit", "mark"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1755,6 +1778,7 @@ export function runAgentOperation(
     case "move": return moveBlock(client, any, writer());
     case "trash": return trashBlock(client, any, writer());
     case "restore": return restoreBlock(client, any, writer());
+    case "mark": return markNote(client, any, writer());
     case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
     case "touch-file": return import("./file-touches").then(m => m.touchFile(client, any, writer()));
     case "figure-fit": return sweepFigures(client, any, any.comment ? writer() : actor);
