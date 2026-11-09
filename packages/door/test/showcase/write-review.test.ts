@@ -2,7 +2,7 @@
 // page with its row: the problem as its title, the note named by its title (a link, never its id), the passage before
 // and after, and what the writer did (PIE-1539). Scratch service, made-up notes.
 import { describe, expect, test } from "bun:test";
-import { outliner, until } from "../scratch";
+import { outliner, testSlack, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 
@@ -29,7 +29,7 @@ describe.skipIf(!outliner)("showcase: write review (PIE-1388)", () => {
     expect(screen).not.toContain("columns · widen to see");
     await until(() => h.screen().includes("after: "), "the narrow tile's card", 15_000);
     expect(h.screen()).toContain("passage: ");
-  });
+  }, 3 * 15_000 * testSlack() + 10_000);   // its three waits, each scaled as until scales them, and room to act
 });
 
 describe.skipIf(!outliner)("showcase: write review at 177 columns (PIE-1541)", () => {
@@ -72,5 +72,5 @@ describe.skipIf(!outliner)("showcase: write review at 177 columns (PIE-1541)", (
     await until(() => page().msg.id !== id, "the finding's card opened", 8000);
     // Its crumbs read "…" until the outline answers for its ancestors (on a busy box, a moment after it opens).
     await until(() => h.screen().includes("Kitchen sink › Records"), "the card's crumbs", 8000);
-  });
+  }, (2 * 15_000 + 5 * 8000) * testSlack() + 10_000);   // its seven waits, each scaled as until scales them, the two sleeps and room to act
 });
