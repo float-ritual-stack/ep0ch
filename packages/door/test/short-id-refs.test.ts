@@ -82,10 +82,17 @@ describe.skipIf(!outliner)("a short id names a block for every agent entry point
     try {
       app.push(new MainMenu());
       app.push(new Desk());
-      const marked = await app.act({ action: "block.mark", args: { id: "cafef00d", reason: "count the trays" }, as: "tray-checker" }) as { mark: { block: string } };
+      const marked = await app.act({ action: "block.mark", args: { id: "cafef00d", reason: "count the trays" }, as: "tray-checker" }) as { mark: { block: string; n: number } };
       expect(marked.mark.block).toBe(GAMMA);
       await expect(app.act({ action: "block.mark", args: { id: "deadbeef" }, as: "tray-checker" })).rejects.toThrow(`deadbeef starts 2 notes' ids: ${ALPHA} Alpha tray · in Potting shed; ${BETA} Beta tray · in (root); give more of it`);
       await expect(app.act({ action: "block.mark", args: { id: "cafef00e" }, as: "tray-checker" })).rejects.toThrow("no id starts cafef00e");
+      // Unmarking by a short id (PIE-1638): one that names two notes takes nothing off, and says which; a unique one unmarks that note.
+      await app.act({ action: "block.mark", args: { id: ALPHA, reason: "water the tray" }, as: "tray-checker" });
+      await app.act({ action: "block.mark", args: { id: BETA, reason: "water the tray" }, as: "tray-checker" });
+      await expect(app.act({ action: "block.unmark", args: { id: "deadbeef" }, as: "tray-checker" })).rejects.toThrow("deadbeef starts 2 notes' ids");
+      expect((await board.request("marks.list", {})).marks.map(m => m.block).sort()).toEqual([ALPHA, BETA, GAMMA].sort());
+      expect(await app.act({ action: "block.unmark", args: { id: "cafef00d" }, as: "tray-checker" })).toMatchObject({ dismissed: [marked.mark.n] });
+      expect((await board.request("marks.list", {})).marks.map(m => m.block).sort()).toEqual([ALPHA, BETA].sort());
     } finally { app.retire(); board.close(); }
   }, 30_000);
 });

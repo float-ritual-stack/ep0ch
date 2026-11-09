@@ -6807,9 +6807,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   async unmark(n: number | undefined, id: string | undefined, actor: Actor): Promise<unknown> {
-    const marks = this.ctx?.board && doorMarks(this.ctx.board), all = this.marksNow();
-    const gone = n !== undefined ? all.filter(m => m.n === n) : id ? all.filter(m => m.block?.startsWith(id)) : this.marksOn(this.focus);
-    if (!marks || !gone.length) throw new ActionRefused(n !== undefined ? `no mark ${n}` : "no mark there");
+    const marks = this.ctx?.board && doorMarks(this.ctx.board), all = this.marksNow(), named = id && n === undefined ? (await this.ctx.board.resolveRefs([id]))[0] : undefined;
+    const gone = n !== undefined ? all.filter(m => m.n === n) : named ? all.filter(m => !!named.id && m.block === named.id) : this.marksOn(this.focus);
+    if (!marks || !gone.length || named?.error) throw new ActionRefused(named?.error ?? (n !== undefined ? `no mark ${n}` : id ? `no mark on ${id}` : "no mark there"));
     for (const m of gone) {
       await marks.remove(this.ctx.board, { n: m.n }, actor);
       const ext = marks.extmarks.get(m.n), t = ext ? this.idNamed(ext.tile) : undefined, p = t !== undefined ? this.panes.get(t) : null;
