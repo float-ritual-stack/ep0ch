@@ -25,6 +25,9 @@ describe("query completion says what the grammar can say", () => {
     expect(await values("links:")).toEqual(["links:this"]);
     expect(await values("by:ag")).toEqual(["by:agent"]);
     expect(await values("unread:")).toEqual(["unread:me"]);
+    expect(await values("marked-by:")).toEqual(["marked-by:me"]);
+    expect(await values("marked:to")).toEqual(["marked:today", "marked:tomorrow"]);
+    expect(await values("marked:a")).toEqual(["marked:any"]);
   });
   test("AND and OR follow a clause; only NOT or a clause follows AND", async () => {
     expect(await values("type=meeting O")).toEqual(["type=meeting OR"]);

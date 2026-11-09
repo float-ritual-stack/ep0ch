@@ -5,7 +5,7 @@ import type { PropertyRecord } from "./property-parse";
 import type { PropertyFilter, PropertyQueryScope, QueryComparison, QueryExpression } from "./query-types";
 import { matchesFilters, normalizePropertyKey } from "./query-properties";
 import { firstLineWithoutPropertyTokens } from "./property-parse";
-import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "./query-atoms";
+import { MARKED_ANY, ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "./query-atoms";
 import { isPropertyKey, isWritablePropertyValue, splitPropertyValue, PROPERTY_KEY_SOURCE } from "./property-grammar";
 import { fromWallClock, readBound, readDateBound, readNumber, valueHolds, wallClock } from "./dates";
 const KEYED_RANGE = new RegExp(`^(${PROPERTY_KEY_SOURCE})(<=|>=|<|>)(.*)$`, "s");
@@ -717,9 +717,14 @@ export function normalizeQueryExpression(expression: QueryExpression, depth = 0,
     case "call":
     case "by":
     case "unread":
-    case "thread": {
+    case "thread":
+    case "marked":
+    case "marked-by":
+    case "marked-since": {
       if ((leaves.count += 1) > MAX_QUERY_EXPRESSION_LEAVES) throw new BlockQueryError("Query expression has too many clauses");
       const word = expression.kind === "tag" ? `#${String(expression.tag)}`
+        : expression.kind === "marked" || expression.kind === "marked-since" ? `${expression.kind}:${String(expression.when)}`
+        : expression.kind === "marked-by" ? `marked-by:${String(expression.who)}`
         : expression.kind === "links" || expression.kind === "linkedfrom" || expression.kind === "under" || expression.kind === "parent" ? `${expression.kind}:${String(expression.target)}`
         : expression.kind === "call" ? `call:${String(expression.call)}`
         : expression.kind === "by" ? `by:${String(expression.who)}`
@@ -771,7 +776,15 @@ export interface QueryRelations {
   readRevisions?(reader: string): ReadonlyMap<string, number>;
   /** The comments and replies in the threads `reader` started or wrote in (`thread:`). */
   threadBlocks?(reader: string): ReadonlySet<string>;
+  /**
+   * Each block's pocket marks (`marked:`, `marked-by:`, `marked-since:`; PIE-1237): the live marks with no reason, when
+   * each was made (epoch ms) and by whom (an author and an actor id).
+   */
+  pocketMarks?(): ReadonlyMap<string, readonly PocketMark[]>;
 }
+
+/** One pocket mark on a block, as the marks atoms read it. */
+export interface PocketMark { at: number; author: string; actor: string }
 
 /** The reader an atom names: `me` is the person (every client reads as them); an agent names its own actor id. */
 function readerOf(reader: string): string {
@@ -856,6 +869,26 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
     case "thread": {
       const blocks = relations?.threadBlocks?.(readerOf(expression.reader));
       return subject => !!blocks && subject.id !== undefined && blocks.has(subject.id);
+    }
+    case "marked":
+    case "marked-since":
+    case "marked-by": {
+      const marks = relations?.pocketMarks?.();
+      let holds: (mark: PocketMark) => boolean;
+      if (expression.kind === "marked-by") {
+        // `me` is the person (their marks are `author: user`); else an author word or an actor, as `by:` reads them.
+        const who = expression.who === ME_READER ? PERSON_READER : expression.who.toLowerCase();
+        holds = mark => mark.author.toLowerCase() === who || actorNamed(mark.actor, who);
+      } else if (expression.kind === "marked" && expression.when === MARKED_ANY) {
+        holds = () => true;
+      } else {
+        // On the wall clock, as every date reads: `marked:today` is today's whole day, `marked-since:-7d` from that day's midnight.
+        const wall = wallClock(now), bound = readDateBound(expression.when, wall);
+        holds = !bound ? () => false
+          : expression.kind === "marked" ? mark => { const at = wallClock(mark.at); return at >= bound.from && at <= bound.to; }
+          : mark => wallClock(mark.at) >= bound.from;
+      }
+      return subject => !!marks && subject.id !== undefined && (marks.get(subject.id)?.some(holds) ?? false);
     }
     case "property": {
       const filter = [{ key: expression.key, ...(expression.value === undefined ? {} : { value: expression.value }) }];
@@ -969,6 +1002,9 @@ export function positivePropertyFilters(expression: QueryExpression): PropertyFi
     case "by":
     case "unread":
     case "thread":
+    case "marked":
+    case "marked-by":
+    case "marked-since":
     case "not": return [];
     default: return expression.operands.flatMap(positivePropertyFilters);
   }

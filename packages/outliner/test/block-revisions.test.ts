@@ -2,6 +2,7 @@
 import { Database } from "bun:sqlite";
 import { migrateCreateRequests } from "../scripts/migrations/0008-create-requests";
 import { migrateMediaCopies } from "../scripts/migrations/0009-media-copies";
+import { migrateMarks } from "../scripts/migrations/0010-marks";
 import { migrateRevisionTasks } from "../scripts/migrations/0007-revision-tasks";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
@@ -105,7 +106,7 @@ test("schema 6 revision texts survive the offline upgrade and subsequent yolo sa
   const before = store.revisionText(note.id, 1);
   store.close();
   const old = new Database(path);
-  old.exec("DROP TABLE media_copies; DROP TABLE create_requests; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 6");
+  old.exec("DROP TABLE mark_removals; DROP TABLE marks; DROP TABLE media_copies; DROP TABLE create_requests; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 6");
   const frozen = new Database(":memory:");
   frozen.exec(SCHEMA_SQL_6);
   expect(schemaShape(old)).toEqual(schemaShape(frozen));
@@ -121,6 +122,7 @@ test("schema 6 revision texts survive the offline upgrade and subsequent yolo sa
   migrateRevisionTasks(path);
   migrateCreateRequests(path);
   migrateMediaCopies(path);
+  migrateMarks(path);
   store = new OutlinerStore(path);
   try {
     expect(store.revisionText(note.id, 1)).toEqual(before);
@@ -129,6 +131,6 @@ test("schema 6 revision texts survive the offline upgrade and subsequent yolo sa
     expect(store.revisionText(note.id, 3)).toMatchObject({ text: "Ledger\nPeas", actorId: "cowboy", taskId: "via:yolo" });
   } finally { store.close(); }
   const migrated = readFileSync(path);
-  expect(() => migrateRevisionTasks(path)).toThrow("Expected schema 6, found 9");
+  expect(() => migrateRevisionTasks(path)).toThrow("Expected schema 6, found 10");
   expect(readFileSync(path)).toEqual(migrated);
 });

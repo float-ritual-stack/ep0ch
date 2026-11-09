@@ -84,6 +84,7 @@ import { answerSite, pathValues } from "./site-answer";
 import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
 import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
 import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
@@ -895,6 +896,8 @@ export class OutlinerStore {
   readonly changes: ChangeFeed;
   /** What each reader has read (PIE-708). */
   readonly readMarks: ReadMarks;
+  /** The marks every surface makes (PIE-1237, marks.ts). */
+  readonly marks: Marks;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
   /** Which database instance this file holds (outline-instance.ts); changes when the database is replaced. */
@@ -930,6 +933,7 @@ export class OutlinerStore {
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.readMarks = new ReadMarks(this.database);
+      this.marks = new Marks(this.database);
       this.resources = new ResourceCatalog(this.database, {
         workspaceRoot: dirname(path),
         outline: outlineOfFile(basename(path)) ?? undefined,
@@ -3400,6 +3404,7 @@ export class OutlinerStore {
     const calls = new Map<string, ReadonlySet<string>>();
     const reads = new Map<string, ReadonlyMap<string, number>>();
     const threads = new Map<string, ReadonlySet<string>>();
+    let pocket: ReturnType<Marks["pocket"]> | undefined;
     return {
       linkTargets: (blockId) => {
         let found = targets.get(blockId);
@@ -3453,6 +3458,7 @@ export class OutlinerStore {
         }
         return found;
       },
+      pocketMarks: () => (pocket ??= this.marks.pocket()),
       threadBlocks: (reader) => {
         let found = threads.get(reader);
         if (!found) {

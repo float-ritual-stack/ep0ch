@@ -5,7 +5,7 @@
 // The settings card's picker and the service's completion of every query-typed place (a lens slot, a figure's `query:`,
 // a `[query::]` value) ask this one. Pure: the catalog is passed in.
 
-import { QUERY_ATOM_HELP, QUERY_BY_AUTHORS, QUERY_CONNECTIVE_HELP, QUERY_RANGE_HELP, ME_READER, THIS_TARGET } from "./query-atoms";
+import { MARKED_ANY, QUERY_ATOM_HELP, QUERY_BY_AUTHORS, QUERY_CONNECTIVE_HELP, QUERY_RANGE_HELP, ME_READER, THIS_TARGET } from "./query-atoms";
 import { QUERY_DATE_HELP } from "./dates";
 
 /** `properties.catalog`: the keys starting with `prefix` (each value counted), or `key`'s values starting with it. */
@@ -18,7 +18,7 @@ type Row = QuerySuggestion;
 const CMP = /^(<=|>=|<|>)$/;
 const RANGE = /^([^\s<>=:~"()]+)(<=|>=|<|>)(.*)$/s;
 /** An atom's head as written (`links:`, `title~`, `#`), from its help entry; `this` and `{{this.key}}` are targets and values, not heads. */
-const headOf = (atom: string) => /^(?:#|[a-z]+[:~])/.exec(atom)?.[0];
+const headOf = (atom: string) => /^(?:#|[a-z][a-z-]*[:~])/.exec(atom)?.[0];
 const startsWith = (word: string, typed: string) => word.toLowerCase().startsWith(typed.toLowerCase());
 const TARGET_ATOMS = new Set(["links", "linkedfrom", "under", "parent"]);
 
@@ -45,7 +45,7 @@ export async function querySuggestions(typed: string, catalog: PropertyCatalog):
   // A clause may open groups and be a child's: `((child:` keeps both.
   const rel = /^(\(*(?:child(?:>=\d+)?:)?)(.*)$/i.exec(token)!;
   const lead = rel[1]!, clause = rel[2]!;
-  const colon = /^([a-z]+):(.*)$/i.exec(clause);
+  const colon = /^([a-z][a-z-]*):(.*)$/i.exec(clause);
 
   // An atom's target or reader: `under:th` -> `under:this`; `by:ag` -> `by:agent`; `unread:m` -> `unread:me`.
   if (colon && !lead.toLowerCase().endsWith("child:") && colon[1]!.toLowerCase() !== "child") {
@@ -53,7 +53,9 @@ export async function querySuggestions(typed: string, catalog: PropertyCatalog):
     const help = QUERY_ATOM_HELP.find(h => h.atom.startsWith(`${atom}:`));
     if (TARGET_ATOMS.has(atom) && startsWith(THIS_TARGET, part)) add(`${stem}${THIS_TARGET}`, QUERY_ATOM_HELP.find(h => h.atom === "this")!.gist);
     if (atom === "by") for (const who of QUERY_BY_AUTHORS) if (startsWith(who, part)) add(`${stem}${who}`, `blocks last written by ${who}`);
-    if ((atom === "unread" || atom === "thread") && startsWith(ME_READER, part)) add(`${stem}${ME_READER}`, "the person");
+    if ((atom === "unread" || atom === "thread" || atom === "marked-by") && startsWith(ME_READER, part)) add(`${stem}${ME_READER}`, "the person");
+    if (atom === "marked" && startsWith(MARKED_ANY, part)) add(`${stem}${MARKED_ANY}`, "marked whenever");
+    if (atom === "marked" || atom === "marked-since") dates(stem, part);
     if (help && atom !== "child") return out;
   }
 

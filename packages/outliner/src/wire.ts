@@ -90,6 +90,9 @@ export interface WireAnswers {
   "annotations.list": AnnotationThread[];
   "annotations.propose-agent": AnnotationAgentProposalReceipt;
   "annotations.read": { thread: string; marked: number; };
+  "marks.add": { mark: import("./types").MarkRecord; already: boolean };
+  "marks.remove": { removed: import("./types").MarkRecord[] };
+  "marks.list": { marks: import("./types").MarkRecord[] };
   "annotations.reconcile": AnnotationReconcileReceipt;
   "annotations.reply": AnnotationBatchReceipt;
   "annotations.review-agent": AnnotationRecord;

@@ -213,7 +213,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(plan.out).toContain("away, workstation");
     expect(existsSync(sshLog)).toBe(false);
     expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\n");
-    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, 0008-create-requests.ts, 0009-media-copies.ts, ${STEP_FILE}`);
+    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, 0008-create-requests.ts, 0009-media-copies.ts, 0010-marks.ts, ${STEP_FILE}`);
     expect(plan.out).toContain("systemctl --user stop outliner-host.service");
     expect(git("rev-parse", "HEAD")).toBe(oldHead);
 

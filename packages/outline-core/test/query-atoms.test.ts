@@ -56,4 +56,20 @@ describe("query atoms", () => {
     expect(() => parseQueryAtom("linkedfrom:garden")).toThrow(/not a target.*Work ID or this/);
     expect(QUERY_ATOM_HELP.map(h => h.atom)).toEqual(expect.arrayContaining(["linkedfrom:<target>", "parent:<target>", "this"]));
   });
+
+  test("the marks' atoms (PIE-1237): marked:<when>, marked-by:<who>, marked-since:<when>; a bare marked stays a property", () => {
+    expect(parseQueryAtom("marked:today")).toEqual({ kind: "marked", when: "today" });
+    expect(parseQueryAtom("MARKED:Any")).toEqual({ kind: "marked", when: "any" });
+    expect(parseQueryAtom("marked:2026-11-09")).toEqual({ kind: "marked", when: "2026-11-09" });
+    expect(parseQueryAtom("marked-by:ME")).toEqual({ kind: "marked-by", who: "me" });
+    expect(parseQueryAtom("marked-by:loki")).toEqual({ kind: "marked-by", who: "loki" });
+    expect(parseQueryAtom("marked-since:-7d")).toEqual({ kind: "marked-since", when: "-7d" });
+    expect(showQueryAtom({ kind: "marked-since", when: "-7d" })).toBe("marked-since:-7d");
+    expect(parseQueryAtom("marked")).toBeNull();
+    expect(() => parseQueryAtom("marked:")).toThrow(/marked: needs a day.*marked:today/);
+    expect(() => parseQueryAtom("marked:soonish")).toThrow(/not a day or a moment.*marked:any/);
+    expect(() => parseQueryAtom("marked-since:whenever")).toThrow(/marked-since:-7d/);
+    expect(() => parseQueryAtom("marked-by:")).toThrow(/marked-by:me/);
+    expect(QUERY_ATOM_HELP.map(h => h.atom)).toEqual(expect.arrayContaining(["marked:<when>", "marked-by:<who>", "marked-since:<when>"]));
+  });
 });

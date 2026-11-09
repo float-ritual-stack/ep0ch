@@ -976,7 +976,8 @@ export class Publisher {
         this.connected = false;
       },
       onEvent: (event) => {
-        if (event.domain === "content") this.invalidate();
+        // A mark made or taken off (PIE-1237) changes what a `marked:` view shows.
+        if (event.domain === "content" || event.domain === "marks") this.invalidate();
         // A share started or ended: its tunnel, if it has one, starts or stops.
         if (event.domain === "shares") void this.tunnels?.reconcile();
       },

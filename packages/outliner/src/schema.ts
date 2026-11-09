@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -90,6 +90,40 @@ export const READ_MARKS_SQL = `
     read_at TEXT NOT NULL,
     PRIMARY KEY (actor, block_id)
   ) WITHOUT ROWID;
+`;
+
+/**
+ * Marks (PIE-1237, marks.ts): each a fact written once (what, from where, by whom, when) on one subject: a block, a
+ * Resource, or a line of a file (an nvim tile's). Unmarking is a second fact, `mark_removals`, never an edit of the
+ * first. A mark with a `reason` is an attention mark ("look here"); one without is a pocket mark, which the query
+ * atoms (`marked:today`) read. New in version 10 (0010's migration adds them).
+ */
+export const MARKS_SQL = `
+  CREATE TABLE IF NOT EXISTS marks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_id TEXT,
+    resource_id TEXT,
+    file TEXT,
+    line INTEGER CHECK (line IS NULL OR line >= 1),
+    span_start INTEGER,
+    span_end INTEGER,
+    span_revision INTEGER,
+    surface TEXT,
+    via TEXT,
+    at TEXT NOT NULL,
+    author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
+    actor TEXT NOT NULL,
+    words TEXT,
+    reason TEXT,
+    CHECK ((block_id IS NOT NULL) + (resource_id IS NOT NULL) + (file IS NOT NULL) = 1)
+  );
+  CREATE INDEX IF NOT EXISTS marks_block ON marks(block_id) WHERE block_id IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS mark_removals (
+    mark_id INTEGER PRIMARY KEY REFERENCES marks(id),
+    at TEXT NOT NULL,
+    author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
+    actor TEXT NOT NULL
+  );
 `;
 
 export const REFERENCE_INDEX_SQL = `
@@ -196,7 +230,7 @@ export const SCHEMA_SQL = `
     error TEXT
   );
   CREATE INDEX IF NOT EXISTS media_copies_sha256 ON media_copies(sha256);
-  CREATE TABLE IF NOT EXISTS capture_requests (
+${MARKS_SQL}  CREATE TABLE IF NOT EXISTS capture_requests (
     request_id TEXT PRIMARY KEY,
     block_id TEXT NOT NULL,
     inbox_block_id TEXT NOT NULL,

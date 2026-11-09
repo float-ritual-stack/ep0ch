@@ -3309,6 +3309,15 @@ export class OutlinerServer {
         case "annotations.agent-evidence":
           result = wired(action, this.store.summarizeAnnotationAgentEvidence(request.limit));
           break;
+        case "marks.add":
+          result = wired(action, this.store.marks.add(request.input ?? {}, request.mutation, id => !!this.store.get(id)));
+          break;
+        case "marks.remove":
+          result = wired(action, { removed: this.store.marks.remove(request.input ?? {}, request.mutation) });
+          break;
+        case "marks.list":
+          result = wired(action, { marks: this.store.marks.list(request.input ?? {}) });
+          break;
         case "annotations.read":
           result = wired(action, this.store.markAnnotationThreadRead(request.annotationId, readerKey(request.reader ?? PERSON_READER)));
           break;

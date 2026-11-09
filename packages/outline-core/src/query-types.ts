@@ -35,7 +35,7 @@ export type QueryExpression =
    * number, text otherwise (PIE-769). A block holds when any of its values for the key does.
    */
   | { kind: "compare"; key: string; op: QueryComparison; value: string }
-  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~`, `call:`, `unread:` and `thread:` (outline-core `query-atoms.ts`); the service evaluates them. */
+  /** `#tag`, `links:`, `linkedfrom:`, `under:`, `parent:`, `title~`, `text~`, `call:`, `unread:`, `thread:` and the marks' `marked:`, `marked-by:`, `marked-since:` (outline-core `query-atoms.ts`); the service evaluates them. */
   | QueryAtom
   | { kind: "not"; operand: QueryExpression }
   | { kind: "and" | "or"; operands: QueryExpression[] };

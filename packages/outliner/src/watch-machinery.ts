@@ -114,6 +114,8 @@ export function asksMachinery(store: Pick<OutlinerStore, "get">, request: Record
  * among stamped notes), and one that does is said `hidden`, so a door's lists that leave machinery out skip it.
  */
 export function watchesHear(store: Pick<OutlinerStore, "get" | "database">, watches: Pick<QueryWatches, "changed">, event: OutlinerEvent): OutlinerEvent {
+  // A mark made or taken off (PIE-1237) changes what `marked:` answers: every watch is asked again.
+  if (event.domain === "marks") { watches.changed(); return event; }
   if (event.domain !== "content" && event.domain !== "view" && event.domain !== "resource-catalog") return event;
   const touched = event.domain === "content" ? machineryChange(store, event.change) : undefined;
   watches.changed(touched);
