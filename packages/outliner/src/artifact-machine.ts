@@ -77,11 +77,11 @@ export async function machinesToAsk(outlines: string, first: string | null): Pro
 export type ElsewhereRead = { found: MediaRead & { machine: string } } | { tried: { machine: string; said: string }[] };
 
 /** The file at `path` from the first machine that has it (`media.read` with no outline: its own disk). */
-export async function readElsewhere(outlines: string, path: string, first: string | null): Promise<ElsewhereRead> {
+export async function readElsewhere(outlines: string, path: string, first: string | null, artifact = false): Promise<ElsewhereRead> {
   const tried: { machine: string; said: string }[] = [];
   for (const machine of await machinesToAsk(outlines, first)) {
     try {
-      const read = await askMachine<MediaRead>(outlines, machine, { action: "media.read", path }, 60_000);
+      const read = await askMachine<MediaRead>(outlines, machine, { action: "media.read", path, ...(artifact ? { artifact: true } : {}) }, 60_000);
       return { found: { ...read, machine } };
     } catch (error) {
       tried.push({ machine, said: error instanceof MachineUnreachable ? "not answering" : error instanceof Error ? error.message : String(error) });

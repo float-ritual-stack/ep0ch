@@ -27,7 +27,8 @@ import { packTar } from "./artifact-archive";
 import { folderFingerprint, readFolderArtifact } from "./artifact-store";
 import { resolveReferencedPath } from "./files";
 import { MediaBucket, mediaBucketConfig, type MediaBucketConfig } from "./media-bucket";
-import { MAX_PUBLISHED_IMAGE_BYTES, PUBLISHED_IMAGE_TYPES } from "./publish-attachments";
+import { hiddenPath, MAX_PUBLISHED_IMAGE_BYTES, PUBLISHED_IMAGE_TYPES } from "./publish-attachments";
+import { realpathSync } from "node:fs";
 import type { OutlinerStore } from "./store";
 
 interface Row { path: string; sha256: string; mime: string; bytes: number; mtime_ns: string; block_id: string; copied_at: string | null; error: string | null }
@@ -54,6 +55,16 @@ export function copyKind(path: string, folders = false): { mime: string; cap: nu
   return null;
 }
 
+/**
+ * Why an artifact line's path is never copied: it, or what a link in it leads to, is hidden (the attachments' rule,
+ * `hiddenPath`). Undefined when it isn't, or isn't there to look at. A picture keeps PIE-1634's rule: copied wherever it is.
+ */
+export function hiddenArtifact(path: string): string | undefined {
+  let real: string;
+  try { real = realpathSync(path); } catch { return hiddenPath(path) ? `${path} is hidden (a name starting with “.” on its way): an artifact line never copies it, so move it somewhere visible` : undefined; }
+  return hiddenPath(real) ? `${path} is hidden (${real === path ? "a name starting with “.” on its way" : `it leads to ${real}`}): an artifact line never copies it, so move it somewhere visible` : undefined;
+}
+
 /** A folder's files packed the same way every time, and what tells when they changed without reading them. */
 const packFolder = (path: string) => packTar(readFolderArtifact(path));
 
@@ -61,8 +72,10 @@ const packFolder = (path: string) => packTar(readFolderArtifact(path));
  * The file at absolute `path` on this machine's disk, read whole: what a host answers another machine's `media.read`
  * with (no outline: its disk alone, never its bucket). Throws saying why it can't.
  */
-export function readMachineFile(path: string, machine?: string): MediaRead {
+export function readMachineFile(path: string, machine?: string, artifact = false): MediaRead {
   if (!isAbsolute(path)) throw new Error(`${path} isn't a path on a machine (it needs to start with /)`);
+  const hidden = artifact ? hiddenArtifact(path) : undefined;
+  if (hidden) throw new Error(hidden);
   const kind = copyKind(path, true);
   if (!kind) throw new Error(`${path} isn't a picture or a page`);
   let size: number;
@@ -84,7 +97,7 @@ export interface MediaCopierOptions {
   /** A read-only copy of an outline: it answers from the records it carries and never writes one. */
   readOnly?: boolean;
   /** Asks the machines this one reaches for a file that isn't on its disk (artifact-machine.ts `readElsewhere`). */
-  elsewhere?: (path: string) => Promise<ElsewhereRead>;
+  elsewhere?: (path: string, artifact: boolean) => Promise<ElsewhereRead>;
   /** Which absolute paths are on this machine's disk: all of them, unless a test's two machines share one. */
   filesHere?: (path: string) => boolean;
 }
@@ -193,6 +206,9 @@ export class MediaCopier {
   private async copyOne(blockId: string, path: string, ask: boolean, refresh: boolean, folders = false): Promise<CopyOutcome> {
     const kind = copyKind(path, folders);
     if (!kind) return { problem: `${path} isn't a picture or a page` };
+    // `folders`: an artifact line names it, so nothing hidden is copied (a picture line's svg still is).
+    const hidden = folders ? hiddenArtifact(path) : undefined;
+    if (hidden) return { problem: hidden };
     let stat;
     try { stat = this.here(path) ? statSync(path, { bigint: true }) : undefined; } catch { /* not on this machine */ }
     if (!stat) {
@@ -200,7 +216,7 @@ export class MediaCopier {
       if (!ask || !this.options.elsewhere) return row ? { row } : {};
       // A save asks that machine again (the file may have changed there); a show takes the copy it has.
       if (row?.mtime_ns.startsWith("@") && !refresh && (row.copied_at || !this.hasBucket())) return { row };
-      const asked = await this.options.elsewhere(path);
+      const asked = await this.options.elsewhere(path, folders);
       if ("tried" in asked) return row?.copied_at ? { row, tried: asked.tried } : { tried: asked.tried };
       const bytes = Buffer.from(asked.found.base64, "base64");
       if (bytes.length > kind.cap) return { problem: `${path} is ${bytes.length} bytes on ${asked.found.machine}, over the ${kind.cap} a copy holds` };

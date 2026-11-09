@@ -290,3 +290,29 @@ test("a laptop with no bucket keys hands the file to the hub itself, and the hub
     Object.assign(process.env, saved);
   }
 });
+
+test("an artifact in a hidden file or folder, or a link into one, is refused and never copied; a picture there still is", async () => {
+  const secret = join(laptopDisk, ".ssh", "panel.html"), link = join(laptopDisk, "visible-panel.html");
+  const elsewhereSecret = join(otherDisk, ".cache", "panel.html"), site = join(laptopDisk, ".sites", "moth");
+  mkdirSync(join(laptopDisk, ".ssh"), { recursive: true }); mkdirSync(join(otherDisk, ".cache"), { recursive: true }); mkdirSync(site, { recursive: true });
+  const body = "<!doctype html><title>Fictional private panel</title>";
+  writeFileSync(secret, body); writeFileSync(elsewhereSecret, `${body} elsewhere`); writeFileSync(join(site, "index.html"), `${body} site`);
+  symlinkSync(secret, link);
+  const thumbs = join(laptopDisk, ".thumbs");
+  mkdirSync(thumbs, { recursive: true });
+  const moth = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 7]);
+  writeFileSync(join(thumbs, "moth.png"), moth);
+  const hash = (bytes: string | Uint8Array) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  await write(`Panels\n[artifact::${secret}]\n[artifact::${link}]\n[artifact::${elsewhereSecret}]\n[artifact::${site}]\n[img::${join(thumbs, "moth.png")}]`);
+  await (await laptop.open("notes")).server.media.settled();
+  for (const path of [secret, link, elsewhereSecret, site]) {
+    const said = await show(path).then(() => "", (error: Error) => error.message);
+    expect(said).toContain(path);
+    expect(said).toContain("hidden");
+  }
+  for (const bytes of [body, `${body} elsewhere`]) expect(s3.puts).not.toContain(`sha256/${hash(bytes)}`);
+  // The hub won't hand over a hidden page to another machine either.
+  expect(await hubClient.request({ action: "media.read", path: elsewhereSecret, artifact: true } as never).then(() => "", (error: Error) => error.message)).toContain("hidden");
+  // A picture in a hidden folder is copied as PIE-1634 copies pictures.
+  expect(s3.puts).toContain(`sha256/${hash(moth)}`);
+});

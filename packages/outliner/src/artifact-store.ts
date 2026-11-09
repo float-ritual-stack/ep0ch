@@ -7,6 +7,7 @@ import { join, dirname, extname, basename, resolve, isAbsolute } from "node:path
 import { ArtifactCompiler, fileArtifactPage, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactCopy, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { MediaBucket, mediaBucketConfig } from "./media-bucket";
+import { hiddenPath } from "./publish-attachments";
 import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
 import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, DROP_FILE_KINDS, type ArrivalKind, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip, packTar, stripRoot, unzip } from "./artifact-archive";
@@ -415,7 +416,7 @@ export class ArtifactStore {
     let fingerprint: { dev: number; ino: number; size: number; mtime: number };
     try {
       canonical = realpathSync(path);
-      if (lstatSync(canonical).isDirectory() && !canonical.split("/").some(part => part.startsWith("."))) {
+      if (lstatSync(canonical).isDirectory() && !hiddenPath(canonical)) {
         const files = readFolderArtifact(canonical), folderHash = new Bun.CryptoHasher("sha256").update(packTar(files)).digest("hex");
         if (entry?.hash !== folderHash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files"))) {
           await this.put(name, files);
@@ -425,7 +426,7 @@ export class ArtifactStore {
         } else if (entry.gone) { delete entry.gone; save(); }
         return this.info(`${name}@${entry.version}`);
       }
-      if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`${canonical} is hidden (a name starting with “.” on its way), which an artifact line doesn't read: move it somewhere visible.`);
+      if (hiddenPath(canonical)) throw new Error(`${canonical} is hidden (a name starting with “.” on its way), which an artifact line doesn't read: move it somewhere visible.`);
       const fd = openSync(canonical, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = fstatSync(fd);

@@ -10,7 +10,7 @@ export interface MediaCopiesRequest { action: "media.copies"; paths: string[]; p
  * to a host with no `outline`, it answers from its machine's disk alone (an absolute path): how one machine asks another
  * for a file a note names that isn't on its own.
  */
-export interface MediaReadRequest { action: "media.read"; path: string }
+export interface MediaReadRequest { action: "media.read"; path: string; /** An artifact line's path: refused when hidden (a picture's isn't). */ artifact?: boolean }
 export type MediaRequest = MediaCopiesRequest | MediaReadRequest;
 
 /** One picture's copy, by the path as asked. `copied` false: recorded, the upload not landed (`error` says why when it failed). */

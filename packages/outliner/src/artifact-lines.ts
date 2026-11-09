@@ -39,7 +39,7 @@ export function lineCopier(store: OutlinerStore, options: { readOnly: boolean; o
   const outlines = options.outlinesFolder;
   return new MediaCopier(store, {
     readOnly: options.readOnly, log: (line) => console.error(line), ...(options.filesHere ? { filesHere: options.filesHere } : {}),
-    ...(outlines ? { elsewhere: (path: string) => readElsewhere(outlines, path, artifactMachine(outlines)) } : {}),
+    ...(outlines ? { elsewhere: (path: string, artifact: boolean) => readElsewhere(outlines, path, artifactMachine(outlines), artifact) } : {}),
   });
 }
 
@@ -95,7 +95,7 @@ async function showArtifact(host: ArtifactLineHost, store: string | null, reques
     catch (error) { if (!(error instanceof Error && error.message.includes(COPY_NEEDS_BYTES))) throw error; }
     let bytes = copy.bytes;
     if (!bytes) {
-      const read = machine === here ? readMachineFile(copy.path) : await askMachine<MediaRead>(host.outlinesFolder!, machine, { action: "media.read", path: copy.path }, 60_000);
+      const read = machine === here ? readMachineFile(copy.path, undefined, true) : await askMachine<MediaRead>(host.outlinesFolder!, machine, { action: "media.read", path: copy.path, artifact: true }, 60_000);
       bytes = Buffer.from(read.base64, "base64");
     }
     const sha256 = createHash("sha256").update(bytes).digest("hex");

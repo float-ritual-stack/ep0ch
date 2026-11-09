@@ -964,7 +964,7 @@ export class OutlineHost {
       }
       try {
         const result = artifact ? await this.artifactRequest(request as unknown as ArtifactRequest)
-          : machineFile ? readMachineFile(String(request.path), localMachineName(this.outlinesFolder))
+          : machineFile ? readMachineFile(String(request.path), localMachineName(this.outlinesFolder), request.artifact === true)
           : await this.handleHostAction(request);
         this.reply(socket, { id, ok: true, result, sequence: 0 });
       } catch (error) {
