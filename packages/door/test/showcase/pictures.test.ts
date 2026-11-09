@@ -23,8 +23,12 @@ describe("showcase: pictures", () => {
     await act("section.try", { name: "pictures" });
     const d = stage();
     await until(() => !!reader()?.msg, "the pictures note in the reader");
-    // Tall enough for the whole note: every picture in view.
-    const draw = (w = 96) => reader().render(w, 300, false, d);
+    // The reader zoomed, so its pictures have the room to step; drawn at the tile's own width (the door paints it there too, whenever it likes: a fence's picture is laid out per
+    // width, so a second width would be a second picture and a paint between two lines would let the [ ] position go);
+    // tall enough for the whole note: every picture in view.
+    const tileCols = () => { const s = d as any; s.render(s.ctx); const id = [...s.panes].find(([, p]) => p === reader())![0]; return s.views.get(id).cols as number; };
+    const draw = (w = tileCols()) => reader().render(w, 300, false, d);
+    await act("tile.zoom", { on: true }, "reader");
     const keys = () => (draw().placements ?? []).map(p => p.key);
     // The header (the render line's svg, [layout::hero]), three cards, three mermaid diagrams, three svg fences, the svg file.
     try { await until(() => keys().some(k => k.startsWith("hero")) && keys().length >= 12, "the header and eleven pictures placed", 20_000); }
@@ -98,6 +102,8 @@ describe("showcase: pictures", () => {
     await until(() => draw().lines.map(visible).some(l => l.includes("▣ svg picture: 360×90") && l.includes("10 rows")), "the caption at 10 rows, by its [+]");
     const row = ((await act("elements", {}, "reader")).elements as { n: number; label: string }[]).find(e => e.label === "svg picture")!;
     await act("element.select", { n: row.n }, "reader");
+    // The door paints its tiles whenever it likes (on a busy box, between the select and the next line): the selection holds.
+    (d as any).render((d as any).ctx);
     draw();
     expect(reader().surface.imageKeyOf({ kind: "char", ch: "-" })).toBe(true);
     await act("image.size", { by: -1 }, "reader");
