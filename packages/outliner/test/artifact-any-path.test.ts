@@ -5,7 +5,7 @@
 // is told which absolute paths are on its own disk (`filesHere`), so a file "on another machine" is one it can't see.
 // Never a real outline, machine or bucket.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
@@ -15,6 +15,7 @@ import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { OutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
 import { Publisher } from "../src/publish";
+import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 import { fakeS3, type FakeS3 } from "./fake-s3";
@@ -33,7 +34,7 @@ let laptop: OutlineHost;
 let client: OutlinerClient;
 let hubClient: OutlinerClient;
 let publisher: Publisher;
-const keys = ["EP0CH_MEDIA_BUCKET", "EP0CH_MEDIA_ENDPOINT", "EP0CH_MEDIA_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "WITH_SECRETS_DIR", "EP0CH_ARTIFACT_ORIGIN", "EP0CH_WEB_URL", "EP0CH_MACHINE_NAME", "EP0CH_ARTIFACT_MACHINE"] as const;
+const keys = ["EP0CH_MEDIA_BUCKET", "EP0CH_MEDIA_ENDPOINT", "EP0CH_MEDIA_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "WITH_SECRETS_DIR", "EP0CH_ARTIFACT_ORIGIN", "EP0CH_WEB_URL", "EP0CH_MACHINE_NAME", "EP0CH_ARTIFACT_MACHINE", "EP0CH_SSH", "EP0CH_OUTLINES"] as const;
 const was = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 
 beforeAll(async () => {
@@ -189,4 +190,59 @@ test("a folder on another machine runs whole: its index and what it loads, copie
   const repainted = await show(site, { owner: true });
   expect(repainted.version).toBe(info.version! + 1);
   expect(await (await follow(repainted.frame!.replace(/\/$/, "/css/wing.css"))).text()).toContain("#2a2a28");
+});
+
+test("the store's machine not answering says so on the card, once, never the link's repair steps", async () => {
+  const machineFile = join(laptopOutlines, ".host", "artifact-machine");
+  // A machine with no forward up, and an ssh that can't reach it.
+  const ssh = join(root, "no-ssh");
+  writeFileSync(ssh, "#!/bin/sh\nexit 255\n"); chmodSync(ssh, 0o755);
+  process.env.EP0CH_SSH = ssh;
+  writeFileSync(machineFile, "dusk\n");
+  try {
+    const said = await show("orrery").then(() => "", (error: Error) => error.message);
+    expect(said).toBe("orrery runs from dusk, where laptop's artifacts are kept, and dusk isn't answering now: it shows once dusk is back");
+    // Asked again straight away (a drawn card asks every few seconds): no new connection is tried.
+    const started = Date.now();
+    expect(await show("orrery").then(() => "", (error: Error) => error.message)).toBe(said);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    const gone = join(root, "nowhere", "dusk-page.html");
+    const path = await show(gone).then(() => "", (error: Error) => error.message);
+    // The hub, whose forward is up, is asked too.
+    expect(path).toContain("isn't on laptop or hub, and dusk isn't answering to ask: it shows once dusk is back.");
+    for (const message of [said, path]) expect(message).not.toMatch(/ssh|install|EP0CH_|link status/);
+  } finally {
+    writeFileSync(machineFile, "hub\n");
+    delete process.env.EP0CH_SSH;
+  }
+});
+
+test("a file with no extension isn't taken for a folder, and another machine won't hand one over", async () => {
+  const readme = join(laptopDisk, "README");
+  writeFileSync(readme, "made-up notes, not a page");
+  await write(`Readme\n[artifact::${readme}]`);
+  expect(await show(readme).then(() => "", (error: Error) => error.message)).toBe(`${readme} isn't a page an artifact line runs`);
+  const asked = await hubClient.request({ action: "media.read", path: readme } as never).then(() => "", (error: Error) => error.message);
+  expect(asked).toBe(`${readme} isn't a picture or a page`);
+});
+
+test("while the laptop sleeps, its read-only copy runs the same artifacts from the hub's own store", async () => {
+  // The hub follows a copy of the laptop's outline (outline-mirror.ts): the records it carries name the bucket copies.
+  const mirror = join(root, "m"), copyFile = join(mirror, "notes.sqlite");
+  mkdirSync(join(mirror, ".host"), { recursive: true, mode: 0o700 });
+  (await laptop.open("notes")).store.database.exec(`VACUUM INTO '${copyFile}'`);
+  process.env.EP0CH_OUTLINES = hubOutlines;
+  const store = new OutlinerStore(copyFile, { workspaceRoot: join(mirror, "notes") });
+  const server = new OutlinerServer(store, join(mirror, ".host", "notes.sock"), undefined, undefined, { readOnly: true, copy: { address: "notes@laptop", state: join(mirror, "state") }, outlinesFolder: mirror });
+  await server.start();
+  try {
+    const copy = new OutlinerClient(join(mirror, ".host", "notes.sock"), 30_000);
+    const path = join(otherDisk, "flat lantern _ eden.html");
+    const [fromLaptop, fromCopy] = await Promise.all([show(path), copy.request<ArtifactInfo>({ action: "artifacts.show", name: path, frame: { owner: true } } as never, 60_000)]);
+    expect(`${fromCopy.name}@${fromCopy.version}`).toBe(`${fromLaptop.name}@${fromLaptop.version}`);
+    expect(await (await follow(fromCopy.frame!)).text()).toBe(PAGE);
+    expect((await copy.request<ArtifactInfo>({ action: "artifacts.show", name: "orrery" } as never)).name).toBe("orrery");
+  } finally {
+    await server.close(); store.close();
+  }
 });

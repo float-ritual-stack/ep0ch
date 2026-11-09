@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { artifactKind } from "@ep0ch/outline-core/media-line";
-import { artifactMachine, askMachine, readElsewhere } from "./artifact-machine";
+import { artifactMachine, askMachine, MachineUnreachable, readElsewhere } from "./artifact-machine";
 import type { ArtifactStore } from "./artifact-store";
 import { localMachineName } from "./machine-name";
 import { MediaCopier } from "./media-copies";
@@ -24,6 +24,11 @@ export interface ArtifactLineHost {
   artifacts(): ArtifactStore;
   /** Which absolute paths are on this machine's disk (a test's two machines share one). */
   filesHere?: (path: string) => boolean;
+  /**
+   * A read-only copy of another machine's outline (a laptop's, while it sleeps): that machine's name. Its lines are
+   * answered from this machine's own store and the copies its records name, never from this disk.
+   */
+  copyOf?: string;
 }
 
 /** The outline's media copier: pictures and artifact files, and the machines it asks for a file that isn't here. */
@@ -52,9 +57,13 @@ type Show = Extract<ArtifactRequest, { action: "artifacts.show" }>;
 const either = (names: string[]) => names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names[0]!;
 
 async function showArtifact(host: ArtifactLineHost, store: string | null, request: Show): Promise<ArtifactInfo> {
-  const here = localMachineName(host.outlinesFolder), workspace = host.store.workspaceRoot, asked = request.name.trim();
+  const here = host.copyOf ?? localMachineName(host.outlinesFolder), workspace = host.store.workspaceRoot, asked = request.name.trim();
   const local = (input: Show) => host.artifacts().request(input, workspace, host.outline) as Promise<ArtifactInfo>;
-  const ask = (input: Show) => store ? askMachine<ArtifactInfo>(host.outlinesFolder!, store, input as never) : local(input);
+  // The store's machine not answering is said as what it means for this line, never as the link's own repair steps.
+  const ask = (input: Show) => !store ? local(input) : askMachine<ArtifactInfo>(host.outlinesFolder!, store, input as never).catch((error: unknown) => {
+    if (error instanceof MachineUnreachable) throw new Error(`${asked} runs from ${store}, where ${here}'s artifacts are kept, and ${store} isn't answering now: it shows once ${store} is back`);
+    throw error;
+  });
   // A share's frame from another machine's store names this outline there, so that store's host asks here whether it's open.
   const frame = request.frame && store && "share" in request.frame && host.outline ? { share: { ...request.frame.share, outline: `${host.outline}@${here}` } } : request.frame;
   const framed = frame ? { frame } : {};
@@ -71,18 +80,21 @@ async function showArtifact(host: ArtifactLineHost, store: string | null, reques
   }
   // A file on the store's own machine runs from there as it always has, bucket or none.
   const path = host.media.resolve(asked);
-  if (!store && path && (host.filesHere?.(path) ?? true) && existsSync(path)) return local({ ...request, ...framed });
+  if (!store && !host.copyOf && path && (host.filesHere?.(path) ?? true) && existsSync(path)) return local({ ...request, ...framed });
   const copy = await host.media.ensure(asked);
   const from = (mtime: string) => mtime.startsWith("@") ? mtime.slice(1) : here;
   if (copy.row?.copied_at && copy.path) return ask({ action: "artifacts.show", name: asked, ...framed, copy: { machine: from(copy.row.mtime_ns), path: copy.path, sha256: copy.row.sha256 } });
   // Found but not copied: no bucket, or an upload that failed. The store's own machine still runs a file it read.
   if (copy.row) {
-    if (!store) return local({ ...request, ...framed });
+    if (!store && !host.copyOf) return local({ ...request, ...framed });
     throw new Error(`${asked} is on ${from(copy.row.mtime_ns)}, but it can't reach ${store}, where artifacts run: ${copy.row.error ?? host.media.bucketProblem() ?? "its copy hasn't landed yet; try again in a moment"}`);
   }
   if (copy.problem) throw new Error(copy.problem);
   // The store's record of a path that has gone (its last snapshot, with a warning) still answers.
-  if (!store) { try { return await local({ ...request, ...framed }); } catch { /* said below */ } }
-  const tried = [here, ...(copy.tried ?? []).map(row => row.machine)];
-  throw new Error(`${asked} isn't on ${either(tried)}${isAbsolute(asked) ? "" : ` (a path that doesn't start with / is looked for on ${here} only)`}: ${tried.length > 1 ? "put the file on one of them" : `put the file there`}, or write its path on the machine that has it.`);
+  if (!store && !host.copyOf) { try { return await local({ ...request, ...framed }); } catch { /* said below */ } }
+  const asleep = (copy.tried ?? []).filter(row => row.said === "not answering").map(row => row.machine);
+  const tried = [...(host.copyOf ? [] : [here]), ...(copy.tried ?? []).map(row => row.machine).filter(machine => !asleep.includes(machine))];
+  const where = tried.length ? `${asked} isn't on ${either(tried)}` : `${asked} can't be found`;
+  if (asleep.length) throw new Error(`${where}, and ${either(asleep)} ${asleep.length > 1 ? "aren't" : "isn't"} answering to ask: it shows once ${asleep.length > 1 ? "they're" : `${asleep[0]} is`} back.`);
+  throw new Error(`${where}${isAbsolute(asked) ? "" : ` (a path that doesn't start with / is looked for on ${here} only)`}: ${tried.length > 1 ? "put the file on one of them" : "put the file there"}, or write its path on the machine that has it.`);
 }

@@ -28,10 +28,26 @@ export function artifactMachine(outlines: string, env: NodeJS.ProcessEnv = proce
 
 /** How long an artifact asked of the store's machine may take: a first import compiles. */
 const ASK_MS = 120_000;
+/** How long a machine that couldn't be reached isn't tried again: a drawn card asks every few seconds. */
+const UNREACHABLE_MS = 30_000;
+const unreachable = new Map<string, { at: number; said: string }>();
+
+/** A machine whose host couldn't be reached (asleep, off its network, restarting); `said` is the link's own reason. */
+export class MachineUnreachable extends Error {
+  constructor(readonly machine: string, readonly said: string) { super(`${machine} isn't answering: ${said}`); }
+}
 
 /** `request` answered by `machine`'s host, through its forward (started when nobody has). */
 export async function askMachine<T>(outlines: string, machine: string, request: Record<string, unknown>, timeoutMs = ASK_MS): Promise<T> {
-  const { socket } = await forwardFor(machine, outlines);
+  const key = `${outlines}\0${machine}`, known = unreachable.get(key);
+  if (known && Date.now() - known.at < UNREACHABLE_MS) throw new MachineUnreachable(machine, known.said);
+  let socket: string;
+  try { ({ socket } = await forwardFor(machine, outlines)); unreachable.delete(key); }
+  catch (error) {
+    const said = error instanceof Error ? error.message : String(error);
+    unreachable.set(key, { at: Date.now(), said });
+    throw new MachineUnreachable(machine, said);
+  }
   const { id: _id, outline: _outline, ...rest } = request;
   return new OutlinerClient(socket, timeoutMs).request<T>(rest as never, timeoutMs);
 }
@@ -66,7 +82,7 @@ export async function readElsewhere(outlines: string, path: string, first: strin
       const read = await askMachine<MediaRead>(outlines, machine, { action: "media.read", path }, 60_000);
       return { found: { ...read, machine } };
     } catch (error) {
-      tried.push({ machine, said: error instanceof Error ? error.message : String(error) });
+      tried.push({ machine, said: error instanceof MachineUnreachable ? "not answering" : error instanceof Error ? error.message : String(error) });
     }
   }
   return { tried };

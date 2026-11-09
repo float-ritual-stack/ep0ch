@@ -42,15 +42,15 @@ const ARTIFACT_TYPES: Readonly<Record<string, string>> = {
 const FOLDER_TYPE = "application/x-tar";
 
 /**
- * What the bucket keeps a path as: a picture, an artifact file or (no extension) a folder that runs whole, its type and
- * the most it copies; null for anything else.
+ * What the bucket keeps a path as: a picture, an artifact file or, when an artifact line names it (`folders`) and it has
+ * no extension, a folder that runs whole; its type and the most it copies. Null for anything else.
  */
-export function copyKind(path: string): { mime: string; cap: number; artifact: boolean; folder?: true } | null {
+export function copyKind(path: string, folders = false): { mime: string; cap: number; artifact: boolean; folder?: true } | null {
   const extension = extname(path).toLowerCase();
   const picture = PUBLISHED_IMAGE_TYPES[extension];
   if (picture) return { mime: picture, cap: MAX_PUBLISHED_IMAGE_BYTES, artifact: !!artifactKind(path) };
   if (artifactKind(path)) return { mime: ARTIFACT_TYPES[extension] ?? "text/plain; charset=utf-8", cap: artifactLimit(), artifact: true };
-  if (!extension) return { mime: FOLDER_TYPE, cap: artifactLimit(), artifact: true, folder: true };
+  if (folders && !extension) return { mime: FOLDER_TYPE, cap: artifactLimit(), artifact: true, folder: true };
   return null;
 }
 
@@ -63,15 +63,16 @@ const packFolder = (path: string) => packTar(readFolderArtifact(path));
  */
 export function readMachineFile(path: string, machine?: string): MediaRead {
   if (!isAbsolute(path)) throw new Error(`${path} isn't a path on a machine (it needs to start with /)`);
-  const kind = copyKind(path);
+  const kind = copyKind(path, true);
   if (!kind) throw new Error(`${path} isn't a picture or a page`);
   let size: number;
   try {
     const stat = statSync(path);
     if (kind.folder && stat.isDirectory()) return { path, mime: kind.mime, from: "file", base64: packFolder(path).toString("base64"), ...(machine ? { machine } : {}) };
+    if (kind.folder) throw new Error(`${path} isn't a picture or a page`);
     if (!stat.isFile()) throw new Error("not a file");
     size = stat.size;
-  } catch (error) { throw new Error(kind.folder && error instanceof Error && !/ENOENT|not a file/.test(error.message) ? error.message : `${path} isn't on ${machine ?? "this machine"}`); }
+  } catch (error) { throw new Error(error instanceof Error && !/ENOENT|ENOTDIR|not a file/.test(error.message) ? error.message : `${path} isn't on ${machine ?? "this machine"}`); }
   if (size > kind.cap) throw new Error(`${path} is ${size} bytes, over the ${kind.cap} a copy holds`);
   return { path, mime: kind.mime, from: "file", base64: readFileSync(path).toString("base64"), ...(machine ? { machine } : {}) };
 }
@@ -140,7 +141,8 @@ export class MediaCopier {
   blockChanged(blockId: string): void {
     if (this.options.readOnly) return;
     const text = this.store.get(blockId)?.text;
-    const paths = text ? [...notePicturePaths(text), ...noteArtifactPaths(text)] : [];
+    // An artifact line's path may be a folder; a picture's never is.
+    const paths: [string, boolean][] = text ? [...notePicturePaths(text).map(path => [path, false] as [string, boolean]), ...noteArtifactPaths(text).map(path => [path, true] as [string, boolean])] : [];
     if (!paths.length) return;
     this.queue = this.queue.then(() => this.copyAll(blockId, paths)).catch((error) => this.log(`media: ${error instanceof Error ? error.message : String(error)}`));
   }
@@ -158,7 +160,7 @@ export class MediaCopier {
     if (!path) return { path, problem: `${written} isn't a path this outline can name` };
     if (this.options.readOnly) { const row = this.row(path); return { path, ...(row ? { row } : { problem: "this copy of the outline holds no copy of it" }) }; }
     let outcome: CopyOutcome = {};
-    const run = this.queue.then(async () => { outcome = await this.copyOne(blockId, path, isAbsolute(written.trim()), false); });
+    const run = this.queue.then(async () => { outcome = await this.copyOne(blockId, path, isAbsolute(written.trim()), false, true); });
     this.queue = run.catch((error) => this.log(`media: ${error instanceof Error ? error.message : String(error)}`));
     await run;
     return { path, ...outcome };
@@ -168,10 +170,13 @@ export class MediaCopier {
     return this.store.database.query("SELECT * FROM media_copies WHERE path = ?").get(path) as Row | null;
   }
 
-  private async copyAll(blockId: string, paths: readonly string[]): Promise<void> {
-    for (const written of new Set(paths)) {
+  private async copyAll(blockId: string, paths: readonly [string, boolean][]): Promise<void> {
+    const seen = new Set<string>();
+    for (const [written, folders] of paths) {
       const path = this.resolve(written);
-      if (path) await this.copyOne(blockId, path, isAbsolute(written.trim()), true);
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      await this.copyOne(blockId, path, isAbsolute(written.trim()), true, folders);
     }
   }
 
@@ -179,14 +184,15 @@ export class MediaCopier {
    * One path copied: the file here, else (when `ask`, an absolute path) the first machine that has it. `refresh`: ask
    * that machine again though a copy from it landed already (a save; a show takes the copy it has).
    */
-  private async copyOne(blockId: string, path: string, ask: boolean, refresh: boolean): Promise<CopyOutcome> {
-    const kind = copyKind(path);
+  private async copyOne(blockId: string, path: string, ask: boolean, refresh: boolean, folders = false): Promise<CopyOutcome> {
+    const kind = copyKind(path, folders);
     if (!kind) return { problem: `${path} isn't a picture or a page` };
     let stat;
     try { stat = this.here(path) ? statSync(path, { bigint: true }) : undefined; } catch { /* not on this machine */ }
     if (!stat) {
       const row = this.row(path);
       if (!ask || !this.options.elsewhere) return row ? { row } : {};
+      // A save asks that machine again (the file may have changed there); a show takes the copy it has.
       if (row?.copied_at && row.mtime_ns.startsWith("@") && !refresh) return { row };
       const asked = await this.options.elsewhere(path);
       if ("tried" in asked) return row?.copied_at ? { row, tried: asked.tried } : { tried: asked.tried };
@@ -200,7 +206,7 @@ export class MediaCopier {
       try { return await this.record(blockId, path, packFolder(path), kind.mime, fingerprint, row); }
       catch (error) { return { problem: error instanceof Error ? error.message : String(error) }; }
     }
-    if (!stat.isFile()) return { problem: `${path} isn't a file` };
+    if (kind.folder || !stat.isFile()) return { problem: `${path} isn't a ${kind.folder ? "page an artifact line runs" : "file"}` };
     if (stat.size > BigInt(kind.cap)) return { problem: `${path} is ${stat.size} bytes, over the ${kind.cap} a copy holds` };
     const mtime = stat.mtimeNs.toString(), size = Number(stat.size);
     const row = this.row(path);

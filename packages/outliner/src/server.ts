@@ -116,7 +116,7 @@ import { answerMarks } from "./marks";
 import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
 import { WorkflowManager } from "./workflows";
-import { boundFolderOf } from "./paths";
+import { boundFolderOf, resolveOutlinesFolder } from "./paths";
 import {
   type OutlinerServiceOutline,
   type OutlinerHostStatus,
@@ -2099,8 +2099,8 @@ export class OutlinerServer {
     return { id: request.id, ok: true, result, sequence: this.store.sequence };
   }
 
-  /** The artifact store beside this outline's (the machine's one, in the outlines folder), and what answers its artifact lines (artifact-lines.ts). */
-  private artifacts(): ArtifactStore { return this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename)); } private artifactLines(): ArtifactLineHost { return { store: this.store, outlinesFolder: this.outlinesFolder, outline: this.outline?.name, media: this.media, artifacts: () => this.artifacts(), filesHere: this.filesHere }; }
+  /** The artifact store beside this outline's (the machine's one, in the outlines folder; a copy's, this machine's own), and what answers its artifact lines (artifact-lines.ts). */
+  private artifacts(): ArtifactStore { return this.artifactStore ??= new ArtifactStore(this.copy ? resolveOutlinesFolder() : this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename)); } private artifactLines(): ArtifactLineHost { return { store: this.store, outlinesFolder: this.outlinesFolder, outline: this.outline?.name, media: this.media, artifacts: () => this.artifacts(), filesHere: this.filesHere, ...(this.copy ? { copyOf: this.copy.address.split("@")[1] } : {}) }; }
 
   private async handleAsyncOnce(
     request: OutlinerRequest,
