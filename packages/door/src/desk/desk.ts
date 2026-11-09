@@ -4711,7 +4711,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), { prefers: "width", needs: { cols: LIST_COLS, rows: MIN_ROWS } }, actor);
       // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
       const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
-      if (made !== undefined) this.openedBy(made, at);
+      if (made !== undefined && this.panes.has(at)) this.openedBy(made, at);   // an empty desk has no tile to give the keys back to
       return done;
     }
     const p = this.panes.get(have) as KeysPane;
