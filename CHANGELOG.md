@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Marks live in the outline: mark in one door, see it in every door (PIE-1237)
+
+- **`alt+m` marks the note in front of you,** or takes your own mark off. Every door showing that note draws `◆ marked · by you`. `alt+'` jumps to the next mark (it was `alt+m`).
+- **Other ways to mark:** the tile menu's "mark this note", `ep0ch mark <note> [--reason]`, and agents through `outline_mark`. A mark with a reason is a "look here" from whoever left it.
+- **In any view:** `marked:today`, `marked:-7d`, `marked-by:me` and `marked-since:<date>`. Look-here marks stay out of them.
+- **Run:** `ep0ch install --apply` (PROTOCOL 315, GRAMMAR 42; it migrates each outline to schema 10). The door's old `marks.json` is no longer read.
+
+### A note's pictures are copied to a bucket and every page serves them (PIE-1634)
+
+- **Pictures show wherever the page is:** saving a note copies each picture it names to a private bucket, keyed by its content. Published pages, shares and `/o/<outline>` pages serve them from there through a short-lived link, so publish roots no longer matter for them.
+- **Another machine's pictures:** a door shows a picture whose file is on the outline's machine by asking that host.
+- **Run:** `ep0ch install --apply` (PROTOCOL 314; schema 9), and put `EP0CH_MEDIA_BUCKET` and `EP0CH_MEDIA_ENDPOINT` in the machine's `hetzner-s3` secrets. A note you haven't saved since copies its pictures on its next save.
+
 ### A picture a page can't show tells you why (PIE-1633)
 
 - **Signed in, the page says what to fix:** a published picture outside the publisher's roots, missing, of a type it doesn't serve, or on another machine's service says so where it would be drawn. Outside the roots, it names the `--root <folder>` to add and the `systemctl --user restart <unit>` for that publisher.
