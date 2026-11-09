@@ -402,6 +402,12 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     } finally { key({ kind: "esc" }); }
     await until(() => focusedKind() !== "keys", "closed");
   });
+  test("? on a desk with no tiles opens the keys window, with no error", async () => {
+    for (const id of [...desk().tiles()]) await desk().dispatch.act({ action: "tile.close", args: {}, tile: desk().nameOf(id.id ?? id) }, USER).catch(() => {});
+    await until(() => tiles() === 0, "an empty desk");
+    await shell("keys.open", {});
+    await until(() => tiles() === 1 && focusedKind() === "keys", "the keys tile on the empty desk");
+  });
 });
 
 test("? on a river column opens on the river's keys, its h l x p among them; in an edit, the note's (PIE-1425)", async () => {
