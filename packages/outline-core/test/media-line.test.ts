@@ -1,6 +1,7 @@
 // The media line's grammar is shared (PIE-598): the service's property parser and every client agree on it.
 import { describe, expect, test } from "bun:test";
-import { artifactKind, artifactRepoRef, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseImageLine, parseMediaLine, parsePictureFence, rewriteImageLine, rewritePictureFence, rewriteMediaLine, withHeroLine } from "../src/media-line";
+import { artifactFolderPath, artifactKind, artifactRepoRef, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseImageLine, parseMediaLine, parsePictureFence, rewriteImageLine, rewritePictureFence, rewriteMediaLine, withHeroLine } from "../src/media-line";
+import { noteArtifactPaths } from "../src/picture-address";
 
 test("a media line is an image or video reference and its layout, nothing else", () => {
   expect(isMediaLine("[img::/p/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]")).toBe(true);
@@ -138,4 +139,15 @@ describe("the size word on a picture fence (PIE-1583)", () => {
     expect(rewriteImageLine("[img::beds.png]", { height: "4" })).toBe("[img::beds.png] [height::4]");
     expect(rewriteImageLine("plain words", { height: "4" })).toBeNull();
   });
+});
+
+test("an artifact line names a folder that runs whole by its path from / or ~, and the media bucket copies it (PIE-1644)", () => {
+  for (const value of ["/srv/sites/moth site", "~/sites/lantern/", "/srv/sites/lantern/"]) {
+    expect(artifactFolderPath(value)).toBe(true);
+    expect(parseMediaLine(`[artifact::${value}]`)?.problems).toEqual([]);
+  }
+  // A relative path with no extension is a stored name or a repo, never a folder; a file keeps its kind.
+  for (const value of ["lantern", "owner/lantern", "/srv/notes.txt", "/srv/lantern.html"]) expect(artifactFolderPath(value)).toBe(false);
+  expect(parseMediaLine("[artifact::/srv/notes.txt]")?.problems).toEqual(["notes.txt isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid)"]);
+  expect(noteArtifactPaths("Sites\n[artifact::/srv/sites/moth site]\n[artifact::lantern]\n[artifact::~/x/flat eden.html]\n[artifact::owner/lantern]")).toEqual(["/srv/sites/moth site", "~/x/flat eden.html"]);
 });

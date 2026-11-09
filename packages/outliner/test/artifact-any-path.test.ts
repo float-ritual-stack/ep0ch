@@ -168,3 +168,25 @@ test("a share made in the laptop's outline opens its artifact on the hub's artif
   await client.request({ action: "shares.revoke", shareId: share.id } as never);
   expect((await open()).status).toBe(410);
 });
+
+test("a folder on another machine runs whole: its index and what it loads, copied as one archive", async () => {
+  const site = join(otherDisk, "moth site");
+  mkdirSync(join(site, "css"), { recursive: true });
+  writeFileSync(join(site, "index.html"), `<!doctype html><title>Moth site</title><link rel="stylesheet" href="css/wing.css">`);
+  writeFileSync(join(site, "css", "wing.css"), "body { background: #141413 }");
+  writeFileSync(join(site, ".DS_Store"), "made-up clutter");
+  const note = await write(`Moth site\n[artifact::${site}]`);
+  const info = await show(site, { owner: true });
+  expect(info.files.sort()).toEqual(["css/wing.css", "index.html"]);
+  expect(await (await follow(info.frame!)).text()).toContain("Moth site");
+  const style = await follow(info.frame!.replace(/\/$/, "/css/wing.css"));
+  expect(await style.text()).toContain("#141413");
+  // Unchanged: the same version. A file changed there: the note's next save copies it again, and it's a new version.
+  expect((await show(site)).version).toBe(info.version);
+  writeFileSync(join(site, "css", "wing.css"), "body { background: #2a2a28 }");
+  await client.request({ action: "update", blockId: note.id, text: `Moth site\n[artifact::${site}]\nRepainted.`, expectedRevision: note.revision, mutation: { author: "user" } } as never);
+  await (await laptop.open("notes")).server.media.settled();
+  const repainted = await show(site, { owner: true });
+  expect(repainted.version).toBe(info.version! + 1);
+  expect(await (await follow(repainted.frame!.replace(/\/$/, "/css/wing.css"))).text()).toContain("#2a2a28");
+});

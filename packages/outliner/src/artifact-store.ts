@@ -9,7 +9,7 @@ import { artifactReference, type ArtifactCopy, type ArtifactInfo, type ArtifactR
 import { MediaBucket, mediaBucketConfig } from "./media-bucket";
 import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
 import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, DROP_FILE_KINDS, type ArrivalKind, type DropMeta, type DropResult } from "./artifact-inbox";
-import { looksTar, looksZip, stripRoot, unzip } from "./artifact-archive";
+import { looksTar, looksZip, packTar, stripRoot, unzip } from "./artifact-archive";
 import { handOver, pageTitle } from "./artifact-handover";
 
 const artifactSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -62,6 +62,25 @@ async function heicAsJpeg(source: string): Promise<Buffer> {
   const codec = /unsupported codec/i.test(said) ? " Its HEVC decoder is missing: sudo apt install libheif-plugin-libde265 (Ubuntu), or brew install libheif." : "";
   if (code !== 0 || !jpeg.length) throw new Error(`ImageMagick could not read this HEIC photo${said.trim() ? `: ${said.trim().split("\n")[0]}` : ""}.${codec}`);
   return Buffer.from(jpeg);
+}
+
+/**
+ * A folder an artifact line names (PIE-1644): its visible files, under the artifact caps, refusing links, with the
+ * page it runs. Throws why it can't be one.
+ */
+export function readFolderArtifact(path: string): Record<string, Buffer> {
+  const files = readArtifactInput(path, true, true);
+  const names = Object.keys(files);
+  if (!names.length) throw new Error(`${path} is an empty folder`);
+  if (names.length > 1 && !names.includes("index.html")) throw new Error(`${path} has no index.html: a folder runs as its index.html`);
+  return files;
+}
+
+/** What changes when a folder's files do (their names, sizes and times), without reading them. */
+export function folderFingerprint(path: string): string {
+  const hash = new Bun.CryptoHasher("sha256");
+  for (const file of artifactFiles(path, true)) { const stat = lstatSync(join(path, file)); hash.update(`${file}\0${stat.size}\0${stat.mtimeMs}\n`); }
+  return hash.digest("hex");
 }
 
 function artifactHash(folder: string, files: string[]): string {
@@ -335,7 +354,7 @@ export class ArtifactStore {
    * read from this machine's disk (`~/notes/x.html` there is not this machine's).
    */
   private showCopy(copy: ArtifactCopy): Promise<ArtifactInfo> {
-    if (!/^[0-9a-f]{64}$/.test(copy.sha256) || !isAbsolute(copy.path) || !artifactKind(copy.path) || !copy.machine) throw new Error("An artifact copy names a machine, an absolute path to a page and its sha256");
+    if (!/^[0-9a-f]{64}$/.test(copy.sha256) || !isAbsolute(copy.path) || !copy.machine) throw new Error("An artifact copy names a machine, an absolute path and its sha256");
     const result = this.pending.then(async () => {
       const indexFile = join(this.root, "paths.json"), key = `${copy.machine}:${copy.path}`;
       const paths: Record<string, { name: string; hash: string; version: number }> = existsSync(indexFile) ? JSON.parse(readFileSync(indexFile, "utf8")) : {};
@@ -347,9 +366,16 @@ export class ArtifactStore {
       try { bytes = await new MediaBucket(config).get(copy.sha256); }
       catch (error) { throw new Error(`${copy.path} from ${copy.machine} isn't in the media bucket yet (${error instanceof Error ? error.message : String(error)}): save its note again`); }
       if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== copy.sha256) throw new Error(`${copy.path}'s copy in the media bucket isn't the file ${copy.machine} read: save its note again`);
-      checkArtifactSize(1, bytes.length);
       const name = entry?.name ?? this.freshName(paths, copy.path);
-      await this.put(name, { [basename(copy.path)]: bytes });
+      if (artifactKind(copy.path)) { checkArtifactSize(1, bytes.length); await this.put(name, { [basename(copy.path)]: bytes }); }
+      else {
+        // A folder, kept as one archive (artifact-archive.ts packTar): unpacked under the tar rules, then installed whole.
+        if (!looksTar(bytes)) throw new Error(`${copy.path}'s copy in the media bucket isn't a folder's archive: save its note again`);
+        const archive = join(this.root, `.${crypto.randomUUID()}.tar`), stage = `${archive}.incoming`;
+        writeFileSync(archive, bytes); mkdirSync(stage);
+        try { untar(archive, stage); await this.install(name, stage); }
+        finally { rmSync(archive, { force: true }); rmSync(stage, { recursive: true, force: true }); }
+      }
       const snapshot = await this.snapshot(name);
       paths[key] = { name, hash: copy.sha256, version: snapshot.version };
       writeFileSync(`${indexFile}.tmp`, JSON.stringify(paths));
@@ -381,11 +407,20 @@ export class ArtifactStore {
     let fingerprint: { dev: number; ino: number; size: number; mtime: number };
     try {
       canonical = realpathSync(path);
+      if (lstatSync(canonical).isDirectory() && !canonical.split("/").some(part => part.startsWith("."))) {
+        const files = readFolderArtifact(canonical), folderHash = new Bun.CryptoHasher("sha256").update(packTar(files)).digest("hex");
+        if (entry?.hash !== folderHash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files"))) {
+          await this.put(name, files);
+          const snapshot = await this.snapshot(name);
+          entry = paths[path] = { name, hash: folderHash, version: snapshot.version };
+          save();
+        } else if (entry.gone) { delete entry.gone; save(); }
+        return this.info(`${name}@${entry.version}`);
+      }
       if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`${canonical} is hidden (a name starting with “.” on its way), which an artifact line doesn't read: move it somewhere visible.`);
       const fd = openSync(canonical, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = fstatSync(fd);
-        if (stat.isDirectory()) throw new Error(`${path} is a folder; name its entry file, for example [artifact::${join(path, "index.html")}].`);
         if (!artifactKind(canonical)) throw new Error(`${canonical} isn't a page an artifact line runs (.jsx, .tsx, .html, .svg or .mermaid).`);
         if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}.`);
         checkArtifactSize(1, stat.size);

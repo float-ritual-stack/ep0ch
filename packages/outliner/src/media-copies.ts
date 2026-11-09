@@ -23,6 +23,8 @@ import { noteArtifactPaths, notePicturePaths } from "@ep0ch/outline-core/picture
 import type { MediaCopies, MediaCopy, MediaRead, MediaRequest } from "@ep0ch/outline-core/media-copy";
 import type { ElsewhereRead } from "./artifact-machine";
 import { artifactLimit } from "./artifact-inbox";
+import { packTar } from "./artifact-archive";
+import { folderFingerprint, readFolderArtifact } from "./artifact-store";
 import { resolveReferencedPath } from "./files";
 import { MediaBucket, mediaBucketConfig, type MediaBucketConfig } from "./media-bucket";
 import { MAX_PUBLISHED_IMAGE_BYTES, PUBLISHED_IMAGE_TYPES } from "./publish-attachments";
@@ -36,14 +38,24 @@ const ARTIFACT_TYPES: Readonly<Record<string, string>> = {
   ".mermaid": "text/plain; charset=utf-8", ".mmd": "text/plain; charset=utf-8",
 };
 
-/** What the bucket keeps a path as: a picture or an artifact file, its type and the most it copies; null for anything else. */
-export function copyKind(path: string): { mime: string; cap: number; artifact: boolean } | null {
+/** A folder an artifact line names is kept as one archive of its files (artifact-archive.ts packTar). */
+const FOLDER_TYPE = "application/x-tar";
+
+/**
+ * What the bucket keeps a path as: a picture, an artifact file or (no extension) a folder that runs whole, its type and
+ * the most it copies; null for anything else.
+ */
+export function copyKind(path: string): { mime: string; cap: number; artifact: boolean; folder?: true } | null {
   const extension = extname(path).toLowerCase();
   const picture = PUBLISHED_IMAGE_TYPES[extension];
   if (picture) return { mime: picture, cap: MAX_PUBLISHED_IMAGE_BYTES, artifact: !!artifactKind(path) };
   if (artifactKind(path)) return { mime: ARTIFACT_TYPES[extension] ?? "text/plain; charset=utf-8", cap: artifactLimit(), artifact: true };
+  if (!extension) return { mime: FOLDER_TYPE, cap: artifactLimit(), artifact: true, folder: true };
   return null;
 }
+
+/** A folder's files packed the same way every time, and what tells when they changed without reading them. */
+const packFolder = (path: string) => packTar(readFolderArtifact(path));
 
 /**
  * The file at absolute `path` on this machine's disk, read whole: what a host answers another machine's `media.read`
@@ -54,8 +66,12 @@ export function readMachineFile(path: string, machine?: string): MediaRead {
   const kind = copyKind(path);
   if (!kind) throw new Error(`${path} isn't a picture or a page`);
   let size: number;
-  try { const stat = statSync(path); if (!stat.isFile()) throw new Error("not a file"); size = stat.size; }
-  catch { throw new Error(`${path} isn't on ${machine ?? "this machine"}`); }
+  try {
+    const stat = statSync(path);
+    if (kind.folder && stat.isDirectory()) return { path, mime: kind.mime, from: "file", base64: packFolder(path).toString("base64"), ...(machine ? { machine } : {}) };
+    if (!stat.isFile()) throw new Error("not a file");
+    size = stat.size;
+  } catch (error) { throw new Error(kind.folder && error instanceof Error && !/ENOENT|not a file/.test(error.message) ? error.message : `${path} isn't on ${machine ?? "this machine"}`); }
   if (size > kind.cap) throw new Error(`${path} is ${size} bytes, over the ${kind.cap} a copy holds`);
   return { path, mime: kind.mime, from: "file", base64: readFileSync(path).toString("base64"), ...(machine ? { machine } : {}) };
 }
@@ -177,6 +193,12 @@ export class MediaCopier {
       const bytes = Buffer.from(asked.found.base64, "base64");
       if (bytes.length > kind.cap) return { problem: `${path} is ${bytes.length} bytes on ${asked.found.machine}, over the ${kind.cap} a copy holds` };
       return this.record(blockId, path, bytes, kind.mime, `@${asked.found.machine}`, row);
+    }
+    if (kind.folder && stat.isDirectory()) {
+      const fingerprint = `dir:${folderFingerprint(path)}`, row = this.row(path);
+      if (row?.copied_at && row.mtime_ns === fingerprint) return { row };
+      try { return await this.record(blockId, path, packFolder(path), kind.mime, fingerprint, row); }
+      catch (error) { return { problem: error instanceof Error ? error.message : String(error) }; }
     }
     if (!stat.isFile()) return { problem: `${path} isn't a file` };
     if (stat.size > BigInt(kind.cap)) return { problem: `${path} is ${stat.size} bytes, over the ${kind.cap} a copy holds` };

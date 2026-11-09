@@ -1,7 +1,7 @@
 // Where a note names a picture, for an address that holds no path (a published card's cover, PIE-1595): a page's image
 // URL says the note and the place, and the publisher reads the note again when it's asked. Beside media-line.ts because
 // the property parser imports that file. Pure: no I/O.
-import { artifactKind, isPictureValue, noteMediaLines } from "./media-line";
+import { artifactFolderPath, artifactKind, isPictureValue, noteMediaLines } from "./media-line";
 import { splitPropertyValue } from "./property-grammar";
 import { parsePropertyRecords } from "./property-parse";
 
@@ -33,9 +33,10 @@ export const notePicturePaths = (text: string): string[] => [...new Set([
 ])];
 
 /**
- * Every artifact file a note names, once each: its artifact lines whose path is a file a page runs (`.html`, `.jsx`, …),
- * never a stored artifact's name or a repo. What the media bucket copies beside the pictures (PIE-1644).
+ * Every artifact file or folder a note names, once each: its artifact lines whose path is a file a page runs (`.html`,
+ * `.jsx`, …) or a folder (artifactFolderPath), never a stored artifact's name or a repo. What the media bucket copies
+ * beside the pictures (PIE-1644).
  */
 export const noteArtifactPaths = (text: string): string[] => [...new Set(
-  [...noteMediaLines(text).values()].filter(spec => spec.kind === "artifact" && !spec.fence && artifactKind(spec.path)).map(spec => spec.path.trim()),
+  [...noteMediaLines(text).values()].filter(spec => spec.kind === "artifact" && !spec.fence && (artifactKind(spec.path) || artifactFolderPath(spec.path))).map(spec => spec.path.trim()),
 )];

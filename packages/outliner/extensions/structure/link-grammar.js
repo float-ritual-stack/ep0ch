@@ -1419,7 +1419,7 @@ function parseMediaLine(line) {
     return null;
   const key = media[0].key.toLowerCase();
   const spec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0].value, problems: [] };
-  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path))
+  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path) && !artifactFolderPath(spec.path))
     spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set;
   for (const { key, value } of t.toks) {
@@ -1537,6 +1537,12 @@ function artifactRepoRef(value) {
   if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(owner) || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(name) || artifactKind(name))
     return null;
   return { owner, name, repo: `${owner}/${name}` };
+}
+function artifactFolderPath(value) {
+  const path = value.trim();
+  if (!/^(?:\/|~\/)/.test(path) && !/[^/]\/$/.test(path))
+    return false;
+  return !/\.[A-Za-z0-9]+$/.test(fileName(path));
 }
 function artifactKind(path) {
   const ext = /\.[A-Za-z0-9]+$/.exec(fileName(path))?.[0]?.toLowerCase();

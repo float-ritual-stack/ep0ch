@@ -746,8 +746,12 @@ test("artifact file refusals name the host, supported kinds and the one thing to
   if (process.getuid?.() !== 0) await expect(show(unreadable)).rejects.toThrow(`Can't read ${unreadable} on garden-host (EACCES)`);
   await expect(show(missing)).rejects.toThrow(`${missing} isn't on garden-host`);
   for (const file of [unreadable, missing]) await expect(show(file)).rejects.not.toThrow(/artifact put|--machine|EP0CH_SOCKET/);
-  await expect(show(folder)).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
-  await expect(show("entry")).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
+  // A folder runs whole (PIE-1644): an empty one, or one with no page to open, says so.
+  await expect(show(folder)).rejects.toThrow(`${folder} is an empty folder`);
+  write("entry/notes.txt", "a"); write("entry/more.txt", "b");
+  await expect(show("entry")).rejects.toThrow(`${folder} has no index.html: a folder runs as its index.html`);
+  write("entry/index.html", "<!doctype html><title>Entry</title>");
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.show", name: folder })).files.sort()).toEqual(["index.html", "more.txt", "notes.txt"]);
   expect(store.get(note.id)?.text).toBe(text);
 });
 
