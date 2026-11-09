@@ -58,7 +58,7 @@ export const disarms = (k: Key) => !(k.kind === "mouse" && (k.action === "up" ||
 //   arm(what)            idle or holding → holding `what` (a new arm replaces the old one)
 //   take(what) / press() holding → idle, saying whether this press confirms: past its pause, inside its window
 //   clear()              holding → idle (any other key, or a change the first press didn't see)
-//   the window out       holding → idle, by itself (`lapsed` says so when someone draws it)
+//   the window out       holding → idle, by itself or at the first read after it (`lapsed` says so, once, when someone draws it)
 // Each owner keeps its own window, pause and words: the edit's esc twice, ctrl+x ctrl+e and ctrl+z at a save
 // (DraftStatus), a comment's ctrl+s twice, the look tuner's X X and R R, the door's quit, ctrl+], ^W x, an armed edit, a
 // [[page]] offered, a prefix's panel after its pause. A yes/no with rows is confirmPicker (surface/picker.ts): the safe
@@ -101,21 +101,34 @@ export class Again<T = true> {
     if (lapsed && Number.isFinite(ms)) this.after(Math.max(0, ms - elapsed), () => { if (this.held === h) { this.clear(); lapsed(what); } });
     if (ripe && pause > 0 && pause > elapsed) this.after(pause - elapsed + 5, () => { if (this.held === h) ripe(what); });
   }
+  /**
+   * The window ran out: let it go and say so, once. Its timer does this on time; on a busy machine the timer is late, and
+   * whoever reads the arm first after the window (a paint, peek, a key) does it, so nobody sees it gone while its owner
+   * still shows it waiting (PIE-1635).
+   */
+  private lapse(now: number) {
+    const h = this.held;
+    if (!h || now - h.at < this.window(h.what)) return;
+    this.clear();
+    this.rule.lapsed?.(h.what);
+  }
   /** A press of `what`: whether it is the second, past the pause and inside the window. Either way the first is let go. */
   take(what: T, now = Date.now()): boolean {
+    this.lapse(now);
     const h = this.held, confirms = !!h && (this.rule.same ?? Object.is)(h.what, what) && this.inTime(h, now);
     this.clear();
     return confirms;
   }
   /** A press of whatever waits: what it confirms, or null. Either way the first is let go. */
   press(now = Date.now()): T | null {
+    this.lapse(now);
     const h = this.held, confirms = h && this.inTime(h, now) ? h.what : null;
     this.clear();
     return confirms;
   }
   private inTime(h: { what: T; at: number }, now: number) { const e = now - h.at; return e >= this.pause(h.what) && e < this.window(h.what); }
   /** What waits for its second press now, or null. */
-  armed(now = Date.now()): T | null { return this.held && now - this.held.at < this.window(this.held.what) ? this.held.what : null; }
+  armed(now = Date.now()): T | null { this.lapse(now); return this.held?.what ?? null; }
   /** What waits and has waited its pause, or null. */
   ripe(now = Date.now()): T | null { return this.held && this.armed(now) !== null && now - this.held.at >= this.pause(this.held.what) ? this.held.what : null; }
   /** Let it go (any other key). */

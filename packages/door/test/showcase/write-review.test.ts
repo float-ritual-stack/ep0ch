@@ -70,6 +70,7 @@ describe.skipIf(!outliner)("showcase: write review at 177 columns (PIE-1541)", (
     expect(page().msg.id).toBe(id);
     click();
     await until(() => page().msg.id !== id, "the finding's card opened", 8000);
-    expect(h.screen()).toContain("Kitchen sink › Records");
+    // Its crumbs read "…" until the outline answers for its ancestors (on a busy box, a moment after it opens).
+    await until(() => h.screen().includes("Kitchen sink › Records"), "the card's crumbs", 8000);
   });
 });
