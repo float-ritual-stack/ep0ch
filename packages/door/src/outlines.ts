@@ -293,8 +293,8 @@ export function doorMissing(o: { outline: string; machine?: string; localHas?: b
 
 /**
  * `command` (an `ep0ch` argv, as typed) run on `machine`, or on this machine with `machine` undefined: its `--machine`
- * dropped and `--machine <machine>` added, quoted as a shell needs it. Under EP0CH_SOCKET (which refuses a machine
- * beside it) the variable is unset for the command.
+ * dropped and `--machine <machine>` added, quoted as a shell needs it. `--machine` wins over EP0CH_SOCKET (PIE-1643);
+ * `--here` doesn't, so under EP0CH_SOCKET that command unsets it.
  */
 export function commandOn(command: readonly string[], machine: string | undefined, env: Record<string, string | undefined> = process.env): string {
   const out: string[] = [];
@@ -305,7 +305,7 @@ export function commandOn(command: readonly string[], machine: string | undefine
     out.push(a);
   }
   const argv = ["ep0ch", ...out, ...(machine ? ["--machine", machine] : ["--here"])].map(shellWord).join(" ");
-  return env.EP0CH_SOCKET?.trim() ? `env -u EP0CH_SOCKET ${argv}` : argv;
+  return !machine && env.EP0CH_SOCKET?.trim() ? `env -u EP0CH_SOCKET ${argv}` : argv;
 }
 
 /**

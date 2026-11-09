@@ -38,7 +38,9 @@ it before changing it.
   `src/machine.ts`, `ensureForward`): the outbound link's `<ssh-name>.link.sock` first, then an SSH forward
   started by the first client that needs it. Clients name the transport they used. `<outlines>/.remote/<ssh-name>.json`
   (`{ "outlines": "/abs/folder" }`) names that machine's outlines folder when its own `ep0ch status` isn't the host
-  to reach. `EP0CH_SOCKET` names any host's socket outright, the low-level escape hatch.
+  to reach. `EP0CH_SOCKET` names any host's socket outright, the low-level escape hatch. It beats `EP0CH_MACHINE`
+  and a `.ep0ch`'s machine, but a typed `--machine` beats it: a host hands its socket to every program it starts (a
+  `sh::` step), so the person never set it (`resolveTarget` in the door's `src/discover.ts`, PIE-1643).
 - A door running on another machine is `--remote <machine>` (never `--machine`, which names where an outline is).
   Agents' commands (`peek`, `act`, `open`, `snap`, `actions`) and `session list --machine` reach it through the link
   that carries its doors (PIE-1242, `src/remote-doors.ts` in the door): this machine's link, else the machine

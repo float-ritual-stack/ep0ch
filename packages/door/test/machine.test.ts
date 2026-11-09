@@ -191,7 +191,8 @@ describe("--machine: an outline on another machine, through the forward", () => 
     // --ws naming the folder's outline keeps its machine; naming another is this machine's, unless --machine says so.
     expect(resolveTarget(["--ws", "garden"], process.env, folder)).toMatchObject({ outline: "garden", machine: "box-a" });
     expect("machine" in resolveTarget(["--ws", "fern"], process.env, folder)).toBe(false);
-    expect(resolveTarget(["--machine", "box-a"], { ...process.env, EP0CH_SOCKET: "/fictional/elsewhere.sock" }, folder)).toEqual({ error: "--machine box-a and EP0CH_SOCKET both name a host; leave one out" });
+    // A typed --machine wins over an EP0CH_SOCKET the environment carries (a door's sh:: step has one; PIE-1643).
+    expect(resolveTarget(["--machine", "box-a"], { ...process.env, EP0CH_SOCKET: "/fictional/elsewhere.sock" }, folder)).toMatchObject({ outline: "garden", machine: "box-a", remote: true, path: join(here, "outlines", ".remote", "box-a.sock"), why: "the outline garden (" + join(folder, ".ep0ch") + ") on box-a" });
     const { forwardTo } = await import("../src/machine");
     process.env.FAKE_SSH_DOWN = "1";
     try { await expect(forwardTo("box-b")).rejects.toThrow("can't reach box-b over ssh (ssh: connect to host box-b port 22: Connection refused) · `ssh box-b true`"); }
@@ -228,6 +229,19 @@ describe("--machine: an outline on another machine, through the forward", () => 
     const { gatherFacts } = await import("../src/setup/facts");
     const facts = await gatherFacts({ env, fetch: false, cwd: here });
     expect(doctorChecks(facts).find(c => c.group === "machines" && c.name === "box-a")).toMatchObject({ status: "ok", detail: expect.stringMatching(/^forward up at .*box-a\.sock; serves .*garden/) });
+  }, 60_000);
+
+  test("a typed --machine wins over the EP0CH_SOCKET a door hands its programs (PIE-1643)", async () => {
+    // What a sh:: step's command sees: the socket of the host that ran it, which the person never set.
+    const env = { ...process.env, EP0CH_SOCKET: join(here, "outlines", ".host", "host.sock") } as Record<string, string>;
+    const list = Bun.spawnSync([process.execPath, "src/main.ts", "outline", "list", "--machine", "box-a", "--json"], { cwd: DOOR, env });
+    expect(list.stderr.toString()).not.toContain("both name a host");
+    expect(list.exitCode).toBe(0);
+    expect(JSON.parse(list.stdout.toString()).outlines.map((o: { name: string }) => o.name)).toContain("garden");
+    // `ep0ch artifact` picks its host by the same rule: it reaches box-a's host, not the socket's.
+    const artifacts = Bun.spawnSync([process.execPath, "src/main.ts", "artifact", "ls", "--machine", "box-a"], { cwd: DOOR, env });
+    expect(artifacts.stderr.toString()).not.toContain("both name a host");
+    expect(artifacts.exitCode).toBe(0);
   }, 60_000);
 });
 
