@@ -57,6 +57,25 @@ export interface BacklinkCollection {
   targetDeletedRootId?: string;
   sources: BacklinkSource[];
   completeness: { kind: "complete" } | { kind: "truncated"; limit: number } | { kind: string; limit?: number };
+  /** Notes the read left out, named (PIE-1640). */
+  skipped?: BacklinkSkipped[];
+}
+
+/** A note a backlinks read couldn't read: left out and named, so one odd note never fails the answer (PIE-1640). */
+export interface BacklinkSkipped {
+  blockId: string;
+  title: string;
+  reason: string;
+  /** Another outline's note (a cross-outline read). */
+  outline?: string;
+}
+
+/** The notes a backlinks read left out (PIE-1640), as one line: "1 note couldn't be read: Seed tray"; "" for none. */
+export function skippedWords(c: Pick<BacklinkCollection, "skipped">): string {
+  const skipped = c.skipped ?? [];
+  if (!skipped.length) return "";
+  const names = skipped.slice(0, 2).map(s => s.title.trim() || s.blockId.slice(0, 8)).join(", ");
+  return `${skipped.length} note${skipped.length === 1 ? "" : "s"} couldn't be read: ${names}${skipped.length > 2 ? ", …" : ""}`;
 }
 
 export function isOpenBacklinkStage(bucket: BacklinkStageBucket | undefined): boolean {

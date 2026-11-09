@@ -48,6 +48,12 @@ describe("soft link tokens", () => {
     expect(softLinkOfValue("made-up-today", "Shed roof")).toEqual({ kind: "value", value: "Shed roof" });
   });
 
+  test("a value no page could have is no name: a quoted time in a code span (PIE-1640)", () => {
+    expect(softLinkOfValue("title", "- `[9:15 AM]` morning-dump")).toBeNull();
+    expect(softLinkOfValue("title", "shed]")).toBeNull();
+    expect(names("Tray [title::- `[9:15 AM]` morning-dump]")).toEqual([]);
+  });
+
   test("a note's own address and a query's words aren't links; a key left out isn't either", () => {
     expect(names("Seeds [page::Seeds] [query::type=x] [soft-link-ignore::status]")).toEqual([]);
     expect(names("Seeds [status::open] [thread::x]", ["STATUS"]).map(t => t.words)).toEqual(["x"]);

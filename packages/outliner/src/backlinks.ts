@@ -6,6 +6,7 @@ import {
   type BacklinkFacetRules,
 } from "./backlink-facets";
 import { normalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import type { BacklinkSkipped } from "@ep0ch/outline-core/backlink-view";
 import { maskOutputRegions } from "@ep0ch/outline-core/output-region";
 import { softLinkTokens } from "@ep0ch/outline-core/soft-links";
 import { MACHINE_KEY } from "@ep0ch/outline-core/machinery";
@@ -296,18 +297,26 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
   }
 
   // Each its own budget (PIE-408): a hub's soft mentions never crowd its links out of the answer.
-  const linked: BacklinkSource[] = [], mentions: BacklinkSource[] = [];
+  const linked: BacklinkSource[] = [], mentions: BacklinkSource[] = [], skipped: BacklinkSkipped[] = [];
   const rules = input.facetRules ?? DEFAULT_BACKLINK_FACET_RULES;
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
     if (isMachinerySource(source)) continue;
-    const explicit = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id))
-      .filter((occurrence) => occurrence.target === input.target.id && (!("outline" in occurrence) || !occurrence.outline || occurrence.outline === input.targetOutline));
-    const soft = input.soft && source.id !== input.target.id ? softOccurrences(source, input.soft) : [];
-    const occurrences = [...explicit, ...soft].sort((left, right) => left.start - right.start);
-    if (occurrences.length === 0) continue;
-    const mention = !!query.softMentions && occurrences.every(isSoftOccurrence);
-    (mention ? mentions : linked).push(backlinkSource(source, input.target, occurrences, input.blocksById, rules, mention));
+    // One note the relation can't read is left out and named (PIE-1640): never the whole answer.
+    let found: { mention: boolean; source: BacklinkSource } | null;
+    try {
+      const explicit = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id))
+        .filter((occurrence) => occurrence.target === input.target.id && (!("outline" in occurrence) || !occurrence.outline || occurrence.outline === input.targetOutline));
+      const soft = input.soft && source.id !== input.target.id ? softOccurrences(source, input.soft) : [];
+      const occurrences = [...explicit, ...soft].sort((left, right) => left.start - right.start);
+      const mention = !!query.softMentions && occurrences.every(isSoftOccurrence);
+      found = occurrences.length ? { mention, source: backlinkSource(source, input.target, occurrences, input.blocksById, rules, mention) } : null;
+    } catch (error) {
+      skipped.push({ blockId: source.id, title: blockDisplayTitle(source), reason: error instanceof Error ? error.message : String(error) });
+      continue;
+    }
+    if (!found) continue;
+    (found.mention ? mentions : linked).push(found.source);
     if (linked.length > query.limit && (!query.softMentions || mentions.length > query.limit)) break;
   }
 
@@ -319,6 +328,7 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
       ? { targetDeletedRootId: input.target.effectiveDeletedRootId }
       : {}),
     sources: matches,
+    ...(skipped.length ? { skipped } : {}),
     completeness: truncated
       ? { kind: "truncated", limit: query.limit }
       : { kind: "complete" },

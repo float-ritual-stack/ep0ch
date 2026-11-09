@@ -6,7 +6,7 @@
 // as mentions, so the door, Detail and the publisher agree. The key is never a page, the value is. Properties are open:
 // any key's value links, unless a note excludes the key (`[soft-link-ignore::priority, status]`, the service's answer);
 // what's left out here is only what can't be a name. Pure: no I/O.
-import { type CodeScope, codeRangesOf, blockReferenceEnvelopeRanges, linkOccurrences, pageLinkRanges } from "./link-syntax";
+import { type CodeScope, codeRangesOf, blockReferenceEnvelopeRanges, linkOccurrences, pageLinkRanges, tryNormalizePageAddress } from "./link-syntax";
 import { codeHides } from "./code-ranges";
 import { BLOCK_ID_PATTERN } from "./addressable-resource";
 import { looksLikeDate, readDate } from "./dates";
@@ -52,7 +52,8 @@ function leadingDay(text: string): string | null {
 
 /**
  * What one item of a property's value names, or null for what isn't a name: a link already (the link grammar's and the
- * Work IDs'), a URL, a number or an id, a sentence, a date in another form (its year is a guess, so no page is named).
+ * Work IDs'), a URL, a number or an id, a sentence, a date in another form (its year is a guess, so no page is named),
+ * or words no page address can hold.
  */
 export function softLinkOfValue(key: string, item: string): SoftLinkName | null {
   const value = item.trim();
@@ -65,6 +66,8 @@ export function softLinkOfValue(key: string, item: string): SoftLinkName | null 
   }
   if (value.length > NAME_MAX_LENGTH || value.split(/\s+/).length > NAME_MAX_WORDS) return null;
   if (/\(\(|\[\[|\{\{|:\/\//.test(value) || NOT_A_NAME.test(value) || BLOCK_ID_PATTERN.test(value) || isTicketKey(value) || looksLikeDate(value)) return null;
+  // An address no page can have names nothing (a quoted `[9:15 AM]` in a code span; PIE-1640).
+  if (!tryNormalizePageAddress(value)) return null;
   return { kind: "value", value };
 }
 

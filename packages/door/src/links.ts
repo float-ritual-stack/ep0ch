@@ -29,7 +29,7 @@ import { headedTitle, subject, type Msg } from "./board";
 import { ago, moreText, rowLines, waitingText, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
-import { BACKLINK_QUERY_LIMIT } from "./backlinks";
+import { BACKLINK_QUERY_LIMIT, skippedWords } from "./backlinks";
 import { markReveal } from "./reveal";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { watchedOn, type Watching } from "./watched";
@@ -247,7 +247,7 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
         count = bv.matching.length;
         const c = b.value.completeness;
         note = [bv.hiddenRelated ? `${bv.hiddenRelated} this note hidden` : "", bv.hiddenResolved ? `${bv.hiddenResolved} resolved hidden` : "",
-          c.kind === "truncated" ? `first ${c.limit ?? b.value.sources.length} sources` : ""].filter(Boolean).join(" · ");
+          c.kind === "truncated" ? `first ${c.limit ?? b.value.sources.length} sources` : "", skippedWords(b.value)].filter(Boolean).join(" · ");
         for (const r of backlinkRows(bv, view.backlinks, view.kinds)) {
           if (r.kind === "group") entries.push({ kind: "kind", key: `${key}${SEP}kind:${r.group.kind}`, depth: depth + 1, group: r.group, expanded: r.expanded });
           else entries.push({ kind: "backlink", key: key + SEP + r.source.blockId, depth: depth + (bv.faceted ? 2 : 1), source: r.source });

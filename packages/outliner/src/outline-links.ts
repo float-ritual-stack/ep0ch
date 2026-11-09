@@ -297,7 +297,7 @@ export class OutlineLinks {
       const target = local.get(request.query.targetBlockId);
       if (!target) return;
       const pages = local.pageAddressesOf(target.id);
-      const sources = [];
+      const sources = [], skipped: import("@ep0ch/outline-core/backlink-view").BacklinkSkipped[] = [];
       let truncated = false;
       for (const name of [from, ...this.names().filter(n => n !== from)]) {
         const addresses = new Map(pages.flatMap(p => [
@@ -306,17 +306,19 @@ export class OutlineLinks {
         ]));
         const result = (await this.open(name)).queryBacklinksAcross(request.query, target, addresses, from, name === from);
         sources.push(...result.sources.map(s => ({ ...s, ...(name !== from ? { outline: name } : {}) })));
+        skipped.push(...(result.skipped ?? []).map(s => ({ ...s, ...(name !== from ? { outline: name } : {}) })));
         truncated ||= result.completeness.kind === "truncated";
       }
       const remoteResults = await remotes(async remote => {
         const result = await remote.client.request<import("./types").BacklinkCollection>({ action: "references.backlinks", query: request.query, sourceTarget: { block: target, outline: from, addresses: pages.map(p => `${from}:${p.normalizedAddress}`) } });
-        return { ...result, sources: result.sources.map(source => ({ ...source, outline: remote.outline, machine: remote.machine })) };
+        return { ...result, sources: result.sources.map(source => ({ ...source, outline: remote.outline, machine: remote.machine })), skipped: (result.skipped ?? []).map(s => ({ ...s, outline: remote.outline })) };
       });
       for (const result of remoteResults) {
         sources.push(...result.sources);
+        skipped.push(...result.skipped);
         truncated ||= result.completeness.kind === "truncated";
       }
-      return { result: { targetBlockId: target.id, away: [...away.values()], ...(target.effectiveDeletedRootId ? { targetDeletedRootId: target.effectiveDeletedRootId } : {}), sources: sources.slice(0, request.query.limit), completeness: truncated || sources.length > request.query.limit ? { kind: "truncated", limit: request.query.limit } : { kind: "complete" } } };
+      return { result: { targetBlockId: target.id, away: [...away.values()], ...(target.effectiveDeletedRootId ? { targetDeletedRootId: target.effectiveDeletedRootId } : {}), sources: sources.slice(0, request.query.limit), ...(skipped.length ? { skipped } : {}), completeness: truncated || sources.length > request.query.limit ? { kind: "truncated", limit: request.query.limit } : { kind: "complete" } } };
     }
   }
 }

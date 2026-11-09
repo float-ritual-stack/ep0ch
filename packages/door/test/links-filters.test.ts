@@ -99,6 +99,15 @@ describe("Kind, Stage and Sort apply to every group", () => {
     expect(entries({ sortField: "title", sortDirection: "asc" }).backlinks).toEqual(["Offer onion sets", "Thank the hosts", "Market morning"]);
   });
 
+  test("a note the read left out is named on the backlinks group, the rest still listed (PIE-1640)", () => {
+    const d = data();
+    if (d.backlinks.kind === "ready") d.backlinks.value.skipped = [{ blockId: "b-odd", title: "Odd seed tray", reason: "Page address cannot contain ]" }];
+    const all = linkRows(d, { shut: new Set(), kinds: new Set(["outbox-item", "day-page"]), backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS, sortAll: true });
+    const header = all.find(r => r.kind === "group" && r.group === "backlinks");
+    expect(header && linkWords(header).context).toContain("1 note couldn't be read: Odd seed tray");
+    expect(all.filter(r => r.kind === "backlink")).toHaveLength(3);
+  });
+
   test("the tree and the inline component keep the note's order unless asked (sortAll)", () => {
     const order = rows({}, false).filter(r => r.kind === "outlink").map(r => linkWords(r).text.replace(/ →.*/, ""));
     expect(order).toEqual(["Zinnia letter", "Ask Ana", "Seed shelf", "Lost page"]);

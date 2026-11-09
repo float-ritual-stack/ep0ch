@@ -53,7 +53,7 @@ import {
   detailResourceDescription,
   type DetailState,
 } from "./detail-controller";
-import { backlinkGroupRows, type BacklinkViewGroup } from "./backlink-view";
+import { backlinkGroupRows, skippedWords, type BacklinkViewGroup } from "./backlink-view";
 import {
   previewRegionActionUri,
   reconcilePreviewRegions,
@@ -849,9 +849,8 @@ export function renderBacklinksDocument(state: Readonly<DetailState>, width = 80
       }
     }
   }
-  if (collection.completeness.kind === "truncated") {
-    lines.push(`_Showing first ${collection.completeness.limit} source blocks._`);
-  }
+  if (collection.completeness.kind === "truncated") lines.push(`_Showing first ${collection.completeness.limit} source blocks._`);
+  if (skippedWords(collection)) lines.push(`_${escapeGeneratedMarkdown(skippedWords(collection))}._`);
   return lines.join("\n");
 }
 

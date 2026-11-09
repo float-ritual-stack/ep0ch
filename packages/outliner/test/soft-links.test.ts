@@ -7,6 +7,7 @@ import { readBlockRecords } from "../src/block-records";
 import { linkSoftWords, pageAddressesToResolve, softPageAddresses } from "../src/publish-soft-links";
 import { outlinerLinkUri, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "../src/outliner-links";
 import { softMentionRows } from "../src/soft-links";
+import { resolveBacklinkRelation } from "../src/backlinks";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
@@ -91,6 +92,28 @@ describe("soft mentions", () => {
     const ctx = s.create("Note\nctx:: 2026-11-05 @ 4:31 AM");
     const prose = s.create("We met on 2026-11-05 at the shed");
     expect(kinds(s.queryBacklinks({ targetBlockId: log.id, limit: 50, softMentions: true }))).toEqual({ [ctx.id]: "mention", [prose.id]: "mention" });
+  });
+
+  test("a value holding code with brackets is no name: the day's note still lists the note (PIE-1640)", () => {
+    const s = store();
+    const log = s.create("Garden log [day::2026-04-02]");
+    // A quoted time in a code span: no page can have that address, so it names nothing, and never fails the read.
+    const quoted = s.create("Seed tray review [title::- `[9:15 AM]` morning-dump]\nwatered on 2026-04-02");
+    const plain = s.create("Planted beans on 2026-04-02");
+    expect(kinds(s.queryBacklinks({ targetBlockId: log.id, limit: 50, softMentions: true }))).toEqual({ [quoted.id]: "mention", [plain.id]: "mention" });
+  });
+
+  test("a note the relation can't read is skipped and named; the rest still answer (PIE-1640)", () => {
+    const s = store();
+    const target = s.create("PR#7 fix the gate");
+    const fine = s.create("Saw PR#7 today"), odd = s.create("Odd tray: PR#7 again");
+    // Made up: whether PR#7 lands throws for one note, as an unreadable one would.
+    const soft = { addresses: new Set<string>(), days: new Set<string>(), ignore: [], pr: 7, prLands: (_: number, blockId: string) => { if (blockId === odd.id) throw new Error("cannot read"); return true; } };
+    const all = [target, fine, odd].map(b => s.get(b.id)!);
+    const answer = resolveBacklinkRelation({ query: { targetBlockId: target.id, limit: 50, softMentions: true }, target: all[0]!, orderedBlocks: all, blocksById: new Map(all.map(b => [b.id, b])), addressTargets: new Map(), workIdPrefix: null, soft });
+    expect(answer.sources.map(x => x.blockId)).toEqual([fine.id]);
+    expect(answer.skipped).toEqual([{ blockId: odd.id, title: "Odd tray: PR#7 again", reason: "cannot read" }]);
+    expect(answer.completeness).toEqual({ kind: "complete" });
   });
 
   test("a project's PR note lists its own mentions, not the other project's", () => {
