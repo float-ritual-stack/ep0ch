@@ -89,8 +89,11 @@ export interface MediaCopierOptions {
   filesHere?: (path: string) => boolean;
 }
 
-/** What copying one path came to: its record when there is one, else the machines asked, or why not. */
-export interface CopyOutcome { row?: Row; tried?: { machine: string; said: string }[]; problem?: string }
+/**
+ * What copying one path came to: its record when there is one, else the machines asked, or why not. `bytes`: what was
+ * read, when no bucket took it (a machine with no bucket keys hands them on).
+ */
+export interface CopyOutcome { row?: Row; tried?: { machine: string; said: string }[]; problem?: string; bytes?: Buffer }
 
 /** How long the bucket's settings are kept before they're read again (a group file edited while the host runs). */
 const CONFIG_MS = 60_000;
@@ -115,6 +118,9 @@ export class MediaCopier {
     if (!this.config || now - this.config.at > CONFIG_MS) this.config = { at: now, value: mediaBucketConfig(this.env) };
     return this.config.value;
   }
+
+  /** Whether this host can put a copy in the bucket itself. */
+  hasBucket(): boolean { return !this.bucketProblem(); }
 
   /** Why nothing can be copied: no bucket named, or one half set up; undefined when there is one. */
   bucketProblem(): string | undefined {
@@ -193,7 +199,7 @@ export class MediaCopier {
       const row = this.row(path);
       if (!ask || !this.options.elsewhere) return row ? { row } : {};
       // A save asks that machine again (the file may have changed there); a show takes the copy it has.
-      if (row?.copied_at && row.mtime_ns.startsWith("@") && !refresh) return { row };
+      if (row?.mtime_ns.startsWith("@") && !refresh && (row.copied_at || !this.hasBucket())) return { row };
       const asked = await this.options.elsewhere(path);
       if ("tried" in asked) return row?.copied_at ? { row, tried: asked.tried } : { tried: asked.tried };
       const bytes = Buffer.from(asked.found.base64, "base64");
@@ -226,9 +232,9 @@ export class MediaCopier {
         block_id = COALESCE(NULLIF(excluded.block_id, ''), media_copies.block_id), copied_at = excluded.copied_at, error = NULL`).run(path, sha256, mime, bytes.length, mtime, blockId, landed);
     if (landed) return { row: this.row(path)! };
     const config = this.settings();
-    if (!config) return { row: this.row(path)! };
-    const fail = (error: string): CopyOutcome => { this.store.database.query("UPDATE media_copies SET error = ? WHERE path = ?").run(error, path); this.log(`media: ${path}: ${error}`); return { row: this.row(path)! }; };
-    if ("problem" in config) return fail(config.problem);
+    if (!config) return { row: this.row(path)!, bytes };
+    const fail = (error: string, kept?: Buffer): CopyOutcome => { this.store.database.query("UPDATE media_copies SET error = ? WHERE path = ?").run(error, path); this.log(`media: ${path}: ${error}`); return { row: this.row(path)!, ...(kept ? { bytes: kept } : {}) }; };
+    if ("problem" in config) return fail(config.problem, bytes);
     const bucket = this.bucket()!;
     try {
       if (!(await bucket.has(sha256))) { await bucket.put(sha256, bytes, mime); this.uploads++; }

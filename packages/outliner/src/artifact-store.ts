@@ -12,6 +12,9 @@ import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox
 import { looksTar, looksZip, packTar, stripRoot, unzip } from "./artifact-archive";
 import { handOver, pageTitle } from "./artifact-handover";
 
+/** What the store says when it has neither a copy's bytes nor a bucket to read them from: the asker sends them. */
+export const COPY_NEEDS_BYTES = "send its bytes with the ask";
+
 const artifactSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 function artifactName(name: string): string {
   if (artifactReference(name)?.name !== name) throw new Error("Use an artifact name containing letters, numbers, dots, underscores or hyphens.");
@@ -360,12 +363,17 @@ export class ArtifactStore {
       const paths: Record<string, { name: string; hash: string; version: number }> = existsSync(indexFile) ? JSON.parse(readFileSync(indexFile, "utf8")) : {};
       const entry = paths[key];
       if (entry?.hash === copy.sha256 && existsSync(join(this.root, "snapshots", entry.name, String(entry.version), "files"))) return this.info(`${entry.name}@${entry.version}`);
-      const here = localMachineName(dirname(this.root)), config = mediaBucketConfig();
-      if (!config || "problem" in config) throw new Error(`${copy.path} is on ${copy.machine} and was copied to the media bucket, but ${here} can't read the bucket: ${config ? config.problem : "add EP0CH_MEDIA_BUCKET and EP0CH_MEDIA_ENDPOINT to its hetzner-s3 secrets"}`);
+      // Its bytes: handed over with the ask (a machine with no bucket keys), else the bucket's copy. Neither: the asker
+      // is told to send them (COPY_NEEDS_BYTES), and does.
       let bytes: Uint8Array;
-      try { bytes = await new MediaBucket(config).get(copy.sha256); }
-      catch (error) { throw new Error(`${copy.path} from ${copy.machine} isn't in the media bucket yet (${error instanceof Error ? error.message : String(error)}): save its note again`); }
-      if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== copy.sha256) throw new Error(`${copy.path}'s copy in the media bucket isn't the file ${copy.machine} read: save its note again`);
+      if (copy.base64 !== undefined) bytes = Buffer.from(copy.base64, "base64");
+      else {
+        const config = mediaBucketConfig();
+        if (!config || "problem" in config) throw new Error(`${copy.path} from ${copy.machine}: ${COPY_NEEDS_BYTES}`);
+        try { bytes = await new MediaBucket(config).get(copy.sha256); }
+        catch { throw new Error(`${copy.path} from ${copy.machine} isn't in the media bucket: ${COPY_NEEDS_BYTES}`); }
+      }
+      if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== copy.sha256) throw new Error(`${copy.path}'s bytes aren't the file ${copy.machine} read: save its note again`);
       const name = entry?.name ?? this.freshName(paths, copy.path);
       if (artifactKind(copy.path)) { checkArtifactSize(1, bytes.length); await this.put(name, { [basename(copy.path)]: bytes }); }
       else {

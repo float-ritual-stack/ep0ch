@@ -11,7 +11,10 @@ import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { artifactMachine, askMachine, MachineUnreachable, readElsewhere } from "./artifact-machine";
 import type { ArtifactStore } from "./artifact-store";
 import { localMachineName } from "./machine-name";
-import { MediaCopier } from "./media-copies";
+import { MediaCopier, readMachineFile } from "./media-copies";
+import { COPY_NEEDS_BYTES } from "./artifact-store";
+import type { MediaRead } from "@ep0ch/outline-core/media-copy";
+import { createHash } from "node:crypto";
 import type { OutlinerStore } from "./store";
 
 /** What an outline's artifact lines need of the outline that holds them. */
@@ -83,11 +86,20 @@ async function showArtifact(host: ArtifactLineHost, store: string | null, reques
   if (!store && !host.copyOf && path && (host.filesHere?.(path) ?? true) && existsSync(path)) return local({ ...request, ...framed });
   const copy = await host.media.ensure(asked);
   const from = (mtime: string) => mtime.startsWith("@") ? mtime.slice(1) : here;
-  if (copy.row?.copied_at && copy.path) return ask({ action: "artifacts.show", name: asked, ...framed, copy: { machine: from(copy.row.mtime_ns), path: copy.path, sha256: copy.row.sha256 } });
-  // Found but not copied: no bucket, or an upload that failed. The store's own machine still runs a file it read.
-  if (copy.row) {
-    if (!store && !host.copyOf) return local({ ...request, ...framed });
-    throw new Error(`${asked} is on ${from(copy.row.mtime_ns)}, but it can't reach ${store}, where artifacts run: ${copy.row.error ?? host.media.bucketProblem() ?? "its copy hasn't landed yet; try again in a moment"}`);
+  if (copy.row && copy.path) {
+    const machine = from(copy.row.mtime_ns), named = { machine, path: copy.path, sha256: copy.row.sha256 };
+    // Not in the bucket (this machine has no bucket keys, or its upload failed): the store's own machine runs a file it
+    // read as it always has. Any store is asked by the hash first, and handed the bytes when it can't find them.
+    if (!copy.row.copied_at && !store && !host.copyOf && machine === here) return local({ ...request, ...framed });
+    try { return await ask({ action: "artifacts.show", name: asked, ...framed, copy: named }); }
+    catch (error) { if (!(error instanceof Error && error.message.includes(COPY_NEEDS_BYTES))) throw error; }
+    let bytes = copy.bytes;
+    if (!bytes) {
+      const read = machine === here ? readMachineFile(copy.path) : await askMachine<MediaRead>(host.outlinesFolder!, machine, { action: "media.read", path: copy.path }, 60_000);
+      bytes = Buffer.from(read.base64, "base64");
+    }
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    return ask({ action: "artifacts.show", name: asked, ...framed, copy: { ...named, sha256, base64: bytes.toString("base64") } });
   }
   if (copy.problem) throw new Error(copy.problem);
   // The store's record of a path that has gone (its last snapshot, with a warning) still answers.

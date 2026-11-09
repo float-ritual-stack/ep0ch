@@ -11,6 +11,7 @@ import { PROTOCOL, GRAMMAR } from "@ep0ch/outline-core/protocol";
 import { LinkStreams } from "./link-streams";
 import { linkDoorSocket, linkDoorsDir, linkDoorsFile, parseLinkDoors, type LinkDoor, type LinkDoorsRecord } from "./link-doors";
 import { readLinkConfig } from "./link-config";
+import { localMachineName } from "./machine-name";
 import { linkDeployPath, linkDeployAt, linkResultPath, readLinkFile, writeLinkFile, type LinkDeploy, type LinkInstallResult, type LinkUpdate } from "./link-install";
 export { publishLinkInstall, linkInstallResult, linkInstallSummary, linkUpdateLabel, reconcileLinkInstall } from "./link-install";
 export type { LinkDeploy, LinkInstallResult } from "./link-install";
@@ -30,7 +31,8 @@ export async function openLinked(outlines: string, url: string, remoteAddress: s
   }
 }
 
-type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string };
+/** `server`: the machine the link dials into, as it names itself (an outbound link; PIE-1644: where its artifacts are kept). */
+type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string; server?: string };
 const savedState = (path: string): LinkState | undefined => {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return; }
 };
@@ -158,7 +160,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
               const stateFile = join(paths.dir, `${auth.machine}.link.json`);
               saveState(stateFile, { machine: auth.machine, since, pid: process.pid, up: true });
               p.authenticated = true;
-              clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true, compatible: auth.protocol === PROTOCOL, proof: proof(key, auth.machine, p.nonce, "server").toString("hex") })); sendInstall(ws); o.log(`link ${auth.machine} up since ${since}`);
+              clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true, compatible: auth.protocol === PROTOCOL, machine: localMachineName(o.outlines), proof: proof(key, auth.machine, p.nonce, "server").toString("hex") })); sendInstall(ws); o.log(`link ${auth.machine} up since ${since}`);
             });
           } else if (typeof bytes === "string") {
             if (bytes === "ping") { p.last = Date.now(); ws.send("pong"); return; }
@@ -248,7 +250,8 @@ export function connectLink(o: { server: string; machine: string; key: string; h
   let retry: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined, doorPoll: ReturnType<typeof setInterval> | undefined;
   let delay = 1000;
   let since = o.statusPath ? savedState(o.statusPath)?.since : undefined;
-  const state = (up: boolean, reason?: string) => { if (o.statusPath) saveState(o.statusPath, { machine: o.machine, since, pid: process.pid, up, reason }); };
+  let server: string | undefined = o.statusPath ? savedState(o.statusPath)?.server : undefined;
+  const state = (up: boolean, reason?: string) => { if (o.statusPath) saveState(o.statusPath, { machine: o.machine, since, pid: process.pid, up, reason, ...(server ? { server } : {}) }); };
   state(false, "connecting");
   let finish: (reason: string) => void = () => {};
   const dial = () => {
@@ -307,6 +310,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
         } else if (message.ready === true && !authenticated) {
           if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce, "server"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
           authenticated = true;
+          if (typeof message.machine === "string" && isMachineName(message.machine)) server = message.machine;
           sendResult = result => socket.send(JSON.stringify({ result }));
           for (const receipt of receipts) sendResult(receipt);
           clearTimeout(timeout); delay = 1000;

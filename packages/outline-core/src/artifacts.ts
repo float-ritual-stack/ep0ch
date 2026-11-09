@@ -21,10 +21,11 @@ export interface ArtifactDeployState {
  */
 export type ArtifactReader = { owner: true } | { share: { id: string; outline?: string } };
 /**
- * A file a note on another machine names, already in the media bucket (PIE-1644): the machine it was read on, its path
- * there, and its content's sha256, which the store fetches from the bucket and keeps as a snapshot.
+ * A file a note on another machine names (PIE-1644): the machine it was read on, its path there, and its content's
+ * sha256, which the store fetches from the media bucket and keeps as a snapshot. `base64`: its bytes, handed over by a
+ * machine with no bucket keys (a folder's as one tar).
  */
-export interface ArtifactCopy { machine: string; path: string; sha256: string }
+export interface ArtifactCopy { machine: string; path: string; sha256: string; base64?: string }
 export type ArtifactRequest =
   /** `note` deploys every repo that note's artifact lines name (the deploy rule's script), `repo` the one named. */
   | { action: "artifacts.deploy"; repo?: string; note?: string; domain?: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }

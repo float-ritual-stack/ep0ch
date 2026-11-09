@@ -5,7 +5,7 @@
 // is told which absolute paths are on its own disk (`filesHere`), so a file "on another machine" is one it can't see.
 // Never a real outline, machine or bucket.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
@@ -13,6 +13,7 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { artifactResponse, sharesFromSocket } from "../src/artifact-server";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { OutlinerClient } from "../src/client";
+import { connectLink, serveLink } from "../src/link";
 import { OutlineHost } from "../src/outline-host";
 import { Publisher } from "../src/publish";
 import { OutlinerServer } from "../src/server";
@@ -244,5 +245,48 @@ test("while the laptop sleeps, its read-only copy runs the same artifacts from t
     expect((await copy.request<ArtifactInfo>({ action: "artifacts.show", name: "orrery" } as never)).name).toBe("orrery");
   } finally {
     await server.close(); store.close();
+  }
+});
+
+test("with no artifact machine written, the laptop's artifacts are kept where its link dials in", async () => {
+  const machineFile = join(laptopOutlines, ".host", "artifact-machine");
+  rmSync(machineFile);
+  // The hub serves the link and the laptop dials in, as `ep0ch link setup` and install leave them.
+  const server = serveLink({ outlines: hubOutlines, port: 0, keys: { laptop: "fictional-link-key" }, log() {} });
+  const connector = connectLink({ server: `http://127.0.0.1:${server.port}`, machine: "laptop", key: "fictional-link-key", host: outlineLayout(laptopOutlines).socket, statusPath: join(laptopOutlines, ".host", "link-state.json"), log() {} });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(laptopOutlines, ".host", "link-state.json")); i++) await Bun.sleep(20);
+    for (let i = 0; i < 100 && !JSON.parse(readFileSync(join(laptopOutlines, ".host", "link-state.json"), "utf8")).up; i++) await Bun.sleep(20);
+    const info = await show("orrery", { owner: true });
+    expect(info.name).toBe("orrery");
+    expect(info.frame).toStartWith(`${ARTIFACTS}/k/`);
+  } finally {
+    connector.stop(); await server.stop();
+    writeFileSync(machineFile, "hub\n");
+  }
+});
+
+test("a laptop with no bucket keys hands the file to the hub itself, and the hub keeps it", async () => {
+  // A second outline on the laptop, opened with no bucket settings anywhere in its environment.
+  const saved = Object.fromEntries(Object.keys(s3.env).map(key => [key, process.env[key]]));
+  for (const key of Object.keys(s3.env)) delete process.env[key];
+  process.env.WITH_SECRETS_DIR = "/nonexistent";
+  new OutlinerStore(outlineLayout(laptopOutlines).database("sketches"), { workspaceRoot: join(laptopOutlines, "sketches") }).close();
+  const sketches = new OutlinerClient(outlineLayout(laptopOutlines).socket, 60_000, "sketches");
+  try {
+    const puts = s3.puts.length;
+    const there = join(otherDisk, "keyless lamp.html"), here = join(laptopDisk, "keyless moth.html");
+    writeFileSync(there, "<!doctype html><title>Keyless lamp</title>");
+    writeFileSync(here, "<!doctype html><title>Keyless moth</title>");
+    await sketches.request({ action: "create", text: `Keyless\n[artifact::${there}]\n[artifact::${here}]`, author: "user" } as never);
+    for (const [path, title] of [[there, "Keyless lamp"], [here, "Keyless moth"]] as const) {
+      const info = await sketches.request<ArtifactInfo>({ action: "artifacts.show", name: path, frame: { owner: true } } as never, 60_000);
+      expect(await (await follow(info.frame!)).text()).toContain(title);
+      // Asked again: the hub has it already, by its hash.
+      expect((await sketches.request<ArtifactInfo>({ action: "artifacts.show", name: path } as never, 60_000)).version).toBe(info.version);
+    }
+    expect(s3.puts.length).toBe(puts);
+  } finally {
+    Object.assign(process.env, saved);
   }
 });

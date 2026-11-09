@@ -1316,10 +1316,12 @@ the door's card, on the web client and through a share (PIE-1644).
   own disk, it asks the machines it reaches (their forwards in `.remote/`, the
   artifact machine first) and copies what it gets. The copy is PIE-1634's: every
   saved note's artifact files land in the media bucket by their sha256, beside its
-  pictures (`media_copies`), and the store imports a copy from the bucket.
-- **One store:** `.host/artifact-machine` (its first line, an ssh name) or
-  `EP0CH_ARTIFACT_MACHINE` names the machine whose store keeps this machine's
-  artifacts. Its outlines ask that store for names, pages, frames and shares; with
+  pictures (`media_copies`), and the store imports a copy from the bucket. A
+  machine with no bucket keys hands the store the bytes with its ask instead.
+- **One store:** a machine whose link dials into another (the laptop into
+  float-2) keeps its artifacts in that machine's store, with nothing to set up;
+  `.host/artifact-machine` (its first line, an ssh name) or
+  `EP0CH_ARTIFACT_MACHINE` names another. Its outlines ask that store for names, pages, frames and shares; with
   neither, or naming this machine, the store is this machine's own. A share made
   in an outline on another machine is checked there (`/s/<outline>@<machine>/…`).
 - The store names an import from the file's stem, adding a number when another

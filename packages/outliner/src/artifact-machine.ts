@@ -2,8 +2,9 @@
 // from one store, on the machine whose artifact host it frames (float-2's, at artifacts.ep0ch.sh): an outline on any
 // other machine keeps its artifacts there too, so a name means the same in every outline and every page can run it.
 //
-// The machine is named once per outlines folder, `<outlines>/.host/artifact-machine` (its first line, an ssh name), or
-// `EP0CH_ARTIFACT_MACHINE`; with neither, or naming this machine, the store is this machine's own, as before.
+// The machine is the one this machine's link dials into (`.host/link-state.json`'s `server`, as that machine names
+// itself: the laptop's is float-2), unless `<outlines>/.host/artifact-machine` (its first line, an ssh name) or
+// `EP0CH_ARTIFACT_MACHINE` names another; with none, or naming this machine, the store is this machine's own.
 //
 // Both ask over the shared forward (`<outlines>/.remote/<machine>.sock`: the link, else ssh; outline-core's
 // ensureForward), as a plain client with no outline: a host answers `artifacts.*` and `media.read` for its machine.
@@ -22,6 +23,7 @@ export const artifactMachineFile = (outlines: string) => join(outlineLayout(outl
 export function artifactMachine(outlines: string, env: NodeJS.ProcessEnv = process.env): string | null {
   let named = env.EP0CH_ARTIFACT_MACHINE?.trim();
   if (!named) { try { named = readFileSync(artifactMachineFile(outlines), "utf8").split("\n")[0]!.trim(); } catch { /* none named */ } }
+  if (!named) { try { named = String(JSON.parse(readFileSync(join(outlineLayout(outlines).hostDir, "link-state.json"), "utf8")).server ?? "").trim(); } catch { /* no link dials out */ } }
   if (!named || !isMachineName(named) || named === localMachineName(outlines)) return null;
   return named;
 }
