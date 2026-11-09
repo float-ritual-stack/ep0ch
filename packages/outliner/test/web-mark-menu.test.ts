@@ -109,6 +109,28 @@ test("signed in at phone width: a right-click opens the row's menu, Mark marks t
   await until("the note's mark", () => new Marks(store.database).list({ blockId: plan.id }).length);
 });
 
+test("two rows with the same words: the menu marks the row it was opened on, and its arrows move between rows (CodeRabbit on #1359)", async () => {
+  const beds = store.create("Bed jobs", null, "user");
+  const first = store.create("Water the beans.", beds.id, "user");
+  const second = store.create("Water the beans.", beds.id, "user");
+  const page = await open(`/pub/p/${beds.id}?view=full`, "tailnet");
+  const rowsNamed = [...page.doc.querySelectorAll("article li")].filter((node) => node.textContent?.includes("Water the beans."));
+  expect(rowsNamed.length).toBe(2);
+  rowsNamed[1]!.dispatchEvent(new page.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 260 }));
+  await until("the second row's menu", () => page.menu());
+  // ↓ moves to the next row of the menu, ↑ back, wrapping, as the step menu's do.
+  const buttons = [...page.menu()!.querySelectorAll("button")];
+  page.menu()!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  expect(page.doc.activeElement).toBe(buttons[1]);
+  page.menu()!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  page.menu()!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  expect(page.doc.activeElement).toBe(buttons[buttons.length - 1]!);
+  page.press("Mark");
+  await until("a mark", () => new Marks(store.database).list({ blockId: first.id }).length + new Marks(store.database).list({ blockId: second.id }).length);
+  expect(new Marks(store.database).list({ blockId: second.id }).length).toBe(1);
+  expect(new Marks(store.database).list({ blockId: first.id })).toEqual([]);
+});
+
 test("a long press (touch) opens the same menu", async () => {
   const page = await open(`/pub/p/${plan.id}?view=full`, "tailnet");
   const target = page.words("What goes in the ground");

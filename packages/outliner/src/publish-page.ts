@@ -387,7 +387,9 @@ export class PageMarginalia {
     const text = (value: unknown) => typeof value === "string" ? value : "";
     // Words selected or tapped (PIE-1639) mark the row they're in, with their span, as a comment anchors to them.
     const quote = text(input.quote).trim();
-    const found = quote ? findDrawnPassage(view.blocks, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
+    // A row's menu names its row (PIE-1639): the words are looked for there alone, so a row whose words another row repeats is still the one marked.
+    const among = text(input.block) ? view.blocks.filter((shown) => shown.id === text(input.block)) : view.blocks;
+    const found = quote ? findDrawnPassage(among, { quote, prefix: text(input.prefix), suffix: text(input.suffix) }) : undefined;
     if (found && !found.ok) return [404, { ok: false, error: "those words aren't on this page now: select them again" }];
     const block = found?.ok ? found.block.id : text(input.block) || view.root.id;
     const span = found?.ok ? { start: found.passage.start, end: found.passage.end, revision: found.block.revision } : undefined;

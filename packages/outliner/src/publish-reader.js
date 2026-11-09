@@ -352,10 +352,12 @@
     return answer;
   }
 
-  function choose(action) {
+  /** `also`: what the caller knows beside the words (a row's menu names its row). */
+  function choose(action, also = {}) {
     // The selection as it is now (the last one seen, when pressing the button let it go).
-    const words = readSelection() || selected;
-    if (!words) return;
+    const selection = readSelection() || selected;
+    if (!selection) return;
+    const words = { ...selection, ...also };
     if (action === "copy") return copy(words);
     if (action === "comment" || action === "ask") return compose(action, words);
     act(action, words);
@@ -1282,7 +1284,7 @@
     if (words) selected = words;
     const id = blockOf(item) || noteId;
     const rows = [
-      ...(words ? choices : []).map((choice) => [choice.label, () => choose(choice.action)]),
+      ...(words ? choices : []).map((choice) => [choice.label, () => choose(choice.action, choice.action === "mark" ? { block: id } : {})]),
       ["Open", () => { location.href = `${pages}/p/${id}`; }],
       ["Copy link", () => clip(`${location.origin}${pages}/p/${id}`, "copied the link")],
     ];
@@ -1293,7 +1295,14 @@
       onclick: () => { closeRowMenu(); run(); },
     }));
     const node = el("div", { class: "mark-menu step-menu mg-ui", role: "menu", "aria-label": "what this can do" }, ...items);
-    node.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); closeRowMenu(); } });
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); closeRowMenu(); return; }
+      // ↓ ↑ move between the rows, wrapping, as the step menu's do.
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const at = items.indexOf(document.activeElement);
+      items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+    });
     document.body.append(node);
     const room = document.documentElement.clientWidth;
     node.style.left = `${window.scrollX + Math.max(8, Math.min(x, room - node.offsetWidth - 8))}px`;
