@@ -9,6 +9,9 @@ import { machineOutlines } from "../src/mcp-gateway";
 import { localAdmin } from "../src/mcp-outlines";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
+import { App } from "../src/app";
+import { Desk } from "../src/desk/desk";
+import { MainMenu } from "../src/screens";
 import { outliner, Scratch } from "./scratch";
 
 const ALPHA = "deadbeef-0000-4000-8000-000000000001";
@@ -20,6 +23,7 @@ describe.skipIf(!outliner)("a short id names a block for every agent entry point
   let gateway: ReturnType<typeof machineOutlines>;
   let agent: (ref: string) => Promise<{ id: string } | { error: string }>;
   let mcp: (ref: string) => Promise<{ id: string } | { error: string }>;
+  let sock = "";
 
   beforeAll(async () => {
     // Seed the outline file before the host opens it: the service makes its own ids, and the test needs two that share 8 characters.
@@ -30,7 +34,7 @@ describe.skipIf(!outliner)("a short id names a block for every agent entry point
     store.create("Beta tray", null, "user", undefined, { id: BETA });
     store.create("Gamma tray", null, "user", undefined, { id: GAMMA });
     store.close();
-    const sock = await scratch.start();
+    sock = await scratch.start();
     const board = new SocketBoard(sock);
     await board.request("mcp.access.configure", { level: "read" });
     board.close();
@@ -69,5 +73,19 @@ describe.skipIf(!outliner)("a short id names a block for every agent entry point
       const miss = await read()("cafef00e");
       expect("error" in miss && miss.error, name).toContain(`no id starts cafef00e; the nearest are ${GAMMA} Gamma tray · in (root)`);
     }
+  }, 30_000);
+
+  test("a door's block.mark id= takes a short id too (PIE-1637): a unique prefix marks, an ambiguous one lists its candidates", async () => {
+    const board = new SocketBoard(sock);
+    const term = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term as unknown as ConstructorParameters<typeof App>[0], board, Date.now(), () => {});
+    try {
+      app.push(new MainMenu());
+      app.push(new Desk());
+      const marked = await app.act({ action: "block.mark", args: { id: "cafef00d", reason: "count the trays" }, as: "tray-checker" }) as { mark: { block: string } };
+      expect(marked.mark.block).toBe(GAMMA);
+      await expect(app.act({ action: "block.mark", args: { id: "deadbeef" }, as: "tray-checker" })).rejects.toThrow(`deadbeef starts 2 notes' ids: ${ALPHA} Alpha tray · in Potting shed; ${BETA} Beta tray · in (root); give more of it`);
+      await expect(app.act({ action: "block.mark", args: { id: "cafef00e" }, as: "tray-checker" })).rejects.toThrow("no id starts cafef00e");
+    } finally { app.retire(); board.close(); }
   }, 30_000);
 });
