@@ -11,7 +11,7 @@
 import { subject, type Msg } from "./board";
 import type { Ctx, Screen } from "./app";
 import { ActionRefused, actionSet, def } from "./surface/actions";
-import { changedSinceRead, Refused, type NotePlacement } from "./socket";
+import { changedSinceRead, RECORDED_AS, recordedAnswer, Refused, type NotePlacement } from "./socket";
 import { paint, width } from "./style";
 import { readState, writeState } from "./state";
 import { NEW_NOTE_OPENS, type NewNoteOpens } from "./desk/screen-spec";
@@ -62,7 +62,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
   "note.new": def({
     summary: "a new note, where the outline's placement rule puts it: under the note in the reader the person is in (as its last child; from a new note, beside it), else at the top of the Inbox (inbox=true always the Inbox; near=<id> under that note). The person's opens in edit mode where the screen says (opens= overrides): a float over the screen by default, one more each time, as many as they like (drag one to move it, or onto a header or an edge to dock it; × or esc on it still empty puts it in the trash), a tab on the focused tile (tab), your drawer (drawer), or where the screen's opens land (lands); the board's lanes make a card in the focused lane instead (card.new). An agent's is made with its text= as its own, attributed, and said on the status bar: it opens nothing (with opens=float or tab, it is shown there, unfocused) and never takes the person's focus",
     keys: "ctrl+n on every screen, in an edit too (not in a filter, a picker or a terminal tile), a click on ^N new in the desk's hint row; + on the main menu, or a click on + New note on its key line",
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     says: out => (out?.id ? `· made a new note “${out.title || "untitled"}” ${out.said}` : null),
     args: {
       text: { type: "string", optional: true, about: "its text: a title line, a body, [key::value] properties (a first line of only [page::x] is titled x). The person's starts empty" },
@@ -102,7 +102,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
         throw new ActionRefused(`no new note: ${why}${fix}`);
       }
       const { note, placement } = made;
-      const out = { id: note.id, title: subject(note), parentId: placement.parentId, rule: placement.rule, said: placement.said };
+      const out = { id: note.id, title: subject(note), parentId: placement.parentId, rule: placement.rule, said: placement.said, recordedAs: recordedAnswer(actor, "new") };
       // An agent's opens nothing (the dispatcher says it on the status bar, `says`, named), unless it asked where: shown there, unfocused.
       if (!standing) {
         // Made either way: a showing refused (a locked screen) is said with the note's id, never as a failure to retry.

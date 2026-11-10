@@ -4,7 +4,7 @@
 // screen note, through screen.save's path, so every door on the outline shows the same rows and a restart keeps them.
 import { ActionRefused } from "../surface/actions";
 import { linePrompt } from "../surface/picker";
-import type { Actor } from "../socket";
+import { recordedAnswer, type Actor } from "../socket";
 import type { Key } from "../term";
 import type { Screen, Ctx } from "../app";
 import type { Desk } from "./desk";
@@ -76,7 +76,7 @@ export async function menuScreen(d: Desk, a: { name?: string; key?: string; labe
   // Who holds its key, when someone does (the menu's own rows, read when it's asked: screens.ts is loaded by then).
   const clash = (await import("../screens")).menuItems().find(i => i.screen === name)?.clash;
   d.redraw();
-  return { screen: name, menu: spec.menu ?? null, note: saved.id, revision: saved.revision, ...(clash ? { problem: clash } : {}) };
+  return { screen: name, menu: spec.menu ?? null, note: saved.id, revision: saved.revision, ...(clash ? { problem: clash } : {}), recordedAs: recordedAnswer(actor) };
 }
 
 /** The prompt: a key, then the row's label ("Y Potting"); ⏎ runs screen.menu as the person, refused it comes back with what was typed. */

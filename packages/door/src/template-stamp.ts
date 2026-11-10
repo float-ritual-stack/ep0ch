@@ -10,7 +10,7 @@ import { subject } from "./board";
 import type { Ctx, Screen } from "./app";
 import { askInBar, type BarQuestion } from "./bar/ask";
 import { ActionRefused, actionSet, def } from "./surface/actions";
-import type { Actor } from "./socket";
+import { RECORDED_AS, recordedAnswer, type Actor } from "./socket";
 
 /** What `template.stamp` runs on: the door, and the screen it's pressed on (the top one). */
 export interface TemplateOn { ctx: Ctx; here?: Screen; standing: boolean }
@@ -40,7 +40,7 @@ export const TEMPLATE_ACTIONS = actionSet<TemplateOn>()("template", {
   "template.stamp": def({
     summary: "write a template out as a new note, for editing (PIE-533): of= the template ([[page]], ((id)), a Work ID, or type:meeting for the note that says [template-for::meeting]); as=new makes a note; into=((id^anchor)) writes an output region at that anchor. Its props are with= (JSON, names to text; the person is asked for a choice, a note or a needed one they didn't give). props.x, self.x and now.x are filled now; this.x, parent.x, a bare key and a reference stay as {{ }} and read where the note lands (freeze=all writes those too, for a scaffold with no braces left). parent= the note it goes under (default: beside the template, or Inbox for a root template); title= the new note's title, which may use the stamp's own values ({{now.date}}); for= a query stamps once per match (each is props.for) and skips a match already stamped from this template. The template's own chips ([type::template], [template-for::…], [form-field::…]) are not stamped; [template-for::x] becomes [type::x] and [from-template::((id))] says where it came from. The service writes it, recorded as whoever asks; the person's opens the first note, an agent's opens nothing and never takes their focus",
     keys: [{ via: "the power bar (ctrl+k: template.stamp)" }, { keys: "click", does: "a ::use's “stamp” offer" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     says: out => (out?.stamped?.length ? `· ${out.said}` : out?.said ? `· ${out.said}` : null),
     args: {
       of: { type: "string", optional: true, about: "the template: a [[page]], a ((block)), a Work ID, or type:<kind> for the note that says [template-for::<kind>]. The person is asked when it is left out" },
@@ -70,7 +70,8 @@ export const TEMPLATE_ACTIONS = actionSet<TemplateOn>()("template", {
         const first = out.stamped[0];
         if (standing && !into && first && ctx.dispatch) { await ctx.dispatch.act({ action: "open", args: { id: first.id } }, actor); ctx.flash(out.said, 8000); }
         ctx.redraw();
-        return out;
+        // Sent as templateStamp sends it (recorded, made new); nothing stamped (each match was already) recorded nothing.
+        return { ...out, ...(out.stamped.length ? { recordedAs: recordedAnswer(actor, "new") } : {}) };
       };
       // The props the template declares and the person didn't give: asked in the bar, each in the picker of its kind.
       const withProps = async (template: string) => {

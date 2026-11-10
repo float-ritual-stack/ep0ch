@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Card moves, comment sends and Welcome moves say who they were recorded as (PIE-1655)
+
+- **The three PIE-1406 left out answer `recordedAs`:** `card.move`, a comment or reply sent (`comment.send`, `comment`, `reply`, `comment.note`, `comment.edit`, `passage.act`) and `welcome.move`. Each one's status bar already named the agent. A move that changed nothing (the card already in that lane, the note already in that place) answers no `recordedAs`.
+- **An agent's restore is recorded as the agent:** `note.untrash` and `card.restore` used to send no mutation, so the service logged no restore activity and the restore wasn't attributed to anyone. Both now answer `recordedAs` too.
+- **The other writing actions answer it as well:** `note.create`, `step.set`, `resolve`, `thread.seen`, `thread.keep`, `thread.tldr`, `note.move.undo`, `agent.ask`, `quote`, `status.bar.pin`, `button.pin`, `note.new`, `page.create`, `template.stamp`, `component.new`, `facets.save`, `facets.pin`, `facets.tag`, `trail.save`, `screen.save`, `screen.menu` and `note.rename`. Each one's page lists the field under `answer`.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change: `trash.restore` already took `mutation`).
+
 ### A dropped file with spaces in its name runs as an artifact, and a card's error reads whole (PIE-1656)
 
 - **A path written as a terminal's drop writes it names the file:** `[artifact::/made/up/LATE\ SHIFT.html]`, a quoted path, and any other escape (`\(`, `'it'\''s'`) are read as a shell reads one word, by outline-core's media line (`shellPath`), so the door, the service's copy on save, `artifacts.show` and the publisher all ask for the same file. The note keeps what you wrote. Before, the service asked for the backslashes and answered "isn't on laptop or float-2" for a file that was there.

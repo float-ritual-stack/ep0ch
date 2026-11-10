@@ -6,7 +6,7 @@ import { modeActionKeys } from "../surface/modes";
 // `bar.pick` lists them for itself and picks one, which runs through the source's shared path as the agent, so every
 // rule an action has for an agent (never their keys, focus or screen) is that path's own.
 import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
-import type { Actor } from "../socket";
+import { RECORDED_AS, type Actor } from "../socket";
 import type { PowerBar } from "./bar";
 import { changeQuestion, liveQuestion, QUESTION_KEYS, clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
 import { formFor, openActionForm } from "./form";
@@ -235,7 +235,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   "agent.ask": def({
     summary: "ask an agent (PIE-1437): the words as a comment naming @to on a note, addressed mail, which every session writing as that persona hears at its addressed check and answers in the thread. [[pages]] and ((notes)) in the words stay links; each %tile gets a line naming that tile in this door. The note: note=, else about='s tile's note, else (the person's) the note in front of them, else the first note the words link to, else the answering extension's page. about=tile asks about the tile with the keys (about=<tile> another): the tile gets a line, and text may be left out. Every ask carries the door and that tile as the thread's [ask-door::] and [ask-tile::], so an agent can act where it was asked. The person's says what was sent where; an agent's is attributed to it",
     keys: [{ keys: "enter", does: "on an ask line in the power bar: @name and the words" }, { keys: "click", does: "on the bar's ask @name row" }, { keys: "@", does: "on a row of the agent panel: the bar with @name on its line" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     says: (out: Asked) => askedWords(out),
     args: {
       to: { type: "string", kind: "agent", about: "the agent's persona (loki, kitty): the agents here are listed, and any persona's name is sent as typed" },

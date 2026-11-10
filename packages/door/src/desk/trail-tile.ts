@@ -13,7 +13,7 @@ import { trailRows, type TrailRow, type TrailView } from "../trail-view";
 import { treeRows } from "../figures/tree";
 import type { Visit } from "../trail";
 import type { Key } from "../term";
-import type { Actor } from "../socket";
+import { RECORDED_AS, recordedAnswer, type Actor } from "../socket";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { TILE_ACTIONS } from "./tile-actions";
 import type { KindHost, TileKind } from "./tile-kinds";
@@ -132,12 +132,12 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
     run({ n }, { pane, desk }, actor) { return paneOf(pane).go(desk, actor, n); } }),
   "trail.here": def({ examples: [{ act: "trail.here tile=trail visit=visit-garden", does: "opens that visit beside the Trail" }], summary: "Open a visit beside this Trail tile", touches: "shape", replay: "ask", args: visitArg, menu: menu("open here", "o"),
     async run({ visit }, { pane, desk }, actor) { const v = paneOf(pane).visit(desk, visit); const m = await readNote(desk.ctx, v.open.target.note, v.open.target.address); if (!m) throw new ActionRefused("that note is no longer available"); desk.openFromTile(m, { from: pane, fresh: true, link: true, by: actor }); return { opened: m.id }; } }),
-  "trail.save": def({ examples: [{ act: "trail.save tile=trail visit=visit-garden", does: "writes that branch as a linked note" }], summary: "Save this visit and the branch it started as a note", touches: "nothing", replay: "ask", args: visitArg, menu: menu("save branch as a note", "s"),
+  "trail.save": def({ examples: [{ act: "trail.save tile=trail visit=visit-garden", does: "writes that branch as a linked note" }], summary: "Save this visit and the branch it started as a note", touches: "nothing", replay: "ask", answer: RECORDED_AS, args: visitArg, menu: menu("save branch as a note", "s"),
     async run({ visit }, { pane, desk }, actor) { const p = paneOf(pane), v = p.visit(desk, visit), trail = desk.ctx.trail!;
       const branch = trail.branch(v.open.target.visit);
       const tree = treeRows([v], parent => branch.filter(child => child.open.source?.visit === parent.open.target.visit));
       const text = `Trail · ${v.title}\n\n` + tree.map(({ node: v, lead }) => `${lead}${visitLink(v)} · ${trail.dwell(v)} · ${v.open.method} · ${new Date(v.open.at).toLocaleString()}${v.open.actor.kind === "agent" ? ` · ${v.open.actor.id}` : ""}`).join("\n");
-      const { note } = await desk.ctx.board.newNote(text, undefined, actor); desk.ctx.flash(`Saved trail as ((${note.id}|${note.text.split("\n")[0]}))`); return { note: note.id }; } }),
+      const { note } = await desk.ctx.board.newNote(text, undefined, actor); desk.ctx.flash(`Saved trail as ((${note.id}|${note.text.split("\n")[0]}))`); return { note: note.id, recordedAs: recordedAnswer(actor, "new") }; } }),
   "trail.forget": def({ examples: [{ act: "trail.forget tile=trail day=2026-10-22", does: "forgets the visits from that day" }], summary: "Forget a branch, a day (YYYY-MM-DD), or all visits", touches: "nothing", replay: "ask", menu: menu("forget branch", "delete"),
     args: { ...visitArg, day: { type: "string", optional: true, about: "YYYY-MM-DD" }, all: { type: "boolean", optional: true, about: "clear all visits" } },
     run({ visit, day, all }, { pane, desk }) { const n = desk.ctx.trail!.forget({ visit: all || day ? undefined : paneOf(pane).visit(desk, visit).open.target.visit, day, all }); desk.redraw(); return { forgotten: n }; } }),
