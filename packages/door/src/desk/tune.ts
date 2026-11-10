@@ -32,7 +32,7 @@ import {
 } from "../look";
 import { readState, writeState } from "../state";
 import { surfaceMix } from "../theme";
-import type { Actor } from "../socket";
+import { RECORDED_AS, recordedAnswer, type Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
 import { bgRgb, C, drawEllipsized, fg, pad, RESET, selected, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
@@ -757,6 +757,9 @@ const retiredHint = { title: "Retired look keys", lines: [RETIRED_WHY] };
  * line), `move` also writes the picture they name as the shown note's hero line, the look moved over (heroFromRetired),
  * what has no place on the line said. Attributed to `actor` like every tune write.
  */
+/** Whether any of `writes` went to the outline: a tile's own look (`instance:`) is kept in the door, never recorded there. */
+const inOutline = (writes: readonly NoteWrite[]) => writes.some(w => !w.note.startsWith("instance:"));
+
 async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, actor: Actor, note: string | undefined, line: number | undefined) {
   const t = fresh(pane, desk), all = retiredOf(t, desk);
   if (!all.length) throw new ActionRefused("no note writes retired look keys");
@@ -792,7 +795,7 @@ async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, 
   const leftOut = [...mig.left, ...kept], left = op === "move" && leftOut.length ? ` · left out: ${leftOut.join("; ")}` : "";
   const did = op === "move" ? `${r.where}: ${r.keys.length} retired keys moved to the hero line (line ${hero!.line})` : `${r.where}: ${r.keys.length} retired keys removed`;
   desk.ctx.flash(says(actor, `${did}${left} · u takes it back`));
-  return { note: r.note, ...(r.line !== undefined ? { line: r.line + 1 } : {}), removed: r.keys.map(k => k.key), ...(hero ? { hero } : {}), ...(op === "move" ? { set: mig.set, left: leftOut } : {}) };
+  return { note: r.note, ...(r.line !== undefined ? { line: r.line + 1 } : {}), removed: r.keys.map(k => k.key), ...(hero ? { hero } : {}), ...(op === "move" ? { set: mig.set, left: leftOut } : {}), recordedAs: recordedAnswer(actor) };
 }
 
 /** What's wrong with the look here: the tile's layers, then the outline's style notes (a key one no longer reads, PIE-1361). */
@@ -1068,7 +1071,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.save": def({
     summary: "write the nudges to the outline: every level's this tile has (auto), or the level picked's: a page's onto its note, a named style's or a level's onto its style note (a new one when it has none, under the outline's Looks note), a value reset off the note it came from; attributed, checked against the revision it read. One step of the history: u takes it back",
     keys: "s, a click on [save]",
-    touches: "nothing", replay: "ask", says: out => (out.saved ? `· saved ${out.fields} to ${out.at}` : "· nothing to save there"),
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => (out.saved ? `· saved ${out.fields} to ${out.at}` : "· nothing to save there"),
     args: { level: { type: "string", optional: true, about: "auto, global, tile, screen, page, instance or list; default the inspector's" } },
     examples: [
       { act: "tune.save tile=tune", does: "writes the tuned tile's nudges to the style notes they belong to" },
@@ -1106,13 +1109,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       if (!done.length) return { saved: false, at: lv === "auto" ? "nothing unsaved" : targetWords(targets[0]!) };
       const words = done.map(d => `${d.fields.join(" ")} to ${d.at}${d.created ? " (a new style note)" : ""}`).join("; ");
       desk.ctx.flash(says(actor, `saved ${words}`));
-      return { saved: true, at: done.map(d => d.at).join(", "), fields: done.flatMap(d => d.fields).join(" "), notes: done.map(d => d.note), created: done.some(d => d.created) };
+      return { saved: true, at: done.map(d => d.at).join(", "), fields: done.flatMap(d => d.fields).join(" "), notes: done.map(d => d.note), created: done.some(d => d.created), ...(inOutline(writes) ? { recordedAs: recordedAnswer(actor) } : {}) };
     },
   }),
   "tune.undo": def({
     summary: "step back through the session's history, one step a time: a nudge (or a value reset), or a write (a save, a level reset, a revert), whose notes are written back as they were, refused when one changed since. An agent takes back only its own. Said on the status line",
     keys: "u, a click on [undo]",
-    touches: "nothing", replay: "ask", says: out => `· undo: ${out.words}`,
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => `· undo: ${out.words}`,
     args: {},
     async run(_, { pane, desk, standing }, actor) {
       const tuning = tuningOf(desk.ctx.board), s = refuse(() => tuning.nextUndo(actor));
@@ -1122,13 +1125,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       if (standing) { pane.offer = null; pane.armed = null; }
       desk.redraw();
       const words = stepSaid(actor, desk, `undo: ${stepWords(s, true)}`).slice(6);
-      return { undone: s.kind === "nudge" ? s.field : s.what, ...(s.kind === "nudge" ? { at: targetWords(s.target) } : {}), words };
+      return { undone: s.kind === "nudge" ? s.field : s.what, ...(s.kind === "nudge" ? { at: targetWords(s.target) } : {}), words, ...(s.kind === "write" && inOutline(s.writes) ? { recordedAs: recordedAnswer(actor) } : {}) };
     },
   }),
   "tune.redo": def({
     summary: "do again what undo took back, one step a time (a write's notes written again, refused when one changed since); a new nudge or write ends what can be redone",
     keys: "U, ctrl+r, a click on [redo]",
-    touches: "nothing", replay: "ask", says: out => `· redo: ${out.words}`,
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => `· redo: ${out.words}`,
     args: {},
     async run(_, { pane, desk, standing }, actor) {
       const tuning = tuningOf(desk.ctx.board), s = refuse(() => tuning.nextRedo(actor));
@@ -1138,13 +1141,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       if (standing) { pane.offer = null; pane.armed = null; }
       desk.redraw();
       const words = stepSaid(actor, desk, `redo: ${stepWords(s, false)}`).slice(6);
-      return { redone: s.kind === "nudge" ? s.field : s.what, words };
+      return { redone: s.kind === "nudge" ? s.field : s.what, words, ...(s.kind === "write" && inOutline(s.writes) ? { recordedAs: recordedAnswer(actor) } : {}) };
     },
   }),
   "tune.resetlevel": def({
     summary: "reset the level picked (not auto): every value it sets for this tile (the global style notes, the tile kind's, the screen's, the page's own) taken off its style notes in one attributed write each, and its nudges let go. It asks in place first: confirm=true (or X again, or [confirm]) does it. One step: u takes it back",
     keys: "X then X, a click on [reset level] then [confirm]",
-    touches: "nothing", replay: "ask", says: out => (out.armed ? `· ${out.words}: confirm` : `· reset ${out.reset}`),
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => (out.armed ? `· ${out.words}: confirm` : `· reset ${out.reset}`),
     args: { confirm: { type: "boolean", optional: true, about: "do it (without: it asks)" } },
     examples: [
       { act: "tune.resetlevel confirm=true tile=tune", does: "takes every value the picked level sets for this tile off its style notes" },
@@ -1189,7 +1192,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       finally { if (writes.length || tuning.snapshot().size !== before.size) tuning.record({ kind: "write", what: `reset of ${targetWords(target)}`, writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor }); }
       desk.redraw();
       desk.ctx.flash(says(actor, `${words} · u takes it back`));
-      return { reset: targetWords(target), values: n, notes: writes.map(w => w.note) };
+      return { reset: targetWords(target), values: n, notes: writes.map(w => w.note), ...(inOutline(writes) ? { recordedAs: recordedAnswer(actor) } : {}) };
     },
   }),
   "tune.cancel": def({
@@ -1200,7 +1203,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.revert": def({
     summary: "revert all: every style note this session wrote put back as it was before the first write (saved changes too), one attributed write each, and every nudge let go; refused, naming the note, when one changed since (another door or an agent). It asks in place first: confirm=true (or R again, or [confirm]) does it. One step: u takes it back",
     keys: "R then R, a click on [revert all] then [confirm]",
-    touches: "nothing", replay: "ask", says: out => (out.armed ? `· ${out.words}: confirm` : `· reverted ${out.notes.length} notes`),
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => (out.armed ? `· ${out.words}: confirm` : `· reverted ${out.notes.length} notes`),
     args: { confirm: { type: "boolean", optional: true, about: "do it (without: it asks)" } },
     examples: [
       { act: "tune.revert confirm=true tile=tune", does: "puts every style note this session wrote back as it was and lets nudges go" },
@@ -1222,13 +1225,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       finally { if (writes.length) tuning.record({ kind: "write", what: "revert of the session", writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor }); }
       desk.redraw();
       desk.ctx.flash(says(actor, `${words} · u takes it back`));
-      return { reverted: true, notes: writes.map(w => w.note) };
+      return { reverted: true, notes: writes.map(w => w.note), ...(inOutline(writes) ? { recordedAs: recordedAnswer(actor) } : {}) };
     },
   }),
   "tune.retired.remove": def({
     summary: "take a note's retired look keys off it (PIE-1365: style.header.image… and style.header.title, inert since PIE-1361): note= its id (or the start of it; default the first the tune lists), line= for a declaration on a line. One attributed write; u in the tune takes it back",
     keys: "D (the first listed), a click on [remove] on its line",
-    touches: "nothing", replay: "ask", hintId: "tune.retired", hint: retiredHint,
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, hintId: "tune.retired", hint: retiredHint,
     says: out => `· ${out.removed.length} retired keys removed from ${out.note.slice(0, 8)}`,
     args: { note: { type: "string", optional: true, about: "the note writing them (its id, or the start of it)" }, line: { type: "number", optional: true, about: "the line declaring them, from 1" } },
     examples: [
@@ -1239,7 +1242,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.retired.move": def({
     summary: "move a note's retired look keys to a hero line (PIE-1365): the picture style.header.image names written as the shown note's [img::…] [layout::hero] line (the image line naming it made the hero, else a new line under the subject), the look mapped onto it (height, blur, fade, tint, dim, fit, bleed, scroll, title; x/y as hero-focus), what has no place there said, and the keys removed. note= and line= as tune.retired.remove. One attributed step; u in the tune takes it back",
     keys: "M (the first listed), a click on [move to a hero line] on its line",
-    touches: "nothing", replay: "ask", hintId: "tune.retired", hint: retiredHint,
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, hintId: "tune.retired", hint: retiredHint,
     says: out => `· ${out.removed.length} retired keys moved to the hero line of ${out.hero?.note.slice(0, 8)}`,
     args: { note: { type: "string", optional: true, about: "the note writing them (its id, or the start of it)" }, line: { type: "number", optional: true, about: "the line declaring them, from 1" } },
     examples: [

@@ -1,6 +1,6 @@
 import { commandButton } from "../bar/command";
 import type { DraftSession } from "../draft-session";
-import type { Actor } from "../socket";
+import { recordedAnswer, type Actor } from "../socket";
 import { partyOf } from "../steps";
 import { ActionRefused } from "./actions";
 import type { NoteSurface, SurfaceHost } from "./note";
@@ -39,5 +39,6 @@ export async function insertNoteLine(text: string, surface: NoteSurface, host: S
   }
   surface.noteAgent(actor, "inserted a line");
   host.redraw();
-  return { block, line, dirty: session.open && session.dirty };
+  // Saved here only when no draft was open: this actor's line alone. Into an open draft, nothing is recorded yet.
+  return { block, line, dirty: session.open && session.dirty, ...(keepDraft ? {} : { recordedAs: recordedAnswer(actor) }) };
 }
