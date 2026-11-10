@@ -167,7 +167,7 @@ import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-poi
 import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 import { type Link, calloutBase, calloutTitle, figureElemBase, linkText, linksOf, refOfLink, sameElementLink, sameLink, taskBase } from "./link-model";
 import { calloutPanel, type Choice, type Control, controlKey, type Picker, pickerPanel, rowsOfLines, type ThreadControl, threadPanel, withRows, isWholeNote } from "./note-panels";
-import { armsEdit, BUTTON_TILES, movedOn, noteRow, type On, SESSION_ACTIONS, type SessionKind, tileNamed, TINT_ARGS, foldLabel } from "./note-actions/shared";
+import { armsEdit, BUTTON_TILES, movedOn, noteRow, type On, SESSION_ACTIONS, type SessionKind, tileNamed, TINT_ARGS, foldLabel, REFUSED } from "./note-actions/shared";
 import { PROPOSAL_DEFS } from "./note-actions/proposals";
 import { FORM_DEFS } from "./note-actions/forms";
 import { EDIT_DEFS, EDIT_OPEN_DEFS, EDIT_SAVE_DEFS, EDIT_STRAYS_DEFS } from "./note-actions/editing";
@@ -3010,7 +3010,7 @@ export class NoteSurface {
   /** The compare takes the keys (on), or leaves them to a comment being written: it opens without them over one. */
   focusRevision(host: SurfaceHost, on: boolean) {
     const rv = this.revisionMode;
-    if (!rv) throw new ActionRefused("open the revision compare first (revision.compare)");
+    if (!rv) throw new ActionRefused(REFUSED.noCompare);
     this.modes.focus(rv, on);
     if (on) host.enterMode?.();
     host.redraw();
@@ -3407,7 +3407,7 @@ export class NoteSurface {
     const comment = writing && (this.modes.top()?.name === "comment" || !this.drafting) ? cs : null;
     const s = comment ? writing : this.draftSession();
     if (!s) throw new ActionRefused("nothing is being edited here");
-    if (s.busy) throw new ActionRefused(s.status.phase === "reloading" ? "it's reloading already" : "the save is still landing");
+    if (s.busy) throw new ActionRefused(s.status.phase === "reloading" ? "it's reloading already" : REFUSED.saving);
     if (comment) { if (actor.kind !== "agent") this.revealComposerNext(); await comment.reload(this.env(host, actor)); }
     else await s.reload();
     host.redraw();
@@ -3429,7 +3429,7 @@ export class NoteSurface {
   async pick(host: SurfaceHost, channel?: string): Promise<Picked> {
     const d = this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
     if (!d) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
-    if (d.busy) throw new ActionRefused("the save is still landing");
+    if (d.busy) throw new ActionRefused(REFUSED.saving);
     const r = await pickInto(host.ctx, d, { socket: host.ctx.board.path, name: host.ctx.board.outline }, {
       ...(channel !== undefined ? { channel } : {}),
       cwd: await pickerCwd(host.ctx.board, { blockId: this.msg?.id, ...(this.draft === d ? { draft: { text: d.text }, line: d.row } : {}) }),

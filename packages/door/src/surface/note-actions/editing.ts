@@ -4,7 +4,7 @@
 import { ATTACHED_KEYS } from "../attached-keys";
 import { completerOf, COMPLETION_ACCEPT, COMPLETION_ACTIONS, COMPLETION_ASK, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_DISMISS, COMPLETION_DOCS, COMPLETION_MOVE, COMPLETION_PREVIEW, COMPLETION_STEP, type CompletionBoard, completionOf, insertCompletion, lookupCompletion, nearOf, recordCompletionPick, reopenReference, actionHereAt } from "../completer";
 import { elementEdit, type ElementOperation } from "../element-editor";
-import { handToEditor, noteRow, type On, openCompleter, writingIn, type SessionKind, saveDraft } from "./shared";
+import { handToEditor, noteRow, type On, openCompleter, writingIn, type SessionKind, saveDraft, REFUSED } from "./shared";
 import { modeActionKeys } from "../modes";
 import { openInEditor } from "../editor";
 import { type ActionDef, ActionRefused, def } from "../actions";
@@ -55,7 +55,7 @@ export const EDIT_DEFS = {
       { act: "rich.move direction=down", does: "moves the cursor one row down, leaving the table below its last row" },
     ],
     run({ direction }, { surface, host }) {
-      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!surface.draft) throw new ActionRefused(REFUSED.noRich);
       if (!["next", "previous", "up", "down", "left", "right"].includes(direction)) throw new ActionRefused("direction must be next, previous, up, down, left or right");
       elementEdit(surface.draft).move(direction); host.redraw();
     },
@@ -69,7 +69,7 @@ export const EDIT_DEFS = {
       { act: "rich.erase backward=false", does: "erases the character after the cursor in the cell" },
     ],
     run({ backward }, { surface, host }, actor) {
-      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!surface.draft) throw new ActionRefused(REFUSED.noRich);
       elementEdit(surface.draft).erase(backward, actor); host.redraw();
     },
   }),
@@ -82,7 +82,7 @@ export const EDIT_DEFS = {
       { act: "rich.scroll by=-5", does: "scrolls the rendered draft up five rows" },
     ],
     run({ by }, { surface, host }) {
-      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!surface.draft) throw new ActionRefused(REFUSED.noRich);
       elementEdit(surface.draft).scroll(by); host.redraw();
     },
   }),
@@ -94,7 +94,7 @@ export const EDIT_DEFS = {
       { act: 'rich.input text="3 trays"', does: "types 3 trays into the current table cell at the cursor" },
     ],
     run({ text, cut }, { surface, host }, actor) {
-      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!surface.draft) throw new ActionRefused(REFUSED.noRich);
       elementEdit(surface.draft).input(text, actor, cut); host.redraw();
     },
   }),
@@ -106,7 +106,7 @@ export const EDIT_DEFS = {
       { act: 'rich.set value="12 packets"', does: "replaces the current cell's text with 12 packets, as one undo step" },
     ],
     run({ value }, { surface, host }, actor) {
-      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!surface.draft) throw new ActionRefused(REFUSED.noRich);
       elementEdit(surface.draft).set(value, actor); surface.noteAgent(actor, "edited a cell", surface.draft); host.redraw();
     },
   }),
@@ -119,7 +119,7 @@ export const EDIT_DEFS = {
       { act: "rich.change op=column.move to=0", does: "moves the current column to the first place in the table" },
     ],
     run({ op, to }, { surface, host }, actor) {
-      if (!surface.draft) throw new ActionRefused("open rich.toggle first");
+      if (!surface.draft) throw new ActionRefused(REFUSED.noRich);
       if (!["row.add", "row.remove", "column.add", "column.remove", "row.move", "column.move"].includes(op)) throw new ActionRefused("unknown table operation");
       elementEdit(surface.draft).change(op as ElementOperation, actor, to); surface.noteAgent(actor, op, surface.draft); host.redraw();
     },
@@ -227,7 +227,7 @@ export const EDIT_DEFS = {
       if (refine !== undefined) {
         if (refine !== "^" && refine !== "#") throw new ActionRefused(`refine is ^ (every passage) or # (headings), not ${JSON.stringify(refine)}`);
         if (!d) throw new ActionRefused("nothing is being written here; open an edit or a comment first");
-        if (d.busy) throw new ActionRefused("the save is still landing");
+        if (d.busy) throw new ActionRefused(REFUSED.saving);
         if (!reopenReference(d, refine, actor)) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't in a finished ((reference)) without a label; put it inside one, or just after its ))`);
         surface.noteAgent(actor, `opened a ((reference)) to refine it with ${refine}`, d);
       }
@@ -267,7 +267,7 @@ export const EDIT_DEFS = {
       const item = r.items[insert - 1];
       if (!item) throw new ActionRefused(`there is no candidate ${insert}; there are ${r.items.length}`);
       if (expect !== undefined && item.insertion !== expect) throw new ActionRefused(`candidate ${insert} is now ${item.insertion}, not ${expect}: the list changed (Jev may have re-ordered it); list it again`);
-      if (!d || d.busy) throw new ActionRefused(d ? "the save is still landing" : "nothing is being written here");
+      if (!d || d.busy) throw new ActionRefused(d ? REFUSED.saving : "nothing is being written here");
       try {
         if (!still()) throw new Error("the draft changed while the references were looked up; ask again");
         const ds = surface.draftSession();
@@ -317,7 +317,7 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
       const w = surface.drafting ?? (surface.session?.mode === "compose" ? surface.session.writing : null);
       if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
       const d = w.draft;
-      if (d.busy) throw new ActionRefused(d.status.phase === "reloading" ? "the draft is reloading and its text is about to change · try again in a moment" : "the save is still landing");
+      if (d.busy) throw new ActionRefused(d.status.phase === "reloading" ? "the draft is reloading and its text is about to change · try again in a moment" : REFUSED.saving);
       // The person's draft is theirs: its cursor, view and preview move only by their keys and mouse (the session's rule).
       const r = await w.act(name, args, actor);
       // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
@@ -403,7 +403,7 @@ export const EDIT_OPEN_DEFS = {
     async run({ path }, { surface, host }, actor) {
       const d = surface.writingDraft;
       if (!d) throw new ActionRefused("nothing is being written here; open an edit (e) or a comment first");
-      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (d.busy) throw new ActionRefused(REFUSED.saving);
       // Pictures live in the outline's folder: on this machine only (a remote outline's is on its host).
       const info = await host.ctx.board.info().catch(() => null);
       if (!info || info.host !== hostname()) throw new ActionRefused(`the outline is on ${info?.host ?? "another machine"}: a picture goes into an outline on this machine, or put [img::<path>] in by hand`);
@@ -467,7 +467,7 @@ export const EDIT_SAVE_DEFS = {
     ],
     async run({ text }, { surface, host }, actor) {
       const s = await surface.ensureDraft(host);
-      if (s.busy) throw new ActionRefused("the save is still landing");
+      if (s.busy) throw new ActionRefused(REFUSED.saving);
       const kept = s.replace(text, actor);
       surface.noteAgent(actor, "is editing this note");
       host.redraw();
@@ -489,7 +489,7 @@ export const EDIT_SAVE_DEFS = {
     async run(_, { surface, host }, actor) {
       const d = surface.draft;
       if (!d) throw new ActionRefused("nothing is being edited here · e edits the note, then ctrl+k or / lists its actions");
-      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (d.busy) throw new ActionRefused(REFUSED.saving);
       if (!actionHereAt((d.lines[d.row] ?? ""), d.col, d.lines, d.row)) {
         if ((d.lines[d.row] ?? "").trim()) { d.place(d.row, (d.lines[d.row] ?? "").length); d.pasteText("\n", actor); }
         d.pasteText("/", actor);
@@ -509,7 +509,7 @@ export const EDIT_SAVE_DEFS = {
     async run({ line }, { surface, host }, actor) {
       const d = surface.draft;
       if (!d) throw new ActionRefused("nothing is being edited here");
-      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (d.busy) throw new ActionRefused(REFUSED.saving);
       const here = line === undefined ? actionHereAt((d.lines[d.row] ?? ""), (d.lines[d.row] ?? "").length, d.lines, d.row) : null;
       const typed = line ?? (here ? (d.lines[d.row] ?? "").slice(here.start + 1) : null);
       if (!typed?.trim()) throw new ActionRefused("the cursor isn't on a / line · ctrl+k or / first on a line lists the actions here");
@@ -616,7 +616,7 @@ export const EDIT_SAVE_DEFS = {
     async run({ name, under }, { surface, host, standing }, actor) {
       const d = surface.writingDraft;
       if (!d) throw new ActionRefused("open an edit first: component.new puts ::name{} at its cursor");
-      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (d.busy) throw new ActionRefused(REFUSED.saving);
       const made = await makeComponent(host.ctx.board, name, actor, under ?? COMPONENTS_PAGE);
       const at = callSplice(d.lines[d.row] ?? "", name);
       d.splice(at.start, at.end, at.text, {}, actor);

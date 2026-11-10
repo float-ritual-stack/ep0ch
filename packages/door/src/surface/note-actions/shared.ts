@@ -16,6 +16,13 @@ import type { FoldPoint } from "../../doc";
 import { printable } from "../../props";
 
 export interface On { surface: NoteSurface; host: SurfaceHost; standing: boolean }
+/** The refusals several note actions give, one wording each: a save in flight, no rich edit, no compare, a reader that's busy. */
+export const REFUSED = {
+  saving: "the save is still landing",
+  noRich: "open rich.toggle first",
+  noCompare: "open the revision compare first (revision.compare)",
+  busy: "this reader is editing or commenting; close that first",
+} as const;
 /** back and forward's `steps`: how many stops on the trail at once. */
 export const STEPS_ARG = { type: "number" as const, optional: true as const, about: "how many stops at once (default 1): trail lists them" };
 /** An unsent action's argument: which put-aside draft on the note. */
@@ -70,7 +77,7 @@ export async function tileNamed(host: SurfaceHost, sel: string, actor: Actor): P
  */
 export const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({
   label, group: "Note", key,
-  now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: "this reader is editing or commenting; close that first" } : o.now?.(on) ?? null),
+  now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: REFUSED.busy } : o.now?.(on) ?? null),
 });
 
 /**
@@ -179,7 +186,7 @@ export async function postComment(surface: NoteSurface, host: SurfaceHost, m: Ms
 export async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: Actor) {
   const d = surface.draft;
   if (!d) throw new ActionRefused("nothing is being edited here");
-  if (d.busy) throw new ActionRefused("the save is still landing");
+  if (d.busy) throw new ActionRefused(REFUSED.saving);
   const before = surface.msg?.revision;
   const by = await surface.save(host, actor);
   if (surface.draft === d) {

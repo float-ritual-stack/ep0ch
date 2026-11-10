@@ -3,7 +3,7 @@ import { ATTACHED_KEYS } from "../attached-keys";
 import { type ActionDef, ActionRefused, def } from "../actions";
 import { centred, ListPicker, pickRow } from "../picker";
 import { modeActionKeys } from "../modes";
-import { noteRow, type On } from "./shared";
+import { noteRow, type On, REFUSED } from "./shared";
 import { pageRows } from "../../scroll";
 import { printable } from "../../props";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
@@ -62,7 +62,7 @@ export const REVISION_DEFS = {
     touches: "tile", replay: "safe", args: {},
     async run(_, { surface, host }) {
       const mode = surface.revisionMode, v = mode?.view;
-      if (!mode || !v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (!mode || !v) throw new ActionRefused(REFUSED.noCompare);
       // From the revision asked last, not the one drawn: a second ← before the first's answer steps again.
       const from = mode.want ?? v.diff.from.revision;
       const older = v.diff.list.revisions.find(r => r.revision < from);
@@ -76,7 +76,7 @@ export const REVISION_DEFS = {
     touches: "tile", replay: "safe", args: {},
     async run(_, { surface, host }) {
       const mode = surface.revisionMode, v = mode?.view;
-      if (!mode || !v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (!mode || !v) throw new ActionRefused(REFUSED.noCompare);
       const from = mode.want ?? v.diff.from.revision;
       const newer = [...v.diff.list.revisions].reverse().find(r => r.revision > from && r.revision < v.diff.current);
       if (!newer) throw new ActionRefused(`revision ${from} is the last before the note now`);
@@ -90,7 +90,7 @@ export const REVISION_DEFS = {
     examples: [{ act: "revision.against to=now", does: "marks the revision shown against the note as it is now" }, { act: "revision.against to=next", does: "marks it against the revision after it again" }],
     async run({ to }, { surface, host }) {
       const v = surface.revisionMode?.view;
-      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (!v) throw new ActionRefused(REFUSED.noCompare);
       if (to !== undefined && to !== "now" && to !== "next") throw new ActionRefused("to is now or next");
       return revisionFacts(await surface.openRevision(host, surface.revisionMode!.want ?? v.diff.from.revision, (to ?? (v.against === "now" ? "next" : "now")) as RevisionAgainst, v.passage));
     },
@@ -101,7 +101,7 @@ export const REVISION_DEFS = {
     examples: [{ act: "revision.scroll by=1 page=true", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
     run({ by, page }, { surface, host }) {
       const mode = surface.revisionMode;
-      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)"); if (page) by = Math.sign(by) * pageRows(mode.body || mode.rect.h);
+      if (!mode) throw new ActionRefused(REFUSED.noCompare); if (page) by = Math.sign(by) * pageRows(mode.body || mode.rect.h);
       mode.view.top = Math.max(0, mode.view.top + by);
       host.redraw();
       return { top: mode.view.top };

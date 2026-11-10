@@ -2,7 +2,7 @@
 // ./settings.ts's SETTINGS_DEFS, spread in beside them) and decor.raw.
 import { EditConflict, RECORDED_AS, recordedAnswer } from "../../socket";
 import { checkValue, describeRow, type PropRow } from "../props-panel";
-import { noteRow, type On, ROW_ARGS } from "./shared";
+import { noteRow, type On, ROW_ARGS, REFUSED } from "./shared";
 import { printable, setUserSummaryKeys, summaryKeys, tokensFor } from "../../props";
 import { type ActionDef, ActionRefused, def, keyCaption } from "../actions";
 import { type Msg, subject } from "../../board";
@@ -21,7 +21,7 @@ export const PROPS_DEFS = {
       { act: "props full=true", does: "lists every property of the note; the person's panel fills the reader" },
     ],
     async run({ full }, { surface, host, standing }, _actor) {
-      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      if (surface.draft || surface.session) throw new ActionRefused(REFUSED.busy);
       // The panel holds the reader's keys: an agent reads the rows in its reply and leaves the panel be.
       if (standing) { surface.requireNote(); surface.openPanel(!!full); host.redraw(); }
       const m = await surface.whole();
@@ -84,7 +84,7 @@ export const PROPS_DEFS = {
       { act: "props.edit n=2 value=2026-03-14 revision=7", does: "sets the second property, refused if the note is past revision 7" },
     ],
     async run({ n, key, value, revision }, { surface, host }, actor) {
-      if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
+      if (surface.draft || surface.session) throw new ActionRefused(REFUSED.busy);
       const f = surface.panel?.field;
       if (f && (f.session.busy || f.input.text !== f.row.value)) throw new ActionRefused(f.session.busy ? "a value is being saved here" : `a value (${f.row.key}) is being typed here; it's someone else's until saved or cancelled`);
       const { m, row } = await propRow(surface, n, key);

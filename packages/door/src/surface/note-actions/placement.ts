@@ -7,31 +7,34 @@ import { FLOAT_MOVE_ARGS, type On } from "./shared";
 import { modeActionKeys } from "../modes";
 import { type ActionDef, ActionRefused, def } from "../actions";
 
+/** Where the reader's parts go is the person's (each placement action's `person`). */
+const BY_PERSON = "the placement belongs to the person";
+
 export const PLACEMENT_DEFS = {
   "placement.menu": def({
     summary: "choose where the attachment sits; the current placement is marked",
-    keys: "click the placement chip", touches: "tile", person: "the placement belongs to the person", replay: "ask",
+    keys: "click the placement chip", touches: "tile", person: BY_PERSON, replay: "ask",
     args: { target: { type: "string", about: "comment, sources, list-preview, edit-preview or settings" } },
     examples: [{ act: "placement.menu target=sources", does: "opens the Sources placement menu" }],
     run: ({ target }, { surface, host }) => surface.openPlacementMenu(surface.attachments.kind(target), host),
   }),
   "placement.step": def({
     summary: "move through the placement menu", keys: [{ keys: "← ↑ ↓ → j k tab", does: "in the placement menu" }],
-    touches: "tile", person: "the placement belongs to the person", replay: "ask",
+    touches: "tile", person: BY_PERSON, replay: "ask",
     args: { by: { type: "number", about: "rows to move" } },
     examples: [{ act: "placement.step by=1", does: "selects the next placement" }],
     run: ({ by }, { surface, host }) => surface.stepPlacement(by, host),
   }),
   "placement.choose": def({
     summary: "choose a placement from the open menu", keys: "Enter or click a placement",
-    touches: "tile", person: "the placement belongs to the person", replay: "ask",
+    touches: "tile", person: BY_PERSON, replay: "ask",
     args: { place: { type: "string", optional: true, about: "placement; left out, the selected row" }, direction: { type: "string", optional: true, about: "right or down for a split" } },
     examples: [{ act: "placement.choose place=split direction=right", does: "places the attachment beside the note" }],
     run: ({ place, direction }, { surface, host }) => surface.choosePlacement(place, host, direction),
   }),
   "placement.close": def({
     summary: "close the placement menu", keys: "Esc or click outside the placement menu",
-    touches: "tile", person: "the placement belongs to the person", replay: "ask", args: {},
+    touches: "tile", person: BY_PERSON, replay: "ask", args: {},
     run: (_, { surface, host }) => surface.closePlacement(host),
   }),
   "attachment.split": def({
@@ -55,7 +58,7 @@ export const PLACEMENT_DEFS = {
   "edit.preview.place": def({
     summary: "place the edit preview below, beside, floating, popup or in a tile; kept for next time",
     keys: [{ keys: "click", does: "the preview header's placement chip" }, { keys: "← ↑ ↓ → ⏎", does: "in its menu" }],
-    touches: "tile", person: "the placement belongs to the person", replay: "ask",
+    touches: "tile", person: BY_PERSON, replay: "ask",
     args: { place: { type: "string", optional: true, about: "inline (below), split, floating, popup or tile" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
     examples: [{ act: "edit.preview.place place=split", does: "places the live preview beside or below the draft" }],
     run: async ({ place, side }, { surface, host }) => ({ place: await surface.attachments.put("edit-preview", place, host, side) }),
@@ -69,7 +72,7 @@ export const PLACEMENT_DEFS = {
   "sources.place": def({
     summary: "place sources inline, floating, split, popup or in its own tile; kept for next time",
     keys: modeActionKeys(ATTACHED_KEYS, "sources.place"),
-    touches: "tile", person: "the placement belongs to the person", replay: "ask",
+    touches: "tile", person: BY_PERSON, replay: "ask",
     args: { place: { type: "string", optional: true, about: "inline, floating, split, popup, tile; left out, cycle" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
     examples: [{ act: "sources.place place=tile side=right", does: "puts Sources in a tile beside the note" }],
     run: async ({ place, side }, { surface, host }) => ({ place: await surface.attachments.put("sources", place, host, side) }),
