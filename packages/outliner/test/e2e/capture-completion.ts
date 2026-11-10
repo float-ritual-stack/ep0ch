@@ -11,9 +11,11 @@ const result=await runHerdrScenario({name:'capture-completion',commandKeys:[{key
  await s.revealTree(s.panes.tree,reader.id);await s.keys(s.panes.tree,'enter');await s.waitVisible(s.panes.detail,'READER STAYS');
  const screen=(text:string)=>s.waitFor(text,terminal.visible,f=>f.includes(text));
  const closed=()=>s.waitFor('capture closed',terminal.visible,f=>!f.includes('Quick capture'));
- // A narrow client collapses Herdr's sidebar («), which hides the PREFIX cue;
- // the prefix and the command still arrive in order on the same terminal.
- const open=async()=>{await closed();await terminal.write('\x02');await s.waitFor('PREFIX',terminal.visible,f=>f.includes('PREFIX')||f.includes('«'));await terminal.write('C');await screen('Quick capture');};
+ // A narrow client collapses Herdr's sidebar, which hides the PREFIX cue; with the sidebar shown, wait for the cue
+ // (the « at its foot is always drawn, so it proves nothing) before the command key.
+ const open=async()=>{await closed();const cue=(f:string)=>f.includes('PREFIX')||(f.trim().length>0&&!f.split('\n')[0]!.includes('spaces'));
+  // The attached client can drop a key sent just after a resize: send the prefix again until Herdr shows it took it.
+  for(let tries=0;;tries++){await terminal.write('\x02');if(await s.waitFor('PREFIX',terminal.visible,cue,1500).then(()=>true,()=>false))break;if(tries===3)throw new Error('Herdr never showed PREFIX');}await terminal.write('C');await screen('Quick capture');};
  const paste=(text:string)=>terminal.write(`\x1b[200~${text}\x1b[201~`);
  await open();await paste('CAPTURE COMPLETION\n\nPage [[alpha-capture');await screen('Pages 1/1'); // each source heads its own list (PIE-1340)
  await terminal.write('\r');await screen('[[alpha-capture]]');

@@ -26,7 +26,7 @@ for (const name of names) {
       console.log(`- ${label}: skipped, needs TYPESAFE_API_KEY`);
       continue;
     }
-    const log = join(logs, `${name}${variant}.log`);
+    const log = join(logs, `${name}${variant}-${rows.length + 1}.log`);
     const started = performance.now();
     const run = Bun.spawnSync(["timeout", "600", process.execPath, "run", join(here, `${name}.ts`), ...(variant ? [variant] : [])],
       { cwd: join(here, "..", ".."), env: process.env, stdout: "pipe", stderr: "pipe" });
