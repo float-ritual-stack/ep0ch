@@ -6,6 +6,7 @@ import type { TileKind } from "./tile-kinds";
 import { readerFacts } from "./reader-facts";
 import { AttachedTilePane } from "./attached-tile";
 import { cardField } from "./settings-index";
+import { doorPage } from "../door-settings";
 
 /**
  * A reader hosting the same card: the subject and its write path stay with NoteSurface. `fills` (the settings screen's
@@ -62,7 +63,8 @@ export const SETTINGS_TILE: TileKind = {
   start: async (p, env) => {
     const pane = p as SettingsPane;
     await componentsReady({ board: env.desk.ctx.board, redraw: () => env.desk.redraw() });
-    if (pane.want) { const note = await env.desk.ctx.board.get(pane.want); if (note) pane.hold(note, env.desk, USER); }
+    // A door page (`door:trail`, PIE-1725) is the door's to make, never the outline's to read.
+    if (pane.want) { const note = doorPage(pane.want.replace(/^door:/, "")) ?? (pane.want.startsWith("door:") ? null : await env.desk.ctx.board.get(pane.want)); if (note) pane.hold(note, env.desk, USER); }
     env.desk.redraw();
   },
 };

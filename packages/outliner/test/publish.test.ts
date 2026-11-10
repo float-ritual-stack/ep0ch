@@ -828,6 +828,20 @@ test("a query embed shows the note its query finds, and that note's lock holds (
   expect(locked).not.toContain("4471");
 });
 
+test("a query embed that shows nothing says why on the page, as the door does: the nearest keys, the grammar's fix (PIE-1723)", async () => {
+  const { store, get } = await setup();
+  store.create("Plan, Mon [type::plan] [day::2026-03-02]\nSharpen the hoe.");
+  store.create("Moon hub [publish::moon-hub]\n!((query: moon=full))\n\n!((query: type=plan AND))\n\n!((query: moon_phase=full))");
+  const markdown = await (await get("/p/moon-hub")).text();
+  // The answer's own words, as transclusions.read gives the door (MISSING TARGET · …, TARGET FAILED · …), in the page's.
+  expect(markdown).toContain("*missing note · no notes have moon; nearest: day");
+  expect(markdown).toContain("*embed failed · Expected a clause or group");
+  // A key's _ stays a character, not emphasis.
+  expect(markdown).toContain("moon\\_phase");
+  const html = await (await get("/p/moon-hub", { accept: "text/html" })).text();
+  expect(html).toContain("no notes have moon_phase");
+});
+
 test("a [publish::never] note is never published, embedded or linked: its place says locked note", async () => {
   const { store, get } = await setup();
   const vault = store.create("Gate codes [publish::never]\nside gate 4471");

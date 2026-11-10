@@ -721,7 +721,10 @@ export class AgentDrawer {
     const asking = this.asking();
     if (!asking) return null;
     const hit = asking.resolveTile(sel, o) ?? null;
-    return hit && (parseTileAddress(sel).kind !== "name" || o?.program || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk)) ? hit : null;
+    if (hit) return parseTileAddress(sel).kind !== "name" || o?.program || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk) ? hit : null;
+    // A block id (a recorded comment's note, PIE-1725): the tile showing it in the drawer, a group or the screen, as byBlock ranks.
+    if (/^[0-9a-f-]{8,}$/.test(sel)) for (const desk of new Set(this.desks().flatMap(d => d.descend()))) { const tile = desk.dispatch.shownBy(sel); if (tile && (!o?.shown || tile.shown !== false)) return { tile, dispatch: desk.dispatch, desk }; }
+    return null;
   }
   /** A desk to ask the resolver from: the drawer's (a saved one restored to be asked), else the screen shown's. */
   private asking(): Desk | null { return this.known ?? this.desks()[0] ?? null; }
@@ -1655,6 +1658,8 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "screen", replay: "safe",
     person: "the person's keys are theirs: an agent doesn't take them out of the drawer",
     args: { quiet: { type: "boolean", optional: true, about: "say nothing on the status bar (a click away)" } },
+    // Out of the drawer the keys were in when the recording began records nothing: replayed, they wouldn't be in it (PIE-1725).
+    record: r => (r.keys === "host" ? null : { action: r.action, args: r.args }),
     examples: [
       { act: "host.leave", does: "gives the person's keys back to the screen, the drawer staying up" },
       { act: "host.leave quiet=true", does: "gives the keys back without a word on the status bar" },

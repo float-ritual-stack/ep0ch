@@ -365,7 +365,12 @@ Only your successful actions are recorded; agent actions and power-bar navigatio
 A comment you type and send (`C`, your words, `^S`) records as the one line that sends it with its words
 (`comment.note body="…"`, `comment quote="…" body="…"`, a reply's `reply thread=… body="…"`), not the keys that opened it.
 A close of threads that were open before you started recording, and a copy of your mouse selection, are left out:
-replayed, they'd find nothing to close or copy. alt+Q works on any tile but a terminal's (a thread list or an edit holding
+replayed, they'd find nothing to close or copy; so is the esc out of a showcase section you were in before recording.
+A step on a note (a comment, a reply, its threads, an edit) acts on that note, not on whatever the tile shows when you
+replay it: its line names the note (`comment.note body="…" tile="<note id>"`), the saved script says "Acts on ((…))",
+and replay finds whichever tile shows it (the drawer's and a group's too), or says "open it first". The save flash
+names the note and the script; `^K` and the start of its name (`recorded-comment-no…`) runs it on ⏎ rather than opening
+its note. alt+Q works on any tile but a terminal's (a thread list or an edit holding
 the keys too); stopping with nothing recorded saves no script and says so.
 The new `[script::planting]` block contains an `actions` fence using the power bar's action-line grammar.
 Edit it normally, replacing a value with `{{props.tag}}` or another `{{props.slot}}`. Run it from the power bar to fill its
@@ -1360,7 +1365,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | ctrl-click or alt-click a link | open it beside, not in the link target |
 | click a dock's titled segment on its edge | show that tile, replacing the open choice; Alt-click opens beside, and clicking a lit segment closes it. The tiles overlay without reflow and tuck away together when the keys return underneath. The edge stays reachable above the drawer; the status bar’s docks segment lists every docked tile. Agents use `strip.more strip=docks-down` and `strip.pick strip=docks-down n=2` (or another drawn edge), with no tile required |
 | `,` over a saved view or inline `::view`, or its `≡ settings` control | open and enter its settings card. Enter edits the selected field and Esc closes the card, even with a collection row picked beneath it. In a field's choices, Space toggles, J/K reorders, typing filters and Tab completes; each choice writes the view's source and redraws it (kitchen sink: `collection-tune`) |
-| an extension's settings card (the settings screen, `ep0ch --screen settings`, or ⚙ settings on its page) | ⏎ types the selected setting in place (a command as one shell line; ⏎ saves to its config.json, Esc keeps the old value), `x` or `[↺]` puts it back to its default, `X` or `[↺ all]` every one, `t` or `[try]` runs the extension's own try; Tab goes to the settings list, where j/k pick, `/` searches every setting and ⏎ gives the card the keys (kitchen sink: `ext-settings`) |
+| an extension's settings card (the settings screen, `ep0ch --screen settings`, or ⚙ settings on its page) | ⏎ types the selected setting in place (a command as one shell line; ⏎ saves to its config.json, Esc keeps the old value), `x` or `[↺]` puts it back to its default, `X` or `[↺ all]` every one, `t` or `[try]` runs the extension's own try; Tab goes to the settings list, where j/k pick, `/` searches every setting and ⏎ gives the card the keys (kitchen sink: `ext-settings`). The trail's settings (days kept, the dwell thresholds) are a card of their own on the same screen, kept in this door's trail.json. While a setting is typed, `^U` clears the line |
 | `,` over a live `::graph-table`, or its `≡ settings` control | open the table's own settings: the keys its schema reads (`layout`, `columns`, `sort`…), each written into the block's YAML; `layout` feed, gallery or board draws it through the views' renderer; ctrl+z (`settings.undo`) takes the last write back (kitchen sink: `figure-settings`) |
 | click the `⤢` before a collection peek's title | land the peek beside its view (`tile.float on=false where=right`); Enter enters the peek, Esc closes it and returns the keys to the view |
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |

@@ -30,6 +30,8 @@ export function opening(ctx: Ctx, actor: Actor, tile: string | undefined, note?:
 /** Called only by placement after it has landed, including a select-wire delivery. */
 export function landed(ctx: Ctx, actor: Actor, cause: ReturnType<typeof opening>, tile: string, note: string, title: string, place: TrailPlace, address?: DoorOpen["target"]["address"]): DoorOpen {
   const event: DoorOpen = { kind: "door.open", type: "door.open", at: Date.now(), actor, target: { tile, note, ...(address ? { address } : {}), visit: crypto.randomUUID() }, ...cause };
+  // A door page (the trail's settings card, `door:trail`) is the door's own, not a note: no visit, nothing on the wire.
+  if (note.startsWith("door:")) return event;
   ctx.trail?.locate(tile, place, note, title);
   ctx.opened?.(event);
   messageContext.run({ ...messageContext.getStore(), tile }, () => probe("open.land"));
