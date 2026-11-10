@@ -591,10 +591,10 @@ export class Dispatcher {
   takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
   /**
-   * An authored press defaults tile actions to its own reader, as if it were focused: a tile set's, and a screen set's that
-   * works on a tile (`actsOnTile`: tile.agent, tile.title, tile.zoom); a landing, a screen-wide change and a host action keep
-   * their scope. So a press from the answer tile acts in the reader the ask was typed in, never the answer tile the keys or
-   * the click are in (PIE-1699). The one owner of
+   * An authored press defaults tile actions to its own reader. A press made in a reader places a screen set's action that
+   * works on a tile there too (`actsOnTile`: tile.agent, tile.title, tile.zoom), as if that reader were focused, so a press
+   * from the answer tile acts in the reader the ask was typed in, never the answer tile the keys or the click are in
+   * (PIE-1699); a landing, a screen-wide change and a host action keep their scope. The one owner of
    * where a press acts (PIE-1517): given the press (src/surface/invite.ts `Press`), its reader; made in none (`button.press
    * note=`, a status-bar button), a reader showing its note, here or on the screen this host hands tile actions to. Where
    * none does, the person's own press acts at their focus; anyone else's is refused with "open it first", never landing
@@ -602,10 +602,12 @@ export class Dispatcher {
    */
   requestIn(req: ActRequest, at: string | Press | undefined): ActRequest {
     let tile = typeof at === "object" ? at.tile : at;
+    // Made in a reader: that reader stands in for the focus, for a screen set's tile action too (PIE-1699).
+    const made = tile !== undefined;
     if (tile === undefined && typeof at === "object" && at.note && (this.showing(at.note) || !this.standing(at.actor, "tile"))) tile = at.note;
     if (req.tile !== undefined || tile === undefined) return req;
     const there = { ...req, tile };
-    return this.tileAction(there) ? there : req;
+    return this.tileAction(there, made) ? there : req;
   }
 
   /** A tile showing `note` here, or on the screen this host hands its tile actions to (the door's shell to its desk). */
@@ -614,9 +616,10 @@ export class Dispatcher {
     return this.tile(note) ?? (address ? this.resolve(address)?.dispatch.tile(note) ?? null : null);
   }
 
-  private tileAction(req: ActRequest): boolean {
+  /** Whether the request's tile decides where it runs: a tile set's action, or (`screen`: a press made in a reader) a screen set's that acts on a tile. */
+  private tileAction(req: ActRequest, screen = false): boolean {
     const r = this.owner(req);
-    return !!r && ("set" in r ? r.takes === "tile" || actsOnTile(r, r.set.def(req.action)) : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req));
+    return !!r && ("set" in r ? r.takes === "tile" || screen && actsOnTile(r, r.set.def(req.action)) : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req, screen));
   }
 
   /** The set that owns a request's action: the first registered that claims it. */
