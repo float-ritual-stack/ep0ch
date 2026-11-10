@@ -1,4 +1,5 @@
 import { draftView } from "../draft-view";
+import { inRect } from "../canvas";
 import { RowView } from "../scroll";
 import { paintRange, rowsOf, SELECT_BG, Selection, type Pos } from "./selection";
 import { DraftSession, type SessionEnv } from "../draft-session";
@@ -126,7 +127,7 @@ export class Inspector extends RowView {
   begin(at: Pos) {
     this.pressed = at; this.selection = null;
     const r = this.editorRect;
-    this.editorPressed = !!this.field && at.col >= r.x && at.col < r.x + r.w && at.row >= r.y && at.row < r.y + r.h;
+    this.editorPressed = !!this.field && inRect(r, at.col, at.row);
     if (!this.editorPressed) return;
     this.placeField(at, false);
     // A double click selects a word, a triple the line: the edit control's, as in every field (PIE-1542).

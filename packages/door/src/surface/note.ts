@@ -34,7 +34,7 @@ import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
 import { errorDetails } from "../status-log";
 import { messageContext } from "../status-log";
-import { Canvas } from "../canvas";
+import { Canvas, inRect } from "../canvas";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
 import { outlineBoards, readNote } from "../desk/outline-boards";
@@ -3044,14 +3044,14 @@ export class NoteSurface {
         y += this.heroTop;
         const r = mode.rect;
         // A click outside it while a comment is being written gives the comment its keys back; one in it, the compare.
-        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.session && this.modes.active(mode)) run("revision.focus", { on: false }); return undefined; }
+        if (!inRect(r, x, y)) { if (this.session && this.modes.active(mode)) run("revision.focus", { on: false }); return undefined; }
         if (!this.modes.active(mode)) run("revision.focus", { on: true });
         if (y === r.y) { const c = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to); if (c) run(c.action); }
         return true;
       },
       wheel: (dir, _host, at) => {
         const r = mode.rect, y = at ? at.y + this.heroTop : -1;
-        if (!at || at.x < r.x || at.x >= r.x + r.w || y < r.y || y >= r.y + r.h) return false;
+        if (!at || !inRect(r, at.x, y)) return false;
         run("revision.scroll", { by: dir * 3 }); return true;
       },
       rows: () => null, leave: async () => { this.closeRevision(); return { left: "nothing" }; },
@@ -3112,7 +3112,7 @@ export class NoteSurface {
       click: (x, y, host) => {
         y += this.heroTop;
         const r = mode.rect;
-        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
+        if (!inRect(r, x, y)) return undefined;
         if (y === r.y) {
           const control = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to);
           if (control) run(control.action);
@@ -7333,7 +7333,7 @@ export class NoteSurface {
         const over = this.floatAt(x, y, host);
         if (over && over !== "sources") return undefined;
         if (mode.place === "inline" && y < (this.drawn?.top ?? 0) + this.heroTop) return undefined;
-        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) {
+        if (!inRect(r, x, y)) {
           if (this.floatAt(x, y, host) === "sources") { run("sources.focus", { on: true }); return true; }
           if (this.modes.active(mode)) run("sources.focus", { on: false });
           return undefined;
@@ -7344,7 +7344,7 @@ export class NoteSurface {
         if (hit) run(hit.action, hit.args);
         return true;
       },
-      wheel: (dir, host, at) => { if (mode.place === "tile" && host.attachment !== "sources") return false; const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
+      wheel: (dir, host, at) => { if (mode.place === "tile" && host.attachment !== "sources") return false; const r = mode.rect; if (!at || !inRect(r, at.x, at.y)) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
       leaveRefusal: () => mode.view.field ? `finish the property field · ${hintOf(FIELD_KEYS)}` : null,
       unsaved: () => mode.view.unsaved(), keep: () => mode.view.keep(),
@@ -7994,7 +7994,7 @@ export class NoteSurface {
     const split = !float && this.attachments.divider(x, y);
     if (split) { pointer.hold({ kind: "split", frame: split }); return; }
     const sm = this.sourcesMode, r = sm?.rect;
-    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + this.heroTop) && (!float || float === "sources") && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + this.heroTop) && (!float || float === "sources") && inRect(r, x, y)) {
       if (y >= r.y + sm.footer) { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y - 1 + sm.view.top, col: x - r.x }, host);
       pointer.hold({ kind: "sources", letGo: () => sm.view.release() });
