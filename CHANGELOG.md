@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note's comments read at any width, and a comment's title keeps the chips it quotes (PIE-1572, PIE-1596)
+
+- **The BBS reader has a `[+]` for a folded whole-note comment** (PIE-1572): after its header, wrapping to a row of its own in a narrow tile. Before, "as marks" and a comment put away as seen left no way to it by mouse there; the reader's title already had one.
+- **No cut `…` in the gutter beside a whole-note card:** a gutter too narrow for the card's `[–]` leaves it out; the card's own `[–]` folds it.
+- **A reader narrowed at its top keeps the whole-note card in view** (PIE-1572, the Nov 3 sighting): read wide, the card sits beside the text; narrowed to 60 or 44 it folds in above the first line, and a reader anchored there (after `]`, or the wheel) scrolled up past it, leaving only `■ 1`. A reader at its top now stays at the note's top (`PositionRows`, shared with the edit).
+- **Checked at 44 and 60 columns, in the reader and under the BBS header:** short cards and whole draw the card, as marks draws a `[+]`, and a click or `]` then `⏎` reads it whole.
+- **A comment's title is its words whole** (PIE-1596): `see [page::seeds] and [orient::all]` titles itself that way in `ep0ch show`, the door and the service, never "see and". A line that only shows something (`[img::…]`, `[file::…]`) is still skipped. The rule is outline-core's `markTitleLine`.
+- **Its property count is its own:** `i 3 properties`, the comment's metadata line, not the chips it quotes. outline-core's new `ownPropertyRecords` decides it, and the door's header and property panel read it. `propertyScope: all` queries still see the quoted chips where they sit.
+- **Kitchen sink:** the marginalia section's notebook, a narrow tile, has a comment on the whole of it that quotes chips.
+- **Run:** `ep0ch install --apply` (GRAMMAR 45; no PROTOCOL or schema change).
+
 ### Every write says who ran it, the same way (PIE-1406, PIE-1651)
 
 - **One `recordedAs` on every writing action's answer:** `{ author, actorId?, says }`, built by `recordedAnswer` from `recorded()` (PIE-1406). `card.create`, `card.trash` and `note.trash` gave words, and `edit.save`, `props.edit`, `image.size` and about 20 more gave the mutation object; now they all give this shape, and so do `note.move`, `tree.move`, `column.move` and `card.reorder`. Each action's page and `ep0ch actions` list it under `answer`; the agent interface names it once.

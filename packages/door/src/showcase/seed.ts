@@ -87,7 +87,7 @@ import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
 import { ASK_AGENT, COMPLETION_PLACE, SOWING_WEEKS, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, shelfCards, heroText, imagesText, picturesText, placeArtifacts, PLOT_ART, PLOT_BANNER, PLOT_CARDS, PLOT_CARD_NOTES } from "./seed/media";
-import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
+import { MARGINALIA_NOTEBOOK, MARGINALIA_NOTEBOOK_COMMENT, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIR_LIST, FORM_REPAIRS, FORM_WATERING, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
 import { seedAccess } from "./seed/access";
@@ -886,6 +886,10 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
     await board.reply("showcase-ask-answer", asked.id, "Leeks are slow to toughen; ten days of the lid open a little wider each morning keeps the tips from scorching.", SEED_AGENT);
     // A note to self in the same thread: no @margin, so nothing answers it.
     await board.reply("showcase-ask-aside", asked.id, "Try the lid half open on day one and see.", { kind: "user" });
+    // On the whole notebook, read in its narrow tile (PIE-1572), quoting chips: they stay its words, in its card, its
+    // title (the notebook's row for it) and its property count (PIE-1596).
+    const book = notes.marginaliaNotebook;
+    await board.comment("showcase-notebook-comment", book.id, book.revision!, MARGINALIA_NOTEBOOK_COMMENT, null, { kind: "user" });
   }
   notes.recentReplies = await make(notes.root.id, RECENT_REPLIES);
   notes.shLines = await make(notes.root.id, shellLineDemo(opts.ticketsConfig));

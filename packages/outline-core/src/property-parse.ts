@@ -4,7 +4,7 @@
 import { codeHides, literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "./code-ranges";
 import { maskOutputRegions } from "./output-region";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, isHexColour, PROPERTY_KEY_SOURCE, propertyTokenMatches, type RawPropertyToken } from "./property-grammar";
-import { frontMatterLines, headerLine } from "./header-line";
+import { frontMatterLines, headerLine, markBodyLine } from "./header-line";
 import { isMediaLine } from "./media-line";
 import { markTitleLine } from "./annotation-marks";
 import { blockReferenceEnvelopeRanges, pageLinkRanges } from "./link-syntax";
@@ -170,6 +170,16 @@ function hashtagCandidates(
     });
   }
   return candidates;
+}
+
+/**
+ * The records that are a note's own, the ones its property count and panel show (PIE-1596): all of a note's, a body
+ * chip being its line's property; a mark's (a comment or reply) only its heading and metadata line's. A chip quoted in a
+ * mark's words is words (PIE-1589): `parsePropertyRecords` still says where it sits, for a line-scope query.
+ */
+export function ownPropertyRecords<T extends { line: number }>(text: string, records: readonly T[]): T[] {
+  const body = markBodyLine(text);
+  return body === null ? [...records] : records.filter(record => record.line < body);
 }
 
 export function parsePropertyRecords(source: string): PropertyRecord[] {
