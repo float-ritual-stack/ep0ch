@@ -192,6 +192,91 @@ describe("showcase: ask yo (PIE-1585)", () => {
     // An agent's press drops nothing now (the person's lift is theirs to drop): it still runs both steps to done.
     await press("agent");
   }, 120_000);
+  // PIE-1699: yo's answer beside the line being typed (the answer tile) draws its button live, and pressing it there runs the
+  // reader's one press (runPress) on the line as typed, before it is saved: its action, then yo's remember, to the end.
+  for (const how of ["click", "keys"] as const) test(`typed in the editor: the ▼ drop in the answer tile beside the line is pressed there, by ${how}`, async () => {
+    const lifted = () => (h.app as any).hostLayer.desks().some((d: any) => d.layout?.lift);
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, `Ask yo, while typing (${how})\n\nWhere the answer's button is pressed beside the line.\n`);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    // Into the stage, as a person goes in from the section list (run alone, the keys start on the list).
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    await h.board.createBlock(null, `stow agent ${how}: agent.lift on=false [yo-memory::answer] [yo-action::agent.lift] [yo-asked::stow agent ${how}] [yo-line::agent.lift on=false]`);
+    // Lifted by an agent, so the keys stay where the person is.
+    await h.app.act({ action: "agent.lift", args: { on: true }, as: "test-agent" });
+    await until(lifted, "the agent tab lifted", 8000);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    const asked = `stow the agent ${how}`;
+    for (const c of `@yo ${asked}`) h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    await until(() => !!answer() && h.screen().includes("▼ drop"), "yo's answer beside the line, with its button", 30_000);
+    const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
+    expect(draft()?.text).toContain('::button{label="▼ drop"');
+    // Not saved: the button is only in the edit.
+    expect((await h.board.get(own.id))!.text).not.toContain("▼ drop");
+    if (how === "click") {
+      const lines = h.screen().split("\n"), y = lines.findIndex(l => l.includes("▼ drop")), x = lines[y]!.indexOf("▼ drop") + 1;
+      h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
+    } else {
+      // The keys into the answer tile (as Tab or ^W there), then its number: the links and buttons are numbered as drawn.
+      const tile = stage().pane(answer()!) as { links: { press?: unknown }[] };
+      const n = tile.links.findIndex(l => l.press) + 1;
+      expect(n).toBeGreaterThan(0);
+      await h.app.dispatch.act({ action: "tile.focus", tile: answer()! }, USER);
+      h.ch(String(n));
+    }
+    // The press ran its line as typed to its end (both steps: the drop, then yo's remember), and the tab is down.
+    const line = draft()!.text.split("\n").findIndex(l => l.includes('label="▼ drop"'));
+    await until(() => pressState(own.id, line, "▼ drop").state === "done", `the ${how}'s press done`, 15_000);
+    expect(lifted()).toBe(false);
+    // The person's edit is still open, their words in it; saved, it ends.
+    expect(draft()?.text).toContain(`@yo ${asked}`);
+    await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await untilAsync(async () => (await h.board.get(own.id))!.text.includes(`@yo ${asked}`), "the saved words");
+  }, 90_000);
+
+  // PIE-1699 review: a press from the answer tile acts where the note is, the reader beside it, never the answer tile itself:
+  // a remembered tile.title with no tile= names the reader the line is typed in.
+  test("typed in the editor: a tile-relative button pressed in the answer tile acts on the reader, not the answer tile", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Ask yo, naming a tile\n\nWhere a tile-relative button is pressed beside the line.\n");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    await h.board.createBlock(null, "name shed tile: tile.title text=Seedlings [yo-memory::answer] [yo-action::tile.title] [yo-asked::name shed tile] [yo-line::tile.title text=Seedlings]");
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo name the shed tile") h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
+    await until(() => !!answer() && /::button\{label="[^"]+" act=\["tile\.title text=/.test(draft()?.text ?? ""), "yo's answer with a tile.title button", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER);
+    // The reader (the tile the note is in) takes the title, by its id: the answer tile keeps its own.
+    const reader = () => (stage().layoutGet().tiles as { tile: string; kind: string; title?: string }[]).find(t => t.kind === "reader")!;
+    const answerTitle = () => (stage().layoutGet().tiles as { kind: string; title?: string }[]).find(t => t.kind === "answer")!.title;
+    await until(() => reader().title === "Seedlings", `the reader titled (it reads ${reader().title}, the answer tile ${answerTitle()})`, 15_000);
+    expect(answerTitle()).not.toBe("Seedlings");
+    await h.app.dispatch.act({ action: "edit.save", tile: reader().tile }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await h.app.dispatch.act({ action: "tile.title", tile: reader().tile, args: { text: "ask" } }, USER);   // the section's name back
+  }, 90_000);
+
   // PIE-1676: yo's remember takes an argument named asked, and the door's own words for its run never take its place.
   test("an agent's ext.yo.remember asked=… keeps what it asked", async () => {
     await h.app.act({ action: "ext.yo.remember", args: { act: "tile.zoom", asked: "zoom-the-shed", args: "reach:full" }, as: "test-agent" });

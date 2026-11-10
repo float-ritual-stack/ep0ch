@@ -7,6 +7,9 @@ import { subject } from "../../src/board";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
+import { join } from "node:path";
+import { startControl } from "../../src/control";
+import { Mirror } from "../../src/mirror";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -549,7 +552,41 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     // undoes it all the same: source writes are one history (PIE-1666).
     await act("button.slot", { note: note.id, line: 2, key: "word", alt: true, value: "Corn patch", run: true }, undefined, AGENT);
     await untilAsync(async () => (await title()) === "Corn patch", "the agent's note= press titling the preview");
-    await act("sources.undo", {}, reader, AGENT);
+    const corn = await act("sources.undo", {}, reader, AGENT);
     expect(await line("title it")).toBe(TITLE);
+    // What its press did comes back too, or the answer says why it stays (PIE-1700: it was neither).
+    expect(corn.press ?? "").toMatch(/^kept: .*an agent doesn't lay the desk out/);
   }, 30_000);
+
+  // PIE-1700: through a door's control socket, as an agent drives a running door: the press the door hands an agent
+  // (note= and line=, no tile) is taken back whole by sources.undo in the reader, the title with the words; and a press
+  // that changed nothing answers no undo id.
+  test("over the control socket: an agent's note= run=true press comes back whole with sources.undo; a press that changed nothing has no undo id (PIE-1700)", async () => {
+    const { note, reader, line } = await pressNote();
+    const was = await title();
+    const control = await startControl({ app: h.app, mirror: new Mirror(200, 60), info: () => ({ cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }) }, join(h.scratch.root, "presses.sock"));
+    const cli = async (...args: string[]) => {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../../src/main.ts"), "act", ...args, "--as", "socket-presser"], {
+        cwd: h.scratch.workspace, stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, ...h.scratch.env, EP0CH_CONTROL: control.path, EP0CH_PLACE: "" },
+      });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect({ code, err }).toEqual({ code: 0, err: "" });
+      return JSON.parse(out);
+    };
+    try {
+      const n = (await board.get(note.id))!.text.split("\n").findIndex(l => l.includes('label="title it"')) + 1;
+      const pressed = await cli("button.slot", `note=${note.id}`, `line=${n}`, "key=word", "alt=true", "value=Bean poles", "run=true");
+      expect(pressed.changed).toBe(true);
+      await untilAsync(async () => (await title()) === "Bean poles", "the socket press titling the preview");
+      const back = await cli("sources.undo", `--tile`, reader);
+      expect(await line("title it")).toBe(TITLE);
+      // Whole, or said: the title back with the words, or the answer says why what the press did stays.
+      if (back.press === undefined) await untilAsync(async () => (await title()) === was, `sources.undo taking the title back (it reads ${await title()}; the answer: ${JSON.stringify(back)})`);
+      else expect(back.press).toMatch(/^kept: /);
+      const unlocked = await cli("button.press", `note=${note.id}`, "label=unlock");
+      expect(String(unlocked.message ?? "")).toContain("nothing to undo");
+      expect(unlocked.undo).toBeUndefined();
+    } finally { control.close(); }
+  }, 60_000);
 });

@@ -119,7 +119,7 @@ export const NO_READER: HookReader = { refusedPress: () => null, folded: new Set
  * bodies under a `::use`, buttons, steps, live steps and components' words, each recording its links in `drawn`.
  * `reader`: what they read of the reader drawing them (NO_READER for a preview, which needs no surface).
  */
-export function blockdownHooks(reader: HookReader, m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number, bodyOnly?: boolean) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
+export function blockdownHooks(reader: HookReader, m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use" | "button"> & { preview?: (id: string, width: number, bodyOnly?: boolean) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
   // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
   // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
   let nest = 0;
