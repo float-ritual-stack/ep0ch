@@ -88,8 +88,8 @@ export class Inspector extends RowView {
   key(k: Key): { op: string; value?: string; n?: number } | true | null {
     const f = this.field;
     if (!f) return null;
-    if (f.choices.length && (k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && !k.pasted && (k.ch === "j" || k.ch === "k"))) return { op: "pick", n: f.selected + (k.kind === "up" || k.kind === "char" && k.ch === "k" ? -1 : 1) };
-    if (f.multiple && k.kind === "char" && k.ch === " " && !k.pasted) return { op: "toggle" };
+    if (f.choices.length && (k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && (k.ch === "j" || k.ch === "k"))) return { op: "pick", n: f.selected + (k.kind === "up" || k.kind === "char" && k.ch === "k" ? -1 : 1) };
+    if (f.multiple && k.kind === "char" && k.ch === " ") return { op: "toggle" };
     let op: { op: string } | null = null;
     f.session.key(k, { completer: null, run: cmd => { op = cmd === "save" ? { op: "save" } : cmd === "close" || cmd === "discard" ? { op: "cancel" } : null; } });
     return op ?? true;

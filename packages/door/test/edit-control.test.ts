@@ -14,20 +14,20 @@ import { LineField } from "../src/surface/line";
 import { keysNow, reloadKeymap } from "../src/surface/keymap";
 import { LISTVIEW_ACTIONS } from "../src/surface/list-actions";
 import { wordIn } from "../src/surface/selection";
-import { pasteKeys, type Key } from "../src/term";
+import type { Key } from "../src/term";
 
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 const alt = (ch: string): Key => ({ kind: "alt", ch });
 const typeKeys = (s: string): Key[] => [...s].map(ch => ({ kind: "char", ch }));
 
 /**
- * A host as the contract drives it: `press` a key the way the door hands it over (a paste typed out key by key, as the
+ * A host as the contract drives it: `press` a key the way the door hands it over (a paste whole, one key, as the
  * App does), `select` a span with the mouse's action (draft.place twice, as a drag leaves it), `text` what it holds now.
  */
 interface Host { name: string; text(): string; press(k: Key): unknown; select(from: number, to: number): Promise<void> | void; settle?(): Promise<void> }
 
-/** A paste as the App hands it to anything but a terminal tile: typed out key by key, in one go (pasteKeys). */
-const paste = (h: Host, text: string) => { for (const k of pasteKeys(text)) h.press(k); };
+/** A paste as the App hands it to every place that types: whole, one key (src/paste-path.ts). */
+const paste = (h: Host, text: string) => { h.press({ kind: "paste", text }); };
 
 const sessionHost = (name: string): Host => {
   const s = DraftSession.open({ place: `test:${name}`, back: "", label: name, what: name, verb: "save", leaveWrites: false, submit: async () => ({ ok: true }) }, { text: "" }, {});
