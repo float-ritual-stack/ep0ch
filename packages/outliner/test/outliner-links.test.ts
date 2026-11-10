@@ -1,3 +1,4 @@
+import { blockNotFound } from "@ep0ch/outline-core/refusal";
 import { getOsc8LinkAtColumn, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "bun:test";
 import type { RequestInput } from "../src/client";
@@ -421,7 +422,7 @@ describe("outliner link URIs", () => {
     const requester = {
       async request<T>(input: RequestInput): Promise<T> {
         calls.push(input);
-        throw new Error(`Block not found: ${missingId}`);
+        throw blockNotFound(missingId);
       },
     };
 

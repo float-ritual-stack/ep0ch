@@ -1,3 +1,4 @@
+import { blockNotFound } from "@ep0ch/outline-core/refusal";
 import { expect, test } from "bun:test";
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import type { RequestInput } from "../src/client";
@@ -41,7 +42,7 @@ function requester(projections: ResourceProjection[], blocks: Block[] = []) {
       if (input.action === "resources.projection.read") return { blockId: input.blockId, revision: 1, projections } as T;
       if (input.action === "get") {
         const found = blocks.find(candidate => candidate.id === input.blockId);
-        if (!found) throw new Error(`Block not found: ${input.blockId}`);
+        if (!found) throw blockNotFound(input.blockId);
         return found as T;
       }
       throw new Error(`Unexpected action: ${input.action}`);
