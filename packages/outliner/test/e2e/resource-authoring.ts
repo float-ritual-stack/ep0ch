@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { join } from "node:path";
-import type { OutlinerClientRegistration, OutlinerClientRole } from "../../src/types";
+import type { Block, InternResourceReceipt, OutlinerClientRegistration, OutlinerClientRole } from "../../src/types";
 import { runHerdrScenario, type HerdrScenarioSession } from "./herdr-runner";
 
 const SCENARIO_NAME = "resource-authoring";
@@ -9,6 +10,9 @@ const AUTHORED_TITLE = "PIE267 authored README";
 const AUTHORED_TEXT = `${AUTHORED_TITLE} [file::README.md]`;
 const README_SENTINEL = "PIE267-README-DETAIL-SENTINEL";
 const README_CONTENT = `# PIE-267 Resource fixture\n\n${README_SENTINEL}\n`;
+const WEB_SENTINEL = "PIE1694-MARKDOWN-PAGE-SENTINEL";
+// Served as Markdown, as a static site serves notes.md: Detail shows the text, not a refused metadata card (PIE-1694).
+const WEB_NOTES = `# Garden notes\n\n${WEB_SENTINEL} at  dawn.\n\n- peas\n  - snap\n`;
 
 interface CatalogIds {
   readonly sourceIds: readonly string[];
@@ -301,6 +305,37 @@ export const resourceAuthoringScenario = {
       sentinelVisible: true,
     });
     await session.checkpoint("06-resource-reactivated");
+
+    // A [web::…] page served as text/markdown reads as its text in Detail.
+    const server = createServer((_request, response) => {
+      response.setHeader("content-type", "text/markdown; charset=utf-8");
+      response.end(WEB_NOTES);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const url = `http://127.0.0.1:${address.port}/notes.md`;
+      const host = await session.client.request<Block>({ action: "create", parentId: null, text: `PIE1694 garden notes [web::${url}]` });
+      const { resource } = await session.client.request<InternResourceReceipt>({
+        action: "resources.follow-authored", reference: { kind: "web", url },
+      });
+      const tree = matchingClient(await session.registrations(), session.panes.tree, "tree");
+      assert.ok(tree, "Owned Tree registration must be live");
+      await session.client.request({
+        action: "navigation.dispatch", sourceClientId: tree.clientId,
+        target: { kind: "resource", resourceId: resource.id }, intent: "open",
+      });
+      await waitForDetailTarget(session, resource.id, false);
+      await session.focus(session.panes.detail);
+      await session.keys(session.panes.detail, "r");
+      const frame = await session.waitVisible(session.panes.detail, WEB_SENTINEL);
+      assert.ok(!frame.includes("unsupported media type"), "The page is read, not refused");
+      await session.record("web-markdown-read", { hostBlockId: host.id, resourceId: resource.id, url });
+      await session.checkpoint("07-web-markdown-read");
+    } finally {
+      server.close();
+    }
   },
 } satisfies Parameters<typeof runHerdrScenario>[0];
 
