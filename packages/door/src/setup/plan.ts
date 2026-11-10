@@ -16,7 +16,7 @@ import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Fac
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "named-agents" | "with-secrets" | "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "sweep" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "publishers" | "session" | "backups" | "clients" | "client-list";
+export type StepId = "named-agents" | "with-secrets" | "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "publishers" | "session" | "backups" | "clients" | "client-list";
 
 export interface Step {
   id: StepId;
@@ -427,25 +427,6 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
     migrate: { from, to, scripts, outlines: behind.map(o => ({ name: o.name, path: o.path, version: o.version! })), stopsHost, ...(updates && f.repo.checkout.head ? { before: f.repo.checkout.head } : {}) } };
 }
 
-/**
- * The brace sweep (PIE-533): the old single-brace and placement forms, and a runbook's `{{env}}`, rewritten in the
- * grammar the new code reads (packages/outliner/src/brace-sweep.ts, `outliner sweep <database> --apply`). It runs on
- * every install, after the schema step and before the host starts, so a run that stopped halfway (the checkout moved,
- * a migration failed) is finished by the next. At apply it first looks at every outline without writing; only an
- * outline with something to rewrite stops the host (the sweep refuses a served file), so when there is nothing it says
- * so and restarts nothing: it is idempotent. Null when the schema wasn't looked at.
- */
-export function sweepStep(f: Facts): Step | null {
-  if (!f.schema) return null;
-  const title = "Rewrite old brace forms in the notes";
-  const names = f.schema.outlines.filter(o => !o.empty).map(o => o.name);
-  if (!names.length) return { id: "sweep", title, status: "skip", why: "no outlines", commands: [] };
-  const cli = join(f.repo.outliner, "src/cli.ts");
-  return { id: "sweep", title, status: "do",
-    why: `${names.join(", ")}: looked at first; a note with {slot}, {key} or a rule-place above/below, or a runbook's {{env}}, is rewritten as {{props.slot}}, {{this.key}}, prepend/append or {{self.env}} (the host stops only then; one transaction and one attributed change per outline, brace-sweep); a second run changes nothing`,
-    commands: names.map(n => `bun ${sh(cli)} sweep ${sh(join(f.host.folder, `${n}.sqlite`))} --apply`) };
-}
-
 /** The command that restarts the MCP gateway's unit, as a person would type it. */
 export const mcpRestartCommand = (m: McpFacts) => hostUnitCommand({ ...m.unit, outlines: "", stale: [] }, "restart");
 
@@ -691,7 +672,6 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const link = linkStep(f);
   const name = nameStep(f);
   const dials = dialsStep(f);
-  const sweep = sweepStep(f);
   const clients = f.installClients;
   const sshClients = sshInstallClients(f);
   const clientList: Step[] = clients?.changed ? [{ id: "client-list", title: "Save this host's clients", status: "do", why: `${clients.file}: ${clients.names.join(", ") || "none"}`, commands: [], writes: [{ path: clients.file, text: clients.names.length ? clients.names.join("\n") + "\n" : "" }] }] : [];
@@ -721,7 +701,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   }
   const mod: Step = { id: "claude-mod", title: "Install the Claude mod and rename its settings", status: "do", why: "load ep0ch and allow its tools; report launch commands that still name pi-outliner", commands: [`bun ${sh(join(f.repo.outliner, "scripts/install-claude-mod.ts"))} --project ${sh(f.repo.root)}`] };
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(f.withSecrets ? [withSecretsStep(f)] : []), ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), ...(sweep ? [sweep] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, ...(publishers ? [publishers] : []), { id: "named-agents", title: "Restart this machine’s named agents", status: "do", why: "Read .ep0ch/agents.toml and restart the local rows through ep0ch agent start", commands: [] }, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
+  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(f.withSecrets ? [withSecretsStep(f)] : []), ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, ...(publishers ? [publishers] : []), { id: "named-agents", title: "Restart this machine’s named agents", status: "do", why: "Read .ep0ch/agents.toml and restart the local rows through ep0ch agent start", commands: [] }, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }
 
 export function withSecretsStep(f: Facts): Step {

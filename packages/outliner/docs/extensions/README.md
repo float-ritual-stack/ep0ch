@@ -102,12 +102,6 @@ Readwise's `config.link` uses `{{props.outline}}`, `{{props.machine}}` and `{{pr
 Both ask `site.answer` to interpolate through outline-core's shared grammar. An
 interpolation request without `blockId` can read `props`; it has no `this` note.
 
-`outliner sweep <database.sqlite>` previews old slots in these settings alongside
-note rewrites. It finds the named outline's extension folder and the user extension
-folder through the registry's normal roots. `--apply` requires the host stopped,
-rewrites the group and prints its undo command. `--undo <id>` restores the group,
-including settings, after a restart; an intervening edit refuses the whole undo.
-Install also runs this sweep for settings-only changes and prints the undo command.
 The sweep is demonstrated by its scratch CLI journey, rather than a showcase tile:
 it runs with the host stopped.
 
@@ -1065,8 +1059,7 @@ Done by hand [note-mover::((<done>))] [query::status=done] [note-mover-when::com
   moving nothing; notes no rule holds for are counted, not listed.
 - **The old name still works** (PIE-1314): a rule written `[type::route]` with `route-to`, `route-when`, `route-order`
   or `route-at` moves notes as ever, and saving one warns "renamed to note-mover" on its line with the rule it means
-  (`outline-core`'s `note-mover-rename.ts`). `packages/outliner/scripts/rename-route-to-note-mover.ts` rewrites an
-  outline's. `ep0ch route`, `note.route` and `notes.route` are verbs and keep their names.
+  (`outline-core`'s `note-mover-rename.ts`). `ep0ch route`, `note.route` and `notes.route` are verbs and keep their names.
 - **The seam for PIE-1011** (snapshot records filed under `.system`): `SEEDED_RULES` in `note-routing.ts`, a rule the
   service seeds once; `note-mover` resolves through the one block lookup, and `moveNote`'s system-parent allowlist is where
   `.system` joins the Inbox.

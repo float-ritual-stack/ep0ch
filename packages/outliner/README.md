@@ -2472,8 +2472,7 @@ rating > 3
   holds. `hide` is the answer when it is left out, except `changes.since`, which is also how a client catches up on what
   it missed and so holds everything unless asked (each change says `machinery: true` when its note is stamped, and
   `bookkeeping: true` when the edit moved only `[key::value]` tokens). A producer's own reads (EchoNet's nodelist, the
-  file-touch views, backup-run figures) say `show`. `ep0ch machinery backfill [--apply]` stamps what was written before
-  producers stamped. Proofs, patch notes, tickets and carried comments are not stamped: someone chose those words.
+  file-touch views, backup-run figures) say `show`. Proofs, patch notes, tickets and carried comments are not stamped: someone chose those words.
 - **`this`:** any relation's target may be `this`, the block the question is asked for (ADR 0004): `blocks.query`'s
   `this` (a `::links` block's note, a figure's note, a tile's aim). `links:this NOT linkedfrom:this` is what links to a
   note that the note doesn't link back. A question that says `this` with none given is refused: `this is the note the
@@ -3614,7 +3613,7 @@ Scripts default to read; writes and door actions require `[effects::write]`. Run
 [script contract](docs/extensions/README.md#script-blocks-and-files-pie-601).
 
 A `[script::name]` block may hold an `actions` fence as well as a TypeScript/JavaScript fence.
-Action lines use the power bar’s shared quote grammar; `{{props.slot}}` argument values are run arguments, required unless the slot has a default (`{{props.slot || main}}`). A slot is filled per argument value, after the line is split into words, so a value holding `x tile=other` stays one value. `outliner sweep <database> [--apply]` rewrites the old `{slot}`, rule `{title}` label and `[rule-place::above|below]` forms (a diff first; `--apply` is one attributed change, host stopped).
+Action lines use the power bar’s shared quote grammar; `{{props.slot}}` argument values are run arguments, required unless the slot has a default (`{{props.slot || main}}`). A slot is filled per argument value, after the line is split into words, so a value holding `x tile=other` stays one value.
 The loader exposes them through the existing extension manifest, and the same script runtime awaits each
 `act` in order, reporting the first refused step in its run note. Editing the source still invalidates an
 older run. The door’s [macro controls](../door/README.md#the-showcase) record these blocks.

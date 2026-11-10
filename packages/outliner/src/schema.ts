@@ -876,15 +876,11 @@ const userVersion = (database: Database) => (database.query("PRAGMA user_version
 
 export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
 
-/** The current offline migration also repairs an outline instance id. */
-const REPAIR_SCRIPT = join(import.meta.dir, "../scripts/migrations/0006-reference-index.ts");
-
 export function readOutlineInstanceId(database: Database, path: string): string {
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
   const value = row?.value;
   if (!value || !BLOCK_ID_PATTERN.test(value)) {
-    const { stop, start } = hostUnitCommands();
-    throw new Error(`The outline database ${path} has no valid outline instance id. Repair it with:\n\n${[stop, `bun ${shWord(REPAIR_SCRIPT)} ${shWord(path)}`, start].map(l => `  ${l}`).join("\n")}`);
+    throw new Error(`The outline database ${path} has no valid outline instance id. Import its notes into a new outline (it gets one):\n\n${importRoute(path).map(l => `  ${l}`).join("\n")}`);
   }
   return value.toLowerCase();
 }
@@ -901,10 +897,10 @@ const MIGRATIONS = join(import.meta.dir, "../scripts/migrations");
 const shWord = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
 
 /** The one-off script that upgrades a database at `version` to SCHEMA_VERSION, when there is one: 0001-stamp for 0, else the step's (`<SCHEMA_VERSION>-*.ts`). */
-function upgradeScript(version: number): string | null {
+function upgradeScript(version: number, migrations = MIGRATIONS): string | null {
   const prefix = version === 0 ? "0001-" : version === SCHEMA_VERSION - 1 ? `${String(SCHEMA_VERSION).padStart(4, "0")}-` : null;
   if (!prefix) return null;
-  try { const file = readdirSync(MIGRATIONS).find(f => f.startsWith(prefix) && f.endsWith(".ts")); return file ? join(MIGRATIONS, file) : null; } catch { return null; }
+  try { const file = readdirSync(migrations).find(f => f.startsWith(prefix) && f.endsWith(".ts")); return file ? join(migrations, file) : null; } catch { return null; }
 }
 
 /** The outline host's unit on this platform, as `ep0ch install` finds it on the machines that matter: its stop and start commands. */
@@ -935,11 +931,11 @@ function behindBeside(path: string, version: number): string[] {
  * step, `ep0ch install --apply` (which stops the host, migrates every outline behind and starts it) and the same by
  * hand; without one, the import route. `path`: the file, when there is one (its folder's other outlines behind join it).
  */
-export function schemaRefusal(label: string, version: number, path?: string, o: { platform?: string; home?: string } = {}): string {
+export function schemaRefusal(label: string, version: number, path?: string, o: { platform?: string; home?: string; migrations?: string } = {}): string {
   const head = `${label} is schema version ${version}${version === 0 ? " (made before schema versions)" : ""}; this build opens only schema version ${SCHEMA_VERSION}.`;
   const block = (lines: string[]) => lines.map(l => `  ${l}`).join("\n");
   const { stop, start } = hostUnitCommands(o.platform, o.home);
-  const script = upgradeScript(version);
+  const script = upgradeScript(version, o.migrations);
   const file = path ? resolve(path) : null;
   if (!file) {
     return `${head}${script ? ` Its migration: bun ${shWord(script)} on the file, with the outline host stopped.` : " No script upgrades that version; import it into a new outline instead (ep0ch outline import)."}`;
@@ -949,9 +945,14 @@ export function schemaRefusal(label: string, version: number, path?: string, o: 
     const install = version === SCHEMA_VERSION - 1 ? `Migrate it${files.length > 1 ? `, and the ${files.length - 1} other outline${files.length === 2 ? "" : "s"} here at schema ${version},` : ""} with:\n\n${block(["ep0ch install --apply"])}\n\nor by hand:` : "Migrate it by hand:";
     return `${head}\n${install}\n\n${block([stop, ...files.map(f => `bun ${shWord(script)} ${shWord(f)}`), start])}`;
   }
-  const name = basename(file).replace(/\.sqlite$/, "");
-  const old = `${file}.schema-${version}`;
-  return `${head}\nNo script migrates schema ${version} to ${SCHEMA_VERSION}; import its notes into a new outline:\n\n${block([stop, `mv ${shWord(file)} ${shWord(old)}`, start, `ep0ch outline import ${shWord(old)} ${shWord(name)}`])}`;
+  return `${head}\nNo script migrates schema ${version} to ${SCHEMA_VERSION}; import its notes into a new outline:\n\n${block(importRoute(file, `schema-${version}`, o))}`;
+}
+
+/** The import route for the file at `path`, as commands for this machine: moved aside with the host stopped, then imported under its own name. */
+function importRoute(path: string, aside = "old", o: { platform?: string; home?: string } = {}): string[] {
+  const file = resolve(path), name = basename(file).replace(/\.sqlite$/, ""), old = `${file}.${aside}`;
+  const { stop, start } = hostUnitCommands(o.platform, o.home);
+  return [stop, `mv ${shWord(file)} ${shWord(old)}`, start, `ep0ch outline import ${shWord(old)} ${shWord(name)}`];
 }
 
 /**

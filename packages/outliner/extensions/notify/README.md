@@ -39,7 +39,6 @@ One note per notification, on two boards. Gmail, Jira and Slack fit the same sha
 - **Its properties:** `notify.source`, `notify.kind`, `notify.from`, `notify.state` (`unread` or `read`),
   `notify.received`, `notify.url`.
 - **Stamped as machinery:** each note carries `[machine::notification]` (PIE-1427): fetched, not written by anyone.
-  - Notes from before version 4 get it from `ep0ch machinery backfill --apply`.
 - **Cursors:** each source's last pull is `[notify.synced.<source>::…]` on the page's first line.
   - The first pull looks back `days` (14).
 - **GitHub's read state:** fetched with `all=true`, so threads read there come back marked read.
