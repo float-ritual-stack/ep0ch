@@ -3113,12 +3113,10 @@ export function createDetailController(
         break;
       }
       case "preview.activate": {
-        const action = focusedPreviewRegion(state.previewRegions)?.activation;
+        const action = focusedPreviewRegion(state.previewRegions)?.activation; // nothing focused: ⏎ is the backlink drawn ▶ ACTIVE (PIE-1695)
         if (action) await dispatch({ type: "preview.action", action }, viewport);
-        // With nothing focused, the backlink drawn ▶ ACTIVE (its selection) is what ⏎ means (PIE-1695).
         else if (state.backlinks.expanded && selectedBacklinkSource()) await dispatch({ type: "backlinks.open" }, viewport);
-        break;
-      }
+        break; }
       case "checklist.toggle": {
         const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
         if (!control || state.mode.kind !== "preview" || state.busy) break;

@@ -16,10 +16,7 @@ import { commitFilesystemText, recoverFilesystemSave } from "./filesystem-commit
 import {
   BasicWebMarkdownExtractor,
   sha256,
-  WEB_ACCEPT,
-  WEB_TEXT_ADAPTER,
-  unsupportedWebMediaType,
-  webBodyKind,
+  WEB_ACCEPT, WEB_TEXT_ADAPTER, unsupportedWebMediaType, webAdapterCurrent, webAdapterFor, webBodyKind, webMarkdown,
   type WebBodyKind,
   type WebMarkdownExtractor,
 } from "./web-markdown";
@@ -94,7 +91,6 @@ import {
   type ResourceProviderCommandInput,
   type ResourceProviderCommandReceipt,
   type ExtensionProvider,
-  type ResourceRepresentationAdapter,
   providerLabel,
 } from "./resources";
 import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
@@ -162,8 +158,7 @@ interface WebObservation {
   readonly etag: string | null;
   readonly lastModified: string | null;
   readonly html: string;
-  /** HTML goes through the extractor; text (a Markdown or plain page) is its own representation. */
-  readonly kind: WebBodyKind;
+  readonly kind: WebBodyKind; // HTML goes through the extractor; text (Markdown, plain) is its own representation
   readonly fetchedAt: string;
 }
 
@@ -669,13 +664,9 @@ export class ResourceCatalog {
       );
     }
     const candidates = this.filesystemSourceCandidates(absolutePath);
-    // A file outside the outline's folder is named by the folder it is really in, so `../outside.txt` never reads as
-    // one of the outline's own files (PIE-1695).
-    const outside = escapesRoot(relative(this.workspaceRoot, absolutePath));
+    // A file above the outline's folder (`../outside.txt`) is named by the folder it is really in (PIE-1695).
     const source = candidates[0] ?? this.createSource({
-      name: outside
-        ? `Filesystem · ${dirname(absolutePath)} (outside this outline's folder)`
-        : `Filesystem · ${basename(dirname(absolutePath)) || dirname(absolutePath)}`,
+      name: escapesRoot(relative(this.workspaceRoot, absolutePath)) ? `Filesystem · ${dirname(absolutePath)} (outside this outline's folder)` : `Filesystem · ${basename(dirname(absolutePath)) || dirname(absolutePath)}`,
       provider: "filesystem",
       boundary: { root: dirname(absolutePath) },
       policy: { deniedCapabilities: [] },
@@ -2905,9 +2896,9 @@ export class ResourceCatalog {
         headers,
         signal,
       );
-      // A stored snapshot that was text keeps its text; only an HTML one is extracted again by a newer extractor.
-      const storedKind = snapshot.sourceSnapshot ? this.webSnapshotKind(snapshot.sourceSnapshot.id) : "html";
-      const storedAdapter = this.webAdapterFor(storedKind);
+      // A snapshot stored as text (its representation says so; no column does) keeps its text; only HTML is extracted again.
+      const storedKind: WebBodyKind = snapshot.sourceSnapshot && this.database.query("SELECT 1 FROM web_representations WHERE source_snapshot_id = ? AND adapter_id = ? LIMIT 1").get(snapshot.sourceSnapshot.id, WEB_TEXT_ADAPTER.id) ? "text" : "html";
+      const storedAdapter = webAdapterFor(storedKind, this.webExtractor);
       const representationMatchesExtractor =
         snapshot.representation?.source_snapshot_id === snapshot.sourceSnapshot?.id &&
         snapshot.representation?.adapter_id === storedAdapter.id &&
@@ -3000,10 +2991,7 @@ export class ResourceCatalog {
       }
       const mediaType = responseMediaType(response);
       const unsupported = unsupportedWebMediaType(mediaType);
-      if (unsupported) {
-        await cancelResponseBody(response);
-        throw new ResourceCatalogError("invalid-input", unsupported);
-      }
+      if (unsupported) { await cancelResponseBody(response); throw new ResourceCatalogError("invalid-input", unsupported); }
       const declaredLength = Number(response.headers.get("content-length"));
       if (Number.isFinite(declaredLength) && declaredLength > this.maximumWebBytes) {
         await cancelResponseBody(response);
@@ -3013,8 +3001,7 @@ export class ResourceCatalog {
         );
       }
       const html = await this.readWebBody(response);
-      const kind = webBodyKind(mediaType, html);
-      if (typeof kind !== "string") throw new ResourceCatalogError("invalid-input", kind.refused);
+      const kind = webBodyKind(mediaType, html); if (typeof kind !== "string") throw new ResourceCatalogError("invalid-input", kind.refused);
       const contentHash = sha256(html);
       const etag = webEtag(response);
       const lastModified = response.headers.get("last-modified")?.trim() || null;
@@ -3060,10 +3047,8 @@ export class ResourceCatalog {
     checkedAt: string,
     observation: WebObservation,
   ): void {
-    const adapter = this.webAdapterFor(observation.kind);
-    const markdown = observation.kind === "text"
-      ? observation.html
-      : this.webExtractor.extract({ html: observation.html, url: observation.canonicalUrl });
+    const adapter = webAdapterFor(observation.kind, this.webExtractor);
+    const markdown = webMarkdown(observation.kind, this.webExtractor, { html: observation.html, url: observation.canonicalUrl });
     if (!markdown) {
       throw new ResourceCatalogError(
         "invalid-input",
@@ -3139,8 +3124,7 @@ export class ResourceCatalog {
         LIMIT 1
       `).get(
         sourceSnapshot.id,
-        adapter.id,
-        adapter.version,
+        adapter.id, adapter.version,
         representationHash,
       ) as WebRepresentationRow | null;
       if (!representation) {
@@ -3153,8 +3137,7 @@ export class ResourceCatalog {
         `).run(
           representationId,
           sourceSnapshot.id,
-          adapter.id,
-          adapter.version,
+          adapter.id, adapter.version,
           representationHash,
           markdown,
           checkedAt,
@@ -3183,23 +3166,6 @@ export class ResourceCatalog {
       `).run(sourceSnapshot.id, representation.id, checkedAt, resource.id);
       this.bumpSequence();
     })();
-  }
-
-  /** The adapter that makes a snapshot of this kind's representation: the extractor for HTML, none for text. */
-  private webAdapterFor(kind: WebBodyKind): ResourceRepresentationAdapter {
-    return kind === "text" ? WEB_TEXT_ADAPTER : this.webExtractor.adapter;
-  }
-
-  private isCurrentWebAdapter(id: string, version: number): boolean {
-    return (id === WEB_TEXT_ADAPTER.id && version === WEB_TEXT_ADAPTER.version) ||
-      (id === this.webExtractor.adapter.id && version === this.webExtractor.adapter.version);
-  }
-
-  /** What a stored snapshot was: text when a representation of it was made as text (no column records it), else HTML. */
-  private webSnapshotKind(sourceSnapshotId: string): WebBodyKind {
-    return this.database.query(
-      "SELECT 1 FROM web_representations WHERE source_snapshot_id = ? AND adapter_id = ? LIMIT 1",
-    ).get(sourceSnapshotId, WEB_TEXT_ADAPTER.id) ? "text" : "html";
   }
 
   private assertWebRefreshCurrent(
@@ -3409,7 +3375,7 @@ export class ResourceCatalog {
               (
                 activeAdapterOnly &&
                 (
-                  !this.isCurrentWebAdapter(candidate.adapter_id, candidate.adapter_version)
+                  !webAdapterCurrent(candidate.adapter_id, candidate.adapter_version, this.webExtractor)
                 )
               )
             ) continue;

@@ -28,6 +28,21 @@ export const WEB_TEXT_ADAPTER: ResourceRepresentationAdapter = {
 /** What a fetched page's body is: HTML, for the extractor, or text, read as it is. */
 export type WebBodyKind = "html" | "text";
 
+/** The adapter that makes a snapshot of this kind's representation: the extractor for HTML, none for text. */
+export function webAdapterFor(kind: WebBodyKind, extractor: WebMarkdownExtractor): ResourceRepresentationAdapter {
+  return kind === "text" ? WEB_TEXT_ADAPTER : extractor.adapter;
+}
+
+/** A snapshot's representation: the text as it is, or the extractor's Markdown of the HTML. */
+export function webMarkdown(kind: WebBodyKind, extractor: WebMarkdownExtractor, snapshot: WebSnapshotInput): string {
+  return kind === "text" ? snapshot.html : extractor.extract(snapshot);
+}
+
+/** Whether a stored representation was made by an adapter in use now (the text one, or this extractor). */
+export function webAdapterCurrent(id: string, version: number, extractor: WebMarkdownExtractor): boolean {
+  return [WEB_TEXT_ADAPTER, extractor.adapter].some((adapter) => adapter.id === id && adapter.version === version);
+}
+
 const HTML_MEDIA_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 const TEXT_MEDIA_TYPES = new Set(["text/markdown", "text/x-markdown", "text/plain"]);
 
