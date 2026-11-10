@@ -48,10 +48,11 @@ export const GLASS_SETTINGS = {
   limit: { base: 8, step: 1, min: 1, about: "soft limit for pinned post-its" },
 } as const;
 export type GlassSetting = keyof typeof GLASS_SETTINGS;
+/** Read by the module's `key`, which App.route asks before the drawer and every screen: the door module layer, over a draft's keys. */
 export const GLASS_KEYS = keyTable("glass", "hover above every screen", [
   { key: "alt+u", action: "glass.toggle", label: "hover" },
   { key: "alt+U", action: "glass.clear", label: "clear glass" },
-] satisfies ModeKey[]);
+] satisfies ModeKey[], "", { layer: "door module" });
 type HoverTrail = { msg: Msg; nav: ReturnType<PostIt["surface"]["saveNav"]> };
 const distance = (p: Point, r: Rect) => Math.hypot(Math.max(r.col - p.x, 0, p.x - r.col - r.cols), Math.max(r.row - p.y, 0, p.y - r.row - r.rows));
 

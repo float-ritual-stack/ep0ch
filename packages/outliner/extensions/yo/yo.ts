@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
 import { failureWords, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine } from "./yo-line";
-import { actPrompt, argsOf, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -91,8 +91,12 @@ async function model(command: string[], which: string, prompt: string): Promise<
   try { proc = Bun.spawn(command, { stdin: new Blob([prompt]), stdout: "pipe", stderr: "pipe" }); }
   catch (error) { throw new Error(`${which} command couldn't start: ${firstLine(error)}`); }
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  // Why not, in the command's own words (PIE-1709): a `claude` with no login says them on stdout, not stderr.
-  if (code !== 0) { const words = failureWords(out, err); throw new Error(words ? `${which}: ${words} (exited ${code})` : `${which} command exited ${code}`); }
+  // Why not, in the command's own words (PIE-1709): a `claude` with no login says them on stdout, not stderr, and the
+  // command that stores its login is the fix (PIE-1708).
+  if (code !== 0) {
+    const words = failureWords(out, err);
+    throw new Error(notLoggedIn(out, err) ? `${which}: ${CLAUDE_LOGIN_FIX}` : words ? `${which}: ${words} (exited ${code})` : `${which} command exited ${code}`);
+  }
   let parsed = JSON.parse(out.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1")) as Record<string, unknown>;
   let cost = "";
   if (parsed && parsed.type === "result" && typeof parsed.result === "string") {

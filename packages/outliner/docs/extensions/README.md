@@ -454,6 +454,13 @@ environment is `PATH`, `LANG`, the service user's `HOME` (a host CLI such as `gh
 keys its manifest names and the host variables its manifest's `env` names, nothing else of the host's; the working
 directory is the extension's folder.
 
+**Claude's login comes with it.** A `claude` the process starts (`claude -p …` as a model command) finds a login
+wherever the host runs: `CLAUDE_CODE_OAUTH_TOKEN` is the host's own, else the with-secrets `claude` group's
+(`with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN`, read at each call; the Keychain on macOS), scrubbed from what the
+process returns like any secret. A host under launchd can't read the Keychain login `claude` keeps, so this is what
+makes a plain `claude` work there; with neither, `claude` uses its own login as in a shell. No setting names
+`with-secrets claude --` any more. A script's `sh` gets the same.
+
 **A crash says why.** A process that exits non-zero (or is killed) fails the call with its exit code and the last
 lines it wrote to stderr, scrubbed of its secrets: `command exited with code 3: opening the sluice | failed: no such
 gate`. That is the refusal the asker sees (`ext act`, the door's message line), a line's `reason`, a schedule's
@@ -1583,7 +1590,9 @@ secret reference.
 - **A long answer (PIE-1452).** An agent's `deadline` may run to `"2h"` (every other call stops at `"5m"`), so a
   job like "a page for each plugin" runs to the end. Once it has run 5 s its request line, or a thread's reply, says
   "working on it" with how long; every minute after, also the notes it has written so far. The thread's reply then
-  becomes the answer. Past the deadline the answer says it stopped, and where to raise it.
+  becomes the answer. Past the deadline the answer says so in the person's words: `@tidy took longer than its 20 s
+  on this 4,000-word note and was stopped: ask it about a shorter passage` (PIE-1713). Size `deadline` for the longest
+  note a person will ask about through the slowest model it may use: tidy's is 5 min.
 - **An answer that stays open (PIE-1585).** `"answer": "open"` draws the reply unfolded under its line (`> [!note]+`), for a short answer with a button; left out, it stays folded.
 - **Asked by an agent too.** `"fromAgents": true` lets an agent's comment ask it (`ep0ch act agent.ask to=<name> text=…`), never an extension's or a script's, so nothing loops. Left out, only a person's comment asks.
 - **A row in every tile's menu.** `"ask": "ask yo about this"` (with `threads`) is that row and a power-bar row: `agent.ask to=<name> about=tile`. The door puts the tile on a line of the comment, and the door and tile on the thread as `[ask-door::<client>]`, `[ask-tile::<id>]` and `[ask-tile-kind::<kind>]`.

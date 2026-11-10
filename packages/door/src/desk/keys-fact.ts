@@ -7,6 +7,8 @@ import { Again } from "../arm";
 import type { Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import type { Actor } from "../socket";
+import type { Key } from "../term";
+
 
 /** How soon a second ctrl+] counts as the second of two: it goes to the program left, or back into the drawer left. */
 export const CHORD_MS = 1500;
@@ -71,6 +73,19 @@ export class DoorKeys<Lift = unknown> {
   passedOn(now = Date.now()) { this.chord.arm({ passed: true }, now); }
   /** Whatever the last ctrl+] left is over (they went in again, or its tile went). */
   chordSpent(p?: unknown) { const c = this.chord.armed(); if (!p || (c && "pane" in c && c.pane === p)) this.chord.clear(); }
+
+  /**
+   * A tile recording a key (`Pane.recordsKey`: the keys window's rebind waits for one) gets the next key before any layer
+   * of the door that would run it, the glass's alt+u and alt+v on every screen (PIE-1688): handed to the tile itself, with
+   * its screen as the desk, so nothing the screen has open first (a composer, an open still arriving) takes it. True when
+   * it did. Esc never comes here (the ladder cancels the rebind); in the drawer its tiles have the keys; a click goes where it points.
+   */
+  recordsInto(top: object | undefined, inDrawer: boolean, k: Key): boolean {
+    const pane = inDrawer || k.kind === "mouse" || k.kind === "paste" ? undefined : (top as { focusedPane?(): Pane | undefined } | undefined)?.focusedPane?.();
+    if (!pane?.recordsKey?.()) return false;
+    pane.key(k, top as never);
+    return true;
+  }
 
   // ── read ──
   typingOn(desk: object): PtyPane | null { return this.programs.get(desk) ?? null; }

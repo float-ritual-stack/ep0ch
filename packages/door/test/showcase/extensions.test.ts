@@ -794,7 +794,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     // yo's own try (PIE-1709), from ext.yo.settings as the person's press: the card at yo; t on answer runs its model once
     // and says why not in the model's own words, not "exited 1".
     const notLoggedIn = join(scratch.root, "not-logged-in.ts");
-    writeFileSync(notLoggedIn, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" })); process.exit(1);`);
+    writeFileSync(notLoggedIn, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Model not found: big-one" })); process.exit(1);`);
     await app.dispatch.press("ext.yo.settings", {});
     await until(() => top().name === "settings" && drawn().includes("settings · Yo") && drawn().includes("[try]"), "the settings screen at yo", 8000)
       .catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
@@ -802,7 +802,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => drawn().includes("the answer model: none set"), "a try with no model", 15_000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
     await app.act({ action: "settings.set", tile: "card", args: { key: "answer", value: `${process.execPath} ${notLoggedIn}` }, as: "test-agent" });
     ch("t");
-    await until(() => drawn().includes("✗ the answer model: Not logged in · Please run /login (exited 1)"), "the model's own words", 15_000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    await until(() => drawn().includes("✗ the answer model: Model not found: big-one (exited 1)"), "the model's own words", 15_000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
     // Its undo puts the command back as it was (no model, for the ask-yo section): each party undoes its own.
     await app.act({ action: "settings.undo", tile: "card", as: "test-agent" });
     await until(() => JSON.stringify(JSON.parse(readFileSync(extensionNamed("yo")!.settings!.file, "utf8")).config.answer) === "[]", "yo's answer back to none", 8000);

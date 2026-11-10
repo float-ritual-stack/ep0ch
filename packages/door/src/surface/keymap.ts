@@ -14,6 +14,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "no
 import { dirname, join } from "node:path";
 import { stateDir } from "../state";
 import { actRequestOf, allActionSets, chordName, declaredKeys, keyCaption, lineWords, shownLine, type Keys, type KeyRow } from "./actions";
+import type { Layer } from "./key-catalog";
 
 /** The file: EP0CH_KEYMAP when set (a test's), else keybindings.json in the state dir (EP0CH_STATE moves it with the rest). */
 export const keymapPath = (env: Record<string, string | undefined> = process.env) => env.EP0CH_KEYMAP?.trim() || join(stateDir(), "keybindings.json");
@@ -299,14 +300,23 @@ export function moved(action: string, args: Record<string, unknown>, declared: K
 // ── the tables, by where they bind ──────────────────────────────────────────
 
 /** A key table as the keys window lists it: where its keys work (`scope`), what reads them, and the keymap prefix its keys take. */
-export interface KeyTable { readonly scope: string; readonly about: string; readonly rows: readonly TableRow[]; readonly prefix: string; /** The action set whose place this table's keys are part of (the river column's, `river`): `in:<it>` in the keys window lists them too. */ readonly within?: string; /** A screen's own key map (its spec's): the screen layer. */ readonly screen?: true }
+export interface KeyTable {
+  readonly scope: string; readonly about: string; readonly rows: readonly TableRow[]; readonly prefix: string;
+  /** The action set whose place this table's keys are part of (the river column's, `river`): `in:<it>` in the keys window lists them too. */
+  readonly within?: string;
+  /** A screen's own key map (its spec's): the screen layer. */
+  readonly screen?: true;
+  /** The layer that reads it, where that isn't its scope's (a door module's keys, read in App.route before every screen: the glass's). */
+  readonly layer?: Layer;
+}
 const TABLES: KeyTable[] = [];
 /**
  * Say a key table (a mode's, the ^W keys, the hyper layer) where it's made, so the keys window lists it under its scope
  * and the App's keymap layer leaves its keys to it (the table reads the file itself, through `effective`). Returns the rows.
  */
-export function keyTable<R extends TableRow>(scope: string, about: string, rows: readonly R[], prefix = "", within?: string): readonly R[] {
-  TABLES.push({ scope, about, rows, prefix, ...(within ? { within } : {}) });
+export function keyTable<R extends TableRow>(scope: string, about: string, rows: readonly R[], prefix = "", place?: string | { within?: string; layer?: Layer }): readonly R[] {
+  const { within, layer } = typeof place === "string" ? { within: place, layer: undefined } : place ?? {};
+  TABLES.push({ scope, about, rows, prefix, ...(within ? { within } : {}), ...(layer ? { layer } : {}) });
   return rows;
 }
 /** Every key table said so far. */

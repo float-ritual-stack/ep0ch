@@ -117,12 +117,19 @@ function wroteLinks(wrote: readonly { id: string; title: string }[]): string {
   return `wrote ${wrote.length === 1 ? "a note" : `${wrote.length}${wrote.length === MAX_WROTE_LINKS ? "+" : ""} notes`}: ${wrote.map((w) => `((${w.id}|${label(w.title)}))`).join(", ")}`;
 }
 
-/** A deadline that ended an agent's answer, said with where to raise it (PIE-1452). */
-function deadlineHit(error: unknown, agent: string, extensionName: string, deadlineMs: number): string {
-  const said = message(error);
-  if (!/timed out/.test(said)) return said;
-  const took = deadlineMs % 3_600_000 === 0 ? `${deadlineMs / 3_600_000}h` : deadlineMs % 60_000 === 0 ? `${deadlineMs / 60_000}m` : `${Math.round(deadlineMs / 1000)}s`;
-  return `stopped after ${took}, its deadline: raise agents/${agent}/deadline in ${extensionName}'s extension.json (up to 2h)`;
+/** How many words a note holds, as a person would count them. */
+const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+/**
+ * A deadline that ended an agent's answer (PIE-1452, PIE-1713), said in the person's words: what took too long, on
+ * how much, and what to ask instead. Undefined when the error was something else.
+ */
+function deadlineHit(error: unknown, agent: string, deadlineMs: number, words: number | undefined, extension: string): string | undefined {
+  if (!/timed out/.test(message(error))) return undefined;
+  const took = deadlineMs % 3_600_000 === 0 ? `${deadlineMs / 3_600_000} h` : deadlineMs % 60_000 === 0 ? `${deadlineMs / 60_000} min` : `${Math.round(deadlineMs / 1000)} s`;
+  const on = words === undefined ? "" : ` on this ${words.toLocaleString("en-US")}-word note`;
+  // Or give it longer (PIE-1709): its deadline is a setting, on the settings screen at its extension.
+  return `@${agent} took longer than its ${took}${on} and was stopped: ask it about a shorter passage, or give it longer in its settings (ep0ch act ext.${extension}.settings agent.${agent}.deadline=${Math.min(120, Math.ceil(deadlineMs / 30_000))}m)`;
 }
 
 export interface AgentRequestDeps {
@@ -775,8 +782,10 @@ export class AgentRequests {
     let ticker: ReturnType<typeof setInterval> | undefined;
     const first = setTimeout(() => { tick(); ticker = setInterval(tick, this.deps.progressMs ?? PROGRESS_MS); }, this.deps.workingAfterMs ?? WORKING_AFTER_MS);
     const deadline = agentDeadlineMs(extension, agent) ?? DEFAULT_DEADLINE_MS;
+    let words: number | undefined;
     try {
       const draft = await this.deps.readDraft(blockId);
+      words = wordCount(draft.text);
       // The person changed or removed the line meanwhile: that is a new request (or none), not this one.
       if (!stillThere(draft.text)) return;
       if (extension.script) {
@@ -905,7 +914,7 @@ export class AgentRequests {
       }
     } catch (error) {
       const wrote = this.wrote(line.agent, new Date(started).toISOString());
-      answer = { status: "failed", message: `${deadlineHit(error, line.agent, extension.name, deadline)}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
+      answer = { status: "failed", message: `${deadlineHit(error, line.agent, deadline, words, extension.id) ?? message(error)}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
     } finally {
       clearTimeout(first);
       if (ticker) clearInterval(ticker);
@@ -1066,7 +1075,7 @@ export class AgentRequests {
     } catch (error) {
       // Nor is an error: it would become the face.
       if (tldr) return { refused: `@${line.agent} couldn't write the TL;DR: ${message(error)}` };
-      reply = `@${line.agent} couldn't answer: ${deadlineHit(error, line.agent, extension.name, deadline)}`;
+      reply = deadlineHit(error, line.agent, deadline, note ? wordCount(note.text) : undefined, extension.id) ?? `@${line.agent} couldn't answer: ${message(error)}`;
     } finally {
       working?.stop();
     }

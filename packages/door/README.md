@@ -2111,7 +2111,10 @@ a binding's keys, so moving `^W x` leaves the board's `x` alone; a key left out 
 ```
 
 The key, the ^W panel, the tile menu, the power bar and the desk's hint row follow it; a key you moved away says
-where it went. Edit it by hand too: the door reads it again within half a second and names a bad entry at the top of
+where it went, on the status bar wherever you type (esc after edit.close moved to alt+q: "esc no longer closes the
+query: your keymap gives it alt+q"). While `r` waits, every key is the window's (alt+u too, which the glass would take);
+a key a layer over every screen keeps first (the glass's alt+u) is said and listed in Conflicts, and a key some terminals
+never send (alt+[, alt+;: the Kitty keyboard protocol only) is said, never "free here". Edit it by hand too: the door reads it again within half a second and names a bad entry at the top of
 the window. Agents read and change it through the window's actions (`keys.find`, `keys.rebind id= key= to=`,
 `keys.unbind`, `keys.reset`, `keys.undo`, with `tile=keys`).
 

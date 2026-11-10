@@ -120,6 +120,43 @@ describe("the keymap file", () => {
     expect(conflicts(bindings()).some(g => g.some(b => b.key === "alt+backspace"))).toBe(false);
   });
 
+  test("a rebind onto a key a door module takes before every screen (the glass's alt+u) says so first and is a conflict naming it (PIE-1688)", async () => {
+    await import("../ext/glass/glass");
+    const all = bindings();
+    const toggle = all.find(b => b.action === "glass.toggle" && b.key === "alt+u")!;
+    // The glass's keys are read in App.route before the drawer, the keymap layer and every screen: its own layer, over a draft's.
+    expect(toggle.layer).toBe("door module");
+    const clear = all.find(b => b.id === "draft.clear" && b.key === "ctrl+u")!;
+    const e = rebindEffects(clear, "alt+u", all);
+    expect(e.problem).toBeNull();
+    expect(e.over.map(o => o.id)).toContain("glass.toggle");
+    expect(e.under.map(o => o.id)).not.toContain("glass.toggle");
+    // Saved anyway, it is a conflict the window lists, saying who runs and why.
+    setKeys("draft.clear", ["alt+u"]);
+    const fights = conflicts(bindings()).filter(g => g.some(b => b.key === "alt+u"));
+    expect(fights.map(g => g.map(b => b.id))).toEqual([["glass.toggle", "draft.clear"]]);
+    const f = fightOf(fights[0]!);
+    expect(f).toMatchObject({ wins: "glass.toggle", loses: ["draft.clear"] });
+    expect(f.why).toContain("before every screen");
+  });
+
+  test("a key a terminal without key reports can't send is never offered as free: the rebind says so (PIE-1688)", async () => {
+    const { KeyDecoder } = await import("../src/term");
+    const { needsKeyReports } = await import("../src/kbd");
+    // One answer, the decoder's own: ESC and a character is alt and that character exactly where needsKeyReports says nothing.
+    const read = (bytes: string) => { const d = new KeyDecoder({ cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false }); const got: Key[] = []; d.keyHandler = k => got.push(k); d.feed(bytes); return got; };
+    for (const ch of "abzAZ09;,[]O'?.") {
+      const alt = read(`\x1b${ch}`).some(k => k.kind === "alt" && k.ch === ch);
+      expect(alt, `ESC ${ch}`).toBe(needsKeyReports(`alt+${ch}`) === null);
+    }
+    const clear = bindings().find(b => b.id === "draft.clear" && b.key === "ctrl+u")!;
+    for (const key of ["alt+[", "alt+;"]) {
+      const e = rebindEffects(clear, key, bindings());
+      expect(e.sends, key).toContain("Kitty keyboard protocol");
+    }
+    expect(rebindEffects(clear, "alt+z", bindings()).sends).toBeNull();
+  });
+
   test("Unbound is every action no key reaches, read from the action sets; a key given to one is said first and moves it out", () => {
     const all = bindings(), un = unbound(all), keyed = new Set(all.map(b => b.action));
     // Every action the door has is on a key or in Unbound, never both and never neither.
@@ -424,6 +461,97 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     } finally { key({ kind: "esc" }); }
     await until(() => focusedKind() !== "keys", "closed");
   });
+  test("a rebind by keys reads the key a layer over the screen would take (the glass's alt+u), says who keeps it first, and Conflicts lists it (PIE-1688)", async () => {
+    const { runningModules, useDoorModules } = await import("../src/door-modules");
+    if (!runningModules().some(([n]) => n === "glass")) useDoorModules(["glass"]);
+    const glassMode = () => (runningModules().find(([n]) => n === "glass")![1].describe!() as { mode: string }).mode;
+    const mode = glassMode();
+    const realFlash = app.flash.bind(app), said: string[] = [];
+    (app as any).flash = (m: string, ...r: any[]) => { said.push(m); return realFlash(m, ...r); };
+    try {
+      await shell("keys.open", {});
+      await until(() => focusedKind() === "keys", "the window");
+      await act("keys.filter", { text: "draft.clear" });
+      const found: any = await act("keys.find", {});
+      await act("keys.select", { n: found.bindings.findIndex((b: any) => b.key === "ctrl+u") + 1 });
+      key(char("r"));
+      await until(() => keysWin().record?.id === "draft.clear", "waiting for the key");
+      // alt+u reaches the recording window, never the glass: its mode stays as it was.
+      key({ kind: "alt", ch: "u" });
+      await until(() => keysWin().record?.key === "alt+u", "alt+u recorded");
+      expect(glassMode()).toBe(mode);
+      const pane = () => (keysPane().render(160, 40, true, desk()).lines.map(visible) as string[]).join("\n");
+      expect(pane()).toContain("glass.toggle (glass) still gets alt+u first");
+      // A key even the window's own table binds (j, q) is the new key while it records.
+      key(char("q"));
+      await until(() => keysWin().record?.key === "q", "q recorded, the window still open");
+      key({ kind: "alt", ch: "u" });
+      await until(() => keysWin().record?.key === "alt+u", "alt+u again");
+      key({ kind: "enter" });
+      await until(() => file()["draft.clear"]?.includes("alt+u"), "saved");
+      expect(keysWin().said).toContain("glass.toggle gets alt+u first");
+      await act("keys.tab", { tab: "conflicts" });
+      expect(keysWin().rows).toBe(2);
+      expect(pane()).toMatch(/conflict +the door module layer \(glass\) reads alt\+u/);
+      // An agent's rebind answers the same: what keeps the key first.
+      await act("keys.reset", { id: "draft.clear" });
+      const r: any = await app.act({ action: "keys.rebind", args: { id: "draft.clear", key: "ctrl+u", to: "alt+u" }, tile: "keys", as: "agent:keys-test" });
+      expect(r.still).toContain("glass.toggle");
+      // A key a legacy terminal can't send is saved but said, never "free here".
+      const s: any = await app.act({ action: "keys.rebind", args: { id: "draft.clear", key: "alt+u", to: "alt+[" }, tile: "keys", as: "agent:keys-test" });
+      expect(s.sends).toContain("Kitty keyboard protocol");
+      // A binding that had no key says so, never "null" (CodeRabbit on #1410).
+      await app.act({ action: "keys.rebind", args: { id: "share.list", to: "alt+n" }, tile: "keys", as: "agent:keys-test" });
+      await until(() => said.some(m => m.includes("no key → alt+n: share.list")), `the save said (${said.join(" | ")})`);
+      expect(said.some(m => m.includes("null"))).toBe(false);
+    } finally {
+      // The keymap and the window as they were, whatever failed above.
+      (app as any).flash = realFlash;
+      writeFileSync(keymapPath(), "{}\n");
+      reloadKeymap();
+      if (keysPane()) {
+        await act("keys.cancel", {}).catch(() => {});
+        await act("keys.tab", { tab: "bindings" }).catch(() => {});
+        await act("keys.close", {}).catch(() => {});
+        await until(() => focusedKind() !== "keys", "closed");
+      }
+    }
+  });
+
+  test("an old key in a line field says where its action went on the status bar: ^W and esc in the rename prompt (PIE-1688)", async () => {
+    writeFileSync(keymapPath(), JSON.stringify({ "draft.erase to=word-back": ["alt+e"], "edit.close": ["alt+q"] }));
+    reloadKeymap();
+    const realFlash = app.flash.bind(app);
+    (app as any).flash = (m: string, ...r: any[]) => { flashes.push(m); return realFlash(m, ...r); };
+    try {
+      if (!tiles()) await shell("keys.open", {});
+      flashes.length = 0;
+      key(char("w", true)); key(char("n"));
+      await until(() => lines().join("\n").includes("Rename this tile"), "the rename prompt");
+      for (const ch of "plum tree") key(char(ch));
+      key(char("w", true));
+      await until(() => flashes.some(f => f.includes("^W no longer runs draft.erase to=word-back: your keymap gives it alt+e")), `the old ^W said (${flashes.join(" | ")})`);
+      key({ kind: "esc" });
+      await until(() => flashes.some(f => f.includes("esc no longer closes") && f.includes("alt+q")), "the old esc said");
+      expect(screen().holdsKeys?.()).toBe(true);
+      key({ kind: "alt", ch: "q" });
+      await until(() => !screen().holdsKeys?.(), "alt+q closed it");
+      // The facets query line follows edit.close too: its hint names alt+q, and the old esc says so.
+      await desk().dispatch.act({ action: "tile.open", args: { kind: "facets" } }, USER);
+      await until(() => focusedKind() === "facets", "a facets tile");
+      key(char("e"));
+      await until(() => !!screen().holdsKeys?.(), "the query line");
+      flashes.length = 0;
+      key({ kind: "esc" });
+      await until(() => flashes.some(f => f.includes("esc no longer closes the query: your keymap gives it alt+q")), `the old esc said (${flashes.join(" | ")})`);
+      key({ kind: "alt", ch: "q" });
+      await until(() => !screen().holdsKeys?.(), "alt+q closed the query");
+    } finally {
+      writeFileSync(keymapPath(), "{}\n");
+      reloadKeymap();
+    }
+  });
+
   test("? on a desk with no tiles opens the keys window, with no error", async () => {
     for (const id of [...desk().tiles()]) await desk().dispatch.act({ action: "tile.close", args: {}, tile: desk().nameOf(id.id ?? id) }, USER).catch(() => {});
     await until(() => tiles() === 0, "an empty desk");

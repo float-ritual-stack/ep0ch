@@ -712,6 +712,17 @@ test.each([
   expect(records.blocks).toEqual([]);
 });
 
+test("PIE-1708: a model that isn't logged in names the command that stores claude's login; nothing is written", async () => {
+  const t = await setup(["Older yard\n\nSome text.\n\n- Should the hedge be low?"], 100,
+    { answer: [process.execPath, "-e", 'console.log("Not logged in · Please run /login"); process.exit(1)'] });
+  const [old] = t.older as [Block];
+  const before = t.store.require(old.id).text;
+  const out: string[] = [];
+  expect(await asksBackfill(boardOf(t), { since: "30d", write: true }, { out: s => { out.push(s); }, err: s => { out.push(s); } })).toBe(1);
+  expect(out.join("\n")).toContain("with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN");
+  expect(t.store.require(old.id).text).toBe(before);
+});
+
 test("with only unsure lines the model isn't called, so a live settle still writes the maybe with no model at all", async () => {
   const t = await setup([], 100, { answer: ["false"] });
   const note = await t.write("Yard\n\nSome text.\n\n- Maybe move the beans, what do you think?");

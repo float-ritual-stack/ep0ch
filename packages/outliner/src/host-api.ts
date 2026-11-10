@@ -23,6 +23,8 @@ import type { VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 import { answerShape, shapeOfAnswer, type ScriptQueryRecord } from "./line-watches";
 import { programEnv } from "./program-env";
+import { CLAUDE_LOGIN, claudeLogin } from "./claude-login";
+import { scrubCredentials } from "@ep0ch/outline-core/secret-scrub";
 import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
@@ -412,8 +414,13 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
       const what = `sh ${list[0]}`;
       const end = ending(signal, opts?.timeoutMs, what);
       if (end.signal?.aborted) throw end.why();
+      // Claude's login (PIE-1708), as an extension's process gets it: a script's `claude` works on a launchd host too.
+      const claude = await claudeLogin({ extension: "" });
+      if (end.signal?.aborted) throw end.why();
+      // Never handed back: a script that prints its environment into a note writes `[redacted]`, as an extension's would.
+      const clean = (text: string) => (claude ? scrubCredentials(text, [claude]) as string : text);
       const child = Bun.spawn([...list], {
-        env: programEnv(process.env),
+        env: programEnv({ ...process.env, ...(claude ? { [CLAUDE_LOGIN.key]: claude } : {}) }),
         ...(opts?.cwd !== undefined ? { cwd: String(opts.cwd) } : {}),
         stdin: opts?.stdin !== undefined ? Buffer.from(String(opts.stdin)) : "ignore", stdout: "pipe", stderr: "pipe",
       });
@@ -428,7 +435,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
       end.signal?.addEventListener("abort", stop!, { once: true });
       try {
         const [out, err, exit] = await Promise.race([Promise.all([cappedText(child.stdout, true), cappedText(child.stderr, true), child.exited]), killed]);
-        return { exit, stdout: out.text, stderr: err.text, ...(out.truncated || err.truncated ? { truncated: true as const } : {}), bytes: out.bytes, errBytes: err.bytes };
+        return { exit, stdout: clean(out.text), stderr: clean(err.text), ...(out.truncated || err.truncated ? { truncated: true as const } : {}), bytes: out.bytes, errBytes: err.bytes };
       } finally { end.signal?.removeEventListener("abort", stop!); }
     }, answer => ({ exit: answer.exit, bytes: answer.bytes, ...(answer.stdout ? { lines: firstLines(answer.stdout) } : {}), ...(answer.exit !== 0 && answer.stderr ? { stderr: firstLines(answer.stderr) } : {}), ...(answer.truncated ? { truncated: true } : {}) }))
       .then(({ bytes: _b, errBytes: _e, ...answer }) => answer);

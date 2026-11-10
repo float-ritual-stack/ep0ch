@@ -76,3 +76,18 @@ describe("the record", () => {
     expect([k.typingOn(a), k.typingOn(b)]).toEqual([null, q]);
   });
 });
+
+describe("a tile recording a key (PIE-1688)", () => {
+  test("gets the key itself, never through what the screen has open first (a composer, a pending open); a click and the drawer stay out", () => {
+    const got: string[] = [];
+    const pane = { recordsKey: () => true, key: (k: any) => { got.push(k.kind === "alt" ? `alt+${k.ch}` : k.kind); return true; } };
+    const screen = { focusedPane: () => pane as any, key: () => { got.push("the screen"); } };
+    const keys = new DoorKeys("screen");
+    expect(keys.recordsInto(screen, false, { kind: "alt", ch: "u" })).toBe(true);
+    expect(got).toEqual(["alt+u"]);
+    expect(keys.recordsInto(screen, true, { kind: "alt", ch: "u" })).toBe(false);
+    expect(keys.recordsInto(screen, false, { kind: "mouse", action: "down", button: 0, x: 1, y: 1 } as any)).toBe(false);
+    expect(keys.recordsInto({ focusedPane: () => ({ key: () => true }) as any }, false, { kind: "alt", ch: "u" })).toBe(false);
+    expect(got).toEqual(["alt+u"]);
+  });
+});

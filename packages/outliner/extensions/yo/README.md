@@ -56,5 +56,6 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 - **The models:** each default is `claude` in safe mode, sending only the prompt.
   - **Change one:** ⚙ settings on this page opens the settings screen at yo: each command as one line you can read and edit in place.
   - **Try one:** `t` (or `[try]`) beside it runs it once and says its answer, or why not in its own words ("Not logged in"). A failed answer offers the same button.
+  - **Where `claude` can't read its login** (a host under launchd): `with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN` once; with none, the answer's steps and its try say that command.
   - **No model:** `ep0ch act ext.yo.settings answer='[]' act='[]'`, or `[]` in its settings form; `unset=answer` puts Haiku back.
 - **`door.act`** is the primitive under the button: an agent's process asks the door to run one action line, as the agent, and gets its undo id ([Agents in the note](../../docs/extensions/README.md#agents-in-the-note)).
