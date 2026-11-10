@@ -211,8 +211,8 @@ first, then opens the build log it links.
 Use the repo's agent definitions (`.claude/agents/`): **ep0ch-builder** for an experience, **ep0ch-verifier** for old
 tickets and validate sweeps, **ep0ch-recon** for read-only research, **ep0ch-auditor** for a whole-system review. Their
 rules (the gate, the hand-off, scratch-only testing) live in those files, so a brief is the task: the sentence, its
-tickets, what's special, who else is working nearby. Slots are Reorient's checklist. Prefer Sonnet for routine
-agents.
+tickets, what's special, who else is working nearby. Slots are Reorient's checklist. Recon and the verifier run on Fable at `low`
+effort (their definitions pin it; Evan, Nov 10); the builder and the auditor stay on Sonnet.
 
 - **A builder is a background session at high effort,** whatever your own session runs at:
   `cd ~/wt/ep0ch-wt-<topic> && claude --bg -n builder-<topic> --effort high --permission-mode auto "$(cat ~/wt/briefs/<topic>.md)"`.
