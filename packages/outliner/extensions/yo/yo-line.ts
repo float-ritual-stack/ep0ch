@@ -214,6 +214,13 @@ export function findAsk(asked: string): string | null {
 /** The notes a find found (PIE-1711), as the service answered: at most ten, whether there are more, its hint on a key nobody has. */
 export interface FoundNotes { notes: { id: string; title: string }[]; more: boolean; hint?: string; refused?: string; nearest?: string[] }
 
+/** Whether every parenthesis in a query closes one opened before it, in order. */
+function balanced(q: string): boolean {
+  let depth = 0;
+  for (const c of q) { if (c === "(") depth++; else if (c === ")" && --depth < 0) return false; }
+  return depth === 0;
+}
+
 /** The facets tile a find's buttons open, by name: pressed again, the same tile takes the next query. */
 export const FOUND_TILE = "found";
 
@@ -223,7 +230,8 @@ export const FOUND_TILE = "found";
  * words that couldn't be read into a query say why, with a button that types them on a facets tile's query line.
  */
 export function findAnswer(o: { words: string; where?: string; why?: string; read?: readonly { clause: string; from: readonly string[]; widens?: true }[]; found?: FoundNotes; thread?: boolean }): string[] {
-  const quoteable = (q: string) => !q.includes("'") && !q.includes('"') && !q.includes("\n");
+  // A thread draws a button as a link, and a link ends at its first ")": one with parentheses in it carries no query.
+  const quoteable = (q: string) => !q.includes("'") && !q.includes('"') && !q.includes("\n") && !(o.thread && /[()]/.test(q));
   const button = (label: string, steps: string[]) => o.thread ? `[${label}](act: ${steps.at(-1)})` : `::button{label="${label}" act=[${steps.map(l => `"${l}"`).join(", ")}]}`;
   const open = `tile.open kind=facets name=${FOUND_TILE}`;
   if (!o.where) {
@@ -232,19 +240,21 @@ export function findAnswer(o: { words: string; where?: string; why?: string; rea
     return lines;
   }
   const f = o.found ?? { notes: [], more: false }, n = f.notes.length;
-  const lines = [n ? `${n}${f.more ? "+" : ""} note${n === 1 ? "" : "s"}: \`${o.where}\`` : `no notes: \`${o.where}\``];
+  // The service wraps a whole query in parentheses ((type=x NOT status=sent)): the same query without them reads plainer.
+  const where = o.where.startsWith("(") && o.where.endsWith(")") && balanced(o.where.slice(1, -1)) ? o.where.slice(1, -1) : o.where;
+  const lines = [n ? `${n}${f.more ? "+" : ""} note${n === 1 ? "" : "s"}: \`${where}\`` : `no notes: \`${where}\``];
   for (const note of f.notes) lines.push(`- ((${note.id}|${note.title.replace(/[|)]/g, " ").trim()}))`);
   const read = (o.read ?? []).map(c => `${c.from.join(" ")} → ${c.clause}${c.widens ? " (the whole outline)" : ""}`);
   if (read.length) lines.push(`read: ${read.join(" · ")}`);
   if (f.refused) lines.push(`the outline refused it: ${f.refused}`);
   if (f.hint) lines.push(f.hint);
   if (!n && f.nearest?.length) lines.push(`keys here nearest the words: ${f.nearest.join(" · ")}`);
-  if (quoteable(o.where)) {
-    lines.push(button("▸ open in facets", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`]));
-    lines.push(button("▸ edit the query", [open, `facets.edit text='${o.where}' tile=${FOUND_TILE}`]));
+  if (quoteable(where)) {
+    lines.push(button("▸ open in facets", [open, `facets.query text='${where}' tile=${FOUND_TILE}`]));
+    lines.push(button("▸ edit the query", [open, `facets.edit text='${where}' tile=${FOUND_TILE}`]));
     // Named by the words that asked for it ("Hub items that are not sent yet"): one press saves it, renamed like any note.
     const name = `${o.words.charAt(0).toUpperCase()}${o.words.slice(1)}`.slice(0, 80);
-    if (n) lines.push(button("▸ save as a view", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`, `facets.save ${quoteable(name) ? `name='${name}' ` : ""}tile=${FOUND_TILE}`]));
+    if (n) lines.push(button("▸ save as a view", [open, `facets.query text='${where}' tile=${FOUND_TILE}`, `facets.save ${quoteable(name) ? `name='${name}' ` : ""}tile=${FOUND_TILE}`]));
   }
   return lines;
 }

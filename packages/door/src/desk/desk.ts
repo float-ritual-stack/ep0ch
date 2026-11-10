@@ -4388,7 +4388,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
     const t = this.tile(sel), p = this.panes.get(t.id), shown = this.noteOf(t.id);
     if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
-    const inEdit = p instanceof ReaderPane && p.surface.draft ? renameInEdit(p.surface.draft, text, actor) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
+    const inEdit = p instanceof ReaderPane && p.surface.draft ? renameInEdit(p.surface.draft, text, actor, expect) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
     const now = await this.ctx.board.get(shown.id);
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
     // What the prompt (or an agent) read: the same note, at the same revision, or nothing is written.

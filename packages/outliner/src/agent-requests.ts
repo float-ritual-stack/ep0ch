@@ -2,6 +2,7 @@ import type { MergeConflict } from "@ep0ch/outline-core/edit-merge";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { createHash } from "node:crypto";
+import { movedRequests } from "./request-identity";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
@@ -429,6 +430,32 @@ export class AgentRequests {
     return out;
   }
 
+  /** The text a block had before its newest revision, when the store still has it. */
+  private previousText(block: Block): string | null {
+    if (block.revision <= 1) return null;
+    try { return this.store.revisionText(block.id, block.revision - 1).text; } catch { return null; }
+  }
+
+  /**
+   * An edit moved requests among lines in the same words (request-identity.ts): a line written above an answered one in
+   * its words, or one taken out above it. Each kept line's row and baseline key follow it to its new key, so the line
+   * written now is the new ask and the answered one isn't asked again (PIE-1722). A key already in use, or running, stays.
+   */
+  private follow(blockId: string, before: string | null, after: string): void {
+    if (before === null || before === after) return;
+    const moved = movedRequests({ text: before, lines: requestLines(before, null) }, { text: after, lines: requestLines(after, null) });
+    if (!moved.size) return;
+    const rows = this.store.agentRequests(blockId), have = new Set(rows.map(row => row.requestKey));
+    const moving = rows.filter(row => moved.has(row.requestKey) && !this.running.has(this.key(blockId, row.requestKey)));
+    const landed = moving.filter(row => !have.has(moved.get(row.requestKey)!) || moved.has(moved.get(row.requestKey)!));
+    if (landed.length) {
+      this.store.pruneAgentRequests(blockId, rows.filter(row => !landed.includes(row)).map(row => row.requestKey));
+      for (const row of landed) this.store.putAgentRequest({ ...row, requestKey: moved.get(row.requestKey)! });
+    }
+    const baseline = this.store.agentRequestBaseline(blockId);
+    if (baseline) this.store.setAgentRequestBaseline(blockId, baseline.map(key => moved.get(key) ?? key));
+  }
+
   /** The `@name` lines a block holds now become what its next save is compared with (kept in the store). */
   private remember(blockId: string, keys: readonly string[]): void {
     const before = this.store.agentRequestBaseline(blockId);
@@ -629,6 +656,7 @@ export class AgentRequests {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (!block) return;
+    if (!created) this.follow(blockId, this.previousText(block), block.text);
     const lines = this.lines(block);
     const keys = lines.map((line) => line.requestKey);
     // The baseline is every `@name` line, answered or not: a line written before its extension was
@@ -690,6 +718,7 @@ export class AgentRequests {
     for (const line of requestLines(text, null)) {
       if (!names.has(line.agent)) this.deps.changed(blockId, { line: line.text, state: "unanswered", warning: this.unanswered(line.agent) });
     }
+    this.follow(blockId, block.text, text);
     const lines = requestLines(text, names);
     const keys = new Set(lines.map((line) => line.requestKey));
     // A request waiting for quiet that the draft no longer has stops waiting.

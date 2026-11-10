@@ -24,6 +24,18 @@ export async function querySuggestReply(suggester: QuerySuggester, request: Extr
   } catch (error) { return refusalEnvelope(request.id, error, sequence()); }
 }
 
+/**
+ * An extension's query.suggest (PIE-1711): words read into a query, its suggestion recorded as the extension's. An outcome,
+ * corrections or a suggestion of its own write the query-words rule note, which a read is no grant for: refused.
+ */
+export function suggestRead<T extends object>(request: T, actor: { actorId?: string }): T & { mutation: typeof actor } {
+  const asked = request as { outcome?: unknown; corrections?: unknown; suggestion?: unknown };
+  if (asked.outcome !== undefined || asked.corrections !== undefined || asked.suggestion !== undefined) {
+    throw new Error(`${actor.actorId ?? "an extension"} can read words into a query over its connection; an outcome or corrections write the query-words rule note, which a read is no grant for`);
+  }
+  return { ...request, mutation: actor };
+}
+
 /** Scored by scripts/evals/query-suggest.ts: uncertain clauses remain offers, with their runner-up. */
 export const QUERY_SUGGEST_THRESHOLDS = { gate: 0.7, probability: 0.35, confident: 0.7, negation: 0.7 };
 export const QUERY_SUGGEST_BUDGET_MS = 1500;

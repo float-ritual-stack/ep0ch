@@ -491,3 +491,38 @@ test("PIE-1711: a find is told from a how-do-I by its words, before any model", 
   for (const asked of ["how do I find backlinks by a type", "how do I lift the agent", "show me how to lift the agent", "find the key for zoom", "lift the agent", "what's the key for lift", ""])
     expect([asked, findAsk(asked)]).toEqual([asked, null]);
 });
+
+// PIE-1711 review (CodeRabbit on #1422): an extension may read words into a query; recording an outcome or corrections writes
+// the query-words rule note, which its read is no grant for.
+test("an extension's query.suggest reads; an outcome or corrections from it is refused and writes nothing", async () => {
+  const t = await setup({ kind: "none", line: "no" });
+  const folder = join(t.store.workspaceRoot!, "extensions", "wordprobe");
+  mkdirSync(folder, { recursive: true });
+  cpSync(join(import.meta.dir, "..", "extensions", "yo", "outline.ts"), join(folder, "outline.ts"));
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "wordprobe", version: 1, name: "Word probe", description: "Asks query.suggest", run: ["bun", "probe.ts"],
+    actions: [{ id: "learn", label: "Learn", on: "outline", effects: "read" }] }));
+  writeFileSync(join(folder, "probe.ts"), `import { outline } from "./outline";
+await Bun.stdin.json();
+const said = await outline({ action: "query.suggest", text: "beds", outcome: "accepted", suggestion: { id: "x", input: "beds", base: "", where: "#beds", text: [], clauses: [{ clause: "#beds", from: ["beds"], confidence: 1, alternatives: [] }] } }).then(() => "accepted", (e: Error) => "refused: " + e.message);
+process.stdout.write(JSON.stringify({ ok: true, value: { message: said } }));`);
+  await until("the probe loaded", async () => (await t.client.request<{ extensions: { id: string; state?: string }[] }>({ action: "extensions.list" } as never)).extensions.some(e => e.id === "wordprobe" && e.state === "active"));
+  const answer = await t.client.request<{ message: string }>({ action: "extensions.act", extension: "wordprobe", extensionAction: "learn" } as never);
+  expect(answer.message).toStartWith("refused:");
+  expect(answer.message).toContain("query-words");
+  expect((await t.client.request<{ blocks: unknown[] }>({ action: "blocks.query", query: { where: "rule-name=query-words", limit: 5 } } as never)).blocks).toEqual([]);
+}, 60_000);
+
+// PIE-1711 review (CodeRabbit on #1422): a thread draws a find's buttons as links, and a link ends at the first ")": the
+// action a link carries is the whole query, or there is no link.
+test("in a thread, a find's links carry the whole query, as the comment's links read it", async () => {
+  const { findAnswer } = await import("../extensions/yo/yo-line");
+  const { linkOccurrences } = await import("@ep0ch/outline-core/link-syntax");
+  const acts = (lines: string[]) => lines.flatMap(l => linkOccurrences(l).flatMap(o => o.kind === "markdown" ? [o.url.replace(/^act:\s*/, "")] : []));
+  const found = { notes: [{ id: "n1", title: "Seed swap flyer" }], more: false };
+  const plain = findAnswer({ words: "hub items not sent", where: "(type=hub-item NOT status=sent)", found, thread: true });
+  expect(acts(plain)).toEqual(["facets.query text='type=hub-item NOT status=sent' tile=found", "facets.edit text='type=hub-item NOT status=sent' tile=found", "facets.save name='Hub items not sent' tile=found"]);
+  // Parentheses inside it: no link would carry it, so none is drawn, and the query is still said.
+  const grouped = findAnswer({ words: "plans or chirps", where: "(type=plan OR type=chirp) status=draft", found, thread: true });
+  expect(acts(grouped)).toEqual([]);
+  expect(grouped[0]).toContain("`(type=plan OR type=chirp) status=draft`");
+});
