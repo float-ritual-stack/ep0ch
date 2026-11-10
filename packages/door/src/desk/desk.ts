@@ -25,7 +25,7 @@ import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT
 import type { Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
-import { MIN_COLS, MIN_ROWS, OPEN_RULES, OPEN_RULE_WORDS, SPINES, besideDockStrips, type AltRule } from "./layout";
+import { MIN_COLS, MIN_ROWS, OPEN_RULES, OPEN_RULE_WORDS, SPINES, besideDockStrips, keptInDock, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
@@ -83,7 +83,7 @@ import { drawDrop } from "./drop-drawing";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, isDir, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, dockBody, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, screenArea, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, removeLeaf, reviveTree, revisionRefusal, serialize as serializeLayout,
-  shape as layoutShapeOf, peekSource, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, peekSource, shown, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Beside, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, WIRE_VERBS, type ZoomReach, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts, type KeysWent,
 } from "./screen-layout";
 import { carry, freeName, type Carried, type CarrySide } from "./carry";
@@ -1238,12 +1238,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       } else this.tileLeaves(id, "rebuilt");
     }
     if (kept.length) { adopt?.kept.push(...kept.map(id => `${names.get(id)} ${kindOf(old.get(id)!)?.workWords?.(old.get(id)!) ?? "holds work"}`));
-      // One dock keeps them all (PIE-1575): what an earlier undo kept is in it already, and the newest is its tab in front.
-      const into = docks(tree).find(d => d.keeps), held = into ? leaves(into.kid) : [];
-      const ids = [...held, ...kept], kid: LNode = ids.length > 1 ? { t: "tabs", ids, active: ids.length - 1 } : leaf(ids[0]!);
-      if (into && (into.kid.t === "leaf" || into.kid.t === "tabs")) into.kid = kid;
-      else if (into) into.kid = splitOf("col", [into.kid, kept.length > 1 ? { t: "tabs", ids: kept, active: kept.length - 1 } : leaf(kept[0]!)], [0.5, 0.5]);
-      else tree = splitOf("row", [tree, { t: "dock", kid, edge: "right", open: false, keeps: true }], [0.7, 0.3]);
+      tree = keptInDock(tree, kept);   // one dock keeps them all, with what an earlier undo kept (PIE-1575)
     }
     const wires: TileWire[] = [];
     this.selectSeeds.clear();

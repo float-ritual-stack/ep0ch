@@ -4597,8 +4597,7 @@ export class NoteSurface {
   /**
    * What slot `key` of `button` is asked as (PIE-1298): the question of the argument that reads it, from that argument's own
    * declaration: an action's arg schema, or for a script step the slot the script declares (`[form-field::page note]`), read
-   * from the script the press would run. Null when nothing declares it (it is asked as text). For the alt press (`alt`), the
-   * argument alt= reads it as, when alt= reads it (PIE-1660).
+   * from the script the press would run; the alt press's, alt='s argument (PIE-1660). Null when nothing declares it (as text).
    */
   private async slotQuestion(block: string, button: ButtonCall, key: string, host: SurfaceHost, alt = false) {
     const use = slotArgs(button, key, { alt })[0];
@@ -4679,8 +4678,7 @@ export class NoteSurface {
   /**
    * A slot's value as it is kept (PIE-1298): a tile is kept by an address the tile grammar reads as identity (its `t-<uuid>`, a
    * role, a slot of a screen); a name, a number, `t7` or `focused` is resolved now and kept as the tile's id, for none of those
-   * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason. Read in the
-   * kind the press asked it in: alt='s for the alt press (PIE-1660).
+   * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason (alt: as alt= reads it).
    */
   private async slotValue(block: string, button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor, alt = false): Promise<string> {
     if (!value) return value;
@@ -8872,15 +8870,7 @@ export class NoteSurface {
   closeSession() { this.session = null; }
   /** A link with no element drawn for it (folded away, not laid out yet): followed where ⏎ on it would go. */
   followLink(l: Link, host: SurfaceHost, fresh = false) { return this.followTarget(l, host, { link: true, fresh }); }
-  /**
-   * The host's own selection takes over (a river column's j k, a click on a card, its scroll or esc): the `[ ]` position is let
-   * go, and with it the person's pick in the list it was on, so no row stays drawn picked (nor its preview) once the keys no
-   * longer reach it; the list reads as before the walk reached it (PIE-1540).
-   */
-  clearLink() {
-    this.listAtCursor()?.view.setPick(PERSON, null);
-    this.letGo();
-  }
+  clearLink() { this.listAtCursor()?.view.setPick(PERSON, null); this.letGo(); } // the host's selection takes over: the [ ] position and its list's pick go (PIE-1540)
   /** Where the reader's position is (its current element) and what it folded: a host that reuses a digest keys on it. */
   get cursorKey(): string { return `${this.cur ?? ""}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
   /** The note's followable links, in order (link.follow's n=). */

@@ -1,5 +1,5 @@
 {
-  "revision": "8ea335760d22d7d476f7c37949fd5694b044d3c1",
+  "revision": "c1e32ea2b6eff4d6b2eba732c28abefb41328376",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -355,7 +355,7 @@
         "packages/door/src/surface/note.ts:eddfd1dd7fa66b72",
         "packages/door/src/surface/note.ts:9d9bbbe85c3c9cdf",
         "packages/door/src/surface/note.ts:eddfd1dd7fa66b72",
-        "packages/door/src/surface/note.ts:71af2522f9ca5c4f",
+        "packages/door/src/surface/note.ts:9b24ccd01302c708",
         "packages/door/src/surface/note.ts:6dbf26c059ddfb6",
         "packages/door/src/surface/note.ts:97bd168b8ee871b8",
         "packages/door/src/surface/note.ts:f046456b2d26505f",
@@ -385,7 +385,7 @@
   },
   "files": {
     "packages/claude-mod/hooks/register.ts": 2898,
-    "packages/door/src/desk/desk.ts": 8471,
+    "packages/door/src/desk/desk.ts": 8470,
     "packages/door/src/desk/screen-layout.ts": 2324,
     "packages/door/src/screens.ts": 2237,
     "packages/door/src/showcase/showcase.ts": 2134,

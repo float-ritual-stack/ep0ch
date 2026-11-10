@@ -760,6 +760,18 @@ export function dockOf<I>(root: LNode<I>, id: I): Dock<I> | null {
 }
 /** Every dock in the tree, outermost first. */
 export function docks<I>(n: LNode<I>): Dock<I>[] { return [...(n.t === "dock" ? [n] : []), ...kidsOf(n).flatMap(k => docks(k))]; }
+
+/**
+ * `root` with tiles `kept` in the one dock that keeps work (`keeps`, PIE-1571): a rebuild's running programs it has no place
+ * for. What an earlier rebuild kept is in it already, so they join it, the newest the tab in front (PIE-1575); with none
+ * yet, a shut dock at the right edge is made for them.
+ */
+export function keptInDock<I>(root: LNode<I>, kept: readonly I[]): LNode<I> {
+  const into = docks(root).find(d => d.keeps), tabs = (ids: I[]): LNode<I> => (ids.length > 1 ? { t: "tabs", ids, active: ids.length - 1 } : leaf(ids[0]!));
+  if (!into) return splitOf("row", [root, { t: "dock", kid: tabs([...kept]), edge: "right", open: false, keeps: true }], [0.7, 0.3]);
+  into.kid = into.kid.t === "leaf" || into.kid.t === "tabs" ? tabs([...leaves(into.kid), ...kept]) : splitOf("col", [into.kid, tabs([...kept])], [0.5, 0.5]);
+  return root;
+}
 /** `full` less a row or column for each edge that holds docked tiles: the dock strip drawn there never covers a tile. */
 export function besideDockStrips<I>(root: LNode<I>, full: Rect): Rect {
   const edges = new Set(docks(root).filter(d => leaves(d.kid).length).map(d => d.edge));
