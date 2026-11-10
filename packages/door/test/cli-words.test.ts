@@ -382,3 +382,26 @@ describe("a door command's --ws anywhere on the line", () => {
     expect(r.seen).toEqual([]);
   }, 30_000);
 });
+
+// A test door runs with no session of its own (EP0CH_DAEMON=0): its EP0CH_CONTROL is the outline's door when it says so.
+test("--ws reaches a door that has no session when its own peek names that outline, and no other", async () => {
+  const sock = join(dir, "t.sock"), seen: string[] = [];
+  const server = createServer(c => c.on("data", d => {
+    const r = JSON.parse(d.toString().split("\n")[0]!);
+    seen.push(r.cmd === "peek" ? "peek" : r.action);
+    c.end(JSON.stringify({ ok: true, result: r.cmd === "peek" ? { screen: { outline: "meadow" } } : { done: true } }) + "\n");
+  }));
+  await new Promise<void>(r => server.listen(sock, r));
+  try {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+    Object.assign(env, { HOME: dir, EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_STATE: join(dir, "state-t"), EP0CH_CONTROL: sock, EP0CH_DAEMON: "0" });
+    const run = async (...argv: string[]) => { const p = Bun.spawn([process.execPath, MAIN, ...argv], { cwd: dir, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" }); return { code: await p.exited, err: await new Response(p.stderr).text() }; };
+    expect((await run("act", "tile.zoom", "--ws", "meadow", "--as", "gardener")).code).toBe(0);
+    expect(seen).toEqual(["peek", "tile.zoom"]);
+    const other = await run("act", "tile.zoom", "--ws", "orchard", "--as", "gardener");
+    expect(other.code).toBe(1);
+    expect(other.err).toContain("no door runs on orchard");
+    expect(seen.filter(s => s === "tile.zoom")).toHaveLength(1);
+  } finally { server.close(); }
+}, 30_000);

@@ -795,7 +795,8 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     // and says why not in the model's own words, not "exited 1".
     const notLoggedIn = join(scratch.root, "not-logged-in.ts");
     writeFileSync(notLoggedIn, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Model not found: big-one" })); process.exit(1);`);
-    await app.dispatch.press("ext.yo.settings", {});
+    // As the ⚙ settings button on its page presses it: with the note it's on, which is the host's, never a setting.
+    await app.dispatch.press("ext.yo.settings", { block: extensionNamed("yo") ? "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" : "" });
     await until(() => top().name === "settings" && drawn().includes("settings · Yo") && drawn().includes("[try]"), "the settings screen at yo", 8000)
       .catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
     ch("t");

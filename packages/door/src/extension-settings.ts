@@ -34,7 +34,8 @@ const TYPE_WORDS: Record<ExtensionSettingField["type"], string> = {
 
 /** The action's arguments: one per field the schema declares (or `config`, the whole of it), then one per secret. */
 export function settingArgs(s: ExtensionSettings): Record<string, ArgSpec> {
-  const args: Record<string, ArgSpec> = {};
+  // A button on a note passes the note it's on (its page's ⚙ settings, yo's answer): the host's, never a setting (PIE-1709).
+  const args: Record<string, ArgSpec> = { block: { type: "string", optional: true, context: true, about: "the note a button that pressed it is on; not a setting" } };
   if (s.whole) args.config = { type: "string", optional: true, about: "its settings whole, as JSON (its schema isn't an object of named fields)", default: JSON.stringify(s.config) };
   for (const f of s.fields) {
     const now = f.value !== undefined ? shownValue(f, f.value) : f.default !== undefined ? `${shownValue(f, f.default)} (its default)` : undefined;
@@ -196,7 +197,7 @@ export function settingsAction(e: ExtensionEntry, s: ExtensionSettings): ActionD
       ...(first ? [{ act: `ext.${e.id}.settings unset=${first.name}`, does: `takes ${first.name} out: ${first.default !== undefined ? "back to its default" : "left unset"}` }] : []),
     ],
     async run(args, on, actor: Actor) {
-      const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+      const given = Object.fromEntries(Object.entries(args).filter(([k, v]) => v !== undefined && k !== "block"));
       const change = changeOf(s, given);
       if (change.config === undefined && change.set === undefined && change.unset === undefined && change.secrets === undefined) {
         // Nothing given: a person's press opens the card on its page (PIE-1709), where each setting reads, changes and is
@@ -219,7 +220,11 @@ const oneWords = (s: string) => s.replace(/\s+/g, " ").trim();
  * screen opened at it, its card beside the list. One place decides it; every button names `ext.<id>.settings`.
  */
 async function openSettingsCard(ctx: ExtOn["ctx"] & { dispatch: NonNullable<ExtOn["ctx"]["dispatch"]> }, e: ExtensionEntry, actor: Actor): Promise<unknown> {
-  return ctx.dispatch.act({ action: "screen.open", args: { name: "settings", target: e.id } }, actor);
+  const opened = await ctx.dispatch.act({ action: "screen.open", args: { name: "settings", target: e.id } }, actor);
+  // That extension's, wherever the screen was left, and its card has the keys.
+  await ctx.dispatch.act({ action: "settings.index.select", tile: "index", args: { ext: e.id } }, actor).catch(() => { /* no list on the screen: the card shows what the screen opened on */ });
+  await ctx.dispatch.act({ action: "tile.focus", tile: "card" }, actor).catch(() => { /* a screen without the tile: its keys stay where they are */ });
+  return opened;
 }
 
 /** The extension a page is about: its `[ext.page::<id>]`, written by the service on every extension's page. */

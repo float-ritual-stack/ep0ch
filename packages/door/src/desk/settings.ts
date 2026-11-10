@@ -14,11 +14,14 @@ import { cardField } from "./settings-index";
 class SettingsPane extends ReaderPane {
   override readonly kind = "settings";
   private opened: string | null = null;
+  private entered: string | null = null;
   constructor(readonly view?: string, readonly fills = false) { super(true); }
   override spec() { return { ...super.spec(), ...(this.view ? { view: this.view } : {}), ...(this.fills ? { args: { fills: true } } : {}) }; }
   override render(w: number, h: number, focused: boolean, desk?: DeskApi): PaneView {
     const drawn = super.render(w, h, focused, desk);
     const m = this.msg;
+    // Given the keys with a card in it (the settings screen at an extension): in it at once, once per note shown.
+    if (this.fills && focused && m && this.opened === m.id && this.entered !== m.id && this.surface.panel?.card) { this.entered = m.id; desk?.enterSession?.(this); }
     // The screen's card stays open whatever reloads the page under it (a save rewrites the extension's page) or closes it.
     const gone = this.fills && !this.surface.panel?.card;
     if (m && (this.opened !== m.id || gone) && (this.surface.listsDrawn.length || this.fills)) {
@@ -32,7 +35,7 @@ class SettingsPane extends ReaderPane {
         const mode = this.surface.modes.get("panel");
         if (mode) this.surface.modes.focus(mode, true);
         // Opened with the keys here (the settings screen at an extension, ⏎ in its list): in it at once, no ⏎ to enter.
-        if (focused && !again) desk?.enterSession?.(this);
+        if (focused && !again) { this.entered = m.id; desk?.enterSession?.(this); }
       }
       // A setting the settings list picked (its search found it by name or words): selected as the card opens.
       const want = cardField.get(m.id);

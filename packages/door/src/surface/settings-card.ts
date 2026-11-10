@@ -254,6 +254,8 @@ export class SettingsCard {
     const title = ext ? `settings · ${this.schemas[0]!.title}${this.on ? ` · on ${this.on}` : ""}`
       : `settings · ${this.schemas.map(s => s.title).join(" + ")}${named ? ` · ${printable(named)}` : ""}${revision !== undefined ? ` · rev ${revision}` : ""}`;
     const out = [rule(w, drawEllipsized(title, Math.max(2, w - 8)))];
+    // The settings screen's card on a page whose extension went (uninstalled, its config.json with it): said, not blank.
+    if (!fields.length && this.fills) return [...out, fg(C.dark) + pad(drawEllipsized("  nothing to set here now: its extension isn't installed · & installs it again", w), w) + RESET];
     this.sel = Math.max(0, Math.min(this.sel, fields.length - 1));
     const sel = fields[this.sel];
     const edit = sel?.prop.question ? (sel.prop.question.type === "toggle" ? "show or hide choices" : "choose and reorder") : sel?.prop.values ? "choose a value" : "edit the value";

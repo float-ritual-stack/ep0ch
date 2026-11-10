@@ -172,13 +172,16 @@ export const SETTINGS_INDEX_ACTIONS = actionSet<KindHost>()("settings-index", {
   "settings.index.select": def({
     summary: "select a row of the settings list (by=, or n= from one): an extension's or one of its settings shows its settings card beside, without moving the keys",
     keys: [{ keys: "j k ↑ ↓", does: "the row below or above" }, { keys: "wheel", does: "rows down or up" }, { keys: "click", does: "on a row: selects it" }], touches: "tile", replay: "safe", person: "the selection is the person's",
-    args: { by: { type: "number", optional: true, about: "rows to move, negative up" }, n: { type: "number", optional: true, about: "the row, from one" } },
-    examples: [{ act: "settings.index.select n=3 tile=index", does: "selects the third row; its card shows beside" }],
-    async run({ by, n }, { pane, desk }) {
+    args: { by: { type: "number", optional: true, about: "rows to move, negative up" }, n: { type: "number", optional: true, about: "the row, from one" }, ext: { type: "string", optional: true, about: "the extension's row, by its id" } },
+    examples: [{ act: "settings.index.select n=3 tile=index", does: "selects the third row; its card shows beside" }, { act: "settings.index.select ext=yo tile=index", does: "selects yo; its card shows beside" }],
+    async run({ by, n, ext }, { pane, desk }) {
       const p = paneOf(pane), rows = p.rows();
       if (!rows.length) throw new ActionRefused("nothing to select · / searches, esc clears the search");
+      if (ext !== undefined && !rows.some(r => r.ext === ext && !r.field)) { p.filter = ""; p.field = null; }
+      const found = ext !== undefined ? p.rows().findIndex(r => r.ext === ext && !r.field) : -1;
+      if (ext !== undefined && found < 0) throw new ActionRefused(`no settings for ${ext} here · ${p.rows().filter(r => r.ext && !r.field).map(r => r.ext).join(", ")} have some`);
       const step = by !== undefined && by < 0 ? -1 : 1;
-      let at = n !== undefined ? n - 1 : p.at + (by ?? 0);
+      let at = found >= 0 ? found : n !== undefined ? n - 1 : p.at + (by ?? 0);
       at = Math.max(0, Math.min(rows.length - 1, at));
       while (rows[at]?.head && at + step >= 0 && at + step < rows.length) at += step;
       p.at = at;
