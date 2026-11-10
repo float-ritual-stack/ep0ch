@@ -360,7 +360,15 @@ var BLOCK_ID_PATTERN = new RegExp(`^${BLOCK_ID_SOURCE}$`, "i");
 var BLOCK_ID_LIKE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var BLOCK_ID_SCHEMA_PATTERN = `^${BLOCK_ID_SOURCE.replace(/a-f/g, "a-fA-F").replace("[89ab]", "[89abAB]")}$`;
 var FRAGMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+var EP0CH_BLOCK_URI = /^ep0ch:\/\/([^@/?#]+)@([^/?#]+)\/b\/([^/?#]+)(?:#([^?#]*))?$/;
 var BLOCK_REFERENCE_HEAD_PATTERN = new RegExp(String.raw`^\(\((${BLOCK_ID_SOURCE})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?=\)\)|\|)`, "i");
+function decodeField(value, label) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new Error(`Invalid ep0ch URI ${label}: bad percent encoding`);
+  }
+}
 function encodeField(value) {
   return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
@@ -401,6 +409,23 @@ function formatEp0chBlockUri(target) {
   if (target.fragment !== undefined && !FRAGMENT_ID_PATTERN.test(target.fragment))
     throw new Error(`Invalid fragment id: ${target.fragment}`);
   return `ep0ch://${encodeField(target.outline)}@${encodeField(target.machine)}/b/${blockId}${target.fragment ? `#${encodeField(target.fragment)}` : ""}`;
+}
+function parseEp0chBlockUri(input) {
+  const match = EP0CH_BLOCK_URI.exec(input);
+  if (!match)
+    throw new Error("Invalid ep0ch block URI; expected exact ep0ch://<outline>@<machine>/b/<uuid>[#fragment]");
+  const outline = decodeField(match[1], "outline");
+  const machine = decodeField(match[2], "machine");
+  const blockId = decodeField(match[3], "block id");
+  const fragment = match[4] === undefined ? undefined : decodeField(match[4], "fragment");
+  if (!isOutlineName(outline))
+    throw new Error(`Invalid ep0ch URI outline: ${outline}`);
+  if (!isMachineName(machine))
+    throw new Error(`Invalid ep0ch URI machine: ${machine}`);
+  const normalizedBlockId = normalizeBlockId(blockId);
+  if (fragment !== undefined && !FRAGMENT_ID_PATTERN.test(fragment))
+    throw new Error(`Invalid ep0ch URI fragment: ${fragment}`);
+  return { outline, machine, blockId: normalizedBlockId, ...fragment ? { fragment } : {} };
 }
 
 // packages/outline-core/src/code-fence.ts
@@ -610,6 +635,66 @@ function stripQuotes(line, n) {
 var PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";
 var PROPERTY_HEAD_SOURCE = String.raw`\[(${PROPERTY_KEY_SOURCE})::`;
 var PROPERTY_KEY_PATTERN = new RegExp(`^${PROPERTY_KEY_SOURCE}$`);
+function propertyValueEnd(text, from) {
+  let lineEnd = from;
+  while (lineEnd < text.length && text[lineEnd] !== `
+` && text[lineEnd] !== "\r")
+    lineEnd += 1;
+  const line = text.slice(from, lineEnd);
+  const first = line.indexOf("]");
+  if (first < 1)
+    return -1;
+  if (!line.includes("[") && !line.includes("(("))
+    return from + first;
+  const references = new Map(blockReferenceOccurrences(line, []).map((reference) => [reference.start, reference.end]));
+  let depth = 1;
+  let quote = "";
+  for (let at = 0;at < line.length; at += 1) {
+    const character = line[at];
+    if (quote) {
+      if (character === quote && !isEscapedAt(line, at))
+        quote = "";
+      continue;
+    }
+    if (depth > 1 && (character === "'" || character === '"') && /[\[,]\s*$/.test(line.slice(0, at))) {
+      quote = character;
+      continue;
+    }
+    const skip = references.get(at);
+    if (skip !== undefined) {
+      at = skip - 1;
+      continue;
+    }
+    if (character === "[")
+      depth += 1;
+    else if (character === "]" && --depth === 0)
+      return at > 0 ? from + at : -1;
+  }
+  const head = new RegExp(PROPERTY_HEAD_SOURCE, "g").exec(line);
+  if (head && head.index < first || line.slice(0, first).includes("[["))
+    return -1;
+  return from + first;
+}
+function propertyTokenMatches(text) {
+  const out = [];
+  const head = new RegExp(PROPERTY_HEAD_SOURCE, "g");
+  for (let match = head.exec(text);match; match = head.exec(text)) {
+    const valueStart = match.index + match[0].length;
+    const close = propertyValueEnd(text, valueStart);
+    if (close < 0)
+      continue;
+    const end = close + 1;
+    out.push({ key: match[1], value: text.slice(valueStart, close), raw: text.slice(match.index, end), start: match.index, end });
+    head.lastIndex = end;
+  }
+  return out;
+}
+function isEscapedAt(text, offset) {
+  let cursor = offset;
+  while (cursor > 0 && text[cursor - 1] === "\\")
+    cursor -= 1;
+  return (offset - cursor) % 2 === 1;
+}
 var ADDRESS_KEYS = new Set(["page", "work-id"]);
 var QUERY_KEYS = new Set(["query"]);
 
@@ -1065,6 +1150,9 @@ function pageLinkSpans(text, code = []) {
   }
   return spans;
 }
+function pageLinkRanges(text) {
+  return pageLinkSpans(text).filter((span) => span.depth === 0).map(({ start, end }) => ({ start, end }));
+}
 function labelBar(authored) {
   let depth = 0;
   for (let at = 0;at < authored.length; at += 1) {
@@ -1152,6 +1240,34 @@ function pageAddressReferences(text, code) {
 var MARKDOWN_LINK_SOURCE = String.raw`(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)`;
 var MARKDOWN_LINK_OR_IMAGE = /!?\[[^\]\n]*\]\([^)\n]*\)/g;
 var FRAGMENT_ANCHOR_PATTERN = new RegExp(String.raw`(?:^|\s)\^(${FRAGMENT_ID_SOURCE})\s*$`);
+var BARE_ADDRESS = /(?<![\w/:.@%-])(?:https?|ep0ch):\/\/[^\s<>"'`]+/gi;
+function bareAddressOccurrences(text) {
+  if (!text.includes("://"))
+    return [];
+  const out = [];
+  for (const match of text.matchAll(BARE_ADDRESS)) {
+    let url = match[0];
+    for (let before = "";before !== url; ) {
+      before = url;
+      url = url.replace(/[.,;:!?*_~]+$/, "");
+      for (const [open, close] of [["(", ")"], ["[", "]"]]) {
+        if (url.endsWith(close) && url.split(open).length < url.split(close).length)
+          url = url.slice(0, -1);
+      }
+    }
+    if (!/^[a-z0-9]+:\/\/[^/?#]+/i.test(url))
+      continue;
+    if (/^ep0ch:/i.test(url)) {
+      try {
+        parseEp0chBlockUri(url);
+      } catch {
+        continue;
+      }
+    }
+    out.push({ url, start: match.index, end: match.index + url.length });
+  }
+  return out;
+}
 var overlaps = (a, b) => a.start < b.end && b.start < a.end;
 function linkOccurrences(text, code) {
   const codeRanges = codeRangesOf(text, code);
@@ -1172,6 +1288,13 @@ function linkOccurrences(text, code) {
       continue;
     const embed = page.label === undefined && text[page.start - 1] === "!";
     out.push({ kind: "page", embed, ...page, start: embed ? page.start - 1 : page.start });
+  }
+  const bare = bareAddressOccurrences(text);
+  if (bare.length) {
+    const held = [...markdown, ...refs, ...envelopes, ...pageLinkRanges(text), ...propertyTokenMatches(text)];
+    for (const address of bare)
+      if (!held.some((range) => overlaps(address, range)))
+        out.push({ kind: "url", ...address });
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }

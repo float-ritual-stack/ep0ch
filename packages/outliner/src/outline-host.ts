@@ -819,9 +819,9 @@ export class OutlineHost {
       server.setHost(() => this.status());
       server.extensionPages.giveWay = this.giveWay;
       server.setUploadLeases(input => this.startUploadLease(input));
-      server.setSnapshotAddress(() => {
+      server.setHostAddress((key) => {
         for (const outline of this.opened.values()) {
-          const url = outline.server.publisherAddress(true).publicUrl;
+          const url = outline.server.publisherAddress(key === "publicUrl")[key];
           if (url) return `${url.replace(/\/+$/, "")}/o/${encodeURIComponent(name)}`;
         }
         return undefined;

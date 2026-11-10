@@ -197,7 +197,12 @@ export class BacklinksPane implements Pane {
 
   subject() { const r = this.rows()[this.sel]; return r?.kind === "backlink" ? r.source.blockId : r?.kind === "child" ? r.child.block.id : null; }
   /** Its rows are the target's outline's: another outline's note lists that outline's links and replies. */
-  noteAt() { const id = this.subject(); return id ? { id, ...(this.target?.address ? { address: this.target.address } : {}) } : null; }
+  noteAt() {
+    // A resolved outlink is a note too (PIE-1316): its row copies its target, in the outline the link names, else the target's.
+    const r = this.rows()[this.sel], to = r?.kind === "outlink" && r.link.resolution.kind === "ready" && r.link.resolution.target.kind === "block" ? r.link.resolution.target : null;
+    const id = to ? to.blockId : this.subject(), address = to?.outline ? { outline: to.outline, ...(to.machine ? { machine: to.machine } : {}) } : this.target?.address;
+    return id ? { id, ...(address ? { address } : {}) } : null;
+  }
   get titleNote() { return this.target; }
   title() {
     const word = this.childrenOnly ? "children" : this.every ? "links" : `links (${this.groups.join(", ")})`;

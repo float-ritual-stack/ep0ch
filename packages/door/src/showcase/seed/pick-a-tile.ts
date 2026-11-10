@@ -7,6 +7,8 @@ export const PICK_A_TILE = [
   '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}',
   "A script's slots ask too, in the kind the script declares: neat says its page is a note (`[form-field::page note]` at its top), so two up asks for page 1 of 2, then page 2, from your notes, writes each on the line, and the next press puts them side by side.",
   '::button{label="two up" of="neat" page={page1} page={page2} page1= page2=}',
+  "A slot only the alt press reads is asked by the alt press: a click on about this shows the focused tile's card; alt+click asks which tile to lift, then lifts it.",
+  '::button{label="about this" act="tile.info card=true" alt="tile.zoom tile={lift} reach=column" lift=}',
   "A button that reads differently than it was written runs nothing, and says what to write (nested quotes ended act= early):",
   '::button{label="misread" act="tile.zoom reach="column" tile="t-a6125371"}',
   "What it says to write: one action per line under the button, then ::. A line of its own has no outer quote for an inner one to end, so the quotes stay as you'd type them:",

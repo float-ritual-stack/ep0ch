@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Paste a note's link into a note and it opens (PIE-1401, PIE-1316, PIE-1390)
+
+- **A bare address is a link.** A note's web link (`https://my.ep0ch.sh/pub/p/HOME-006`) or its `ep0ch://` address pasted on its own into a note is drawn as written and opens that note when clicked (⏎ on it, or `link.follow`); one of this outline's opens as its own note. Any other `https://` page opens in the browser. Code, Markdown links, references and `[key::…]` values are left as they were.
+- **Published pages link them too:** a bare `ep0ch://` address links to the note's page, as a reference does; a bare web link was already a link there.
+- **Copy web link is the service's address:** `note.copy-ref kind=link` (the Copy group's "copy note web link", on a reader, any list row, a lane's card or a power-bar hit; a links tile's outlink row now copies the note it links to) copies what the outline's host answers (`notes.address`'s new `link`): its publisher's address, naming the outline (`/pub/o/<outline>/p/<id>`, by Work ID for a roadmap item), so it opens pasted into any outline's note. The door no longer makes it up from its own settings.
+- **A pasted address never runs as keys:** pasted on a reader or a list that isn't being typed in, a note's link or reference opens the power bar on that note's row (⏎ opens it) instead of typing its letters out as commands, where a `d` trashed the note in front.
+- **One line reference everywhere:** a step's "copy link" and a `::fields` row's ¶ give the same `((id^anchor|its words))` as copy line reference on that line, with one wording for the copy and for a note that changed since it was read.
+- **An alt press asks for its own slot:** `::button{act="tile.info" alt="tile.zoom tile={lift}" lift=}` asks which tile on alt+click and then lifts it; a plain click runs `tile.info` without asking.
+- **In the kitchen sink:** the Paste a link section (`ep0ch --showcase`).
+- **Run:** PROTOCOL moves (loki sets it at merge) and GRAMMAR is 46: `ep0ch install --apply` on float-2 and the laptop.
+
 ### A note's comments read at any width, and a comment's title keeps the chips it quotes (PIE-1572, PIE-1596)
 
 - **The BBS reader has a `[+]` for a folded whole-note comment** (PIE-1572): after its header, wrapping to a row of its own in a narrow tile. Before, "as marks" and a comment put away as seen left no way to it by mouse there; the reader's title already had one.

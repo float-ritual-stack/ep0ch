@@ -7,7 +7,8 @@
 import { metadataLines } from "@ep0ch/outline-core/block-tags";
 import { quoteDepth } from "@ep0ch/outline-core/callouts";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { blockReferenceOccurrences, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, linkOccurrences, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
+import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { codeLineSet, ensureFragmentAnchor, fragmentCandidates, resolveFragmentSlice } from "./fragments";
 import { SENTINEL_BLOCKS, SENTINEL_MARKERS } from "./publish-sentinels";
 
@@ -112,4 +113,21 @@ export function drawAnchors(html: string, ids: readonly string[]): string {
     const span = id?.startsWith("#") ? `<span class="line-anchor" id="${id.slice(1).replace(/[^0-9A-Za-z_:-]/g, "")}"></span>` : id ? `<span class="bk" data-block="${id.replace(/[^0-9A-Za-z-]/g, "")}"></span>` : "";
     return open && close ? span : `${open ?? ""}${span}${close ?? ""}`;
   });
+}
+
+/** The notes a text names by a bare `ep0ch://` address (PIE-1401): a page links them as it links its references. */
+export const addressedBlocks = (text: string): string[] =>
+  text.includes("ep0ch://") ? linkOccurrences(text).flatMap(l => (l.kind === "url" && /^ep0ch:/i.test(l.url) ? [parseEp0chBlockUri(l.url).blockId] : [])) : [];
+
+/**
+ * `body` with each bare `ep0ch://` address of a note this page links (`byId`) written as `link` writes a reference to it
+ * (PIE-1401): its title, at its page, the address's line anchor kept. One it can't link (not shown here, another
+ * outline's, in code) stays as written; a bare web link is Markdown's autolink already.
+ */
+export function linkedAddresses<E extends { title: string }>(body: string, byId: ReadonlyMap<string, E>, link: (label: string, target: E, fragment?: string) => string, inCode: (offset: number) => boolean): string {
+  for (const address of linkOccurrences(body).filter(l => l.kind === "url" && /^ep0ch:/i.test(l.url)).reverse()) {
+    const { blockId, fragment } = parseEp0chBlockUri((address as { url: string }).url), target = byId.get(blockId);
+    if (target && !inCode(address.start)) body = body.slice(0, address.start) + link(target.title, target, fragment) + body.slice(address.end);
+  }
+  return body;
 }

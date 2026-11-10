@@ -12,7 +12,7 @@ import { Mirror } from "../src/mirror";
 import { groundSeq, setTheme, THEMES, luminance } from "../src/theme";
 import { rowBytes } from "../src/term";
 import { emphasis } from "../src/inline";
-import { addressOf, destinationOf, external, externalOpenCommand, fileOpenCommand, notePageUrl } from "../src/open";
+import { addressOf, destinationOf, external, externalOpenCommand, fileOpenCommand } from "../src/open";
 import { presentLinks } from "../src/refs";
 import { MessageReader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -327,17 +327,15 @@ describe("link schemes", () => {
     expect(destinationOf("ftp://example.org")).toMatchObject({ refused: expect.any(String) });
   });
 
-  // PIE-1297: note.copy-ref kind=link writes a note's web address; another outline's opens back in the door.
-  test("a note's web link names its outline (/pub/o/<name>/p/), on the web client's origin; none known, /pub/p/", () => {
+  // PIE-1297, PIE-1316: note.copy-ref kind=link copies the service's web address for a note; every form it gives opens back in the door.
+  test("a note's web link reads back as the note: /pub/o/<name>/p/, /pub/p/ (the home outline's), a Work ID's, on the web client's origin", () => {
     const id = "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34";
-    expect(notePageUrl("PIE-12", undefined, {})).toBe("https://my.ep0ch.sh/pub/p/PIE-12");
-    expect(notePageUrl(id, "orchard", { EP0CH_WEB_URL: "https://web.example.org/, https://other.example.org" })).toBe(`https://web.example.org/pub/o/orchard/p/${id}`);
-    expect(destinationOf(notePageUrl(id, "orchard", {}))).toEqual({ target: { outline: "orchard", block: id } });
+    expect(destinationOf(`https://my.ep0ch.sh/pub/o/orchard/p/${id}`, {})).toEqual({ target: { outline: "orchard", block: id } });
     // PIE-1398: every form it writes reads back as the note: /pub/p/ (this outline's), a Work ID's, on the web client's own origin.
-    expect(destinationOf(notePageUrl(id, undefined, {}))).toEqual({ target: { block: id } });
-    expect(destinationOf(notePageUrl("PIE-12", undefined, {}))).toEqual({ target: { page: "PIE-12" } });
+    expect(destinationOf(`https://my.ep0ch.sh/pub/p/${id}`, {})).toEqual({ target: { block: id } });
+    expect(destinationOf("https://my.ep0ch.sh/pub/p/PIE-12", {})).toEqual({ target: { page: "PIE-12" } });
     const env = { EP0CH_WEB_URL: "https://web.example.org" };
-    expect(destinationOf(notePageUrl(id, "orchard", env), env)).toEqual({ target: { outline: "orchard", block: id } });
+    expect(destinationOf(`https://web.example.org/pub/o/orchard/p/${id}`, env)).toEqual({ target: { outline: "orchard", block: id } });
     expect(destinationOf("https://example.org/pub/p/PIE-12", env)).toEqual({ web: "https://example.org/pub/p/PIE-12" });
     expect(addressOf(`((orchard:${id}^beds|the beds line))`)).toEqual({ block: id, outline: "orchard", fragment: "beds", label: "the beds line" });
     expect(addressOf("garden plan")).toBeNull();

@@ -141,7 +141,7 @@ export function linkifyReferences(text: string, prefixes: readonly string[], tit
       .map(m => ({ kind: 'work' as const, start: m.index!, end: m.index! + m[0].length, value: m[0] })) : [];
     let out = '', at = 0;
     for (const ref of [...links, ...work].sort((a, b) => a.start - b.start)) {
-      if (ref.kind === 'markdown') continue;
+      if (ref.kind === 'markdown' || ref.kind === 'url') continue;
       const authoredOutline = ref.kind === 'work' ? undefined : ref.outline;
       const address = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}` : '';
       const outline = authoredOutline ?? (ref.kind === 'block' ? outlineOf(address) : undefined);

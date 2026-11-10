@@ -544,6 +544,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
           }
           spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: unresolved }, { url, label: l.text }, !unresolved && isExternalUrl(url)) });
         }
+      } else if (l.kind === "url") {
+        // A bare address (PIE-1401): drawn as written, it opens what it names: a note's web link or `ep0ch://` address the note, any other page the browser.
+        spans.push({ ...l, draw: () => mark({ text: plainWords(line.slice(l.start, l.end)), missing: false }, { url: l.url, label: l.url }, isExternalUrl(l.url)) });
       } else if (l.kind === "page") {
         // `![[page^anchor]]` (PIE-1247) is left as written where embeds are drawn: the reader expands it (doc.ts).
         if (l.embed && embeds) continue;

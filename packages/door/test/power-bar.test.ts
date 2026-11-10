@@ -20,7 +20,6 @@ import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
 import { askingFirst } from "../src/extensions";
 import { filtered } from "../src/bar/filter";
-import { notePageUrl } from "../src/open";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, showIn, until } from "./scratch";
 
@@ -957,9 +956,12 @@ describe.skipIf(!outliner)("the power bar", () => {
   test("a pasted id, reference, line reference, ep0ch:// address or web link is its note's row, and ⏎ opens it (PIE-1398)", async () => {
     const own = (await board.info()).outline!, machine = (await board.info()).machine!;
     const shed = notes.shed!.id;
+    // The web link is what copy web link gives (the service's answer, PIE-1316), and the home outline's /pub/p/ form.
+    const link = (await app.act({ action: "note.copy-ref", args: { kind: "link", ref: shed }, as: "wren-agent" }) as { text: string }).text;
+    expect(link).toMatch(new RegExp(`/pub/o/${own}/p/${shed}$`));
     const pasted = [
       shed, `((${shed}|zzz))`, `((${shed.slice(0, 8)}|Bike shed))`, `((${shed}^tubes|the spare inner tubes))`,
-      `ep0ch://${own}@${machine}/b/${shed}`, notePageUrl(shed, own, {}), notePageUrl(shed, undefined, {}),
+      `ep0ch://${own}@${machine}/b/${shed}`, link, `https://my.ep0ch.sh/pub/p/${shed}`,
     ];
     for (const text of pasted) {
       for (const scope of [null, "notes"] as const) {
@@ -987,6 +989,19 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.rows[0].refused).toContain("no note 0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a");
     closeBar();
   }, 30_000);
+
+  // PIE-1401: pasted where nothing is typed into, an address is never typed out as keys (its `d` would trash the note in front):
+  // the power bar opens with it, that note its first row.
+  test("a note's address pasted in a reader that isn't editing opens the power bar on it, and runs none of its letters as keys", async () => {
+    showIn(desk, notes.garden!);
+    const shed = notes.shed!.id, before = (await board.get(notes.garden!.id))!;
+    key({ kind: "paste", text: `((${shed}^tubes|the spare inner tubes, dug))` });
+    await until(() => peek().bar?.rows[0]?.source === "notes" && !peek().bar.asking, "the bar on the pasted note", 3000);
+    expect(peek().bar.rows[0]).toMatchObject({ label: "Bike shed", key: shed });
+    closeBar();
+    const after = (await board.get(notes.garden!.id))!;
+    expect({ revision: after.revision, trashed: !!(after as any).effectiveDeletedRootId }).toEqual({ revision: before.revision, trashed: false });
+  }, 20_000);
 
   test("while typing, the rows the search gave stay until its answer to what's typed now replaces them (PIE-1398)", async () => {
     key(ctrlK); type("/bike");

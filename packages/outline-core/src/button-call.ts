@@ -23,12 +23,16 @@ export interface ButtonCall {
   act: string | null;
   /** The alternate press, when supplied. */
   alt?: string;
+  /** The alternate press as written, when it names a slot (`tile.zoom tile={lift}`): what its slots are asked as (slotArgs). */
+  altWritten?: string;
   /** How it looks (PIE-1287): what the line says of glyph, tone, frame and fill; the door's button part draws it. */
   look: ButtonLookWords;
   /** The slots the line fills itself (PIE-1298): `target=` for a `{target}` in act= or in an of= script's values, in the order written. */
   slots: ButtonSlot[];
   /** The slots with no value yet, in the order the button reads them: a press asks for each (never runs with one open). */
   empty: string[];
+  /** The slots its alt= reads with no value yet (PIE-1316): the alt press asks for each; absent when none is open. */
+  altEmpty?: string[];
   /** The line couldn't be read as a button, or reads as something other than what was written: what to write. */
   problem?: string;
   /** A look word it doesn't take (`tone=red`): what to write. It still runs; only its look falls back. */
@@ -280,11 +284,12 @@ function buttonCallOwn(lines: readonly string[], i: number): ButtonCall | null {
   // Asked in the order the line writes them (a script's compiled source keeps only its last repeat, so it never orders them).
   const read = new Set([...steps.flatMap(s => refsOf(s.source)), ...Object.values(props).flat().flatMap(refsOf)]);
   const empty = slots.filter(s => !s.value && read.has(s.key)).map(s => s.key);
+  const altRead = new Set(refsOf(get("alt") ?? "")), altEmpty = slots.filter(s => !s.value && altRead.has(s.key)).map(s => s.key);
   const line = problem && !steps.length ? null : steps.map(s => s.source).join("\n") || null;
   // A look word it can't read is said, but the button still runs: only its look falls back.
   const { look, problem: lookProblem } = lookOf(get);
   return { line: i, endLine, steps, props, slots, empty, look, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: problem && misreadOnly(problem) ? null : line,
-    ...(lookProblem ? { lookProblem } : {}), ...(get("alt") ? { alt: slotted(get("alt")!) } : {}), ...(problem ? { problem } : {}) };
+    ...(lookProblem ? { lookProblem } : {}), ...(get("alt") ? { alt: slotted(get("alt")!) } : {}), ...(altRead.size ? { altWritten: get("alt")! } : {}), ...(altEmpty.length ? { altEmpty } : {}), ...(problem ? { problem } : {}) };
 }
 
 /** The look words of a button's line, read; a value it doesn't take is the problem to fix (the rest still draw). */
@@ -345,13 +350,16 @@ export function buttonCallsOf(text: string): ButtonCall[] {
  */
 export function slotArgs(call: ButtonCall, key: string): { step: number; action: string; arg: string; script?: true }[] {
   const out: { step: number; action: string; arg: string; script?: true }[] = [];
-  call.steps.forEach((s, step) => {
-    const [action, ...words] = lineWords(s.written ?? s.source);
+  const read = (line: string, step: number, script: boolean) => {
+    const [action, ...words] = lineWords(line);
     for (const w of words) {
       const eq = w.indexOf("=");
-      if (eq > 0 && w.slice(eq + 1) === `{${key}}`) out.push({ step, action: action!, arg: w.slice(0, eq), ...(s.kind === "script" ? { script: true as const } : {}) });
+      if (eq > 0 && w.slice(eq + 1) === `{${key}}`) out.push({ step, action: action!, arg: w.slice(0, eq), ...(script ? { script: true as const } : {}) });
     }
-  });
+  };
+  call.steps.forEach((s, step) => read(s.written ?? s.source, step, s.kind === "script"));
+  // The alt press's line (PIE-1316), as step -1: a slot only it reads is asked as its argument.
+  if (call.altWritten) read(call.altWritten, -1, false);
   return out;
 }
 

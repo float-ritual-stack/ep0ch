@@ -2553,7 +2553,8 @@ Answers `RenderedNote`.
 | `blockId?` | `string` |  |
 | `uri?` | `string` | `ep0ch://<outline>@<machine>/b/<id>`, with `blockId` and a named outline. |
 | `published?` | `NotePublication` | Where the publisher serves it, when it is published (and not `[publish::never]`). |
-| `page?` | `string` | Its tailnet page by its id (`<url>/p/<id>`), published or not (PIE-782: the tailnet serves every note but a locked one), when the publisher said where it is opened. An artifact line's page is below it (`/artifact/<line>`, PIE-793). |
+| `page?` | `string` | Its tailnet page by id (`<url>/p/<id>`), published or not, unless locked (PIE-782), when the publisher said where it is opened. |
+| `link?` | `string` | Its web link (PIE-1316, what `note.copy-ref kind=link` copies), with a named outline: `noteWebLink`'s `<base>/o/<outline>/p/<Work ID or id>`. |
 
 **`NotePublication`**: Where a note is published (`notes.address`, PIE-767).
 

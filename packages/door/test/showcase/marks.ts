@@ -234,6 +234,7 @@ export const marks: Record<string, string[]> = {
   scripts: ["Seed report", "Press alt+G"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "pick-a-tile": ["Pick a tile instead of typing its id", "pop it", "misread"],
+  "paste-a-link": ["Paste a link and it opens", "Shed key rota", "example.org/allotment-rules"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
   "note-component": ["A note component", "Bean packet"],
   press: ["Noughts and crosses", "ttt-board"],

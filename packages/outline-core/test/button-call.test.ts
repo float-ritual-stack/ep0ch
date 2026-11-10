@@ -66,6 +66,18 @@ test("slots repeat into lists, and a slot named like an Object method (construct
   expect(({} as Record<string, unknown>).z).toBeUndefined();
 });
 
+// PIE-1316 (PIE-1298's review): a slot only alt= names is the alt press's to ask for; the main press has none open.
+test("a slot only alt= reads is open for the alt press, not the main one", () => {
+  const b = buttonCallAt(['::button{label="info" act="tile.info" alt="tile.zoom tile={target}" target=}'], 0)!;
+  expect(b).toMatchObject({ act: "tile.info", alt: "tile.zoom tile={target}", empty: [], altEmpty: ["target"], slots: [{ key: "target", value: "" }] });
+  expect(b.problem).toBeUndefined();
+  // Asked as the alt line's own argument: tile= a tile.
+  expect(slotArgs(b, "target")).toEqual([{ step: -1, action: "tile.zoom", arg: "tile" }]);
+  const filled = buttonCallAt(['::button{label="info" act="tile.info" alt="tile.zoom tile={target}" target=links}'], 0)!;
+  expect(filled).toMatchObject({ alt: "tile.zoom tile=links", empty: [] });
+  expect(filled.altEmpty).toBeUndefined();
+});
+
 // PIE-1298: a slot is a `{word}` in act= (or in an of= script's values) that the line itself fills.
 test("a {slot} in act= is filled from the line's own word; an empty one is listed and left in the line", () => {
   const empty = buttonCallAt(['::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}'], 0)!;

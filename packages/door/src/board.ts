@@ -130,7 +130,7 @@ export function titleEmbed(text: string) {
   const t = titleLine(text).text.trim();
   if (!t.startsWith("!")) return null;
   const l = linkOccurrences(t, "inline")[0];
-  return l && l.kind !== "markdown" && l.embed && l.start === 0 && l.end === t.length ? l : null;
+  return l && (l.kind === "block" || l.kind === "page") && l.embed && l.start === 0 && l.end === t.length ? l : null;
 }
 /**
  * A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape).

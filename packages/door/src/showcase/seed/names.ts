@@ -96,6 +96,8 @@ export const SEED = {
   scriptTarget: "Planting checklist",
   buttonSequences: "One button, two tiles",
   pickATile: "Pick a tile instead of typing its id",
+  pasteALink: "Paste a link and it opens",
+  keyRota: "Shed key rota",
   scriptsInPlace: "Scripts in place",
   noteComponent: "A note component",
   press: "Noughts and crosses",

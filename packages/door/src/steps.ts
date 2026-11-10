@@ -59,9 +59,6 @@ export function stepTitle(step: Pick<ChecklistStep, "text">): string {
   return withoutFragmentAnchor(first.replace(STEP_LEAD, "")).trim();
 }
 
-/** A step's link, as Detail's Copy step link writes it. */
-export const stepLink = (block: string, itemId: string) => `((${block}^${itemId}))`;
-
 /**
  * A step where a reader draws it: the note it's in, the revision it was read at (a step without an id is
  * addressed by where it starts in exactly that revision), and the step as the service read it. `via`: the

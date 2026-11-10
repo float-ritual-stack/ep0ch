@@ -166,6 +166,7 @@ import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_META
 import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { noteWebLink } from "./artifact-grants";
 import { valueOf } from "@ep0ch/outline-core/block-record";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
@@ -3710,7 +3711,8 @@ export class OutlinerServer {
     return {};
   }
 
-  private snapshotAddress?: () => string | undefined;
+  /** Where another outline's publisher on this host serves this one (`/o/<name>`): its public listener (snapshots), its web address (links, PIE-1316). */
+  private hostAddress?: (key: "url" | "publicUrl") => string | undefined;
   private leaser?: (input: { name?: string; outline: string; by: string }) => UploadLease;
 
   /** How a lease for the artifacts inbox is made: the host's, since its token is the publisher's to check (PIE-1267). */
@@ -3725,9 +3727,7 @@ export class OutlinerServer {
     return this.leaser({ ...(request.name ? { name: request.name } : {}), outline, by });
   }
 
-  setSnapshotAddress(address: () => string | undefined): void {
-    this.snapshotAddress = address;
-  }
+  setHostAddress(address: (key: "url" | "publicUrl") => string | undefined): void { this.hostAddress = address; }
 
   /**
    * The publisher over this service, in-process (PIE-767): its index and its renderer, read through the service's own
@@ -3753,7 +3753,7 @@ export class OutlinerServer {
         const name = this.copy?.address ?? this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
         const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name).replace("%40", "@")}`
           : publicAddress.publicUrl ? publicAddress.tailnetUrl ?? publicAddress.url ?? new URL(publicAddress.publicUrl).origin
-          : this.snapshotAddress?.() ?? address.tailnetUrl ?? address.url;
+          : this.hostAddress?.("publicUrl") ?? address.tailnetUrl ?? address.url;
         const result = await this.snapshots.create(request, origin);
         this.sharesChanged();
         return result;
@@ -3903,11 +3903,10 @@ export class OutlinerServer {
     if (blockId === undefined) return { ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}), ...(dialsIn(this.outlinesFolder) ? { dialsIn: true } : {}) };
     const block = this.store.require(blockId);
     if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
-    const published = await this.inServicePublisher().published(block.id);
-    const page = await this.inServicePublisher().pageUrl(block.id);
+    const [published, page] = await Promise.all([this.inServicePublisher().published(block.id), this.inServicePublisher().pageUrl(block.id)]);
     return {
       ...(outline ? { outline } : {}), machine, ...(aliases.length ? { aliases } : {}), blockId: block.id,
-      ...(outline ? { uri: formatEp0chBlockUri({ outline, machine, blockId: block.id }) } : {}),
+      ...(outline ? { uri: formatEp0chBlockUri({ outline, machine, blockId: block.id }), link: noteWebLink(this.publisherAddress().url ?? this.hostAddress?.("url"), outline, block) } : {}),
       ...(published ? { published } : {}), ...(page ? { page } : {}),
     };
   }

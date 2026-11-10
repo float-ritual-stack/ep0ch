@@ -70,6 +70,29 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     } finally { app.event = told; }
   });
 
+  // PIE-1316 (PIE-1298's review): a slot only alt= names is asked by the alt press, and the pick runs alt=, never act=.
+  test("a slot only alt= reads: the press runs act= without asking, the alt press asks for it and runs alt=", async () => {
+    const aboutLine = async () => (await text()).split("\n").find(l => l.includes('label="about this"'))!;
+    expect(await aboutLine()).toContain("lift=}");
+    // The main press reads no slot: it runs, asking nothing.
+    const plain = await act("button.press", { label: "about this" });
+    expect(plain.picking).toBeUndefined();
+    expect(await aboutLine()).toContain("lift=}");
+    // An agent's alt press is told the line to run, never shown the picker.
+    await expect(act("button.press", { label: "about this", alt: true }, undefined, AGENT)).rejects.toThrow(/button\.slot .*key=lift value=/);
+    const asked = await act("button.press", { label: "about this", alt: true });
+    expect(asked.picking).toBe("tile");
+    await until(() => screen().includes("about this: choose a tile for lift"), "the picker's card");
+    const links = (await act("tile.info", {}, "links", AGENT)).tile as string;
+    const chose = await act("tile.pick", { to: "links" });
+    if (chose.picking === "which") await act("tile.pick", { value: links });
+    await untilAsync(() => aboutLine().then(l => l.includes(`lift=${links}`)), "the pick written on the line");
+    // The pick finishes the alt press: its alt= runs (links lifted), not act=.
+    await until(lifted, "links lifted by the alt press");
+    await act("button.press", { label: "about this", alt: true });
+    await until(() => !lifted(), "links dropped");
+  });
+
   test("a slot never keeps a name or a number: an agent's value is resolved now and kept as the tile's id", async () => {
     const preview = (await act("tile.info", {}, "preview", AGENT)).tile as string;
     await act("button.slot", { label: "pop it", key: "target", value: "preview" }, undefined, AGENT);

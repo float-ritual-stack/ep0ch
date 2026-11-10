@@ -5,8 +5,9 @@
 // so every scan here leaves code out (`CodeScope`). Pure: no I/O.
 
 import { OUTLINE_NAME_PATTERN } from "./protocol";
-import { BLOCK_ID_PATTERN, referenceEnvelopeEnd } from "./addressable-resource";
+import { BLOCK_ID_PATTERN, parseEp0chBlockUri, referenceEnvelopeEnd } from "./addressable-resource";
 import { codeHides, codeSpanRanges, protectedCodeRanges, type SourceRange } from "./code-ranges";
+import { propertyTokenMatches } from "./property-grammar";
 
 /**
  * Where a scan finds code, whose links are text (PIE-764): `"note"` (the default), `text` is a whole note: its fences,
@@ -363,6 +364,37 @@ export function withoutFragmentAnchor(line: string): string {
   return match ? line.slice(0, match.index).trimEnd() : line;
 }
 
+// ── bare addresses ───────────────────────────────────────────────────────────────────────────────────────────
+
+/** Where a bare address may start: `http://`, `https://` or `ep0ch://`, not inside a word or another address. */
+const BARE_ADDRESS = /(?<![\w/:.@%-])(?:https?|ep0ch):\/\/[^\s<>"'`]+/gi;
+
+/**
+ * The addresses written bare in `text` (PIE-1401): a web address (`https://my.ep0ch.sh/pub/p/HOME-006`, any page) or a
+ * note's `ep0ch://` address, as a person pastes them. One ends at whitespace, `<>` or a quote; sentence punctuation after it
+ * (`.`, `,`, `;`, `:`, `!`, `?`, `*`, `_`, `~`) and a closing `)` or `]` it didn't open aren't part of it. An `ep0ch://` that
+ * doesn't parse as a note's address isn't one. Raw grammar: what holds it (code, a Markdown link, a reference, a property)
+ * is `linkOccurrences`' to leave out.
+ */
+export function bareAddressOccurrences(text: string): { url: string; start: number; end: number }[] {
+  if (!text.includes("://")) return [];
+  const out: { url: string; start: number; end: number }[] = [];
+  for (const match of text.matchAll(BARE_ADDRESS)) {
+    let url = match[0];
+    for (let before = ""; before !== url;) {
+      before = url;
+      url = url.replace(/[.,;:!?*_~]+$/, "");
+      for (const [open, close] of [["(", ")"], ["[", "]"]] as const) {
+        if (url.endsWith(close) && url.split(open).length < url.split(close).length) url = url.slice(0, -1);
+      }
+    }
+    if (!/^[a-z0-9]+:\/\/[^/?#]+/i.test(url)) continue;
+    if (/^ep0ch:/i.test(url)) { try { parseEp0chBlockUri(url); } catch { continue; } }
+    out.push({ url, start: match.index, end: match.index + url.length });
+  }
+  return out;
+}
+
 // ── embeds of either kind ────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -404,7 +436,9 @@ export function embedOccurrences(text: string, code?: CodeScope): EmbedOccurrenc
 export type LinkOccurrence =
   | ({ kind: "block"; embed: boolean } & BlockReferenceOccurrence)
   | ({ kind: "page"; embed: boolean } & PageAddressReference)
-  | { kind: "markdown"; text: string; url: string; start: number; end: number };
+  | { kind: "markdown"; text: string; url: string; start: number; end: number }
+  /** A web or `ep0ch://` address written bare (PIE-1401): it reads as written and opens what it names. */
+  | { kind: "url"; url: string; start: number; end: number };
 
 const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end;
 
@@ -412,8 +446,10 @@ const overlaps = (a: { start: number; end: number }, b: { start: number; end: nu
  * The links of `text` in reading order, none overlapping: Markdown links, block references (`embed`: an unlabelled
  * one written `!((…))`, whose `start` is its `!`) and page links (`embed` likewise: `![[…]]`). Where a Markdown link or image and a reference
  * overlap, the one that holds the other is the link (`[see ((id))](url)` is a web link, `((id|[docs](url)))` a
- * reference); a page link inside a `((…))` is the reference's label. A link in code is text (`CodeScope`: a whole note
- * by default; a caller scanning one line passes `"inline"`).
+ * reference); a page link inside a `((…))` is the reference's label. A bare address (`bareAddressOccurrences`) is a
+ * link of its own where nothing else holds it: not in a Markdown link or image, a reference, a page link or a property
+ * token (`[web::https://…]`). A link in code is text (`CodeScope`: a whole note by default; a caller scanning one line
+ * passes `"inline"`).
  */
 export function linkOccurrences(text: string, code?: CodeScope): LinkOccurrence[] {
   const codeRanges = codeRangesOf(text, code);
@@ -437,6 +473,11 @@ export function linkOccurrences(text: string, code?: CodeScope): LinkOccurrence[
     // `![[page]]`, `![[page^anchor]]` (PIE-1247): an unlabelled page link written with `!` embeds it, as `!((…))` does.
     const embed = page.label === undefined && text[page.start - 1] === "!";
     out.push({ kind: "page", embed, ...page, start: embed ? page.start - 1 : page.start });
+  }
+  const bare = bareAddressOccurrences(text);
+  if (bare.length) {
+    const held = [...markdown, ...refs, ...envelopes, ...pageLinkRanges(text), ...propertyTokenMatches(text)];
+    for (const address of bare) if (!held.some(range => overlaps(address, range))) out.push({ kind: "url", ...address });
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }
