@@ -2862,7 +2862,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private syncModeHint(shown?: string) {
     const overlay = this.overlays.top();
-    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.drag ? "resize" : this.dragging ? "" : this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
+    const armed = this.ctx?.armed?.(), armedHere = armed ? [...this.panes].find(([, p]) => p instanceof ReaderPane && p.surface === armed.of)?.[0] : undefined, mode = !this.all().length ? "" : armedHere !== undefined ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.drag ? "resize" : this.dragging ? "" : this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";   // every paint asks, so it never throws: an empty screen has no mode; an armed edit's is the desk holding its reader (PIE-1726)
     if (mode === this.modeHintKey) return;
     const previous = this.modeHintKey;
     this.modeHintKey = mode;
@@ -2878,7 +2878,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const from = this.linkingFrom(), id = from ? this.idOf(from) : undefined;
       this.linkCards = [];
       if (id !== undefined) this.showHint({ ...hint, id: "link" }, this.nameOf(id));
-    } else if (hint) this.showHint({ ...hint, id }, this.nameOf(this.focus));
+    } else if (hint) this.showHint({ ...hint, id }, this.nameOf(mode === "confirm" ? armedHere! : this.focus));
   }
 
   readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost(), this.registrations());
@@ -5765,7 +5765,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Tile `id`'s spec as the group of `inside` holds it: a link to a tile that stays is by path out of the group (`../tree`). */
   private specIn(id: number, _inside: ReadonlySet<number>): TileSpec {
-    return this.specOf(id);
+    const { slot: _place, ...spec } = this.specOf(id); return spec;   // this screen's place isn't the group's: it finds the tile by its name (a rebuilt ask2 in ask's place, PIE-1726)
   }
 
   /**

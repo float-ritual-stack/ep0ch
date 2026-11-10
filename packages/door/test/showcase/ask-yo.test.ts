@@ -5,6 +5,7 @@ import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 import { pressState } from "../../src/surface/button";
+import { ReaderPane } from "../../src/desk/panes";
 
 describe("showcase: ask yo (PIE-1585)", () => {
   const h = useShowcaseScreen(120);
@@ -591,5 +592,82 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect(refused).toContain("asked (string)");
     expect(refused).not.toContain("door:");
   }, 30_000);
+  // PIE-1726: the section's reader closed once and rebuilt (^W x, ^W B) while the drawer holds a tile named ask, so it
+  // comes back as ask2 in the place ask fills. An edit open on it, an ask, ^W G ⏎: the same reader is in the group, its
+  // edit open with every typed word (it was a fresh reader of the note, the edit lost); ^W B brings it back, still editing.
+  test("a rebuilt reader gathered with an open edit keeps the edit and its words; one undo brings both back", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const chord = (c: string) => { h.press({ kind: "char", ch: "w", ctrl: true }); h.screen(); h.ch(c); h.screen(); };
+    const own = await h.board.createBlock(null, "Ask yo, rebuilt\n\nWhere the reader comes back and is gathered.\n");
+    await h.board.createBlock(null, "tuck shed: tile.slide [yo-memory::answer] [yo-action::tile.slide] [yo-asked::tuck shed] [yo-line::tile.slide]");
+    // Closed once (a second tile keeps the stage), a reader named ask in the drawer, then the close undone.
+    await stage().dispatch.act({ action: "tile.open", tile: "ask", args: { kind: "reader", name: "spare", where: "right" } }, USER);
+    await stage().dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    chord("x");
+    await until(() => !stage().pane("ask"), "the section's reader closed", 8000);
+    await h.app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
+    const dd: any = (h.app as any).drawer.made;
+    await dd.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "ask", where: "right" } }, USER);
+    await h.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+    await stage().dispatch.act({ action: "tile.focus", tile: "spare" }, USER);
+    (h.app as any).lastInput = 0;
+    await stage().dispatch.act({ action: "layout.undo", args: {} }, USER);
+    const rebuilt = stage().nameOf(stage().specTiles.get("ask")) as string;   // the place ask fills, under its new name
+    expect(rebuilt).toBe("ask2");
+    const pane = stage().pane(rebuilt);
+    await h.app.dispatch.act({ action: "open", tile: rebuilt, args: { id: own.id } }, USER);
+    await h.app.dispatch.act({ action: "tile.close", tile: "spare" }, USER);
+    await h.app.dispatch.act({ action: "tile.focus", tile: rebuilt }, USER);
+    await until(() => pane.msg?.id === own.id, "the note in the rebuilt reader", 8000);
+    const draft = () => pane.surface.draft as { text: string } | null;
+    const { AnswerTile } = await import("../../src/desk/answer-tile");
+    const answers = () => [...stage().panes.values()].filter((p: any) => p instanceof AnswerTile).length;
+    const desks = () => (h.app as any).hostLayer.everyDesk().flatMap((d: any) => [d, ...d.descend()]);
+    const holder = () => desks().find((d: any) => [...d.panes.values()].includes(pane));
+    // As the person: e ⏎, an ask at the end, ^W G ⏎.
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => !!draft(), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    h.press({ kind: "enter" });
+    for (const c of "@yo tuck the shed") h.ch(c);
+    await until(() => answers() === 1, "yo's answer tile beside the reader", 30_000);
+    chord("G");
+    await until(() => h.screen().includes("this tile · ask2"), "this tile or the whole split?", 8000);
+    h.press({ kind: "enter" });
+    try {
+      await until(() => { h.screen(); return !!holder() && holder() !== stage(); }, "the rebuilt reader itself in the group", 8000);
+      expect(draft()?.text).toContain("@yo tuck the shed");
+      expect([...holder().panes.values()].filter((p: any) => p instanceof ReaderPane && p.msg?.id === own.id)).toEqual([pane]);
+      expect(pane.editing).toBe(true);
+      // The next words typed go on in that same edit, in the group.
+      for (const c of " gently") h.ch(c);
+      await until(() => !!draft()?.text.includes("@yo tuck the shed gently"), "a word typed after the gather, in the edit", 8000);
+      // One undo: the reader back on the stage, still editing, every word there, its answer tile beside it answered.
+      chord("B");
+      await until(() => { h.screen(); return holder() === stage(); }, "the reader back on the stage", 8000);
+      expect(draft()?.text).toContain("@yo tuck the shed gently");
+      await until(() => answers() === 1, "the answer tile back beside it", 8000);
+      await until(() => !h.screen().includes("Waiting for the answer"), "the answer tile answered, not waiting", 30_000);
+      // The drawer's ask back beside it, the two gathered together: two readers in the group, the edit still this one's.
+      const back = dd.layoutGet().tiles.find((t: any) => t.name === "ask").tile;
+      await dd.dispatch.act({ action: "tile.drawer", tile: back, args: { on: false } }, USER);
+      const named = stage().layoutGet().tiles.find((t: any) => t.tile === back).name;
+      await h.app.dispatch.act({ action: "tile.group", tile: rebuilt, args: { with: named } }, USER);
+      await until(() => { h.screen(); return !!holder() && holder() !== stage(); }, "both gathered", 8000);
+      const readers = [...holder().panes.values()].filter((p: any) => p instanceof ReaderPane);
+      expect(readers.length).toBe(2);
+      expect(readers).toContain(pane);
+      expect(draft()?.text).toContain("@yo tuck the shed gently");
+    } finally {
+      if (holder() && holder() !== stage()) await h.app.dispatch.act({ action: "tile.group", tile: stage().layoutGet().tiles.find((t: any) => t.kind === "screen")?.name, args: { on: false } }, USER).catch(() => {});
+      if (draft() && holder()) await h.app.dispatch.act({ action: "edit.save", tile: holder().tileIdOfPane(pane) }, USER);
+      for (const [, p] of [...stage().panes]) if (p instanceof AnswerTile) await h.app.dispatch.act({ action: "tile.close", tile: stage().tileIdOfPane(p) }, USER);
+      await dd.dispatch.act({ action: "tile.close", tile: "ask" }, USER).catch(() => {});
+    }
+  }, 90_000);
 });
-
