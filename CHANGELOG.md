@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The nightly run on main is green again (PIE-1692)
+
+- **The river's kept dock shows the first program in front:** loading the river (or any layout) with programs still running keeps them in one shut dock, the first of them the tab in front, as before Nov 10; one an undo adds later still comes in front.
+- **The Asks extension's page reads at a glance:** its "the workboard's own notes" bullet is three short items instead of one long one.
+- **Run:** `ep0ch install --apply`. PROTOCOL and the schema don't move.
+
 ### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
 
 - **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".

@@ -149,10 +149,12 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       key(char("e")); key({ kind: "esc" }); key({ kind: "esc" });           // cancel, then to the lanes
       await Bun.sleep(450);
       expect(d.draft).toBeNull();
-      // And a comment (C reads the note first too).
+      // And a comment (C reads the note first too): esc cancels it as it does an edit. A tab there would be the comment's
+      // indent, kept for it while it opens (TYPED_WHILE_OPENING, PIE-1659), never a way out (PIE-1692).
       key({ kind: "tab" }); key({ kind: "tab" });
       expect(BV.where(b)).toBe("detail0");
-      key(char("C")); key({ kind: "tab" });
+      key(char("C")); key({ kind: "esc" });
+      expect(message()).toBe("not opened");
       await Bun.sleep(450);
       expect(d.session).toBeNull();
     } finally { (board as any).get = get; }
