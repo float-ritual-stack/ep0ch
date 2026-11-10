@@ -79,7 +79,8 @@ const result = await runHerdrScenario({
     await session.keys(panes.detail, "ctrl+z");
     await session.keys(panes.detail, "escape");
     await session.waitFor("Current draft cancelled", state, c => !c.navigationProtection);
-    await focusDetail(); await session.keys(panes.detail, "alt+p");
+    // Alt+P goes to the pane and Alt+Enter through the attached client: two routes, so wait for the first to land.
+    await focusDetail(); await session.keys(panes.detail, "alt+p"); await session.waitFor("Preview focused again", () => session.visible(panes.detail), frame => frame.includes("● Preview"));
     await keepPreview();
     await session.waitFor("Keep promotes Preview", state, c => current(c, docs[3]!.id) && !c.previewTarget);
     assert.equal((await session.client.request<Block>({action: "get", blockId: docs[0]!.id})).text, docs[0]!.text);
