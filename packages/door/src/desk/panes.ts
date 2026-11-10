@@ -33,6 +33,7 @@ import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
 import { AskAgainAt, heardBy, SearchSchedule } from "../search-schedule";
+import { tileRegistry } from "./tile-registry";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { wide?: { row: number; col: number; cols: number }[]; frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -673,6 +674,9 @@ export class ReaderPane implements Pane, AttachedOwner {
       } } : {}),
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
+      // Where it is now (PIE-1716): the desk's one owner of where a tile is (the host layer's resolveTile) names the desk
+      // holding it after a move into a group or the drawer; still here, this host.
+      current: () => { const at = desk.ctx?.hostLayer?.resolveTile(tileRegistry.idOf(pane))?.desk; return at && at !== desk ? pane.host(at) : h; },
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       // Its attachments in tiles of their own (PIE-1536): one hand-off for every kind.

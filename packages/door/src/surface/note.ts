@@ -264,6 +264,12 @@ export interface SurfaceHost {
    * none: a comment there is drawn split.
    */
   answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
+  /**
+   * This reader's host as it is now (PIE-1716): after it moved (gathered into a group, put in the drawer) the desk
+   * holding it is another, so a session that outlives the move (the edit's draft) asks for it each time instead of
+   * keeping the one it opened with. Left out: this host stays its host.
+   */
+  current?(): SurfaceHost;
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
   attachment?: AttachmentKind;
   hasWiredPreview?(): boolean;
@@ -2960,9 +2966,11 @@ export class NoteSurface {
    */
   startDraft(fresh: Msg, host: SurfaceHost) {
     const redraw = () => host.redraw();
+    // The reader's host when the session calls back, not the one it opened with: the reader may have moved since (PIE-1716).
+    const now = () => host.current?.() ?? host;
     const target = blockTarget(fresh, {
       board: host.ctx.board, isNew: this.newNotes.has(fresh.id),
-      saved: (m, by, asked, change) => this.saved(m, by, asked, change, host),
+      saved: (m, by, asked, change) => this.saved(m, by, asked, change, now()),
       reread: m => { if (this.msg?.id === m.id) this.msg = this.rereadNote(m); },
       redraw,
     });
@@ -2976,11 +2984,12 @@ export class NoteSurface {
       // answer tile opens there even while they type, the keys staying in the edit (PIE-1294).
       answered: (ask, by) => {
         const as = s.openedBy.kind === "user" && by.kind === "agent" ? { ...by, invitation: INVITES.mint("your ask", ["shape"]) } : by;
-        void this.act("ask.beside", { ask }, host, as).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
+        const at = now();
+        void this.act("ask.beside", { ask }, at, as).catch(e => at.ctx.flash(String(e), undefined, errorDetails(e)));
       },
-      closed: how => this.draftClosed(s, how, host),
+      closed: how => this.draftClosed(s, how, now()),
     });
-    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
+    s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, now()); };
     if (this.drawn && s.draft.restored === null) { const rows = this.readingRows(); s.draft.landInView = !rows || rows[0] < this.scroll || rows[0] >= this.scroll + this.drawn.room; } // The wheel left the reading line's first row behind: the words go where the person is looking (PIE-1579).
     this.msg = this.rereadNote(fresh);
     this.modes.push(this.draftMode(s));
