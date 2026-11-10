@@ -16,6 +16,7 @@ import { PtyPane } from "../src/desk/pty";
 import { traceActions } from "../src/surface/actions";
 import { SocketBoard } from "../src/socket";
 import { KeyDecoder } from "../src/term";
+import { visible } from "../src/style";
 import * as BV from "./board-view";
 import { outliner, Scratch, showIn, until } from "./scratch";
 
@@ -285,11 +286,16 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       expect(names.filter(n => /trash|close|collapse/.test(n))).toEqual([]);
       board.get = get;
       await d.untouched("typing while a comment failed to open", before);
-      const desk = d.desk, name = desk.nameOf(desk.focus);
+      const desk = d.desk, name = desk.nameOf(desk.focus), rows = () => (desk.render((desk as any).ctx).lines.map(visible) as string[]).join("\n");
       expect(desk.hasFailedEdit(name)).toBe(true);
+      expect(rows()).toContain("tile menu: recover typed text");
       const kept = await d.app.press("edit.recover", { op: "copy" }, name) as any;
       expect(kept.text).toBe(`pea ${TEXT}`);
-      await d.app.press("edit.recover", { op: "open" }, name);
+      // The picker offers it back in the kind that was opening, and its row opens a comment by keys.
+      await d.app.press("edit.recover", {}, name);
+      expect(rows()).toContain("open comment with typed text");
+      await d.feed("\x1b[B");
+      await d.feed("\r");
       const comment = () => (d.reader()?.surface.session?.writing?.draft.text ?? "") as string;
       await until(() => comment().includes(`pea ${TEXT}`), "the kept text in a comment", 5000);
       expect(d.reader()!.surface.draft).toBeNull();
