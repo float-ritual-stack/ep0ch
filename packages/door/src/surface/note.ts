@@ -22,7 +22,7 @@ import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, NOTE_EDIT_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
+import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, commentKeys, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, NOTE_EDIT_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
 import { modeBinding, modeHint, PRECEDENCE, type ModeName } from "./modes";
 import { fullPlainText, selectFullText } from "../overflow";
 import { pressing } from "./button";
@@ -263,13 +263,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
-  /**
-   * This reader's host as it is now (PIE-1716): after it moved (gathered into a group, put in the drawer) the desk
-   * holding it is another, so a session that outlives the move (the edit's draft) asks for it each time instead of
-   * keeping the one it opened with. Left out: this host stays its host.
-   */
-  current?(): SurfaceHost;
+  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; current?(): SurfaceHost;   // current: this reader's host now, on the desk holding it after a move into a group or the drawer (PIE-1716); a draft asks it each time
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
   attachment?: AttachmentKind;
   hasWiredPreview?(): boolean;
@@ -2965,9 +2959,7 @@ export class NoteSurface {
    * `draft.patch` lands in it), and refuses an agent a second draft of a note someone has open in one.
    */
   startDraft(fresh: Msg, host: SurfaceHost) {
-    // The reader's host when the session calls back, not the one it opened with: the reader may have moved since (PIE-1716).
-    const now = () => host.current?.() ?? host;
-    const redraw = () => now().redraw();
+    const now = () => host.current?.() ?? host, redraw = () => now().redraw();   // the reader's host now, not the one it opened with (PIE-1716)
     const target = blockTarget(fresh, {
       board: host.ctx.board, isNew: this.newNotes.has(fresh.id),
       saved: (m, by, asked, change) => this.saved(m, by, asked, change, now()),
@@ -2984,8 +2976,7 @@ export class NoteSurface {
       // answer tile opens there even while they type, the keys staying in the edit (PIE-1294).
       answered: (ask, by) => {
         const as = s.openedBy.kind === "user" && by.kind === "agent" ? { ...by, invitation: INVITES.mint("your ask", ["shape"]) } : by;
-        const at = now();
-        void this.act("ask.beside", { ask }, at, as).catch(e => at.ctx.flash(String(e), undefined, errorDetails(e)));
+        const at = now(); void this.act("ask.beside", { ask }, at, as).catch(e => at.ctx.flash(String(e), undefined, errorDetails(e)));
       },
       closed: how => this.draftClosed(s, how, now()),
     });
@@ -3656,11 +3647,9 @@ export class NoteSurface {
   private commentMode(cs: CommentSession): CommentMode {
     // The comment's own tile (PIE-846) has its mouse (composerPointer): here, a press, a click and the wheel are the note's.
     const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
-    // Its way out is the draft's edit.close, wherever the person's keymap put it (alt+q, PIE-1719): the foot names that key.
-    const closeKey = () => { const k = cs.composer?.keyOf("edit.close"); return k && k !== "(unbound)" && k !== "esc" ? { key: k } : {}; };
     const mode: CommentMode = {
       // ctrl+r is the draft's own key (DRAFT_KEYS), named only when there's something to reload: first, beside the warning, so a narrow footer keeps it (PIE-1664).
-      get keys() { return cs.mode === "compose" ? [...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload").map(row => ({ ...row, label: cs.target?.kind === "quote" ? "find quote" : "reload" })) : []), ...COMMENT_KEYS.map(row => (row.key === "esc" ? { ...row, ...closeKey(), ...(cs.dirty ? { label: "twice puts comment aside" } : {}) } : row))] : undefined; },
+      get keys() { return cs.mode === "compose" ? [...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload").map(row => ({ ...row, label: cs.target?.kind === "quote" ? "find quote" : "reload" })) : []), ...commentKeys(cs.composer, cs.dirty)] : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The note moved on: a comment on a passage of it, or on the whole of it, is told as a note's edit is (PIE-1658).
       changed: revision => cs.noteChanged(revision),

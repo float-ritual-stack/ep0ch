@@ -227,7 +227,7 @@ export class KeysPane implements Pane {
   /** The rebind waiting here, in `out`: the key it waits for, or what the new key would do (whole, wrapped) and its buttons. */
   private recording(b: Binding, w: number, all: readonly Binding[], out: string[]) {
     const r = this.record!;
-    const say = (ink: string, words: string, indent = "") => { for (const l of wrap(words, Math.max(8, w - indent.length))) out.push(ink + indent + l + RESET); };
+    const say = (ink: string, words: string, indent = "") => { for (const l of wrap(words, Math.max(8, w - width(indent)))) out.push(ink + indent + l + RESET); };
     if (!r.key) say(fg(C.lcyan), `press the new key for ${b.id}${r.first ? `: ${keyCaption(r.first)} …` : b.key.startsWith("ctrl+w ") ? " (^W, then the key)" : ""} · esc cancels`); // says, not a hint row
     else {
       const e = rebindEffects(b, r.key, all);

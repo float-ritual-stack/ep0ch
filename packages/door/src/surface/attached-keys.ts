@@ -68,6 +68,14 @@ export const COMMENT_KEYS: readonly ModeKey[] = keyTable("comment", "a comment b
   row("esc", "comment.escape", "close comment"), row("ctrl+s", "comment.send", "send"),
   say(row("ctrl+o", "comment.place", "placement"), "choose where the comment being written sits"), row("ctrl+g", "comment.grip", "move"), row("click", "comment.place", ""),
 ]);
+/**
+ * The comment's keys as its foot says them: its way out on the key its draft's `edit.close` is on now, wherever the
+ * person's keymap put it (alt+q, PIE-1719), and "twice puts comment aside" once something is typed.
+ */
+export function commentKeys(draft: { keyOf(action: string): string } | null | undefined, dirty: boolean): ModeKey[] {
+  const k = draft?.keyOf("edit.close"), moved = k && k !== "(unbound)" && k !== "esc" ? { key: k } : {};
+  return COMMENT_KEYS.map(r => (r.key === "esc" ? { ...r, ...moved, ...(dirty ? { label: "twice puts comment aside" } : {}) } : r));
+}
 export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "an edit's preview (ctrl+p)", [
   row("esc", "draft.preview", "close preview", { on: false }), row("ctrl+p", "draft.preview", "close preview", { on: false }),
   row("up", "draft.scroll", "scroll", { preview: true, by: -1 }), row("k", "draft.scroll", "scroll", { preview: true, by: -1 }),

@@ -1812,9 +1812,7 @@ export class Showcase implements Screen {
     if (isDown(k)) return this.sel + 1 < SECTIONS.length ? this.run("section", { name: String(this.sel + 2) }) : undefined;
     if (/^[0-9]$/.test(c)) return this.run("section", { name: c === "0" ? "10" : c });
     if (k.kind === "enter" || k.kind === "right" || k.kind === "tab" || c === "l") return this.run("section.try", {});
-    if (c === "V") return this.shell("video.cycle");
-    // ? is the keys on every screen, the section rail too (PIE-1719).
-    if (c === "?") return this.shell("keys.open");
+    if (c === "V" || c === "?") return this.shell(c === "V" ? "video.cycle" : "keys.open");   // ? is the keys on every screen, the section rail too (PIE-1719)
   }
 
   /** A key or click on the index as the person: the showcase's own action. A refusal is said. */
