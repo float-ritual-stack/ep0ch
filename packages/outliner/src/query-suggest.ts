@@ -30,7 +30,7 @@ export const QUERY_SUGGEST_BUDGET_MS = 1500;
 // The kitchen sink has hundreds of keys: asking four questions about every one exceeds Jev's context.
 const COMMON_KEYS = 8, COMMON_VALUES = 20;
 // Words that join a request and name no value: "all hub items that are not sent yet" asks for hub items not sent (PIE-1711).
-const CONNECTING = new Set("a an the things thing notes note ones ones show find list me my all every any about with from of on in that those these which who please and or is are was were be been being has have had yet still already currently".split(" "));
+const CONNECTING = new Set("a an the things thing notes note ones ones show find list me all every any about with from of on in that those these which who please and or is are was were be been being has have had yet still already currently".split(" "));
 /** Words that name no value of their own but can end one ("hub items" is hub-item's): kept for spans, never a text clause. */
 const GENERIC = new Set("items item entries entry".split(" "));
 /** A word without its plural: "items" is the item of a value hub-item. */

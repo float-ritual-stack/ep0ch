@@ -459,6 +459,27 @@ test("notes from before agent requests keep their @name lines old; restarts say 
   expect(calls()).toEqual(["run please"]);
 });
 
+// PIE-1722: the same words again are an ask of their own now. A baseline written before that keyed every repeat by the first
+// line's key, once per line: those repeats are old lines, and a save that touches the note asks nothing.
+test("repeated @name lines a baseline from before PIE-1722 holds stay old; a new repeat is asked", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const note = await create("Twice\n@count do it\n@count do it", "agent");
+  const calls = await counted("count");
+  const first = requestLines(note.text, null)[0]!;
+  // As the old code wrote it: the plain key once per line, and the first line answered.
+  store.database.query("DELETE FROM agent_requests").run();
+  store.setAgentRequestBaseline(note.id, [first.requestKey, first.requestKey]);
+  let current = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${current.text}\nan unrelated line`, expectedRevision: current.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(calls()).toEqual([]);
+  // A third, written now: a new ask.
+  current = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${current.text}\n@count do it`, expectedRevision: current.revision, mutation: PERSON });
+  await until("the new repeat asked", () => calls().length === 1);
+  expect(calls()).toEqual(["run do it"]);
+});
+
 test("an outline a host opens gets the same start: old @name lines baselined, cut-off requests failed (B5, B17 hosted)", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-agents-hosted-")));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });

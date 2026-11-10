@@ -61,6 +61,8 @@ export interface RequestLine {
   readonly end: number;
   /** One request per agent and wording in a block; the same words again further down are another (PIE-1722). */
   readonly requestKey: string;
+  /** The key of these words' first line: what a baseline written before PIE-1722 keyed every repeat by. */
+  readonly wordsKey: string;
 }
 
 const REQUEST = /^([ \t]*(?:[-*+][ \t]+)?)@([a-z][a-z0-9-]{0,31})(?=$|[\s:,])[:,]?[ \t]*(.*)$/;
@@ -106,9 +108,10 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
     if (literal.some((range) => range.start <= at && at < range.end)) return;
     const request = match[3]!.trim(), words = `${match[2]}\0${request}`, again = seen.get(words) ?? 0;
     seen.set(words, again + 1);
+    const wordsKey = createHash("sha256").update(words).digest("hex").slice(0, 32);
     found.push({
-      agent: match[2]!, request, text: content, line, start: at, end: start + content.length,
-      requestKey: createHash("sha256").update(again ? `${words}\0${again}` : words).digest("hex").slice(0, 32),
+      agent: match[2]!, request, text: content, line, start: at, end: start + content.length, wordsKey,
+      requestKey: again ? createHash("sha256").update(`${words}\0${again}`).digest("hex").slice(0, 32) : wordsKey,
     });
   });
   return found;
@@ -409,6 +412,23 @@ export class AgentRequests {
     return this.now - kept.at <= REMOVED_KEPT_MS ? kept.row : null;
   }
 
+  /**
+   * The request lines a block already had, as its baseline keeps them. A baseline written before PIE-1722 keyed the same
+   * words again by the first line's key, once per line: that many of them in `text` are old lines, never new asks (an
+   * old `@yo do it` repeated in a note would otherwise press again on the next save).
+   */
+  private before(blockId: string, text: string): Set<string> {
+    const stored = this.store.agentRequestBaseline(blockId) ?? [], out = new Set(stored);
+    const had = new Map<string, number>(), seen = new Map<string, number>();
+    for (const key of stored) had.set(key, (had.get(key) ?? 0) + 1);
+    for (const line of requestLines(text, null)) {
+      const n = seen.get(line.wordsKey) ?? 0;
+      seen.set(line.wordsKey, n + 1);
+      if (n > 0 && n < (had.get(line.wordsKey) ?? 0)) out.add(line.requestKey);
+    }
+    return out;
+  }
+
   /** The `@name` lines a block holds now become what its next save is compared with (kept in the store). */
   private remember(blockId: string, keys: readonly string[]): void {
     const before = this.store.agentRequestBaseline(blockId);
@@ -439,7 +459,7 @@ export class AgentRequests {
     const block = this.store.get(blockId);
     if (!block) return;
     // Capture precedes the wake decision, including when a loop guard holds the ask.
-    const before = new Set(created ? [] : this.store.agentRequestBaseline(blockId) ?? []);
+    const before = created ? new Set<string>() : this.before(blockId, block.text);
     const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined, requestedBy);
     this.wake(blockId, decided.wakes);
     this.remember(blockId, this.shapes(block));
@@ -616,7 +636,7 @@ export class AgentRequests {
     const shapes = this.shapes(block);
     // Never seen with an `@name` line: none was there before this save (the baseline is kept from every
     // save and read since this feature shipped, across restarts, and `start` gave notes from before it one).
-    const before = new Set(created ? [] : this.store.agentRequestBaseline(blockId) ?? []);
+    const before = created ? new Set<string>() : this.before(blockId, block.text);
     this.remember(blockId, shapes);
     const rows = this.store.agentRequests(blockId);
     // A request still waiting for quiet that the note no longer has is withdrawn; rows follow the text.
@@ -680,7 +700,7 @@ export class AgentRequests {
         this.timers.delete(key);
       }
     }
-    const before = new Set(this.store.agentRequestBaseline(blockId) ?? []);
+    const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
     for (const line of lines) {

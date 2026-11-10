@@ -38,6 +38,7 @@ const cases = [
   // PIE-1711: a value's words in the plural, and a state said in the negative.
   { text: "hub items that are not sent yet", wants: ["Flyer"] },
   { text: "all the hub items", wants: ["Flyer", "Notice"] },
+  { text: "my ready notes", wants: ["Fence", "Rare"] },
   { text: "which invoice is paid", wants: [], none: true },
   { text: "sort my dinner by tastiness", wants: [], none: true },
 ];
