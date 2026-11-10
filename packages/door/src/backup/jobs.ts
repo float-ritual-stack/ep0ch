@@ -9,11 +9,11 @@
 //   watch     what's stale (alert.ts), into alert.json for the door's status bar and doctor; each incident announced once.
 //   drill     monthly: each outline's newest snapshot restored into a temp folder and checked.
 import { Database } from "bun:sqlite";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { alive } from "../state";
+import { databases } from "../setup/outline-files";
 import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, type MirrorState, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
 import type { BackupConfig, MirrorSource } from "./config";
 import { plainReason, repoHost } from "./plain";
@@ -23,15 +23,6 @@ import { backupFile, complaint, dumpTo, forget, NO_REPO, OUTLINE_NAME, type Outl
 type Say = (line: string) => void;
 /** A step begins (what a person at a terminal sees spin, `ep0ch backup run`'s progress): its title. */
 type Step = (title: string) => void;
-
-/** The outlines here: `<outlines>/<name>.sqlite`. */
-export function localOutlines(folder: string): { name: string; path: string }[] {
-  if (!existsSync(folder)) return [];
-  return readdirSync(folder, { withFileTypes: true }).flatMap(e => {
-    const name = e.isFile() ? outlineOfFile(e.name) : null;
-    return name ? [{ name, path: join(folder, e.name) }] : [];
-  }).sort((a, b) => a.name.localeCompare(b.name));
-}
 
 /** The highest change in an outline's change feed (read-only), or null when it has none. */
 export function changeSeq(path: string): number | null {
@@ -103,7 +94,7 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [], relayed: string[] = [];
-  const outlines = localOutlines(c.outlines);
+  const outlines = databases(c.outlines);
   // Snapshots are the repository's: another repository (or machine name) starts every outline over.
   if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; }
   // Outlines that were removed (moved, renamed) are no longer watched.

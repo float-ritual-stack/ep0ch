@@ -1,7 +1,7 @@
 import { isFragmentId } from "./fragments";
 import type { Block } from "./types";
+import { LOOSE_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
-const BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
 const RELATION_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const MAX_RELATION_KEYS = 8;
 export const MAX_RELATION_VIEW_LIMIT = 25;
@@ -61,7 +61,7 @@ export function parseRelationViewConfig(block: Block): RelationViewParseResult {
   if (sources.length === 1) {
     const value = sources[0]!;
     if (value === "embedding-source") source = { kind: "embedding-source" };
-    else if (BLOCK_ID_PATTERN.test(value)) source = { kind: "block", blockId: value };
+    else if (LOOSE_ID_PATTERN.test(value)) source = { kind: "block", blockId: value };
     else errors.push(`Invalid relation view source: ${value || "(empty)"}`);
   }
 

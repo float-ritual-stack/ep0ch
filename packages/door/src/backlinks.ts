@@ -1,6 +1,6 @@
 import { drawEllipsized, width } from "./style";
 import {
-  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkView, backlinkGroupRows, stagesFrom, type BacklinkReferenceGroup, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
+  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkReferenceLabel, backlinkView, backlinkGroupRows, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
   type BacklinkViewOptions, type BacklinkStageValue,
 } from "@ep0ch/outline-core/backlink-view";
 
@@ -25,16 +25,6 @@ export function backlinkGroupExpanded(options: Readonly<BacklinkViewOptions>, ex
 }
 
 // ── Detail's panel text (detail-pi-preview.ts) ───────────────────────────────────────────────────────
-
-/** "Work ID ×2", "block reference ×1", "page link ×1", "related property ×1" (`backlinkGroupLabel`). */
-export function backlinkReferenceLabel(group: BacklinkReferenceGroup): string {
-  if (group.kind === "property") return `${group.propertyKey} property ×${group.count}`;
-  let label = "Work ID";
-  if (group.kind === "block") label = "block reference";
-  else if (group.kind === "page") label = "page link";
-  // The anchor it aims at (PIE-1247): which part of this note is linked or embedded.
-  return `${label}${group.fragmentId ? ` ^${group.fragmentId}` : ""} ×${group.count}`;
-}
 
 /**
  * " (1 open · 2 answered)": each stage value as the notes write it (PIE-819), families in order; "" for a group

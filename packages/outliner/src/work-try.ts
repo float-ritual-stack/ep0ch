@@ -13,10 +13,11 @@ import { headerLine } from "@ep0ch/outline-core/header-line";
 import { rankTextSearchMatches, searchFold, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { deepCandidates } from "./search-deep";
-import { askNouls, clip, jevWho, NO, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, jevWho, NO, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle } from "./work-twins";
 import type { Block } from "./types";
 import { getProperty } from "./properties";
+import { clip } from "./clip";
 
 const LOOP = "work-try";
 const MAX_ACTIONS = 8, MAX_LINES = 6, MAX_PLACES = 6, DEEP_PLACES = 3, KEEP = 3;

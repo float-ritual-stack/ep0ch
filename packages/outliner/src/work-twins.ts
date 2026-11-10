@@ -13,11 +13,12 @@ import { rankTextSearchMatches, type SearchMatchKind } from "@ep0ch/outline-core
 import { workIdOf, workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { deepCandidates } from "./search-deep";
-import { askNouls, chips, clip, dayOf, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, chips, dayOf, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { writeRecord } from "./records";
 import type { TwinAnswer as WireTwinAnswer, TwinCandidate } from "@ep0ch/outline-core/protocol";
 import type { Block, BlockAuthor, BlockProvenance, VisibleBlockCollection } from "./types";
 import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 /**
  * Candidates Jev is asked about, at most. Wide on purpose (PIE-1402): a twin filed in other words may share no word with
@@ -41,7 +42,6 @@ const WEAK: ReadonlySet<SearchMatchKind> = new Set(["title-fuzzy", "text-fuzzy"]
 export type { TwinCandidate };
 /** The answer, with Jev's reading for the run's tokens. */
 export type TwinAnswer = Omit<WireTwinAnswer, "tokens"> & { reading?: JevReading };
-
 
 /** An item's title without its Work ID. */
 export function itemTitle(b: Pick<Block, "text" | "properties">): string {

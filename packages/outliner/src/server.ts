@@ -57,7 +57,7 @@ import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
 import { siteBudget } from "./site-budget";
 import { templatePropsOf, templateUse } from "./template-use";
-import { readSources } from "./site-sources";
+import { readSources, type TransformOf } from "./site-sources";
 import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate } from "./template-stamp";
@@ -2157,10 +2157,7 @@ export class OutlinerServer {
           } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
         }
       }
-      const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
-        const ext = this.extensionRegistry.extension(id);
-        return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
-      } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
+      const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => this.transformOf(id) }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
       return this.answered(request, { ...answer, deps: [...deps], sources });
     }
     if (request.action === "site.answer" && request.scriptLine !== undefined) {
@@ -2737,12 +2734,7 @@ export class OutlinerServer {
           result = wired(action, readSources({
             store: this.store, projections: read.projections,
             sequenceSource: (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text),
-            transformOf: (id) => {
-              const ext = this.extensionRegistry.extension(id);
-              return ext?.script
-                ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code }
-                : { kind: "extension", label: ext?.name ?? id };
-            },
+            transformOf: (id) => this.transformOf(id),
           }, request));
           break;
         }
@@ -3815,6 +3807,14 @@ export class OutlinerServer {
     if (error !== undefined || answer === undefined) waiting.reject(new Error(error || "the door gave no answer"));
     else waiting.resolve(answer);
     return { accepted: true };
+  }
+
+  /** What made a projection a page's Sources names: the extension's script (with its note and code), else the extension. */
+  private transformOf(id: string): TransformOf {
+    const ext = this.extensionRegistry.extension(id);
+    return ext?.script
+      ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code }
+      : { kind: "extension", label: ext?.name ?? id };
   }
 
   private broadcast(event: OutlinerEvent): void {

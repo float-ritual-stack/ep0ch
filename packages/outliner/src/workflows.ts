@@ -5,6 +5,7 @@ import { normalizeBlockSearchQuery } from "./block-query";
 import { parseDetailCallouts } from "./detail-callouts";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import type { OutlinerStore } from "./store";
+import { printable } from "./printable-input";
 import type {
   Block,
   BlockCollectionCompleteness,
@@ -73,14 +74,6 @@ interface WorkflowRunRow {
 interface PromotionRow {
   block_id: string;
   proposal_hash: string;
-}
-
-function printable(value: unknown, label: string, maximum = 500): string {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  if (!normalized || normalized.length > maximum || /[\u0000-\u001f\u007f]/.test(normalized)) {
-    throw new Error(`${label} must be 1-${maximum} printable characters`);
-  }
-  return normalized;
 }
 
 function boundedInteger(value: unknown, label: string, minimum: number, maximum: number): number {

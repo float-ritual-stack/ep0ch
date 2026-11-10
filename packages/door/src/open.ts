@@ -5,7 +5,7 @@ import { servingSession } from "./session/session-term";
 import type { Ctx } from "./app";
 import { qualifiedReference, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { AuthoredResourceLink } from "./authored";
-import { parseEp0chBlockUri, isBlockId } from "@ep0ch/outline-core/addressable-resource";
+import { parseEp0chBlockUri, isBlockId, LOOSE_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 // Opening what a Markdown link names, as Detail does (pi-herdr-outliner src/detail-controller.ts
 // `link.open`, src/open-external.ts, src/outliner-links.ts): an http(s) address opens in the system's
 // browser; a pi-outliner:// link to a block, a page or a Work ID opens in the door like `((…))` and `[[…]]`;
@@ -64,7 +64,6 @@ export function notePageUrl(target: string, outline: string | undefined, env: Re
   return `${base}${outline ? `/o/${encodeURIComponent(outline)}` : ""}/p/${encodeURIComponent(target)}`;
 }
 
-const BLOCK_ID = /^[A-Za-z0-9_-]{8,}$/;
 const FRAGMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /**
@@ -97,7 +96,7 @@ export function destinationOf(url: string, env: Record<string, string | undefine
   try { value = decodeURIComponent(p.pathname.replace(/^\//, "")); } catch { return { refused: `a pi-outliner link that doesn't decode: ${u}` }; }
   if (!value || /[\u0000-\u001f\u007f]/.test(value)) return { refused: `a pi-outliner link without a target: ${u}` };
   const fragment = p.searchParams.get("fragment") ?? undefined;
-  if (p.hostname === "block" && BLOCK_ID.test(qualifiedReference(value).target) && (!fragment || FRAGMENT_ID.test(fragment))) return { target: { block: value, ...(fragment ? { fragment } : {}) } };
+  if (p.hostname === "block" && LOOSE_ID_PATTERN.test(qualifiedReference(value).target) && (!fragment || FRAGMENT_ID.test(fragment))) return { target: { block: value, ...(fragment ? { fragment } : {}) } };
   if (p.hostname === "page" || p.hostname === "work") return { target: { page: value } };
   return { refused: `the door can't open pi-outliner://${p.hostname} links yet` };
 }

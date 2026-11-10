@@ -13,12 +13,13 @@
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, board, chips, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle, olderFirst, sameWork } from "./work-twins";
 import { deepCandidates } from "./search-deep";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 const LOOP = "work-groom";
 

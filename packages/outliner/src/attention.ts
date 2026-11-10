@@ -1,4 +1,5 @@
 import { annotationSourceHash } from "./annotations";
+import { printable } from "./printable-input";
 import type {
   AttentionClientState,
   AttentionMark,
@@ -15,18 +16,6 @@ export const ATTENTION_DEFAULT_EXPIRY_MS = 5 * 60 * 1_000;
 export const ATTENTION_MIN_EXPIRY_MS = 100;
 export const ATTENTION_MAX_EXPIRY_MS = 60 * 60 * 1_000;
 export const ATTENTION_MAX_SUPPORTING_MARKS = 8;
-
-function printable(value: unknown, label: string, maximum = 500): string {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  if (
-    !normalized ||
-    normalized.length > maximum ||
-    /[\u0000-\u001f\u007f]/.test(normalized)
-  ) {
-    throw new Error(`${label} must be 1-${maximum} printable characters`);
-  }
-  return normalized;
-}
 
 function normalizeExpiry(value: number | undefined): number {
   const expiry = value ?? ATTENTION_DEFAULT_EXPIRY_MS;

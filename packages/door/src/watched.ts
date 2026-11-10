@@ -6,6 +6,7 @@
 // One holder per connection (`watchedOn(board)`). A read is identified by what it asks (action and params) and by
 // `extra` (what the caller derives from it, when that differs); the service knows it by a short key of its own.
 import type { QueryChange } from "@ep0ch/outline-core/protocol";
+import { stableJson } from "@ep0ch/outline-core/stable-json";
 
 export type Watching<T> =
   | { state: "loading"; value?: undefined; error?: undefined }
@@ -46,15 +47,6 @@ export const RETRY_MS = 2000;
 /** The most reads a door keeps watched on one connection (the service keeps 64; it drops the oldest past that). */
 const KEEP = 60;
 
-const stable = (value: unknown): string => {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().filter(k => (value as Record<string, unknown>)[k] !== undefined)
-      .map(k => `${JSON.stringify(k)}:${stable((value as Record<string, unknown>)[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-};
-
 export class Watched {
   private readonly entries = new Map<string, Entry>();
   private readonly byKey = new Map<string, Entry>();
@@ -74,7 +66,7 @@ export class Watched {
    * background the first time (and again after the connection was lost). Synchronous, for a renderer.
    */
   read<T>(action: string, params: Record<string, unknown>, derive: (raw: any) => T | Promise<T>, extra = "", opts: { held?: boolean } = {}): Watching<T> {
-    const signature = `${action}\0${stable(params)}\0${extra}`;
+    const signature = `${action}\0${stableJson(params)}\0${extra}`;
     let entry = this.entries.get(signature);
     if (!entry) {
       entry = { key: `w${++this.next}`, signature, action, params, derive, generation: 0, registered: false, shown: { state: "loading" }, again: null, asking: false, used: 0, retryAt: 0 };
@@ -92,7 +84,7 @@ export class Watched {
   async answer<T>(action: string, params: Record<string, unknown>, derive: (raw: any) => T | Promise<T>, extra = "", opts: { held?: boolean } = {}): Promise<Watching<T>> {
     const shown = this.read(action, params, derive, extra, opts);
     if (shown.state !== "loading") return shown;
-    await this.entries.get(`${action}\0${stable(params)}\0${extra}`)?.pending;
+    await this.entries.get(`${action}\0${stableJson(params)}\0${extra}`)?.pending;
     return this.read(action, params, derive, extra, opts);
   }
 

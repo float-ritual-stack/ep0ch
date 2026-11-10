@@ -28,6 +28,16 @@ export type BacklinkReferenceGroup =
   | { kind: "block" | "page" | "work-id"; fragmentId?: string; count: number }
   | { kind: "property"; propertyKey: string; count: number };
 
+/** A group's label as Detail and the door show it: "Work ID ×2", "block reference ^plan ×1", "status property ×1". */
+export function backlinkReferenceLabel(group: BacklinkReferenceGroup): string {
+  if (group.kind === "property") return `${group.propertyKey} property ×${group.count}`;
+  let label = "Work ID";
+  if (group.kind === "block") label = "block reference";
+  else if (group.kind === "page") label = "page link";
+  // The anchor it aims at (PIE-1247): which part of this note is linked or embedded.
+  return `${label}${group.fragmentId ? ` ^${group.fragmentId}` : ""} ×${group.count}`;
+}
+
 export type BacklinkOccurrence =
   | { kind: "block" | "page" | "work-id"; fragmentId?: string; label: string; snippet: string; start: number; end: number }
   | { kind: "property"; propertyKey: string; label: string; snippet: string; start: number; end: number };

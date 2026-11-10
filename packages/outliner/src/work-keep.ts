@@ -2,12 +2,11 @@
 // (work-tools.ts) both ask. Pure, with no imports, so the core write path can ask it without loading the groom.
 import type { Block } from "./types";
 import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 const DAY = 86_400_000;
 /** An item younger than this is still being shaped: never parked. */
 export const KEEP_DAYS = 14;
-
-const clip = (text: string, max: number) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat; };
 
 /**
  * Why `item` must not be parked at `at`, or null when it may be: high priority, under KEEP_DAYS old, or decided. Decided

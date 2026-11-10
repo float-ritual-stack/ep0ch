@@ -73,7 +73,6 @@ export function projectRecord(r: BlockRecord, fields: readonly string[], ctx: Ro
 // ── folding ──────────────────────────────────────────────────────────────────
 // The classifier and the summary are outline-core's (derived.ts): the publisher folds a page's "inside" list with them too.
 
-
 export interface Changes extends ChangeCounts { summary: string; ids: string[] }
 export interface FoldedRow { id: string; changes?: Changes }
 const IDS_SHOWN = 12;

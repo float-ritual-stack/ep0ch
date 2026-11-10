@@ -17,10 +17,11 @@
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
-import { askNouls, board, chips, clip, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, board, chips, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle } from "./work-twins";
 import { KEEP_DAYS, keptBecause } from "./work-keep";
 import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 export { KEEP_DAYS, keptBecause };
 import { propertyTransition } from "./work-tools";
