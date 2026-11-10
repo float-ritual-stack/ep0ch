@@ -2242,6 +2242,7 @@ var FIGURE_COMPONENT_SCHEMAS = FIGURES.map(figure);
 // packages/outline-core/src/write-shape.ts
 var HEADING2 = /^[ \t]{0,3}#{1,6}[ \t]/;
 var isHeadingLine = (line) => HEADING2.test(line);
+var BOX_LINE = new RegExp(`^(?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-*+]|\\d+[.)])[ \\t]+${STEP_BOX}[ \\t]*(.*)$`);
 var SINGLE_QUOTED = String.raw`(?:[^'’\n]|(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}]))*`;
 var QUOTATION = new RegExp(String.raw`"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{N}])['‘]${SINGLE_QUOTED}\?${SINGLE_QUOTED}['’](?![\p{L}\p{N}])`, "gu");
 export {

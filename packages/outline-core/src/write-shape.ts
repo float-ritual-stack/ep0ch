@@ -14,7 +14,7 @@ import { componentBlocks, noteStructure } from "./component-block";
 import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { MARK_SHOWS } from "./annotation-marks";
 import { figureRow } from "./figure-markdown";
-import { figureBlockLine, figureRowsProblem, figureSource, graphKind } from "./figure-props";
+import { decisionState, figureBlockLine, figureProps, figureRowsProblem, figureSource, graphKind, records } from "./figure-props";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
 import { isMediaLine } from "./media-line";
@@ -49,7 +49,7 @@ export const SHAPE_LIMITS = {
   vocabulary: 20,
 } as const;
 
-export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time" | "comment-chip" | "figure-rows";
+export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time" | "comment-chip" | "figure-rows" | "choice";
 
 /**
  * Evan's rubric for a note an agent wrote (Oct 29), which every finding is filed under, code's and Jev's alike, so the
@@ -64,7 +64,7 @@ export type Rubric = typeof RUBRIC[number];
 
 /** The rubric item each of code's rules measures. */
 export const RUBRIC_OF: Record<ShapeRule, Rubric> = {
-  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time", "comment-chip": "context", "figure-rows": "format",
+  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time", "comment-chip": "context", "figure-rows": "format", choice: "buried",
 };
 
 /** One edit of a ready fix, as outline_patch takes it: the exact text seen, and what replaces it. */
@@ -291,6 +291,8 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       }
     }
 
+    const choice = header && header.line >= 0 ? choiceFinding(text, lines, header.line) : undefined;
+    if (choice) found.push(choice);
     found.push(...bareIds(lines, structure, header?.line ?? -1));
     if (o.now && header && header.line >= 0) found.push(...futureTimes(lines, header.line, o.now));
     if (o.facets?.length) found.push(...countFindings(lines, structure, header?.line ?? -1, o.facets));
@@ -502,6 +504,67 @@ function questionPatch(lines: readonly string[], at: number, title: number, sent
       ? [{ observed: lines[title]!, replacement: `${chip}${box}` }]
       : [{ observed: lines[title]!, replacement: chip }, { observed: lines[anchor]!, replacement: `${lines[anchor]!.trimEnd()}${box}` }]),
   ];
+}
+
+// ── Choices left to Evan ─────────────────────────────────────────────────────
+
+/** A decision's `status:` that leaves it to someone: proposed, open, pending… (Evan, Nov 10: "we have ways to make this a thing i can check off"). */
+const UNDECIDED = /^(?:proposed|open|pending|undecided|to decide|deciding|draft|tbd|awaiting|waiting|\?)/i;
+/** A checkbox line, any mark: a choice already put to Evan (open) or answered (ticked). */
+const BOX_LINE = new RegExp(`^(?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-*+]|\\d+[.)])[ \\t]+${STEP_BOX}[ \\t]*(.*)$`);
+
+/**
+ * A choice left to Evan that he can't tick (PIE-1657): a `::graph-decision` whose `status:` leaves it open, with an
+ * option no checkbox in the note offers; or a `[needs::sysop…]` on a note with no checkbox at all. Either reads as a
+ * thing to look at, never a thing to answer: the patch puts one open `- [ ]` per choice at the top (a decision's
+ * options still open, as written; else the needs chip's own words) and marks the note `[needs::sysop: …]`.
+ */
+function choiceFinding(text: string, lines: readonly string[], title: number): ShapeFinding | undefined {
+  const boxed = lines.flatMap(l => { const m = BOX_LINE.exec(l); return m ? [stripPropertyTokens(m[1]!).trim().toLowerCase()] : []; });
+  const offered = (label: string) => boxed.some(b => b.startsWith(label.toLowerCase()));
+  const choices: string[] = [];
+  let first: { line: number; title: string } | undefined;
+  for (const c of componentBlocks(lines)) {
+    if (c.end <= c.start || graphKind(c) !== "decision") continue;
+    const read = figureProps("decision", figureSource(lines.slice(c.start + 1, c.end)));
+    if ("error" in read || !UNDECIDED.test(String(read.props.status ?? "").trim())) continue;
+    const open = records(read.props.options).filter(o => decisionState(o.state) !== "rejected" && String(o.label ?? "").trim());
+    const missing = open.filter(o => !offered(String(o.label).trim()));
+    if (open.length && !missing.length) continue;
+    first ??= { line: c.start, title: String(read.props.title ?? "").trim() };
+    choices.push(...missing.map(o => `${String(o.label).trim()}${o.reason ? ` — ${String(o.reason).trim()}` : ""}`));
+  }
+  const needs = parsePropertyRecords(text).find(p => p.key === "needs" && /^sysop\b/i.test(p.value.trim()));
+  if (first) {
+    const patch = choices.length ? boxesPatch(lines, title, choices, needs ? undefined : first.title || choices.join(" or ")) : undefined;
+    return {
+      rule: "choice", key: `choice:${excerpt(first.title || choices.join(", "), 40)}`, line: first.line + 1,
+      say: `line ${first.line + 1} leaves a decision to Evan that he can only read (a ::graph-decision still open): a choice for him is an open checkbox at the top, \`- [ ] …\` one per option, with the note marked \`[needs::sysop: …]\`${patch ? " (the patch does)" : ""}`,
+      ...(patch ? { patch } : {}),
+    };
+  }
+  if (!needs || boxed.length) return undefined;
+  const words = needs.value.trim().replace(/^sysop\b[\s:—–-]*/i, "").trim();
+  const patch = words ? boxesPatch(lines, title, [/[.?!]$/.test(words) ? words : `${words}?`]) : undefined;
+  return {
+    rule: "choice", key: `choice:needs:${excerpt(words, 40)}`, line: needs.line + 1,
+    say: `line ${needs.line + 1} marks the note \`[needs::sysop…]\` but gives Evan nothing to tick: put the decision at the top as an open checkbox, \`- [ ] …\`${patch ? " (the patch does, from the chip's words)" : ""}`,
+    ...(patch ? { patch } : {}),
+  };
+}
+
+/** Open boxes put at the top, under the title and the chip lines right under it; `needs`: the title also gains `[needs::sysop: …]`. */
+function boxesPatch(lines: readonly string[], title: number, boxes: readonly string[], needs?: string): ShapePatch[] | undefined {
+  let anchor = title;
+  while (anchor + 1 < lines.length && chipsOnly(lines[anchor + 1]!)) anchor++;
+  const text = lines.join("\n");
+  if (text.split(lines[title]!).length !== 2 || (anchor !== title && text.split(lines[anchor]!).length !== 2)) return undefined;
+  const next = lines[anchor + 1];
+  const box = `\n\n${boxes.map(b => `- [ ] ${b}`).join("\n")}${next?.trim() ? "\n" : ""}`;
+  const chip = needs ? `${lines[title]!.trimEnd()} [needs::sysop: ${chipWords(needs)}]` : lines[title]!;
+  return anchor === title
+    ? [{ observed: lines[title]!, replacement: `${chip}${box}` }]
+    : [...(needs ? [{ observed: lines[title]!, replacement: chip }] : []), { observed: lines[anchor]!, replacement: `${lines[anchor]!.trimEnd()}${box}` }];
 }
 
 /** The sentence of a line that asks: one with a question mark or naming Evan with a decision, else (Jev judged the line) its last. */
