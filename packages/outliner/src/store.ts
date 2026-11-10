@@ -1,5 +1,5 @@
 import { heldBy } from "./loop-watch";
-import { noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
+import { compareBinary, noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
 import { workIdPrefixesInUse } from "./work-id-prefixes";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { createRequestedBlock } from "./create-request";
@@ -12,7 +12,7 @@ import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/prot
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import { resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
+import { likeEscaped, resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
 import { embeddedPageAddress, pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
@@ -30,7 +30,8 @@ import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWr
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
 import type { ChecklistStatus } from "./types";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
-import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type PartAt, type RestoredBlock } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, isMcpAccessLevel, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type PartAt, type RestoredBlock } from "@ep0ch/outline-core/protocol";
+import { ROADMAP_WORK_STAGES } from "@ep0ch/outline-core/work-stage";
 import { Database } from "bun:sqlite";
 import { inLiveOrder, queryCandidates, structuralVersion } from "./graph-questions";
 import { createHash } from "node:crypto";
@@ -40,7 +41,7 @@ import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
 import { blockAnnotationRepresentation } from "./annotation-representations";
-import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
+import { DEFAULT_ENTITY_KEY_PATTERN, resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
@@ -94,6 +95,7 @@ import {
   type ResourceCatalogOptions,
 } from "./resource-catalog";
 import {
+  canonicalWorkId,
   formatWorkId,
   isConfiguredWorkIdPlaceholder,
   normalizeWorkIdPrefix,
@@ -286,7 +288,7 @@ export const REVISIONS_KEEP = 100;
 
 function normalizeMcpAccessLevel(value: string): McpAccessLevel {
   const normalized = value.trim().toLowerCase();
-  if ((MCP_ACCESS_LEVELS as readonly string[]).includes(normalized)) return normalized as McpAccessLevel;
+  if (isMcpAccessLevel(normalized)) return normalized;
   throw new Error(`MCP access level must be one of ${MCP_ACCESS_LEVELS.join(", ")}`);
 }
 
@@ -398,6 +400,14 @@ interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
   display?: "source" | "resolved";
 }
 
+/** A provenance id as written, trimmed; absent is null, blank is refused with its label. */
+function normalizeOptionalId(value: string | undefined, label: string): string | null {
+  if (value === undefined) return null;
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${label} cannot be empty`);
+  return normalized;
+}
+
 function normalizeCreatorProvenance(
   author: BlockAuthor,
   provenance: BlockProvenance | undefined,
@@ -410,12 +420,6 @@ function normalizeCreatorProvenance(
     throw new Error("Only agent-authored blocks may include an actor id; a person's carry a session or task only");
   }
 
-  const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
-    if (value === undefined) return null;
-    const normalized = value.trim();
-    if (!normalized) throw new Error(`${label} cannot be empty`);
-    return normalized;
-  };
   const actorId = normalizeOptionalId(provenance.actorId, "Provenance actorId");
   if (author === "agent" && actorId === null) throw new Error("Provenance actorId cannot be empty");
 
@@ -437,12 +441,6 @@ function normalizeMutationProvenance(
   if (!mutation || !["user", "agent", "system"].includes(mutation.author)) {
     throw new Error("Mutation provenance must identify user, agent, or system");
   }
-  const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
-    if (value === undefined) return null;
-    const normalized = value.trim();
-    if (!normalized) throw new Error(`${label} cannot be empty`);
-    return normalized;
-  };
   const actorId = normalizeOptionalId(mutation.actorId, "Mutation actorId");
   if (mutation.author === "agent" && actorId === null) {
     throw new Error("Agent mutation provenance requires actorId");
@@ -617,6 +615,14 @@ function normalizeCaptureRequestId(requestId: string): string {
   return normalized;
 }
 
+/** A capture's title line, where its properties go, and the rest from its line break on (`\n` or `\r\n`). */
+function splitFirstLine(text: string): { firstLine: string; remainingText: string } {
+  const newline = text.search(/\r?\n/);
+  return newline === -1
+    ? { firstLine: text, remainingText: "" }
+    : { firstLine: text.slice(0, newline), remainingText: text.slice(newline) };
+}
+
 function normalizeCaptureTitle(title: string): string {
   if (typeof title !== "string") throw new Error("Capture title must be a string");
   const normalized = title.trim();
@@ -632,9 +638,9 @@ function normalizeCaptureTitle(title: string): string {
 
 
 
+/** A ticket key a ticket page is named by (`ABC-12`): the default entity key a resource directive reads. */
+const TICKET_KEY = new RegExp(DEFAULT_ENTITY_KEY_PATTERN);
 const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
-/** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
-const compareBinary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const emptyGraph = (): LoadedGraph => ({ byId: new Map(), byParent: new Map(), propertyRecordsByBlock: new Map(), lineTasksByBlock: new Map(), settledBlockRecords: new Map(), deletedDescendantCountByRoot: new Map() });
 /** A write that touched more blocks than this (an import, a reorder of a long list) has the graph read whole again. */
 const GRAPH_PATCH_LIMIT = 400;
@@ -766,10 +772,7 @@ export class OutlinerStore {
   }
 
   get sequence(): number {
-    const row = this.database.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as
-      | { value: string }
-      | null;
-    return Number(row?.value ?? 0);
+    return Number(this.readMetadata("sequence") ?? 0);
   }
 
   mcpAccessStatus(): McpAccessStatus {
@@ -781,9 +784,7 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       const current = this.mcpAccessStatusFromCurrentRead();
       if (current.level === normalized) return current;
-      this.database.query(
-        "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      ).run(MCP_ACCESS_METADATA_KEY, normalized);
+      this.writeMetadata(MCP_ACCESS_METADATA_KEY, normalized);
       this.bumpSequence({ kind: "other" });
       return this.mcpAccessStatusFromCurrentRead();
     })();
@@ -795,10 +796,10 @@ export class OutlinerStore {
   }
 
   private mcpAccessStatusFromCurrentRead(): McpAccessStatus {
-    const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
-    const level = normalizeMcpAccessLevel(row?.value ?? "none");
+    const value = this.readMetadata(MCP_ACCESS_METADATA_KEY);
+    const level = normalizeMcpAccessLevel(value ?? "none");
     const owner = this.outlineAbout()?.principal;
-    return { level, canRead: level !== "none", sequence: this.sequence, set: row !== null, ...(owner ? { owner } : {}) };
+    return { level, canRead: level !== "none", sequence: this.sequence, set: value !== undefined, ...(owner ? { owner } : {}) };
   }
 
   /** What this outline says of itself, when an agent made it over MCP. */
@@ -819,8 +820,7 @@ export class OutlinerStore {
 
   /** Records who made this outline and why (once, at creation). */
   setOutlineAbout(about: OutlineAbout): void {
-    this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .run(OUTLINE_ABOUT_METADATA_KEY, JSON.stringify(about));
+    this.writeMetadata(OUTLINE_ABOUT_METADATA_KEY, JSON.stringify(about));
   }
 
   /**
@@ -1561,11 +1561,7 @@ export class OutlinerStore {
           ? [formatProperty({ key: "captured-from", value: capturedFromBlockId })]
           : []),
       ].join(" ");
-      const firstNewlineIndex = normalizedText.search(/\r?\n/);
-      const firstLine =
-        firstNewlineIndex === -1 ? normalizedText : normalizedText.slice(0, firstNewlineIndex);
-      const remainingText =
-        firstNewlineIndex === -1 ? "" : normalizedText.slice(firstNewlineIndex);
+      const { firstLine, remainingText } = splitFirstLine(normalizedText);
       const capturedText = `${firstLine} ${metadata}${remainingText}`;
       const block = preparedBlock ? this.update(preparedBlock.id, capturedText, preparedBlock.revision, {author, ...provenance}) : this.createAt(
         capturedText,
@@ -1598,13 +1594,7 @@ export class OutlinerStore {
       throw new Error(`Block is not one canonical capture: ${blockId}`);
     }
     const normalizedTitle = normalizeCaptureTitle(title);
-    const firstNewlineIndex = capture.text.search(/\r?\n/);
-    const firstLine = firstNewlineIndex === -1
-      ? capture.text
-      : capture.text.slice(0, firstNewlineIndex);
-    const remainingText = firstNewlineIndex === -1
-      ? ""
-      : capture.text.slice(firstNewlineIndex);
+    const { firstLine, remainingText } = splitFirstLine(capture.text);
     const metadataIndex = firstLine.indexOf("[type::capture]");
     if (metadataIndex < 0) {
       throw new Error(`Capture metadata is not on the title line: ${blockId}`);
@@ -1772,7 +1762,7 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       const block = this.requireActive(id);
       const rows = this.database.query(
-        "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id = ? ORDER BY ordinal",
+        `SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id = ? ORDER BY ordinal`,
       ).all(id) as PropertyRow[];
       return {
         blockId: id, revision: block.revision,
@@ -1949,7 +1939,7 @@ export class OutlinerStore {
       SELECT DISTINCT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
       WHERE property.scope = 'block' AND property.key = 'ticket' AND block.effective_deleted_root_id IS NULL
         AND upper(property.value) LIKE ? ESCAPE '\\'
-    `).all(`%${(parseWorkId(workId)?.prefix ?? workId).replace(/[\\%_]/g, "\\$&")}-%`) as Array<{ id: string }>;
+    `).all(`%${likeEscaped(parseWorkId(workId)?.prefix ?? workId)}-%`) as Array<{ id: string }>;
     for (const { id } of named) {
       const copy = this.require(id);
       if (ticketOf(copy.text) !== workId || this.extensionOwnerFromCurrentRead(id)) continue;
@@ -2011,11 +2001,6 @@ export class OutlinerStore {
       }
       return before.filter((key) => !asks.has(key));
     })();
-  }
-
-  /** Runs several writes as one: all of them commit, or none (an extension action's writes). */
-  atomically<T>(work: () => T): T {
-    return this.database.transaction(work)();
   }
 
   /** The extensions and keys a block asks for, every extension. */
@@ -2091,7 +2076,7 @@ export class OutlinerStore {
    * before agent requests existed are old lines, not requests its next save adds.
    */
   seedAgentRequestBaselines(keysOf: (text: string) => string[]): void {
-    if (this.database.query("SELECT value FROM metadata WHERE key = 'agent_request_baseline_seeded'").get()) return;
+    if (this.readMetadata("agent_request_baseline_seeded") !== undefined) return;
     this.database.transaction(() => {
       const blocks = this.database.query(`SELECT id, text FROM blocks WHERE instr(text, '@') > 0
         AND NOT EXISTS (SELECT 1 FROM agent_request_baseline WHERE agent_request_baseline.block_id = blocks.id)`).all() as Array<{ id: string; text: string }>;
@@ -2099,7 +2084,7 @@ export class OutlinerStore {
         const keys = keysOf(block.text);
         if (keys.length) this.setAgentRequestBaseline(block.id, keys);
       }
-      this.database.query("INSERT INTO metadata (key, value) VALUES ('agent_request_baseline_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+      this.writeMetadata("agent_request_baseline_seeded", "1");
     })();
   }
 
@@ -2329,11 +2314,16 @@ export class OutlinerStore {
     this.changes.run(this.changes.attribution({ action: `ext.${extensionId}.drop-${role}`, actor }), () => this.delete(blockId, actor));
   }
 
-  /** Every ticket key with a page, as `ticketPageFromCurrentRead` answers each one. */
-  private ticketPagesFromCurrentRead(): Map<string, string> {
-    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
+  /** The property keys a ticket page is named by: each resource directive's, and each extension that keeps records. */
+  private ticketPropertyKeysFromCurrentRead(): string[] {
+    return [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
+  }
+
+  /** Every ticket key with a page, as `ticketPageFromCurrentRead` answers each one. */
+  private ticketPagesFromCurrentRead(): Map<string, string> {
+    const keys = this.ticketPropertyKeysFromCurrentRead();
     const pages = new Map<string, string>();
     // Start at extension records: SQLite otherwise walks every active block to find its owner row.
     const rows = [
@@ -2350,17 +2340,15 @@ export class OutlinerStore {
       `).all() as Array<{ key: string; id: string }>,
     ];
     for (const row of rows) {
-      if (/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(row.key) && !pages.has(row.key)) pages.set(row.key, row.id);
+      if (TICKET_KEY.test(row.key) && !pages.has(row.key)) pages.set(row.key, row.id);
     }
     return pages;
   }
 
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
-    if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(normalized)) return null;
-    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
-      ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
-        .map((row) => row.extension_id)])];
+    if (!TICKET_KEY.test(normalized)) return null;
+    const keys = this.ticketPropertyKeysFromCurrentRead();
     const page = this.database.query(`
       SELECT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
       WHERE property.scope = 'block' AND property.syntax = 'bracket' AND property.key IN (${keys.map(() => "?").join(", ")})
@@ -2606,7 +2594,7 @@ export class OutlinerStore {
       throw new Error("Roadmap items use work-stage as their lifecycle; remove the status property");
     }
     const stages = values("work-stage");
-    if (stages.length !== 1 || ![...Object.keys(ROADMAP_CREATE_STAGES), "done", "superseded"].includes(stages[0]!.toLowerCase())) {
+    if (stages.length !== 1 || !(ROADMAP_WORK_STAGES as readonly string[]).includes(stages[0]!.toLowerCase())) {
       throw new Error("Roadmap items require exactly one valid work-stage");
     }
     if (stages[0]!.toLowerCase() === "superseded" && values("superseded-by").length !== 1) {
@@ -2665,7 +2653,7 @@ export class OutlinerStore {
    * and a note someone else has edited since (its earlier revision still says who wrote it).
    */
   blocksWrittenBy(persona: string, since: string, limit = 20): Block[] {
-    const like = `${persona.replace(/[\\%_]/g, "\\$&")}/%`;
+    const like = `${likeEscaped(persona)}/%`;
     const rows = this.database.query(`
       SELECT id, MAX(at) AS at FROM (
         SELECT id, updated_at AS at FROM blocks WHERE updated_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
@@ -2785,7 +2773,7 @@ export class OutlinerStore {
     requestedScope: PropertyQueryScope = "block",
     keysOnly = false,
   ): PropertyCatalogItem[] {
-    if (!["block", "line", "inline", "all"].includes(requestedScope)) {
+    if (!(PROPERTY_QUERY_SCOPES as readonly string[]).includes(requestedScope)) {
       throw new Error(`Invalid property scope: ${requestedScope}`);
     }
     const limit = Math.max(1, Math.min(100, Math.floor(requestedLimit)));
@@ -2839,7 +2827,7 @@ export class OutlinerStore {
     const key = typeof input.key === "string" ? input.key.trim().toLowerCase() : "";
     if (!/^[a-z][a-z0-9_.-]*$/.test(key)) throw new Error("Inventory requires one property key");
     const propertyScope = input.propertyScope ?? "block";
-    if (!["block", "line", "inline", "all"].includes(propertyScope)) throw new Error("Invalid inventory property scope");
+    if (!(PROPERTY_QUERY_SCOPES as readonly string[]).includes(propertyScope)) throw new Error("Invalid inventory property scope");
     const offset = input.offset ?? 0;
     const limit = input.limit ?? 1000;
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Inventory offset must be a nonnegative integer");
@@ -3071,8 +3059,8 @@ export class OutlinerStore {
         `SELECT block_id, value FROM block_properties WHERE scope = 'block' AND key = 'work-id' AND block_id IN (${placeholders})`,
       ).all(...subtree) as Array<{ block_id: string; value: string }>;
       for (const row of reserved) {
-        const parsed = parseWorkId(row.value);
-        if (!parsed || parsed.workId !== row.value.trim()) continue;
+        const parsed = canonicalWorkId(row.value);
+        if (!parsed) continue;
         if (this.reservedWorkIdOwnerFromCurrentRead(parsed.workId) !== undefined) {
           continue;
         }
@@ -3747,7 +3735,7 @@ export class OutlinerStore {
    */
   newNoteRouter: ((text: string) => Placement | null) | undefined;
 
-  /** Several writes as one: all happen or none do (a stamp's note and its subtree, PIE-533 S4). */
+  /** Several writes as one: all happen or none do (a stamp's note and its subtree, PIE-533 S4; an extension action's writes). */
   inTransaction<T>(run: () => T): T {
     return this.database.transaction(run)();
   }
@@ -4487,7 +4475,7 @@ export class OutlinerStore {
       const median = (sorted[Math.floor((n + 1) / 2) - 1]! + sorted[Math.floor((n + 2) / 2) - 1]!) / 2;
       return { blocks: n, characters: sorted.reduce((a, b) => a + b, 0), median, p90: sorted[Math.ceil(0.9 * n) - 1]! };
     };
-    const keyed = (m: Map<string, number[]>) => [...m].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, sizes]) => ({ key, ...summary(sizes) }));
+    const keyed = (m: Map<string, number[]>) => [...m].sort(([a], [b]) => compareBinary(a, b)).map(([key, sizes]) => ({ key, ...summary(sizes) }));
     return { outline: summary(all), actors: keyed(byActor), branches: keyed(byBranch) };
   }
 
@@ -4865,7 +4853,7 @@ export class OutlinerStore {
     const placeholders = rows.map(() => "?").join(", ");
     const propertyRows = this.database
       .query(
-        `SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id IN (${placeholders}) ORDER BY block_id, ordinal`,
+        `SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id IN (${placeholders}) ORDER BY block_id, ordinal`,
       )
       .all(...rows.map((row) => row.id)) as PropertyRow[];
     const recordsByBlock = new Map<string, PropertyRecord[]>();
@@ -4901,16 +4889,11 @@ export class OutlinerStore {
     });
   }
   private navigationCursorFromCurrentRead(): number {
-    const row = this.database.query(
-      "SELECT value FROM metadata WHERE key = 'navigation_cursor'",
-    ).get() as { value: string } | null;
-    return Number(row?.value ?? 0);
+    return Number(this.readMetadata("navigation_cursor") ?? 0);
   }
 
   private setNavigationCursorFromCurrentRead(entryId: number): void {
-    this.database.query(
-      "INSERT INTO metadata (key, value) VALUES ('navigation_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(String(entryId));
+    this.writeMetadata("navigation_cursor", String(entryId));
   }
 
   private setSelectionFromCurrentRead(blockId: string | null): SelectionContext {
@@ -5342,12 +5325,10 @@ export class OutlinerStore {
    */
   private rebuildPropertyIndexForParser(): boolean {
     return this.database.transaction(() => {
-      const versionRow = this.database
-        .query("SELECT value FROM metadata WHERE key = 'property_parser_version'")
-        .get() as { value: string } | null;
-      const storedVersion = versionRow ? Number(versionRow.value) : 0;
+      const stored = this.readMetadata("property_parser_version");
+      const storedVersion = stored !== undefined ? Number(stored) : 0;
       if (!Number.isInteger(storedVersion) || storedVersion < 0) {
-        throw new Error(`Invalid property parser version: ${versionRow?.value}`);
+        throw new Error(`Invalid property parser version: ${stored}`);
       }
       if (storedVersion > PROPERTY_PARSER_VERSION) {
         throw new Error(
@@ -5363,11 +5344,7 @@ export class OutlinerStore {
       for (const block of existingBlocks) {
         this.replacePropertyIndex(block.id, parsePropertyRecords(block.text));
       }
-      this.database
-        .query(
-          "INSERT INTO metadata (key, value) VALUES ('property_parser_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .run(String(PROPERTY_PARSER_VERSION));
+      this.writeMetadata("property_parser_version", String(PROPERTY_PARSER_VERSION));
       if (existingBlocks.length > 0) this.bumpSequenceWithoutHistory();
       return true;
     })();
@@ -5420,8 +5397,8 @@ export class OutlinerStore {
         "SELECT property.block_id, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL ORDER BY property.block_id",
       ).all() as Array<{ block_id: string; value: string }>;
       for (const row of rows) {
-        const parsed = parseWorkId(row.value);
-        if (!parsed || parsed.workId !== row.value.trim()) continue;
+        const parsed = canonicalWorkId(row.value);
+        if (!parsed) continue;
         if (this.reservedWorkIdOwnerFromCurrentRead(parsed.workId) === undefined) {
           this.database.query(
             "INSERT INTO reserved_work_ids (work_id, reserved_at, block_id) VALUES (?, ?, ?)",
@@ -5452,15 +5429,11 @@ export class OutlinerStore {
         "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE kind = 'work-id' ORDER BY normalized_address",
       ).all() as PageAddressRow[];
       for (const row of rows) {
-        const parsed = parseWorkId(row.display_address);
+        const parsed = canonicalWorkId(row.display_address);
         const owner = parsed
           ? this.reservedWorkIdOwnerFromCurrentRead(parsed.workId)
           : undefined;
-        if (
-          !parsed ||
-          parsed.workId !== row.display_address.trim() ||
-          owner !== row.block_id
-        ) {
+        if (!parsed || owner !== row.block_id) {
           this.database.query(
             "DELETE FROM page_addresses WHERE normalized_address = ?",
           ).run(row.normalized_address);
@@ -5695,9 +5668,7 @@ export class OutlinerStore {
         block &&
         block.properties.some((property) => {
           if (property.key !== "work-id") return false;
-          const parsed = parseWorkId(property.value);
-          return parsed?.workId === property.value.trim() &&
-            parsed.prefix === prefix;
+          return canonicalWorkId(property.value)?.prefix === prefix;
         }) &&
         this.canRegisterRestoredPageAddresses(block.id, block.properties)
       ) {
@@ -5710,8 +5681,8 @@ export class OutlinerStore {
     blockId: string,
     value: string,
   ): void {
-    const parsed = parseWorkId(value);
-    if (!parsed || parsed.workId !== value.trim()) {
+    const parsed = canonicalWorkId(value);
+    if (!parsed) {
       throw new Error(`Invalid canonical Work ID: ${value}`);
     }
     const allocator = this.workIdAllocatorFromCurrentRead();
@@ -5868,9 +5839,8 @@ export class OutlinerStore {
     if (!allocator) return [];
     return properties.flatMap((property) => {
       if (property.key !== "work-id") return [];
-      const parsed = parseWorkId(property.value);
+      const parsed = canonicalWorkId(property.value);
       return parsed &&
-          parsed.workId === property.value.trim() &&
           parsed.prefix === allocator.prefix
         ? [parsed.workId]
         : [];
@@ -6021,7 +5991,7 @@ export class OutlinerStore {
     else this.valueReferenceIds?.delete(blockId);
     this.database.query("DELETE FROM block_properties WHERE block_id = ?").run(blockId);
     const insert = this.database.query(
-      "INSERT INTO block_properties (block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO block_properties (${PROPERTY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const property of properties) {
       insert.run(
@@ -6062,10 +6032,9 @@ export class OutlinerStore {
     const allocator = this.workIdAllocatorFromCurrentRead();
     for (const property of blockProperties) {
       if (property.key !== "work-id") continue;
-      const parsed = parseWorkId(property.value);
+      const parsed = canonicalWorkId(property.value);
       if (
         parsed &&
-        parsed.workId === property.value.trim() &&
         (!allocator || allocator.prefix === parsed.prefix)
       ) {
         this.reserveWorkIdForBlockFromCurrentRead(blockId, parsed.workId);
@@ -6077,7 +6046,7 @@ export class OutlinerStore {
   /** One block's records as a question reads them (the graph's propertyRecordsByBlock, for one block): a ticked step's chips settled. */
   private questionRecordsFromCurrentRead(block: Block): PropertyRecord[] {
     const records = (this.database.query(
-      "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id = ? ORDER BY ordinal",
+      `SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id = ? ORDER BY ordinal`,
     ).all(block.id) as PropertyRow[]).map(propertyRecordFromRow);
     const tasks = this.lineTasksOf(block.id, block.text, records);
     return records.filter(record => !stepClosed(tasks.get(record.ordinal) ?? "todo"));
