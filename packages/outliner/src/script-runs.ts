@@ -333,9 +333,10 @@ export class ScriptRuns {
     };
   }
 
-  startSequence(request: ExtensionActRequest): ExtensionActResult {
-    const note = this.store.require(request.blockId!);
-    const button = buttonCallAt(note.text.split("\n"), request.line!);
+  /** `typed`: the note's text in the edit a door holds open (draft.read), read when the saved note has no button on that line: one not saved yet (PIE-1699). */
+  async startSequence(request: ExtensionActRequest, typed?: () => Promise<string | undefined>): Promise<ExtensionActResult> {
+    const note = this.store.require(request.blockId!), saved = buttonCallAt(note.text.split("\n"), request.line!), text = saved || !typed ? undefined : await typed();
+    const button = saved ?? (text === undefined ? null : buttonCallAt(text.split("\n"), request.line!));
     if (!button || button.problem) throw new Error(button?.problem ?? "No button on that line; read the note and press its current button");
     if (button.empty.length) throw new Error(`${button.label} has no ${button.empty.join(" or ")} yet: write ${button.empty[0]}= on its line (the door asks for it on a press, button.slot fills it)`);
     return this.start({ id: `button:${note.id}:${button.line}`, name: button.label, script: {

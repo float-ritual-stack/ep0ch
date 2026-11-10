@@ -2529,13 +2529,13 @@ export class NoteSurface {
    * presentLinks. Its links aren't elements: what's followable is the note's own.
    */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
-  /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
-  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
+  /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow; `noteLines`: each line's in this note, its ::buttons live presses of them (the answer tile, PIE-1699). */
+  snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string, noteLines?: readonly number[]): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
     const m = this.msg, src = this.src;
     // `pictures`: its img:: lines drawn as the reader draws them (PIE-846), where the terminal can; else each says what it is.
     const graphics = pictures && !!host?.ctx.graphics;
     const env: DocEnv = { ...this.docEnv(Math.max(10, width), host, 8), graphics, noImages: undefined, unfold: true, button: inertButton };
-    const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined;
+    const drawEmbed = m ? this.bodyHooks(m, [], env, src, drawn).embed : undefined, button = m && noteLines ? this.bodyHooks(m, noteLines, env, src, drawn).button : undefined;
     // One of its own embeds still being read: an edit's preview draws it again when the answer's redraw comes (src/surface/editor.ts).
     let pending = false;
     const embed: DocEnv["embed"] = drawEmbed && m ? (id, fragment, n, w) => {
@@ -2555,7 +2555,7 @@ export class NoteSurface {
       site = { board: this.previewDraft.board, draft: { text }, pending: !this.previewDraft.ready, changed: loading => { pending ||= loading; } };
     }
     // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
-    const doc = drawIn("snippet", presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), expandsEmbeds(!!embed, m ?? undefined), src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), env, { ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}) });
+    const doc = drawIn("snippet", presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), expandsEmbeds(!!embed, m ?? undefined), src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), env, { ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}), ...(button ? { button } : {}) });
     // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
     if (draftOf && !site?.pending && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
@@ -4469,7 +4469,7 @@ export class NoteSurface {
     const run = async () => {
       const note = p.block ? await host.ctx.board.get(p.block) : null;
       // `alt`: the press runs the button's alt= (PIE-1316): its own line and its own open slots.
-      const button = note ? buttonPressed(note.text, p) : null, own = alt ? button?.alt : button?.act; // where it is now (PIE-1693)
+      const button = note ? buttonPressed(note.text, p, this.draft?.blockId === note.id ? this.draft.text : undefined) : null, own = alt ? button?.alt : button?.act; // where it is now (PIE-1693): saved, else in this reader's open edit (PIE-1699)
       if (own && button!.slots.some(s => p.act.includes(`{${s.key}}`))) p = { ...p, act: own }; // a slot filled since the frame this press came from (PIE-1570)
       // A button that reads differently than it was written runs nothing (it never acts on the focused tile instead); one with an
       // empty slot asks for it, and alt+click on a button with slots (and no alt= of its own) asks again (PIE-1298).

@@ -24,7 +24,7 @@ export class AnswerTile implements Pane {
   hint() {
     return partsHint([
       { key: "up", action: "answer.scroll", args: { by: -1 }, label: "scroll", also: "↓" },
-      { key: "1", action: "answer.follow", args: { n: 1 }, label: "follow a link", also: "2–9" },
+      { key: "1", action: "answer.follow", args: { n: 1 }, label: "follow a link or press a button", also: "2–9" },
       { key: "f", action: "answer.fold", label: "fold/unfold in the note" },
     ]);
   }
@@ -56,7 +56,11 @@ export class AnswerTile implements Pane {
     const draft = reader.surface.draft;
     const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));
     const status = draft?.askStatus(this.ask).replace(/^ · /, "") || projection?.summary || projection?.reason;
-    const doc = reader.surface.snippetDoc(fold ? lines.slice(fold.line + 1, fold.end).map(l => stripQuotes(l, 1)).join("\n") : status || "Waiting for the answer…", w, reader.host(desk), this.links);
+    // The answer's lines are the note's (as the reader holds it, typed or saved): its buttons press as they do there (PIE-1699).
+    const body = fold ? lines.slice(fold.line + 1, fold.end) : [];
+    const doc = fold
+      ? reader.surface.snippetDoc(body.map(l => stripQuotes(l, 1)).join("\n"), w, reader.host(desk), this.links, false, undefined, body.map((_, i) => fold.line + 1 + i))
+      : reader.surface.snippetDoc(status || "Waiting for the answer…", w, reader.host(desk), this.links);
     this.ranges = doc.links;
     this.total = doc.lines.length; this.room = h;
     this.top = Math.max(0, Math.min(this.top, this.total - h));
@@ -87,14 +91,22 @@ const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
     run({ by }, { pane, desk }) { pane.top = Math.max(0, Math.min(pane.total - pane.room, pane.top + by)); desk.redraw(); return { top: pane.top }; },
   }),
   "answer.follow": def({
-    summary: "follow a link in the answer beside its note", keys: [{ keys: "1-9", does: "follow that link" }, { keys: "click", does: "follow a link" }], touches: "tile", replay: "safe",
-    args: { n: { type: "number", about: "link number, from one" } },
+    summary: "follow a link or press a button in the answer beside its note: a button presses as it does in the note (its reader's press, the line typed or saved), the keys staying where they are", keys: [{ keys: "1-9", does: "follow that link, or press that button" }, { keys: "click", does: "follow a link, or press a button" }], touches: "tile", replay: "ask",
+    args: {
+      n: { type: "number", about: "link or button number, from one, in the order they are drawn" },
+      alt: { type: "boolean", optional: true, about: "a button's alt= press (its alt+click in the note)" },
+    },
     examples: [
-      { act: "answer.follow tile=answer n=1", does: "follows the answer's first link, as its reader would" },
+      { act: "answer.follow tile=answer n=1", does: "follows the answer's first link, or presses it when it is a button, as its reader would" },
     ],
-    async run({ n }, { pane, desk }, actor) {
-      const reader = desk.paneNamed?.(pane.source), link = pane.links[n - 1], ref = link && refOfLink(link);
-      if (!(reader instanceof ReaderPane) || !ref) throw new ActionRefused("choose a link in the answer");
+    async run({ n, alt }, { pane, desk }, actor) {
+      const reader = desk.paneNamed?.(pane.source), link = pane.links[n - 1];
+      if (!(reader instanceof ReaderPane)) throw new ActionRefused("open the answer's note first");
+      // A button (PIE-1699): the reader's own press of that line, as a click on it in the note, attributed to whoever asks.
+      const press = link?.press;
+      if (press) return reader.surface.runPress(alt && press.alt ? { ...press, act: press.alt } : press, reader.host(desk), actor, !!alt && !press.alt, undefined, !!alt && !!press.alt);
+      const ref = link && refOfLink(link);
+      if (!ref) throw new ActionRefused("choose a link or a button in the answer");
       return desk.within?.(reader.surface.draft ? "edit.follow" : "link.follow", { ref }, actor, reader);
     },
   }),

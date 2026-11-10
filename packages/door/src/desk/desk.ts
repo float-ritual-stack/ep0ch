@@ -1942,13 +1942,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const id of this.panes.keys()) this.keepTrailPlace(id);
     // Running programs and work borrowed from the drawer survive; host-owned exhibits end with their host.
     const host = this.ctx?.hostLayer, given = new Set(this.adopts ? [] : this.given.values());
-    // One leave is said once (PIE-1697): this screen's terminals and its groups' (each group's desk goes as its tile ends, below).
-    const go = () => {
-      const keep = host ? this.carried(given) : [];
-      if (keep.length) {
-        const kept = host!.keep(keep.map(([id, p]) => ({ ...this.leaving(id), pane: p, from: this.title, typing: false })));
-        for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
-      }
+    const go = () => { // said once with its groups' (each group's desk goes as its tile ends, below; PIE-1697)
+      const keep = host ? this.carried(given) : [], kept = keep.length ? host!.keep(keep.map(([id, p]) => ({ ...this.leaving(id), pane: p, from: this.title, typing: false }))) : [];
+      for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
       for (const m of this.models.values()) m.dispose?.();
       for (const [id, p] of this.panes) { this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
     };

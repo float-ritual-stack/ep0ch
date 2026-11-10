@@ -21,6 +21,7 @@ import { centred, ListPicker, pickRows } from "./surface/picker";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Desk, savedLayoutNames, type MovedTile } from "./desk/desk";
+import { DrawerKeep } from "./desk/drawer-keep";
 import { ptyBackend, type KeptProgram } from "./desk/pty-backend";
 import type { Pane } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
@@ -1216,48 +1217,11 @@ export class AgentDrawer {
   /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
   standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
 
-  /**
-   * Tiles still running on a screen that goes for good: into the drawer, behind the tab shown, nobody's keys moved,
-   * each under a name free there; said once. The panes it took (one it couldn't ends with the screen).
-   */
-  /** Why tiles like these couldn't go into the drawer now (its layout locked, say), or null: leaving a screen asks first. */
-  keepRefusal(moved: Pick<MovedTile, "name" | "spec" | "kept">[]): string | null {
-    const d = this.desk;
-    if (!d) return null;
-    for (const m of moved) { const why = d.bringRefusal(m, undefined, "tabs", { kind: "agent", id: "door" }); if (why) return `${m.name} couldn't go into your drawer: ${why}`; }
-    return null;
-  }
-  keep(moved: MovedTile[]): Pane[] {
-    const d = this.desk;
-    if (!d) return [];
-    // Leaving asked first (keepRefusal): one the drawer still refuses ends with the screen, and is said with why.
-    const took: string[] = [], panes: Pane[] = [], ended: string[] = [];
-    for (const m of [...moved].sort(/* a name free here first: a clash renames only the tile that clashes (PIE-1679) */ (a, b) => Number(d.freeName(a.name) !== a.name) - Number(d.freeName(b.name) !== b.name))) {
-      const why = d.bringRefusal(m, undefined, "tabs", { kind: "agent", id: "door" });
-      if (why) { ended.push(`${m.name} (${why})`); continue; }
-      took.push(d.bringIn(m, undefined, "tabs", { kind: "agent", id: "door" }).name as string); panes.push(m.pane);
-    }
-    const said = this.keeping ?? { panes: [], kept: false, ended: [] };
-    said.panes.push(...panes); said.ended.push(...ended);
-    said.kept ||= moved.some(m => m.kept && panes.includes(m.pane));
-    if (!this.keeping) this.sayKept(said);
-    if (took.length) this.host.redraw();
-    return panes;
-  }
-  /** The keeps of one leave, said once it ends (keepTogether). */
-  private keeping: { panes: Pane[]; kept: boolean; ended: string[] } | null = null;
-  keepTogether(run: () => void): void {
-    if (this.keeping) return run();
-    const said = this.keeping = { panes: [], kept: false, ended: [] };
-    try { run(); } finally { this.keeping = null; this.sayKept(said); }
-  }
-  /** What went into the drawer, named as the drawer shows them (its layout's order, after any renaming), and what ended. */
-  private sayKept({ panes, kept, ended }: { panes: Pane[]; kept: boolean; ended: string[] }) {
-    const d = this.desk;
-    const took = d ? (d.layoutGet().tiles as { name: string }[]).filter(t => panes.includes(d.pane(t.name)!)).map(t => t.name) : [];
-    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer${kept ? " · an undo's leftovers in its kept dock" : ""} · alt+a shows ${took.length === 1 ? "it" : "them"}${ended.length ? ` · ended with the screen: ${ended.join(", ")}` : ""}`, 8000);
-    else if (ended.length) this.host.flash(`ended with the screen: ${ended.join(", ")}`, 8000);
-  }
+  /** Tiles still running on a screen that goes for good, into the drawer (DrawerKeep): why not now, the panes it took, a leave said once. */
+  private readonly keeper = new DrawerKeep(() => this.desk, { flash: (msg, ms) => this.host.flash(msg, ms), redraw: () => this.host.redraw() });
+  keepRefusal(moved: Pick<MovedTile, "name" | "spec" | "kept">[]): string | null { return this.keeper.refusal(moved); }
+  keep(moved: MovedTile[]): Pane[] { return this.keeper.keep(moved); }
+  keepTogether(run: () => void): void { this.keeper.together(run); }
 
   /** Where the drawer is drawn now (its strip while folded), or null when it is put away. */
   drawnRect(): Rect | null { return this.shown ? this.rect : null; }
