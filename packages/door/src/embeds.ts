@@ -15,7 +15,7 @@ import type { LinkBlocksEnv } from "./links";
 // Steps inside an embed are the service's too (PIE-472): each ready projection carries the checklist steps
 // in what it shows, so the reader can offer their status controls where they're drawn.
 import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
-import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
+import { embeddedPageAddress, embeddedQuery, queryEmbedText, resolvedEmbedTarget } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
 import { headedTitle } from "./board";
 import type { DocEnv } from "./doc";
@@ -71,13 +71,17 @@ export function invalidateEmbeds() { outlineChanged(null); }
 const stale = (e: Entry) => changedSince(e.at, e.deps) || ((e.volatile || e.state.kind === "failed") && anyChangeSince(e.at));
 
 const refOf = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
-/** A `refOf` key back as its target: a page's `[[page]]` (PIE-1247) may hold a `^` of its own, so its end is its `]]`. */
+/**
+ * A `refOf` key back as its target: a page's `[[page]]` (PIE-1247) may hold a `^` of its own, so its end is its `]]`;
+ * a query's `?query` (PIE-1720) has no fragment, so a `^` in it is the query's.
+ */
 function targetOf(k: string): { blockId: string; fragmentId?: string } {
+  if (embeddedQuery(k)) return { blockId: k };
   const at = k.startsWith("[[") ? k.indexOf("^", k.lastIndexOf("]]")) : k.indexOf("^");
   return at < 0 ? { blockId: k } : { blockId: k.slice(0, at), fragmentId: k.slice(at + 1) };
 }
-/** The note a projection shows: a page embed's (`[[page]]`) is the note its page resolved to. */
-const noteOf = (n: TransclusionNode) => (embeddedPageAddress(n.blockId) !== null ? n.resolvedBlockId ?? n.blockId : n.blockId);
+/** The note a projection shows: a page embed's (`[[page]]`) or a query's (`?query`) is the note it resolved to. */
+const noteOf = (n: TransclusionNode) => (resolvedEmbedTarget(n.blockId) ? n.resolvedBlockId ?? n.blockId : n.blockId);
 
 // ── asking the service ────────────────────────────────────────────────────────────────────────────────
 
@@ -123,7 +127,8 @@ function depsOf(n: TransclusionNode, out: { ids: Set<string>; volatile: boolean 
   out.ids.add(n.blockId);
   if (n.resolvedBlockId) out.ids.add(n.resolvedBlockId);
   // A page embed whose page isn't there yet (PIE-1247) is asked again on any change: the note that takes the name is new.
-  if (n.kind === "view" || (n.status !== "ready" && embeddedPageAddress(n.blockId) !== null)) out.volatile = true;
+  // A query embed (PIE-1720) always is: any note can become its first match.
+  if (n.kind === "view" || embeddedQuery(n.blockId) || (n.status !== "ready" && embeddedPageAddress(n.blockId) !== null)) out.volatile = true;
   for (const e of n.embeds ?? []) depsOf(e, out);
   return out;
 }
@@ -240,6 +245,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
 }
 
 const shortRef = (id: string, fragment?: string) => {
+  if (embeddedQuery(id)) return printable(queryEmbedText(id));
   const page = embeddedPageAddress(id), at = fragment ? `^${fragment}` : "";
   return page === null ? `!((${drawShortId(id)}${at}))` : `![[${printable(page)}${at}]]`;
 };
@@ -297,9 +303,10 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   if (node.status !== "ready" || !node.block) {
     // Nesting limits are the note working as meant; failures are red.
     const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget" || node.status === "too-large";
-    // Page names need the service's suggestions when a typo misses; block ids keep the links' quiet mark.
-    if (node.status === "missing") return [S(fg(C.dark) + `${ref} ${MISSING_MARK}` + RESET),
-      ...(embeddedPageAddress(node.blockId) !== null && node.message ? wrap(fg(C.lred) + printable(node.message) + RESET, w - 1).map(S) : [])];
+    // Page names need the service's suggestions when a typo misses, a query its why (nothing matches, a key nobody
+    // has with the nearest ones); block ids keep the links' quiet mark.
+    if (node.status === "missing") return [...wrap(fg(C.dark) + `${ref} ${MISSING_MARK}` + RESET, w - 1).map(S),
+      ...(resolvedEmbedTarget(node.blockId) && node.message ? wrap(fg(C.lred) + printable(node.message) + RESET, w - 1).map(S) : [])];
     // An anchor the note doesn't have names the note and the nearest anchor it has, as a save's warning does (PIE-852).
     if (node.status === "fragment-missing" && node.fragmentId) {
       const near = node.block ? nearestAnchor(node.fragmentId, anchorsOfText(node.block.text)) : undefined;

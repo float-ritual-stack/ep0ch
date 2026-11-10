@@ -240,3 +240,37 @@ test("a page embed (PIE-1247): ![[page^anchor]] projects the page's anchored fig
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("a query embed (PIE-1720): !((query: …)) projects the first note its query matches, follows it as notes change, and says why when none does", () => {
+  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-query-embeds-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  try {
+    const plan = (day: string, body: string) => store.create(`Plan, ${day} [type::plan] [day::${day}]\n## Morning\n- [ ] ${body}`, null, "user");
+    const mon = plan("2026-03-02", "sharpen the hoe"), tue = plan("2026-03-03", "soak the lentils"), wed = plan("2026-03-04", "hang the lanterns");
+    const hub = store.create("Where we are\n!((query: type=plan sort: day desc))\n!((query: type=plann))\n!((query: type=plan colour=teal))", null, "user");
+    const newest = store.readTransclusions([{ blockId: "?type=plan sort: day desc" }], { hostBlockId: hub.id });
+    expect(newest.results[0]).toMatchObject({ blockId: "?type=plan sort: day desc", resolvedBlockId: wed.id, status: "ready", kind: "note", title: "Plan, 2026-03-04" });
+    expect(newest.blocks[wed.id]!.text).toContain("hang the lanterns");
+    expect(newest.dependencies).toContain(wed.id);
+    // Without a sort it is the note edited last: Monday's, once it changes.
+    store.update(mon.id, `${mon.text}\n- [ ] oil the shears`, mon.revision, { author: "user" }, "text", [], "2099-01-01T00:00:00.000Z");
+    expect(store.readTransclusions([{ blockId: "?type=plan" }], { hostBlockId: hub.id }).results[0]!.resolvedBlockId).toBe(mon.id);
+    // Nested in the hub, each found by the one embed scan; none matching says so, with the service's own hint for a key nobody has.
+    const whole = store.readTransclusions([{ blockId: hub.id }], {});
+    expect(whole.results[0]!.embeds!.map(e => [e.blockId, e.status, e.resolvedBlockId])).toEqual([
+      ["?type=plan sort: day desc", "ready", wed.id],
+      ["?type=plann", "missing", undefined],
+      ["?type=plan colour=teal", "missing", undefined],
+    ]);
+    const [, none, unknown] = whole.results[0]!.embeds!;
+    expect(none!.message).toBe(`${TRANSCLUSION_WORDING.missing} · no note matches type=plann`);
+    expect(unknown!.message).toStartWith(`${TRANSCLUSION_WORDING.missing} · no notes have colour; nearest:`);
+    // A query that matches the note it is written in is a cycle, as embedding it by its id would be.
+    const self = store.create("Today's plan [type::plan] [day::2026-03-09]\n!((query: type=plan sort: day desc))", null, "user");
+    expect(store.readTransclusions([{ blockId: self.id }], {}).results[0]!.embeds![0]!.status).toBe("cycle");
+    expect(tue.id).toBeTruthy();
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

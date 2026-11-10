@@ -108,6 +108,7 @@ export const marks: Record<string, string[]> = {
   peek: ["Garden peeks", "Check the forecast", "Sort the seeds", "1/2"],
   glass: ["Links on the glass", "tool shed", "The full title stays readable"],
   "in-place": ["Garden walk: the gate", "open → in place"],
+  "plan-preview": ["Where the bakery is", "Bakery plan, 2026-03-03", "tray 1: rye"],
   "quiet-collection": ["Needs a gardener", "Check seeds", "Read report", "2 notes"],
   "collection-tune": ["Tune the garden collection", "Water the beans"],
   "figure-settings": ["Sprint: the garden week", "THIS WEEK'S GARDEN WORK", "≡ settings"],

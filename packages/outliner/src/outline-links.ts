@@ -10,7 +10,7 @@ import { resolveBlockReferencesWithStatus } from "./references";
 import type { Block, HostedOutlineList } from "./types";
 import { readAuthoredLinks } from "./authored-links";
 import { blockReferenceOccurrences, embeddedPageAddress, pageAddressReferences, normalizePageAddress, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
-import { readTransclusionsAsync } from "./transclusions";
+import { queryEmbedLoad, readTransclusionsAsync } from "./transclusions";
 import { blockReferenceDisplayText } from "./references";
 import type { OutlinerStore } from "./store";
 import type { BlockReferenceResolution, OutlinerRequest } from "./types";
@@ -167,6 +167,9 @@ export class OutlineLinks {
     if (request.action === "transclusions.read") {
       const locations = new Map<string, { outline: string; machine?: string }>();
       const result = await readTransclusionsAsync(async id => {
+        // A query embed (PIE-1720) is answered in the outline it is read in, as its views are.
+        const query = queryEmbedLoad(local, id, request.hostBlockId);
+        if (query !== undefined) return query;
         const page = embeddedPageAddress(id);
         if (page !== null) {
           // Page links already reach forwarded hosts; embeds must ask that same route.
