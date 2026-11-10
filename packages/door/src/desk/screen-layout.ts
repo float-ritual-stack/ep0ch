@@ -1081,8 +1081,8 @@ class Step<I> {
       case "focus": return this.focus(op.tile, !!op.quiet);
       case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
-      // Lifted or zoomed as asked already (PIE-1626): nothing changed, and the answer says so, as a rename to its own name does.
-      case "zoom": { const { lift, zoom } = this.d; this.zoom(op.tile, op.on, op.reach); if (this.d.lift?.tile === lift?.tile && this.d.lift?.reach === lift?.reach && this.d.zoom === zoom) { this.d.changed = false; this.d.answer.changed = false; } return; }
+      // Lifted or zoomed as asked already (PIE-1626): the answer says nothing changed (a focus or a spine it opened is still saved).
+      case "zoom": { const { lift, zoom } = this.d; this.zoom(op.tile, op.on, op.reach); if (this.d.lift?.tile === lift?.tile && this.d.lift?.reach === lift?.reach && this.d.zoom === zoom) this.d.answer.changed = false; return; }
       case "load": return this.load(op.name);
       case "fill": return this.fill(op);
       case "source": return this.source(op.container, op.source);
