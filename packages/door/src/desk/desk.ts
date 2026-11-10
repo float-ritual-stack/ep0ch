@@ -349,9 +349,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private readonly overlays = new Modes<Desk, ListPicker<any, Desk>>();
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
-  private failedEdits = new Map<ReaderPane, { of: string; keys: Key[]; text: string; copy: string; why: string }>();
+  private failedOpens = new Map<ReaderPane, { of: string; kind: SessionKind; opener: Key | null; keys: Key[]; text: string; copy: string; why: string }>();   // typing from an edit or comment that failed to open, with what was opening (PIE-1674)
   /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
-  private pending: { pane: ReaderPane; kind: SessionKind; opener: Key; keys: Key[] } | null = null;
+  private pending: { pane: ReaderPane; kind: SessionKind; opener: Key | null; keys: Key[] } | null = null;
 
   // ── tiles (PIE-413) ──
   /**
@@ -4071,8 +4071,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
-    const recovery = pane instanceof ReaderPane ? this.failedEdits.get(pane) : undefined;
-    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? partsHint(readerHeldParts(pane.surface.scrolls())) : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
+    const recovery = pane instanceof ReaderPane ? this.failedOpens.get(pane) : undefined;
+    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `tile menu: recover typed text · ${recovery.why}` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? partsHint(readerHeldParts(pane.surface.scrolls())) : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
@@ -4792,8 +4792,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
 
   /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
-  /** …; resolves true when the person is in it (opened, and still wanted), false when it didn't open or was cancelled. */
-  startSession(rd: ReaderPane, kind: SessionKind, opener: Key = { kind: "char", ch: "e", ctrl: kind === "external" }, keys: Key[] = []): Promise<boolean> {
+  /** …; resolves true when the person is in it (opened, and still wanted), false when it didn't open or was cancelled. `opener`: the key that started it (pressed again while it opens it isn't typing): an edit's e when not said, none for another kind (C then e is the comment's e, PIE-1674). */
+  startSession(rd: ReaderPane, kind: SessionKind, opener: Key | null = kind === "edit" || kind === "external" ? { kind: "char", ch: "e", ctrl: kind === "external" } : null, keys: Key[] = []): Promise<boolean> {
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     // The person's session is where their keys are: a reader the key wasn't pressed in (the board's preview, from a lane) takes focus.
     if (this.focusedReader() !== rd) this.focusPane(rd, USER);
@@ -4804,7 +4804,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const want = still();
       if (this.pending === token) this.pending = null;
       if (open && want) {
-        this.failedEdits.delete(rd);
+        this.failedOpens.delete(rd);
         this.entered.enter(rd);
         this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`);
         for (const key of token.keys) rd.surface.key(key, rd.host(this));
@@ -4815,12 +4815,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = startSession(rd, kind, this, still);
     const said = (e: unknown) => {
       const why = e instanceof Error ? e.message : String(e);
-      if (still() && token.keys.length && (kind === "edit" || kind === "external")) {
+      if (still() && token.keys.length && TYPED_WHILE_OPENING.has(kind)) {   // kept whichever kind was opening, recovered into the same kind (PIE-1674)
         const text = new Draft(rd.msg!.id, 0, "");
         for (const key of token.keys) text.key(key);
-        const copy = keepCopy(text.text, "edit-opening");
-        this.failedEdits.set(rd, { of: rd.msg!.id, keys: token.keys, text: text.text, copy, why });
-        this.ctx.flash(`${why} · tile menu: recover typed text · copy kept at ${copy}`, undefined, errorDetails(e));
+        const copy = keepCopy(text.text, `${TYPED_WHILE_OPENING.get(kind)}-opening`);
+        this.failedOpens.set(rd, { of: rd.msg!.id, kind, opener, keys: token.keys, text: text.text, copy, why });
+        this.ctx.flash(`tile menu: recover typed text · ${why} · copy kept at ${copy}`, undefined, errorDetails(e));
       } else this.ctx.flash(why, undefined, errorDetails(e));
       opened(false);
       return false;
@@ -4832,18 +4832,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   hasFailedEdit(sel?: string): boolean {
     const p = this.panes.get(this.tile(sel).id);
-    const kept = p instanceof ReaderPane ? this.failedEdits.get(p) : undefined;
+    const kept = p instanceof ReaderPane ? this.failedOpens.get(p) : undefined;
     return !!kept && p instanceof ReaderPane && kept.of === p.msg?.id;
   }
 
   async recoverEdit(sel?: string, op?: string) {
     const t = this.tile(sel), rd = this.panes.get(t.id);
-    const kept = rd instanceof ReaderPane ? this.failedEdits.get(rd) : undefined;
-    if (!kept || !(rd instanceof ReaderPane) || kept.of !== rd.msg?.id) throw new ActionRefused("this reader has no typing from a failed edit open");
+    const kept = rd instanceof ReaderPane ? this.failedOpens.get(rd) : undefined, word = kept && TYPED_WHILE_OPENING.get(kept.kind);
+    if (!kept || !(rd instanceof ReaderPane) || kept.of !== rd.msg?.id) throw new ActionRefused("this reader has no typing from an edit or a comment that failed to open");
     if (!op) {
       this.overlay(new ListPicker<{ label: string; op: string }, Desk>({
         name: "recover typed text", clickChooses: true,
-        items: () => [{ label: "copy typed text", op: "copy" }, { label: "open edit with typed text", op: "open" }],
+        items: () => [{ label: "copy typed text", op: "copy" }, { label: `open ${word} with typed text`, op: "open" }],
         row: (it, _i, on, w) => pickRows(` ${it.label}`, on, w),
         choose: (it, _i, d) => d.run("edit.recover", { op: it.op }, t.name),
         frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover typed text", head: [kept.why] }),
@@ -4852,10 +4852,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (op === "copy") {
       if (this.ctx.copy?.(kept.text) === false) throw new ActionRefused(`clipboard refused the text; copy kept at ${kept.copy}`);
-      this.ctx.flash("copied typing from the failed edit open");
+      this.ctx.flash(`copied typing from the failed ${word} open`);
       return { text: kept.text, copy: kept.copy };
     }
-    return { opened: await this.startSession(rd, "edit", undefined, kept.keys) };
+    return { opened: await this.startSession(rd, kept.kind, kept.opener, kept.keys) };
   }
 
   /**
@@ -4885,8 +4885,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pending = this.pending;
     if (pending && TYPED_WHILE_OPENING.has(pending.kind)) {
       const here = pending.pane === this.focusedReader() && !this.overlays.top();
-      const pasted = k.kind === "paste" || "pasted" in k && k.pasted;
-      const repeat = !pasted && k.kind === pending.opener.kind && (k.kind !== "char" || pending.opener.kind !== "char" || k.ch === pending.opener.ch && !!k.ctrl === !!pending.opener.ctrl);
+      const pasted = k.kind === "paste";
+      const o = pending.opener, repeat = !pasted && !!o && k.kind === o.kind && (k.kind !== "char" || o.kind !== "char" || k.ch === o.ch && !!k.ctrl === !!o.ctrl);
       const text = k.kind === "paste" || k.kind === "char" && !k.ctrl && /^[^\x00-\x1f\x7f]+$/u.test(k.ch)
         || k.kind === "enter" && !("ctrl" in k && k.ctrl) || k.kind === "tab" || k.kind === "backspace";
       if (here && (repeat || text)) {
@@ -5032,7 +5032,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A restored edit invites e or Enter to carry on; that key belongs to entering, not to its text.
     const resuming = focused?.surface.draft && !this.entered.in(focused) && focused.surface.keepsOnFocusAway();
     this.reenter();
-    if (resuming && this.entered.in(focused) && (c === "e" || k.kind === "enter") && !("pasted" in k && k.pasted)) return this.redraw();
+    if (resuming && this.entered.in(focused) && (c === "e" || k.kind === "enter")) return this.redraw();
     // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
     const choosing = this.choosingReader();
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }
@@ -5119,7 +5119,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (start === "edit" && host.attachment === "list-preview") return void focused.surface.runKey("list.preview.edit", {}, host);
       // e and ctrl+e arm the edit (edit.arm); a click on the hint row's e is the mouse's, and opens it at once (armsEdit).
       if (armsEdit(start)) return void focused.surface.runKey("edit.arm", start === "external" ? { external: true } : {}, focused.host(this));
-      return void this.startSession(focused, start);
+      return void this.startSession(focused, start, k);
     }
     if (!focused?.holdsKeys && pane?.key(k, this)) return;
     // d (Delete too) trashes the note the tile points at (PIE-878, note.trash): the first press says what goes, d again confirms.
@@ -6902,7 +6902,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.doorKeys.stopTyping(this, p); this.doorKeys.chordSpent(p);
     if (this.pending?.pane === p) this.pending = null;
     if (p instanceof ReaderPane) {
-      this.failedEdits.delete(p);
+      this.failedOpens.delete(p);
       if (this.entered.in(p)) this.entered.clear();
     }
     const g = this.gesture;
@@ -8339,14 +8339,14 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
 export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "edit.recover": def({
-    summary: "recover typing kept when an edit failed to open: copy it, or open a fresh edit with it inserted; a disk copy stays until the normal draft-copy cleanup",
+    summary: "recover typing kept when an edit or a comment failed to open (PIE-1674): copy it, or open the same kind again (a fresh edit, a comment) with it inserted; a disk copy stays until the normal draft-copy cleanup",
     keys: [{ via: "the tile menu: recover typed text" }], touches: "draft", replay: "ask",
     person: "only the person recovers their held typing",
     menu: { label: "recover typed text", group: "Note", now: ({ d, reader }) => d.hasFailedEdit(reader) ? null : { hide: true } },
-    args: { op: { type: "string", optional: true, choices: ["copy", "open"], about: "copy the typed text or open the edit with it; absent offers both" } },
+    args: { op: { type: "string", optional: true, choices: ["copy", "open"], about: "copy the typed text or open the edit or comment with it; absent offers both" } },
     examples: [
-      { act: "edit.recover op=copy", does: "copies the text kept when this reader failed to open its edit" },
-      { act: "edit.recover op=open", does: "opens a fresh edit in this reader and inserts the kept typing" },
+      { act: "edit.recover op=copy", does: "copies the text kept when this reader failed to open its edit or comment" },
+      { act: "edit.recover op=open", does: "opens what failed to open again (an edit, a comment) in this reader and inserts the kept typing" },
     ],
     run: ({ op }, { d, reader }) => d.recoverEdit(reader, op),
   }),

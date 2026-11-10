@@ -7,14 +7,14 @@ import { editHint } from "../src/surface/editor";
 import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
 import { NOTE_ACTIONS } from "../src/surface/note";
-import { pasteKeys, type Key } from "../src/term";
+import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string, shift?: true): Key => ({ kind: "char", ch, ctrl: true, ...(shift ? { shift } : {}) });
 const type = (d: Draft, s: string) => { for (const c of s) d.key(c === "\n" ? { kind: "enter" } : char(c)); };
 /** A paste as the App types it out: every key at once, the draft's step recorded once they're all in. */
-const paste = async (d: Draft, text: string) => { for (const k of pasteKeys(text)) d.key(k); await Bun.sleep(0); };
+const paste = async (d: Draft, text: string) => { d.key({ kind: "paste", text }); await Bun.sleep(0); };
 const undo = async (d: Draft) => { d.key(ctrl("z")); await Bun.sleep(0); };
 const redo = async (d: Draft) => { d.key(ctrl("y")); await Bun.sleep(0); };
 
@@ -55,7 +55,7 @@ describe("a draft's history", () => {
     expect(d.note).toBe("nothing to redo in this draft");
   });
 
-  test("a paste typed out key by key is one step, however big, and a big one says so", async () => {
+  test("a paste is one step, however big, and a big one says so", async () => {
     const d = new Draft("b1", 1, "Notes");
     d.place(0, 5);
     const doc = Array.from({ length: 340 }, (_, i) => `- line ${i + 1} of a Markdown doc`).join("\n");
@@ -75,11 +75,11 @@ describe("a draft's history", () => {
     expect(d.undos.map(s => s.what)).toEqual(["the paste", "the paste (3 lines)"]);
   });
 
-  test("a key straight after a typed-out paste (before it's recorded) makes the paste its step first: ctrl+z takes back the paste, not the word before it", async () => {
+  test("a key straight after a paste: ctrl+z takes back the paste, not the word before it", async () => {
     const d = new Draft("b1", 1, "");
     type(d, "word ");
-    for (const k of pasteKeys("abc")) d.key(k);
-    d.key(ctrl("z"));                                                  // no await between: the paste's microtask hasn't run
+    d.key({ kind: "paste", text: "abc" });
+    d.key(ctrl("z"));                                                  // no await between
     await Bun.sleep(0);
     expect(d.text).toBe("word ");
     expect(d.undos.map(s => s.what)).toEqual(["typing"]);
