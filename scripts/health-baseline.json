@@ -1,5 +1,5 @@
 {
-  "revision": "6bd75a02c05e0e79ddd1cd491e1f7eeead6f309f",
+  "revision": "9f8044fcc2202d7886098bed9c59ea8d3e25a28e",
   "patterns": {
     "width-length": {
       "count": 221,
@@ -350,7 +350,7 @@
     }
   },
   "files": {
-    "packages/claude-mod/hooks/register.ts": 2898,
+    "packages/claude-mod/hooks/register.ts": 2896,
     "packages/door/src/desk/desk.ts": 8469,
     "packages/door/src/desk/screen-layout.ts": 2324,
     "packages/door/src/screens.ts": 2237,

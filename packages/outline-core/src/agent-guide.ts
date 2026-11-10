@@ -22,7 +22,7 @@ const HOUSE = [
   "- A decision, a comparison, a plan or a history, a checklist: graph-decision, graph-compare, graph-timeline, graph-check, not paragraphs. A choice for Evan: a `- [ ]` per option first, never a proposed graph-decision.",
   "- An aside or a warning is a callout (`> [!tip]`); never a section: sections are headings, and a callout inside a callout is a heading too. Worked example: [[callouts-to-figures]] in pie: plan -> graph-check; today/route/rules -> graph-compare; superseded choices/rules -> graph-decision; edges -> graph-table; an untested warning stays a callout. A look or a behaviour that should follow every matching note is a rule note, with no code.",
   "- Point with links, not directions: `((id|label))`, `[[page]]`, a Work ID. Properties are open: `[key::value]` on a note's first line, any key.",
-  "- Before writing a component, `outline_components` with its id gives its properties and a working example. A write answers with `warnings` (a reference that leads nowhere, with a did-you-mean; a figure or fence left open; a long title, a wall, prose where a figure reads better) and a `next` check: fix them in the same turn, then read it back.",
+  "- Before writing a component, `outline_components` with its id gives its properties and a working example. A write answers with `warnings` (a reference that leads nowhere, with a did-you-mean; a figure or fence left open; a long title, a wall, prose where a figure reads better) and a `next` check: fix them in the same turn, then read `view`.",
   "- Read a note before you write it. What you write is attributed to you and can be undone from the record.",
 ];
 

@@ -161,6 +161,9 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
     const title = String(state.title);
     if (title !== argue) return undefined;
     if (id === "argues" || id.startsWith("mixed::") || id.startsWith("context::")) return { type: "noul", noul: 0.9 };
+    // Mixed holds as far as its lines say so (PIE-588): the second paragraph is what was settled, the first what happened.
+    const at = /^kind::(L\d+)$/.exec(id)?.[1];
+    if (at) { const kind = /settled/.test(String((state.lines as Record<string, string>)[at])) ? "decision" : "fact"; return { type: "choice", choice: kind, confidence: 0.8, probabilities: { [kind]: 0.9 } }; }
     return undefined;
   });
   const essay = [argue, "", "To understand why the beds moved, it helps to go back to the spring, when the light along the north fence was poor all morning and the soil there stayed heavy and cold well into May. We tried two rows of beans there and both came up late and thin.", "", "As discussed, the issue above is settled now: the beds face south from next year, and the north strip becomes the compost and the water butts, which never minded the shade."].join("\n");
@@ -180,11 +183,12 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
   expect(context.passage).toStartWith("As discussed, the issue above");
 
   // A rewrite Jev still says it of isn't "followed", and isn't told again: the writer heard it once, so it is carried
-  // and the verdict can ship (PIE-1402). One Jev reads and doesn't say it of is followed.
+  // (PIE-1402). Only the mixed finding stays the writer's, as any told finding with a ready patch not yet applied does
+  // (PIE-1388): its patch puts the settled paragraph under a heading of its own (PIE-588).
   const note = store.require(made.json.id);
   const repeat = await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("north fence", "north wall") });
-  expect((repeat.json.review as Review).findings.filter(f => f.new).map(f => f.rule)).toEqual([]);
-  expect((repeat.json.review as Review).verdict).toBe("ship");
+  expect((repeat.json.review as Review).findings.filter(f => f.new).map(f => f.rule)).toEqual(["mixed"]);
+  expect((repeat.json.review as Review).findings.find(f => f.rule === "mixed")!.patch![0]!.replacement).toContain("## Decided\nAs discussed");
   expect((await records("suggestion-outcome")).filter(o => o.rule === "argues")).toEqual([]);
   expect((await records("review-finding")).filter(r => r.rule === "argues")).toHaveLength(1);
   const again = store.require(note.id);
@@ -568,3 +572,108 @@ test("with Jev naming a decision figure for the top, the boxes the choice patch 
   expect(review.findings.filter(f => f.rule === "kit" && f.new)).toEqual([]);
   expect(review.verdict).toBe("ship");
 });
+
+/** A section that mixes what happened, what was decided and what's still open, a line each (made up). */
+const MIXED = [
+  "Shed roof plan",
+  "## Where it stands",
+  "- The felt on the north slope tore in the storm on Tuesday, and the rain got in over the potting bench and two trays of seedlings.",
+  "- The joists under the tear are dry and sound: only the felt and two battens need replacing, the rest of the roof held.",
+  "- We decided to replace the whole north slope with corrugated sheets rather than patch the felt again this winter.",
+  "- Still open: whether the gutter on that side can stay, or has to move to take the new sheets' overhang.",
+].join("\n");
+
+/** A fake Jev that reads each line's kind by its words, and says every section asked about mixes them. */
+const kindsByWords: Answers = (id, _q, state) => {
+  if (id.startsWith("mixed::")) return { type: "noul", noul: 0.9 };
+  const at = /^kind::(L\d+)$/.exec(id)?.[1];
+  if (!at) return undefined;
+  const line = String((state.lines as Record<string, string>)[at]);
+  const kind = /decided/i.test(line) ? "decision" : /open|\?/i.test(line) ? "open" : "fact";
+  return { type: "choice", choice: kind, confidence: 0.8, probabilities: { [kind]: 0.9 } };
+};
+
+test("a mixed section answers with the note as drawn and a finding naming its fact, decision and open lines; its patch clears it (PIE-588)", async () => {
+  const { store, agent, asked } = await setup(kindsByWords);
+  const made = await agent("create", { parent: "root", text: MIXED });
+  expect(made.exitCode, made.stderr).toBe(0);
+  // Each written line of the section was asked what it records, on its own.
+  expect(Object.keys(asked[0]!.questions)).toEqual(expect.arrayContaining(["kind::L2", "kind::L3", "kind::L4", "kind::L5"]));
+  const mixed = (made.json.review as Review).findings.find(f => f.rule === "mixed")!;
+  expect(mixed.say).toContain("what's true on lines 3–4; what was decided on line 5; what's still open on line 6");
+  expect(mixed.patch).toHaveLength(1);
+  // The answer holds the note as the door draws it, and says to read it there.
+  expect(made.json.viewError).toBeUndefined();
+  expect(made.json.view.join("\n")).toContain("Shed roof plan");
+  expect(made.json.view.join("\n")).toContain("Where it stands");
+  expect(made.json.next).toContain("read `view`");
+
+  // Applying it as told moves each line under its heading, and the section isn't mixed any more.
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: mixed.patch });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  expect(store.require(note.id).text).toContain("### Decided\n- We decided to replace");
+  expect(store.require(note.id).text).toContain("### Open\n- Still open:");
+  const after = patched.json.review as Review;
+  expect(after.findings.filter(f => f.rule === "mixed" && f.new)).toEqual([]);
+  // The patch's drawing is the part it changed, from its section's heading.
+  expect(patched.json.viewOf).toStartWith("lines 2–10 of 10");
+  expect(patched.json.view.join("\n")).toContain("Decided");
+});
+
+test("an id written bare is quoted with its link, and the patch that links it clears the finding (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  // A note whose id's first 8 characters have a digit and a letter: an all-digit or all-letter prefix reads as a word.
+  let rota: { json: { id: string } } | undefined;
+  for (let k = 0; k < 20 && !rota; k++) {
+    const made = await agent("create", { parent: "root", text: `Compost rota ${k + 1}\n\nTurn it on Sundays.` });
+    if (/\d/.test(made.json.id.slice(0, 8)) && /[a-f]/.test(made.json.id.slice(0, 8))) rota = made;
+  }
+  const short = rota!.json.id.slice(0, 8), title = store.require(rota!.json.id).text.split("\n")[0]!;
+  const made = await agent("create", { parent: "root", text: `Garden jobs\n\nTurn the heap before the beds, the order is in ${short}.` });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const context = (made.json.review as Review).findings.find(f => f.rule === "context")!;
+  expect(context.say).toContain(`names ${short} bare`);
+  expect(context.say).toContain(`((${rota!.json.id}|${title}))`);
+  expect(context.patch).toEqual([{ observed: `Turn the heap before the beds, the order is in ${short}.`, replacement: `Turn the heap before the beds, the order is in ((${rota!.json.id}|${title})).` }]);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: context.patch });
+  expect((patched.json.review as Review).findings.filter(f => f.rule === "context")).toEqual([]);
+
+  // A whole id written bare is write-shape's bare-id finding, said once: never a second context finding beside it.
+  const whole = await agent("create", { parent: "root", text: `Shed jobs\n\nThe rota is ${rota!.json.id}.` });
+  const rules = (whole.json.review as Review).findings.map(f => f.rule);
+  expect(rules).toContain("bare-id");
+  expect(rules).not.toContain("context");
+});
+
+test("a figure write comes back with the figure as the door draws it, and its live count answered (PIE-721, PIE-588)", async () => {
+  const { store, agent } = await setup();
+  for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
+  const figure = ["Bean beds", "", "::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }, { label: sown, query: \"type=bed sown=yes\" }]", "---", "::"].join("\n");
+  const started = Date.now();
+  const made = await agent("create", { parent: "root", text: figure });
+  const took = Date.now() - started;
+  expect(made.exitCode, made.stderr).toBe(0);
+  // A live count that matched nothing is a warning, so the answer is drawn: the figure's frame and its tiles.
+  expect(made.json.warnings.some((w: string) => w.includes("sown"))).toBe(true);
+  const drawn = made.json.view.join("\n");
+  expect(drawn).toContain("[ BEDS THIS WEEK ]");
+  expect(drawn).toMatch(/2 +0/);
+  expect(made.json.viewOf).toBe("the note, as the door draws it at 44 columns");
+  expect(took).toBeLessThan(15_000);
+}, 30_000);
+
+test("a patch deep in a long section is drawn: its rows, under the section's heading if it's near, within the budget (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  const rows = Array.from({ length: 60 }, (_, k) => `- Row ${k + 1}: the bed by the fence was weeded and watered.`);
+  const made = await agent("create", { parent: "root", text: ["Bed log", "## Weeding", ...rows].join("\n") });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "- Row 57: the bed by the fence was weeded and watered.", replacement: "- Row 57: the bed by the fence went to seed." }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const drawn = patched.json.view.join("\n");
+  expect(drawn).toMatch(/went to\s+seed/);
+  expect(drawn).toContain("Bed log");
+  expect(patched.json.view.length).toBeLessThanOrEqual(40);
+}, 30_000);

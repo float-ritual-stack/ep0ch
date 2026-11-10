@@ -86,7 +86,7 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    --json each note as a block record (outline-core's block-record.ts: title,
                                    header, properties as lists, children, tasks, links, backlinks, resources,
                                    created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --tree, the rows
-  ep0ch show <id>… [--json | --source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
+  ep0ch show <id>… [--json | --source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--lines <a-b>] [--ws <name>] [--machine <ssh-name>]
                                    --json reads the same block records as find --json, including the newest revision's writer;
                                    otherwise each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
@@ -99,7 +99,8 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    as a line of JSON {id, columns, rows, cells, replaced}: cells row-major,
                                    base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
                                    terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
-                                   (counted in replaced); --rows keeps the first n rows; --site prints each note as a
+                                   (counted in replaced); --rows keeps the first n rows; --lines a-b only the rows
+                                   source lines a to b draw (from 1), under the note's header; --site prints each note as a
                                    line of JSON {id, uri, text, site}: its text as written and, when it holds a {{ }},
                                    the service's whole answer for it (outline_read's site: each placeholder's values,
                                    or problem and nearest keys, how it was found, and the notes it came from)
@@ -483,7 +484,7 @@ const SETTLE = { quiet: 250, max: 3000 };
  * The note drawn by the note surface at `width`, once what it reads besides the note has arrived (each render may ask
  * for more: it's drawn again until a quiet spell passes with nothing new); null when there's no such note.
  */
-export async function drawNote(board: SocketBoard, id: string, width: number, settle = SETTLE): Promise<string[] | null> {
+export async function drawNote(board: SocketBoard, id: string, width: number, settle = SETTLE, part?: [number, number]): Promise<string[] | null> {
   const m = await board.get(id);
   if (!m) return null;
   let arrived = false;
@@ -504,6 +505,8 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   // …and a tabs figure prints every group in turn under a heading, with no tab or density control.
   surface.printed = true;
   let drawn: string[] = [];
+  /** Each drawn row's source line (from 0), where the reader knows it: what `part` keeps rows by. */
+  let lineOfRow: (row: number) => number | undefined = () => undefined, headRows = 0;
   try {
     const loaded = await loadExtensions(board);
     if (loaded && "error" in loaded) throw new Error(loaded.error);
@@ -519,15 +522,39 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
     }
     // The last draw while the connection is still this outline's.
     drawn = surface.render(width, tall, host).lines;
+    const d = surface.drawn;
+    if (d) { headRows = d.top; lineOfRow = row => row < d.top ? undefined : d.lines[d.doc.source[row - d.top + d.scroll] ?? -1]; }
   } finally {
     surface.dispose();
     restoreExtensionBinding(previousExtensions);
     unlistenLive(); unlistenLinks();
     if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }
-  const lines = drawn.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
+  let lines = drawn.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
+  if (part) lines = partOf(lines, headRows, lineOfRow, part);
   while (lines.length && !visible(lines.at(-1)!).trim()) lines.pop();
   return lines;
+}
+
+/**
+ * A drawing cut to the rows source lines `part` (from 1, both ends) draw (PIE-588: a write's answer shows what it
+ * changed): the note's header (its title and byline rows), then from the first row such a line draws to the last, a
+ * `⋮` where rows were left out above or below. A part the reader drew no row of gives the whole drawing.
+ */
+export function partOf(lines: readonly string[], head: number, lineOf: (row: number) => number | undefined, part: [number, number]): string[] {
+  const [lo, hi] = [part[0] - 1, part[1] - 1];
+  let first = -1, last = -1;
+  for (let r = head; r < lines.length; r++) {
+    const l = lineOf(r);
+    if (l === undefined || l < lo || l > hi) continue;
+    if (first < 0) first = r;
+    last = r;
+  }
+  if (first < 0) return [...lines];
+  // A row the reader drew under the last line (a figure's rows, a callout's foot) belongs to it until the next line starts.
+  while (last + 1 < lines.length && lineOf(last + 1) === undefined && visible(lines[last + 1]!).trim()) last++;
+  const gap = "  ⋮";
+  return [...lines.slice(0, head), ...(first > head ? [gap] : []), ...lines.slice(first, last + 1), ...(last + 1 < lines.length && lines.slice(last + 1).some(l => visible(l).trim()) ? [gap] : [])];
 }
 
 /** `ep0ch show <id>… …`: its exit code. */
@@ -574,13 +601,18 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
 
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
   const args = argsIn.slice(1);
-  for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
+  for (const f of ["--ws", "--machine", "--width", "--rows", "--lines"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
   const ansi = args.includes("--ansi"), cells = args.includes("--cells"), markdown = args.includes("--markdown"), source = args.includes("--source") || markdown, site = args.includes("--site"), json = args.includes("--json");
   if (Number(ansi) + Number(cells) + Number(args.includes("--source")) + Number(markdown) + Number(site) + Number(json) > 1) { io.err("ep0ch: show prints the drawing, --json, --ansi, --cells, --source, --markdown or --site: one of them"); return 2; }
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--json", "--ansi", "--cells", "--source", "--markdown", "--site", "--here"]);
+  // --lines a-b: only the rows the note's source lines a to b draw (from 1), under its header (a write's answer, PIE-588).
+  const linesArg = flag(args, "--lines") as string | undefined;
+  const part = linesArg === undefined ? undefined : /^(\d+)-(\d+)$/.exec(linesArg);
+  if (linesArg !== undefined && (!part || Number(part[1]) < 1 || Number(part[2]) < Number(part[1]))) { io.err("ep0ch: --lines takes the source lines to draw, first-last from 1, like --lines 4-9"); return 2; }
+  const lineRange = part ? [Number(part[1]), Number(part[2])] as [number, number] : undefined;
+  const ids = without(args, ["--ws", "--machine", "--width", "--rows", "--lines"], ["--json", "--ansi", "--cells", "--source", "--markdown", "--site", "--here"]);
   if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
   const width = wArg !== undefined ? Number(wArg) : io.columns || 80;
@@ -626,7 +658,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       // A figure the outline didn't answer in time is said in its place; the exit code says the copy isn't whole.
       if (page?.unanswered) { io.err(`ep0ch: ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} in ${id} not answered in time: ask again with ep0ch show ${id} --markdown`); code = 1; }
       const text = page ? page.text : written;
-      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width);
+      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width, undefined, lineRange);
       if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
       // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
       const kept = lines.slice(0, rows);
