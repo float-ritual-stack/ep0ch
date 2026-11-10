@@ -530,3 +530,6 @@ export function selfAnswer(kind: "greeting" | "use" | "setup", o: { readme: stri
  */
 export const CLAUDE_LOGIN_FIX = "claude isn't logged in where the outline host runs; store its login: with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN";
 export const notLoggedIn = (out: string, err: string) => /\bNot logged in\b/.test(`${out}\n${err}`);
+
+/** The door's refusals of an agent's press because the person is typing or editing there: the press is theirs to make. */
+export const YOURS_WHILE_TYPING = /\b(?:is editing|is typing|typing in|editing the note|at the keys|their draft|open in a draft|the person's (?:draft|edit))\b/i;

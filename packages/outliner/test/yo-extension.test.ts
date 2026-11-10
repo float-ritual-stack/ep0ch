@@ -119,6 +119,12 @@ test("the done row offers undo only when the run can take it back", () => {
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
 
+/** As until, for a check that asks the service: awaited each time (a promise itself is no answer). */
+async function untilAsked(what: string, check: () => Promise<boolean>): Promise<void> {
+  const end = Date.now() + 20_000;
+  while (!(await check())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(25); }
+}
+
 async function until<T>(what: string, check: () => T | undefined | null | false): Promise<T> {
   const end = Date.now() + 20_000;
   for (;;) { const v = check(); if (v) return v; if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(25); }
@@ -282,7 +288,7 @@ test("PIE-1632: after four answers with the same button, do it presses the newes
     },
   });
   cleanups.push(() => door.stop());
-  await until("the door connected", async () => (await t.client.request<{ clientId: string }[]>({ action: "clients.list" })).length >= 1);
+  await untilAsked("the door connected", async () => (await t.client.request<{ clientId: string }[]>({ action: "clients.list" })).length >= 1);
   // Four asks of the same thing in other words: each answer's button and hint read the same, line for line.
   const asks = ["how do I lift the barrow again", "how can I lift the barrow?", "what's the key for lifting the barrow", "can you lift the barrow?"];
   const made = await t.client.request<{ id: string }>({ action: "create", text: ["Shed list", "", ...asks.map(a => `@yo ${a}\n`)].join("\n"), author: "user" } as never);
@@ -505,7 +511,7 @@ test("an extension's query.suggest reads; an outcome or corrections from it is r
 await Bun.stdin.json();
 const said = await outline({ action: "query.suggest", text: "beds", outcome: "accepted", suggestion: { id: "x", input: "beds", base: "", where: "#beds", text: [], clauses: [{ clause: "#beds", from: ["beds"], confidence: 1, alternatives: [] }] } }).then(() => "accepted", (e: Error) => "refused: " + e.message);
 process.stdout.write(JSON.stringify({ ok: true, value: { message: said } }));`);
-  await until("the probe loaded", async () => (await t.client.request<{ extensions: { id: string; state?: string }[] }>({ action: "extensions.list" } as never)).extensions.some(e => e.id === "wordprobe" && e.state === "active"));
+  await untilAsked("the probe loaded", async () => (await t.client.request<{ extensions: { id: string; state?: string }[] }>({ action: "extensions.list" } as never)).extensions.some(e => e.id === "wordprobe" && e.state === "active"));
   const answer = await t.client.request<{ message: string }>({ action: "extensions.act", extension: "wordprobe", extensionAction: "learn" } as never);
   expect(answer.message).toStartWith("refused:");
   expect(answer.message).toContain("query-words");
@@ -570,3 +576,12 @@ test("PIE-1711: a find's answer adds no tag or link to the note, its buttons car
   expect(miss).toMatch(/> keys here: type \(/);
   expect(miss).not.toContain("machinery");
 }, 60_000);
+
+// PIE-1722, the verifier's walk: a command yo can't press because the person has the note open in an edit is theirs to
+// press, said as that, with its button; never "the door refused it".
+test("a command refused because the person is editing the note is said as theirs to press, with its button", async () => {
+  const { YOURS_WHILE_TYPING } = await import("../extensions/yo/yo-line");
+  for (const said of ["the person has the edit to Seed note open in a draft with unsaved changes; an agent doesn't write it underneath", "this reader is editing the note: change its title in the edit", "the person is typing in this draft"])
+    expect([said, YOURS_WHILE_TYPING.test(said)]).toEqual([said, true]);
+  expect(YOURS_WHILE_TYPING.test("no tile is called compost-heap")).toBe(false);
+});

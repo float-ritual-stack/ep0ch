@@ -46,6 +46,8 @@ export class AnswerTile implements Pane {
     return true;
   }
   wheel(dir: 1 | -1, desk: DeskApi) { void desk.press?.(this, ANSWER_ACTIONS, "answer.scroll", { by: dir * 3 }); }
+  /** Whether (x, y) is on a link or a button drawn here. */
+  hits(x: number, y: number): boolean { return this.ranges.some(r => r.line === y + this.top && x >= r.from && x < r.to); }
   click(x: number, y: number, desk: DeskApi) {
     const hit = this.ranges.find(r => r.line === y + this.top && x >= r.from && x < r.to);
     if (hit) void desk.press?.(this, ANSWER_ACTIONS, "answer.follow", { n: hit.n + 1 });
@@ -128,4 +130,6 @@ export const ANSWER_TILE: TileKind = {
   actions: ANSWER_ACTIONS,
   about: "an ask's answer from the live note beside it",
   make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined),
+  // A click on a link or a button presses it; the keys stay in the edit beside it (PIE-1722).
+  clickKeepsKeys: (p, x, y) => (p as AnswerTile).hits(x, y),
 };

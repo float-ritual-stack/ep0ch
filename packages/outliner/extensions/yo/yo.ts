@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { failureWords, findAnswer, findAsk, oneSlip, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine, type FoundNotes } from "./yo-line";
+import { failureWords, findAnswer, findAsk, oneSlip, YOURS_WHILE_TYPING, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine, type FoundNotes } from "./yo-line";
 import { actPrompt, argsOf, pathTo, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
@@ -335,6 +335,8 @@ async function respond() {
   const label = labelOf(action, line.line);
   let pressed: Awaited<ReturnType<typeof press>> = { refused: "nothing to press" };
   for (const step of [...pathTo(action, actions, tile), line.line]) { pressed = await press(step, label); if ("refused" in pressed) break; }
+  // Asked in an edit the person has open: yo never writes under it, so the press is theirs, said as that, not as a refusal (PIE-1722).
+  if ("refused" in pressed && YOURS_WHILE_TYPING.test(pressed.refused)) return ok({ message: `${label}: yours to press`, reply: withSteps([...quoteAnswer(action, asked, args), "yours to press: you're editing this note, and yo never writes under your edit."]) });
   if ("refused" in pressed) return ok({ message: "the door refused it", reply: withSteps([...quoteAnswer(action, asked, args), `the door refused it as yo: ${pressed.refused}`]) });
   await remember(asked, line.line);
   return ok({ message: `✓ pressed ${label} as yo`, reply: withSteps([...quoted(action, args), doneRow(label, pressed.undo, reversible(action, pressed), pressed.changed)]) });
