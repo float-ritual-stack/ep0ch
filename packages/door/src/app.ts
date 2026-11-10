@@ -1506,7 +1506,7 @@ export class App implements Ctx {
     // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
     // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
     if (k.kind !== "mouse" && w.over === "menu") { this.stack.at(-1)!.key(k, this); return; }
-    if (this.drawer.keysFact.recordsInto(this.stack.at(-1), this.drawer.entered, k) || this.drawer.menuInput(k) || runningModules().some(([, m]) => m.key?.(k)) || this.drawer.glassInput(k)) return;
+    if (this.drawer.keysFact.recordsInto({ address: this.person().address, resolve: a => this.hostLayer.resolveTile(a) }, k) || this.drawer.menuInput(k) || runningModules().some(([, m]) => m.key?.(k)) || this.drawer.glassInput(k)) return;
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
