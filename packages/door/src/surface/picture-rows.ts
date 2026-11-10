@@ -8,7 +8,7 @@ import { sourceLines } from "@ep0ch/outline-core/code-ranges";
 import { drawingLayout, drawingSpec, imagePrimitiveSpec, locatePicture, media, picturesIn, pictureStep, rewritePicture, type Drawing, type ImagePrimitive, type MediaAttr, type MediaSpec, type Picture, type PictureStep, type StepRoom } from "../media";
 import { C, ellipsize, fg, RESET, width as vwidth } from "../style";
 import { putCell } from "./selection";
-import { tagInto as tagged } from "./blockdown-context";
+import { tagInto as tagged } from "./blockdown-draw";
 import type { ImageRef, LinkTarget as Link } from "../refs";
 
 /**

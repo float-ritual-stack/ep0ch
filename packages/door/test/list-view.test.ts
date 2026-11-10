@@ -60,12 +60,12 @@ describe("ListView", () => {
     const v = new ListView("#1");
     v.set(rows());
     v.startTyping(filterLine);
-    for (const k of "spad") v.typing!.key({ kind: "char", ch: k });
+    for (const k of "spad") v.typing!.draft.key({ kind: "char", ch: k });
     expect(v.visible().map(r => r.id)).toEqual(["h", "spade"]);
     v.stopTyping(true);
     expect(v.filter()).toBe("spad");
     v.startTyping(filterLine);
-    for (const k of " zzqq") v.typing!.key({ kind: "char", ch: k });
+    for (const k of " zzqq") v.typing!.draft.key({ kind: "char", ch: k });
     expect(v.visible()).toHaveLength(0);
     v.stopTyping(false);
     expect(v.filter()).toBe("spad");

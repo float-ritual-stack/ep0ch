@@ -13,11 +13,21 @@ are its record. The outliner's entries from then are kept below, under
 ### An agent's write answers with the note as drawn, and every finding names its lines; a Work ID in a query finds its item (PIE-588, PIE-1682)
 
 - **The note as drawn, in the write's answer:** every create, edit and patch answers with `view`, the part it changed as the door draws it at 44 columns (`viewOf` says which lines), on the claude.ai connector as in Claude Code. The agent tools draw it with the door's own drawing (the gateway in process, the CLI through `ep0ch show --lines`); the mod no longer runs its own `ep0ch show` after a write. A patch into a note someone has open in a draft says why it isn't drawn.
-- **A bare id is quoted, with its link:** a Work ID of another outline written bare (`PIE-587` in gurgle) is a finding that quotes it and gives `[[pie:PIE-587]]` as a ready patch, the outline found by its name on the host; a note's id written bare gets `((id|its title))`.
+- **A bare id is quoted, with its link:** a Work ID of another outline written bare (`PIE-587` in gurgle) is a finding that quotes it and gives `[[pie:PIE-587]]` as a ready patch, the outline found by its name on the host and only when it has that item; a note's id written bare gets `((id|its title))`.
 - **A mixed section names its lines:** Jev reads each line of a long section as what's true, what was decided or what's still open; the finding says which lines are which, and its patch moves the decided and the open under headings of their own. A section whose lines are all one kind isn't mixed, so a rewrite as told clears it instead of moving it. A context finding that can't say where is advice, not a fix.
 - **`PIE-587 OR PIE-588` in a query returns those two items:** a bare Work ID clause reads as `work-id=PIE-587`, in outline-core's clause parser, so `outline_query`, `outline_find`, `ep0ch find --query` and views agree. An empty answer names each Work ID no item has ("no item has PIE-999 (read as work-id=PIE-999)"), and a key written like one (`pie-587`) says `work-id=` in its hint.
 - **`ep0ch show --lines a-b`:** only the rows those source lines draw, under the note's header, with a `⋮` where rows were left out.
 - **Run:** `ep0ch install --apply`. GRAMMAR goes to 48 (the query clause); PROTOCOL and the schema don't move.
+### Rebind any key of a draft and it works, and shows, wherever you type (Nov 3 review cards 1 and 8)
+
+- **Every draft key is a row of a table:** esc (`edit.close`), tab and shift+tab (`draft.indent`, `draft.outdent`), the second key of the `ctrl+x ctrl+e` $EDITOR chord (`"edit.external": ["ctrl+x alt+e"]`), and a line field's ctrl+w (`draft.erase to=word-back`), ctrl+u (new `draft.clear`) and ctrl+x (`draft.cut`) are rows in `DRAFT_KEYS`, a chord table and `LINE_KEYS`. A rebind in `keybindings.json` or the keys window (`?`) works in a note's edit, a comment, the composer, an inspector field, the power bar and every line field; the old key does nothing, and a line field says where it went.
+- **The hint row names the key that runs:** `editHint` no longer writes a key; the snippet row, the inspector's `esc cancels`, ctrl+o and ctrl+g (`comment.place`, `comment.grip`) and the `[` wrap come from the tables with the keymap applied. An edit's keys (`ctrl+k` the keys window) list the draft's table.
+- **The facets query line** closes on the draft's `edit.close` (rebindable) and its ⏎ is a listed row; its typing was already the line field's.
+- **The line field is an adapter over the edit control** (`LineField` holds a `Draft`, `field.draft`) instead of a subclass of it.
+- **The showcase starts again on this branch:** the home screen and the library drew through the reader's Blockdown module, and that import cycle stopped the showcase's seed loading (`Cannot access 'nounOf' before initialization`). They draw through its light half, `surface/blockdown-draw.ts`.
+- **A draft brought back names your keys:** "brought back your edit · alt+s saves · alt+q twice drops it" when those are your save and close keys, not ctrl+s and esc.
+- **In the kitchen sink:** the keys section's test moves the draft's esc to alt+q through the keys tile, closes an edit on alt+q and reads the hint.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
 
 ### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
 
