@@ -682,7 +682,7 @@ export class Draft {
     return "discard";
   }
   /** The key the table gives `action` now (the keymap applied), for what this draft says of its keys. */
-  private keyOf(action: string): string {
+  keyOf(action: string): string {
     const r = effective(DRAFT_KEYS).find(x => x.action === action);
     return r?.key ?? "(unbound)";
   }
