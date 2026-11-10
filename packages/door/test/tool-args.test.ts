@@ -1,8 +1,8 @@
-// Agent tool arguments across the door's surfaces (outline-core/src/tool-args.ts, and the tool definitions in agent-tool-definitions.ts): the Claude mod carries copies that
-// can't import them, so each pair must stay byte-equal below its marker; the door's own `act` and `open` take `ref` and its
-// aliases for their `id`, refuse two that name different blocks, and answer a wrong call with the right one.
+// Agent tool arguments across the door's surfaces (outline-core/src/tool-args.ts): the door's own `act` and `open` take
+// `ref` and its aliases for their `id`, refuse two that name different blocks, and answer a wrong call with the right one.
+// The Claude mod carries tool-args.ts and agent-tool-definitions.ts in its generated bundle (hooks/link-grammar.js), kept
+// true by `bun scripts/link-grammar.ts --check`; the one list it still keeps by hand is checked here.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ActionRefused, actionSet, def } from "../src/surface/actions";
 import type { Actor } from "../src/socket";
@@ -14,20 +14,8 @@ const AGENT: Actor = { kind: "agent", id: "claude-7" };
 const BLOCK = "0f3c2a1b-1111-4222-8333-444455556666";
 const OTHER = "7a1e0c2d-2222-4333-8444-555566667777";
 
-describe("the mod's copies are one file in two places", () => {
-  const MARK = "// --- tool-args shared code below this line ---";
-  const below = (path: string) => readFileSync(join(import.meta.dir, path), "utf8").split(MARK)[1];
-  test("the mod's copy equals outline-core's below the marker", () => {
-    expect(below("../../claude-mod/hooks/tool-args.ts")).toBe(below("../../outline-core/src/tool-args.ts"));
-    expect(below("../../outline-core/src/tool-args.ts")?.length).toBeGreaterThan(1000);
-  });
-  test("so is agent-tool-definitions.ts, the tools both surfaces register (PIE-720)", () => {
-    const mark = "// --- agent tool definitions below this line ---";
-    const after = (path: string) => readFileSync(join(import.meta.dir, path), "utf8").split(mark)[1];
-    expect(after("../../claude-mod/hooks/agent-tool-definitions.ts")).toBe(after("../../outline-core/src/agent-tool-definitions.ts"));
-    expect(after("../../outline-core/src/agent-tool-definitions.ts")?.length).toBeGreaterThan(1000);
-  });
-  test("and the tools the mod fills a persona into are the gateway's PERSONA_TOOLS, the ones that record an actor (PIE-1256)", async () => {
+describe("the mod's copy of the gateway's persona tools", () => {
+  test("the tools the mod fills a persona into are the gateway's PERSONA_TOOLS, the ones that record an actor (PIE-1256)", async () => {
     // A computed path: the door's type check does not follow into the mod, whose imports need Claude Code's types.
     const mod = await import(join(import.meta.dir, "../../claude-mod/hooks/connector-persona.ts"));
     expect([...mod.CONNECTOR_PERSONA_TOOLS]).toEqual([...PERSONA_TOOLS]);

@@ -277,8 +277,8 @@ starts and after a tool runs, `blocked` with `kind=permission` when a permission
 `permission_prompt`) or `kind=question` for AskUserQuestion and an MCP elicitation, `done` with the answer's first line
 when the main loop's turn ends, `idle` when it's interrupted, `error` for a refusal or an API error, cleared when the
 session ends. Every report carries `app=claude-code`. `hooks/claude-status.ts` holds the mapping (pure);
-`hooks/program-status.ts` is outline-core's encoder, copied (a hooks module can't import outside the plugin) and kept
-identical by outline-core's test. It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
+the encoder is outline-core's `program-status.ts`, carried in the mod's generated bundle (`hooks/link-grammar.js`; a
+hooks module can't import outside the plugin). It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
 outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input. This build of Claude Code reports nothing itself (its plugin API has no such call); once it does, `EP0CH_PROGRAM_STATUS=native` makes the mod step aside, so a record never has two writers (the mod can't read Claude's own output to notice by itself).
 
 ### Approve from the phone (PIE-1386)
@@ -540,12 +540,11 @@ Each `outline_*` tool and `view_order` is defined once, for every surface (PIE-7
 its name, words, arguments, a call that works and its shape check are in
 `packages/outline-core/src/agent-tool-definitions.ts`, which the MCP gateway's
 write tools and the outliner's host API (`src/host-api.ts`, the tools as plain
-functions for scripts) register too. `hooks/agent-tool-definitions.ts` is the same
-code below its marker line (hooks can't import it); the door's
-`test/tool-args.test.ts` fails when the two differ. Remaining surface gaps have
+functions for scripts) register too. The mod reads it from its generated bundle,
+`hooks/link-grammar.js` (hooks can't import outline-core). Remaining surface gaps have
 reasons in `AGENT_TOOL_SURFACES`; `test/mcp.test.ts` exercises a script, the mod CLI
 and MCP writing the same scratch note with attribution. Edit outline-core's file, then
-copy from the marker down.
+run `bun scripts/link-grammar.ts`; the package's `check` fails on a stale bundle.
 
 | Tool | Input | Returns |
 |---|---|---|
@@ -583,15 +582,13 @@ find it with `outline_find` first.
 **`ref` is the one argument for "which note"** on every tool that takes one: the `outline_*` tools, `work_*`,
 `note_section`, `view_order`, `show` and `door_open`. The names a model reaches for are accepted too (`id`,
 `reference`, `block`, `blockId`, `uri`, `note`, and `item` on the workboard tools; `view` on `view_order`), through
-`hooks/tool-args.ts`, which every tool call passes before it runs. Two of them naming different notes (`{ref: "PIE-520",
+outline-core's `tool-args.ts` (in the mod's bundle, `hooks/link-grammar.js`), which every tool call passes before it runs. Two of them naming different notes (`{ref: "PIE-520",
 id: "PIE-588"}`) is refused as ambiguous, and nothing runs; the same note spelt two ways (`((id))` and the id) is
 accepted. A wrong call is answered with what was wrong and the right call: the unknown argument and the closest valid
 one, what is missing or the wrong type, the tool's arguments in one line, and a call that works. A name near no argument
 (the host's own metadata, `agentId` in a subagent, or a name made up) doesn't stop the call, but it's said first in the
 answer, `Not used: `flavour` is no argument of outline_comment (its arguments: …)` (PIE-871: a `kind` dropped
-silently cost nine patch notes their kind). That file is the same
-code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the door's
-`test/tool-args.test.ts` fails when the two differ.
+silently cost nine patch notes their kind).
 
 - **The safe path is read, then edit with the revision.** `outline_edit` refuses
   an empty or whitespace-only result, a revision that isn't the block's (read it

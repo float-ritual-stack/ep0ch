@@ -1,8 +1,8 @@
 /**
  * Agent tool arguments: one canonical name for "which block or note" (`ref`), the aliases a model reaches for, and
  * a corrective error when a call is wrong. The door's MCP gateway, the outliner's `agent` operations and its Pi
- * extension use this module; the Claude mod's hooks can't import it, so `packages/claude-mod/hooks/tool-args.ts`
- * carries the same code below the marker line (door/test/tool-args-parity.test.ts keeps the two byte-equal).
+ * extension use this module; the Claude mod's hooks can't import it, so they read it from the mod's generated bundle
+ * (`packages/claude-mod/hooks/link-grammar.js`, `bun scripts/link-grammar.ts`).
  *
  * The shape, once per surface: describe a tool as a `ToolArgsSpec` (its JSON schema, an example call, the aliases it
  * adds), run `checkToolArgs` before the tool does anything, and answer a failure with `error` as it is. It names
@@ -13,8 +13,6 @@
  */
 
 import { referencedBlock } from "./link-syntax";
-
-// --- tool-args shared code below this line ---
 
 export interface ToolSchema {
   type?: string | readonly string[];

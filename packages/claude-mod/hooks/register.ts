@@ -42,7 +42,7 @@ import { answeredInSession, answerOf, approveWaitMs, askOutlineOf, askPageCreate
 import { HEARD_EVERY_MS, heardText, outcomeKey, outcomesPageOf, proposalsInput, untold, wakes, type Outcome } from './proposals-heard'
 import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, notesToRead, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
 import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
-import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
+import { type StatusInput, tileMark, tmuxPassthrough } from './link-grammar.js'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
 import { fileRefOf, threadedPathOf, threadsHeldNote } from './file-threads'

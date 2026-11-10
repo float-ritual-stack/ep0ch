@@ -357,6 +357,7 @@ function isMachineName(name) {
 // packages/outline-core/src/addressable-resource.ts
 var BLOCK_ID_SOURCE = String.raw`[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`;
 var BLOCK_ID_PATTERN = new RegExp(`^${BLOCK_ID_SOURCE}$`, "i");
+var BLOCK_ID_LIKE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var BLOCK_ID_SCHEMA_PATTERN = `^${BLOCK_ID_SOURCE.replace(/a-f/g, "a-fA-F").replace("[89ab]", "[89abAB]")}$`;
 var FRAGMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 var BLOCK_REFERENCE_HEAD_PATTERN = new RegExp(String.raw`^\(\((${BLOCK_ID_SOURCE})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?=\)\)|\|)`, "i");
@@ -1197,19 +1198,1205 @@ function mentions(text, name) {
   const bare = name.trim().replace(/^@/, "");
   return !!bare && new RegExp(`(^|[^\\w])@${bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i").test(text);
 }
+// packages/outline-core/src/tool-args.ts
+var REF_ALIASES = ["id", "reference", "block", "blockId", "uri", "note"];
+function typesOf(schema) {
+  if (schema.type !== undefined)
+    return [...Array.isArray(schema.type) ? schema.type : [schema.type]];
+  if (schema.const !== undefined)
+    return [schema.const === null ? "null" : typeof schema.const];
+  if (schema.anyOf)
+    return [...new Set(schema.anyOf.flatMap(typesOf))];
+  return [];
+}
+function isType(value, type) {
+  switch (type) {
+    case "string":
+      return typeof value === "string";
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return typeof value === "object" && value !== null && !Array.isArray(value);
+    case "null":
+      return value === null;
+    default:
+      return true;
+  }
+}
+function typeLabel(schema) {
+  const choices = schema.enum ?? (schema.anyOf?.every((member) => member.const !== undefined) ? schema.anyOf.map((member) => member.const) : undefined);
+  if (choices)
+    return choices.map(String).join("|");
+  const types = typesOf(schema);
+  if (types.length === 0)
+    return "any";
+  const label = types.map((type) => type === "array" ? `${schema.items ? typeLabel(schema.items) : "any"}[]` : type).join("|");
+  if (schema.minimum !== undefined && schema.maximum !== undefined)
+    return `${label} ${schema.minimum}-${schema.maximum}`;
+  if (schema.minimum !== undefined)
+    return `${label} >= ${schema.minimum}`;
+  if (schema.maximum !== undefined)
+    return `${label} <= ${schema.maximum}`;
+  return label;
+}
+function requiredAlternatives(schema) {
+  return (schema.oneOf ?? []).flatMap((alternative) => alternative.required?.length ? [[...alternative.required]] : []);
+}
+function toolSchemaLine(spec) {
+  const required = new Set(spec.schema.required ?? []);
+  const alternatives = requiredAlternatives(spec.schema).map((names) => names[0]);
+  const parts = Object.entries(spec.schema.properties ?? {}).map(([name, schema]) => {
+    const note = required.has(name) ? "required" : alternatives.includes(name) ? "one of these is required" : "";
+    return `${name} (${typeLabel(schema)}${note ? `, ${note}` : ""})`;
+  });
+  return parts.length ? parts.join(" · ") : "no arguments";
+}
+var shorten = (value) => typeof value === "string" && value.length > 60 ? `${value.slice(0, 57)}…` : value;
+function toolCallText(name, args) {
+  return `${name} ${JSON.stringify(args)}`;
+}
+function editDistance(a, b) {
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1;i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1;j <= b.length; j++) {
+      next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    row = next;
+  }
+  return row[b.length];
+}
+function closest(name, candidates) {
+  const lower = name.toLowerCase();
+  let best;
+  for (const candidate of candidates) {
+    const d = editDistance(lower, candidate.toLowerCase());
+    if (!best || d < best.d)
+      best = { name: candidate, d };
+  }
+  return best && best.d <= Math.max(2, Math.floor(Math.max(name.length, best.name.length) / 3)) ? best.name : undefined;
+}
+function aliasTable(spec) {
+  const declared = spec.schema.properties ?? {};
+  const table = new Map;
+  for (const [canonical, names] of Object.entries(spec.aliases ?? {}))
+    for (const name of names)
+      if (!(name in declared))
+        table.set(name, canonical);
+  if ("ref" in declared) {
+    for (const name of REF_ALIASES)
+      if (!(name in declared) && !table.has(name))
+        table.set(name, "ref");
+  }
+  return table;
+}
+function checkToolArgs(spec, input) {
+  const declared = spec.schema.properties ?? {};
+  const aliases = aliasTable(spec);
+  const ignore = new Set(spec.ignore ?? []);
+  const problems = [];
+  const fixes = [];
+  const args = {};
+  const unknown = [];
+  const renamed = [];
+  const conflicted = new Set;
+  const fail = () => ({ ok: false, error: message(spec, problems, fixes, input, unknown) });
+  if (input === undefined || input === null)
+    input = {};
+  if (typeof input !== "object" || Array.isArray(input)) {
+    problems.push(`The arguments are ${Array.isArray(input) ? "a list" : typeof input}, not an object of name: value.`);
+    return fail();
+  }
+  const given = input;
+  const from = new Map;
+  for (const [key, value] of Object.entries(given)) {
+    if (ignore.has(key))
+      continue;
+    if (value === undefined)
+      continue;
+    const canonical = key in declared ? key : aliases.get(key);
+    if (canonical === undefined) {
+      unknown.push(key);
+      continue;
+    }
+    from.set(canonical, [...from.get(canonical) ?? [], key]);
+  }
+  for (const [canonical, keys] of from) {
+    const values = keys.map((key) => given[key]);
+    if (keys.length > 1 && !values.every((value) => sameReference(value, values[0]))) {
+      conflicted.add(canonical);
+      problems.push(ambiguous(keys.map((key, i) => [key, values[i]])));
+      continue;
+    }
+    args[canonical] = values[0];
+    for (const key of keys)
+      if (key !== canonical)
+        renamed.push([key, canonical]);
+  }
+  if ("ref" in declared && !conflicted.has("ref")) {
+    const named = ["ref", ...REF_ALIASES.filter((name) => (name in declared))].filter((name) => (name === "ref" ? args.ref : given[name]) !== undefined);
+    const values = named.map((name) => name === "ref" ? args.ref : given[name]);
+    if (named.length > 1 && !values.every((value) => sameReference(value, values[0]))) {
+      conflicted.add("ref");
+      problems.push(ambiguous(named.map((key, i) => [key, values[i]])));
+    }
+  }
+  const missing = (spec.schema.required ?? []).filter((name) => !conflicted.has(name) && (args[name] === undefined || args[name] === null && !typesOf(declared[name] ?? {}).includes("null")));
+  const alternatives = requiredAlternatives(spec.schema);
+  const lacksAlternative = alternatives.length > 0 && !conflicted.size && !alternatives.some((names) => names.every((name) => args[name] !== undefined));
+  const lacking = [...missing, ...lacksAlternative ? [alternatives.map((names) => names.join("+"))[0].split("+")[0]] : []];
+  const names = [...Object.keys(declared), ...aliases.keys()];
+  for (const key of unknown) {
+    const near = closest(key, names);
+    const target = near === undefined ? undefined : aliases.get(near) ?? near;
+    if (target !== undefined && args[target] === undefined) {
+      problems.push(`\`${key}\` is not an argument of ${spec.name}; did you mean \`${target}\`?`);
+      fixes.push([key, target]);
+    } else if (!spec.dropUnknown && unknown.length === 1 && lacking.length === 1 && typesOf(declared[lacking[0]] ?? {}).some((type) => isType(given[key], type))) {
+      problems.push(`\`${key}\` is not an argument of ${spec.name}; the required \`${lacking[0]}\` is missing, so you probably meant \`${lacking[0]}\`.`);
+      fixes.push([key, lacking[0]]);
+    } else if (!spec.dropUnknown) {
+      problems.push(`\`${key}\` is not an argument of ${spec.name}.`);
+    }
+  }
+  const fixed = new Set(fixes.map(([, to]) => to));
+  for (const name of missing)
+    if (!fixed.has(name))
+      problems.push(`Missing required \`${name}\` (${typeLabel(declared[name] ?? {})}${declared[name]?.description ? `: ${declared[name].description}` : ""}).`);
+  if (lacksAlternative && !alternatives.flat().some((name) => fixed.has(name))) {
+    problems.push(`Give one of ${alternatives.map((names) => `\`${names.join(" + ")}\``).join(" or ")}.`);
+  }
+  for (const [name, value] of spec.namesOnly ? [] : Object.entries(args)) {
+    const schema = declared[name];
+    if (!schema || value === null && !typesOf(schema).includes("null"))
+      continue;
+    const types = typesOf(schema);
+    if (types.length && !types.some((type) => isType(value, type))) {
+      problems.push(`\`${name}\` must be ${typeLabel(schema)}; got ${describe(value)}.`);
+    } else if (schema.enum && !schema.enum.some((choice) => choice === value)) {
+      problems.push(`\`${name}\` must be one of ${schema.enum.map(String).join(", ")}; got ${JSON.stringify(shorten(value))}.`);
+    } else if (typeof value === "number" && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) {
+      problems.push(`\`${name}\` must be ${typeLabel(schema)}; got ${value}.`);
+    } else if (Array.isArray(value) && schema.items && typesOf(schema.items).length) {
+      const bad = value.findIndex((item) => !typesOf(schema.items).some((type) => isType(item, type)));
+      if (bad >= 0)
+        problems.push(`\`${name}\` is a list of ${typeLabel(schema.items)}; item ${bad} is ${describe(value[bad])}.`);
+    }
+  }
+  return problems.length ? fail() : { ok: true, args, renamed };
+}
+function refKey(value) {
+  if (typeof value !== "string")
+    return { id: JSON.stringify(value) };
+  let text = value.trim();
+  const block = referencedBlock(text);
+  if (block)
+    text = block.outline ? `${block.outline}:${block.blockId}` : block.blockId;
+  const uri = /^ep0ch:\/\/([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(text);
+  if (uri)
+    return { id: uri[2].toLowerCase(), where: uri[1].toLowerCase() };
+  return { id: /^[0-9a-f-]{36}$/i.test(text) ? text.toLowerCase() : text };
+}
+function sameReference(a, b) {
+  const [x, y] = [refKey(a), refKey(b)];
+  return x.id === y.id && (x.where === undefined || y.where === undefined || x.where === y.where);
+}
+function referenceConflict(spec, pairs) {
+  if (pairs.length < 2 || pairs.every(([, value]) => sameReference(value, pairs[0][1])))
+    return null;
+  return message(spec, [ambiguous(pairs)], [], {}, []);
+}
+var ambiguous = (pairs) => `Ambiguous: ${pairs.map(([key, value]) => `\`${key}\` is ${JSON.stringify(shorten(value))}`).join(" but ")}. They name different things and none was used: pass one \`ref\`.`;
+function describe(value) {
+  if (value === null)
+    return "null";
+  if (Array.isArray(value))
+    return "a list";
+  return typeof value === "object" ? "an object" : `${typeof value} ${JSON.stringify(shorten(value))}`;
+}
+function message(spec, problems, fixes, input, unknown) {
+  const lines = [`${spec.name} did not run.`, ...problems];
+  lines.push(`Arguments: ${toolSchemaLine(spec)}`);
+  const given = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const ignore = new Set(spec.ignore ?? []);
+  const kept = Object.entries(given).filter(([key, value]) => value !== undefined && !ignore.has(key));
+  const exact = kept.every(([, value]) => JSON.stringify(value).length <= 160);
+  const fixedArgs = {};
+  for (const [key, value] of kept)
+    fixedArgs[fixes.find(([from]) => from === key)?.[1] ?? key] = value;
+  if (fixes.length && unknown.length === fixes.length && problems.length === fixes.length && exact && checkToolArgs(spec, fixedArgs).ok) {
+    lines.push(`Call it as: ${(spec.callText ?? toolCallText)(spec.name, fixedArgs)}`);
+  } else {
+    lines.push(`Example: ${(spec.callText ?? toolCallText)(spec.name, spec.example)}`);
+  }
+  return lines.join(`
+`);
+}
+// packages/outline-core/src/agent-tool-definitions.ts
+var REF_WORDS = { note: "the note `ref`", parent: "`parent` (a ref, or root)" };
+var NOTE_HOLDS = "A note can hold more than prose: live figures (::graph-* with query: or view:, so a count or a status stays true), " + "callouts, views, rules, buttons, templates and the outline's own components; outline_components gives each one's " + "properties and an example. The answer lists the `::` components the note now holds (`components`) and its `warnings` (a " + "figure's name or key with a typo, YAML that doesn't read, a reference that leads nowhere): the text is saved as written, " + "so fix them now.";
+var WRITE_RULES = "Evan reads on a phone or between other work: lead with the conclusion; keep the title line short (under about 70 characters) " + "with the detail in the body; a section is one component (a figure, a callout, a check, a compare) plus at most three short lines, " + "and a paragraph is at most three sentences; a number a query can count goes in a live figure, never in prose. A question for Evan " + "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " + "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " + "in prose; one point per bullet; headings over a note past a screen. The answer reviews what you wrote: `review.verdict` is ship or " + "fix, each finding says where and the smallest fix, many with a ready `patch` to pass to outline_patch as written; every `warnings` " + 'entry that starts "fix before you call this done" is yours to fix, and `next` says how to look at the note as drawn before you say done.';
+var COMMENT_RULES = "Evan reads comments between other work: lead with the point, keep a paragraph to at most three sentences, and put a question for him first. " + 'The answer measures what you wrote: every `warnings` entry that starts "fix before you call this done" is yours to fix.';
+var UP_FRONT_TOOLS = ["list_outlines", "outline_find", "outline_query", "outline_read", "outline_components", "outline_edit", "outline_create", "outline_patch"];
+var READING_WIDTH = 44;
+var REF = {
+  type: "string",
+  description: "The block: its id, ((id)), its first 8+ characters, [[page]] or a Work ID (PIE-123). Never a title: find it with outline_find first."
+};
+var EXPECTED = {
+  type: "integer",
+  minimum: 1,
+  description: "The revision outline_read returned. A block that changed since is refused: read it again."
+};
+var NOTE = "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34";
+var THREAD = "2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11";
+function inputOf(input, keys) {
+  const out = {};
+  for (const key of keys)
+    if (input[key] !== undefined)
+      out[key] = input[key];
+  return out;
+}
+var nonEmpty = (value) => typeof value === "string" && value.trim() !== "";
+var AGENT_TOOL_DEFINITIONS = [
+  {
+    name: "artifact_deploy",
+    operation: "artifact-deploy",
+    writes: true,
+    description: "Deploy an ep0ch-artifacts repo (`repo`), or every one the note `note` names on an [artifact::] line, register it and update notes that name it. The repo decides static store or Vercel.",
+    example: { repo: "ep0ch-artifacts/moth-garden" },
+    properties: { repo: { type: "string" }, note: { type: "string" }, domain: { type: "string" } },
+    required: [],
+    command(input) {
+      return { operation: "artifact-deploy", input: inputOf(input, ["repo", "note", "domain"]) };
+    }
+  },
+  {
+    name: "outline_read",
+    operation: "read",
+    example: { ref: "PIE-123", depth: 1 },
+    writes: false,
+    target: "ref",
+    description: "Read {note}: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields` (the properties of a line or a spot in the text), revision, who last wrote it and when, and its " + "children to `depth` levels (default 1), at most `limit` descendants (default 50), each with full text. " + "`complete` says whether anything was left out; a child with `more` has unread children. A note that holds " + "a `{{ }}` also returns `site`: what each placeholder reads as (`values`, or a `problem` with the nearest keys), " + "how it was found (`route`), and the notes it came from (`deps`); `text` stays what the author wrote. Read before you " + "edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a " + "`[file::path]` token) reads as its stored text with the comment threads that are open on it: read a file " + "that has threads before you rewrite it. `view: true` adds `view`: the note as the door draws it (its live figures, " + "views and components answered, at `width` columns, " + READING_WIDTH + " when left out: Evan's reading width), as `ep0ch show` prints it: what to look at " + "before saying a write is done.",
+    properties: {
+      ref: REF,
+      depth: { type: "integer", minimum: 0, maximum: 6 },
+      limit: { type: "integer", minimum: 0, maximum: 500 },
+      view: { type: "boolean", description: "Also the note as drawn (`view`, lines of text), as ep0ch show prints it" },
+      width: { type: "integer", minimum: 30, maximum: 200, description: `With view: the columns it is drawn at (${READING_WIDTH} when left out)` }
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref: a block id, ((id)), [[page]] or Work ID.";
+      if (input.width !== undefined && input.view !== true)
+        return "width is the drawing's: give it with view: true.";
+      return { operation: "read", input: inputOf(input, ["ref", "depth", "limit", "view", "width"]) };
+    }
+  },
+  {
+    name: "outline_find",
+    operation: "find",
+    example: { text: "seed swap" },
+    writes: false,
+    description: "Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view " + "grammar (`type=roadmap-item AND work-stage=doing`), or a saved view. text, property, hasKey, query and under " + "combine; view stands alone. propertyScope says which chips property, hasKey and query read: the note's own (block, the default), or `all` for a " + "`[needs::…]` on any line, each row then naming its `matches` (key, value, line, and task: an open `- [ ]` is todo, a ticked one no longer matches). " + "Text alone is a search, ranked as ep0ch find ranks it (Jev over the text matches, at most 30): each row its `score` (0 to 3), " + 'and `search` says how sure it is: verdict strong ("sure"), weak ("not sure" over a top Jev scores as a match, else "no strong match": the closest named, not claimed) or none ("no strong match": nothing here answers it), ' + 'with `exists` (Jev\'s "is it among these?", 0 to 1). With anything else, text is a filter (every word, any order). ' + "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read. `properties: true` adds each row's " + "`properties` (each key once with its `values`, as outline_read gives them), so a table over many rows needs no read per row.",
+    properties: {
+      text: { type: "string" },
+      properties: { type: "boolean", description: "Each row carries its properties ([{ key, values }]), the way outline_read gives them" },
+      property: { type: "string", description: "key=value, or key for any value" },
+      hasKey: { type: "string" },
+      query: { type: "string" },
+      view: { type: "string", description: "A saved view (virtual branch): its id or ((id))" },
+      under: { type: "string", description: "Only blocks under this one (a ref)" },
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+      propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips property, hasKey and query read: block (the note's own, the default) or all (any line too)" },
+      machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for themselves, stamped [machine::…] (fetched notifications, file touches, tosses, deliveries): left out unless this is show or only (only with machine=notification: just the notifications). A recent-activity query (updated >= -1d) says how many it left out in machineryOmitted" }
+    },
+    required: [],
+    command(input) {
+      if (!["text", "property", "hasKey", "query", "view"].some((key) => nonEmpty(input[key]))) {
+        return "Give text, property, hasKey, query or view to find blocks by.";
+      }
+      return { operation: "find", input: inputOf(input, ["text", "property", "hasKey", "query", "view", "under", "limit", "machinery", "propertyScope", "properties"]) };
+    }
+  },
+  {
+    name: "outline_resolve",
+    operation: "resolve",
+    example: { ref: "[[Seed Swap]]" },
+    writes: false,
+    target: "ref",
+    description: "Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without " + "reading the whole note. An unknown page is an error, never a new page.",
+    properties: { ref: REF },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref to resolve.";
+      return { operation: "resolve", input: inputOf(input, ["ref"]) };
+    }
+  },
+  {
+    name: "outline_site",
+    operation: "site",
+    example: { ref: "PIE-123", paths: ["this.owner", "this.tasks | status=todo"] },
+    writes: false,
+    target: "ref",
+    description: "Read what {note}'s `{{ }}` placeholders say, and any `paths` you ask, the way the person's screen reads them (the " + "outline's one resolver): `this.owner`, `parent.project`, a bare `project` (the nearest value up the outline), " + "`((id)).query`, `[[page]].title`, `person.firstName` through a link value, `this.tasks | status=todo`, " + "`this.children | type=task .count`, `now.date-1d`, `props.week`. Every key is a list. A key the note writes wins over " + 'its record field of the same name; `this.$created` is the record\'s. A key with a dot is `this["echo.node"]`. ' + "Returns, per placeholder and path: `values`, or a `problem` with a did-you-mean and an example that works; `route` " + "(which resolver answered, which fallback was taken); `links` (values that name a note); and `deps`, the notes it was " + "computed from. `draft` reads the text you are about to write, unsaved; `chain` reads a note as drawn inside another " + '(a `::use` in a host: `[{kind: "use", block, line}]`); `props` are the call\'s arguments. A note that holds `::use` ' + "lines also returns `uses`: each call as the service reads it (its template, the `props` it gets, `problems` with the " + "nearest name and a call that works, `missing` required props). Only reads.",
+    properties: {
+      ref: REF,
+      paths: { type: "array", items: { type: "string" }, description: "Paths to read besides the note's own placeholders: this.owner, parent.project, this.tasks | status=todo, now.date-1d" },
+      draft: { type: "string", description: "The note's unsaved text: its placeholders are read as if it were saved" },
+      chain: { type: "array", items: { type: "object" }, description: 'Where the note is drawn, outermost first: [{ kind: "use" | "embed" | "box", block: <the note holding the invocation>, line?: number }]' },
+      props: { type: "object", description: `The call's arguments, read as props.<name>: { status: "paused" }` },
+      line: { type: "integer", minimum: 0, description: "The line of the note a bare key's lookup starts from (default: the first)" }
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref: a block id, ((id)), [[page]] or Work ID.";
+      if (input.paths !== undefined && (!Array.isArray(input.paths) || input.paths.some((p) => !nonEmpty(p))))
+        return 'paths is a list of paths, such as ["this.owner", "this.tasks | status=todo"].';
+      if (input.draft !== undefined && typeof input.draft !== "string")
+        return "draft is the note's unsaved text.";
+      const props = input.props && typeof input.props === "object" && !Array.isArray(input.props) ? Object.fromEntries(Object.entries(input.props).map(([k, v]) => [k, (Array.isArray(v) ? v : [v]).map(String)])) : undefined;
+      return { operation: "site", input: { ...inputOf(input, ["ref", "paths", "draft", "chain", "line"]), ...props ? { props } : {} } };
+    }
+  },
+  {
+    name: "outline_edit",
+    operation: "edit",
+    example: { ref: "PIE-123", expectedRevision: 3, append: "One more line." },
+    writes: true,
+    target: "ref",
+    description: "Rewrite {note}, checked against the revision you read with outline_read: its whole `text`, one " + "`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. " + WRITE_RULES + ' Give exactly one. With append, `at: "^log"` adds an output region after that anchor through placement: a held draft gets it in place, or outcome: proposed at a conflict; it returns the placement receipt instead of a diff. ' + "Refused before anything is written: an empty or whitespace-only result, a stale revision (read again, then " + "edit in the same turn), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only " + "when removing them is the point). Returns the new revision and a short diff. Use it for rewriting your own " + "pages, such as a status page; for small edits to a note the person may be typing in, use outline_patch. " + NOTE_HOLDS,
+    properties: {
+      ref: REF,
+      expectedRevision: EXPECTED,
+      text: { type: "string", description: "The whole new text: title line, properties and body" },
+      replaceSection: {
+        type: "object",
+        properties: {
+          heading: { type: "string", description: "Heading text, optionally with its ## level" },
+          body: { type: "string" }
+        },
+        required: ["heading", "body"],
+        additionalProperties: false
+      },
+      append: { type: "string", description: "Added as a new paragraph at the end (start it with a newline to join the last line)" },
+      at: { type: "string", description: "With append: ^anchor to add an output region after, through the held draft; returns outcome applied or proposed" },
+      allowStructural: { type: "boolean" }
+    },
+    required: ["ref", "expectedRevision"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref of the note to edit.";
+      if (typeof input.expectedRevision !== "number")
+        return "Give expectedRevision: read the note with outline_read first.";
+      const modes = ["text", "replaceSection", "append"].filter((key) => input[key] !== undefined && input[key] !== null);
+      if (modes.length !== 1)
+        return "Give exactly one of text, replaceSection or append.";
+      if (modes[0] === "text" && !nonEmpty(input.text))
+        return "The new text is empty; an edit never blanks a note.";
+      if (modes[0] === "append" && !nonEmpty(input.append))
+        return "The text to append is empty.";
+      return { operation: "edit", input: inputOf(input, ["ref", "expectedRevision", "text", "replaceSection", "append", "at", "allowStructural"]) };
+    }
+  },
+  {
+    name: "outline_create",
+    operation: "create",
+    example: { parent: "PIE-123", text: "Bring labels" },
+    writes: true,
+    target: "parent",
+    description: "Create a block under {parent}, at `position` among its siblings (0 is first; default last). " + WRITE_RULES + " " + "Returns its id, ((ref)) and revision. With requestId, a retry of the same input returns that block with deduplicated: true; different input under that id is refused. " + NOTE_HOLDS,
+    properties: {
+      parent: { type: "string", description: "The parent: a ref, or root" },
+      text: { type: "string" },
+      position: { type: "integer", minimum: 0 },
+      requestId: { type: "string", description: "Stable id for this create; reuse it with the same input when retrying." }
+    },
+    required: ["parent", "text"],
+    command(input) {
+      if (!nonEmpty(input.parent) || !nonEmpty(input.text))
+        return "Give the parent and non-empty text.";
+      return { operation: "create", input: inputOf(input, ["parent", "text", "position", "requestId"]) };
+    }
+  },
+  {
+    name: "outline_comment",
+    operation: "comment",
+    example: { ref: "PIE-123", body: "Is this still true?", whole: true },
+    writes: true,
+    target: "ref",
+    description: "Start a comment thread on {note}, as you: on an exact `quote` of its source text (add start, near, prefix or " + "suffix when the quote repeats), or on the `whole` note. " + COMMENT_RULES + " With a quote and no body it's a highlight. properties (open: kind, tags, color as a theme tone, or any key) are written on the thread; an @name line in the body asks an agent that answers in threads, in the thread. Returns the thread id for outline_reply and " + "outline_resolve_thread. A requestId makes a retry return the same thread. `ref` may be a Resource " + "(`resource:<id>` or a `[file::path]` token) instead of a note: the quote is exact text of the file as " + "outline_read returned it, `from` names the note whose link opened it, and the file is never written.",
+    properties: {
+      ref: REF,
+      body: { type: "string" },
+      quote: { type: "string", description: "Exact source text the comment is about" },
+      whole: { type: "boolean", description: "true: about the whole note, instead of a quote" },
+      start: { type: "integer", minimum: 0, description: "The quote’s UTF-16 offset, when it repeats" },
+      near: { type: "integer", minimum: 0, description: "When the quote repeats: the offset to be nearest" },
+      kind: { type: "string", description: "The thread’s kind, written as [kind::…] on it (patch-note, question, highlight…); the same as properties.kind" },
+      properties: { type: "object", description: "The thread’s own properties, open: kind (highlight, note, question, define…), tags, color (a theme tone: default, good, warn, bad, dim, accent), any other key" },
+      prefix: { type: "string" },
+      suffix: { type: "string" },
+      requestId: { type: "string" },
+      from: { type: "string", description: "A Resource comment: the note whose link opened it" },
+      revision: { type: "integer", minimum: 1, description: "A Resource comment: the revision outline_read returned; the comment is refused if the file changed since" }
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the note.";
+      if (input.whole === true === (typeof input.quote === "string"))
+        return "Give either quote (exact source text) or whole: true.";
+      if (!nonEmpty(input.body) && (input.whole === true || input.body !== undefined && input.body !== ""))
+        return "Give a non-empty comment (only a quote with no body is a highlight).";
+      return { operation: "comment", input: inputOf(input, ["ref", "body", "quote", "whole", "start", "near", "prefix", "suffix", "requestId", "from", "revision", "kind", "properties"]) };
+    }
+  },
+  {
+    name: "outline_reply",
+    operation: "reply",
+    example: { thread: THREAD, body: "Yes, checked today." },
+    writes: true,
+    description: "Reply in a comment thread, as you. `thread` is the id outline_comment returned (or a thread you read). " + "With `edit` (a posted comment's or reply's id) instead of `thread`, change its words to `body`: give `observed`, its words as you read them, " + "so an edit made meanwhile is refused, never overwritten. It stays its author's, shown as edited by you; its earlier words are kept in its revisions.",
+    properties: { thread: { type: "string" }, body: { type: "string" }, requestId: { type: "string" }, edit: { type: "string" }, observed: { type: "string" } },
+    required: ["body"],
+    command(input) {
+      if (nonEmpty(input.edit)) {
+        if (!nonEmpty(input.body) || typeof input.observed !== "string")
+          return "Give edit (the comment or reply), observed (its words as you read them) and the new, non-empty body.";
+        return { operation: "edit-comment", input: { mark: input.edit, ...inputOf(input, ["body", "observed"]) } };
+      }
+      if (!nonEmpty(input.thread) || !nonEmpty(input.body))
+        return "Give the thread and a non-empty reply (or edit: a comment's id, to change its words).";
+      return { operation: "reply", input: inputOf(input, ["thread", "body", "requestId"]) };
+    }
+  },
+  {
+    name: "outline_resolve_thread",
+    operation: "resolve-thread",
+    example: { thread: THREAD, resolved: true },
+    writes: true,
+    description: "Resolve a comment thread (resolved: true), or reopen it (false), as you.",
+    properties: { thread: { type: "string" }, resolved: { type: "boolean" } },
+    required: ["thread", "resolved"],
+    command(input) {
+      if (!nonEmpty(input.thread) || typeof input.resolved !== "boolean")
+        return "Give the thread and resolved: true or false.";
+      return { operation: "resolve-thread", input: inputOf(input, ["thread", "resolved"]) };
+    }
+  },
+  {
+    name: "view_order",
+    operation: "view-order",
+    example: { ref: `((${NOTE}))`, ids: ["PIE-123", "PIE-124"] },
+    writes: true,
+    target: "ref",
+    aliases: { ref: ["view"] },
+    description: "Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, " + "figures and Tree show). With `ids`, put those members first, in the order given; the rest keep their order " + "after them. Ids are block ids, ((id)) or Work IDs. Refused for a sorted view (the refusal names the fix) and " + "for an id the view doesn't hold. Returns the order after the write.",
+    properties: {
+      ref: { type: "string", description: "The view (a virtual-branch block): id, ((id)) or [[page]]" },
+      ids: { type: "array", items: { type: "string" }, description: "Members to put first, in this order; omit to read the order" }
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref of the view: its id or ((id)).";
+      if (input.ids !== undefined && (!Array.isArray(input.ids) || input.ids.some((id) => !nonEmpty(id))))
+        return "ids is a list of block ids, ((id))s or Work IDs.";
+      return { operation: "view-order", input: { view: input.ref, ...inputOf(input, ["ids"]) } };
+    }
+  },
+  {
+    name: "outline_changes",
+    operation: "changes",
+    example: { since: "2026-03-01T09:00:00Z" },
+    writes: false,
+    description: "What changed since a point: an ISO time, or the `cursor` an earlier call returned. Each block once, at its " + "latest change, newest first, with who made it (author, actorId, sessionId). `author` (user, agent, system) and " + "`actor` (an agent id, such as claude-code) narrow it. `complete: false`: more changed than `limit`; call again " + "with the same since and the returned `before` for older ones. Once complete, pass `cursor` as since next time.",
+    properties: {
+      since: { type: ["string", "integer"], description: "An ISO time, or a cursor from an earlier call" },
+      author: { type: "string", enum: ["user", "agent", "system"] },
+      actor: { type: "string", description: "Only this agent’s changes, by actor id (claude-code, garden-agent…)" },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      before: { type: "integer", minimum: 1, description: "The `before` an incomplete answer returned: its older changes" },
+      machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for their own bookkeeping (file touches, tosses, deliveries): left out unless this is show or only" }
+    },
+    required: ["since"],
+    command(input) {
+      if (!nonEmpty(input.since) && typeof input.since !== "number")
+        return "Give since: an ISO time or a cursor.";
+      return { operation: "changes", input: inputOf(input, ["since", "author", "actor", "limit", "before", "machinery"]) };
+    }
+  },
+  {
+    name: "outline_proposals",
+    operation: "proposals",
+    example: { since: "2026-03-01T09:00:00Z" },
+    writes: false,
+    description: "What became of your proposals: each edit of yours that was proposed instead of applied, and every change since: " + "`stale` (the note changed under it: re-read and send it again), `applied`, `dismissed` or `resolved`, oldest first, " + "each once, with the note (`note`, `title`), the proposal's id, who made it so (`by`) and why (`reason`). `actor` " + "is whose: yours when left out; a persona (loki) covers every client it writes through. Pass the answer's `cursor` " + "as `since` next time; `complete: false` says more came after it. An empty list says why (`said`): nothing changed " + "in the window, or, for a client with no persona, that only this session's proposals are its own and how many others there are.",
+    properties: {
+      since: { type: "string", description: "An ISO time, or the cursor an earlier call returned; the last week when left out" },
+      actor: { type: "string", description: "Whose proposals: an actor id, or a persona such as loki; yours when left out" },
+      limit: { type: "integer", minimum: 1, maximum: 200 }
+    },
+    required: [],
+    command(input) {
+      if (input.since !== undefined && !nonEmpty(input.since))
+        return "since is an ISO time (2026-03-01T09:00:00Z) or a cursor an earlier call returned.";
+      return { operation: "proposals", input: inputOf(input, ["since", "actor", "limit"]) };
+    }
+  },
+  {
+    name: "script_run",
+    operation: "script-run",
+    example: { ref: `((${NOTE}))`, this: "PIE-123", slots: { week: "42" } },
+    writes: true,
+    target: "ref",
+    description: "Run the script block {note} and answer with what it said: its last word (message), its state (done, failed, " + "stopped, or running when it outlasted the 3 s wait: then script.stop ends it and scripts.ended brings its end) and, " + "when it returned more than a line, answer. `this` is the note the run is about (a ref), what a press in that note " + "gives the script as `this`; `slots` are the values a button's slots would carry (`{ week: \"42\" }`), the script's " + "`props`: with both, a run here is the person's press. Documents and explicit output are kept as run notes; " + "[results::keep] requests a full run record; `written` lists those, and `changed` the notes the run itself changed " + "(id, title, and created, edited, moved, trashed or restored), and `proposed` the writes that became proposals " + "instead (the proposal's id, or the comment thread a create, move or trash became; the note and its title). Its writes use the outline's MCP access: proposals at propose, applied at full.",
+    properties: {
+      ref: REF,
+      this: { type: "string", description: "The note the run is about, as a press in it would give: its id, ((id)), [[page]] or Work ID" },
+      slots: { type: "object", description: `The slots' values, { name: "value" } (each one line): the script's props, as a button's line would fill them` }
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref of the script block: its id or ((id)).";
+      if (input.this !== undefined && !nonEmpty(input.this))
+        return "this is a ref: the note the run is about.";
+      if (input.slots !== undefined) {
+        if (typeof input.slots !== "object" || input.slots === null || Array.isArray(input.slots))
+          return 'slots is an object: { name: "value" }.';
+        if (Object.values(input.slots).some((v) => typeof v !== "string" || v.includes(`
+`)))
+          return `Each slot's value is one line of text: { week: "42" }.`;
+      }
+      return { operation: "script-run", input: inputOf(input, ["ref", "this", "slots"]) };
+    }
+  },
+  {
+    name: "outline_patch",
+    operation: "patch",
+    example: { ref: "PIE-123", revision: 3, patches: [{ observed: "Borlotti", replacement: "Borlotti only" }] },
+    writes: true,
+    target: "ref",
+    description: "Small edits to {note} the person may be typing in, without waiting for their save (draft.patch); for " + "rewriting your own pages, such as a status page, use outline_edit. " + WRITE_RULES + " Each patch names the exact `observed` text " + "(never empty) and its `replacement`, against the `revision` outline_read returned; all apply as one edit or " + "none. A live draft gets it in place; otherwise it is an ordinary edit of the saved note. policy `edit` (the " + "default) has outline_edit's guard (allowStructural likewise); `prose` keeps every link, anchor and property. " + "If the note was saved since you read it, the patch applies on the newer text when every observed span is still there " + "once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it is refused with an error when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, the draft is busy or unavailable, or when prose refuses. Treat refusal as a task now: re-read the note and retry against the new text in the same turn. With mark, spans must also stay above the mark and above the cursor block when the cursor is before that mark. This leaves the passage being typed in alone; an unmarked patch can land above or below it. " + "Use propose: true only for an intentional suggestion for Evan to decide. A proposal sits beside the note and never changes its text or revision; sending the same patch again while yours is open " + "returns that proposal (deduped: true) instead of a second copy. " + NOTE_HOLDS,
+    properties: {
+      ref: REF,
+      revision: EXPECTED,
+      patches: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            observed: { type: "string" },
+            replacement: { type: "string" },
+            range: {
+              type: "object",
+              properties: { start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 0 } },
+              required: ["start", "end"],
+              description: "Where you saw it (UTF-16 offsets): a hint"
+            }
+          },
+          required: ["observed", "replacement"]
+        }
+      },
+      mark: { type: "string", description: "The @request line the patch answers: spans must end above it" },
+      policy: { type: "string", enum: ["edit", "prose"], default: "edit" },
+      allowStructural: { type: "boolean" },
+      propose: { type: "boolean", description: "An intentional suggestion for Evan to decide instead of applying the patch" }
+    },
+    required: ["ref", "revision", "patches"],
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== "number")
+        return "Give the ref and the revision you read.";
+      if (!Array.isArray(input.patches) || input.patches.length === 0)
+        return "Give at least one patch: {observed, replacement}.";
+      for (const patch of input.patches) {
+        if (!patch || (typeof patch.observed !== "string" || patch.observed.length === 0) || typeof patch.replacement !== "string")
+          return "Each patch needs observed (the exact text you read, never empty) and replacement.";
+      }
+      if (input.policy !== undefined && input.policy !== "edit" && input.policy !== "prose")
+        return "policy is edit (the default) or prose.";
+      return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural", "propose"]) } };
+    }
+  },
+  ...["apply", "dismiss", "resolve"].map((op) => ({
+    name: `outline_proposal_${op}`,
+    operation: `proposal-${op}`,
+    example: { ref: NOTE },
+    writes: true,
+    target: "ref",
+    description: op === "resolve" ? "Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. Ambiguous intent stays open with both readings." : op === "dismiss" ? "Dismiss your own draft proposal {note} by id, without a reader: mark it dismissed and put it in Trash. Another agent's proposal is refused." : "Apply draft proposal {note} by id, without a reader, under the agent's normal patch comparison and policy. An agent cannot force a proposal over changed text.",
+    properties: { ref: REF },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref of the proposal: its id or ((id)).";
+      return { operation: `proposal-${op}`, input: inputOf(input, ["ref"]) };
+    }
+  })),
+  {
+    name: "outline_set_property",
+    operation: "set-property",
+    example: { ref: "PIE-123", key: "status", value: "open", revision: 3 },
+    writes: true,
+    target: "ref",
+    description: "Set [key::value] properties on the header line of {note} (the chips that end its first line): the value replaced " + "where the key is, or the chip added at the line's end. One property is `key` and `value`; several are " + "`properties: { key: value, key: null }` (null removes the key), all in one write that takes one revision. Against the " + "`revision` outline_read returned, as one outline_patch span, so it has the patch's rules: a live draft gets it in place, and a note that changed since " + "is refused if it cannot rebase; re-read and retry in the same turn. A key written more than once is a list: edit it with outline_patch.",
+    properties: {
+      ref: REF,
+      key: { type: "string", description: "The property key: letters, digits, - and _ (with value; or use properties for several)" },
+      value: { type: "string", description: "One line, without ]" },
+      properties: { type: "object", description: 'Several at once: { key: "one line, without ]", other: null }; a null value removes that key. Instead of key and value' },
+      revision: EXPECTED
+    },
+    required: ["ref", "revision"],
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== "number")
+        return "Give the ref and the revision you read.";
+      if (input.properties !== undefined) {
+        if (input.key !== undefined || input.value !== undefined)
+          return "Give either key and value (one property) or properties (several), not both.";
+        if (typeof input.properties !== "object" || input.properties === null || Array.isArray(input.properties))
+          return "properties is an object: { key: value, key: null } (null removes the key).";
+        const values = Object.values(input.properties);
+        if (!values.length)
+          return "Give at least one property in properties: { key: value } (null removes the key).";
+        if (values.some((v) => v !== null && typeof v !== "string"))
+          return "Each value in properties is a string (one line, without ]), or null to remove the key.";
+        return { operation: "set-property", input: inputOf(input, ["ref", "properties", "revision"]) };
+      }
+      if (!nonEmpty(input.key) || !nonEmpty(input.value))
+        return "Give the key and a non-empty value, or properties: { key: value } for several.";
+      return { operation: "set-property", input: inputOf(input, ["ref", "key", "value", "revision"]) };
+    }
+  },
+  {
+    name: "outline_assign_id",
+    operation: "assign-id",
+    example: { ref: `((${NOTE}))`, revision: 3 },
+    writes: true,
+    target: "ref",
+    description: "Give {note} the outline's next work id (outliner work-id-allocate), against the `revision` " + "outline_read returned: the id is stamped on the note and is its page address, so `[[HUB-002]]` reaches it " + "(no [page::…] needed; adding one duplicates it). The prefix is whatever the outline has. For notes that " + "aren't roadmap items, such as an outbox draft; work_create is only for roadmap items on the workboard. " + "A note that already has an id answers with it, unchanged. Returns `workId` and `page`.",
+    properties: { ref: REF, revision: EXPECTED },
+    required: ["ref", "revision"],
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== "number")
+        return "Give the ref and the revision you read.";
+      return { operation: "assign-id", input: inputOf(input, ["ref", "revision"]) };
+    }
+  },
+  {
+    name: "outline_move",
+    operation: "move",
+    example: { ref: "PIE-123", parent: `((${NOTE}))`, position: 0, revision: 3 },
+    writes: true,
+    target: "ref",
+    description: "Move {note} (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among " + "its children (0 is first; default last), or just `before` or `after` a sibling note. Give exactly one of parent, " + "before, after. Give `revision` (what outline_read returned); it is refused if the note changed since. Attributed to " + "you; the note keeps its id, text and links. Refused, with what to give instead: a place under Trash, " + "Bookmarks or a guide (the service fills them itself; the Inbox and the Deploys record take children), a place inside the note itself, a note in Trash, a ref that " + "doesn't resolve (with the nearest notes). A move to where it already is answers unchanged.",
+    properties: {
+      ref: REF,
+      parent: { type: "string", description: "The new parent: a ref, or root" },
+      before: { type: "string", description: "A note to go just before (a ref): it gives the parent and the place" },
+      after: { type: "string", description: "A note to go just after (a ref)" },
+      position: { type: "integer", minimum: 0, description: "With parent: among its children, 0 first (default last)" },
+      revision: EXPECTED
+    },
+    required: ["ref", "revision"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref of the note to move.";
+      const places = ["parent", "before", "after"].filter((key) => input[key] !== undefined);
+      if (places.length !== 1)
+        return "Give exactly one of parent (under it; or root), before or after (beside a note).";
+      if (!nonEmpty(input[places[0]]))
+        return `${places[0]} is a ref (or root, for parent); it is empty.`;
+      if (input.position !== undefined && places[0] !== "parent")
+        return "position goes with parent: before and after already say where.";
+      return { operation: "move", input: inputOf(input, ["ref", "parent", "before", "after", "position", "revision"]) };
+    }
+  },
+  {
+    name: "outline_trash",
+    operation: "trash",
+    example: { ref: "PIE-123", revision: 3 },
+    writes: true,
+    target: "ref",
+    description: "Put {note} in Trash, with what is under it, against the `revision` outline_read returned: a note that " + "changed since is refused and stays. Attributed to you. outline_restore brings it back. Use it for a duplicate " + "or a stray, never to hide a note someone may want; a system note (the Inbox, Trash, Bookmarks) or a note holding one is refused. " + "A note already in Trash answers unchanged.",
+    properties: { ref: REF, revision: EXPECTED },
+    required: ["ref", "revision"],
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== "number")
+        return "Give the ref and the revision you read.";
+      return { operation: "trash", input: inputOf(input, ["ref", "revision"]) };
+    }
+  },
+  {
+    name: "outline_mark",
+    operation: "mark",
+    example: { ref: "PIE-123", reason: "needs your call" },
+    writes: true,
+    target: "ref",
+    description: "Mark {note} (PIE-1237): one fact in the outline, attributed to you, that every door, the web page and a query see at once. " + 'With `reason` (a few words: "needs your call") it is a look-here mark, framed in every door showing the note, ' + "for Evan to see; without, a pocket mark, gathered by the query atoms (`marked:today`, `marked-by:<you>`, `marked-since:-7d`), " + "which leave look-here marks out. Marking what you already marked with the same reason answers that mark. " + "`remove: true` takes your marks on the note off (the unmark is kept, attributed). `words` is a note kept with the mark.",
+    properties: {
+      ref: REF,
+      reason: { type: "string", description: "Why Evan should look, in a few words: makes it a look-here mark (left out: a pocket mark)" },
+      words: { type: "string", description: "A note kept with the mark" },
+      remove: { type: "boolean", description: "Take your marks on the note off instead" }
+    },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref of the note to mark.";
+      if (input.remove === true && (input.reason !== undefined || input.words !== undefined))
+        return "remove takes your marks off: give it alone, with the ref.";
+      return { operation: "mark", input: inputOf(input, ["ref", "reason", "words", "remove"]) };
+    }
+  },
+  {
+    name: "outline_restore",
+    operation: "restore",
+    example: { ref: `((${NOTE}))` },
+    writes: true,
+    target: "ref",
+    description: "Bring {note} back from Trash, with what went under it, to where it was. Give its id or ((id)) (a trashed " + "note has no page address). A note that went to Trash inside another is restored with that one: the refusal names it.",
+    properties: { ref: REF },
+    required: ["ref"],
+    command(input) {
+      if (!nonEmpty(input.ref))
+        return "Give the ref (id or ((id))) of the trashed note.";
+      return { operation: "restore", input: inputOf(input, ["ref"]) };
+    }
+  }
+];
+function describeTool(definition, words = REF_WORDS) {
+  return definition.description.replaceAll("{note}", words.note).replaceAll("{parent}", words.parent);
+}
+function toolInputSchema(definition, extra = {}) {
+  return { type: "object", properties: { ...definition.properties, ...extra }, required: [...definition.required], additionalProperties: false };
+}
+function toolArgsSpec(definition, extra = {}) {
+  return { name: definition.name, schema: toolInputSchema(definition, extra), example: definition.example, ...definition.aliases ? { aliases: definition.aliases } : {} };
+}
+var agentToolDefinition = (name) => AGENT_TOOL_DEFINITIONS.find((definition) => definition.name === name);
+var AGENT_TOOL_SURFACES = {
+  artifact_deploy: { mod: true, gateway: "Use the artifact CLI or local agent tool; deployment cannot be proposed." },
+  outline_read: { mod: true, gateway: "its own outline_read (an enveloped block record, seen, raw): converge on one read (PIE-720)" },
+  outline_find: { mod: true, gateway: "its own outline_find (the ranked search ep0ch find uses): converge on one search (PIE-720)" },
+  outline_resolve: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
+  outline_site: { mod: true, gateway: "not yet on the gateway (PIE-533)" },
+  outline_edit: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
+  outline_create: { mod: true, gateway: true },
+  outline_comment: { mod: true, gateway: true },
+  outline_reply: { mod: true, gateway: true },
+  outline_resolve_thread: { mod: true, gateway: true },
+  view_order: { mod: true, gateway: "not yet on the gateway (PIE-720)" },
+  outline_changes: { mod: true, gateway: "not yet on the gateway (PIE-720, PIE-689)" },
+  outline_proposals: { mod: true, gateway: true },
+  script_run: { mod: true, gateway: true },
+  outline_patch: { mod: true, gateway: true },
+  outline_proposal_apply: { mod: true, gateway: true },
+  outline_proposal_dismiss: { mod: true, gateway: true },
+  outline_proposal_resolve: { mod: true, gateway: true },
+  outline_set_property: { mod: true, gateway: true },
+  outline_assign_id: { mod: true, gateway: true },
+  outline_move: { mod: true, gateway: true },
+  outline_trash: { mod: true, gateway: true },
+  outline_restore: { mod: true, gateway: true },
+  outline_mark: { mod: true, gateway: true },
+  outline_quote: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  outline_threads: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  outline_query: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  outline_links: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  outline_components: { mod: "the mod's own (ep0ch library --brief, the session's outline)", gateway: "the gateway's own (the outline it addresses)" },
+  work_create: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  work_set: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  work_stage: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  work_body: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  work_link: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  work_deliver: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  work_complete: { mod: "the mod's own (the work CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  note_section: { mod: "the mod's own (the note CLI; PIE-720: move it here)", gateway: "not yet on the gateway (PIE-720)" },
+  outline_bind: { mod: "surface-only: binds the session's outline", gateway: "surface-only: the mod's session binding" },
+  show: { mod: "surface-only: the mod's pane", gateway: "surface-only: the mod's pane" },
+  door_where: { mod: "surface-only: needs a door (EP0CH_CONTROL)", gateway: "surface-only: needs a door" },
+  door_peek: { mod: "surface-only: needs a door (EP0CH_CONTROL)", gateway: "surface-only: needs a door" },
+  door_act: { mod: "surface-only: needs a door (EP0CH_CONTROL)", gateway: "surface-only: needs a door" },
+  door_open: { mod: "surface-only: needs a door (EP0CH_CONTROL)", gateway: "surface-only: needs a door" },
+  list_outlines: { mod: "surface-only: the gateway's outline set (the mod has one bound outline)", gateway: "surface-only: its outline set" },
+  outline_new: { mod: "surface-only: the gateway's outline admin", gateway: "surface-only: its outline admin" },
+  outline_archive: { mod: "surface-only: the gateway's outline admin", gateway: "surface-only: its outline admin" },
+  outline_write_status: { mod: "surface-only: the gateway's queued writes", gateway: "surface-only: its queued writes" },
+  reader_view: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  share_start: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  share_list: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" },
+  share_revoke: { mod: "not yet in the mod (PIE-720)", gateway: "the gateway's own definition (PIE-720: move it here)" }
+};
+// packages/outline-core/src/program-status.ts
+var PROGRAM_STATUS_OSC = 7501;
+var PROGRAM_STATES = ["idle", "working", "done", "blocked", "error"];
+var BLOCKED_KINDS = ["permission", "question", "auth"];
+var PROGRAM_STATUS_LIMITS = {
+  sequence: 4096,
+  key: 16,
+  msgEncoded: 2732,
+  msgDecoded: 2048,
+  titleEncoded: 256,
+  titleDecoded: 192,
+  app: 32,
+  id: 128,
+  segment: 32,
+  depth: 8,
+  records: 256
+};
+var PROGRAM_STATUS_QUERY = "\x1B]7501;?\x1B\\";
+var PROGRAM_STATUS_TERMINFO = "Pst=\\E]7501;%p1%s\\E\\\\";
+var TILE_QUERY = "\x1B]7501;?tile\x1B\\";
+var MARK = /^[A-Za-z0-9_-]{8,64}$/;
+function tileMark(token) {
+  if (!MARK.test(token))
+    throw new Error(`not a tile marker token: ${token}`);
+  return `\x1B]7501;?mark=${token}\x1B\\`;
+}
+var tmuxPassthrough = (seq) => `\x1BPtmux;${seq.replaceAll("\x1B", "\x1B\x1B")}\x1B\\`;
+var tileReply = (id) => `\x1B]7501;?tile=${id}\x1B\\`;
+function tileOfReply(body) {
+  const m = /^\?tile=(t-[0-9a-f-]{36})$/.exec(body);
+  return m ? m[1] : null;
+}
+var KEY = /^[a-z]+$/;
+var VALUE = /^[A-Za-z0-9_.,+/=-]*$/;
+var SEGMENT = /^[A-Za-z0-9_.+-]{1,32}$/;
+var APP = /^[A-Za-z0-9_.+-]{1,32}$/;
+var BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+var FRAME_BYTES = "\x1B]7501;".length + 2;
+function parseProgramStatus(body) {
+  if (utf8Length(body) + FRAME_BYTES > PROGRAM_STATUS_LIMITS.sequence)
+    return { t: "ignored", why: "longer than 4096 bytes" };
+  const asked = body.trim();
+  if (asked === "?")
+    return { t: "query" };
+  if (asked === "?tile")
+    return { t: "tile" };
+  if (body.startsWith("?mark="))
+    return MARK.test(body.slice(6)) ? { t: "mark", token: body.slice(6) } : { t: "ignored", why: "marker token outside the grammar" };
+  const pairs = new Map;
+  const texts = new Map;
+  for (const raw of body.split(":")) {
+    const eq = raw.indexOf("=");
+    if (eq < 0)
+      continue;
+    const key = raw.slice(0, eq).trim(), value = raw.slice(eq + 1).trim();
+    if (utf8Length(key) > PROGRAM_STATUS_LIMITS.key)
+      return { t: "ignored", why: `key longer than ${PROGRAM_STATUS_LIMITS.key} bytes` };
+    if (!KEY.test(key) || !VALUE.test(value))
+      continue;
+    const over = overLimit(key, value);
+    if (over)
+      return { t: "ignored", why: over };
+    if (key === "msg" || key === "title") {
+      const text = decodeText(value);
+      if (text === null)
+        return { t: "ignored", why: `${key} is not base64 of UTF-8` };
+      if (utf8Length(text) > (key === "msg" ? PROGRAM_STATUS_LIMITS.msgDecoded : PROGRAM_STATUS_LIMITS.titleDecoded))
+        return { t: "ignored", why: `${key} too long decoded` };
+      if (hasControl(text))
+        return { t: "ignored", why: `${key} holds a control character` };
+      texts.set(key, text);
+    }
+    pairs.set(key, value);
+  }
+  const state = pairs.get("state");
+  if (state === undefined)
+    return { t: "ignored", why: "no state" };
+  if (state !== "clear" && !PROGRAM_STATES.includes(state))
+    return { t: "ignored", why: `unknown state ${state}` };
+  const id = pairs.get("id");
+  if (id !== undefined && !id.split("/").every((s) => SEGMENT.test(s)))
+    return { t: "ignored", why: "id outside the grammar" };
+  const report = { state, id: id ?? "" };
+  for (const field of ["msg", "title"]) {
+    const text = texts.get(field);
+    if (text !== undefined)
+      report[field] = text;
+  }
+  const app = pairs.get("app");
+  if (app !== undefined && APP.test(app))
+    report.app = app;
+  const kind = pairs.get("kind");
+  if (state === "blocked" && kind !== undefined && BLOCKED_KINDS.includes(kind))
+    report.kind = kind;
+  const progress = pairs.get("progress");
+  if ((state === "working" || state === "blocked") && progress !== undefined && /^\d{1,3}$/.test(progress) && Number(progress) <= 100)
+    report.progress = Number(progress);
+  return { t: "report", report };
+}
+function overLimit(key, value) {
+  const L = PROGRAM_STATUS_LIMITS;
+  if (key === "msg" && value.length > L.msgEncoded)
+    return `msg longer than ${L.msgEncoded} bytes encoded`;
+  if (key === "title" && value.length > L.titleEncoded)
+    return `title longer than ${L.titleEncoded} bytes encoded`;
+  if (key === "app" && value.length > L.app)
+    return `app longer than ${L.app} bytes`;
+  if (key === "id") {
+    if (value.length > L.id)
+      return `id longer than ${L.id} bytes`;
+    const segments = value.split("/");
+    if (segments.length > L.depth)
+      return `id deeper than ${L.depth} levels`;
+    if (segments.some((s) => s.length > L.segment))
+      return `id segment longer than ${L.segment} bytes`;
+  }
+  return null;
+}
+var ATTENTION = { blocked: 4, error: 3, done: 2, working: 1, idle: 0 };
+function mostUrgent(states) {
+  let out = null;
+  for (const s of states)
+    if (out === null || ATTENTION[s] > ATTENTION[out])
+      out = s;
+  return out;
+}
+
+class StatusRecords {
+  cap;
+  records = new Map;
+  constructor(cap = PROGRAM_STATUS_LIMITS.records) {
+    this.cap = cap;
+  }
+  apply(r) {
+    if (r.state === "clear")
+      return this.drop((id) => r.id === "" || id === r.id || id.startsWith(`${r.id}/`));
+    const { state, ...rest } = r;
+    const had = this.records.has(r.id);
+    this.records.delete(r.id);
+    if (!had)
+      while (this.records.size >= this.cap)
+        this.records.delete(this.records.keys().next().value);
+    this.records.set(r.id, { ...rest, state });
+    return true;
+  }
+  exited() {
+    return this.drop((_, s) => s === "working" || s === "blocked");
+  }
+  prompt() {
+    return this.exited();
+  }
+  reset() {
+    return this.drop(() => true);
+  }
+  seen() {
+    return this.drop((_, s) => s === "done" || s === "error");
+  }
+  drop(f) {
+    let changed = false;
+    for (const [id, r] of [...this.records])
+      if (f(id, r.state)) {
+        this.records.delete(id);
+        changed = true;
+      }
+    return changed;
+  }
+  get size() {
+    return this.records.size;
+  }
+  get(id) {
+    return this.records.get(id);
+  }
+  list() {
+    return [...this.records.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map((r) => {
+      if (r.app !== undefined)
+        return r;
+      const app = this.inherited(r.id);
+      return app === undefined ? r : { ...r, app };
+    });
+  }
+  inherited(id) {
+    let at = id;
+    while (at !== "") {
+      at = at.includes("/") ? at.slice(0, at.lastIndexOf("/")) : "";
+      const app = this.records.get(at)?.app;
+      if (app !== undefined)
+        return app;
+    }
+    return;
+  }
+  urgent() {
+    let out = null;
+    for (const r of this.list())
+      if (!out || ATTENTION[r.state] > ATTENTION[out.state])
+        out = r;
+    return out;
+  }
+}
+function encodeProgramStatus(r) {
+  const pairs = [`state=${r.state}`];
+  if (r.id) {
+    if (!r.id.split("/").every((s) => SEGMENT.test(s)) || r.id.length > PROGRAM_STATUS_LIMITS.id || r.id.split("/").length > PROGRAM_STATUS_LIMITS.depth)
+      throw new Error(`not a program status id: ${r.id}`);
+    pairs.push(`id=${r.id}`);
+  }
+  if (r.state === "blocked" && r.kind)
+    pairs.push(`kind=${r.kind}`);
+  if ((r.state === "working" || r.state === "blocked") && r.progress !== undefined && Number.isInteger(r.progress) && r.progress >= 0 && r.progress <= 100)
+    pairs.push(`progress=${r.progress}`);
+  if (r.app !== undefined && APP.test(r.app))
+    pairs.push(`app=${r.app}`);
+  if (r.title)
+    pairs.push(`title=${encodeText(r.title, PROGRAM_STATUS_LIMITS.titleDecoded)}`);
+  if (r.msg)
+    pairs.push(`msg=${encodeText(r.msg, PROGRAM_STATUS_LIMITS.msgDecoded)}`);
+  return `\x1B]7501;${pairs.join(":")}\x1B\\`;
+}
+function statusSegment(name) {
+  const s = name.replace(/[^A-Za-z0-9_.+-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, PROGRAM_STATUS_LIMITS.segment);
+  return s || "x";
+}
+function isStatusQueryReply(body) {
+  return body.startsWith("?");
+}
+function statusDisplayText(s) {
+  return s.replace(/[­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻]/g, "");
+}
+function encodeText(text, max) {
+  const line = text.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+  const bytes = [];
+  for (const ch of line) {
+    const b = utf8(ch.codePointAt(0));
+    if (bytes.length + b.length > max)
+      break;
+    bytes.push(...b);
+  }
+  return base64(bytes);
+}
+var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function base64(bytes) {
+  let out = "";
+  for (let i = 0;i < bytes.length; i += 3) {
+    const a = bytes[i], b = bytes[i + 1], c = bytes[i + 2];
+    const n = a << 16 | (b ?? 0) << 8 | (c ?? 0);
+    out += B64[n >> 18 & 63] + B64[n >> 12 & 63] + (b === undefined ? "=" : B64[n >> 6 & 63]) + (c === undefined ? "=" : B64[n & 63]);
+  }
+  return out;
+}
+function decodeText(v) {
+  if (!BASE64.test(v))
+    return null;
+  const s = v.replace(/=+$/, ""), pad = v.length - s.length;
+  if (s.length % 4 === 1)
+    return null;
+  if (pad && (v.length % 4 !== 0 || pad !== 4 - s.length % 4))
+    return null;
+  const bytes = [];
+  let acc = 0, bits = 0;
+  for (const ch of s) {
+    acc = acc << 6 | B64.indexOf(ch);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push(acc >> bits & 255);
+    }
+  }
+  return fromUtf8(bytes);
+}
+function fromUtf8(b) {
+  let out = "";
+  for (let i = 0;i < b.length; ) {
+    const x = b[i];
+    const n = x < 128 ? 0 : x >= 194 && x < 224 ? 1 : x >= 224 && x < 240 ? 2 : x >= 240 && x < 245 ? 3 : -1;
+    if (n < 0)
+      return null;
+    let cp = n === 0 ? x : x & 63 >> n;
+    for (let k = 1;k <= n; k++) {
+      const c = b[i + k];
+      if (c === undefined || (c & 192) !== 128)
+        return null;
+      cp = cp << 6 | c & 63;
+    }
+    if (n === 2 && (cp < 2048 || cp >= 55296 && cp <= 57343) || n === 3 && (cp < 65536 || cp > 1114111))
+      return null;
+    out += String.fromCodePoint(cp);
+    i += n + 1;
+  }
+  return out;
+}
+function utf8(cp) {
+  if (cp >= 55296 && cp <= 57343)
+    cp = 65533;
+  if (cp < 128)
+    return [cp];
+  if (cp < 2048)
+    return [192 | cp >> 6, 128 | cp & 63];
+  if (cp < 65536)
+    return [224 | cp >> 12, 128 | cp >> 6 & 63, 128 | cp & 63];
+  return [240 | cp >> 18, 128 | cp >> 12 & 63, 128 | cp >> 6 & 63, 128 | cp & 63];
+}
+function utf8Length(s) {
+  let n = 0;
+  for (const ch of s)
+    n += utf8(ch.codePointAt(0)).length;
+  return n;
+}
+var hasControl = (s) => /[\u0000-\u001f\u007f-\u009f]/.test(s);
 export {
+  AGENT_TOOL_DEFINITIONS,
+  AGENT_TOOL_SURFACES,
+  ATTENTION,
+  BLOCKED_KINDS,
+  BLOCK_ID_LIKE_PATTERN,
   BLOCK_ID_PATTERN,
   COMPONENT_OPEN,
+  PROGRAM_STATES,
+  PROGRAM_STATUS_LIMITS,
+  PROGRAM_STATUS_OSC,
+  PROGRAM_STATUS_QUERY,
+  PROGRAM_STATUS_TERMINFO,
+  READING_WIDTH,
+  REF_ALIASES,
+  REF_WORDS,
+  StatusRecords,
+  TILE_QUERY,
+  UP_FRONT_TOOLS,
+  agentToolDefinition,
   boxStatus,
+  checkToolArgs,
+  closest,
   codeBlocks,
   componentBlocks,
+  describeTool,
+  editDistance,
+  encodeProgramStatus,
   formatEp0chBlockUri,
+  isStatusQueryReply,
   labelBar,
   linkOccurrences,
   mentions,
+  mostUrgent,
   pageAddressText,
   pageLinkSpans,
   parseActor,
+  parseProgramStatus,
   qualifiedReference,
-  referencedBlock
+  referenceConflict,
+  referencedBlock,
+  sameReference,
+  statusDisplayText,
+  statusSegment,
+  tileMark,
+  tileOfReply,
+  tileReply,
+  tmuxPassthrough,
+  toolArgsSpec,
+  toolCallText,
+  toolInputSchema,
+  toolSchemaLine
 };

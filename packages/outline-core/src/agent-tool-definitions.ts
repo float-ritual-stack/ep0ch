@@ -8,14 +8,10 @@
  *
  * `AGENT_TOOL_SURFACES` says where each tool is registered and, where it isn't yet, why.
  *
- * The Claude mod's hooks can't import this module, so `packages/claude-mod/hooks/agent-tool-definitions.ts` carries
- * the same code below the marker line (the door's `test/tool-args.test.ts` keeps the two byte-equal). Edit this file,
- * then copy everything from the marker down.
- *
+ * The Claude mod's hooks can't import this module, so they read it from the mod's generated bundle
+ * (`packages/claude-mod/hooks/link-grammar.js`): edit this file, then run `bun scripts/link-grammar.ts`.
  */
 import type { ToolArgsSpec, ToolSchema } from "./tool-args";
-
-// --- agent tool definitions below this line ---
 
 /** The `outliner agent` operations a tool runs. */
 export type AgentToolOperation =

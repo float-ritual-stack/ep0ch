@@ -1,4 +1,4 @@
-import { READING_WIDTH } from './agent-tool-definitions'
+import { READING_WIDTH } from './link-grammar.js'
 /**
  * What the session's outline can hold, in front of the model (PIE-721), so it reaches for figures, views, callouts and
  * rules without the person reminding it:
@@ -19,7 +19,7 @@ export const GUIDE_ARGV: readonly string[] = ['ep0ch', 'library', '--guide']
 export const GUIDE_TIMEOUT_MS = 8000
 
 /** The tools listed up front: outline-core's one list (agent-tool-definitions.ts), the ones this mod registers. */
-export { UP_FRONT_TOOLS as UPFRONT_TOOLS } from './agent-tool-definitions'
+export { UP_FRONT_TOOLS as UPFRONT_TOOLS } from './link-grammar.js'
 
 /** This session's own lines after the guide's: what the mod's tools do that the gateway's don't. */
 const MOD_LINES = [
