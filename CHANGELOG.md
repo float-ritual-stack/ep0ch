@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
+
+- **Nothing you see changes:** the door draws, answers keys and lists its actions exactly as before. This is for whoever opens the code next.
+- **A reader's action lives with its prefix:** `NOTE_ACTIONS` is spread from one module per prefix family in `packages/door/src/surface/note-actions/` (editing, comments, elements, reading, sources, …), with what they share in `shared.ts`. A new action goes in its prefix's module.
+- **The link model and the panels are their own modules:** `surface/link-model.ts` (a note's links as the reader follows them) and `surface/note-panels.ts` (a step's or callout's choice, a thread's card).
+- **Copies folded onto their owners:** the heading test onto outline-core's `HEADING_LINE`, one line↔offset pair (`lineStart`, `lineAtOffset` in outline-core's `code-ranges.ts`), `inRect`, `width()` for the reader's own chips, one refusal table, one thread lookup and one comment send.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL and GRAMMAR don't move.
+
 ### Pasted text never runs as commands (PIE-1659)
 
 - **Paste anything, anywhere:** no letter of a paste runs as a key any more. On a reader with no edit open, a board's lanes, the drawer's reader or the main menu, the power bar opens with the text in its line (a note's address as that note's row, other words as a search; line breaks read as spaces); nothing runs until ⏎ or a click, and Esc puts it away. Before, `dd` in pasted text trashed the note or card in front and `x` closed a tile.
@@ -19,6 +27,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Terminal tiles unchanged:** a program gets the paste as it asked, bracketed in mode 2004, plain otherwise.
 - **In the kitchen sink:** the Paste a link section says it and its test pastes text holding `d` and `x` on the note.
 - **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
+
 ### Three door paper cuts: a river list's stale pick, docks per undone terminal, an alt press asking the wrong kind (PIE-1540, PIE-1575, PIE-1660)
 
 - **j lets go of a river list's pick:** in a river column, `j` (or `k`, a click on a card, the column's scroll or `esc`) off a `::links` list picked with `]` and PgDn no longer leaves that row drawn picked with its preview on it; the list reads as it did before the walk reached it (its first row lit for its preview), and PgDn scrolls the column.
