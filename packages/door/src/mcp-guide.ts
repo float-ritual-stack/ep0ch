@@ -79,14 +79,18 @@ export function skillResource(skills: readonly Skill[], uri: unknown): { content
  * What a write's `detail` says about the text it wrote (the agent tools' `warnings` and `components`), to sit beside
  * `said`, with a clause for `said` when there are warnings: nothing when it says nothing.
  */
-export function writeReading(detail: unknown): { fields: { components?: string[]; warnings?: string[]; figures?: string[]; next?: string }; said: string } {
+export function writeReading(detail: unknown): { fields: { components?: string[]; warnings?: string[]; figures?: string[]; view?: string[]; viewOf?: string; viewError?: string; next?: string }; said: string } {
   const d = detail && typeof detail === "object" ? detail as Record<string, unknown> : {};
   const list = (v: unknown) => (Array.isArray(v) && v.every(x => typeof x === "string") && v.length ? v as string[] : undefined);
+  const word = (v: unknown) => (typeof v === "string" && v ? v : undefined);
   const components = list(d.components), warnings = list(d.warnings), figures = list(d.figures);
-  const next = typeof d.next === "string" && d.next ? d.next : undefined;
+  // The note as drawn (PIE-588), beside what it says: the agent reads it where it reads the warnings.
+  const view = list(d.view), viewOf = word(d.viewOf), viewError = word(d.viewError);
+  const next = word(d.next);
   return {
-    fields: { ...(components ? { components } : {}), ...(warnings ? { warnings } : {}), ...(figures ? { figures } : {}), ...(next ? { next } : {}) },
+    fields: { ...(components ? { components } : {}), ...(warnings ? { warnings } : {}), ...(figures ? { figures } : {}), ...(view ? { view } : {}), ...(viewOf ? { viewOf } : {}), ...(viewError ? { viewError } : {}), ...(next ? { next } : {}) },
     said: (warnings ? `; ${warnings.length} to fix before you call this done (warnings): saved as written, fix ${warnings.length === 1 ? "it" : "them"} now` : "")
+      + (view ? "; the part you wrote is in view, as the door draws it" : "")
       + (next ? `; next: ${next}` : ""),
   };
 }

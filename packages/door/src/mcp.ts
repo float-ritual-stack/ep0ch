@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { boardFor, canonicalLocalMachineName, drawNote, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { visible } from "./style";
 import { agentToolDefinition, READING_WIDTH } from "@ep0ch/outline-core/agent-tool-definitions";
-import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
+import { hostRequest, OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { parseMachineryMode, readsRecentActivity, type MachineryMode } from "@ep0ch/outline-core/machinery";
@@ -1277,7 +1277,10 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     // they do, so a write made now and one made before never apply twice.
     const earlier = target.queuedFor && outlines.netmail ? outlines.netmail.pending(target.queuedFor, where.outline, target.id, { actorId: actor.actorId, subject: caller.sub }).filter(w => w.state === "queued") : [];
     let done: Awaited<ReturnType<typeof applyWrite>>;
-    try { done = await applyWrite(board, { ...shape, input, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) }); }
+    // The note a write changed comes back drawn by the door's own drawNote (PIE-588), as outline_read's view is.
+    const draw = async (id: string, o: { width: number; lines?: [number, number]; rows: number }) => (await drawNote(board, id, o.width, undefined, o.lines))?.map(l => visible(l).trimEnd()).slice(0, o.rows) ?? null;
+    const hostedOutlines = async () => (await hostRequest(board.path, "outlines.list")).outlines.map(o => o.name);
+    try { done = await applyWrite(board, { ...shape, input, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id), draw, hostedOutlines }); }
     catch (e) {
       // Nothing answered (the link dropped mid-write): whether it landed is unknown, so it is queued as that same write
       // (a comment by its request id, a new block found made, a patch by its revision) and lands once, never twice.
@@ -1300,7 +1303,9 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
     const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
     const reading = writeReading(done.detail);
-    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), ...reading.fields, said: `${done.said}${reading.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
+    // The drawing is said once, beside the warnings (writeReading), not again in detail.
+    const detail = done.detail && typeof done.detail === "object" && ("view" in done.detail || "viewError" in done.detail) ? (({ view: _v, viewOf: _o, viewError: _e, ...rest }) => rest)(done.detail as Record<string, unknown>) : done.detail;
+    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), ...reading.fields, said: `${done.said}${reading.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);

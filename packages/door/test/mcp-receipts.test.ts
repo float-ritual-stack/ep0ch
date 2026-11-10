@@ -72,7 +72,8 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: "test-key", alg: "RS256" }] });
 
     await here.start(); await far.start();
-    await here.create("garden-notes"); await here.create("quiet-notes"); await far.create("attic-notes");
+    // "gdn" is the outline a GDN- Work ID belongs to, by its name: what a bare one in another outline is linked to.
+    await here.create("garden-notes"); await here.create("quiet-notes"); await here.create("gdn"); await far.create("attic-notes");
     const garden = boardOn(here, "garden-notes", HERE), quiet = boardOn(here, "quiet-notes", HERE), attic = boardOn(far, "attic-notes", FAR);
     await garden.request("mcp.access.configure", { level: "full" }); await quiet.request("mcp.access.configure", { level: "read" }); await attic.request("mcp.access.configure", { level: "full" });
     const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request("create", { parentId: null, text, author: "user" })).id; };
@@ -244,6 +245,70 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
       for (const id of made) await garden.trash(id);
     }
   });
+
+  test("a write that leaves a mixed section answers drawn, its findings naming their lines and fixes; applied, they clear (PIE-588)", async () => {
+    // Jev, faked: each line's kind by its words, and every section asked about mixes them.
+    const jev = Bun.serve({
+      port: 0, hostname: "127.0.0.1",
+      async fetch(request) {
+        const body = await request.json() as { state: { lines?: Record<string, string> }; questions: Record<string, { type: string; criteria?: Record<string, string> }> };
+        const answers: Record<string, unknown> = {};
+        for (const [id, q] of Object.entries(body.questions)) {
+          const at = /^kind::(L\d+)$/.exec(id)?.[1];
+          const kind = at ? (/decided/i.test(body.state.lines![at]!) ? "decision" : /open|\?/i.test(body.state.lines![at]!) ? "open" : "fact") : undefined;
+          answers[id] = kind ? { type: "choice", choice: kind, confidence: 0.8, probabilities: { [kind]: 0.9 } }
+            : id.startsWith("mixed::") ? { type: "noul", noul: 0.9 }
+            : q.type === "choice" ? { type: "choice", choice: Object.keys(q.criteria ?? {})[0], confidence: 0.1, probabilities: {} } : { type: "noul", noul: 0.1 };
+        }
+        return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 10, output_tokens: 2 } });
+      },
+    });
+    const saved = { fit: process.env.OUTLINER_FIGURE_FIT, key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
+    Object.assign(process.env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${jev.port}/v1/systemone` });
+    try {
+      const text = [
+        "Gate repair",
+        "## Where it stands",
+        "- The latch on the garden gate sheared off in the wind on Monday night, and the gate swung wide into the lane until morning.",
+        "- The hinges and the post are sound: only the latch and its keeper plate need replacing, and both are a standard size.",
+        "- We decided to fit a gravity latch this time, since the spring latch kept rusting shut every winter (see GDN-12).",
+        "- Still open: whether the gate needs a second latch at the bottom to stop it rattling in a strong wind?",
+      ].join("\n");
+      const made = await tool("outline_create", { outline: "garden-notes", ref: ids.a!, text });
+      expect(made.isError, made.text).toBe(false);
+      // The drawing is beside the warnings, as the door draws it at Evan's width; said once.
+      expect(made.json.view.join("\n")).toContain("Where it stands");
+      expect(made.json.viewOf).toContain("44 columns");
+      expect(made.json.detail.view).toBeUndefined();
+      expect(made.json.said).toContain("in view");
+      const findings = made.json.detail.review.findings as { rule: string; say: string; patch?: { observed: string; replacement: string }[] }[];
+      const mixed = findings.find(f => f.rule === "mixed")!;
+      expect(mixed.say).toContain("what's true on lines 3–4; what was decided on line 5; what's still open on line 6");
+      // The bare Work ID is quoted, with the outline it lives in.
+      const context = findings.find(f => f.rule === "context")!;
+      expect(context.say).toContain("names GDN-12 bare");
+      expect(context.patch![0]!.replacement).toContain("(see [[gdn:GDN-12]])");
+
+      // Each fix applied as written: the link first, then the move (its patch comes with the next review).
+      const id = made.json.uri.split("/").pop();
+      const read = await tool("outline_read", { outline: "garden-notes", ref: id });
+      const linked = await tool("outline_patch", { outline: "garden-notes", ref: id, revision: read.json.record.revision, patches: context.patch });
+      expect(linked.isError, linked.text).toBe(false);
+      const again = linked.json.detail.review.findings as typeof findings;
+      expect(again.filter(f => f.rule === "context")).toEqual([]);
+      const move = again.find(f => f.rule === "mixed")!;
+      const reread = await tool("outline_read", { outline: "garden-notes", ref: id });
+      const moved = await tool("outline_patch", { outline: "garden-notes", ref: id, revision: reread.json.record.revision, patches: move.patch });
+      expect(moved.isError, moved.text).toBe(false);
+      expect((moved.json.detail.review.findings as typeof findings).filter(f => f.rule === "mixed")).toEqual([]);
+      expect(moved.json.view.join("\n")).toContain("Decided");
+    } finally {
+      Object.assign(process.env, { OUTLINER_FIGURE_FIT: saved.fit ?? "off" });
+      if (saved.key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = saved.key;
+      if (saved.endpoint === undefined) delete process.env.OUTLINER_JEV_ENDPOINT; else process.env.OUTLINER_JEV_ENDPOINT = saved.endpoint;
+      jev.stop(true);
+    }
+  }, 60_000);
 
   test("outline_query by saved view returns the members the door's view shows", async () => {
     const garden = boardOn(here, "garden-notes", HERE);

@@ -13,9 +13,11 @@ export interface WriteBoard {
   info(): Promise<unknown>;
   comments(id: string): Promise<{ id: string; replies: { id: string }[] }[]>;
 }
-const clientOf = (board: WriteBoard) => ({
+const clientOf = (board: WriteBoard, lent: Pick<ApplyOptions, "draw" | "hostedOutlines"> = {}) => ({
   request: <T>({ action, ...args }: { action: string } & Record<string, unknown>, timeoutMs?: number) => board.request<T>(action, args, timeoutMs),
   requireCompatibleService: () => board.info(),
+  ...(lent.draw ? { draw: lent.draw } : {}),
+  ...(lent.hostedOutlines ? { hostedOutlines: lent.hostedOutlines } : {}),
 });
 const pick = (args: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]));
 /** When a patch was read at an older revision and applied on the newer one, say which (PIE-687). */
@@ -74,6 +76,10 @@ export interface ApplyOptions {
   revision?: number;
   /** A queued write: a comment whose passage has gone lands on the whole note, saying so. */
   queued?: { at: string };
+  /** The door's drawing of a note, lent by the gateway (agent-tools `draw`, PIE-588): a write's answer carries the part it changed. */
+  draw?: (id: string, o: import("./agent-tools").NoteDrawing) => Promise<string[] | null>;
+  /** The outlines the board's host serves, by name: where a bare Work ID of another outline is linked to (PIE-588). */
+  hostedOutlines?: () => Promise<string[]>;
 }
 
 /**
@@ -87,7 +93,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   const kind = o.level === "full" ? "applied" : "proposals";
   const module = "./agent-tools";
   const tools = await import(module) as AgentTools;
-  const client = clientOf(board);
+  const client = clientOf(board, o);
   const propose = kind === "proposals" || o.proposeOnly || write.input.propose === true ? true : o.queued ? "on-conflict" : false;
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }

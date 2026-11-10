@@ -568,3 +568,66 @@ test("with Jev naming a decision figure for the top, the boxes the choice patch 
   expect(review.findings.filter(f => f.rule === "kit" && f.new)).toEqual([]);
   expect(review.verdict).toBe("ship");
 });
+
+/** A section that mixes what happened, what was decided and what's still open, a line each (made up). */
+const MIXED = [
+  "Shed roof plan",
+  "## Where it stands",
+  "- The felt on the north slope tore in the storm on Tuesday, and the rain got in over the potting bench and two trays of seedlings.",
+  "- The joists under the tear are dry and sound: only the felt and two battens need replacing, the rest of the roof held.",
+  "- We decided to replace the whole north slope with corrugated sheets rather than patch the felt again this winter.",
+  "- Still open: whether the gutter on that side can stay, or has to move to take the new sheets' overhang?",
+].join("\n");
+
+/** A fake Jev that reads each line's kind by its words, and says every section asked about mixes them. */
+const kindsByWords: Answers = (id, _q, state) => {
+  if (id.startsWith("mixed::")) return { type: "noul", noul: 0.9 };
+  const at = /^kind::(L\d+)$/.exec(id)?.[1];
+  if (!at) return undefined;
+  const line = String((state.lines as Record<string, string>)[at]);
+  const kind = /decided/i.test(line) ? "decision" : /open|\?/i.test(line) ? "open" : "fact";
+  return { type: "choice", choice: kind, confidence: 0.8, probabilities: { [kind]: 0.9 } };
+};
+
+test("a mixed section answers with the note as drawn and a finding naming its fact, decision and open lines; its patch clears it (PIE-588)", async () => {
+  const { store, agent, asked } = await setup(kindsByWords);
+  const made = await agent("create", { parent: "root", text: MIXED });
+  expect(made.exitCode, made.stderr).toBe(0);
+  // Each written line of the section was asked what it records, on its own.
+  expect(Object.keys(asked[0]!.questions)).toEqual(expect.arrayContaining(["kind::L2", "kind::L3", "kind::L4", "kind::L5"]));
+  const mixed = (made.json.review as Review).findings.find(f => f.rule === "mixed")!;
+  expect(mixed.say).toContain("what's true on lines 3–4; what was decided on line 5; what's still open on line 6");
+  expect(mixed.patch).toHaveLength(1);
+  // The answer holds the note as the door draws it, and says to read it there.
+  expect(made.json.viewError).toBeUndefined();
+  expect(made.json.view.join("\n")).toContain("Shed roof plan");
+  expect(made.json.view.join("\n")).toContain("Where it stands");
+  expect(made.json.next).toContain("read `view`");
+
+  // Applying it as told moves each line under its heading, and the section isn't mixed any more.
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: mixed.patch });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  expect(store.require(note.id).text).toContain("### Decided\n- We decided to replace");
+  expect(store.require(note.id).text).toContain("### Open\n- Still open:");
+  const after = patched.json.review as Review;
+  expect(after.findings.filter(f => f.rule === "mixed" && f.new)).toEqual([]);
+  // The patch's drawing is the part it changed, from its section's heading.
+  expect(patched.json.viewOf).toStartWith("lines 2–10 of 10");
+  expect(patched.json.view.join("\n")).toContain("Decided");
+});
+
+test("an id written bare is quoted with its link, and the patch that links it clears the finding (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  const rota = await agent("create", { parent: "root", text: "Compost rota\n\nTurn it on Sundays." });
+  const short = String(rota.json.id).slice(0, 8);
+  const made = await agent("create", { parent: "root", text: `Garden jobs\n\nTurn the heap before the beds, the order is in ${short}.` });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const context = (made.json.review as Review).findings.find(f => f.rule === "context")!;
+  expect(context.say).toContain(`names ${short} bare`);
+  expect(context.say).toContain(`((${rota.json.id}|Compost rota))`);
+  expect(context.patch).toEqual([{ observed: `Turn the heap before the beds, the order is in ${short}.`, replacement: `Turn the heap before the beds, the order is in ((${rota.json.id}|Compost rota)).` }]);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: context.patch });
+  expect((patched.json.review as Review).findings.filter(f => f.rule === "context")).toEqual([]);
+});
