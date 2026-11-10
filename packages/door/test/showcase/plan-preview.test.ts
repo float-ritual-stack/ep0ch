@@ -21,8 +21,14 @@ describe.skipIf(!outliner)("the showcase screen: plan preview (PIE-1720)", () =>
     // The reader's one scroll carries the embed and the list's whole preview: to the end, no '⋮ more rows'.
     for (let i = 0; i < 40 && !screen().includes("tray 40: barm cakes"); i++) await app.act({ action: "scroll", args: { by: 3 }, tile: "hub", as: "test-agent" });
     expect(screen()).toContain("tray 40: barm cakes");
-    for (let i = 0; i < 40 && !/MATCHES|matches/.test(screen()); i++) await app.act({ action: "scroll", args: { by: 3 }, tile: "hub", as: "test-agent" });
-    await until(() => screen().includes("MATCHES") || screen().includes("matches"), "the list under the embed");
+    // Through the list's whole preview to its frame's foot (`live · 2 mat…`): no '⋮ more rows' on the way, the plan's last tray just above it.
+    for (let i = 0; i < 60 && !/MATCHES|matches/.test(screen()); i++) await app.act({ action: "scroll", args: { by: 3 }, tile: "hub", as: "test-agent" });
+    // The preview is read as it comes into view (`· asking`): the foot counts once it's drawn.
+    const atFoot = () => /live · \d/.test(screen()) && !/· aski/.test(screen());
+    for (let i = 0; i < 80 && !atFoot(); i++) { expect(screen()).not.toContain("more rows"); await app.act({ action: "scroll", args: { by: 3 }, tile: "hub", as: "test-agent" }); await Bun.sleep(30); }
+    const foot = screen().split("\n"), at = foot.findIndex(l => /live · \d/.test(l));
+    expect(at).toBeGreaterThan(0);
+    expect(foot.slice(Math.max(0, at - 4), at).join("\n")).toContain("tray 40:");
     expect(screen()).not.toContain("more rows");
     // PIE-1723: the aside's last promise, held by the seed: the query nothing answers says why, with the nearest keys.
     // At the foot, under the list's whole preview: scrolled to as the preview's rows arrive.

@@ -420,9 +420,10 @@ export const SETTINGS_DEFS = {
         const subject = surface.msg ? settingsSubject(surface, surface.msg) : null;
         const field = subject?.fields.find(f => f.prop.key === e.key);
         if (!subject?.ext || !field || field.value !== e.ext.after) { SETTINGS_UNDO.drop(e); const why = `couldn't undo: ${e.key} changed again since`; host.ctx.flash(why); throw new ActionRefused(why); }
-        SETTINGS_UNDO.drop(e);
+        // Kept until the write lands: one refused (a value the owner can't take back) says why and can be tried again.
         const back = e.ext.before === null ? clearOf(e.key) : extGiven(subject, e.key, e.ext.before);
-        const r = await subject.ext.write(host.ctx, back, actor);
+        const r = await subject.ext.write(host.ctx, back, actor).catch(err => { const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why); host.redraw(); throw new ActionRefused(why); });
+        SETTINGS_UNDO.drop(e);
         const said = undoneSaid(e);
         host.ctx.flash(said); surface.noteAgent(actor, said);
         if (surface.panel?.card) surface.panel.card.note = said;

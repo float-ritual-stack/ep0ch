@@ -122,6 +122,19 @@ test("a render script reads only the children the page may show", async () => {
   }
 });
 
+test("a public page says why its own query embed shows nothing, as the tailnet page does; a private note's embed stays not shared (PIE-1723)", async () => {
+  const { store, tailnet, publicly } = await setup();
+  const vault = store.create("Gate codes [type::vault]\nside gate 4471");
+  store.create(`Comet hub [publish::public:comet-hub]\n!((query: comet=bright))\n\n!((query: type=plan AND))\n\n!((${vault.id}))`);
+  for (const html of [await tailnet("comet-hub"), await publicly("comet-hub")]) {
+    expect(html).toContain("missing note · no notes have comet");
+    expect(html).toContain("embed failed · Expected a clause or group");
+  }
+  // The tailnet page shows every note but a locked one; the public page only what is public.
+  expect(await publicly("comet-hub")).toContain("not shared");
+  expect(await publicly("comet-hub")).not.toContain("4471");
+});
+
 test("a private script's self never appears directly, embedded, or used on a public page", async () => {
   const { store, draw, publicly } = await setup();
   const script = store.create('PRIVATE_SCRIPT_TITLE [script::peek-self] [mode::render] [publish::never] [secret::PRIVATE_SCRIPT_PROPERTY]\n```js\nreturn self.title + JSON.stringify(self.properties);\n```');

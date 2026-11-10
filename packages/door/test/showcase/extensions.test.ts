@@ -859,6 +859,15 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(await app.dispatch.act({ action: "settings", tile: "card" }, { kind: "agent", id: "test-agent" })).toMatchObject({ extension: "trail", fields: expect.arrayContaining([expect.objectContaining({ key: "days", value: "14", state: "set" })]) });
     await app.dispatch.act({ action: "settings.undo", tile: "card" }, USER);
     expect(app.trail.settings.days).toBe(7);
+    // An undo the trail refuses (a trail.json that held a value its action can't take) says so, and stays to try again.
+    app.trail.configure({ days: -3 });
+    await app.dispatch.act({ action: "settings.set", tile: "card", args: { key: "days", value: "21" } }, USER);
+    expect(app.trail.settings.days).toBe(21);
+    (app as any).message = "";
+    await expect(app.dispatch.act({ action: "settings.undo", tile: "card" }, USER)).rejects.toThrow("couldn't undo: trail.settings values must be positive");
+    expect((app as any).message).toContain("couldn't undo");
+    await expect(app.dispatch.act({ action: "settings.undo", tile: "card" }, USER)).rejects.toThrow("couldn't undo: trail.settings");
+    app.trail.configure({ days: 7 });
     // Settings asked for from the settings screen (yo's ⚙, `& settings yo`): yo's card has the keys; out of it (esc) and
     // asked for again, the keys are in its card again, never left outside it.
     await app.dispatch.press("ext.yo.settings", {});

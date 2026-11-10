@@ -2816,8 +2816,8 @@ const embedWhy = (message: string | undefined, word: string) => { const said = m
 function renderEmbed(node: TransclusionNode | undefined, context: TextContext): string {
   const expansion = context.embeds!;
   if (!node) return placeholder(TRANSCLUSION_WORDING.limit);
-  // On a public page an embed of a note that isn't public names nothing from it, whatever its state.
-  if (expansion.shareable && !expansion.shareable.has(node.blockId)) return placeholder(NOT_SHARED_NOTE);
+  // On a public page an embed of a note that isn't public names nothing from it, whatever its state; a query or page address that found none is the page's own words, its reason said.
+  if (expansion.shareable && !expansion.shareable.has(node.blockId) && !((node.status === "missing" || node.status === "failed") && resolvedEmbedTarget(node.blockId))) return placeholder(NOT_SHARED_NOTE);
   if (node.status !== "ready") {
     // Wording that names nothing from the target (a trashed note's title is not shown); a missing or failed one's reason as the door says it (PIE-1723).
     if (node.status === "deleted") return placeholder("note in Trash");
