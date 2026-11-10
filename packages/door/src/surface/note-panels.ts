@@ -141,10 +141,10 @@ export function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?:
     const head = "└ " + drawEllipsized(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
     let row = edge + "│ " + fg(C.cyan) + drawEllipsized(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
-      if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
-      controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
+      if (col + 1 + width(q) > W) { lines.push(row); row = edge + "│ "; col = 2; }
+      controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + width(q), label });
       row += " " + (cur === controlKey(c.id, k, r.id) ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
-      col += 1 + q.length;
+      col += 1 + width(q);
     }
     lines.push(row);
     for (const l of body(r.body, Math.max(2, inner - 2), 4)) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
@@ -162,11 +162,11 @@ export function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?:
   ];
   all.forEach(([k, label, value]) => {
     const shown = `[${label}]`, on = cur === controlKey(c.id, k, value);
-    if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
+    if (col > 2 && col + 3 + width(shown) > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
     row += on ? ITEM_BG + fg(C.white) + shown + RESET : buttonText(label);
-    controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label, ...(value ? { value } : {}) });
-    col += shown.length;
+    controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + width(shown), label, ...(value ? { value } : {}) });
+    col += width(shown);
   });
   lines.push(row + RESET, f.bottom());
   return { lines: lines.map(l => onCard(l, W, bg)), bg, controls, images, links };

@@ -1316,7 +1316,7 @@ export class NoteSurface {
     const links: Link[] = [];
     const hooks = this.bodyHooks(m, lines, this.docEnv(w, host, 8), this.src, links);
     const chip = host?.attachment === "list-preview" && host.hasWiredPreview?.() ? "" : `[${this.listPreview.place} ▸]`;
-    const title = pad(`Children · ${p.text.replace(/^\[.\]\s+/, "")}`, Math.max(0, w - chip.length)) + fg(C.lcyan) + chip + RESET;
+    const title = pad(`Children · ${p.text.replace(/^\[.\]\s+/, "")}`, Math.max(0, w - width(chip))) + fg(C.lcyan) + chip + RESET;
     const body = this.listEditor.field ? this.listEditor.fieldDraw(w).lines : hooks.spanPreview(start, end, w);
     if (this.listEditor.field) this.listEditor.remapEditor(col, row + 1 - this.listPreview.top);
     const raw = extractLinks(body);
@@ -2909,7 +2909,7 @@ export class NoteSurface {
     p.rect = { row, col, cols: w, rows: h };
     const lines = previewRows(d, (t, pw, links) => this.snippetDoc(t, pw, host, links, true, isOutlineNote(m) ? m.id : undefined), w, h, row, col, aligned);
     const chip = `[${p.place} ▸]`;
-    lines[0] = pad(lines[0]!, Math.max(0, w - chip.length)) + fg(C.lcyan) + chip + RESET;
+    lines[0] = pad(lines[0]!, Math.max(0, w - width(chip))) + fg(C.lcyan) + chip + RESET;
     return { lines, placements: d.views.raw.frame?.preview?.placements };
   }
 
@@ -5978,7 +5978,7 @@ export class NoteSurface {
     if (this.listEditor.field) return this.modes.click(x, y, host) ?? false;
     const pr = this.listPreview.rect;
     if (this.previewPoint() && pr && (host.attachment === "list-preview" || !host.attachment && !host.hasWiredPreview?.()) && x >= pr.col && x < pr.col + pr.cols && y >= pr.row && y < pr.row + pr.rows) {
-      if (y === pr.row && !host.hasWiredPreview?.() && x >= pr.col + pr.cols - `[${this.listPreview.place} ▸]`.length) void this.runKey("placement.menu", { target: "list-preview" }, host);
+      if (y === pr.row && !host.hasWiredPreview?.() && x >= pr.col + pr.cols - width(`[${this.listPreview.place} ▸]`)) void this.runKey("placement.menu", { target: "list-preview" }, host);
       else if (y > pr.row) {
         const hit = this.previewHits.find(h => h.row === y && x >= h.from && x < h.to);
         if (hit) { if (hit.link.choice !== undefined) void this.choose(hit.link.choice, host); else this.pressLink(hit.link, undefined, this.cur, undefined, !!host.freshClick, host); } // a choice row chooses; else its element's activation
@@ -6840,7 +6840,7 @@ export class NoteSurface {
     const full = drawSources(sm.panel, cols, Date.now());
     sm.view.lines = full.lines;
     const top = sm.view.place(full.focus, full.lines.length, room);
-    const left = Math.max(0, cols - chip.length);
+    const left = Math.max(0, cols - width(chip));
     sm.draw = { ...full, lines: full.lines.slice(top, top + room).map((l, i) => sm.view.paint(l, top + i)), hits: [
       { row: 0, from: left, to: cols, action: "placement.menu", args: { target: "sources" } },
       ...full.hits.map(x => ({ ...x, row: x.row - top + 1 })).filter(x => x.row > 0 && x.row <= room),
@@ -8219,14 +8219,14 @@ export class NoteSurface {
     // The passage toolbar goes on the line too: when it all fits beside the count and [Y source] they stay; else they
     // give it their room (Y still copies the source).
     const bar = this.msg && !this.msg.partial && s.text(rows).trim() ? this.passageChoices() : [];
-    const full = `── ${n} chars ${copy} ${source} · `.length + width(toolbarRow(bar, this.passageMenu, w).text.replace(/\x1b\[[\d;]*m/g, ""));
+    const full = width(`── ${n} chars ${copy} ${source} · `) + width(toolbarRow(bar, this.passageMenu, w).text.replace(/\x1b\[[\d;]*m/g, ""));
     const compact = bar.length > 0 && full > w;
     const lead = compact ? "" : `── ${n} chars `;
-    const at = d.top - 1, wide = !compact && lead.length + copy.length + 1 + source.length <= w, fits = !!lead && lead.length + copy.length <= w;
-    const from = fits ? lead.length : 0;
-    if (copy.length > w) return;
-    this.hits.push({ row: at, from, to: from + copy.length, copy: "visible" });
-    if (wide) this.hits.push({ row: at, from: from + copy.length + 1, to: from + copy.length + 1 + source.length, copy: "source" });
+    const at = d.top - 1, wide = !compact && width(lead) + width(copy) + 1 + width(source) <= w, fits = !!lead && width(lead) + width(copy) <= w;
+    const from = fits ? width(lead) : 0;
+    if (width(copy) > w) return;
+    this.hits.push({ row: at, from, to: from + width(copy), copy: "visible" });
+    if (wide) this.hits.push({ row: at, from: from + width(copy) + 1, to: from + width(copy) + 1 + width(source), copy: "source" });
     let shown = (fits ? fg(C.blue) + "── " + fg(C.white) + `${n} chars ` : "") + fg(C.lcyan) + copy + (wide ? " " + source : "");
     // The passage toolbar (ADR 0004 contract 5): what can be done with these words, each a click, and after `a` a key.
     if (bar.length) {
@@ -8706,11 +8706,11 @@ export class NoteSurface {
     /** The controls on rows of their own, as many to a row as fit. */
     const controlRows = (e: UnsentEntry) => mine(e.ops).reduce<UnsentOp[][]>((rows, op) => {
       const last = rows.at(-1);
-      if (last && last.reduce((n, o) => n + labelOf(e, o).length + 1, 0) + labelOf(e, op).length + 1 <= w) last.push(op); else rows.push([op]);
+      if (last && last.reduce((n, o) => n + width(labelOf(e, o)) + 1, 0) + width(labelOf(e, op)) + 1 <= w) last.push(op); else rows.push([op]);
       return rows;
     }, []).map(r => pad(r.map(op => control(e, op)).join(""), w) + RESET);
     // Its controls after the words when both fit, else on rows of their own under them (a narrow reader).
-    const wide = (e: UnsentEntry) => mine(e.ops).reduce((n, op) => n + labelOf(e, op).length + 1, 0);
+    const wide = (e: UnsentEntry) => mine(e.ops).reduce((n, op) => n + width(labelOf(e, op)) + 1, 0);
     // The chip stands for "old": a dim line, not the amber of a warning.
     const chip = { kind: "edit" as const, verdict: null, ops: ["show" as const] } as UnsentEntry;
     const raw = [
