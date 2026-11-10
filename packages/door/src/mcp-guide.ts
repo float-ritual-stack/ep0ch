@@ -24,7 +24,7 @@ export const GATEWAY_GUIDE_TOOLS = [
   "- Text: `outline_find` gives matching lines and context, quoted phrases first; `outline_grep` scans every note by regex, uncapped unless you pass `limit`. Structure/properties: `outline_query`. `outline_read` gives body, properties and link IDs; `detail: true` adds offsets and spans.",
   "- Orient: `list_outlines` names outlines, access and skills. Use `ep0ch://skills/whats-moving` for recent activity. Keep one `call` id across requests; own writes drop out.",
   "- Writes: `persona: \"loki\"` attributes another agent; omit for the connection's mapping. Receipt `by` names persona and client. Principal, access and path caps stay the same. Use the same persona for `outline_write_status`.",
-  "- `outline_components` with `outline` lists its components, including heading styles and callout types. Writes return `components`, `warnings` and the `next` check; read back with `outline_read`.",
+  "- `outline_components` with `outline` lists its components, including heading styles and callout types. Writes return `components`, `warnings`, `view` (what you wrote, drawn) and `next`.",
   "- For buttons, rules, scripts or extensions use `ep0ch://skills/ep0ch-extend`; references: `ep0ch://docs/scripts`, `ep0ch://docs/extensions`.",
   "- Skills are prompts and `ep0ch://skills/<name>` resources; ep0ch-outline covers working in someone's outline.",
 ];
