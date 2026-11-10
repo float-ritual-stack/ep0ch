@@ -136,6 +136,8 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
     return (d?.persist && attachedPlaceOf(keptIn(d.persist)?.place)) || null;
   }
 
+  /** Every kind registered, in the order they were. */
+  kinds(): AttachmentKind[] { return [...this.defs.keys()]; }
   def(kind: AttachmentKind): AttachmentDef<H, V> {
     const d = this.defs.get(kind);
     if (!d) throw new ActionRefused(`target is ${[...this.defs.keys()].join(", ")}`);

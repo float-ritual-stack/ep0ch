@@ -588,13 +588,14 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   attachedKey(a: Attachment, k: Key, desk: DeskApi): boolean {
     if (a === "matches") return false;
-    if (a === "settings") { this.surface.attachedKeys(a); return this.surface.key(k, { ...this.host(desk), attachment: a }); }
+    // The tile's attachment takes the keys (PIE-1669), whichever others are open: one call for every kind.
+    if (a !== "edit-preview" && a !== "list-preview") this.surface.attachedKeys(a);
+    if (a === "settings") return this.surface.key(k, { ...this.host(desk), attachment: a });
     if (a === "edit-preview") {
       if (!this.surface.editPreviewKey(k, { ...this.host(desk), attachment: "edit-preview" })) void desk.perform?.("tile.focus", {}, USER, this);
       return true;
     }
     if (a === "list-preview") return this.surface.key(k, this.listPreviewHost(desk));
-    if (this.surface.sourcesMode) this.surface.attachedKeys(a);
     return (a === "sources" ? !!this.surface.sourcesMode : !!this.surface.session) && this.surface.key(k, this.host(desk));
   }
   attachedMouse(a: Attachment, k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {

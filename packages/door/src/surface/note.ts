@@ -23,7 +23,7 @@ import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
 import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, NOTE_EDIT_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
-import { modeBinding, modeHint, type ModeName } from "./modes";
+import { modeBinding, modeHint, PRECEDENCE, type ModeName } from "./modes";
 import { fullPlainText, selectFullText } from "../overflow";
 import { pressing } from "./button";
 import { figurePropertyPatch } from "@ep0ch/outline-core/figure-patch";
@@ -6873,10 +6873,17 @@ export class NoteSurface {
   /** The reader mode that takes attachment `kind`'s keys, clicks and wheel, while it's open. */
   private attachedMode(kind: AttachmentKind) { const mode = this.attachments.def(kind).mode as ModeName | undefined; return mode ? this.modes.get(mode) : null; }
 
+  /**
+   * The keys go to attachment `target` (its tile has them, PIE-1669): its mode takes them, and every other attachment's open
+   * mode that would answer a key before it (PRECEDENCE) waits, read from the attachments' own table, whichever kinds are open.
+   */
   attachedKeys(target: AttachmentKind) {
-    const sm = this.sourcesMode;
-    if (sm) this.modes.focus(sm, target === "sources");
-    if (this.panel?.card) this.modes.focus(this.modes.get("panel")!, target === "settings");
+    const own = this.attachedMode(target);
+    if (own) this.modes.focus(own, true);
+    for (const kind of this.attachments.kinds()) {
+      const mode = kind === target ? null : this.attachedMode(kind);
+      if (mode && this.attachments.def(kind).tileKeys() && (!own || PRECEDENCE[mode.name as ModeName] >= PRECEDENCE[own.name as ModeName])) this.modes.focus(mode, false);
+    }
   }
 
   // ── the placement menu ───────────────────────────────────────────────────────

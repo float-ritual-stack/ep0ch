@@ -503,7 +503,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ le
       expect(visible(r.surface.hint())).toContain(visible(hintOf(RESOLVE_KEYS)));
       // [ ] on the ticket: R fetches it again, as its line says, and the proposal waits.
       for (let i = 0; i < 12 && r.surface.describe().elements?.current?.kind !== "resource"; i++) { key(char("]")); shown(); }
-      expect(r.surface.describe().elements.current).toMatchObject({ kind: "resource" });
+      expect(r.surface.describe().elements?.current).toMatchObject({ kind: "resource" });
       const fetches = board.sent.filter(a => a === "resources.projection.refresh").length;
       key(char("R"));
       await until(() => board.sent.filter(a => a === "resources.projection.refresh").length > fetches, "R fetching the ticket", 10_000);
