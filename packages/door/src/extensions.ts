@@ -526,6 +526,13 @@ export async function passageByQuote(board: Pick<SocketBoard, "get">, block: str
   return passageAt(m.text, at.start, at.end, m.id, m.revision);
 }
 
+/**
+ * The door's own words on an extension action's request (PIE-1676): the button that pressed it, and that its arguments were
+ * asked where the person typed. Named outside the declared arguments' grammar (FORM_FIELD_NAME: lowercase letters, digits,
+ * - and _), so no extension's argument or script's slot can be called one: yo's remember takes an `asked` of its own.
+ */
+export const PRESSED_VIA = "door:via", ASKED_IN_PLACE = "door:asked";
+
 /** The ActionDef for a handler line's or a block's action. */
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
   if (a.on === "passage") return passageAction(e, a);
@@ -543,13 +550,13 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
       with: { type: "string", optional: true, context: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
       invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
-      via: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
-      asked: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
+      [PRESSED_VIA]: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      [ASKED_IN_PLACE]: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
       ...(e.script ? Object.fromEntries(Object.entries(declaredArgs(a)).map(([k, v]) => [k, { ...v, many: true as const }])) : declaredArgs(a)),
       // A script takes any other word as a slot, as a button passes it (`left=[[a]] fold=terminal`).
       ...(e.script ? { [FREE_ARGS]: { type: "string", optional: true, context: true, about: "any other key=value is a slot of the script (props.<key>); a key written twice is a list" } } : {}),
     } as ActionDef<ExtArgs, ExtOn>["args"],
-    run({ block: named, line, with: w, invitation, via, asked, ...rest }, on, actor) {
+    run({ block: named, line, with: w, invitation, [PRESSED_VIA]: via, [ASKED_IN_PLACE]: asked, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);

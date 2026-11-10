@@ -1,4 +1,4 @@
-import { slotWords } from "./action-line";
+import { ActionRefused, slotWords } from "./action-line";
 import { nextGraphemeEnd } from "./graphemes";
 import { COMPONENT_OPEN, componentAttrs, componentBlockAt, lineWords, noteCodeFences, splitWords } from "./component-block";
 
@@ -388,4 +388,19 @@ export function withButtonSlot(line: string, key: string, value: string): string
   }
   const tail = inner.endsWith(" ") ? "" : " ";
   return line.slice(0, at + inner.length) + (inner.trim() ? tail : "") + say + line.slice(at + inner.length);
+}
+
+/**
+ * The button a press drawn at `line` meant, in the note's text as it is now (PIE-1693): the one on that line when it has the
+ * press's label (any, for a press that names none), else the one button with that label and that action line (or alt line),
+ * moved since the frame was drawn (an edit above it, or an answer written above it). Null when the note no longer has it, or
+ * has several that fit; a sequence's press (more than one step) is refused then, so its steps never run as one action line.
+ */
+export function buttonPressed(text: string, press: { line: number; label?: string; act: string; steps?: readonly ButtonStep[] }): ButtonCall | null {
+  const at = press.line >= 0 ? buttonCallAt(text.split("\n"), press.line) : null;
+  if (at && (press.label === undefined || at.label === press.label)) return at;
+  const fits = press.label === undefined ? [] : buttonCallsOf(text).filter(c => c.label === press.label && (c.act === press.act || c.alt === press.act));
+  if (fits.length === 1) return fits[0]!;
+  if ((press.steps?.length ?? 0) > 1) throw new ActionRefused(`${press.label ?? "that button"} isn't in the note as it is now (it changed since it was drawn): press it again`);
+  return null;
 }

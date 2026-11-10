@@ -4,6 +4,7 @@ import { until, untilAsync } from "../scratch";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
+import { pressState } from "../../src/surface/button";
 
 describe("showcase: ask yo (PIE-1585)", () => {
   const h = useShowcaseScreen(120);
@@ -152,4 +153,50 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await say("@yo yes");
     await answered(/✓ yo pressed [^\n]*no undo/);
   }, 60_000);
+
+  // PIE-1693: the button yo draws in its answer callout runs when pressed, by the person (a click is button.press, from the frame
+  // they see, drawn before a line was written above it) and through act: its action, then yo's remember, one sequence to its end.
+  test("yo's remembered ▼ drop, in its answer callout, runs both steps when the person or an agent presses it", async () => {
+    const lifted = () => (h.app as any).hostLayer.desks().some((d: any) => d.layout?.lift);
+    // Run alone it opens the section; after the others it is already there.
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    // A note of its own: a note answers its first eight @yo lines, and the section's has had its share.
+    const own = await h.board.createBlock(null, "Ask yo, again\n\nWhere the drop button is pressed.\n");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    const read = async () => (await h.board.get(own.id))!;
+    const say = async (line: string) => { const m = await read(); await h.board.update(m.id, `${m.text.trimEnd()}\n\n${line}\n`, m.revision!, USER); };
+    const answered = (what: RegExp) => untilAsync(async () => what.test((await read()).text), `the note says ${what}`, 30_000);
+    await h.board.createBlock(null, "park agent: agent.lift on=false [yo-memory::answer] [yo-action::agent.lift] [yo-asked::park agent] [yo-line::agent.lift on=false]");
+    await h.app.dispatch.act({ action: "agent.lift", args: { on: true } }, USER);
+    await until(lifted, "the agent tab lifted", 8000);
+    await say("@yo park the agent lift");
+    await answered(/@yo park the agent lift\n> \[!note\]\+ @yo answered\n[^\n]*\n> ::button\{label="▼ drop" act=\["agent\.lift on=false", "ext\.yo\.remember /);
+    const surface = () => h.S().stages.get(h.S().sel).top.pane("ask").surface;
+    await until(() => surface().describeElements().some((e: { label: string }) => e.label.includes("▼ drop")), "the button drawn in the reader", 8000);
+    const memory = async () => (await h.board.request("blocks.query", { query: { where: "yo-action=agent.lift", limit: 50 } })).blocks.filter(b => (b.text ?? "").startsWith("park agent lift: agent.lift on=false")).length;
+    const press = async (as: "person" | "agent") => {
+      // A line written above it after it was drawn (the person typing, an answer above): the press finds where it is now.
+      if (as === "person") { const m = await read(); await h.board.update(m.id, m.text.replace("\n\n", "\n\nwritten above it after it was drawn\n\n"), m.revision!, USER); }
+      const r = (as === "person"
+        ? await h.app.dispatch.act({ action: "button.press", tile: "ask", args: { label: "▼ drop" } }, USER)
+        : await h.app.act({ action: "button.press", args: { note: own.id, label: "▼ drop" }, as: "test-agent" })) as { extension?: string };
+      expect(r.extension).toStartWith(`button:${own.id}:`);
+      // The run ends done (scripts.ended), the button drawn as done: both steps ran.
+      const line = Number(r.extension!.split(":").at(-1));
+      await until(() => pressState(own.id, line, "▼ drop").state === "done", `the ${as}'s press done`, 15_000);
+      expect(lifted()).toBe(false);
+      // Its last step ran: yo remembered these words, once (the second press finds them kept).
+      expect(await memory()).toBe(1);
+    };
+    await press("person");
+    // An agent's press drops nothing now (the person's lift is theirs to drop): it still runs both steps to done.
+    await press("agent");
+  }, 120_000);
+  // PIE-1676: yo's remember takes an argument named asked, and the door's own words for its run never take its place.
+  test("an agent's ext.yo.remember asked=… keeps what it asked", async () => {
+    await h.app.act({ action: "ext.yo.remember", args: { act: "tile.zoom", asked: "zoom-the-shed", args: "reach:full" }, as: "test-agent" });
+    const kept = async () => (await h.board.request("blocks.query", { query: { where: "yo-action=tile.zoom", limit: 20 } })).blocks.map(b => (b.text ?? "").split("\n")[0]!).filter(t => t.includes("reach=full"));
+    await untilAsync(async () => (await kept()).length > 0, "the memory written", 15_000);
+    expect(await kept()).toEqual(["zoom shed: tile.zoom reach=full [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::zoom shed] [yo-line::tile.zoom reach=full]"]);
+  }, 30_000);
 });
