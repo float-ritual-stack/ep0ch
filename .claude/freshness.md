@@ -22,8 +22,9 @@ through `systemctl --user`.
 - **Infrastructure hub** (pie `50fe932d-4314-4c1b-88c9-13e79a41ef83`): a service, timer, tunnel or Caddy site it
   names that isn't running (`systemctl --user list-units --all`), or one running that it doesn't name.
 - **CHANGELOG:** a user-visible PR merged since the last release section with no entry under `[Unreleased]` in
-  main's CHANGELOG, read through `gh api` (the brief says how), never the checkout's. An entry names the PR's tickets
-  or its change; a PR that touched `CHANGELOG.md` (`gh pr view <n> --json files`) is only where to look first.
+  main's CHANGELOG nor in main's `changelog/` folder (one file per PR, not yet folded in), both read through `gh api`
+  (the brief says how), never the checkout's. An entry names the PR's tickets or its change; a PR that added a
+  `changelog/` file or touched `CHANGELOG.md` (`gh pr view <n> --json files`) is only where to look first.
 - **Docs and skills:** a README, AGENTS.md, CONTRIBUTING.md, skill or agent definition that names a file main no
   longer has: check the name on main (`gh api 'repos/{owner}/{repo}/contents/<path>?ref=main'` answers 404 for a
   file that's gone), not `git ls-files`, which lists the checkout's.

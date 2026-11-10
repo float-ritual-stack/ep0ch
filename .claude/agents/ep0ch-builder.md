@@ -102,8 +102,10 @@ ran and saw, and what you did not check, in those words: a test you didn't run i
 
 - **The code works,** with tests a person would notice failing. Don't add tests for counts.
 - **Docs and skills that describe the behaviour updated** in the same PR.
-- **A CHANGELOG entry** under `## [Unreleased]` for anything a person or agent will notice: a `###` heading in plain
-  words with the ticket id, one bold-led bullet per change, and a `- **Run:**` line last. Check it before you report
+- **A CHANGELOG entry** for anything a person or agent will notice, as a file of its own:
+  `changelog/<date>-<branch>.md` (the branch's `/` as `-`), never an edit of `CHANGELOG.md` (two PRs there always
+  conflict; loki folds the files in). A `###` heading in plain words with the ticket id, one bold-led bullet per
+  change, and a `- **Run:**` line last. Check it before you report
   ready: on Oct 29 the freshness sweep found five merged PRs without one.
 - **The kitchen-sink demo** ([the door's rules](../rules/door.md#demo-it-in-the-kitchen-sink)).
 - **The sentence walked:** you open what Evan would open and do what he'd do, in a real pane in your own tmux for the

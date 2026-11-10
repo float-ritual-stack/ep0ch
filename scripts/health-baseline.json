@@ -1,8 +1,6 @@
 {
-  "revision": "84969a9757500e10b5d3f32dec9f78a3add90212",
   "patterns": {
     "width-length": {
-      "count": 221,
       "sites": [
         "packages/door/src/agent-fleet.ts:9566dd856b2d71fd",
         "packages/door/src/art-view.ts:68df40cd5e12d1a5",
@@ -228,7 +226,6 @@
       ]
     },
     "pad-end": {
-      "count": 43,
       "sites": [
         "packages/door/src/agent-fleet.ts:e739c637c39ea285",
         "packages/door/src/agent-fleet.ts:e739c637c39ea285",
@@ -276,7 +273,6 @@
       ]
     },
     "line-offset-reduce": {
-      "count": 4,
       "sites": [
         "packages/outliner/extensions/keep/scripts/keep.ts:617bebfdda89cbd1",
         "packages/outliner/src/draft-patch-demo.ts:5880232055a182a3",
@@ -285,7 +281,6 @@
       ]
     },
     "heading-regex": {
-      "count": 27,
       "sites": [
         "packages/claude-mod/hooks/detail-view.ts:d66eef8edbab52f7",
         "packages/claude-mod/hooks/reply-lines.ts:935bc4e60a9caa03",
@@ -317,7 +312,6 @@
       ]
     },
     "host-ctx-cast": {
-      "count": 10,
       "sites": [
         "packages/door/src/surface/note-actions/comments.ts:bd33d9fb5d5d1d1f",
         "packages/door/src/surface/note-actions/comments.ts:b18528789fdcbcbb",
@@ -332,7 +326,6 @@
       ]
     },
     "unused-export": {
-      "count": 12,
       "sites": [
         "packages/door/src/app.ts:isExtensionChange",
         "packages/door/src/extensions.ts:ExtensionScheduleEntry",
