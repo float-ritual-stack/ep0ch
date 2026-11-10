@@ -374,6 +374,20 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     await until(() => P.field === null, "the save", 5000);
     expect((await current(ids.card))!.text).toContain("[project::garden-east]");
     await act("props.edit", { key: "project", value: "garden" });                            // as it was, for the tests after
+    // A line's property (owner:: …) is found again by ctrl+r too: the reload reads the note's tokens, not only its header.
+    const owner = ((await act("props", {})) as { rows: { key: string; n: number }[] }).rows.find(r => r.key === "owner")!;
+    P.sel = owner.n - 1;
+    key({ kind: "enter" }); for (const c of " too") key(char(c));
+    const was = (await current(ids.card))!;
+    await other.update(ids.card, was.text.replace("Beside the beds", "Behind the beds"), was.revision!);
+    await until(() => !!P.field?.input.status.changedElsewhere, "the line value warned", 5000);
+    key({ kind: "char", ch: "r", ctrl: true });
+    await until(() => !!P.field && !P.field.session.busy && !P.field.input.status.changedElsewhere, "the line value reloaded", 5000);
+    expect([P.field.row.key, P.field.input.text, P.field.input.note]).toEqual(["owner", "the allotment group", expect.stringContaining("loaded revision")]);
+    // ctrl+s saves a value as it saves any draft (DRAFT_KEYS); nothing changed, so nothing is written.
+    key({ kind: "char", ch: "s", ctrl: true });
+    await until(() => P.field === null, "the value closed", 5000);
+    expect(P.note).toBe("unchanged");
   });
 
   test("follow: a block value opens its target; a missing Work ID says so; the summary choice is yours", async () => {

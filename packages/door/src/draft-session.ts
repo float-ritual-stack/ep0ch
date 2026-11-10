@@ -1051,7 +1051,7 @@ export function commentTarget(o: {
         if (e instanceof Refused) {
           o.out.refused();
           // A reply names no revision; a comment on a passage or on the whole note goes stale when the note moves on (PIE-1658).
-          const stale = t.kind !== "reply" && /revision is stale|was not found|ambiguous/i.test(msg);
+          const stale = t.kind === "quote" ? /revision is stale|was not found|ambiguous/i.test(msg) : t.kind === "note" && /revision is stale/i.test(msg);
           // A refusal never strands the text (PIE-761): it stays open here, and a copy is on disk, said with what to do
           // next. A stale one is the session's to copy and say, as a note's edit is.
           if (stale) return no(/revision is stale/i.test(msg) ? `the note changed since you ${t.kind === "note" ? "started the comment" : "picked the passage"} · not sent` : /was not found/i.test(msg) ? "the quote isn't in the note's current text · not sent" : `refused, not sent: ${msg}`, { stale });

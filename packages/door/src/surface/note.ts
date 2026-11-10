@@ -2823,8 +2823,8 @@ export class NoteSurface {
     const board = () => { if (!this.src) throw new Error("no connection to the outline"); return this.src.board; };
     this.panel.field = valueField({ ...m, revision: m.revision }, this.rows(m), r, {
       write: (note, revision, row, value, by) => this.patchValue(note, revision, row, value, board(), by),
-      read: async () => { const now = await board().get(m.id); return now && { m: now, rows: this.rows(now) }; },
-    }, { redraw: () => this.src?.redraw() });
+      read: async () => { const now = await board().get(m.id), t = now && await tokensFor(now.text, this.src); return now && { m: now, rows: this.rows(now, t?.state === "ready" ? t.tokens : null) }; },
+    }, { redraw: () => this.src?.redraw(), said: text => this.context?.flash(text) });
   }
 
   /**

@@ -131,7 +131,7 @@ function valueDraftTarget(m: Msg, nth: number, f: Field, host: ValueHost): Draft
   let note = m;
   return {
     place: `value:${m.id}:${f.row.key}:${f.row.n}`, back: `enter on ${f.row.key} brings it back`, label: `${m.id.slice(0, 8)}-${f.row.key}`,
-    what: `the value of ${f.row.key} on “${subject(m)}”`, verb: "save", leaveWrites: false, near: m.id,
+    what: `the value of ${f.row.key} on “${subject(m)}”`, verb: "save", leaveWrites: false, near: m.id, returns: { what: "value", does: "saves" },
     async submit(s, by, { report }) {
       const why = checkValue(f.row, s.draft.text);
       if (why) return { ok: false, why, said: why };
@@ -194,9 +194,10 @@ export class PropertyPanel {
       if (f.session.holding(k, held => { f.input.take(held); })) return null;
       // An open completion popup takes ⏎, esc and the arrows first (the line's own keys, PIE-626); what it leaves is the panel's.
       if (f.input.take(k)) { f.session.status.say(""); return null; }
-      if (k.kind === "enter") return "save";
       if (k.kind === "esc") return "cancel";
-      return f.input.binding(k)?.action === "edit.reload" ? "reload" : null;
+      // ⏎, and the draft's own save and reload keys (ctrl+s, ctrl+r: DRAFT_KEYS, as every place a person types has them).
+      const bound = f.input.binding(k)?.action;
+      return k.kind === "enter" || bound === "edit.save" ? "save" : bound === "edit.reload" ? "reload" : null;
     }
     const move = (d: number) => { if (rows) { this.sel = (this.sel + d + rows) % rows; this.note = ""; } };
     if (k.kind === "tab" || isDown(k)) move(1);
