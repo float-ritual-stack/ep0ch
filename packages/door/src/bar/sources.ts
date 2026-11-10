@@ -35,7 +35,7 @@ import { openNote, QUERY_SCOPE, registerBarSource } from "./source";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptBindings, scriptActions, scriptNamed, type ExtensionAbout, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { AGENTS } from "./ask-agent";
-import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownValue } from "../extension-settings";
+import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords } from "../extension-settings";
 
 /** The arguments action `name` declares, as the door lists it now. */
 const actionArgs = (host: BarHost, name: string) => host.dispatch.list().actions.find(a => a.name === name)?.args ?? {};
@@ -600,7 +600,7 @@ const extRequest = (d: ExtRow): [string, Record<string, unknown>] | null =>
 
 const EXTENSIONS: BarSource = {
   id: "extensions", title: "extensions", prefix: "&", by: "door",
-  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says when its settings need you: needs setup, failing), each one's settings once a name is typed (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
+  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says when its settings need you: needs setup, failing), each one's settings once a name is typed (⏎ opens the settings screen at it: its card, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
   main: { empty: false, typed: true, most: 4 },
   async rows(q) {
     const l = extensionList();
@@ -619,7 +619,7 @@ const EXTENSIONS: BarSource = {
       const these = installed.filter(e => kindOf(e) === kind);
       for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.builtIn ? overrideWords(e.id, e.builtIn) : "", settingsNeedYou(e.settings) ? settingsChip(e.settings!) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
-    // Its settings (PIE-1343): ⏎ opens the form its configSchema draws. Listed only where they need you (needs setup,
+    // Its settings (PIE-1343): ⏎ opens the settings screen at it (PIE-1709), its card drawn from its configSchema. Listed only where they need you (needs setup,
     // failing) until something is typed (`settings tidy`), as removing is: the rest are in each one's preview, in words.
     const needing = installed.filter(e => settingsNeedYou(e.settings));
     for (const e of q.trim() ? installed.filter(e => e.settings) : needing) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), ...(q.trim() ? {} : { group: `settings that need you · ${needing.length}` }), oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
@@ -637,7 +637,7 @@ const EXTENSIONS: BarSource = {
   },
   async preview(row) {
     const d = row.data as ExtRow;
-    if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend`, then read that file.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
+    if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend` prints it.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
     if (d.kind === "door") {
       const e = (await doorExts().catch(() => [] as ExtFacts[])).find(x => x.name === d.id);
       return e ? { markdown: doorExtMarkdown(e) } : { lines: [`${d.id} isn't in ${tilde(join(DOOR_DIR, "ext"))} now`] };
@@ -686,17 +686,11 @@ const EXTENSIONS: BarSource = {
       return { message };
     }
     if (d.kind === "settings") {
-      // The form, its fields filled with what config.json has now (a secret's reference is shown, sent only when typed);
-      // an agent's pick names no values, so it reads them.
+      // The settings screen at this extension (PIE-1709): its card, each setting's words, value and try; an agent's pick
+      // names no values, so it reads them. Both are `ext.<id>.settings`, the one way there.
       const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
       if (!e?.settings) throw new ActionRefused(`${d.id} has no settings now`);
-      const action = `ext.${d.id}.settings`;
-      if (how.actor.kind === "agent") return host.dispatch.act({ action, args: {} }, how.actor);
-      const now = Object.fromEntries([
-        ...e.settings.fields.filter(f => f.value !== undefined).map(f => [f.name, shownValue(f, f.value)]),
-        ...(e.settings.whole ? [["config", JSON.stringify(e.settings.config)]] : []),
-      ]);
-      return openActionForm(host, { action, args: now }, how.actor);
+      return host.dispatch.as(how.actor, { action: `ext.${d.id}.settings`, args: {} });
     }
     if (d.block) return openNote(d.block, host, how);
     const [action, args] = extRequest(d)!;

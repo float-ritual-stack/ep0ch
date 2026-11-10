@@ -105,3 +105,41 @@ test("a note that is two things gets a section each: a view named as an EchoNet 
   const twice = settingFields([found[1]!, { ...found[1]!, id: "again" }], view);
   expect(twice.map(f => f.prop.key)).toEqual(["echo"]);
 });
+
+// PIE-1709: an extension's command setting edits as one shell line. yo's own default, shown as the card shows it and with
+// one word changed as a person types it, saves back as its words: the empty ones and the one with spaces whole.
+test("yo's default model command reads as one line and saves back word for word, one word changed", async () => {
+  const { changeOf, shownValue } = await import("../src/extension-settings");
+  const manifest = await Bun.file(new URL("../../outliner/extensions/yo/extension.json", import.meta.url)).json() as { configSchema: { properties: { answer: { default: string[]; description: string } } } };
+  const answer = manifest.configSchema.properties.answer.default;
+  const field = { name: "answer", type: "command" as const, description: "the answer model", default: answer, state: "default" as const };
+  const line = shownValue(field, answer);
+  expect(line).toContain(`--tools "" --setting-sources ""`);
+  const s = { file: "/made-up/yo/config.json", exists: false, state: "default" as const, fields: [field], secrets: [], config: {} };
+  const typed = line.replace("--model haiku", "--model sonnet");
+  expect(changeOf(s, { answer: typed }).set).toEqual({ answer: answer.map(w => (w === "haiku" ? "sonnet" : w)) });
+  expect(changeOf(s, { answer: line }).set!.answer).toEqual(answer);
+});
+
+// CodeRabbit on #1416: [↺ all] is offered only where settings.reset has something to put back. A secret's reference and
+// a whole config aren't its (reset keeps references), so a card with only those set offers no reset at all.
+test("an extension's card offers [↺ all] only for settings reset would put back", async () => {
+  const { SettingsCard, resettable } = await import("../src/surface/settings-card");
+  const { extensionCardSchema, extensionCardValues } = await import("../src/extension-settings");
+  const card = (settings: Record<string, unknown>) => {
+    const entry = { id: "planter", name: "Planter", actions: [] } as never;
+    const schema = extensionCardSchema(entry, settings as never), values = extensionCardValues(entry, settings as never);
+    const fields = schema.props.map((prop, i) => ({ n: i + 1, prop, value: values.get(prop.key)!.value, section: 0, ext: values.get(prop.key)! }));
+    const c = new SettingsCard([schema]);
+    return { fields, drawn: c.draw(fields, 80, 20, 0, 0).join("\n") };
+  };
+  const base = { file: "/made-up/planter/config.json", exists: true, state: "set", config: {} };
+  const secretOnly = card({ ...base, fields: [{ name: "beds", type: "string", default: "3", state: "default" }], secrets: [{ name: "token", reference: "env PLANTER_TOKEN", state: "set" }] });
+  expect(resettable(secretOnly.fields)).toEqual([]);
+  expect(secretOnly.drawn).not.toContain("[↺ all]");
+  const wholeOnly = card({ ...base, whole: true, config: { rows: 4 }, fields: [], secrets: [] });
+  expect(wholeOnly.drawn).not.toContain("[↺ all]");
+  const one = card({ ...base, fields: [{ name: "beds", type: "string", default: "3", value: "5", state: "set" }], secrets: [{ name: "token", reference: "env PLANTER_TOKEN", state: "set" }] });
+  expect(resettable(one.fields)).toEqual(["beds"]);
+  expect(one.drawn).toContain("[↺ all]");
+});

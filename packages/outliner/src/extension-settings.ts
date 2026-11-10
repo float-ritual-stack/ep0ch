@@ -10,7 +10,7 @@ import { existsSync, statSync } from "node:fs";
 import { rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { FolderConfig, loadExtensionManifest, schemaProblem, type ExtensionManifest, type ExtensionOrigin } from "./extension-manifest";
+import { DEFAULT_DEADLINE_MS, durationMs, FolderConfig, loadExtensionManifest, MAX_AGENT_DEADLINE_MS, schemaProblem, type ExtensionManifest, type ExtensionOrigin } from "./extension-manifest";
 import { keyState } from "./secret-keys";
 
 interface PropertySchema { type?: unknown; description?: unknown; enum?: unknown; default?: unknown; items?: { type?: unknown } }
@@ -46,7 +46,15 @@ function referenceFinds(ref: ExtensionSecretReference): boolean {
   return true; // the macOS keychain answers only when asked, at call time
 }
 
-/** What `extensions.list` says of one extension's settings; undefined when it declares no configSchema and no secrets. */
+/**
+ * An agent's own settings (PIE-1709), named as the settings screen and `ext.<id>.settings` name them: `agent.<name>.deadline`,
+ * how long it may take to answer, kept in config.json's `agents` over its manifest's `deadline`.
+ */
+const AGENT_FIELD = /^agent\.([a-z][a-z0-9-]{0,31})\.deadline$/;
+export const agentField = (name: string) => `agent.${name}.deadline`;
+const said = (ms: number) => ms % 3_600_000 === 0 ? `${ms / 3_600_000}h` : ms % 60_000 === 0 ? `${ms / 60_000}m` : `${Math.round(ms / 1000)}s`;
+
+/** What `extensions.list` says of one extension's settings; undefined when it declares no configSchema, no secrets and no agents. */
 export function settingsOf(input: {
   manifest: ExtensionManifest;
   directory: string;
@@ -56,10 +64,13 @@ export function settingsOf(input: {
   loadError?: string;
   /** Its last call, when it failed. */
   lastFailure?: { at: string; error?: string };
+  /** config.json's `agents.<name>.deadline`, over the manifest's (PIE-1709). */
+  agentDeadlines?: Readonly<Record<string, string>>;
 }): ExtensionSettings | undefined {
   const { manifest, directory, config, credentials } = input;
   const declared = Object.entries(manifest.secrets ?? {});
-  if (manifest.configSchema === undefined && !declared.length) return undefined;
+  const agents = manifest.agents ?? [];
+  if (manifest.configSchema === undefined && !declared.length && !agents.length) return undefined;
   const file = join(directory, "config.json");
   const exists = existsSync(file);
   const named = namedFields(manifest.configSchema);
@@ -76,6 +87,16 @@ export function settingsOf(input: {
       state: has ? "set" : required.has(name) ? "missing" : p.default !== undefined ? "default" : "unset",
     };
   });
+  // Each agent's deadline (PIE-1709): its manifest's (else the extension's, else the service's) is the default.
+  for (const agent of agents) {
+    const value = input.agentDeadlines?.[agent.name];
+    fields.push({
+      name: agentField(agent.name), type: "string",
+      description: `How long @${agent.name} may take to answer: 30s, 15m or 2h (at most 2h)`,
+      default: agent.deadline ?? manifest.deadline ?? said(DEFAULT_DEADLINE_MS),
+      ...(value !== undefined ? { value } : {}), state: value !== undefined ? "set" : "default",
+    });
+  }
   const secrets: ExtensionSettingSecret[] = declared.map(([name, d]) => {
     const ref = credentials[name];
     const description = typeof d === "string" ? d : d.description;
@@ -87,9 +108,9 @@ export function settingsOf(input: {
   const error = input.loadError ?? (failed ? failed.error ?? "its last call failed" : undefined);
   const state: ExtensionSettings["state"] = error ? "failing"
     : fields.some((f) => f.state === "missing") || secrets.some((s) => s.state === "missing") ? "missing"
-    : (named ? fields.some((f) => f.state === "set") : Object.keys(config).length > 0) ? "set"
+    : (named ? fields.some((f) => f.state === "set") : Object.keys(config).length > 0 || fields.some((f) => f.state === "set")) ? "set"
     : "default";
-  return { file, exists, state, fields, secrets, config, ...(named ? {} : { whole: true as const }), ...(error ? { error } : {}) };
+  return { file, exists, state, fields, secrets, config, ...(named || (manifest.configSchema === undefined && agents.length) ? {} : { whole: true as const }), ...(error ? { error } : {}) };
 }
 
 /**
@@ -98,12 +119,13 @@ export function settingsOf(input: {
  * pass) and against the manifest's configSchema, and written in one rename. Refused with the schema's words.
  * The manifest is read without checking the config it has now, so a config.json that doesn't load can be fixed here.
  */
-export async function writeExtensionSettings(directory: string, origin: ExtensionOrigin, change: {
+export async function writeExtensionSettings(directory: string, origin: ExtensionOrigin, asked: {
   config?: Record<string, unknown>;
   set?: Record<string, unknown>;
   unset?: readonly string[];
   secrets?: Record<string, ExtensionSecretReference | null>;
 }): Promise<void> {
+  let change = asked;
   const manifestPath = join(directory, "extension.json");
   if (!existsSync(manifestPath)) throw new Error(`no extension.json in ${directory}`);
   const manifestRaw = await Bun.file(manifestPath).text();
@@ -116,10 +138,36 @@ export async function writeExtensionSettings(directory: string, origin: Extensio
     } catch { /* a config.json that isn't JSON is replaced whole by what's written now */ }
   }
   const manifest = loadExtensionManifest({ manifestRaw, configRaw: "{}", origin, directory, expectedId: directory.split("/").pop()!, idFrom: "the folder's name" }, { checkConfig: false }).manifest;
-  if (manifest.configSchema === undefined && !manifest.secrets) throw new Error(`${manifest.name} declares no settings (its extension.json has no configSchema or secrets)`);
+  if (manifest.configSchema === undefined && !manifest.secrets && !manifest.agents?.length) throw new Error(`${manifest.name} declares no settings (its extension.json has no configSchema, secrets or agents)`);
+  // An agent's deadline (PIE-1709) is config.json's `agents`, never its `config`: taken out of set and unset here.
+  const agentSet: Record<string, unknown> = {}, agentUnset: string[] = [];
+  if (change.set && typeof change.set === "object" && !Array.isArray(change.set)) {
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(change.set)) (AGENT_FIELD.test(key) ? agentSet : rest)[key] = value;
+    const { set: _, ...others } = change;
+    change = Object.keys(rest).length || !Object.keys(agentSet).length ? { ...others, set: rest } : others;
+  }
+  if (Array.isArray(change.unset)) {
+    agentUnset.push(...change.unset.filter(k => AGENT_FIELD.test(k)));
+    const rest = change.unset.filter(k => !AGENT_FIELD.test(k)), { unset: _, ...others } = change;
+    change = rest.length || !agentUnset.length ? { ...others, unset: rest } : others;
+  }
   if (change.config !== undefined && (!change.config || typeof change.config !== "object" || Array.isArray(change.config))) throw new Error("config must be an object: the settings by name");
   const next: Record<string, unknown> = { ...current };
   if (change.config !== undefined) next.config = change.config;
+  if (Object.keys(agentSet).length || agentUnset.length) {
+    const agents: Record<string, { deadline?: string }> = { ...(current.agents as Record<string, { deadline?: string }> | undefined ?? {}) };
+    for (const key of agentUnset) { const name = AGENT_FIELD.exec(key)![1]!; if (agents[name]) { const { deadline: _, ...rest } = agents[name]!; if (Object.keys(rest).length) agents[name] = rest; else delete agents[name]; } }
+    for (const [key, value] of Object.entries(agentSet)) {
+      const name = AGENT_FIELD.exec(key)![1]!;
+      if (!manifest.agents?.some(a => a.name === name)) throw new Error(`${manifest.id} has no agent ${name}${manifest.agents?.length ? ` (it has ${manifest.agents.map(a => `@${a.name}`).join(", ")})` : ""}`);
+      const ms = typeof value === "string" ? durationMs(value) : undefined;
+      if (typeof value !== "string" || ms === undefined || !/^[1-9][0-9]{0,4}[smh]$/.test(value)) throw new Error(`${key} is a duration: 30s, 15m or 2h, not ${JSON.stringify(value)}`);
+      if (ms > MAX_AGENT_DEADLINE_MS) throw new Error(`${key} is at most 2h, not ${value}`);
+      agents[name] = { ...agents[name], deadline: value };
+    }
+    if (Object.keys(agents).length) next.agents = agents; else delete next.agents;
+  }
   if (change.set !== undefined || change.unset !== undefined) {
     if (change.config !== undefined) throw new Error("give config (the whole of it) or set and unset (named fields), not both");
     if (change.set !== undefined && (!change.set || typeof change.set !== "object" || Array.isArray(change.set))) throw new Error("set must be an object: the fields to set by name");

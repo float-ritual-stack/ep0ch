@@ -3,7 +3,7 @@
 // nearest thing it could have meant. Nothing here refuses anything. Pure: the lookups are the caller's (the service's
 // store in process, a client's socket elsewhere).
 
-import { blockReferenceOccurrences, fragmentAnchorMatch } from "./link-syntax";
+import { blockReferenceOccurrences, embeddedQuery, embedOccurrences, fragmentAnchorMatch } from "./link-syntax";
 import { referenceEnvelopeEnd } from "./addressable-resource";
 import { offsetInRanges, protectedCodeRanges } from "./code-ranges";
 import { looksLikeDate, readDate } from "./dates";
@@ -28,9 +28,11 @@ const MAX_WRITTEN = 60;
 export function referenceSuspects(text: string): ReferenceSuspect[] {
   const code = protectedCodeRanges(text);
   const refs = blockReferenceOccurrences(text, code);
+  // A query embed (`!((query: …))`, PIE-1720) is a link of its own: its `((` reaches whatever its query finds.
+  const queries = text.includes("!((query:") ? embedOccurrences(text, code).filter(e => embeddedQuery(e.target)) : [];
   const out: ReferenceSuspect[] = [];
   for (let start = text.indexOf("(("); start >= 0; start = text.indexOf("((", start + 2)) {
-    const covering = refs.find(r => start >= r.start && start < r.end);
+    const covering = refs.find(r => start >= r.start && start < r.end) ?? queries.find(q => start > q.start && start < q.end);
     if (covering) { start = covering.end - 2; continue; }
     // `(((id|label)) …)`: a parenthesis, then a reference. The grammar reads the reference from the next `(`, so the
     // first `((` is no suspect.

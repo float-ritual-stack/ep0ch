@@ -37,7 +37,7 @@ import type { WebDoor } from "./publish-door";
 import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
-import { embeddedPageAddress, pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { pageAddressReferences, resolvedEmbedTarget, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { linkSoftWords, pageAddressesToResolve } from "./publish-soft-links";
 import { getProperty } from "./properties";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
@@ -2340,8 +2340,8 @@ export class Publisher {
     });
     const ids = new Set<string>();
     const visit = (node: TransclusionNode) => {
-      // A page embed (`![[page]]`, PIE-1247) is the note its page resolved to: shares, locks and values are that note's.
-      if (embeddedPageAddress(node.blockId) !== null && node.resolvedBlockId) node.blockId = node.resolvedBlockId;
+      // A page embed (`![[page]]`, PIE-1247) or a query's (`!((query: …))`, PIE-1720) is the note it resolved to: shares, locks and values are that note's.
+      if (resolvedEmbedTarget(node.blockId) && node.resolvedBlockId) node.blockId = node.resolvedBlockId;
       if (node.status === "ready") ids.add(node.blockId);
       for (const inner of node.embeds ?? []) visit(inner);
     };

@@ -211,6 +211,9 @@ export class PropertyPanel {
    * double click selects a word, a drag selects). False when it isn't on the field and none of its presses is held.
    */
   fieldMouse(action: "down" | "drag" | "up", x: number, y: number): boolean {
+    // An extension's setting typed in place on the settings card (PIE-1709): the same line editor, at the card's row.
+    const e = this.card?.editing, ea = this.card?.editAt, r = this.card?.rect;
+    if (e && ea && r) return e.input.mouse({ kind: "mouse", action, button: 0, x, y }, { x: r.col + ea.x, y: r.row + 1 + ea.y, w: ea.w });
     const f = this.field, at = f && this.at.find(a => a.n === f.row.n);
     return !!f && !!at && f.input.mouse({ kind: "mouse", action, button: 0, x, y }, { x: at.from, y: this.origin + at.y, w: at.w });
   }

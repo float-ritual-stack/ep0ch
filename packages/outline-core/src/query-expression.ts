@@ -5,7 +5,7 @@ import type { PropertyRecord } from "./property-parse";
 import type { PropertyFilter, PropertyQueryScope, QueryComparison, QueryExpression } from "./query-types";
 import { matchesFilters, normalizePropertyKey } from "./query-properties";
 import { firstLineWithoutPropertyTokens } from "./property-parse";
-import { MARKED_ANY, ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "./query-atoms";
+import { MARKED_ANY, ME_READER, QUERY_ATOM_HELP, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "./query-atoms";
 import { isPropertyKey, isWritablePropertyValue, splitPropertyValue, PROPERTY_KEY_SOURCE } from "./property-grammar";
 import { fromWallClock, readBound, readDateBound, readNumber, valueHolds, wallClock } from "./dates";
 import { isTicketKey } from "./work-ids";
@@ -52,7 +52,9 @@ function syntaxError(message: string, index: number, hint?: string): never {
 }
 
 const QUERY_EXAMPLE = "Example: type=thread and (status=open or status=blocked)";
-const CLAUSE_GUESS = new RegExp(`^\\s*(${PROPERTY_KEY_SOURCE})\\s*(!=|==|::|:|=)\\s*(.+?)\\s*$`, "s");
+const CLAUSE_GUESS = new RegExp(`^\\s*(${PROPERTY_KEY_SOURCE})\\s*(!=|==|::|:|=|~)\\s*(.+?)\\s*$`, "s");
+/** The atoms `~` makes (`title~`, `text~`), from the grammar's own table: where `~` works, said in a refusal. */
+const CONTAINS_ATOMS = QUERY_ATOM_HELP.filter(a => /^[a-z]+~/.test(a.atom)).map(a => a.atom.split("~")[0]!);
 
 /**
  * What a clause that would not parse most likely meant, then a working example: the teaching half of a
@@ -67,7 +69,10 @@ function clauseHint(clause: string): string {
     const value = /\s/.test(guess[3]!) && !guess[3]!.startsWith('"') ? `"${guess[3]!.replace(/[\\"]/g, "\\$&")}"` : guess[3]!;
     didYouMean = guess[2] === "!="
       ? `Did you mean NOT ${guess[1]}=${value}? There is no != ; put NOT before the clause. `
-      : `Did you mean ${guess[1]}=${value}? `;
+      : guess[2] === "~"
+        // PIE-1714: `~` is "contains", and only the title and text are read that way; a property matches its value whole.
+        ? `Did you mean ${guess[1]}=${value}? ~ reads only ${CONTAINS_ATOMS.map(a => `${a}~${value}`).join(" and ")}; a property is key=value, or key alone for any value. `
+        : `Did you mean ${guess[1]}=${value}? `;
   }
   return `${didYouMean}${QUERY_EXAMPLE}`;
 }

@@ -146,6 +146,23 @@ export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: M
 }
 
 /** The Fantasia script's code (PIE-959). */
+/** The plan hub (PIE-1720): today's plan by a query embed, and a list whose preview draws the plan whole. */
+export const PLAN_HUB = [
+  `${SEED.planHub}`,
+  "Today's plan, whole: the newest by itself. The wheel scrolls through it without going in.",
+  "",
+  "!((query: type=showcase-plan sort: day desc))",
+  "",
+  "Every plan as a list, the selected one drawn whole under it:",
+  "",
+  "::links",
+  "query: type=showcase-plan",
+  "sort: day desc",
+  "preview: below",
+  "height: fill",
+  "::",
+].join("\n");
+
 export const FANTASIA = "const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));\nconst tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));\nconst style = (props.motion && props.motion[0]) || 'fantasia';\nconst home = (props.layout && props.layout[0]) || '';\nconst stay = !!(props.stay && props.stay[0]);\nconst before = await act('layout.get');\nif (before.locked) return 'fantasia: the screen is locked; a click on ▣ screen locked unlocks it, then run again';\nconst dancers = (before.tiles || []).filter(t => t.shown).map(t => ({ id: t.tile, name: t.name }));\nconst notes = [], floated = [];\nfor (const d of dancers) {\n  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r.tile, name: d.name }); }\n  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }\n}\nif (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');\nconst drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];\nfor (let beat = 0; beat < beats; beat++) {\n  for (let i = 0; i < floated.length; i++) {\n    const [dx, dy] = drift[(beat + i * 3) % drift.length];\n    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }\n    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }\n  }\n  await wait(tempo);\n}\nlet settled = '';\nif (stay) settled = 'and left where they danced (layout.undo puts them back)';\nif (!settled && home) {\n  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }\n  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }\n}\nif (!settled) {\n  // No layout asked: the run's own changes are taken back, so the screen is as it began.\n  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }\n}\nif (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';\nreturn 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\\nnotes: ' + notes.join('; ') : '');";
 
 export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: string; outliner?: string; rulesFrom?: string } = {}): Promise<Seeded> {
@@ -610,6 +627,13 @@ return 'The seeds shelf has three refs. Switch list/grid in its header, or drag 
   const parcels = await make(notes.root.id, "Parcels [type::virtual-branch] [query::type=showcase-parcel] [sort::title] [direction::asc]");
   notes.inlineLists = await make(notes.root.id, `${SEED.inlineLists}\nBefore the list: use down to enter its first row.\n\n!((${parcels.id}))\n\nAfter the list: up returns to its last row.\n\nWheel over the rows scrolls the box; at either end it scrolls the note. Enter opens a row, alt+Enter opens beside.`);
   for (let i = 1; i <= 60; i++) await make(notes.root.id, `Parcel ${String(i).padStart(2, "0")} [type::showcase-parcel]\nA fictional parcel for the inline list.`);
+
+  // PIE-1720: a hub page that reads today's plan whole: a query embed of the newest plan, and the same plans as a list
+  // whose preview is drawn whole (height: fill). The newest has more jobs than a screen, so the wheel has room.
+  for (const [day, jobs] of [["2026-03-02", 3], ["2026-03-03", 40]] as const) {
+    await make(notes.root.id, [`Bakery plan, ${day} [type::showcase-plan] [day::${day}]`, "## Ovens", ...Array.from({ length: jobs }, (_, i) => `- [ ] tray ${i + 1}: ${["rye", "spelt", "sourdough", "barm cakes"][i % 4]}`)].join("\n"));
+  }
+  notes.planHub = await make(notes.root.id, PLAN_HUB);
 
   notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
   for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);

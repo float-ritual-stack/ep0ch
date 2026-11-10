@@ -35,6 +35,7 @@ export const SEED = {
   pageReading: "One garden report, every width",
   figureSizing: "Workshop build log",
   inlineLists: "Parcels on the desk",
+  planHub: "Where the bakery is",
   plotJobs: "Plot jobs by stage",
   recipe: "Lentil soup",
   finding: "Finding things in the house notes",

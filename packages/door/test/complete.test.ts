@@ -43,6 +43,9 @@ describe("the pure half, as the outliner has it", () => {
     // A closing delimiter already after the cursor is part of what's replaced.
     expect(completionTargetAtCursor("x [[see]] y", 7)).toEqual({ kind: "page", start: 2, end: 9, query: "see" });
     expect(completionTargetAtCursor("[[closed]] after", 16)).toBeNull();
+    // A query embed's words are a query (PIE-1720): no note is offered while `!((query: type=pl` is typed; `!((que` still searches notes.
+    expect(completionTargetAtCursor("Today !((query: type=pl", 23)).toBeNull();
+    expect(completionTargetAtCursor("Today !((que", 12)).toEqual({ kind: "block", start: 7, end: 12, query: "que" });
     // A [[ quoted in a code span earlier on the line is text: typing after it opens nothing (PIE-592).
     expect(completionTargetAtCursor("type `[[` for a page, then more", 31)).toBeNull();
     expect(completionTargetAtCursor("type `[[` then [[Sh", 19)).toEqual({ kind: "page", start: 15, end: 19, query: "Sh" });

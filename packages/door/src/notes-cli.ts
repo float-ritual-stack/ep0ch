@@ -36,6 +36,9 @@ import { summarySegments } from "./props";
 import { projectionsPending, resourceChanged } from "./projection";
 import { previewTitle, Refused, SocketBoard, type IndexBlock, type WireParams } from "./socket";
 import { matchWords } from "./board";
+import { closest } from "./cli-words";
+import { commandNamed } from "./cli-commands";
+import { readsAsQuery } from "@ep0ch/outline-core/query-words";
 import { matchFacts, PROPERTY_QUERY_SCOPES, type PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { readState } from "./state";
 import { MARKS, TAGS, visible } from "./style";
@@ -49,7 +52,7 @@ import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
   ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all] [--machinery hide|only|show]] [--view <id>] [--under <id>]
              [--sort <key> [--direction asc|desc]] [--updated-after|--updated-before|--created-after|--created-before <date>]
-             [--ids | --lines | --json] [--timeout <seconds>]
+             [--limit <n>] [--ids | --lines | --json] [--timeout <seconds>]
                                    notes: with words, the service's ranked search, tree.search (the ranker
                                    Goto, the door's / and (( use, asked from no note; at most 30), re-ordered
                                    by Jev when it's set up: each row its Score (2.7/3) and a last line saying
@@ -58,6 +61,9 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    sure, Jev reads every note's title for ones the words missed (deep, PIE-1200:
                                    such a row says "by meaning"); --lexical leaves Jev out; --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
+                                   Words written as a query (type=errand, title~seed, due <= +3d: a relation, AND,
+                                   OR, NOT or an atom) are the query, said on stderr; --lexical searches them as
+                                   words. --limit n prints the first n of any of these, saying on stderr when it cut.
                                    A <note> here is an id, ((id)), an id's first 8+ characters, a Work ID of
                                    any prefix the outline has (PIE-870) or a [[page]], resolved by the service.
                                    --query takes the saved views' grammar, evaluated by the outline
@@ -349,7 +355,12 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     const why = (e as Error).message;
     if (e instanceof Refused && (e.problem?.field === "sort" || e.problem?.field === "direction")) return { error: `--sort ${s.sort}${s.direction ? ` --direction ${s.direction}` : ""}: ${why}` };
     if (s.under && e instanceof Refused && e.kind === "not-found") return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
-    return { error: `the outline can't read that query: ${why}\n  the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"` };
+    // The clause the grammar says was meant, as the command that runs it (PIE-1714); else a working example.
+    const meant = /Did you mean (.+?)\? /.exec(why)?.[1];
+    // `~` meant "contains": the exact value may miss `sysop: which bin`, so the key alone (any value) is offered beside it.
+    const anyValue = s.query?.includes("~") && meant?.includes("=") ? ` (that value), or ep0ch find --query ${meant.split("=")[0]} (any value)` : "";
+    const instead = meant && s.query && !/\s/.test(s.query.trim()) && !/\bNOT\b/.test(meant) ? `ep0ch find --query ${JSON.stringify(meant)}${anyValue}` : `the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"`;
+    return { error: `the outline can't read that query: ${why}\n  ${instead}` };
   };
   if (s.view && s.propertyScope) return { error: `a view reads the chips its own [property-scope::] says; --property-scope goes with --query (ep0ch show ${s.view} --source shows the view's)` };
   if (s.view && s.sort) return { error: `--sort orders --query, --under or words; a view has its own order (its [sort::], or its hand-set one: ep0ch view order ${s.view})` };
@@ -392,14 +403,24 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
   const timeoutMs = bulkTimeout(args);
   if (typeof timeoutMs === "object") { io.err(`ep0ch: ${timeoutMs.error}`); return 2; }
+  // --limit keeps the first n of what find would print, in its order (PIE-1714).
+  const limitGiven = flag(args, "--limit");
+  if (typeof limitGiven === "object") { io.err(`ep0ch: ${limitGiven.error}: --limit 20 prints the first 20 notes`); return 2; }
+  if (limitGiven !== undefined && !/^[1-9]\d*$/.test(limitGiven)) { io.err(`ep0ch: --limit takes a count of notes, not ${limitGiven}: --limit 20 prints the first 20`); return 2; }
+  const limit = limitGiven === undefined ? undefined : Number(limitGiven);
+  const limited = <T,>(rows: T[]): T[] => {
+    if (limit === undefined || rows.length <= limit) return rows;
+    io.err(`ep0ch: the first ${limit} of ${rows.length} (--limit ${limit}; without it, every one)`);
+    return rows.slice(0, limit);
+  };
   const picked = selectionOf(args);
   if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 2; }
   const sel = picked.selection;
-  const asked = !!(sel.query || sel.view || sel.under || sel.sort || sel.dates.length);
+  let asked = !!(sel.query || sel.view || sel.under || sel.sort || sel.dates.length);
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? args[treeAt + 1]! : undefined;
-  const words = without(picked.rest, ["--ws", "--machine", "--timeout", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here", "--lexical"]);
+  let words = without(picked.rest, ["--ws", "--machine", "--timeout", "--limit", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here", "--lexical"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
   const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
@@ -408,7 +429,17 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   if (recent && !tree && (words.length || asked)) { io.err(`ep0ch: find --recent takes no ${given.join(", ")}; without it: ${instead()}`); return 2; }
   if (tree && (recent || words.length || asked)) { io.err(`ep0ch: find --tree takes no ${given.join(", ")} (a root id at most); without it: ${instead()}`); return 2; }
   const unknown = words.find(w => w.startsWith("--"));
-  if (unknown) { io.err(`ep0ch: find doesn't take ${unknown}\n${NOTES_USAGE}`); return 2; }
+  if (unknown) {
+    // One line, from find's own flag table (cli-commands.ts): the nearest flag it takes, and where every one is (PIE-1714).
+    const near = closest(unknown, (commandNamed("find")?.flags ?? []).map(([f]) => f.split(/[ ,]/)[0]!));
+    io.err(`ep0ch: find doesn't take ${unknown}${near ? ` · did you mean ${near}?` : ""} · every flag it takes: ep0ch help find`);
+    return 2;
+  }
+  // Words written as a query (key=value, ~, <, AND…: outline-core's readsAsQuery, as the power bar reads a line) are the
+  // query, never a word search's guesses (PIE-1714); --lexical searches them as words.
+  const typed = words;
+  const asQuery = !asked && !tree && !recent && !args.includes("--lexical") && !!words.length && readsAsQuery(words.join(" "));
+  if (asQuery) { sel.query = words.join(" "); words = []; asked = true; }
   const board = await boardFor(args, argsIn, timeoutMs);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
@@ -419,8 +450,9 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
         if ("error" in named) { io.err(`ep0ch: ${named.error}`); return 1; }
         rootId = named.id;
       }
-      const rows = withUris(board, treeOf(await board.index(), rootId) ?? []);
-      if (root && !rows.length) { io.err(`ep0ch: no note ${root} in this outline`); return 1; }
+      const all = withUris(board, treeOf(await board.index(), rootId) ?? []);
+      if (root && !all.length) { io.err(`ep0ch: no note ${root} in this outline`); return 1; }
+      const rows = limited(all);
       if (idsOut) { for (const f of rows) io.out(`((${f.id}))`); }
       else if (json) io.out(recordJson(rows).trimEnd());
       else if (lines) { for (const f of rows) io.out(treeLine(f)); }
@@ -428,12 +460,17 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       else for (const f of rows) io.out(`${f.id.slice(0, 8)}  ${f.glyphs}${field(f.title)}${f.about ? `  · ${f.about}` : ""}`);
       return 0;
     }
-    const query = words.join(" ").trim();
     let found: Found[], sure: string | undefined;
-    if (asked) {
+    let selected = asked ? await selectNotes(board, { ids: [], ...sel, words }) : null;
+    // Words that only looked like a query and don't read as one are words after all: the search they were.
+    if (asQuery && selected && "error" in selected) { selected = null; asked = false; words = typed; }
+    else if (asQuery) io.err(`ep0ch: read as a query: ep0ch find --query ${JSON.stringify(sel.query)} (--lexical searches the words)`);
+    const query = words.join(" ").trim();
+    if (selected) {
       // --query, --view, --under (and words with them): the outline's own reading, in outline (or the view's) order.
-      const picked = await selectNotes(board, { ids: [], ...sel, words });
+      const picked = selected;
       if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 1; }
+      picked.ids = limited(picked.ids);
       // The service says its own words (`machinery=show`, a view's and the MCP tools'); here they're this command's flag.
       if (picked.hint) io.err(`ep0ch: ${picked.hint.replace(/\bmachinery=(\w+)/g, "--machinery $1")}`);
       if (idsOut) { for (const id of picked.ids) io.out(`((${id}))`); return 0; }
@@ -446,13 +483,14 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       const hits = query || recent ? await board.searchBlocks(query, query && !args.includes("--lexical") ? { semantic: true, deep: true } : {}) : null;
       found = withUris(board, hits ? hits.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { matched: "by meaning" } : {}) })) : everyNote(await board.index()));
       sure = hits?.semantic.status === "ranked" ? hits.semantic.said : undefined;
+      found = limited(found);
     }
     // How sure the ranked list is: under the rows, or on stderr where stdout is for a program.
     if (sure && (idsOut || json || lines)) io.err(`ep0ch: ${sure}`);
     if (idsOut) { for (const f of found) io.out(`((${f.id}))`); }
     else if (json) return await printRecords(board, found.map(f => f.id), io);
     else if (lines) { for (const f of found) io.out(foundLine(f)); }
-    else if (!found.length) io.out(asked ? "nothing matches" : query ? `nothing matches ${query}` : "the outline has no notes");
+    else if (!found.length) io.out(asked ? (sel.query?.trim() ? `no notes match ${sel.query.trim()}` : "nothing matches") : query ? `nothing matches ${query}` : "the outline has no notes");
     else {
       for (const f of found) io.out(`${f.id.slice(0, 8)}  ${f.score !== undefined ? `${f.score.toFixed(1)}/3  ` : ""}${field(f.title)}${f.path ? `  · ${field(f.path)}` : ""}${f.matched ? `  · ${field(f.matched)}` : ""}`);
       if (sure) io.out(sure);
