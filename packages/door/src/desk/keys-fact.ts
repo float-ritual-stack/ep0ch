@@ -77,13 +77,17 @@ export class DoorKeys<Lift = unknown> {
   /**
    * A tile recording a key (`Pane.recordsKey`: the keys window's rebind waits for one) gets the next key before any layer
    * of the door that would run it, the glass's alt+u and alt+v on every screen (PIE-1688): handed to the tile itself, with
-   * its screen as the desk, so nothing the screen has open first (a composer, an open still arriving) takes it. True when
-   * it did. Esc never comes here (the ladder cancels the rebind); in the drawer its tiles have the keys; a click goes where it points.
+   * its own desk, so nothing the screen has open first (a composer, an open still arriving) takes it. The tile is the one
+   * under the person's keys wherever they are (`address`: App.person().address, resolved through the host layer: a group's
+   * inner tile, a drawer tab, the showcase's stage), never a screen's own focused pane, which is the mount around a group
+   * and nothing on a screen that isn't a desk. True when it did. Esc never comes here (the ladder cancels the rebind); a
+   * click goes where it points.
    */
-  recordsInto(top: object | undefined, inDrawer: boolean, k: Key): boolean {
-    const pane = inDrawer || k.kind === "mouse" || k.kind === "paste" ? undefined : (top as { focusedPane?(): Pane | undefined } | undefined)?.focusedPane?.();
-    if (!pane?.recordsKey?.()) return false;
-    pane.key(k, top as never);
+  recordsInto(at: { address: string | null | undefined; resolve(address: string): { tile: { name: string }; desk: { pane(name: string): Pane | undefined } } | null }, k: Key): boolean {
+    if (k.kind === "mouse" || k.kind === "paste" || !at.address) return false;
+    const hit = at.resolve(at.address), pane = hit?.desk.pane(hit.tile.name);
+    if (!hit || !pane?.recordsKey?.()) return false;
+    pane.key(k, hit.desk as never);
     return true;
   }
 
