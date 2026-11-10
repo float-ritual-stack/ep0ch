@@ -7,27 +7,9 @@ active dogfood: the protocol and the schema still change, one version at a time.
 Before the two repositories became one (October 3, 2026), the door kept no changelog; its merged pull requests
 are its record. The outliner's entries from then are kept below, under
 [Outliner, before the one repository](#outliner-before-the-one-repository).
+Entries newer than the last fold wait in [`changelog/`](changelog/), one file per pull request, newest first by name.
 
 ## [Unreleased]
-
-### A Markdown web page and a file resource read, and the console's file journeys run green (PIE-1694, PIE-1695)
-
-- **A `[web::…/notes.md]` page served as Markdown reads as its text** in Detail and the door, untouched by the HTML extractor; `text/plain` reads as text too, and a later refresh or a newer extractor leaves it as it was.
-- **A page with no media type is read by its first bytes:** a tag means HTML, other text is text, control bytes say "no media type, and the page isn't text". `, text/plain` (an empty type a server's default was added to) reads as `text/plain`.
-- **Any other media type says what it was and what's read:** "unsupported media type: application/octet-stream (it reads text/html, text/markdown and text/plain)".
-- **A relative `[file::notes.md]` is the outline's own folder's,** `<outlines>/<name>/`, written down in the README and the seeded "Follow files" note; a file above it (`../outside.txt`) is read, and its Source names the folder it is really in, "(outside this outline's folder)".
-- **⏎ in Detail peeks the backlink drawn ▶ ACTIVE:** with nothing else focused, Enter opened nothing before.
-- **The Herdr harness writes a scenario's files where the host reads them** (`session.outlineRoot`), so `file-commit`, `file-revisions` and `resource-authoring` pass; `resource-authoring` also reads a Markdown web page in Detail, and `herdr-console` opens the peek by ⏎ through Detail's own launch.
-- **Run:** `ep0ch install --apply`. PROTOCOL, GRAMMAR and the schema don't move.
-
-### The outliner keeps what it's told, in order, under one clock and one id (PIE-1689, PIE-1690, PIE-1691)
-
-- **Tickets and captures made at once list in the order they were made:** a roadmap item, a capture and an extension's new record take the store's creation clock, so three made in one millisecond keep their order.
-- **A text filter folds case the same on every path:** `Ünïcode` matches `ünïcode` in a ranked view as in any other query (outline-core's `textHoldsTerms`), and a note's selection leaves its trashed children out however it's read.
-- **A comment on a file keeps one id:** Detail and the service name a file's snapshot alike, so a comment made in Detail is found where it was made.
-- **A refresh failure reads the same from every source:** an oversize PDF is `PDF exceeds N bytes` (invalid input) from a file or the web; a remote ticket's refresh overtaken by a move says so, as the web's does; a web page is read in the charset it names.
-- **Detail keeps what came meanwhile:** saving a reply or a comment's edit loads the change that arrived while you typed, the completion list closes on save, and page up and down move by the rows Detail draws (one more with a subtitle) in the note, a file, the editor and the comments.
-- **Run:** `ep0ch install --apply`. PROTOCOL, GRAMMAR and the schema don't move.
 
 ### The nightly run on main is green again (PIE-1692)
 
