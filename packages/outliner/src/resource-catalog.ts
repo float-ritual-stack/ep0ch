@@ -669,8 +669,13 @@ export class ResourceCatalog {
       );
     }
     const candidates = this.filesystemSourceCandidates(absolutePath);
+    // A file outside the outline's folder is named by the folder it is really in, so `../outside.txt` never reads as
+    // one of the outline's own files (PIE-1695).
+    const outside = escapesRoot(relative(this.workspaceRoot, absolutePath));
     const source = candidates[0] ?? this.createSource({
-      name: `Filesystem · ${basename(dirname(absolutePath)) || dirname(absolutePath)}`,
+      name: outside
+        ? `Filesystem · ${dirname(absolutePath)} (outside this outline's folder)`
+        : `Filesystem · ${basename(dirname(absolutePath)) || dirname(absolutePath)}`,
       provider: "filesystem",
       boundary: { root: dirname(absolutePath) },
       policy: { deniedCapabilities: [] },
