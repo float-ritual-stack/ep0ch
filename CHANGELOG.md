@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
+
+- **Nothing you use changes:** the door draws, answers keys and lists its actions exactly as before; the one thing drawn differently is the kitchen sink's file pointers, which name the new modules. This is for whoever opens the code next.
+- **A reader's action lives with its prefix:** `NOTE_ACTIONS` is spread from one module per prefix family in `packages/door/src/surface/note-actions/` (editing, comments, elements, reading, sources, …), with what they share in `shared.ts`. A new action goes in its prefix's module.
+- **The link model and the panels are their own modules:** `surface/link-model.ts` (a note's links as the reader follows them) and `surface/note-panels.ts` (a step's or callout's choice, a thread's card).
+- **Copies folded onto their owners:** the heading test onto outline-core's `HEADING_LINE`, one line↔offset pair (`lineStart`, `lineAtOffset` in outline-core's `code-ranges.ts`), `inRect`, `width()` for the reader's own chips, one refusal table, one thread lookup and one comment send.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL and GRAMMAR don't move.
+
 ### ctrl+k in an edit answers at once, and the tests pass in any folder (PIE-1532, PIE-1654)
 
 - **ctrl+k in a note's edit no longer freezes the door:** listing the actions that apply here (ctrl+k, or `/` first on a line) made every row's page by listing all of the door's actions again, about 700 times, and held the door for 2 to 3.5 s each time. Each row now carries its own listing: the list opens in a moment and every row keeps its page.
@@ -43,6 +51,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Terminal tiles unchanged:** a program gets the paste as it asked, bracketed in mode 2004, plain otherwise.
 - **In the kitchen sink:** the Paste a link section says it and its test pastes text holding `d` and `x` on the note.
 - **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
+
 ### Three door paper cuts: a river list's stale pick, docks per undone terminal, an alt press asking the wrong kind (PIE-1540, PIE-1575, PIE-1660)
 
 - **j lets go of a river list's pick:** in a river column, `j` (or `k`, a click on a card, the column's scroll or `esc`) off a `::links` list picked with `]` and PgDn no longer leaves that row drawn picked with its preview on it; the list reads as it did before the walk reached it (its first row lit for its preview), and PgDn scrolls the column.

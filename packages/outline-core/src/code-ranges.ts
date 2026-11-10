@@ -27,6 +27,22 @@ export function sourceLines(text: string): SourceLine[] {
   return lines;
 }
 
+/** Where line `line` (from 0) of `text` (or of its lines) starts, as an offset: past the last line, the text's length and one. */
+export const lineStart = (text: string | readonly string[], line: number): number =>
+  (typeof text === "string" ? text.split("\n") : text).slice(0, line).reduce((n, l) => n + l.length + 1, 0);
+
+/** The line (from 0) each offset of `text` is on: worked out once, then asked of any offset. */
+export function lineAtOffset(text: string): (offset: number) => number {
+  const starts: number[] = [];
+  let o = 0;
+  for (const l of text.split("\n")) { starts.push(o); o += l.length + 1; }
+  return (off: number) => {
+    let i = starts.length - 1;
+    while (i >= 0 && !(starts[i]! <= off)) i--;
+    return Math.max(0, i);
+  };
+}
+
 function fencedRangesOf(text: string, lines: SourceLine[]): SourceRange[] {
   return codeBlocks(lines.map(line => text.slice(line.start, line.contentEnd))).fences
     .map(block => ({ start: lines[block.start]!.start, end: lines[block.end]!.end }));

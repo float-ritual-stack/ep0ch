@@ -19,7 +19,7 @@ import type { RuleTone } from "@ep0ch/outline-core/rules";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { type Comment } from "../socket";
-import { C, fg, pad, RESET, surfaceBg } from "../style";
+import { C, fg, pad, RESET, surfaceBg, width } from "../style";
 
 /** How the margin shows its cards: one row each, whole, or not at all (the spans stay). The person's reading state. */
 export type MarginMode = "trim" | "full" | "off";
@@ -122,7 +122,7 @@ export interface PassageChoice { action: string; label: string; key?: string }
 /** The toolbar's chips in one row, `w` cells at most: `a ▸ [Highlight h] [Comment c] …`, and where each landed. */
 export function toolbarRow(choices: readonly PassageChoice[], armed: boolean, w: number): { text: string; hits: { from: number; to: number; action: string }[] } {
   const hits: { from: number; to: number; action: string }[] = [];
-  let text = fg(armed ? C.yellow : C.grey) + (armed ? "a ▸ " : "a: "), col = width0(armed ? "a ▸ " : "a: ");
+  let text = fg(armed ? C.yellow : C.grey) + (armed ? "a ▸ " : "a: "), col = width(armed ? "a ▸ " : "a: ");
   for (const c of choices) {
     const shown = `[${c.label}${c.key ? ` ${c.key}` : ""}]`;
     if (col + shown.length + 1 > w) break;
@@ -133,4 +133,3 @@ export function toolbarRow(choices: readonly PassageChoice[], armed: boolean, w:
   return { text: text + RESET, hits };
 }
 
-const width0 = (s: string) => [...s].length;
