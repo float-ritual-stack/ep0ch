@@ -22,7 +22,7 @@ import { viewCommand } from "./view-cli";
 import { mcpCommand } from "./mcp";
 import { agentCommand } from "./agent-cli";
 import { showcaseTry } from "./showcase/route";
-import { COMMANDS, checkWords, scriptCall, screenArg, screenUriArgs } from "./cli-words";
+import { COMMANDS, DOOR_COMMANDS, checkWords, doorFlags, scriptCall, screenArg, screenUriArgs } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { isLocalMachine } from "@ep0ch/outliner/machine-name";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
@@ -50,8 +50,10 @@ let commandAt = 0;
 while (args[commandAt] === "--ws" || args[commandAt] === "--machine") commandAt += 2;
 if (commandAt && (COMMANDS as readonly string[]).includes(args[commandAt] ?? "")) {
   const flags: string[] = [];
+  // A door command keeps its --ws on the line: it names the door to reach (doorFlags, below), whatever EP0CH_CONTROL says.
+  const door = (DOOR_COMMANDS as readonly string[]).includes(args[commandAt] ?? "");
   for (let i = 0; i < commandAt; i += 2) {
-    if (args[i] === "--ws") process.env.EP0CH_WS = args[i + 1]!;
+    if (args[i] === "--ws" && !door) process.env.EP0CH_WS = args[i + 1]!;
     else flags.push(args[i]!, args[i + 1]!);
   }
   args = [args[commandAt]!, ...args.slice(commandAt + 1), ...flags];
@@ -81,7 +83,7 @@ if (args[0] === "door") {
 // the link that carries that machine's doors (src/remote-doors.ts), its control socket answers here, so peek, act and
 // the rest run as they do for a door on this machine, attributed, never with the person's keys. A machine no link
 // carries goes on below, as before: ssh runs the command there.
-if (["peek", "snap", "open", "actions", "act", "subscribe", "trace"].includes(args[0] ?? "") && args.includes("--remote")) {
+if ((DOOR_COMMANDS as readonly string[]).includes(args[0] ?? "") && args.includes("--remote")) {
   const r = remoteOf(args);
   if (r && "error" in r) { console.error(`ep0ch: ${r.error}`); process.exit(2); }
   const { doorMachines, reachMachineDoor } = await import("./remote-doors");
@@ -258,7 +260,23 @@ if (args[0] === "actions") {
   const { actionsDoc, wantsDoc } = await import("./actions-doc");
   if (wantsDoc(args)) process.exit(await actionsDoc(args.slice(1)));
 }
-if (["peek", "snap", "open", "actions", "act", "subscribe", "trace"].includes(args[0] ?? "")) {
+if ((DOOR_COMMANDS as readonly string[]).includes(args[0] ?? "")) {
+  // `--ws`/`--machine` anywhere on the line name the outline whose door it is (PIE-1709): that door, whatever
+  // EP0CH_CONTROL says, and never an argument of the action (`arguments are key=value, not "--ws"`).
+  const lifted = doorFlags(args);
+  if ("error" in lifted) { console.error(`ep0ch: ${lifted.error}`); process.exit(2); }
+  if (lifted.ws !== undefined || lifted.machine !== undefined) {
+    const place = [...(lifted.ws !== undefined ? ["--ws", lifted.ws] : []), ...(lifted.machine !== undefined ? ["--machine", lifted.machine] : [])];
+    const { controlFor } = await import("./session/place");
+    const found = await controlFor({ ...process.env, EP0CH_CONTROL: undefined }, process.cwd(), [args[0]!, ...place]);
+    if (typeof found === "object") {
+      if (args[0] === "open" && args.includes("--json")) { console.log(JSON.stringify({ opened: false, reason: found.error })); process.exit(0); }
+      console.error(`ep0ch: ${found.error}`); process.exit(1);
+    }
+    process.env.EP0CH_CONTROL = found;
+    delete process.env.EP0CH_PLACE;
+    args = lifted.args;
+  }
   // Which door, when EP0CH_CONTROL names none: resolveDoor's rule, the one `ep0ch where` says (PIE-1242: the door on the
   // machine this ssh session came from, else the one on the outline this folder names, else the only one running).
   if (!process.env.EP0CH_CONTROL) {
