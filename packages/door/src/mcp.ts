@@ -60,6 +60,8 @@ export interface McpBoard {
   board: Board; served: McpServed; home?: { machine: string; instanceId: string | null };
   /** Served live from a machine whose mirror this server also keeps: writes queued for it that haven't landed yet still overlay a read. */
   queuedFor?: string;
+  /** Who is asking: the one rule for what they may do (levelFor, the write gate's effectiveLevel) reads their cap from here. */
+  caller?: McpCaller;
 }
 
 /** Served live, read now. */
@@ -274,7 +276,7 @@ const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined, where
 };
 
 async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
-  const status = await target.board.request("mcp.access.status", {});
+  const status = withLevel(await target.board.request("mcp.access.status", {}), target.caller, target.board.address);
   if (!status.canRead) return { error: accessRefusal(outlines, target, status.level) };
   return status;
 }
@@ -1421,7 +1423,17 @@ export interface McpAnswer { reply: unknown | null; methods: string[]; malformed
  * implementation both transports call: stdio a line at a time, the HTTP gateway a request body at a time. `caller`:
  * who the gateway's token names, to whom (and only to whom) the write tools are offered.
  */
-export async function answerMcp(outlines: McpOutlines, text: string, caller?: McpCaller, transport: "stdio" | "http" = "stdio"): Promise<McpAnswer | null> {
+/** The outlines as this caller asks: every board they hand back knows who is asking, so a read holds to the caller's cap by the same rule a write does. */
+const askedBy = (outlines: McpOutlines, caller: McpCaller | undefined): McpOutlines => !caller?.cap ? outlines : {
+  ...outlines,
+  async board(named, how) {
+    const found = await outlines.board(named, how);
+    return "error" in found ? found : { ...found, caller };
+  },
+};
+
+export async function answerMcp(outlinesIn: McpOutlines, text: string, caller?: McpCaller, transport: "stdio" | "http" = "stdio"): Promise<McpAnswer | null> {
+  const outlines = askedBy(outlinesIn, caller);
   const parsed = parseRequest(text);
   if (!parsed) return null;
   if ("parseError" in parsed) return { reply: responseError(null, -32700, parsed.parseError), methods: [], malformed: true };

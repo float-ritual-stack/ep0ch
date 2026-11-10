@@ -17,7 +17,7 @@ import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetK
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { allowedSubjects, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
-import { lowerLevel, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
@@ -560,7 +560,7 @@ export function startGateway(opts: {
       const minted = !given && isInitialize(body) ? mintCallId() : undefined;
       const call = given ?? minted;
       const named = route.persona ? { persona: route.persona, cap: capOf(route.persona) } : {};
-      try { answer = await answerMcp(named.cap ? cappedOutlines(outlines, named.cap) : outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }, "http"); }
+      try { answer = await answerMcp(outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }, "http"); }
       finally { slot.release(); }
       // Read this to see whether a client opens a session per chat or reuses one: mcp-session-id= is what the client sent (- on its first request), call= the call it is served as, client= the OAuth client; new marks an id minted for an initialize.
       if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} client=${verdict.clientId ?? "-"}${route.persona ? ` path=/${route.persona}${mcpPath} default-cap=${named.cap?.()}` : ""} mcp-session-id=${sent ?? "-"} call=${call ?? "-"}${minted ? " (new)" : ""} ${answer.methods.join(", ")}`);
@@ -582,37 +582,6 @@ export function startGateway(opts: {
     streams.clear();
     server.stop(true);
   } };
-}
-
-/**
- * The outlines as a capped connection (a named path) sees them: each outline's access setting reads no higher than the
- * cap for it, so every read and write check, the ones that ask no caller included, holds to it. `levelFor` applies the
- * same cap again after the owner's `full` (a scratch outline's maker).
- */
-function cappedOutlines(outlines: McpOutlines, cap: (where?: { outline: string; machine: string }) => McpAccessLevel): McpOutlines {
-  return {
-    ...outlines,
-    async board(named, how) {
-      const found = await outlines.board(named, how);
-      if ("error" in found) return found;
-      const inner = found.board;
-      const board = new Proxy(inner, {
-        get(target, key) {
-          // The access status, asked by action name, reads no higher than the cap.
-          if (key === "request" || key === "send") return async (action: string, ...rest: unknown[]) => {
-            const answer = await (target.send as (...a: unknown[]) => Promise<unknown>).call(target, action, ...rest);
-            if (action !== "mcp.access.status") return answer;
-            const status = answer as Awaited<ReturnType<typeof target.request<"mcp.access.status">>>;
-            const level = lowerLevel(cap(target.address), status.level);
-            return { ...status, level, canRead: status.canRead && level !== "none" };
-          };
-          const value = Reflect.get(target, key, target) as unknown;
-          return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-        },
-      });
-      return { ...found, board };
-    },
-  };
 }
 
 /** Whether a request body is (or holds) an `initialize` call: its JSON-RPC method, not a word in a note. */
