@@ -69,7 +69,8 @@ const result = await runHerdrScenario({
     assert.equal(snapshot.text.slice(start, end), quote);
     assert.notEqual(host.text.slice(start, end), quote);
     await session.waitVisible(detail, "Unpositioned comments");
-    await session.keys(detail, "tab", "enter");
+    // The embed's own link is the first Tab stop, the comments group the second.
+    await session.keys(detail, "tab", "tab", "enter");
     await session.waitVisible(detail, renderedComment);
     await session.waitVisible(detail, "Open thread");
     await session.checkpoint("01-real-capture-unpositioned-thread");
@@ -82,7 +83,7 @@ const result = await runHerdrScenario({
     await session.checkpoint("02-reveal-host-without-capture-offset");
     await terminal.resize(100, 32);
     await session.waitFor("narrow Detail frame", () => session.visible(detail), frame => frame.split("\n")[0]!.length < 70);
-    await session.keys(detail, "tab");
+    await session.keys(detail, "tab", "tab");
     await session.checkpoint("03a-narrow-region-focused");
     await session.keys(detail, "enter");
     await session.waitVisible(detail, renderedComment);
@@ -166,7 +167,8 @@ const result = await runHerdrScenario({
     const metadataFrame = await session.visible(detail);
     assert.ok(!metadataFrame.includes("HIDDEN-QUOTE"));
     assert.ok(!metadataFrame.split("\n").some(line => line.startsWith("+ ") && line.includes("metadata.bin")));
-    await session.keys(detail, "tab", "enter");
+    // The Resource's metadata card and its sections come first; the comments group is the last Tab stop.
+    await session.keys(detail, "shift+tab", "enter");
     await session.waitVisible(detail, "Comment on hidden source");
     await session.waitVisible(detail, "HIDDEN-QUOTE");
     await session.checkpoint("06-metadata-only-unpositioned-comment");
