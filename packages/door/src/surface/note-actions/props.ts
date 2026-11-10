@@ -133,9 +133,11 @@ export const PROPS_DEFS = {
       { act: "props.summary toggle=owner", does: "shows the owner key in the summary line, or hides it if it is shown" },
     ],
     run({ keys, toggle, reset }, { surface, host }) {
-      if ([keys, toggle, reset].filter(x => x !== undefined).length !== 1) throw new ActionRefused("pass one of keys=a,b toggle=key reset=true");
-      if (toggle) surface.toggleSummary(toggle, host);
-      else { setUserSummaryKeys(reset ? null : keys!.split(",").map(k => k.trim().toLowerCase()).filter(Boolean)); host.redraw(); }
+      // Each choice counts only when it chooses something (PIE-1681): an empty keys= shows no summary, but reset=false or an empty toggle= picks nothing.
+      const given = { keys: keys !== undefined, toggle: !!toggle?.trim(), reset: reset === true };
+      if (Object.values(given).filter(Boolean).length !== 1 || (toggle !== undefined && !given.toggle) || (reset !== undefined && !given.reset)) throw new ActionRefused("pass one of keys=a,b toggle=key reset=true");
+      if (given.toggle) surface.toggleSummary(toggle!.trim(), host);
+      else { setUserSummaryKeys(given.reset ? null : keys!.split(",").map(k => k.trim().toLowerCase()).filter(Boolean)); host.redraw(); }
       const m = surface.msg;
       return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
     },
