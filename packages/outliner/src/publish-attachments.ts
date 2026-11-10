@@ -1,6 +1,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, relative, sep } from "node:path";
+import { dirname, extname, relative, sep } from "node:path";
+import { escapesRoot } from "./filesystem-source";
 import { MAX_TEXT_FILE_BYTES, resolveReferencedPath } from "./files";
 import type { MediaCopy } from "@ep0ch/outline-core/media-copy";
 
@@ -112,7 +113,7 @@ function refuse(refusal: AttachmentRefusal, reason: string): { ok: false; refusa
 function inside(root: string, path: string): string | null {
   const fromRoot = relative(root, path);
   if (fromRoot === "") return "";
-  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) return null;
+  if (escapesRoot(fromRoot)) return null;
   return fromRoot;
 }
 

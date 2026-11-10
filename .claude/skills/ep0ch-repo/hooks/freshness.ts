@@ -53,6 +53,15 @@ export function agentOfEp0ch(text: string): string | null {
   return (m?.[1] ?? m?.[2])?.trim() || null
 }
 
+/**
+ * How the sweep reads the repository as main has it. The session's checkout is often behind (a deployer's worktree
+ * parked on the last PR it gated), and `git fetch` writes, so the sweep can't refresh it: three false "no CHANGELOG
+ * entry" reports on Nov 10 came from reading it.
+ */
+export const MAIN_FILE_HOW =
+  "Read a file as main has it with `gh api 'repos/{owner}/{repo}/contents/<path>?ref=main' -H 'Accept: application/vnd.github.raw'`, " +
+  'and what a merged PR changed with `gh pr view <n> --json files`.'
+
 /** The sweep's task: the stale list from `.claude/freshness.md`, why it runs now, and how to answer. */
 export function sweepBrief(freshness: string, why: string): string {
   return [
@@ -60,6 +69,10 @@ export function sweepBrief(freshness: string, why: string): string {
     '',
     'Check each item in the list below against what is true now (the outline through ep0ch show/find or the outline read tools, gh, git, systemctl --user). ' +
       'Change nothing: you have read tools alone, and a Bash command that writes is refused. Read only what you need; keep it quick.',
+    '',
+    `The working tree you start in is the deployer's checkout and can be commits behind main: never judge the repository by its files. ${MAIN_FILE_HOW}`,
+    '',
+    'Before you report a finding, check it once more against the live source (main on GitHub, the outline, gh) and drop it if that clears it.',
     '',
     'Answer with findings only, one line each: what is stale, the evidence (a ((block id)), PIE-n, #PR or file path), and the exact fix the main thread should make. ' +
       'Skip what is fine. If nothing is stale, answer "Nothing stale." Your answer is handed to the main thread, which makes the updates.',

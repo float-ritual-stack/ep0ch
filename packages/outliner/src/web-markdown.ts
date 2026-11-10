@@ -81,6 +81,7 @@ export class BasicWebMarkdownExtractor implements WebMarkdownExtractor {
   }
 }
 
-export function sha256(value: string): string {
+/** The SHA-256 of a text (as UTF-8) or of bytes, as hex: the content hash a Resource's snapshots carry. */
+export function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }

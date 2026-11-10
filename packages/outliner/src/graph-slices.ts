@@ -8,7 +8,8 @@ const SLICE = 1000;
 
 interface Row { id: string; position: number; created_at: string }
 interface PropertyRow { block_id: string; ordinal: number }
-const binary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
+export const compareBinary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** `add` gets each slice's blocks with their properties, in the order a whole read has them. */
 export async function readGraphRowsInSlices<R extends Row, P extends PropertyRow>(database: Database, pass: () => Promise<void>, add: (rows: R[], properties: P[]) => void): Promise<void> {
@@ -20,7 +21,7 @@ export async function readGraphRowsInSlices<R extends Row, P extends PropertyRow
     after = page.at(-1)!.id;
     await pass();
   }
-  rows.sort((a, b) => a.position - b.position || binary(a.created_at, b.created_at) || binary(a.id, b.id));
+  rows.sort((a, b) => a.position - b.position || compareBinary(a.created_at, b.created_at) || compareBinary(a.id, b.id));
   await pass();
   const propertiesOf = new Map<string, P[]>();
   for (let block = "", ordinal = -1;;) {

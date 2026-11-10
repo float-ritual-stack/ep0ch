@@ -2,7 +2,6 @@ import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "@ep0ch/outline-core/work-ids";
-import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';
 import type {DocumentSelection} from './document-frame';
@@ -28,7 +27,6 @@ import {
   annotationSourceHash,
   annotationReferenceContextsEqual,
   createAnnotationReferenceContext,
-  createPdfPageRegionAnchor,
   createTextQuoteAnchor,
 } from "./annotations";
 import {
@@ -37,7 +35,9 @@ import {
   emptyAttentionState,
 } from "./attention";
 import {
+  backlinkGroupExpanded,
   backlinkGroupRows,
+  backlinkNarrowingActive,
   BACKLINK_QUERY_LIMIT,
   backlinkView,
   DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -57,8 +57,18 @@ import {
 } from "./detail-editor-layout";
 import type { DetailEmbedRange, DetailEmbedState, DetailReadProjection, DetailValueBinding } from "./detail-embeds";
 import type { ResourceProjection } from "./resource-projection";
-import {concatDocuments, generatedDocument, documentProvenanceKey, observeDocument, sourceDocument, type MappedDocument} from './document-provenance';
-import {resourceContentDocument} from './document-resources';
+import {documentProvenanceKey, observeDocument, sourceDocument, type MappedDocument} from './document-provenance';
+import { resourceDocument } from "./detail-resource-document";
+import {
+  annotationOffsetsForLineRange,
+  detailBufferPointAtOffset,
+  detailBufferRangeOffsets,
+  filesystemAnnotationRepresentation,
+  pdfAnnotationAnchor,
+  renderedSelectionAnnotationTarget,
+} from "./detail-annotation-targets";
+
+export { renderedSelectionAnnotationTarget } from "./detail-annotation-targets";
 import {resolvedDocument} from './document-references';
 import {
   resolveFragment,
@@ -67,7 +77,6 @@ import type { ReferencedFile, ReferencedPathCandidate } from "./files";
 import {
   firstOutlinerReference,
   parseOutlinerLinkUri,
-  outlinerLinkUri,
   resourceOccurrenceLink,
   type OutlinerLinkTarget,
   type ResolvedOutlinerLinkTarget,
@@ -106,15 +115,15 @@ import { isVirtualBranchDefinition } from "./virtual-branches";
 import { blockDisplayTitle } from "./references";
 import { authoredResourceReferenceOccurrences, isAuthoredFileOccurrence } from "./resource-references";
 import {
-  RESOURCE_CAPABILITIES,
-  RESOURCE_CAPABILITY_FACTORS,
+  blockingCapabilityFactor,
   resourceRevisionRefEquals,
   resourceAddressLabel,
   resourceDescriptionLabel,
   providerLabel,
 } from "./resources";
 import { isRemoteEntity } from "./remote-entity";
-import { TextBuffer, type TextBufferRange } from "./text-buffer";
+import { TextBuffer } from "./text-buffer";
+import { applyTextBufferEditorCommand, type TextBufferEditorMoveDirection } from "./text-buffer-editor";
 import { sanitizeDynamicText, type TerminalKey } from "./terminal";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import type {
@@ -123,12 +132,10 @@ import type {
   AnnotationLifecycleInput,
   AnnotationUpdateInput,
   AnnotationRecord,
-  AnnotationAnchor,
   AnnotationCreateInput,
   AnnotationListQuery,
   AnnotationReconcileInput,
   AnnotationReconcileReceipt,
-  AnnotationRepresentation,
   AnnotationReferenceContext,
   AnnotationSubject,
   AnnotationTarget,
@@ -138,7 +145,6 @@ import type {
   BacklinkSource,
   BacklinkQuery,
   Block,
-  Resource,
   BookmarkStatus,
   BookmarkToggleReceipt,
   BlockSearchQuery,
@@ -147,8 +153,6 @@ import type {
   PageAddressCollection,
   OutlinerEvent,
   PropertyPatchOperation,
-  RenderedPassageObservation,
-  RenderedPassageProjection,
   RenderedSelectionCapture,
   SelectionContext,
   OutlinerNavigationDispatch,
@@ -327,16 +331,12 @@ export function detailBacklinkView(backlinks: Readonly<DetailBacklinkState>): Ba
   return backlinkView(backlinks.collection, detailBacklinkViewOptions(backlinks));
 }
 
-/** A narrowing filter opens every group so matches are never folded away. */
-function backlinkNarrowingActive(backlinks: Readonly<DetailBacklinkState>): boolean {
-  return backlinks.filter !== "" || backlinks.kindFilter !== null || backlinks.stageFilter !== "all";
-}
-
+/** Whether a group is open in Detail's panel: outline-core's rule, the door's too, over Detail's state. */
 export function detailBacklinkGroupExpanded(
   backlinks: Readonly<DetailBacklinkState>,
   kind: string,
 ): boolean {
-  return backlinks.expandedKinds.has(kind) || backlinkNarrowingActive(backlinks);
+  return backlinkGroupExpanded(detailBacklinkViewOptions(backlinks), backlinks.expandedKinds, kind);
 }
 
 /** Backlink rows as rendered, in order; selection and focus index this list. */
@@ -714,16 +714,6 @@ export interface DetailEffects {
   bookmarksRoot(): Promise<Block>;
 }
 
-export type DetailBufferMoveDirection =
-  | "left"
-  | "right"
-  | "up"
-  | "down"
-  | "home"
-  | "end"
-  | "word-left"
-  | "word-right";
-
 export type DetailOpenRouting = "linked" | "chooser";
 
 export interface DetailResourceSelectionCapture {
@@ -815,7 +805,7 @@ export type DetailIntent =
   | { type: "buffer.newline" }
   | { type: "buffer.backspace" }
   | { type: "buffer.delete" }
-  | { type: "buffer.move"; direction: DetailBufferMoveDirection; extend?: boolean }
+  | { type: "buffer.move"; direction: TextBufferEditorMoveDirection; extend?: boolean }
   | { type: "buffer.select-all" }
   | { type: "buffer.copy" }
   | { type: "buffer.undo" }
@@ -897,169 +887,6 @@ export function selectedDetailFileRange(state: Readonly<DetailState>): DetailLin
   };
 }
 
-function annotationOffsetsForLineRange(
-  text: string,
-  startLine: number,
-  endLine: number,
-): { start: number; end: number } {
-  const starts = [0];
-  for (let index = 0; index < text.length; index += 1) {
-    if (text.charCodeAt(index) === 10) starts.push(index + 1);
-  }
-  const start = starts[startLine - 1];
-  if (start === undefined || endLine < startLine) {
-    throw new Error("Annotation line range is outside the file");
-  }
-  const next = starts[endLine];
-  let end = next === undefined ? text.length : next - 1;
-  if (end > start && text.charCodeAt(end - 1) === 13) end -= 1;
-  if (end <= start) throw new Error("Annotation line range must contain text");
-  return { start, end };
-}
-
-function pdfAnnotationAnchor(
-  description: ResourceDescription,
-  start: number,
-  end: number,
-): Extract<AnnotationAnchor, { kind: "pdf-page-region" }> {
-  const pdf = description.pdf;
-  if (!pdf) throw new Error("PDF representation is unavailable");
-  const page = pdf.pages.find((candidate) =>
-    start >= candidate.start && end <= candidate.end
-  );
-  if (!page) throw new Error("PDF annotations must stay within one extracted page");
-  const regions = page.spans
-    .filter((span) => span.end > start && span.start < end)
-    .map(({ region }) => region);
-  if (regions.length === 0) {
-    throw new Error("PDF selection has no durable page region");
-  }
-  return createPdfPageRegionAnchor(pdf.markdown, start, end, page.page, regions);
-}
-
-function filesystemAnnotationRepresentation(
-  resource: Resource,
-  file: ReferencedFile,
-): AnnotationRepresentation {
-  if (resource.provider !== "filesystem") {
-    throw new Error("Filesystem annotation requires a filesystem Resource");
-  }
-  const sourceText = file.sourceText ?? file.lines.join("\n");
-  const contentHash = file.sourceHash ?? annotationSourceHash(sourceText);
-  const revisionParts = file.sourceVersion?.split(":");
-  const revision = revisionParts?.length === 3 &&
-      revisionParts.slice(0, 2).every((part) => /^\d+$/.test(part)) &&
-      /^[0-9a-f]{64}$/.test(revisionParts[2]!)
-    ? {
-        resourceId: resource.id,
-        addressVersion: resource.addressVersion,
-        revision: {
-          kind: "filesystem" as const,
-          mtimeNs: revisionParts[0]!,
-          size: revisionParts[1]!,
-          contentHash: revisionParts[2]!,
-        },
-      }
-    : null;
-  return {
-    id: `filesystem:${resource.id}:${file.sourceVersion ?? contentHash}:${contentHash}`,
-    subject: { kind: "resource", resourceId: resource.id },
-    sourceSnapshot: {
-      kind: "resource",
-      resourceId: resource.id,
-      sourceSnapshotId: null,
-      revision,
-    },
-    adapter: { id: "filesystem.text", version: 1 },
-    mediaType: resource.mediaType ?? "text/plain",
-    contentHash,
-    capturedAt: file.capturedAt ?? "1970-01-01T00:00:00.000Z",
-  };
-}
-
-export function renderedSelectionAnnotationTarget(
-  state: Pick<
-    DetailState,
-    "context" | "resolvedSelectedText" | "projectedSelectedText"
-  >,
-  capture: RenderedSelectionCapture,
-): AnnotationTarget {
-  const selected = state.context.selected;
-  if (!selected) throw new Error("No block is open in this Detail");
-  if (selected.id !== capture.hostBlockId) {
-    throw new Error("The Detail target changed after the rendered selection was captured");
-  }
-  const projected = state.projectedSelectedText !== selected.text;
-  const resolved = state.resolvedSelectedText !== state.projectedSelectedText;
-  const projection: RenderedPassageProjection = projected && resolved
-    ? "mixed"
-    : projected
-      ? "generated"
-      : resolved
-        ? "resolved"
-        : "canonical";
-  const { snapshotText, passage, ...evidence } = capture;
-  const observation: RenderedPassageObservation = { ...evidence, projection };
-  // The one quote lookup (outline-core passage.ts, ADR 0004 contract 5): placed only when the words are there once.
-  const found = passage ? null : findPassage(snapshotText, capture.quote);
-  const match = found && !isMiss(found) ? found.start : -1;
-  const unique = match >= 0;
-  const contentHash = annotationSourceHash(snapshotText);
-  return {
-    ...(passage ? {passage} : {}),
-    representation: {
-      id: `rendered:${capture.hostBlockId}:${capture.paneId}:${capture.contentRevision}:${contentHash}${passage ? `:${capture.detailClientId}` : ""}`,
-      subject: { kind: "block", blockId: selected.id },
-      sourceSnapshot: { kind: "rendered", observation },
-      adapter: { id: passage ? "outliner.document-frame" : "herdr.rendered-passage", version: 1 },
-      mediaType: "text/plain",
-      contentHash,
-      capturedAt: capture.capturedAt,
-      observation,
-    },
-    anchor: unique
-      ? createTextQuoteAnchor(snapshotText, match, match + capture.quote.length)
-      : {
-          kind: "text-quote",
-          start: null,
-          end: null,
-          exact: capture.quote,
-          prefix: "",
-          suffix: "",
-        },
-  };
-}
-
-function textRangeOffsets(
-  text: string,
-  range: TextBufferRange,
-): { start: number; end: number } | null {
-  const lines = text.split("\n");
-  const offset = ({ row, column }: TextBufferRange["start"]): number | null => {
-    const line = lines[row];
-    if (line === undefined || column < 0 || column > line.length) return null;
-    let total = column;
-    for (let index = 0; index < row; index += 1) total += lines[index]!.length + 1;
-    return total;
-  };
-  const anchor = offset(range.start);
-  const focus = offset(range.end);
-  if (anchor === null || focus === null || anchor === focus) return null;
-  return anchor < focus
-    ? { start: anchor, end: focus }
-    : { start: focus, end: anchor };
-}
-
-function detailBufferRangeOffsets(buffer: Readonly<TextBuffer>): { start: number; end: number } | null {
-  const range = buffer.selectionRange;
-  return range ? textRangeOffsets(buffer.text, range) : null;
-}
-function detailBufferPointAtOffset(text: string, offset: number): { row: number; column: number } {
-  const clamped = Math.max(0, Math.min(offset, text.length));
-  const before = text.slice(0, clamped);
-  const lines = before.split("\n");
-  return { row: lines.length - 1, column: lines[lines.length - 1]!.length };
-}
 
 
 export function detailVisibleEditorHeight(
@@ -1166,6 +993,7 @@ export function createDetailController(
   let loadGeneration = 0;
   let openGeneration = 0;
   let fileReadGeneration = 0;
+  // ── The block cache, change notices and the breadcrumb ──
   const blockCache = new Map<string, DetailBlockCacheEntry>();
 
   const readBlockCache = (
@@ -1216,6 +1044,7 @@ export function createDetailController(
     state.resolvedBreadcrumb = titles.join(" › ");
   };
 
+  // ── Loading: files, reads, annotations ──
   const loadFile = async (block: Block): Promise<boolean> => {
     const fileGeneration = ++fileReadGeneration;
     const generation = loadGeneration;
@@ -1364,7 +1193,7 @@ export function createDetailController(
     } catch {
       threads = [];
     }
-    // Resolve only when a title can change; otherwise apply in this turn as before.
+    // Resolve reference titles only when a thread holds a reference; the answer applies in this turn when asked to (`current-turn`), else as a queued view update.
     const references = annotationReferenceTokens(threads).length
       ? await resolveAnnotationReferences(threads, text => effects.resolveReferences(text)) : new Map<string, string>();
     const apply = () => {
@@ -1383,6 +1212,15 @@ export function createDetailController(
     };
     if (application === "current-turn") apply();
     else effects.enqueueViewUpdate(apply);
+  };
+
+  // ── Backlinks ──
+  /** Selects the backlink row of a source block when it shows; false when it doesn't (filtered or folded away). */
+  const selectBacklinkSource = (blockId: string | null): boolean => {
+    const index = visibleBacklinkSources(state.backlinks).findIndex((source) => source.blockId === blockId);
+    if (index < 0) return false;
+    state.backlinks.selectedIndex = index;
+    return true;
   };
 
   const invalidateBacklinks = (): void => {
@@ -1455,6 +1293,7 @@ export function createDetailController(
     }
   };
 
+  // ── Navigation history and the document showing ──
   const syncNavigationState = (): void => {
     state.canNavigateBack = navigationIndex > 0;
     state.canNavigateForward = navigationIndex >= 0 && navigationIndex < navigationHistory.length - 1;
@@ -1536,375 +1375,6 @@ export function createDetailController(
     syncPropertyInspector(null, true);
   };
 
-  const providerRevisionLabel = (revision: ResourceRevisionRef): string => {
-    const providerRevision = revision.revision;
-    if (providerRevision.kind === "filesystem") {
-      return `filesystem mtime ${providerRevision.mtimeNs}, ${providerRevision.size} bytes`;
-    }
-    if (providerRevision.kind === "web") {
-      const validator = providerRevision.validator;
-      if (validator.kind === "etag") {
-        return `web ETag ${validator.weak ? "W/" : ""}${validator.value}`;
-      }
-      if (validator.kind === "last-modified") {
-        return `web Last-Modified ${validator.value}`;
-      }
-      return `web content hash ${validator.value}`;
-    }
-    if (providerRevision.kind === "computed") {
-      return `computed ${providerRevision.producerId}@${providerRevision.producerVersion}, input v${providerRevision.inputVersion}, dependencies ${providerRevision.dependencyFingerprint}`;
-    }
-    const provider = providerRevision.kind === "github" ? "GitHub" : providerLabel(providerRevision.kind);
-    return `${provider} ${providerRevision.validator.kind} ${providerRevision.validator.value}`;
-  };
-
-  const freshnessGuidance = (
-    freshness: NonNullable<ResourceDescription["webStatus"]>["freshness"],
-    hasLocalContent: boolean,
-  ): string => {
-    switch (freshness) {
-      case "fresh":
-        return "The latest observed snapshot is within the local freshness window.";
-      case "stale":
-        return "The selected content is local and older than the freshness window. Press r to refresh explicitly.";
-      case "unknown":
-        return hasLocalContent
-          ? "Provider freshness has not been checked. Press r to refresh explicitly."
-          : "No local snapshot is available. Press r to refresh explicitly. Opening this resource only reads local storage and never contacts the provider.";
-      case "refreshing":
-        return hasLocalContent
-          ? "Refresh is reconciling with the provider. The selected immutable content remains available until persistence succeeds."
-          : "Refresh is reconciling with the provider. No local snapshot is available yet.";
-      case "failed":
-        return hasLocalContent
-          ? "The last refresh failed. The selected immutable content remains available."
-          : "The last refresh failed and no local snapshot is available. Press r to retry explicitly.";
-      default: {
-        const exhaustive: never = freshness;
-        return exhaustive;
-      }
-    }
-  };
-
-  const resourceDocument = (description: ResourceDescription): MappedDocument => {
-    const {
-      resource,
-      source,
-      pdf,
-      pdfHistory,
-      web,
-      webHistory,
-      remoteEntity,
-      computed,
-      computedStatus,
-      computedFailure,
-      presentation,
-    } = description;
-    const representation = presentation?.selected?.representation;
-    const renderLocalContent = representation === undefined ||
-      representation === "cached-markdown";
-    const content=resourceContentDocument(description);
-    if (description.filesystem && renderLocalContent) return content!;
-    const externalUrl = presentation?.selected?.externalUrl ?? null;
-    const openExternal = presentation?.capabilities["open-external"];
-    const unavailableExternalFactor = RESOURCE_CAPABILITY_FACTORS
-      .map((factor) => openExternal?.factors[factor])
-      .find((assessment) =>
-        assessment?.state === "blocked" || assessment?.state === "unknown"
-      );
-    const externalLines = externalUrl === null
-      ? []
-      : openExternal?.status === "available"
-      ? externalUrl.startsWith("http://") || externalUrl.startsWith("https://")
-        ? ["", `[Open externally](<${externalUrl}>)`]
-        : [
-            "",
-            `- External URL: \`${externalUrl}\``,
-            "- Open externally: Press Alt+O",
-          ]
-      : [
-          "",
-          `- External URL: \`${externalUrl}\``,
-          `- External open: unavailable — ${
-            unavailableExternalFactor && "detail" in unavailableExternalFactor
-              ? unavailableExternalFactor.detail
-              : "No negotiated open-external capability"
-          }`,
-        ];
-    const remoteProvider = isRemoteEntity(resource) ? providerLabel(resource.provider) : null;
-    const lines = computed && renderLocalContent
-      ? [
-          computed.markdown,
-          "",
-          "---",
-          "",
-          "## Computed resource",
-          "",
-          `[Stable resource link](${outlinerLinkUri("resource", resource.id)})`,
-        ]
-      : pdf && renderLocalContent
-      ? [
-          pdf.markdown,
-          "",
-          "---",
-          "",
-          "## PDF resource",
-          "",
-          `[Stable resource link](${outlinerLinkUri("resource", resource.id)})`,
-          ...externalLines,
-        ]
-      : web && renderLocalContent
-        ? [
-            web.markdown,
-            "",
-            "---",
-            "",
-            "## Web resource",
-            "",
-            `[Stable resource link](${outlinerLinkUri("resource", resource.id)})`,
-            ...externalLines,
-          ]
-        : remoteEntity && renderLocalContent
-          ? [
-              remoteEntity.markdown,
-              "",
-              "---",
-              "",
-              `## ${remoteProvider ?? "Remote"} entity`,
-              "",
-              `[Stable resource link](${outlinerLinkUri("resource", resource.id)})`,
-              ...externalLines,
-            ]
-          : [
-              `# ${remoteEntity?.title ?? resourceAddressLabel(resource.address)}`,
-              "",
-              `[Stable resource link](${outlinerLinkUri("resource", resource.id)})`,
-              ...externalLines,
-            ];
-    if (presentation) {
-      lines.push(
-        "",
-        "## Negotiated presentation",
-        "",
-        `- Resource kind: ${presentation.resourceKind}`,
-        `- Surface: ${presentation.surface}`,
-        `- Placement: ${presentation.selected?.placement ?? presentation.requestedPlacement}`,
-        `- Representation: ${presentation.selected?.representation ?? "unavailable"}`,
-        `- Renderer: ${presentation.selected?.renderer ?? "unavailable"}`,
-      );
-    }
-    if (remoteEntity) {
-      lines.push(
-        "",
-        "## Entity metadata",
-        "",
-        "```json",
-        JSON.stringify(remoteEntity.metadata, null, 2),
-        "```",
-      );
-    }
-    if (resource.provider === "computed") {
-      lines.push(
-        "",
-        "## Computed status",
-        "",
-        `- Invocation ID: \`${resource.address.invocationId}\``,
-        `- Handler reference: \`producer:${resource.address.invocationId}\``,
-        `- State: **${computedStatus?.state ?? "idle"}**`,
-        `- Generation: ${computedStatus?.generation ?? 0}`,
-        `- Last execution: ${computedStatus?.lastExecutionAt ?? "Never"}`,
-      );
-      if (computedFailure) {
-        lines.push(
-          "",
-          "## Latest execution failure",
-          "",
-          `- Execution ID: \`${computedFailure.executionId}\``,
-          `- Code: \`${computedFailure.code}\``,
-          `- Failed: ${computedFailure.failedAt}`,
-          `- Message: ${computedFailure.message}`,
-        );
-      }
-    }
-    if (
-      resource.provider === "web" ||
-      isRemoteEntity(resource)
-    ) {
-      const status = resource.provider === "web"
-        ? description.webStatus
-        : description.remoteStatus;
-      const freshness = status?.freshness ?? "unknown";
-      lines.push(
-        "",
-        "## Local status",
-        "",
-        `- Freshness: **${freshness}**`,
-        `- Checked: ${status?.checkedAt ?? "Never"}`,
-        ...(status?.lastError
-          ? [`- Last refresh error: ${status.lastError}`]
-          : description.remoteError
-          ? [`- Last refresh error: ${description.remoteError}`]
-          : []),
-        "",
-        freshnessGuidance(freshness, pdf != null || web !== null || remoteEntity !== null),
-      );
-    }
-    if (computed) {
-      const computedRevision = computed.revision.revision;
-      if (computedRevision.kind !== "computed") {
-        throw new Error("Computed Resource has a non-computed revision");
-      }
-      lines.push(
-        "",
-        "## Selected immutable content",
-        "",
-        `- Representation ID: \`${computed.representationId}\``,
-        `- Content hash: \`${computed.contentHash}\``,
-        `- Producer: \`${computedRevision.producerId}@${computedRevision.producerVersion}\``,
-        `- Input version: ${computedRevision.inputVersion}`,
-        `- Dependency fingerprint: \`${computedRevision.dependencyFingerprint}\``,
-        `- Adapter: \`${computed.adapter.id}@${computed.adapter.version}\``,
-        `- Derived: ${computed.derivedAt}`,
-        `- Exact dependencies: ${computed.dependencies.length}`,
-      );
-      for (const dependency of computed.dependencies) {
-        lines.push(
-          `- Dependency \`${dependency.resourceId}\` · address v${dependency.addressVersion} · ${providerRevisionLabel(dependency)}`,
-        );
-      }
-    } else if (pdf) {
-      lines.push(
-        "",
-        "## Selected immutable content",
-        "",
-        `- Source snapshot ID: \`${pdf.sourceSnapshot.id}\``,
-        `- Source hash: \`${pdf.sourceSnapshot.contentHash}\``,
-        `- Provider revision: ${providerRevisionLabel(pdf.sourceSnapshot.revision)}`,
-        `- Captured: ${pdf.sourceSnapshot.capturedAt}`,
-        `- Source bytes available: ${pdf.sourceSnapshot.bytesAvailable ? "yes" : "no"}`,
-        `- Text representation ID: \`${pdf.representation.id}\``,
-        `- Text adapter: \`${pdf.representation.adapter.id}@${pdf.representation.adapter.version}\``,
-        `- Text representation hash: \`${pdf.representation.contentHash}\``,
-        `- Native representation ID: \`${pdf.nativeRepresentation.id}\``,
-        `- Pages: ${pdf.pages.length}`,
-      );
-    } else if (web) {
-      lines.push(
-        "",
-        "## Selected immutable content",
-        "",
-        `- Source snapshot ID: \`${web.sourceSnapshot.id}\``,
-        `- Source hash: ${web.sourceSnapshot.contentHash ? `\`${web.sourceSnapshot.contentHash}\`` : "Unknown"}`,
-        `- Provider revision: ${providerRevisionLabel(web.sourceSnapshot.revision)}`,
-        `- Fetched: ${web.sourceSnapshot.fetchedAt ?? "Unknown"}`,
-        `- Source body available: ${web.sourceSnapshot.bodyAvailable ? "yes" : "no"}`,
-        `- Representation ID: \`${web.representation.id}\``,
-        `- Adapter: \`${web.representation.adapter.id}@${web.representation.adapter.version}\``,
-        `- Representation hash: \`${web.representation.contentHash}\``,
-        `- Derived: ${web.representation.derivedAt ?? "Unknown"}`,
-        `- Representation content available: ${web.representation.contentAvailable ? "yes" : "no"}`,
-      );
-    } else if (remoteEntity) {
-      lines.push(
-        "",
-        "## Selected immutable content",
-        "",
-        `- Provider: \`${remoteEntity.sourceSnapshot.provider}\``,
-        `- Entity ID: \`${remoteEntity.sourceSnapshot.entityId}\``,
-        `- Locator: \`${remoteEntity.sourceSnapshot.locator}\``,
-        `- Source hash: \`${remoteEntity.sourceSnapshot.contentHash}\``,
-        `- Address version: \`${remoteEntity.sourceSnapshot.addressVersion}\``,
-        `- Provider revision: ${providerRevisionLabel(remoteEntity.sourceSnapshot.revision)}`,
-        `- Fetched: ${remoteEntity.sourceSnapshot.fetchedAt}`,
-        `- Media type: \`${remoteEntity.representation.mediaType}\``,
-        `- Adapter: \`${remoteEntity.representation.adapter.id}@${remoteEntity.representation.adapter.version}\``,
-        `- Representation hash: \`${remoteEntity.representation.contentHash}\``,
-        `- Derived: ${remoteEntity.representation.derivedAt}`,
-      );
-    } else {
-      lines.push(
-        "",
-        "## Resource identity",
-        "",
-        `- Resource ID: \`${resource.id}\``,
-        `- Source: ${source.name} (\`${source.id}\`)`,
-        `- Provider: \`${resource.provider}\``,
-        `- Address version: \`${resource.addressVersion}\``,
-        `- Requested revision: ${
-          description.requestedRevision
-            ? `address version ${description.requestedRevision.addressVersion}`
-            : "latest address"
-        }`,
-        ...(description.webError ? [`- Read error: ${description.webError}`] : []),
-        ...(description.remoteError ? [`- Read error: ${description.remoteError}`] : []),
-      );
-    }
-    if (webHistory) {
-      lines.push(
-        "",
-        "## Retained history",
-        "",
-        `- Source snapshots: ${webHistory.sourceSnapshots.length}`,
-        `- Representations: ${webHistory.representations.length}`,
-      );
-      for (const snapshot of webHistory.sourceSnapshots) {
-        lines.push(
-          `- Snapshot \`${snapshot.id}\` · address v${snapshot.addressVersion} · ${snapshot.canonicalUrl ?? "URL unknown"} · ${snapshot.contentHash ?? "hash unknown"} · fetched ${snapshot.fetchedAt ?? "unknown"} · body ${snapshot.bodyAvailable ? "available" : snapshot.evictedAt ? `evicted ${snapshot.evictedAt}` : "unavailable"}`,
-        );
-      }
-      for (const representation of webHistory.representations) {
-        lines.push(
-          `- Representation \`${representation.id}\` · snapshot \`${representation.sourceSnapshotId}\` · \`${representation.adapter.id}@${representation.adapter.version}\` · ${representation.contentHash} · derived ${representation.derivedAt ?? "unknown"} · content ${representation.contentAvailable ? "available" : representation.evictedAt ? `evicted ${representation.evictedAt}` : "unavailable"}`,
-        );
-      }
-    }
-    if (pdfHistory) {
-      lines.push(
-        "",
-        "## Retained PDF history",
-        "",
-        `- Source snapshots: ${pdfHistory.sourceSnapshots.length}`,
-        `- Representations: ${pdfHistory.representations.length}`,
-      );
-      for (const snapshot of pdfHistory.sourceSnapshots) {
-        lines.push(
-          `- Snapshot \`${snapshot.id}\` · address v${snapshot.addressVersion} · ${snapshot.locator} · ${snapshot.contentHash} · captured ${snapshot.capturedAt} · bytes ${snapshot.bytesAvailable ? "available" : "unavailable"}`,
-        );
-      }
-      for (const candidate of pdfHistory.representations) {
-        lines.push(
-          `- Representation \`${candidate.id}\` · snapshot \`${candidate.sourceSnapshotId}\` · ${candidate.mediaType} · \`${candidate.adapter.id}@${candidate.adapter.version}\` · ${candidate.contentHash} · derived ${candidate.derivedAt}`,
-        );
-      }
-    }
-    if (description.availableCommands.length > 0) {
-      lines.push(
-        "",
-        "## Available commands",
-        "",
-        "```json",
-        JSON.stringify(description.availableCommands, null, 2),
-        "```",
-      );
-    }
-    lines.push("", "## Capabilities");
-    const capabilityReport = presentation?.capabilities ?? description.capabilities;
-    for (const capability of RESOURCE_CAPABILITIES) {
-      const decision = capabilityReport[capability];
-      lines.push(`- ${capability}: ${decision.status}`);
-      for (const factor of RESOURCE_CAPABILITY_FACTORS) {
-        const assessment = decision.factors[factor];
-        if (assessment.state === "blocked" || assessment.state === "unknown") {
-          lines.push(`  - ${factor}: ${assessment.state} — ${assessment.detail}`);
-        }
-      }
-    }
-    // The content is inserted as the first element above. Split at this known
-    // construction boundary, not by searching a rendered string for a match.
-    return content
-      ? concatDocuments([content,generatedDocument(`\n${lines.slice(1).join('\n')}`,'resource presentation and diagnostics')])
-      : generatedDocument(lines.join('\n'),'resource presentation and diagnostics');
-  };
 
   const applyReadyBlockPresentation = (
     document: DetailBlockReadyDocument,
@@ -2207,6 +1677,7 @@ export function createDetailController(
     );
   };
 
+  // ── Opening a link: the destination chooser, open in linked Detail ──
   const resolveDestinationTarget = async (
     target: OpenDestinationTarget,
     reference: OutlinerLinkTarget,
@@ -2236,20 +1707,16 @@ export function createDetailController(
     target: OpenDestinationTarget,
     preserveSource = false,
   ): Promise<boolean> => {
-    try {
-      const dispatched = await effects.dispatchNavigation(target.target, "open", {
-        ...(preserveSource ? { preserveSource: true } : {}),
-      });
-      if (dispatched.targetClientId === effects.clientId) {
-        if (options.openHere) {
-          if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
-        } else await applyNavigationCommand(dispatched.command);
-      }
-      routineNotice(`Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`);
-      return true;
-    } catch (error) {
-      throw error;
+    const dispatched = await effects.dispatchNavigation(target.target, "open", {
+      ...(preserveSource ? { preserveSource: true } : {}),
+    });
+    if (dispatched.targetClientId === effects.clientId) {
+      if (options.openHere) {
+        if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
+      } else await applyNavigationCommand(dispatched.command);
     }
+    routineNotice(`Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`);
+    return true;
   };
 
   destinationChooser = new OpenDestinationChooser({
@@ -2310,6 +1777,7 @@ export function createDetailController(
     await loadCurrentTarget(true);
   };
 
+  // ── Editing: the editor's viewport, $EDITOR, recovery ──
   const editorLayout = (viewport: DetailViewport) =>
     layoutDetailEditor(
       state.buffer.lines,
@@ -2319,11 +1787,15 @@ export function createDetailController(
       state.buffer.selectionRange,
     );
 
+  /** How far the editor can scroll: its last row at the bottom of what shows. */
+  const editorMaxOffset = (layout: ReturnType<typeof editorLayout>, viewport: DetailViewport): number =>
+    Math.max(0, layout.rows.length - detailVisibleEditorHeight(state, viewport));
+
   const ensureEditorCursorVisible = (viewport: DetailViewport): void => {
     state.editorViewportManual = false;
     const visibleHeight = detailVisibleEditorHeight(state, viewport);
     const layout = editorLayout(viewport);
-    const maxOffset = Math.max(0, layout.rows.length - visibleHeight);
+    const maxOffset = editorMaxOffset(layout, viewport);
     state.editorVisualOffset = Math.max(
       0,
       Math.min(state.editorVisualOffset, maxOffset),
@@ -2382,14 +1854,7 @@ export function createDetailController(
       }
       const write = description.capabilities.write;
       if (write.status !== "available") {
-        const factor = RESOURCE_CAPABILITY_FACTORS
-          .map((name) => write.factors[name])
-          .find((assessment) =>
-            assessment.state === "blocked" || assessment.state === "unknown"
-          );
-        state.status = factor && "detail" in factor
-          ? factor.detail
-          : "Filesystem Resource writing is unavailable";
+        state.status = blockingCapabilityFactor(write)?.detail ?? "Filesystem Resource writing is unavailable";
         return;
       }
       text = description.filesystem.text;
@@ -2491,11 +1956,7 @@ export function createDetailController(
         }
       } else result.cleanup();
       const layout = editorLayout(viewport);
-      const maximumOffset = Math.max(
-        0,
-        layout.rows.length - detailVisibleEditorHeight(state, viewport),
-      );
-      state.editorVisualOffset = Math.min(previousViewportOffset, maximumOffset);
+      state.editorVisualOffset = Math.min(previousViewportOffset, editorMaxOffset(layout, viewport));
       state.completion = null;
       state.status = state.recovery && state.recovery.latest.revision !== selected.revision
         ? "Combined independent changes · Ctrl+S saves · original writing retained"
@@ -2572,6 +2033,7 @@ export function createDetailController(
     ensureEditorCursorVisible(viewport);
   };
 
+  // ── Property edit ──
   const beginPropertyEdit = async (): Promise<void> => {
     const selected = state.context.selected;
     if (!selected) {
@@ -2637,6 +2099,7 @@ export function createDetailController(
     }
   };
 
+  // ── Comments: a selection becomes a target, threads, replies, edits, lifecycle ──
   const beginAnnotationSelection = async (
     sourceLine = 0,
     sourceColumn = 0,
@@ -2953,6 +2416,7 @@ export function createDetailController(
     }
   };
 
+  // ── Cancel and save ──
   const cancelBuffer = async (): Promise<void> => {
     let retentionNotice: string | undefined;
     if (state.mode.kind === "edit" && state.recovery && effects.recovery && state.buffer.text !== state.recovery.draftText) {
@@ -3132,6 +2596,7 @@ export function createDetailController(
   };
 
   let completionViewport:DetailViewport={width:80,height:24};
+  // ── Completion, preview and file stepping, checklists ──
   const completions = new ReferenceCompletionSession({
     completionRows: (request, signal) => effects.completionRows(request, signal),
     completionPicked: (key, insert) => effects.completionPicked(key, insert),
@@ -3214,6 +2679,7 @@ export function createDetailController(
     if (generation === openGeneration && result.link) state.status = "Step link copied";
   };
 
+  // ── dispatch: every intent, by group (editing, Resources, navigation, preview regions, properties, backlinks, buffer) ──
   const dispatch = async (intent: DetailIntent, viewport: DetailViewport): Promise<void> => {
     completionViewport=viewport;
     const requestGeneration = ++openGeneration;
@@ -3289,7 +2755,7 @@ export function createDetailController(
             await loadCurrentTarget(true);
             state.status = "Refreshed this note's tickets and extension lines";
           } catch (error) {
-            state.status = `Refresh failed · ${error instanceof Error ? error.message : String(error)}`;
+            state.status = `Refresh failed · ${errorMessage(error)}`;
           } finally {
             state.busy = false;
           }
@@ -3384,14 +2850,7 @@ export function createDetailController(
           break;
         }
         if (capability?.status !== "available") {
-          const unavailableFactor = RESOURCE_CAPABILITY_FACTORS
-            .map((factor) => capability?.factors[factor])
-            .find((assessment) =>
-              assessment?.state === "blocked" || assessment?.state === "unknown"
-            );
-          state.status = unavailableFactor && "detail" in unavailableFactor
-            ? unavailableFactor.detail
-            : "Opening this resource externally is unavailable";
+          state.status = blockingCapabilityFactor(capability)?.detail ?? "Opening this resource externally is unavailable";
           break;
         }
         await effects.openExternal(selected.externalUrl);
@@ -3641,12 +3100,7 @@ export function createDetailController(
           state.selectedAnnotationId = region.activation.annotationId;
         }
         if (region.kind === "backlink-source") {
-          const blockId = region.activation?.type === "backlink.open"
-            ? region.activation.blockId
-            : null;
-          const index = visibleBacklinkSources(state.backlinks)
-            .findIndex((source) => source.blockId === blockId);
-          if (index >= 0) state.backlinks.selectedIndex = index;
+          selectBacklinkSource(region.activation?.type === "backlink.open" ? region.activation.blockId : null);
         }
         break;
       }
@@ -3656,12 +3110,7 @@ export function createDetailController(
           state.selectedAnnotationId = region.activation.annotationId;
         }
         if (region?.kind === "backlink-source") {
-          const blockId = region.activation?.type === "backlink.open"
-            ? region.activation.blockId
-            : null;
-          const index = visibleBacklinkSources(state.backlinks)
-            .findIndex((source) => source.blockId === blockId);
-          if (index >= 0) state.backlinks.selectedIndex = index;
+          selectBacklinkSource(region.activation?.type === "backlink.open" ? region.activation.blockId : null);
         }
         break;
       }
@@ -3752,14 +3201,10 @@ export function createDetailController(
             await dispatch({ type: BACKLINK_CONTROL_INTENTS[intent.action.control] }, viewport);
             break;
           case "backlink.open": {
-            const blockId = intent.action.blockId;
-            const index = visibleBacklinkSources(state.backlinks)
-              .findIndex((candidate) => candidate.blockId === blockId);
-            if (index < 0) {
+            if (!selectBacklinkSource(intent.action.blockId)) {
               state.status = "Backlink source is no longer visible";
               break;
             }
-            state.backlinks.selectedIndex = index;
             await dispatch({ type: "backlinks.open" }, viewport);
             break;
           }
@@ -3850,7 +3295,7 @@ export function createDetailController(
           effects.copyText(entry.value);
           state.status = "Value sent to terminal clipboard";
         } catch (error) {
-          state.status = `Copy failed: ${error instanceof Error ? error.message : String(error)}`;
+          state.status = `Copy failed: ${errorMessage(error)}`;
         }
         break;
       }
@@ -4051,7 +3496,7 @@ export function createDetailController(
           break;
         }
         // A narrowing filter opens every group, so a fold would change nothing visible.
-        if (backlinkNarrowingActive(state.backlinks)) {
+        if (backlinkNarrowingActive(detailBacklinkViewOptions(state.backlinks))) {
           state.status = "Clear the filter to fold groups";
           break;
         }
@@ -4245,40 +3690,12 @@ export function createDetailController(
         ensureEditorCursorVisible(viewport);
         break;
       case "buffer.move": {
-        const extend = intent.extend ?? false;
-        switch (intent.direction) {
-          case "left":
-            state.buffer.moveLeft(extend);
-            break;
-          case "right":
-            state.buffer.moveRight(extend);
-            break;
-          case "up":
-            state.buffer.moveUp(extend);
-            break;
-          case "down":
-            state.buffer.moveDown(extend);
-            break;
-          case "home":
-            state.buffer.moveHome(extend);
-            break;
-          case "end":
-            state.buffer.moveEnd(extend);
-            break;
-          case "word-left":
-            state.buffer.moveWordLeft(extend);
-            break;
-          case "word-right":
-            state.buffer.moveWordRight(extend);
-            break;
-        }
+        applyTextBufferEditorCommand(state.buffer, { type: "move", direction: intent.direction, extend: intent.extend ?? false });
         ensureEditorCursorVisible(viewport);
         break;
       }
       case "editor.viewport.scroll": {
-        const layout = editorLayout(viewport);
-        const visibleHeight = detailVisibleEditorHeight(state, viewport);
-        const maxOffset = Math.max(0, layout.rows.length - visibleHeight);
+        const maxOffset = editorMaxOffset(editorLayout(viewport), viewport);
         state.editorVisualOffset = Math.max(
           0,
           Math.min(maxOffset, state.editorVisualOffset + Math.trunc(intent.delta)),
@@ -4290,11 +3707,7 @@ export function createDetailController(
         const layout = editorLayout(viewport);
         const visualRow = detailEditorVisualRowForSourceLine(layout, intent.sourceLine);
         if (visualRow !== null) {
-          const maxOffset = Math.max(
-            0,
-            layout.rows.length - detailVisibleEditorHeight(state, viewport),
-          );
-          state.editorVisualOffset = Math.max(0, Math.min(maxOffset, visualRow));
+          state.editorVisualOffset = Math.max(0, Math.min(editorMaxOffset(layout, viewport), visualRow));
           state.editorViewportManual = true;
         }
         break;
@@ -4465,10 +3878,7 @@ export function createDetailController(
         const kind = state.backlinks.collection?.sources
           .find((source) => source.blockId === command.sourceBlockId)?.facets?.kind;
         if (kind) state.backlinks.expandedKinds.add(kind);
-        const index = visibleBacklinkSources(state.backlinks)
-          .findIndex((source) => source.blockId === command.sourceBlockId);
-        if (index >= 0) {
-          state.backlinks.selectedIndex = index;
+        if (selectBacklinkSource(command.sourceBlockId)) {
           state.previewRegions.focusedRegionId = `backlink:${command.sourceBlockId}`;
         }
       }
