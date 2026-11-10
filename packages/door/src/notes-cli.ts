@@ -541,8 +541,8 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
 /**
  * A drawing cut to the rows source lines `parts` (from 1, both ends of each) draw (PIE-588: a write's answer shows each
  * part it changed): the note's header (its title and byline rows), then each part's rows in order, a `⋮` where rows
- * were left out between, above or below them. A part inside what draws as one (a figure's source) is drawn from the
- * line that draws it. Within `rows` the parts share what's left after the header and the gaps, a short part keeping
+ * were left out between, above or below them. A part that starts inside what draws as one (a figure's source) is
+ * drawn from the line that draws it. Within `rows` the parts share what's left after the header and the gaps, a short part keeping
  * all of its rows and a long one cut to its share with `⋮ n more rows` under it, so no part is left out for one
  * before it. A request no row draws gives the whole drawing.
  */
@@ -561,15 +561,16 @@ export function partOf(lines: readonly string[], head: number, lineOf: (row: num
     while (last + 1 < lines.length && lineAt(last + 1) === undefined && visible(lines[last + 1]!).trim()) last++;
     return [first, last];
   };
+  // A part starts from the drawn line its first line belongs to: a line inside a figure's source draws no row of its
+  // own (the figure's rows are its opening line's), so the part starts at that opening line, whatever follows it.
+  const drawnLines = new Set<number>();
+  for (let r = head; r < lines.length; r++) { const l = lineAt(r); if (l !== undefined) drawnLines.add(l); }
   const spans: [number, number][] = [];
   for (const [a, b] of parts) {
-    const lo = a - 1, hi = b - 1;
-    let span = spanOf(lo, hi);
-    if (!span) {
-      let from = -1;
-      for (let r = head; r < lines.length; r++) { const l = lineAt(r); if (l !== undefined && l < lo && l > from) from = l; }
-      if (from >= 0) span = spanOf(from, hi);
-    }
+    const hi = b - 1;
+    let lo = a - 1;
+    if (!drawnLines.has(lo)) { const from = Math.max(-1, ...[...drawnLines].filter(l => l < lo)); if (from >= 0) lo = from; }
+    const span = spanOf(lo, hi);
     if (span) spans.push(span);
   }
   if (!spans.length) return [...lines];

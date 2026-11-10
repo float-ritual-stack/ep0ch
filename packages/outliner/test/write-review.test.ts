@@ -723,6 +723,25 @@ test("a patch inside a figure's source far from another change draws the figure 
   expect(drawn).not.toContain("Row 20:");
 }, 30_000);
 
+test("a patch inside a figure's source and the line after it draws the figure too (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
+  const rows = Array.from({ length: 30 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
+  const figure = ["::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }]", "---", "::"];
+  // Far below the note's top, so nothing but the figure itself can start the part.
+  const made = await agent("create", { parent: "root", text: ["Bed log", ...rows, "", ...figure, "Then the beans went in.", ...rows].join("\n") });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [
+    { observed: "title: beds this week", replacement: "title: beans this week" },
+    { observed: "Then the beans went in.", replacement: "Then the beans went in by the fence." },
+  ] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const drawn = (patched.json.view as string[]).join("\n");
+  expect(drawn).toMatch(/by\s+the\s+fence/);
+  expect(drawn).toContain("[ BEANS THIS WEEK ]");
+}, 30_000);
+
 test("a patch in more places than the drawing holds names the ones it left out (PIE-588)", async () => {
   const { store, agent } = await setup();
   const rows = Array.from({ length: 90 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
