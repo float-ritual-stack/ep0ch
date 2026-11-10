@@ -659,6 +659,31 @@ test("a patch in one section leaves the old findings in another carried: the rev
   expect((patched.json.warnings ?? []).join("\n")).not.toContain("wall");
 });
 
+test("two walls in two sections, one patched: the other is the note's, listed and carried, and the patch ships (PIE-1715, against PIE-1388's one-section case)", async () => {
+  const { agent, store } = await setup();
+  const wall = (w: string) => Array.from({ length: 8 }, (_, i) => `The ${w} row ${i + 1} was weeded on Sunday and the beds along the fence were mulched with straw before the rain.`).join(" ");
+  const made = await agent("create", { parent: "root", text: `Allotment walls\n\n## Beans\n\n${wall("bean")}\n\n## Peas\n\n${wall("pea")}` });
+  const walls = (made.json.review as Review).findings.filter(f => f.rule === "wall" && f.patch);
+  expect(walls).toHaveLength(2);
+  const note = store.require(made.json.id);
+  const review = (await agent("patch", { ref: note.id, revision: note.revision, patches: walls[0]!.patch })).json.review as Review;
+  expect(review.findings.filter(f => f.rule === "wall").map(f => f.new)).toEqual([false]);
+  expect(review.verdict).toBe("ship");
+});
+
+test("deleting the line above an old ask leaves the ask the note's, not the write's (PIE-1715)", async () => {
+  const { agent, store } = await setup();
+  const made = await agent("create", { parent: "root", text: "Seed order\n\nThe beans are in.\nEvan, can you check the order on your phone?" });
+  expect((made.json.review as Review).findings.find(f => f.rule === "qa-for-evan")?.new).toBe(true);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "The beans are in.\n", replacement: "" }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const review = patched.json.review as Review & { judged?: string[] };
+  expect(review.findings.filter(f => f.rule === "qa-for-evan").map(f => f.new)).toEqual([false]);
+  // Nor is it put to Jev again as a line this write wrote.
+  expect((review.judged ?? []).filter(j => j.startsWith("line:"))).toEqual([]);
+});
+
 test("an id written bare is quoted with its link, and the patch that links it clears the finding (PIE-588)", async () => {
   const { store, agent } = await setup();
   // A note whose id's first 8 characters have a digit and a letter: an all-digit or all-letter prefix reads as a word.

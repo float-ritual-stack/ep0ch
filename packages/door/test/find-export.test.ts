@@ -217,7 +217,7 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect(tilde.code).toBe(1);
     expect(plain(tilde.err)).toContain("needs=sysop");
     expect(plain(tilde.err)).toContain("title~sysop");
-    expect(plain(tilde.err)).toContain('ep0ch find --query "needs=sysop"');
+    expect(plain(tilde.err)).toContain('ep0ch find --query "needs=sysop" (that value), or ep0ch find --query needs (any value)');
   }, 30_000);
 
   test("find --query with bare Work IDs: each matches its item, OR of two gives both; one no item has says work-id= (PIE-1682)", async () => {

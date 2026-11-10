@@ -54,7 +54,8 @@ export async function asksBackfill(board: Sender, o: { since: string; write: boo
       if (fresh.length) io.err(`${fresh.join(", ")}: ${why}`);
     }
     // The same failure twice is the run's, not a note's (PIE-1715: every note failed on one model command): stop, said once.
-    stopped = [...failures.values()].some(ids => ids.length > 1);
+    // A deadline isn't: a slow note or two in a month's run says nothing about the rest.
+    stopped = [...failures].some(([why, ids]) => ids.length > 1 && !/timed out/i.test(why));
   }
   if (struck.length) io.out(`Turned down by the model, not written:\n${struck.join("\n")}`);
   const rest = notes.length - read;

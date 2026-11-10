@@ -357,7 +357,9 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     if (s.under && e instanceof Refused && e.kind === "not-found") return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
     // The clause the grammar says was meant, as the command that runs it (PIE-1714); else a working example.
     const meant = /Did you mean (.+?)\? /.exec(why)?.[1];
-    const instead = meant && s.query && !/\s/.test(s.query.trim()) && !/\bNOT\b/.test(meant) ? `ep0ch find --query ${JSON.stringify(meant)}` : `the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"`;
+    // `~` meant "contains": the exact value may miss `sysop: which bin`, so the key alone (any value) is offered beside it.
+    const anyValue = s.query?.includes("~") && meant?.includes("=") ? ` (that value), or ep0ch find --query ${meant.split("=")[0]} (any value)` : "";
+    const instead = meant && s.query && !/\s/.test(s.query.trim()) && !/\bNOT\b/.test(meant) ? `ep0ch find --query ${JSON.stringify(meant)}${anyValue}` : `the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"`;
     return { error: `the outline can't read that query: ${why}\n  ${instead}` };
   };
   if (s.view && s.propertyScope) return { error: `a view reads the chips its own [property-scope::] says; --property-scope goes with --query (ep0ch show ${s.view} --source shows the view's)` };

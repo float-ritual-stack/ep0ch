@@ -120,7 +120,8 @@ export interface WriteScope { whole: boolean; sections: Section[]; lines: [numbe
 export function writeScope(text: string, before?: string): WriteScope {
   const sections = sectionsOf(text);
   if (before === undefined) return { whole: true, sections, lines: [[0, text.split("\n").length - 1]] };
-  return { whole: false, sections: sections.filter(s => !before.includes(s.text)), lines: changedLines(before, text) };
+  // The runs it added or rewrote only: a line left standing where lines were deleted is the note's, not this write's.
+  return { whole: false, sections: sections.filter(s => !before.includes(s.text)), lines: changedLines(before, text, { added: true }) };
 }
 /** Line `i` (from 0) is one the write added or rewrote. */
 export const wroteLine = (scope: WriteScope, i: number) => scope.whole || scope.lines.some(([a, b]) => i >= a && i <= b);
@@ -129,15 +130,15 @@ export const inScope = (scope: WriteScope, i: number) => wroteLine(scope, i) || 
 
 /**
  * The lines (from 0) a write changed in `text` from `before`: each run of lines it added or rewrote, and where it
- * removed some, the line now in their place.
+ * removed some, the line now in their place (what a drawing shows); with `added`, only the runs it added or rewrote.
  */
-export function changedLines(before: string, text: string): [number, number][] {
+export function changedLines(before: string, text: string, o: { added?: boolean } = {}): [number, number][] {
   const now = text.split("\n"), out: [number, number][] = [];
   let at = 0;
   for (const c of diffArrays(before.split("\n"), now)) {
     const n = c.count ?? c.value.length;
     if (c.added) { out.push([at, at + n - 1]); at += n; }
-    else if (c.removed) { const l = Math.max(0, Math.min(at, now.length - 1)); out.push([l, l]); }
+    else if (c.removed) { if (!o.added) { const l = Math.max(0, Math.min(at, now.length - 1)); out.push([l, l]); } }
     else at += n;
   }
   return out;

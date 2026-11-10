@@ -772,7 +772,7 @@ const NOTE_TO_SELF = /^note to self[*_ \t]*:/i;
 const LIST_LEAD = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+(?:\[.\][ \t]+)?)?/;
 /**
  * A bold lead, the way a line names what it describes (`- **Waiters:** …`): with no question, no Evan and no please in
- * its own words after it, the line explains something and asks nothing, whatever "you" or "approve" it holds (PIE-1715).
+ * its own words, the lead's included, the line explains something and asks nothing, whatever "you" or "approve" it holds (PIE-1715).
  */
 const BOLD_LEAD = /^(\*\*|__)(?!\s)[^*_\n]+?\1[ \t]*:?/;
 const ASKING_WORDS = /\?|\bEvan\b|\bplease\b|\blet me know\b/i;
@@ -796,7 +796,7 @@ export function structuralLines(lines: readonly string[]): Set<number> {
     else {
       const listed = content.replace(LIST_LEAD, ""), lead = listed.replace(/^[*_]+/, ""), filing = FILING_LEAD.exec(lead), bold = BOLD_LEAD.exec(listed);
       if (NOTE_TO_SELF.test(lead) || (filing && !mayAsk(lead.slice(filing[0].length)))) out.add(i);
-      else if (bold && !OPEN_BOX.test(content) && !ASKING_WORDS.test(stripPropertyTokens(proseOf(listed.slice(bold[0].length))))) out.add(i);
+      else if (bold && !OPEN_BOX.test(content) && !ASKING_WORDS.test(stripPropertyTokens(proseOf(listed)))) out.add(i);
     }
   });
   return out;

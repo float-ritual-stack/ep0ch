@@ -112,7 +112,7 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   const kind = workboardKind(block.properties);
   if (kind) return done(`left out: a ${kind}'s lines describe the work, they don't ask`);
   const read = await outline<{ revision: number; text: string; jev: string; lines: Reading[] }>({ action: "blocks.asks", blockId: note }, { timeoutMs: 110_000 });
-  if (read.jev !== "asked") return done(`not asked: ${read.jev}`);
+  if (read.jev !== "asked") return done(read.jev.startsWith("not asked") ? read.jev : `not asked: ${read.jev}`);
   const lines = read.text.split("\n");
   const chipped = chippedLines(read.text);
   const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || (l.reads === "unsure" && !sure)).filter(l => !chipped.has(l.line));
