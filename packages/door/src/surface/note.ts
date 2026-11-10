@@ -806,7 +806,7 @@ export class NoteSurface {
   private boxRect: FloatRect | null = null;
   readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } as { w: number; h: number; col?: number; row?: number } };
   /** Everything attached to the note (PIE-1536): the comment being written, Sources, settings, a list's children, the edit preview. */
-  readonly attachments: Attachments<SurfaceHost, SurfaceView> = new Attachments<SurfaceHost, SurfaceView>(this.attachmentKinds(), () => this.lastLook?.values);
+  readonly attachments: Attachments<SurfaceHost, SurfaceView> = new Attachments<SurfaceHost, SurfaceView>(this.attachmentKinds(), () => this.lastLook?.values, { note: () => this.msg?.id ?? null, render: (of, props) => this.src ? this.src.board.request("scripts.render", { of, props, deadlineMs: 15_000 }, 20_000) : Promise.reject(new Error("this reader has no outline to ask")), redraw: () => this.src?.redraw() });
   private innerFrame?: FloatRect;
   private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): a mode over the comment, waiting on their answer in the power bar. */
@@ -4018,7 +4018,7 @@ export class NoteSurface {
       : { row: f.row, col: f.col, cols: f.cols + (g.zone.cols ? dx : 0), rows: f.rows + (g.zone.rows ? dy : 0) };
     const o = this.attachments.def(g.target).owner(), now = o?.float ?? o?.frame ?? (g.target === "comment" ? this.boxRect : null);
     if (now && now.row === to.row && now.col === to.col && now.cols === to.cols && now.rows === to.rows) return;
-    void this.runKey(this.attachments.def(g.target).actions.move as keyof NoteActionArgs, to as never, host, true);
+    void this.runKey(this.attachments.def(g.target).actions.move as keyof NoteActionArgs, { ...to, ...this.attachments.def(g.target).args } as never, host, true);
   }
 
   // ── the comment or edit being written: its keys, clicks, tile and pointer (PIE-846) ────
@@ -6920,7 +6920,7 @@ export class NoteSurface {
     const chosen = place ?? m.list.items[m.list.sel]!;
     if (direction) this.attachments.split(m.target, direction, undefined);
     this.closePlacement(host);
-    return this.runKey(this.attachments.def(m.target).actions.place as keyof NoteActionArgs, { place: chosen } as never, host);
+    return this.runKey(this.attachments.def(m.target).actions.place as keyof NoteActionArgs, { place: chosen, ...this.attachments.def(m.target).args } as never, host);
   }
 
   private withPlacementMenu(view: SurfaceView, w: number, h: number, where: "reader" | AttachmentKind): SurfaceView {

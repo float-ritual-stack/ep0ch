@@ -102,7 +102,7 @@ test("note.ts keeps no placement code of its own for an attachment", () => {
 });
 
 test("binding the host's list declares the kinds of the extensions it says it serves, and only those", () => {
-  const entry = (id: string, serving: boolean) => ({ id, name: id, version: 1, state: serving ? "active" : "disabled", serving, handlers: [], actions: [], agents: [], tiles: [], bar: [], completion: [], attachments: [{ kind: `${id}.pins`, noun: "pins" }] });
+  const entry = (id: string, serving: boolean) => ({ id, name: id, version: 1, state: serving ? "active" : "disabled", serving, handlers: [], actions: [], agents: [], tiles: [], bar: [], completion: [], attachments: [{ kind: `${id}.pins`, noun: "pins", render: "pins" }] });
   const list = (...e: ReturnType<typeof entry>[]) => ({ extensions: e, tileKinds: [], rules: [], ruleProblems: [], available: [], resourceProviders: [], pages: {}, demos: {}, about: {} }) as never;
   try {
     bindExtensions(list(entry("pinboard", true), entry("idle", false)));
@@ -120,7 +120,7 @@ test("a served extension's record declares an attachment kind; an unknown one is
     // Not declared yet: the boundary refuses it and says what is known and where a new one comes from.
     expect(() => layer.kind("pinboard.pins")).toThrow(/no attachment kind[\s\S]*comment, sources[\s\S]*manifest's attachments/);
     expect(() => layer.kind("nonsense")).toThrow("no attachment kind");
-    declareAttachmentKinds([{ kind: "pinboard.pins", noun: "pins" }, { kind: "sources", noun: "can't shadow a built-in" }]);
+    declareAttachmentKinds([{ kind: "pinboard.pins", noun: "pins", render: "pins" }, { kind: "sources", noun: "shadow", render: "x" }]);
     expect(layer.kind("pinboard.pins")).toBe("pinboard.pins");
     expect(attachmentKinds()).toEqual([...ATTACHMENT_KINDS, "pinboard.pins"]);
     // The layer places it like any: no placement code of its own.

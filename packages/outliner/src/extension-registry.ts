@@ -197,7 +197,7 @@ export interface ExtensionEntry {
   /** The door module its manifest names (PIE-1505): the door runs it while this extension is served. */
   readonly door?: string;
   /** The surfaces it attaches beside a note, each kind named `<id>.<kind>` (its manifest's `attachments`), while it's served. */
-  readonly attachments?: readonly { readonly kind: string; readonly noun: string }[];
+  readonly attachments?: readonly { readonly kind: string; readonly noun: string; readonly render: string }[];
   /** Its screens (PIE-1525): screen specs as data, for the door's screen registry while it's served. Opaque here. */
   readonly screens?: readonly ExtensionScreen[];
 }
@@ -613,7 +613,7 @@ export class ExtensionRegistry {
         ...(script ? { script: { keys: script.keys ?? [], blockId: script.blockId, line: script.line, file: script.file, code: script.code } } : {}),
         ...(serving && extension.manifest.scripts?.length ? { scripts: extension.manifest.scripts } : {}),
         ...(serving && extension.manifest.door ? { door: extension.manifest.door } : {}),
-        ...(serving && extension.manifest.attachments?.length ? { attachments: extension.manifest.attachments.map((a) => ({ kind: `${extension.id}.${a.kind}`, noun: a.noun })) } : {}),
+        ...(serving && extension.manifest.attachments?.length ? { attachments: extension.manifest.attachments.map((a) => ({ kind: `${extension.id}.${a.kind}`, noun: a.noun, render: a.render })) } : {}),
         ...(serving && extension.manifest.screens?.length ? { screens: extension.manifest.screens.map((screen) => structuredClone(screen)) } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length || !!extension?.manifest.door,
         handlers: serving ? (extension.manifest.handlers ?? [])

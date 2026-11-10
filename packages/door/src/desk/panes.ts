@@ -610,7 +610,7 @@ export class ReaderPane implements Pane, AttachedOwner {
   attachedTitle(a: Attachment, source: string): string { return `${a === "matches" ? a : this.surface.attachments.def(a).noun} · ${source}`; }
   attachedHint(a: Attachment): string { return a === "matches" ? "" : a === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.surface.attachmentHint(a); }
   attachedSide(a: Attachment, side: AttachedSide, desk: DeskApi): void {
-    if (a !== "matches") void this.surface.runKey(this.surface.attachments.def(a).actions.place as never, { side } as never, this.host(desk), true);
+    if (a !== "matches") void this.surface.runKey(this.surface.attachments.def(a).actions.place as never, { side, ...this.surface.attachments.def(a).args } as never, this.host(desk), true);
   }
   attachedSideWords(): string { return "the note's"; }
 

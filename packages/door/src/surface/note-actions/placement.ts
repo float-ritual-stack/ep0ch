@@ -2,6 +2,7 @@
 // (placement.*), attachment.split, and the grip, move and place of Sources (sources.grip/move/place), the edit's preview
 // (edit.preview.*) and the comment being written (comment.place/grip/move/leaving).
 import { ATTACHED_KEYS } from "../attached-keys";
+import { closeExtensionAttachment, openExtensionAttachment, scrollExtensionAttachment } from "../extension-attachment";
 import { ATTACHED_PLACES } from "../attached";
 import { FLOAT_MOVE_ARGS, type On } from "./shared";
 import { modeActionKeys } from "../modes";
@@ -43,6 +44,39 @@ export const PLACEMENT_DEFS = {
     args: { target: { type: "string", about: "comment, sources, list-preview, edit-preview or settings" }, direction: { type: "string", optional: true, about: "right or down" }, share: { type: "number", optional: true, about: "attachment share of the reader, .15 to .85" } },
     examples: [{ act: "attachment.split target=sources direction=down share=0.4", does: "puts the sources split below the note with forty percent of its height" }],
     run({ target, direction, share }, { surface, host }) { const split = surface.attachments.split(surface.attachments.kind(target), direction, share); host.redraw(); return split; },
+  }),
+  // An extension's attached surface (Nov 3 review card 16): the one set of actions every declared `<id>.<kind>` shares.
+  "attachment.open": def({
+    summary: "open an installed extension's attached surface beside the note now shown (its record's `attachments`, named <id>.<kind>); it follows the reader to the next note",
+    keys: [{ via: "the power bar's actions list" }], touches: "tile", replay: "ask",
+    args: { target: { type: "string", about: "the extension's kind, <id>.<kind> (extensions.list's attachments)" }, place: { type: "string", optional: true, about: "inline, floating, split, popup or tile; left out, split" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
+    examples: [{ act: "attachment.open target=beside.facts", does: "opens the Beside extension's facts card next to the note" }],
+    run: ({ target, place, side }, { surface, host }) => openExtensionAttachment(surface.attachments, target, place, side, host),
+  }),
+  "attachment.close": def({
+    summary: "put an extension's attached surface away", keys: [{ via: "the power bar's actions list" }], touches: "tile", replay: "ask",
+    args: { target: { type: "string", about: "the extension's kind, <id>.<kind>" } },
+    examples: [{ act: "attachment.close target=beside.facts", does: "closes the facts card" }],
+    run: ({ target }, { surface, host }) => closeExtensionAttachment(surface.attachments, target, host),
+  }),
+  "attachment.place": def({
+    summary: "place an open extension surface inline, floating, split, popup or in a tile; left out, the next one",
+    keys: "click its placement chip", touches: "tile", person: BY_PERSON, replay: "ask",
+    args: { target: { type: "string", about: "the extension's kind, <id>.<kind>" }, place: { type: "string", optional: true, about: "inline, floating, split, popup, tile; left out, cycle" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
+    examples: [{ act: "attachment.place target=beside.facts place=floating", does: "floats the facts card over the note" }],
+    run: async ({ target, place, side }, { surface, host }) => ({ place: await surface.attachments.put(surface.attachments.kind(target), place, host, side) }),
+  }),
+  "attachment.move": def({
+    summary: "move or size an extension's floating surface inside its reader", keys: "drag its header or corner", touches: "tile", person: BY_PERSON, replay: "ask",
+    args: { target: { type: "string", about: "the extension's kind, <id>.<kind>" }, ...FLOAT_MOVE_ARGS },
+    examples: [{ act: "attachment.move target=beside.facts dx=2 dy=-1", does: "moves the floating facts card right and up" }],
+    run: ({ target, ...move }, { surface, host }) => surface.attachments.move(surface.attachments.kind(target), move, host),
+  }),
+  "attachment.scroll": def({
+    summary: "scroll an extension's surface by rows", keys: [{ via: "the power bar's actions list" }], touches: "tile", replay: "ask",
+    args: { target: { type: "string", about: "the extension's kind, <id>.<kind>" }, by: { type: "number", about: "rows, negative up" } },
+    examples: [{ act: "attachment.scroll target=beside.facts by=3", does: "scrolls the facts card down three rows" }],
+    run: ({ target, by }, { surface }) => scrollExtensionAttachment(surface.attachments, target, by),
   }),
   "sources.grip": def({
     summary: "move or size sources with the comment box's grip keys", keys: modeActionKeys(ATTACHED_KEYS, "sources.grip"),

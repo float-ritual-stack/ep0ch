@@ -10,6 +10,8 @@ import { ATTACHED_PLACES, AttachedTile, attachedAt, attachedPlaceOf, attachedRec
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { C, fg, pad, RESET } from "../style";
 import { readState, writeState } from "../state";
+import { declaredAttachmentKinds, extensionAttachments, type ExtensionAttachmentAt } from "./extension-attachment";
+export { declareAttachmentKinds, declaredAttachment, type DeclaredAttachment } from "./extension-attachment";
 
 /** The reader's own attachments, each with its adapter in note.ts. */
 export const ATTACHMENT_KINDS = ["comment", "sources", "list-preview", "edit-preview", "settings"] as const;
@@ -18,14 +20,8 @@ export const ATTACHMENT_KINDS = ["comment", "sources", "list-preview", "edit-pre
  * built-in ones, and any kind a served extension's record declares (`attachments`, named `<id>.<kind>`).
  */
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number] | (string & {});
-/** The kinds served extensions declare, with the noun each is titled by: replaced whole each time the host's list is bound. */
-const declaredKinds = new Map<string, string>();
-export function declareAttachmentKinds(list: readonly { kind: string; noun: string }[]) {
-  declaredKinds.clear();
-  for (const a of list) if (!(ATTACHMENT_KINDS as readonly string[]).includes(a.kind)) declaredKinds.set(a.kind, a.noun);
-}
 /** Every kind a reader accepts now: the built-in ones, then the extensions'. */
-export const attachmentKinds = (): string[] => [...ATTACHMENT_KINDS, ...declaredKinds.keys()];
+export const attachmentKinds = (): string[] => [...new Set<string>([...ATTACHMENT_KINDS, ...declaredAttachmentKinds()])];
 export const attachmentKindOf = (v: unknown): AttachmentKind | null => typeof v === "string" && attachmentKinds().includes(v) ? v : null;
 export const ATTACHMENT_SIDES: readonly AttachedSide[] = ["left", "right", "up", "down"];
 
@@ -83,6 +79,8 @@ export interface AttachmentDef<H extends AttachmentHost = AttachmentHost, V exte
   readonly persist?: string;
   /** Its own actions, which its keys, clicks and agents use: where it sits and moving its float. */
   readonly actions: { place: string; move: string };
+  /** What those actions also take to know which kind is meant (a declared kind's shared actions take its `target`). */
+  readonly args?: Readonly<Record<string, unknown>>;
   /** The refusal when it isn't open. */
   readonly closed: string;
   /** Where its `[place ▸]` chip is drawn, for the placement menu under it. */
@@ -116,7 +114,10 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
   /** The floats drawn this frame, in paint order: the last is on top. */
   private floats: { target: AttachmentKind; rect: FloatRect }[] = [];
 
-  constructor(defs: readonly AttachmentDef<H, V>[], private look: () => StyleValues | undefined = () => undefined) {
+  /** `asks`: what an extension's surface needs of this reader; it makes the def for a declared kind when first named. */
+  private readonly adopt?: (kind: string) => AttachmentDef<H, V> | null;
+  constructor(defs: readonly AttachmentDef<H, V>[], private look: () => StyleValues | undefined = () => undefined, asks?: ExtensionAttachmentAt) {
+    if (asks) this.adopt = extensionAttachments<H, V>(asks);
     for (const d of defs) this.register(d);
   }
 
@@ -136,6 +137,7 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
   /** A `target=` as a kind: the one place an unknown one is refused, with why and what is known. */
   kind(v: unknown): AttachmentKind {
     const k = attachmentKindOf(v);
+    if (k && !this.defs.has(k)) { const made = this.adopt?.(k); if (made) this.register(made); }
     if (!k) throw new ActionRefused(`${JSON.stringify(v)} is no attachment kind: target is ${attachmentKinds().join(", ")} (an installed extension adds its own: its manifest's attachments)`);
     if (!this.defs.has(k)) throw new ActionRefused(`${k} isn't attached to this reader: target is ${[...this.defs.keys()].join(", ")}`);
     return k;
