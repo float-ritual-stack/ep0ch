@@ -189,6 +189,37 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect(shown.out).toContain("Compost rota");
   }, 30_000);
 
+  test("find answers what an agent asks the first time, or refuses in one line naming the call (PIE-1714)", async () => {
+    // --limit keeps the first n, and says on stderr that it cut the list.
+    const two = await run(["find", "--query", "type=errand", "--limit", "1", "--ids"], env);
+    expect(two.code, two.err).toBe(0);
+    expect(two.out.trim().split("\n")).toEqual([`((${ids.order}))`]);
+    expect(plain(two.err)).toContain("the first 1 of 2");
+    expect((await run(["find", "--query", "type=errand", "--limit", "5", "--ids"], env)).out.trim().split("\n")).toHaveLength(2);
+    const badLimit = await run(["find", "--limit", "some"], env);
+    expect([badLimit.code, plain(badLimit.err).trim().split("\n").length]).toEqual([2, 1]);
+    expect(plain(badLimit.err)).toContain("--limit 20");
+    // A flag find doesn't take: one line, the nearest it does, and where every flag is listed; never a screen of usage.
+    const typo = await run(["find", "--querry", "type=errand"], env);
+    expect([typo.code, plain(typo.err).trim().split("\n").length]).toEqual([2, 1]);
+    expect(plain(typo.err)).toContain("--query");
+    expect(plain(typo.err)).toContain("ep0ch help find");
+    // Words that read as a query are the query: their notes, in outline order, and never a word search's guesses.
+    const asWords = await run(["find", "type=errand", "--ids"], env);
+    expect(asWords.out.trim().split("\n")).toEqual([`((${ids.order}))`, `((${ids.compost}))`]);
+    expect(plain(asWords.err)).toContain('--query "type=errand"');
+    const none = await run(["find", "type=nothing"], env);
+    expect(none.code).toBe(0);
+    expect(plain(none.out)).toBe("no notes match type=nothing\n");
+    expect(plain((await run(["find", "--query", "type=nothing"], env)).out)).toBe("no notes match type=nothing\n");
+    // ~ on a property: where ~ works, and the clause to write instead, in the refusal's one line of advice.
+    const tilde = await run(["find", "--query", "needs~sysop"], env);
+    expect(tilde.code).toBe(1);
+    expect(plain(tilde.err)).toContain("needs=sysop");
+    expect(plain(tilde.err)).toContain("title~sysop");
+    expect(plain(tilde.err)).toContain('ep0ch find --query "needs=sysop"');
+  }, 30_000);
+
   test("find --query with bare Work IDs: each matches its item, OR of two gives both; one no item has says work-id= (PIE-1682)", async () => {
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
     const made: string[] = [];
