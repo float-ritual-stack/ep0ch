@@ -7038,7 +7038,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.apply({ op: "zoom", tile: p.id, reach, ...(on !== undefined ? { on } : keptDropped(this, p.id, reach, actor, !!this.layout.lift) ? { on: false } : {}) }, actor);
     if (this.layout.lift) for (const d of others) d.dropLift(actor);
     this.redraw();
-    return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed };
+    return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed, ...(r.answer.changed === false ? { changed: false } : {}) };
   }
 
   /** Float a tile, or land it in its container or beside its opener through screen-layout. */

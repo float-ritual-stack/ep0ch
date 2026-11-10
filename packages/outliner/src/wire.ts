@@ -303,7 +303,7 @@ export interface WireAnswers {
   "roadmap.items.similar": TwinAnswer;
   "rules.preview": { decorations: Decoration[]; problems: string[]; };
   "scripts.answer": { accepted: boolean; };
-  "door.act": { undo: string; done: boolean; wrote: boolean; error?: string; };
+  "door.act": { undo: string; done: boolean; wrote: boolean; changed: boolean; error?: string; };
   "scripts.render": ScriptRendered;
   "scripts.run": ExtensionActResult;
   "scripts.sequence": ExtensionActResult;

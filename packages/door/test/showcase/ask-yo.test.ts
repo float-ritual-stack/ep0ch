@@ -125,6 +125,26 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect((await h.board.comments(pressed.note)).find(t => t.id === pressed.thread)!.author).not.toContain("script");
   }, 30_000);
 
+  // PIE-1626: a remembered press with arguments reads as what it will do, and a press that changed nothing offers no undo.
+  test("a remembered agent.lift on=false reads ▼ drop; pressed with nothing lifted, there is nothing to undo", async () => {
+    const lifted = () => (h.app as any).hostLayer.desks().some((d: any) => d.layout?.lift);
+    // An agent tab, down: lifted and dropped again by the person, so there is one to drop and nothing lifted.
+    await h.app.dispatch.act({ action: "agent.lift", args: { on: true } }, USER);
+    await until(lifted, "the agent tab lifted", 8000);
+    await h.app.dispatch.act({ action: "agent.lift", args: { on: false } }, USER);
+    expect(lifted()).toBe(false);
+    // The memory a press of yo's drop button leaves (its second act, ext.yo.remember), so the next ask answers from it.
+    await h.board.createBlock(null, "drop agent: agent.lift on=false [yo-memory::answer] [yo-action::agent.lift] [yo-asked::drop agent] [yo-line::agent.lift on=false]");
+    await say("@yo drop the agent");
+    await answered(/@yo drop the agent\n> \[!note\]\+ @yo answered\n[^\n]*\n> ::button\{label="▼ drop" act=\["agent\.lift on=false"/);
+    expect((await read()).text).toContain("answered from memory");
+    // A line runs once per its words in a note (the first test said do it), so this go says it another way.
+    await say("@yo press it");
+    await answered(/✓ yo pressed ▼ drop · nothing to undo/);
+    expect((await read()).text).not.toMatch(/✓ yo pressed ▼ drop · \[undo\]/);
+    expect(lifted()).toBe(false);
+  }, 90_000);
+
   test("a press that changes no note and no layout says it has no undo", async () => {
     await say("@yo tile info");
     await answered(/`tile\.info`/);

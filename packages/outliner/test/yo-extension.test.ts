@@ -57,6 +57,16 @@ test("the button takes the label its doc gives, asks for a required argument, an
   expect(lastButton(["[▲ lift](act: barrow.lift)", "words", "[▸ water](act: tray.water)"])?.act).toBe("tray.water");
 });
 
+test("PIE-1626: the label is the doc's button for the press's arguments, and a press that changed nothing has nothing to undo", () => {
+  const both: ActionRecord = { ...LIFT, keys: [...(LIFT.keys as []), { via: 'one that only drops it (::button{label="▼ drop" act="barrow.lift on=false"})' }] };
+  expect(labelOf(both, "barrow.lift on=false")).toBe("▼ drop");
+  expect(labelOf(both, "barrow.lift on=false reach=full")).toBe("▼ drop");
+  expect(labelOf(both, "barrow.lift reach=full")).toBe("▲ lift");
+  expect(labelOf(both)).toBe("▲ lift");
+  expect(buttonLine(both, pressLine(both, { on: "false" }), "drop the barrow")).toBe('::button{label="▼ drop" act=["barrow.lift on=false", "ext.yo.remember act=barrow.lift asked=drop-barrow args=on:false"]}');
+  expect(doneRow("▼ drop", "run-1", true, false)).toBe("✓ yo pressed ▼ drop · nothing to undo: it was already so");
+});
+
 test("code decides: do it needs no model, memory matches on words, and a plan names only what was offered", () => {
   for (const go of ["do it", "Yes!", "press it", "go ahead"]) expect(isGo(go)).toBe(true);
   expect(isGo("do it tomorrow in the shed")).toBe(false);
