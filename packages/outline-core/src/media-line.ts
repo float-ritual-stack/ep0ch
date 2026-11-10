@@ -11,6 +11,7 @@ import { frontMatterLines } from "./header-line";
 import { propertyTokensInLine } from "./property-grammar";
 import { parseResourceRef } from "./resource-ref";
 import { FRAGMENT_ID_SOURCE } from "./link-syntax";
+import { shellPath } from "./shell-words";
 import type { PropSchema } from "./component-schema";
 
 export type ContentWidth = "fit" | "full";
@@ -123,7 +124,9 @@ export function parseMediaLine(line: string): MediaSpec | null {
   const media = t.toks.filter(x => MEDIA_KEY.test(x.key));
   if (media.length !== 1 || !media[0]!.value || t.toks.some(x => !MEDIA_KEY.test(x.key) && !ATTRS.has(x.key.toLowerCase()))) return null;
   const key = media[0]!.key.toLowerCase();
-  const spec: MediaSpec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0]!.value, problems: [] };
+  // The file it names, as a shell reads the path a terminal's drop wrote (PIE-1656): `LATE\ SHIFT.html`, or quoted. The
+  // line keeps what was written (rewriteMediaLine writes the token back as it was); every reader gets the same file.
+  const spec: MediaSpec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: shellPath(media[0]!.value), problems: [] };
   if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path) && !artifactFolderPath(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set<string>();
   for (const { key, value } of t.toks) {
@@ -268,8 +271,8 @@ const ARTIFACT_KINDS: Readonly<Record<string, ArtifactKind>> = {
 const ARTIFACT_EXTENSIONS = ".jsx, .tsx, .html, .svg or .mermaid";
 /** How a kind is named to a reader. */
 export const ARTIFACT_KIND_LABELS: Readonly<Record<ArtifactKind, string>> = { react: "React", html: "HTML", svg: "SVG", mermaid: "Mermaid" };
-/** A file's name, never its folders. */
-export const fileName = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "file";
+/** A file's name, never its folders: what follows the last `/` (a backslash is part of a name, never a folder's end; PIE-1656). */
+export const fileName = (path: string) => path.replace(/\/+$/, "").split("/").pop() || "file";
 /**
  * The GitHub repo an artifact line names (PIE-1060): `https://github.com/<owner>/<name>`, `github.com/<owner>/<name>` or
  * `<owner>/<name>` (a `.git` or a trailing `/` left off), never a file claude.ai runs (`shots/lamp.html` is a path).

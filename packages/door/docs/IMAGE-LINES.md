@@ -44,12 +44,18 @@ size`), and the line is still drawn. A property written twice: the first counts,
 
 - An absolute path, or `~/…` (the home folder of the machine the door runs on).
 - Quoted, as a dropped or copied path with spaces arrives: `[img::'/shots/plot at dusk.png']` or `"…"`.
-- `\ ` for a space, as a shell writes it: `[img::/shots/plot\ at\ dusk.png]`.
+- `\ ` for a space, as a shell writes it: `[img::/shots/plot\ at\ dusk.png]`; any other escape a terminal writes
+  (`\(`, `\&`, `'it'\''s'`) too. The line is read as a shell reads one word (outline-core's `shellPath`), so the door,
+  the service, the publisher and every client name the same file, and the line keeps what you wrote (PIE-1656). A
+  blank left as it is stays in the name, and so does a lone quote (`Robin's page.html`). The same goes for
+  `[video::]` and `[artifact::]`.
 - macOS screenshot names: the narrow no-break space before AM/PM is found either way.
 - A relative path is read from the door's own folder, so write it absolute (or `~/…`); a picture pasted into a draft
-  (`ctrl+v`, `draft.image`) or dropped on the terminal (a paste of nothing but image files, `draft.drop`; a bare name
-  is looked up in the folders notes name with `[drop-folder::<folder>]`) is copied into the outline's folder
-  (`media/<day>-<hash>.<ext>`) and written absolute.
+  (`ctrl+v`, `draft.image`) or dropped on the terminal (a paste of nothing but image or artifact files, `draft.drop`; a
+  bare name is looked up in the folders notes name with `[drop-folder::<folder>]`) is copied into the outline's folder
+  (`media/<day>-<hash>.<ext>`) and written absolute. A dropped artifact file (`.html`, `.jsx`, `.svg`, `.mermaid`) isn't
+  copied: it runs from where it is, as `[artifact::<its path>]` with its spaces as they are. Pasted as a value, after a
+  typed `[artifact::` or `[img::`, a drop stays as it was pasted.
 - In an extension's view, an `image` primitive's `src` is the same path, or a `file:/absolute/path` Resource ref.
 
 The file is read on the machine the door runs on. PNG, JPEG, WebP and GIF (its first frame) decode through sharp;

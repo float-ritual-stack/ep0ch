@@ -521,6 +521,17 @@ export class Draft {
 
 
   /**
+   * Whether `typed`, just before the cursor, is a property's value (PIE-1656): it follows an open `[key::` (or a line's
+   * `key::`) on its line, as a path pasted after `[artifact::` does. A drop there stays as it was pasted.
+   */
+  typedInToken(typed: string): boolean {
+    const upTo = this.text.slice(0, this.offsetOf(this.row, this.col)), want = typed.replace(/\r\n?/g, "\n");
+    if (!upTo.endsWith(want)) return false;
+    const start = this.placeOf(upTo.lastIndexOf(want));
+    return /(?:\[[A-Za-z][\w-]*::|^\s*(?:[-*]\s+)?[A-Za-z][\w-]*::)\s*$/.test(this.lines[start.row]!.slice(0, start.col));
+  }
+
+  /**
    * `typed`, just before the cursor (a paste as it came), written again as `lines`, each on a line of its own, in one
    * undo step that gives `typed` back. False, and nothing changed, when it isn't there any more.
    */

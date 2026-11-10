@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A dropped file with spaces in its name runs as an artifact, and a card's error reads whole (PIE-1656)
+
+- **A path written as a terminal's drop writes it names the file:** `[artifact::/made/up/LATE\ SHIFT.html]`, a quoted path, and any other escape (`\(`, `'it'\''s'`) are read as a shell reads one word, by outline-core's media line (`shellPath`), so the door, the service's copy on save, `artifacts.show` and the publisher all ask for the same file. The note keeps what you wrote. Before, the service asked for the backslashes and answered "isn't on laptop or float-2" for a file that was there.
+- **The card is titled by the whole name:** `fileName` no longer splits on `\`, so `Vent\ Rail.html` is "Vent Rail.html", not "Rail.html".
+- **A dropped HTML, JSX, SVG or Mermaid file becomes an artifact line:** dropped on the terminal while you edit, its path lands as `[artifact::<path>]` with its spaces as they are (pictures are still copied into `media/`; an artifact runs from where it is). Pasted after a typed `[artifact::` or `[img::`, a drop stays as it was pasted, on its one line.
+- **A card's "can't read it" reason wraps inside the tile,** at 44 columns too, so the part that says what to do is read whole; an image or video's "file not found" caption wraps the same way.
+- **One shell reader:** the door's drop (`droppedFiles`) and its file lookup (`resolveMediaPath`) read paths through outline-core's `shellWords` and `shellPath`, no longer their own.
+- **Run:** `ep0ch install --apply` (GRAMMAR 45 → 46: an older door still draws, warned once, and asks for the escaped path until it updates; no PROTOCOL or schema change).
+
 ### A note's comments read at any width, and a comment's title keeps the chips it quotes (PIE-1572, PIE-1596)
 
 - **The BBS reader has a `[+]` for a folded whole-note comment** (PIE-1572): after its header, wrapping to a row of its own in a narrow tile. Before, "as marks" and a comment put away as seen left no way to it by mouse there; the reader's title already had one.
