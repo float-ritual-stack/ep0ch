@@ -115,6 +115,7 @@ export type RoadmapItemInput = WireParams<"roadmap.items.create">["input"];
 export const LIST_FIELDS: readonly BlockReadField[] = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"];
 type BlockReadField = NonNullable<WireParams<"blocks.read">["fields"]>[number];
 
+/** `activity.recent`'s entry, reshaped on purpose: its note as a row (`Msg`), `editedAt` as ms in `at`. */
 export interface Activity { cursor: number; block: Msg; author: string; actor: string; kind: string; at: number }
 export interface Comment {
   /** `open`: current (PIE-791: open or kept, in the page's margin by default); seen and resolved are earlier. */
@@ -218,16 +219,8 @@ export interface OutlineEvent {
 /** A view's hand-set order (the outliner's `VirtualBranchOrder`): what a placement is checked against. */
 export type ViewOrder = WireAnswer<"virtual.occurrences.order">;
 
-/** views.read's answer (PIE-397), blocks as list rows. */
-export interface SavedViewRead {
-  status: "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
-  viewId: string; revision?: number; sequence: number;
-  configuredLimit?: number; effectiveLimit?: number; /** How many levels of children each member shows (the view's `[child-depth::]`, else the service's default). */ childDepth?: number; offset?: number; total?: number; nextOffset?: number;
-  blocks: Msg[];
-  completeness: { kind: string } | null;
-  errors: string[];
-  problems?: { code: string; message: string; property?: string; position?: number }[];
-}
+/** views.read's answer (PIE-397), derived from the wire: its blocks as list rows (`Msg`) are the one reshape. */
+export type SavedViewRead = Omit<WireAnswer<"views.read">, "blocks"> & { blocks: Msg[] };
 export type ChangePage = WireAnswer<"changes.since">;
 
 /** The first line of a compact tree preview (it joins a property-less note's lines with ` ↵ `). */
@@ -259,15 +252,10 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
 /** A writer that is an extension (`ext:jira`): the service attributes every extension write that way. */
 export const isExtensionWriter = (author: string | null | undefined) => !!author?.startsWith("ext:");
 
-/** How the service reads one `((id^fragment|label))` (`references.resolve`). */
-export interface ReferenceResolution {
-  outline?: string; machine?: string; requestedOutline?: string;
-  blockId: string; fragmentId?: string; label?: string;
-  status: "resolved" | "deleted" | "missing" | "stale" | "duplicate";
-  title?: string;
-}
-/** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
-export interface PageResolution { outline?: string; machine?: string; address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
+/** How the service reads one `((id^fragment|label))` (`references.resolve`), as the wire sends it without the note (the door asks for the title). */
+export type ReferenceResolution = Omit<WireAnswer<"references.resolve">["references"][number], "block">;
+/** How the service reads one `[[address]]` or Work ID (`pages.resolve`), its note as a list row (`Msg`). Read-only: nothing is created. */
+export type PageResolution = Omit<WireAnswer<"pages.resolve">, "block"> & { block?: Msg };
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
@@ -479,10 +467,11 @@ export interface SearchOptions { semantic?: boolean; /** With semantic: when the
 
 /** What the service says of a selection's facets (SocketBoard.facetList). */
 export interface FacetAnswer {
+  // Reshaped on purpose: counts settled (`more`), `last` as ms, notes as `Msg`.
   facets: { key: string; count: number; more: number; values: { value: string; count: number; last: number }[] }[];
   notes: Msg[]; truncated: boolean; matched: number; hint?: string;
   /** With `group=`: the service's groups of the notes (a date bucket's newest first), each its count over every match. */
-  groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[];
+  groups?: WireAnswer<"blocks.query">["groups"];
 }
 /** How the notes of a facet answer come: grouped by the service (`updated:recent`), sorted, each with its excerpt. */
 export interface FacetNotes { group?: string; sort?: string; excerpt?: boolean; facets?: boolean }
