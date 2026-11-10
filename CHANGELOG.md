@@ -10,6 +10,10 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Roses open (probe, PIE-1696)
+
+- **Roses:** a made-up entry.
+
 ### Two PRs that both touch the CHANGELOG or the health baseline merge without a conflict (PIE-1696)
 
 - **CHANGELOG:** `.gitattributes` merges `CHANGELOG.md` with git's `union` driver: two entries added at the top of `[Unreleased]` keep both. Two edits of one line keep both lines, without a conflict.
