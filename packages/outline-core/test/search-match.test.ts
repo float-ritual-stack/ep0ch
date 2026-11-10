@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  matchesSearchText, rankTextSearchMatches, searchFold, typoBudget, typoDistance, type SearchDocument,
+  matchesSearchText, rankTextSearchMatches, searchFold, searchTextTerms, textHoldsTerms, typoBudget, typoDistance, type SearchDocument,
 } from "../src/search-match";
 
 // Fictional notes.
@@ -97,4 +97,13 @@ describe("list filters", () => {
     expect(matchesSearchText("party hast", ["Fat cats in party hats"], { typos: false })).toBe(false);
     expect(matchesSearchText("party zebra", ["Fat cats in party hats"])).toBe(false);
   });
+});
+
+test("a text filter folds case and width but still finds the letters as stored (PIE-1691)", () => {
+  const decomposed = "Cafe\u0301 notes";
+  expect(textHoldsTerms(decomposed, searchTextTerms("cafe"))).toBe(true);
+  expect(textHoldsTerms(decomposed, searchTextTerms("café"))).toBe(true);
+  expect(textHoldsTerms("ÜNÏCODE seed packets", searchTextTerms("ünïcode"))).toBe(true);
+  expect(textHoldsTerms("ＳＥＥＤ packets", searchTextTerms("seed"))).toBe(true);
+  expect(textHoldsTerms("Tea notes", searchTextTerms("cafe"))).toBe(false);
 });

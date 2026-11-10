@@ -1,5 +1,5 @@
 import { heldBy } from "./loop-watch";
-import { compareBinary, noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
+import { compareBinary, noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices, selectionContext } from "./graph-slices";
 import { workIdPrefixesInUse } from "./work-id-prefixes";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { createRequestedBlock } from "./create-request";
@@ -47,7 +47,7 @@ import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./bac
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning, questionWorkIdHint } from "./question-answer";
 import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
-import { rankTextSearchMatches, searchTextTerms, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
+import { rankTextSearchMatches, searchTextTerms, textHoldsTerms, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
 import { gotoCandidates, gotoMatch } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
@@ -1305,7 +1305,7 @@ export class OutlinerStore {
       const text = `${workId} — ${title} ${metadata}${body ? `\n\n${body}` : ""}`;
       this.validateRoadmapText(text);
       const id = crypto.randomUUID();
-      const now = new Date().toISOString();
+      const now = this.createdTime();
       const position = this.database.query(
         "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM blocks WHERE parent_id IS ?",
       ).get(workQueueId) as { position: number };
@@ -1551,7 +1551,7 @@ export class OutlinerStore {
         throw new Error("Capture note changed outside this draft; retain and review it before submitting");
       }
       if (capturedFromBlockId) this.require(capturedFromBlockId);
-      const capturedAt = new Date().toISOString();
+      const capturedAt = this.createdTime();
       const metadata = [
         formatProperty({ key: "type", value: "capture" }),
         formatProperty({ key: "status", value: "unprocessed" }),
@@ -2446,7 +2446,7 @@ export class OutlinerStore {
   ): string {
     let block = found;
     if (!block) {
-      block = this.createAt(text, parentBlockId, "agent", { actorId: actor.actorId! }, now, position);
+      block = this.createAt(text, parentBlockId, "agent", { actorId: actor.actorId! }, this.createdTime(), position);
       this.database.query(`
         INSERT INTO extension_records (block_id, extension_id, label, role, parent_block_id, item_key, resource_id, synced_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -4212,7 +4212,7 @@ export class OutlinerStore {
       if (query.filters?.length && !matchesFilters(records, query.filters, scope)) continue;
       if (query.machinery && !machineryAllows(query.machinery, isMachinery(block.properties))) continue;
       if (query.subtreeRootId && !relations.within(id, query.subtreeRootId)) continue;
-      if (terms.length && !terms.every(term => block.text.toLowerCase().includes(term))) continue;
+      if (!textHoldsTerms(block.text, terms)) continue;
       const children = () => (graph.byParent.get(id) ?? []).filter(child => !child.effectiveDeletedRootId).map(child => child.properties);
       if (loose && !loose({ ...block, childProperties: children }, records, scope)) continue;
       for (const record of values) out.push({ id, value: record.value });
@@ -4378,7 +4378,7 @@ export class OutlinerStore {
           if (!block || block.effectiveDeletedRootId) return false;
           const records = scope === "block" || draft?.id === id ? block.properties : graph ? graph.propertyRecordsByBlock.get(id) ?? [] : this.questionRecordsFromCurrentRead(block);
           return matchesFilters(records, filters, scope) &&
-            terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
+            textHoldsTerms(block.text, terms) && under(block) &&
             (!test || test({ ...block, childProperties: () => (graph ? (graph.byParent.get(id) ?? []).filter(child => !child.effectiveDeletedRootId) : this.childrenFromCurrentRead(id)).map((child) => child.properties) }, records, scope));
         }),
       };
@@ -4792,12 +4792,10 @@ export class OutlinerStore {
       parameters.push(MACHINE_KEY);
     }
     if (query.text) {
-      // Every word, in any order, punctuation folded (src/search-match.ts): "Claude now" finds "Claude - now".
-      // A query of punctuation alone is matched as typed.
-      for (const term of searchTextTerms(query.text)) {
-        predicates.push("INSTR(LOWER(block.text), LOWER(?)) > 0");
-        parameters.push(term);
-      }
+      // The graph path's words and case folding (textHoldsTerms), not SQLite's ASCII-only LOWER (PIE-1691).
+      const terms = searchTextTerms(query.text);
+      predicates.push("block.id IN (SELECT value FROM json_each(?))");
+      parameters.push(JSON.stringify([...this.loadGraph().byId.values()].filter(block => textHoldsTerms(block.text, terms)).map(block => block.id)));
     }
     const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
     const selected = `block.*,
@@ -4964,24 +4962,8 @@ export class OutlinerStore {
   }
 
   private contextForBlockFromCurrentRead(selected: Block | null): SelectionContext {
-    if (!selected) return { selected: null, ancestors: [], children: [] };
-
-    const ancestors: Block[] = [];
-    let parentId = selected.parentId;
-    while (parentId) {
-      const parent = this.getFromCurrentRead(parentId);
-      if (!parent) break;
-      ancestors.unshift(parent);
-      parentId = parent.parentId;
-    }
-    return {
-      selected,
-      ancestors,
-      children: this.childrenFromCurrentRead(
-        selected.id,
-        Boolean(selected.effectiveDeletedRootId),
-      ),
-    };
+    return selectionContext(selected, (id) => this.getFromCurrentRead(id),
+      (id, withTrashed) => this.childrenFromCurrentRead(id, withTrashed));
   }
 
   /**
@@ -5169,7 +5151,7 @@ export class OutlinerStore {
     options: LoadedGraphTraversalOptions,
   ): VisibleBlock[] {
     const blocks: VisibleBlock[] = [];
-    // The same words the ranked path's SQL requires (searchTextTerms): every one, in any order.
+    // The same words and folding as the ranked path (textHoldsTerms): every one, in any order.
     const filterTerms = options.text ? searchTextTerms(options.text) : [];
     const deletedMode = options.deletedMode ?? "active";
     const propertyScope = options.propertyScope ?? "block";
@@ -5200,7 +5182,7 @@ export class OutlinerStore {
         (!options.machinery || machineryAllows(options.machinery, isMachinery(block.properties))) &&
         (!where || where({ ...block, childProperties: () => (graph.byParent.get(block.id) ?? [])
           .filter((child) => !child.effectiveDeletedRootId).map((child) => child.properties) }, propertyRecords, propertyScope)) &&
-        (!filterTerms.length || filterTerms.every(term => block.text.toLowerCase().includes(term)));
+        textHoldsTerms(block.text, filterTerms);
       if (matches) {
         const children = (graph.byParent.get(block.id) ?? []).filter((child) =>
           deletedMode === "active" ? !child.effectiveDeletedRootId : true
@@ -5257,25 +5239,9 @@ export class OutlinerStore {
   }
 
   private selectionFromGraph(graph: LoadedGraph): SelectionContext {
-    const row = this.database.query("SELECT block_id FROM selection WHERE singleton = 1").get() as
-      | { block_id: string | null }
-      | null;
-    const selected = row?.block_id ? graph.byId.get(row.block_id) ?? null : null;
-    if (!selected) return { selected: null, ancestors: [], children: [] };
-
-    const ancestors: Block[] = [];
-    let parentId = selected.parentId;
-    while (parentId) {
-      const parent = graph.byId.get(parentId);
-      if (!parent) break;
-      ancestors.unshift(parent);
-      parentId = parent.parentId;
-    }
-    return {
-      selected,
-      ancestors,
-      children: graph.byParent.get(selected.id) ?? [],
-    };
+    const row = this.database.query("SELECT block_id FROM selection WHERE singleton = 1").get() as { block_id: string | null } | null;
+    return selectionContext(row?.block_id ? graph.byId.get(row.block_id) ?? null : null, (id) => graph.byId.get(id) ?? null,
+      (id, withTrashed) => (graph.byParent.get(id) ?? []).filter((child) => withTrashed || !child.effectiveDeletedRootId));
   }
 
   private quickCaptureDraftFromCurrentRead(): QuickCaptureDraft | null {

@@ -3,6 +3,7 @@ import { checklistItems } from "./checklist-items";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { outlinerActionLink } from "./outliner-actions";
 import { annotationSourceHash, annotationReferenceContextsEqual, extractAnnotationBody } from "./annotations";
+import { filesystemRepresentationId } from "./annotation-representations";
 import type { DetailState } from "./detail-controller";
 import { renderMarkdownLine, sanitizeDynamicText } from "./terminal";
 import { blockReferenceDisplayText } from "./references";
@@ -182,8 +183,7 @@ function displayedResourceRepresentationId(state: Readonly<AnnotationReaderState
   if (description.web) return description.web.representation.id;
   const filesystem = description.filesystem;
   if (!filesystem || filesystem.revision.revision.kind !== "filesystem") return null;
-  const revision = filesystem.revision.revision;
-  return `filesystem:${description.resource.id}:${revision.mtimeNs}:${revision.size}:${filesystem.contentHash}`;
+  return filesystemRepresentationId(description.resource.id, filesystem.revision.revision, filesystem.contentHash);
 }
 
 export function annotationScopeLabel(thread: AnnotationThread, state: Pick<AnnotationReaderState, "target" | "historical">): string {

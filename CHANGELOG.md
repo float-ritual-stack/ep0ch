@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The outliner keeps what it's told, in order, under one clock and one id (PIE-1689, PIE-1690, PIE-1691)
+
+- **Tickets and captures made at once list in the order they were made:** a roadmap item, a capture and an extension's new record take the store's creation clock, so three made in one millisecond keep their order.
+- **A text filter folds case the same on every path:** `Ünïcode` matches `ünïcode` in a ranked view as in any other query (outline-core's `textHoldsTerms`), and a note's selection leaves its trashed children out however it's read.
+- **A comment on a file keeps one id:** Detail and the service name a file's snapshot alike, so a comment made in Detail is found where it was made.
+- **A refresh failure reads the same from every source:** an oversize PDF is `PDF exceeds N bytes` (invalid input) from a file or the web; a remote ticket's refresh overtaken by a move says so, as the web's does; a web page is read in the charset it names.
+- **Detail keeps what came meanwhile:** saving a reply or a comment's edit loads the change that arrived while you typed, the completion list closes on save, and page up and down move by the rows Detail draws (one more with a subtitle) in the note, a file, the editor and the comments.
+- **Run:** `ep0ch install --apply`. PROTOCOL, GRAMMAR and the schema don't move.
+
 ### The nightly run on main is green again (PIE-1692)
 
 - **The river's kept dock shows the first program in front:** loading the river (or any layout) with programs still running keeps them in one shut dock, the first of them the tab in front, as before Nov 10; one an undo adds later still comes in front.
@@ -27,6 +36,7 @@ are its record. The outliner's entries from then are kept below, under
 - **`props.summary reset=false` and `toggle=`** are refused with the usage line instead of a TypeError.
 - **Opening many notes reads each attachment's saved place once** (the previews, Sources and settings), from the attachments layer.
 - **Run:** `ep0ch install --apply` (the service and the door both change); PROTOCOL, GRAMMAR and the schema don't move.
+
 ### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
 
 - **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".
