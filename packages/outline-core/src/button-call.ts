@@ -400,7 +400,14 @@ export function withButtonSlot(line: string, key: string, value: string): string
 export function buttonPressed(text: string, press: { line: number; label?: string; act: string; steps?: readonly ButtonStep[] }, typed?: string): ButtonCall | null {
   if (press.label === undefined) return null;
   // `typed`: the note as an open edit of it holds it (PIE-1699): a button not saved yet (an answer beside the line being typed).
-  if (typed !== undefined) return buttonPressed(text, { ...press, steps: undefined }) ?? buttonPressed(typed, press);
+  // The service runs a line's saved button before the edit's: another one saved on that line is refused, never run instead.
+  if (typed !== undefined) {
+    const saved = buttonPressed(text, { ...press, steps: undefined });
+    if (saved) return saved;
+    const now = buttonPressed(typed, press), there = now ? buttonCallAt(text.split("\n"), now.line) : null;
+    if (now && there && (there.label !== now.label || there.act !== now.act)) throw new ActionRefused(`${now.label} is in your open edit on the line where the saved note has ${there.label}: save the note to press it`);
+    return now;
+  }
   const at = press.line >= 0 ? buttonCallAt(text.split("\n"), press.line) : null;
   if (at && at.label === press.label) return at;
   const fits = buttonCallsOf(text).filter(c => c.label === press.label && (c.act === press.act || c.alt === press.act));

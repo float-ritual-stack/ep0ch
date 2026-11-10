@@ -9,6 +9,7 @@ import { refOfLink, type Link } from "../surface/link-model";
 import type { LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { projectionsOf } from "../projection";
+import { tileRegistry } from "./tile-registry";
 
 /** The same draft viewed beside its editor; no copied answer buffer or save path. */
 export class AnswerTile implements Pane {
@@ -104,7 +105,8 @@ const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
       if (!(reader instanceof ReaderPane)) throw new ActionRefused("open the answer's note first");
       // A button (PIE-1699): the reader's own press of that line, as a click on it in the note, attributed to whoever asks.
       const press = link?.press;
-      if (press) return reader.surface.runPress(alt && press.alt ? { ...press, act: press.alt } : press, reader.host(desk), actor, !!alt && !press.alt, undefined, !!alt && !!press.alt);
+      // It acts where the note is typed: that reader, by its id (the note may be open in another reader too).
+      if (press) return reader.surface.runPress(alt && press.alt ? { ...press, act: press.alt } : press, reader.host(desk), actor, !!alt && !press.alt, { tile: tileRegistry.idOf(reader), note: press.block, actor }, !!alt && !!press.alt);
       const ref = link && refOfLink(link);
       if (!ref) throw new ActionRefused("choose a link or a button in the answer");
       return desk.within?.(reader.surface.draft ? "edit.follow" : "link.follow", { ref }, actor, reader);

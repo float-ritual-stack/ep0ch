@@ -243,6 +243,40 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await untilAsync(async () => (await h.board.get(own.id))!.text.includes(`@yo ${asked}`), "the saved words");
   }, 90_000);
 
+  // PIE-1699 review: a press from the answer tile acts where the note is, the reader beside it, never the answer tile itself:
+  // a remembered tile.title with no tile= names the reader the line is typed in.
+  test("typed in the editor: a tile-relative button pressed in the answer tile acts on the reader, not the answer tile", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Ask yo, naming a tile\n\nWhere a tile-relative button is pressed beside the line.\n");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    await h.board.createBlock(null, "name shed tile: tile.title text=Seedlings [yo-memory::answer] [yo-action::tile.title] [yo-asked::name shed tile] [yo-line::tile.title text=Seedlings]");
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo name the shed tile") h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
+    await until(() => !!answer() && /::button\{label="[^"]+" act=\["tile\.title text=/.test(draft()?.text ?? ""), "yo's answer with a tile.title button", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER);
+    // The reader (the tile the note is in) takes the title, by its id: the answer tile keeps its own.
+    const reader = () => (stage().layoutGet().tiles as { tile: string; kind: string; title?: string }[]).find(t => t.kind === "reader")!;
+    const answerTitle = () => (stage().layoutGet().tiles as { kind: string; title?: string }[]).find(t => t.kind === "answer")!.title;
+    await until(() => reader().title === "Seedlings", `the reader titled (it reads ${reader().title}, the answer tile ${answerTitle()})`, 15_000);
+    expect(answerTitle()).not.toBe("Seedlings");
+    await h.app.dispatch.act({ action: "edit.save", tile: reader().tile }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await h.app.dispatch.act({ action: "tile.title", tile: reader().tile, args: { text: "ask" } }, USER);   // the section's name back
+  }, 90_000);
+
   // PIE-1676: yo's remember takes an argument named asked, and the door's own words for its run never take its place.
   test("an agent's ext.yo.remember asked=… keeps what it asked", async () => {
     await h.app.act({ action: "ext.yo.remember", args: { act: "tile.zoom", asked: "zoom-the-shed", args: "reach:full" }, as: "test-agent" });

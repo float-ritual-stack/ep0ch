@@ -39,7 +39,9 @@ export class DrawerKeep {
   together(run: () => void): void {
     if (this.keeping) return run();
     const said = this.keeping = { panes: [], kept: false, ended: [] };
-    try { run(); } finally { this.keeping = null; this.say(said); }
+    let failed = false;
+    // A failure of `run` (a tile's dispose) is the one that propagates: what went is still said, and never hides it.
+    try { run(); } catch (e) { failed = true; throw e; } finally { this.keeping = null; try { this.say(said); } catch (e) { if (!failed) throw e; } }
   }
   /** What went into the drawer, named as the drawer shows them (its layout's order, after any renaming), and what ended. */
   private say({ panes, kept, ended }: Said) {
