@@ -10,7 +10,7 @@ import {
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
-import { cancelResponseBody, responseMediaType } from "./http-response";
+import { cancelResponseBody, responseDecoder, responseMediaType } from "./http-response";
 import { completeReferencedPaths, readFileContents, resolveReferencedPath, MAX_TEXT_FILE_BYTES, type FileContents, type ReferencedPathCandidate } from "./files";
 import { commitFilesystemText, recoverFilesystemSave } from "./filesystem-commit";
 import {
@@ -389,7 +389,7 @@ export class ResourceCatalog {
   createSource(value: unknown): ResourceSource {
     const input = normalizeResourceSourceInput(value);
     const id = crypto.randomUUID();
-    const now = new Date().toISOString();
+    const now = this.now();
     const rootBinding = input.provider === "filesystem"
       ? filesystemRootBinding(input.boundary.root)
       : null;
@@ -624,7 +624,7 @@ export class ResourceCatalog {
       const existing = this.resourceRowByKeyFromCurrentRead(source.id, normalized.canonicalKey);
       if (existing) return { resource: resourceFromRow(existing, source), created: false };
       const id = crypto.randomUUID();
-      const now = new Date().toISOString();
+      const now = this.now();
       this.database.query(
         "INSERT INTO resources (id, source_id, provider, address_json, canonical_key, media_type, address_version, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?)",
       ).run(
@@ -1017,7 +1017,7 @@ export class ResourceCatalog {
         destination.provider,
         JSON.stringify(normalized.address),
         normalized.canonicalKey,
-        new Date().toISOString(),
+        this.now(),
         resource.id,
         normalized.expectedVersion,
       );
@@ -1690,15 +1690,10 @@ export class ResourceCatalog {
       resource,
       destinationHostRegistered,
     ).catch((error) => {
-      const failed = this.remoteEntityRefreshFailure(
-        resource,
-        destinationHostRegistered,
-        error,
-      );
-      if (
-        error instanceof ResourceCatalogError &&
-        (error.code === "provider-mismatch" || error.code === "version-conflict")
-      ) throw error;
+      // As the web's: a refresh overtaken by a move says so and writes nothing; any other failure is recorded first.
+      if (error instanceof ResourceCatalogError && error.code === "version-conflict") throw error;
+      const failed = this.remoteEntityRefreshFailure(resource, destinationHostRegistered, error);
+      if (error instanceof ResourceCatalogError && error.code === "provider-mismatch") throw error;
       return failed;
     }).finally(() => this.pendingRemoteEntityRefreshes.delete(normalized));
     this.pendingRemoteEntityRefreshes.set(normalized, refresh);
@@ -1901,7 +1896,7 @@ export class ResourceCatalog {
   private async readWebBody(response: Response): Promise<string> {
     if (!response.body) return "";
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const decoder = responseDecoder(response);
     let received = 0;
     let body = "";
     try {
@@ -1924,14 +1919,16 @@ export class ResourceCatalog {
     }
   }
 
+  /** A PDF over the limit, from a file or the web: one answer (PIE-1690), the code every size limit here gives. */
+  private pdfTooLarge(): ResourceCatalogError {
+    return new ResourceCatalogError("invalid-input", `PDF exceeds ${this.maximumPdfBytes} bytes`);
+  }
+
   private async readPdfBody(response: Response): Promise<Uint8Array> {
     const declaredLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(declaredLength) && declaredLength > this.maximumPdfBytes) {
       await cancelResponseBody(response);
-      throw new ResourceCatalogError(
-        "invalid-input",
-        `PDF response exceeds ${this.maximumPdfBytes} bytes`,
-      );
+      throw this.pdfTooLarge();
     }
     if (!response.body) return new Uint8Array();
     const reader = response.body.getReader();
@@ -1944,10 +1941,7 @@ export class ResourceCatalog {
         received += chunk.value.byteLength;
         if (received > this.maximumPdfBytes) {
           await reader.cancel();
-          throw new ResourceCatalogError(
-            "invalid-input",
-            `PDF response exceeds ${this.maximumPdfBytes} bytes`,
-          );
+          throw this.pdfTooLarge();
         }
         chunks.push(chunk.value);
       }
@@ -2219,6 +2213,9 @@ export class ResourceCatalog {
   ): ResourceDescription {
     const message = errorText(error);
     this.database.transaction(() => {
+      if (this.requireFromCurrentRead(resource.id).addressVersion !== resource.addressVersion) {
+        throw new ResourceCatalogError("version-conflict", "Remote entity Resource changed while refresh was in flight");
+      }
       this.database.query(`
         INSERT INTO remote_entity_resource_state (
           resource_id, address_version, generation, source_snapshot_id,
@@ -2616,12 +2613,7 @@ export class ResourceCatalog {
       if (!stat.isFile()) {
         throw new ResourceCatalogError("source-unavailable", "PDF Resource is not a regular file");
       }
-      if (stat.size > BigInt(this.maximumPdfBytes)) {
-        throw new ResourceCatalogError(
-          "source-unavailable",
-          `PDF Resource exceeds ${this.maximumPdfBytes} bytes`,
-        );
-      }
+      if (stat.size > BigInt(this.maximumPdfBytes)) throw this.pdfTooLarge();
       let bytes: Uint8Array;
       try {
         bytes = new Uint8Array(readFileSync(absolutePath));
@@ -4126,7 +4118,7 @@ export class ResourceCatalog {
     this.database.transaction(() => {
       this.database.query(
         "UPDATE resource_sources SET root_binding = ?, version = version + 1, updated_at = ? WHERE id = ?",
-      ).run(binding, new Date().toISOString(), sourceId);
+      ).run(binding, this.now(), sourceId);
       this.bumpSequence();
     })();
   }

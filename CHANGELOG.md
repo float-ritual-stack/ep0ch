@@ -7,6 +7,7 @@ active dogfood: the protocol and the schema still change, one version at a time.
 Before the two repositories became one (October 3, 2026), the door kept no changelog; its merged pull requests
 are its record. The outliner's entries from then are kept below, under
 [Outliner, before the one repository](#outliner-before-the-one-repository).
+Entries newer than the last fold wait in [`changelog/`](changelog/), one file per pull request, newest first by name.
 
 ## [Unreleased]
 
@@ -27,6 +28,7 @@ are its record. The outliner's entries from then are kept below, under
 - **`props.summary reset=false` and `toggle=`** are refused with the usage line instead of a TypeError.
 - **Opening many notes reads each attachment's saved place once** (the previews, Sources and settings), from the attachments layer.
 - **Run:** `ep0ch install --apply` (the service and the door both change); PROTOCOL, GRAMMAR and the schema don't move.
+
 ### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
 
 - **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".
@@ -43,43 +45,6 @@ are its record. The outliner's entries from then are kept below, under
 - **`PIE-587 OR PIE-588` in a query returns those two items:** a bare Work ID clause reads as `work-id=PIE-587`, in outline-core's clause parser, so `outline_query`, `outline_find`, `ep0ch find --query` and views agree. An empty answer names each Work ID no item has ("no item has PIE-999 (read as work-id=PIE-999)"), and a key written like one (`pie-587`) says `work-id=` in its hint.
 - **`ep0ch show --lines a-b`:** only the rows those source lines draw, under the note's header, with a `⋮` where rows were left out.
 - **Run:** `ep0ch install --apply`. GRAMMAR goes to 48 (the query clause); PROTOCOL and the schema don't move.
-### A rebound draft key tells the truth in the keys window, the power bar, `act` and the status bar (Nov 3 review card 1, #1390 walk follow-ups)
-
-- **A rebind another table reaches first is a Conflict:** `draft.erase to=word-back` on alt+j does nothing in the power bar, where `bar.docs` scrolls on alt+j before the line's table. The keys window's Conflicts tab lists it (the bar's binding runs, the rebind doesn't, and why); a built-in row never counts (tab completes in the bar by design).
-- **The old key in the power bar says where it went:** ctrl+w after erase-word moved says "^W no longer runs draft.erase to=word-back: your keymap gives it alt+e", as it does in a draft.
-- **`act` lists a rebind once:** `actions` showed `alt+z: yours: to=word-back` three times for `draft.erase`; reading an action's keys again no longer repeats a row of yours.
-- **The rebound `edit.close` closes from every host and the status bar names it:** a completion popup, an inspector value, the comment's own esc row (`comment.escape`) and the lanes' composer follow the key `edit.close` is on; the status bar's way-out reads `alt+q: the edit, put aside` instead of `esc: …`, and a click on it (`esc.close`) still closes. Where Esc is a host's own action (the power bar's clear-then-close, a filter's) it stays.
-- **In the kitchen sink:** the keys section's test also reads the way-out as `alt+q: the edit`.
-- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
-### A refusal says which kind it is on the wire, and clients stop reading its words (Nov 3 review, card 13)
-
-- **Every refusal carries a `kind`:** the outline host's failure envelope, the door's control socket (`ActionRefused`) and the MCP tool error say `stale-revision`, `moved`, `conflict`, `not-found`, `ambiguous`, `busy`, `no-access`, `invalid`, `unavailable` or `failed` (outline-core `refusal.ts`, the one closed list). A refusal nobody classified is `failed`.
-- **Retries and fixes follow the kind, not the message:** the door's stale-comment and stale-edit paths, a trash that lost a race, a note gone, the `near=` fix hint in `ep0ch new`, the checklist step that moved, the published page's "changed since this page drew it", the Detail's "not saved, changed since your edit began", and "the host is busy" now read `kind`. Rewording a message can't change what a client does.
-- **A refused sort names its field:** the rejected query's `problem` carries `field: "sort"` or `"direction"`, so a figure's own `sort:` / `direction:` line and `ep0ch find --sort` read it, not the message's first word.
-- **A refused command prints its kind:** the Outliner CLI and `ep0ch act|open|peek|new` write `kind: <kind>` on a line after `error:` (and `kind` in their `--json` error); the Claude mod reads that line for "the Detail beside you is mid-edit" instead of the sentence.
-- **Every MCP tool error has `structuredContent.kind`:** `invalid` for a request that is wrong, `no-access` for a level that refuses the write, `unavailable` for an outline on another machine, and the host's own kind for what it refused.
-- **Run:** `ep0ch install --apply`; this bumps PROTOCOL (the failure envelope gains `kind`), so every client refuses an old host until it restarts. The schema and GRAMMAR don't move.
-### An extension says what it serves, how it installs and what it attaches; one cap on every agent write (Nov 3 review cards 16 and 6, PIE-1549, PIE-1544)
-
-- **The host's list says what serves:** every `extensions.list` entry carries `serving` (active, or failed on its last good copy), from the registry's own `serving()`. The door reads it; it no longer works it out from `state` and `name`.
-- **The host's list says how to install:** each available extension carries `install` (`ep0ch ext add <id>`). The power bar's install row shows that command instead of spelling it again.
-- **An extension can attach a surface, and you see it:** its manifest's `attachments` (`kind`, `noun`, `render`) come back on its list entry as `<id>.<kind>`. `attachment.open target=beside.facts` (new bundled extension Beside) puts a facts card beside the note you are reading, drawn by the extension's own render script, following the reader to the next note; `attachment.place`, `attachment.move`, `attachment.scroll` and `attachment.close` move and put it away, and uninstalling the extension takes it with it. One generic adapter (`surface/extension-attachment.ts`) serves every extension's kind, so placement, floats and tiles are the layer's. The five built-in kinds stay; an unknown `target=` is refused once, saying what is known and that an extension adds its own.
-- **An agent's write passes the MCP access cap once:** the gateway no longer wraps the outlines to lower the access status and then applies the same cap again in `levelFor`. Every board knows who is asking, so reads and writes use the write gate's one `effectiveLevel`.
-- **Run:** `ep0ch install --apply` (the list gained fields; PROTOCOL needs loki's bump at the final rebase).
-### ctrl+z takes back a note's newest change, whatever kind it was (Nov 3 review card 15)
-
-- **One journal per note:** a step's status, a callout, a picture's layout, a `::use` fill, a source line, an extension's write and a note move are entries in one journal (`undo-journal.ts`) that carry their note, kind, what takes them back, who made them and a label; ctrl+z reads the note's newest instead of choosing among eight stacks by a global sequence. Settings keep a journal of their own scope through the same type.
-- **Every undo says what and who:** `undid "Sow the beans" done (made by you): done → to do`; an agent's reads `(made by agent:<id>)`, and the person's ctrl+z never takes it.
-- **Per note, not per reader:** a second reader of the same note undoes the first's changes too.
-- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
-
-### A link, chip or picture opens the same in the reader and in a river column (PIE-1543, PIE-1556)
-
-- **One builder for the link and picture targets:** the reader's scroll window and a river column's whole-note digest build them through `bodyTargets` (`surface/note-targets.ts`) instead of two copies. A picture's caption and cells are now targets in a river column, as in the reader.
-- **Fold heads and a step's status choice too:** `foldHeadTargets` and `pickTargets` take a small geometry (a row map, the body's columns, and for the reader its gutter and disclosure glyph), so the reader passes its scroll window and a river column the whole note. A click on a status row in a river column chooses it through the same `pick` target the reader's picker uses.
-- **One reading position:** a link selected before the note is drawn is the same position as a current element (`cur`), not a second field, so moving or letting go drops it. ⏎ with nothing current presses the `::button` on the reading line in a river column as in a reader, through the one `enterKey` path.
-- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
-
 ### The outliner's three biggest files: what's pure moved beside them, copies folded onto their owners (PIE-1376)
 
 - **Nothing you use changes:** Tree, Detail, the host and the CLI answer exactly as before; Tree and Detail were driven side by side with main's and drew the same screens. This is for whoever opens the code next.

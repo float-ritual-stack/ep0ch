@@ -22,8 +22,9 @@ const owners = {
 };
 type Pattern = keyof typeof owners;
 type Site = { file: string; line: number; key: string };
-type Counts = Record<Pattern, { count: number; sites: string[] }>;
-type Baseline = { revision: string | null; patterns: Counts; files: Record<string, number> };
+/** Each pattern's sites; the count is their number, so two branches that each remove a different site merge to the right count. */
+type Counts = Record<Pattern, { sites: string[] }>;
+type Baseline = { patterns: Counts; files: Record<string, number> };
 type FileMetric = { file: string; lines: number; growth: number; commits: number };
 type Report = {
   asOf: string; revision: string | null; comparedTo: string | null;
@@ -144,7 +145,8 @@ function scan() {
 function differences(current: ReturnType<typeof scan>, baseline: Baseline, lowering: boolean): string[] {
   const errors: string[] = [];
   for (const pattern of patterns) {
-    const now = current.sites[pattern], was = baseline.patterns[pattern];
+    const now = current.sites[pattern], sites = baseline.patterns[pattern]?.sites;
+    const was = sites && { count: sites.length, sites };
     if (!was) { if (!lowering) errors.push(`${pattern}: no baseline yet; record it: bun scripts/health-ratchet.ts --write`); continue; }
     if (now.length > was.count) {
       errors.push(`${pattern}: ${now.length} > baseline ${was.count} (+${now.length - was.count}). Use ${owners[pattern]}.`);
@@ -167,6 +169,26 @@ function differences(current: ReturnType<typeof scan>, baseline: Baseline, lower
   return errors;
 }
 
+/**
+ * The commit the baseline was written from, read from git rather than stored in the file: a stored commit differs on
+ * every branch, so two branches whose counts agree would still conflict on it (PIE-1696). A baseline with changes not
+ * yet committed was written from HEAD; a committed one, from the parent of the commit that last changed it.
+ */
+function baselineRevision(head: string | null): string | null {
+  if (!head) return null;
+  if (git("status", "--porcelain", "--", baselinePath).trim()) return head;
+  const wrote = git("log", "-1", "--format=%H", "--", baselinePath).trim();
+  if (!wrote) return head;
+  const parent = Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `${wrote}^`]);
+  if (parent.exitCode === 0) return parent.stdout.toString().trim();
+  // No parent: the first commit, or a shallow checkout's boundary, where every file would read as new.
+  if (git("rev-parse", "--is-shallow-repository").trim() === "true") {
+    console.error(`--report needs the commit before ${wrote.slice(0, 9)}, which last changed ${baselinePath}, and this is a shallow checkout: run git fetch --unshallow (or --deepen=<n>), then --report again`);
+    process.exit(1);
+  }
+  return null;
+}
+
 // Git supplies the baseline's smaller files without storing a second full line-count inventory in the baseline.
 function linesAt(revision: string | null): Record<string, number> {
   if (!revision) return {};
@@ -187,7 +209,8 @@ function linesAt(revision: string | null): Record<string, number> {
 }
 
 function report(current: ReturnType<typeof scan>, baseline: Baseline, revision: string | null, previous?: Report): Report {
-  const before = previous ? Object.fromEntries(previous.files.map(f => [f.file, f.lines])) : { ...linesAt(baseline.revision), ...baseline.files };
+  const since = previous ? null : baselineRevision(revision);
+  const before = previous ? Object.fromEntries(previous.files.map(f => [f.file, f.lines])) : { ...linesAt(since), ...baseline.files };
   const commits = new Map<string, number>(), pairs = new Map<string, number>();
   if (revision) for (const commit of git("log", "--since=7.days", "--name-only", "--no-renames", "--format=%x00").split("\0")) {
     const files = [...new Set(commit.split("\n").filter(f => f in current.files))].sort();
@@ -202,10 +225,10 @@ function report(current: ReturnType<typeof scan>, baseline: Baseline, revision: 
   const files = Object.entries(current.files).map(([file, lines]) => ({ file, lines, growth: lines - (before[file] ?? 0), commits: commits.get(file) ?? 0 }));
   const over1000 = files.filter(f => f.lines > 1_000).length, over2000 = files.filter(f => f.lines > cap).length;
   return {
-    asOf: new Date().toISOString(), revision, comparedTo: previous?.revision ?? baseline.revision,
+    asOf: new Date().toISOString(), revision, comparedTo: previous ? previous.revision : since,
     over1000, over2000, over1000Delta: over1000 - Object.values(before).filter(n => n > 1_000).length,
     over2000Delta: over2000 - Object.values(before).filter(n => n > cap).length, files,
-    patterns: Object.fromEntries(patterns.map(p => [p, { count: current.sites[p].length, delta: current.sites[p].length - (previous?.patterns[p]?.count ?? baseline.patterns[p]?.count ?? 0) }])) as Report["patterns"],
+    patterns: Object.fromEntries(patterns.map(p => [p, { count: current.sites[p].length, delta: current.sites[p].length - (previous?.patterns[p]?.count ?? baseline.patterns[p]?.sites.length ?? 0) }])) as Report["patterns"],
     coChanges: [...pairs].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([pair, commits]) => ({ files: pair.split("\0"), commits })),
   };
 }
@@ -239,8 +262,7 @@ if (args.includes("--write")) {
   const errors = baseline ? differences(current, baseline, true) : [];
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
   const next: Baseline = {
-    revision,
-    patterns: Object.fromEntries(patterns.map(p => [p, { count: current.sites[p].length, sites: current.sites[p].map(s => s.key) }])) as Counts,
+    patterns: Object.fromEntries(patterns.map(p => [p, { sites: current.sites[p].map(s => s.key) }])) as Counts,
     files: Object.fromEntries(Object.entries(current.files).filter(([, lines]) => lines > cap)),
   };
   writeFileSync(baselinePath, JSON.stringify(next, null, 2) + "\n");
