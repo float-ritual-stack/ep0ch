@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 - **The nine `workflows.*` actions are gone from the wire;** a client that sends one gets `Unsupported action: workflows.list`.
 - **Schema 11 drops `workflow_runs` and `workflow_promotions`.** A note a walkthrough promoted is an ordinary note and stays.
 - **The roadmap skill (`outliner-workflow`) still works.** Its walkthrough steps became a plain review with `outliner_query`, `outliner_attention` and comments.
-- **Run:** `ep0ch install --apply` on float-2 and the laptop: it stops the host, runs `0011-drop-workflows.ts` on every outline at schema 10, and starts it again (PROTOCOL +1, set at merge; schema 10 → 11).
+- **Run:** `ep0ch install --apply` on float-2 and the laptop: it stops the host, runs `0011-drop-workflows.ts` on every outline at schema 10, and starts it again (PROTOCOL 317 → 318; schema 10 → 11).
 
 ### The Herdr console takes a paste, a click and a dead host (PIE-1649, PIE-1650, PIE-1653)
 
