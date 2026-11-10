@@ -9,7 +9,7 @@ import type { FacetNotes } from "../socket";
 // visits and extension rows use the same pure query grammar and counter through the source contract.
 import { weekday } from "@ep0ch/outline-core/figure-props";
 import { subject, type Msg } from "../board";
-import { type Actor, type FacetAnswer } from "../socket";
+import { RECORDED_AS, recordedAnswer, type Actor, type FacetAnswer } from "../socket";
 import { ActionRefused, actionSet, def, keysText, shownLine } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
@@ -1010,7 +1010,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.save": def({
     summary: "save the selection as a view: a block `[type::virtual-branch] [query::<the query>]` under a hub (parent=<block id>; left out, the note most of the outline's views live under, else the newest board hub, else the top level), named name=. The person is asked the name and the hub in the power bar (PIE-1448); a selection already saved as a view is refused with that view's name (facets.view opens it)",
-    keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.title)}"`,
+    keys: "v", touches: "nothing", replay: "ask", answer: RECORDED_AS, says: r => `saved view "${String(r.title)}"`,
     args: { name: { type: "string", optional: true, about: "the view's name" }, parent: { type: "string", optional: true, kind: "note", about: "the hub's block id" } },
     examples: [
       { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the note most views live under" },
@@ -1030,7 +1030,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
         p.viewSaved(made);
         desk.ctx.flash(`saved "${title}" as a view${hub ? ` under ${p.homeName(hub) ?? "its hub"}` : ""}`);
         await p.refresh(desk);
-        return { id: made.id, title, parent: hub, query: q };
+        return { id: made.id, title, parent: hub, query: q, recordedAs: recordedAnswer(actor, "new") };
       };
       if (name !== undefined || !standing) return save(name ?? "", parent ?? home);
       // The person names it and says where it goes, in the power bar: the hub the views already share first.
@@ -1154,7 +1154,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.pin": def({
     summary: "pin a note Matches lists, or unpin it: pinned notes come first, under Pinned. A pin is a link on the tile's pins page (`[[pins]]`, made the first time; PIE-1448): the note pinned is never edited, as Notebook Navigator's pins don't touch the file. A note pinned by its own `[<pin>::true]` (written by hand) is unpinned by taking that property off. id, n (its row), or the picked note; on=true|false, else the other way round. Attributed",
-    keys: "* on a note", touches: "nothing", replay: "ask", says: r => `${r.pinned ? "pinned" : "unpinned"} "${String(r.title)}"`,
+    keys: "* on a note", touches: "nothing", replay: "ask", answer: RECORDED_AS, says: r => `${r.pinned ? "pinned" : "unpinned"} "${String(r.title)}"`,
     args: { id: { type: "string", optional: true, about: "a note's block id" }, n: { type: "number", optional: true, about: "its row, from 1" }, on: { type: "boolean", optional: true, about: "pin (true) or unpin (false)" } },
     examples: [{ act: "facets.pin id=7d9a1f40 tile=facets", does: "pins that note: it moves to the top of Matches, and only the pins page changes" }],
     async run({ id, n, on }, { pane, desk, standing }, actor) {
@@ -1182,12 +1182,13 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       // Pinned by hand in the note itself: unpinning takes the property off (the one case that edits it).
       if (!want && byProperty.length) await board.patchProperties(m.id, own.revision, byProperty.map(t => ({ op: "remove" as const, ordinal: t.ordinal })), actor);
       await p.refresh(desk);
-      return { id: m.id, title: subject(m), pinned: want };
+      // Already the way asked: nothing written.
+      return { id: m.id, title: subject(m), pinned: want, ...(want !== pinned ? { recordedAs: recordedAnswer(actor) } : {}) };
     },
   }),
   "facets.tag": def({
     summary: "give a note Matches lists a tag or any property, written to the note as the person would: value=#tag (or key=tag value=…) for a tag, key= value= for a property. Left out, the person is asked in the power bar's form, the key from the outline's keys and the value from that key's values (the one completer)",
-    keys: "t on a note", touches: "nothing", replay: "ask", says: r => `${String(r.key)} ${String(r.value)} on "${String(r.title)}"`,
+    keys: "t on a note", touches: "nothing", replay: "ask", answer: RECORDED_AS, says: r => `${String(r.key)} ${String(r.value)} on "${String(r.title)}"`,
     args: {
       id: { type: "string", optional: true, about: "a note's block id; left out, the picked one" },
       key: { type: "string", optional: true, kind: "key", about: "the property (tag for a tag)" },
@@ -1208,7 +1209,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
         const { revision } = await board(desk).propertyTokens(m.id, k);
         await board(desk).patchProperties(m.id, revision, [{ op: "append", key: k, value: v }], actor);
         await p.refresh(desk);
-        return { id: m.id, title: subject(m), key: k, value: v };
+        return { id: m.id, title: subject(m), key: k, value: v, recordedAs: recordedAnswer(actor) };
       };
       if ((key?.trim() && value?.trim()) || value?.trim().startsWith("#") || !standing) return write(key, value);
       // The person is asked in the power bar: the key from the outline's keys, then that key's values (the one completer).

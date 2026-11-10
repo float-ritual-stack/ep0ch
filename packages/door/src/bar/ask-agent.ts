@@ -11,7 +11,7 @@ import { agentAtCursor, completionTargetAtCursor, type CompletionTarget } from "
 import { PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, shownLine } from "../surface/actions";
 import { headedTitle } from "../board";
-import { Refused, USER, type Actor } from "../socket";
+import { recordedAnswer, Refused, USER, type Actor, type RecordedAs } from "../socket";
 import type { Msg } from "../board";
 import { tildeOf } from "../desk/agent-sessions";
 import { answeringAgents } from "../answering-agents";
@@ -74,7 +74,7 @@ const tilesIn = (text: string) => [...new Set([...text.matchAll(/(?:^|\s)%([^\s%
 /** The first `[[page]]` or `((note))` a line names, as written. */
 const firstRef = (text: string) => /\[\[([^\]]+)\]\]|\(\(([^)]+)\)\)/.exec(text)?.[0] ?? null;
 
-export interface Asked { to: string; note: string; title: string; thread: string; tiles: string[]; heard: string; answers: boolean }
+export interface Asked { to: string; note: string; title: string; thread: string; tiles: string[]; heard: string; answers: boolean; recordedAs: RecordedAs }
 
 /**
  * The note an ask lands on, or why it can't land: `note` when given, else the note in front of the person (an agent's
@@ -138,7 +138,7 @@ export async function askAgent(host: BarHost, o: { to: string; text?: string; no
   const props = { "ask-door": [host.ctx.board.clientId], ...(here?.id ? { "ask-tile": [here.id] } : {}), ...(here?.kind ? { "ask-tile-kind": [here.kind] } : {}) };
   const receipt = await hostAnswers(() => host.ctx.board.comment(crypto.randomUUID(), note.id, note.revision ?? 0, body, null, actor, props), true);
   const title = headedTitle(note), answers = answeringAgents().some(a => a.name === to);
-  return { to, note: note.id, title, thread: receipt.id, tiles, answers, heard: answers ? `a comment naming @${to}: @${to} answers in the thread` : `a comment naming @${to}: each session writing as ${to} hears it at its next addressed check (the Claude mod's settle clock) and answers in the thread` };
+  return { to, note: note.id, title, thread: receipt.id, tiles, answers, heard: answers ? `a comment naming @${to}: @${to} answers in the thread` : `a comment naming @${to}: each session writing as ${to} hears it at its next addressed check (the Claude mod's settle clock) and answers in the thread`, recordedAs: recordedAnswer(actor, "new") };
 }
 
 /** What an ask did, in words: who, on which note, and when it's heard. */

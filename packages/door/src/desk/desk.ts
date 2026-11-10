@@ -4409,7 +4409,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const saved = await this.ctx.board.update(now.id, next, now.revision, actor);
     outlineChanged([now.id]);
     this.redraw();
-    return { ...this.tileAnswer(t.id), note: now.id, title, revision: saved.revision ?? null };
+    return { ...this.tileAnswer(t.id), note: now.id, title, revision: saved.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
   private noteOf(id: number): Msg | null {
@@ -6445,7 +6445,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.savedAs = shape;
     this.settled = this.snapshotShape();
     this.save(); this.redraw();
-    return { screen: name, title, ...(title !== name ? { slug: name } : {}), note: note.id, revision: note.revision, created, tiles: this.all().map(id => this.nameOf(id)) };
+    return { screen: name, title, ...(title !== name ? { slug: name } : {}), note: note.id, revision: note.revision, created, tiles: this.all().map(id => this.nameOf(id)), recordedAs: recordedAnswer(actor, created ? "new" : "revision") };
   }
   /**
    * ^W w's prompt chose `typed`: the save, as the person's. A save that is refused after all (the note changed since,

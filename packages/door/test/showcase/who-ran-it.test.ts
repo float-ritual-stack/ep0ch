@@ -2,18 +2,13 @@
 // `recordedAnswer` from `recorded()` in socket.ts), and the screen says it too. Three actions took an actor and dropped
 // it: tile.type (an agent typing into a terminal tile), agents.yolo (an agent taking the door back) and access.apply
 // (the person's alone: an agent's is refused, naming it). Driven on the showcase's terminal and access sections through
-// `act`, as an agent and as the person. Scratch service, the showcase's fictional seed.
+// `act`, as an agent and as the person. Scratch service, the showcase's fictional seed. PIE-1655: card.move, a comment or reply
+// send and welcome.move, the three PIE-1406 left out, driven the same way on the spine, scripts and Welcome screens.
 import { describe, expect, test } from "bun:test";
 import { Desk } from "../../src/desk/desk";
 import { PtyPane } from "../../src/desk/pty";
-import { PTY_ACTIONS } from "../../src/desk/pty-actions";
-import { ACCESS_MATRIX_ACTIONS } from "../../src/desk/access-matrix";
-import { BOARD_ACTIONS } from "../../src/desk/lanes";
-import { TILE_ACTIONS } from "../../src/desk/tile-actions";
-import { SHELL_ACTIONS } from "../../src/screens";
-import { NOTE_ACTIONS } from "../../src/surface/note";
 import { SECTIONS } from "../../src/showcase/showcase";
-import { WELCOME_ACTIONS } from "../../src/hub/welcome";
+import { allActionSets } from "../../src/surface/actions";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -104,10 +99,13 @@ describe.skipIf(!outliner || process.platform !== "linux")("who ran it (PIE-1651
   }, 30_000);
 
   test("every writing action's page says the recordedAs field, from the action's own answer", () => {
-    const sets = [PTY_ACTIONS, SHELL_ACTIONS, ACCESS_MATRIX_ACTIONS, NOTE_ACTIONS, BOARD_ACTIONS, TILE_ACTIONS, WELCOME_ACTIONS];
-    for (const name of ["tile.type", "agents.yolo", "access.apply", "edit.save", "card.create", "card.reorder", "note.trash", "note.move", "props.edit", "image.size", "settings.set", "card.move", "comment.send", "comment", "reply", "comment.note", "welcome.move"]) {
-      const info = sets.flatMap(s => s.list()).find(x => x.name === name);
-      expect({ name, field: info?.answer?.recordedAs?.type }).toEqual({ name, field: "object" });
-    }
+    // PIE-1406's, then PIE-1655's three and the writing runs its sweep found answering without it.
+    const writes = ["tile.type", "agents.yolo", "access.apply", "edit.save", "card.create", "card.reorder", "note.trash", "note.move", "props.edit", "image.size", "settings.set",
+      "card.move", "comment.send", "comment", "reply", "comment.note", "comment.edit", "passage.act", "welcome.move",
+      "card.restore", "note.untrash", "note.create", "step.set", "resolve", "thread.seen", "thread.keep", "thread.tldr", "note.move.undo", "agent.ask", "quote",
+      "status.bar.pin", "button.pin", "note.new", "page.create", "template.stamp", "component.new", "facets.save", "facets.pin", "facets.tag", "trail.save",
+      "screen.save", "screen.menu", "note.rename"];
+    const listed = allActionSets().flatMap(s => s.list());
+    for (const name of writes) expect({ name, field: listed.some(x => x.name === name && x.answer?.recordedAs?.type === "object") }).toEqual({ name, field: true });
   });
 });

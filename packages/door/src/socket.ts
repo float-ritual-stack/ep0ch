@@ -1581,8 +1581,9 @@ export class SocketBoard implements Board {
   }
 
   /** Bring a Trash root (and its subtree) back where it was, with the page names it had to change (PIE-312). */
-  async restore(blockId: string): Promise<Msg & { renamedPages?: PageRename[] }> {
-    const restored = await this.request("trash.restore", { blockId });
+  async restore(blockId: string, actor: Actor = USER): Promise<Msg & { renamedPages?: PageRename[] }> {
+    // Recorded as who brought it back (PIE-1655): an agent's restore isn't the person's.
+    const restored = await this.request("trash.restore", { blockId, mutation: mutationFor(actor) });
     return { ...toMsg(restored), ...(restored.renamedPages?.length ? { renamedPages: restored.renamedPages } : {}) };
   }
 

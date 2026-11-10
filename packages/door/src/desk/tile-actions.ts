@@ -602,7 +602,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "rename the note this tile shows",
     summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. tile.title renames the tile itself, never the note",
     keys: [{ via: "\"rename this note\" in the tile menu" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     says: r => r.prompt ? null : `renamed the note: ${r.title}`,
     menu: { label: "rename this note…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
       const shown = d.tileNow(reader, actor).note;
@@ -920,7 +920,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "save this screen as a screen note",
     summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. The name is kept as typed (the note's title) and the screen is opened by it or by its slug: lowercase, spaces to -, other characters dropped (daily test: daily-test). Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
     keys: "^W w",
-    touches: "nothing", replay: "ask", confirms: true,
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, confirms: true,
     says: r => (r?.prompt ? null : `saved the screen as ${r.title}${r.slug ? ` (${r.slug})` : ""}${r.created ? " (a new screen note)" : ""} · ep0ch --screen ${r.slug ?? r.screen} opens it`),
     menu: { label: "save this screen as…", group: SCREEN, key: "ctrl+w w" },
     args: { name: { type: "string", optional: true, about: "the screen's name as a person would type it: spaces and capitals are fine (daily test is saved as daily-test; the answer says the name). An empty name, a built-in's or one with [ ] is refused with the reason (left out: the person types it)" } },
@@ -964,7 +964,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "add this screen to the main menu",
     summary: "give a screen you made a row on the main menu (PIE-1525): key=<one character> opens it there, label=<a few words> names the row; off=true takes the row away. name= is the screen (left out: this one). Written into its screen note's spec (`menu`), checked against the revision this door read, so every door on the outline shows it, and a restart keeps it. A key another row holds is kept and the row drawn without it, said. The person's with no key opens the prompt (Y Potting)",
     keys: [{ via: "the tile menu's row (⋯), or the power bar" }],
-    touches: "nothing", replay: "ask", confirms: true,
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, confirms: true,
     says: r => (r?.prompt ? null : r.menu ? `${r.menu.key} ${r.menu.label} opens ${r.screen} from the main menu${r.problem ? ` · ${r.problem}` : ""}` : `took ${r.screen} off the main menu`),
     menu: { label: "add to the main menu", group: SCREEN, key: "", now: ({ d }) => { const n = d.madeName(); return n ? { args: { name: n }, ...(madeMenu(n) ? { label: "change its main-menu row" } : {}) } : { hide: true }; } },
     args: {
@@ -1048,7 +1048,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "note.untrash": def({
     summary: "bring back the note the actor trashed last (or id=<a Trash root's block id>), where it was, with the page names it had to change",
     keys: [{ keys: "ctrl+z", does: "when the tile has nothing of its own to undo" }, { via: "the tile menu's row" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     menu: { label: "bring back the note trashed last", group: "Trash", key: "ctrl+z", now: ({ d }: On, _t, actor) => (lastTrashed(d.ctx.board, actor) ? null : { hide: true }) },
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the note this actor trashed last" } },
     examples: [

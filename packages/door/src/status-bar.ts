@@ -2,7 +2,7 @@ import { buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call"
 import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { closest } from "@ep0ch/outline-core/tool-args";
 import type { Msg } from "./board";
-import type { Actor, SocketBoard } from "./socket";
+import { RECORDED_AS, recordedAnswer, type Actor, type SocketBoard } from "./socket";
 import { ActionRefused, actionSet, def, type ActRequest } from "./surface/actions";
 import { bg, C, fg, visible } from "./style";
 import type { MenuRow } from "./surface/dispatch";
@@ -272,7 +272,7 @@ export class StatusBarNote {
     if (duplicate) throw new ActionRefused(`line ${duplicate.line + 1} already has label="${duplicate.label}"; choose a different label=`);
     const updated = await this.board.update(note.id, `${note.text}\n${line}`, note.revision!, actor);
     await this.refresh(builtins);
-    return { note: updated.id };
+    return { note: updated.id, recordedAs: recordedAnswer(actor) };
   }
 }
 
@@ -349,7 +349,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
   "status.bar.pin": def({
     words: "pin a note's line to the status bar",
     summary: "pin a ::button line to your status bar, appending it to the [status-bar::true] note; made on first use, with the existing bar's items",
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: { line: { type: "string", about: "the ::button line to append" } },
     examples: [{ act: 'status.bar.pin line=\'::button{label="Collapse" act="tile.collapse tile=screen"}\'', does: "pins Collapse to your status bar" }],
     run({ line }, on, actor) { return on.note.pin(line, on.builtins(), actor); },

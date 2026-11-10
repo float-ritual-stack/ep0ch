@@ -143,7 +143,10 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     expect(done).toMatchObject({ trashed: porch.id, title: "Porch", recordedAs: { author: "agent", actorId: "test-agent", says: "an agent (test-agent)'s" } });
     expect(await deleted(porch)).toBe(true);
     await expect(act("note.trash", { ref: porch.id }, "reader")).rejects.toThrow("in the Trash already");
-    expect(await act("note.untrash", {}, undefined, "test-agent")).toMatchObject({ restored: porch.id });
+    // Brought back as the agent, in its answer and in the service's record (PIE-1655: the restore once went as the person).
+    expect(await act("note.untrash", {}, undefined, "test-agent")).toMatchObject({ restored: porch.id, recordedAs: { author: "agent", actorId: "test-agent", says: "an agent (test-agent)'s" } });
+    const log = await board.request("activity.recent", { author: "agent", kinds: ["restore"], limit: 20 });
+    expect(log.entries.find(e => e.block.id === porch.id)).toMatchObject({ author: "agent", actorId: "test-agent" });
     await expect(act("note.trash", { ref: inbox.id }, "reader")).rejects.toThrow("one of the outline's own");
     const root = (await board.roots()).find(r => prop(r, "type") === "workspace")!;
     await expect(act("note.trash", { ref: root.id }, "reader")).rejects.toThrow("the outline's own root");

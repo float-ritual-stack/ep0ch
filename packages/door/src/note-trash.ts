@@ -90,7 +90,7 @@ export async function trashNote(board: SocketBoard, ref: string, actor: Actor, s
   return { trashed: note.id, title, notesUnder, restore: `note.untrash id=${note.id}`, recordedAs: recordedAnswer(actor) };
 }
 
-export interface UntrashDone { restored: string; title: string; renamedPages?: PageRename[] }
+export interface UntrashDone { restored: string; title: string; renamedPages?: PageRename[]; recordedAs: RecordedAs }
 
 /** Bring back the note `id` (else the one `actor` trashed last), where it was. */
 export async function untrashNote(board: SocketBoard, id: string | undefined, actor: Actor, say: (msg: string) => void, renamed: (r: PageRename[]) => string): Promise<UntrashDone> {
@@ -100,7 +100,7 @@ export async function untrashNote(board: SocketBoard, id: string | undefined, ac
   let failure: unknown = null;
   for (const target of wanted) {
     let m: Awaited<ReturnType<SocketBoard["restore"]>>;
-    try { m = await board.restore(target); }
+    try { m = await board.restore(target, actor); }
     catch (e) {
       failure = e;
       const log = trashed.get(board);
@@ -111,7 +111,7 @@ export async function untrashNote(board: SocketBoard, id: string | undefined, ac
     if (log) trashed.set(board, log.filter(t => t.id !== m.id));
     const title = noteTitle(m);
     say(`brought back “${title}”${m.renamedPages?.length ? ` · ${renamed(m.renamedPages)}` : ""}`);
-    return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}) };
+    return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}), recordedAs: recordedAnswer(actor) };
   }
   throw new ActionRefused(failure instanceof Error ? failure.message : String(failure));
 }

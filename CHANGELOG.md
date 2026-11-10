@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Card moves, comment sends and Welcome moves say who they were recorded as (PIE-1655)
+
+- **The three PIE-1406 left out answer `recordedAs`:** `card.move`, a comment or reply sent (`comment.send`, `comment`, `reply`, `comment.note`, `comment.edit`, `passage.act`) and `welcome.move`. Each one's status bar already named the agent. A move that changed nothing (the card already in that lane, the note already in that place) answers no `recordedAs`.
+- **An agent's restore is recorded as the agent:** `note.untrash` and `card.restore` used to send no mutation, so the service logged no restore activity and the restore wasn't attributed to anyone. Both now answer `recordedAs` too.
+- **The other writing actions answer it as well:** `note.create`, `step.set`, `resolve`, `thread.seen`, `thread.keep`, `thread.tldr`, `note.move.undo`, `agent.ask`, `quote`, `status.bar.pin`, `button.pin`, `note.new`, `page.create`, `template.stamp`, `component.new`, `facets.save`, `facets.pin`, `facets.tag`, `trail.save`, `screen.save`, `screen.menu` and `note.rename`. Each one's page lists the field under `answer`.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change: `trash.restore` already took `mutation`).
+
 ### Every write says who ran it, the same way (PIE-1406, PIE-1651)
 
 - **One `recordedAs` on every writing action's answer:** `{ author, actorId?, says }`, built by `recordedAnswer` from `recorded()` (PIE-1406). `card.create`, `card.trash` and `note.trash` gave words, and `edit.save`, `props.edit`, `image.size` and about 20 more gave the mutation object; now they all give this shape, and so do `note.move`, `tree.move`, `column.move` and `card.reorder`. Each action's page and `ep0ch actions` list it under `answer`; the agent interface names it once.
