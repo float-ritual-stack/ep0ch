@@ -1,4 +1,5 @@
 import { lineEscCloses } from "../surface/completer";
+import { escVia } from "../esc-rule";
 import { buttonText } from "../surface/button";
 import { keyTable } from "../surface/keymap";
 import { DRAFT_KEYS } from "../edit";
@@ -690,7 +691,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   }
   /** Typing Matches' filter (`/`): letters narrow the rows as they're typed, ⏎ keeps them, esc goes back. */
   /** Esc takes back the query or the filter being typed (esc-rule.ts). */
-  escCloses() { return this.draft !== null ? lineEscCloses(this.draft, "the query") : this.list.typing ? lineEscCloses(this.list.typing, "the filter") : undefined; }
+  escCloses() { return this.draft !== null ? lineEscCloses(this.draft, escVia(this.draft.closeKey(), "the query")) : this.list.typing ? lineEscCloses(this.list.typing, "the filter") : undefined; }
   private filterKey(k: Key, desk: DeskApi): boolean {
     if (k.kind === "enter") this.list.stopTyping(true);
     else if (k.kind === "esc") this.list.stopTyping(false);
@@ -746,7 +747,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     if (this.draft?.take(k)) { desk.redraw(); return true; }
     // ⏎ applies (this tile's own row); the draft's close key (edit.close, esc built in) drops it, as in every place a person types.
     if (modeBinding(QUERY_DRAFT_KEYS, k)) { const text = this.draft?.text.trim() ?? ""; this.draft = null; this.act(desk, "facets.query", { text }); return true; }
-    if (this.draft?.binding(k)?.action === "edit.close") this.draft = null;
+    if (this.draft?.closesBy(k)) this.draft = null;
     else return k.kind !== "tab" && k.kind !== "backtab";
     desk.redraw();
     return true;

@@ -49,7 +49,10 @@ export class LineField {
   /** What a cut or copy does with its text: the door's clipboard unless the field says otherwise (a masked answer). */
   copy: (text: string) => void = text => lineCompletionHooks.copy?.(text);
 
-  constructor(text = "", prefilled = false, o: { complete?: LineCompletion; id?: string } = {}) {
+  /** Its host draws the field's note under it now (the power bar, but for a compact question's one row): a moved key isn't said on the status bar too. */
+  private readonly drawsNote: () => boolean;
+  constructor(text = "", prefilled = false, o: { complete?: LineCompletion; id?: string; drawsNote?: () => boolean } = {}) {
+    this.drawsNote = o.drawsNote ?? (() => false);
     this.draft = new Draft(o.id ?? "line", 0, text.replace(/\r\n?|\n/g, " "));
     this.draft.tables = [LINE_TABLE, DRAFT_KEYS];
     // A cut goes where this field's copy goes.
@@ -131,7 +134,7 @@ export class LineField {
     if (k.kind === "char" && k.ctrl) {
       if (!LINE_MOTIONS.has(k.ch)) {
         const moved = this.draft.moved(k);
-        if (moved) { this.draft.status.say(moved); return true; }
+        if (moved) { this.sayMoved(moved); return true; }
         return false;
       }
       // ctrl+a ctrl+e ctrl+k are the control's own motions.
@@ -139,7 +142,7 @@ export class LineField {
       if (k.ch === "a" || k.ch === "e" || k.ch === "k") { this.draft.key(k); return true; }
       // A key the keymap took from erase, clear or cut (ctrl+w, ctrl+u, ctrl+x) says where it went and does nothing.
       const moved = this.draft.moved(k);
-      if (moved) this.draft.status.say(moved);
+      if (moved) this.sayMoved(moved);
       return true;
     }
     if (!LINE_KEYS.has(k.kind)) return false;
@@ -147,6 +150,9 @@ export class LineField {
     this.fresh = false;
     return editorLineKey(this.draft, k, this.copy);
   }
+
+  /** A key the keymap took from the line says where it went: in the field's note, and on the status bar where no host draws that (the rename prompt, facets, an inspector). */
+  private sayMoved(words: string) { this.draft.status.say(words); if (!this.drawsNote()) lineCompletionHooks.say?.(words); }
 
   /** ctrl+z, ctrl+y: the line's own history (`Draft.undo`), and nothing to take back is said, never thrown. */
   history(op: "undo" | "redo", by: Actor = USER): string {

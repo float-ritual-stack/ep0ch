@@ -325,7 +325,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   (a `keys` tile beside the focused one on a screen of tiles, else a screen over theirs; waits as `screen.open` does); in it, `keys.find text=tile.close tile=keys` answers every binding of
   those words with its scope, layer, what it takes the key from (`takesFrom`), what gets it first (`takenBy`) and whether
   it can move; `keys.tab tab=unbound tile=keys` lists the actions no key reaches (`rows`). `keys.rebind id=<act line> key=<its key now> to=<new key> tile=keys` saves a rebind in
-  `keybindings.json` (said on screen; `keys.unbind`, `keys.reset id=`, `keys.undo`). Only when the person asks: it's
+  `keybindings.json` (said on screen; its answer's `still` names what keeps the key first, the glass's alt+u, and `sends`
+  a key some terminals never send, alt+[; `keys.unbind`, `keys.reset id=`, `keys.undo`). Only when the person asks: it's
   their keyboard.
 - **The power bar** (PIE-656): the person's `ctrl+k` palette (alt+← alt+→ change scope, tab completes the line; past an action's name it lists the arguments and values in place, the same rows a note's `/` line and a `::button` step get: PIE-1076). `bar.open query=… scope=tiles|notes|actions|recent|screens`
   answers what it lists (every tile on every screen and in the drawer with its depth in the tree, notes from the one

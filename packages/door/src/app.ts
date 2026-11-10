@@ -705,8 +705,8 @@ export class App implements Ctx {
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineField, src/surface/line.ts).
     useCompletion(board, () => this.redraw(), () => this.barHost());
-    // A cut or copy in any line field goes to the door's clipboard (PIE-1290).
-    lineCompletionHooks.copy = text => { this.copy(text); };
+    // A cut or copy in any line field goes to the door's clipboard (PIE-1290); what a line says, to the status bar (PIE-1688).
+    Object.assign(lineCompletionHooks, { copy: (text: string) => { this.copy(text); }, say: (text: string) => { this.flash(text); } });
     // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
@@ -1506,7 +1506,7 @@ export class App implements Ctx {
     // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
     // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
     if (k.kind !== "mouse" && w.over === "menu") { this.stack.at(-1)!.key(k, this); return; }
-    if (this.drawer.menuInput(k) || runningModules().some(([, m]) => m.key?.(k)) || this.drawer.glassInput(k)) return;
+    if (this.drawer.keysFact.recordsInto(this.stack.at(-1), this.drawer.entered, k) || this.drawer.menuInput(k) || runningModules().some(([, m]) => m.key?.(k)) || this.drawer.glassInput(k)) return;
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});

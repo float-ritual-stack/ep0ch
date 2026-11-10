@@ -97,6 +97,8 @@ export class KeysPane implements Pane {
     return modeHint(KEYS_WINDOW_KEYS, a => KEYS_WINDOW_ACTIONS.def(a));
   }
   typing() { return !!this.field || !!this.record; }
+  /** A rebind waits for its key: the next key is the window's, before every layer of the door (the glass's alt+u, alt+v), PIE-1688. */
+  recordsKey() { return !!this.record; }
   /** Typing a filter or a rebind, every key; as a tile, esc and q too (they close it), so the drawer never takes them to leave (PIE-1552). */
   claims(k: Key) { return !!this.field || !!this.record || (!this.screen && (k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q"))); }
   spec() { return { state: { filter: this.filter, tab: this.tab, ...(this.screen ? { screen: true } : {}) } }; }
@@ -205,6 +207,9 @@ export class KeysPane implements Pane {
     const s = b.key ? shadowsOf(b, all) : { over: [], under: [], terminal: true };
     if (s.over.length) for (const o of s.over.slice(0, 3)) label("taken by", `${o.id} (${o.scope}): the ${o.layer} layer gets it first`);
     if (s.under.length) for (const u of s.under.slice(0, 3)) label("takes", `${u.cap} from ${u.id} (${u.scope}), wherever both are`);
+    // A key it really fights over (Conflicts): who runs and why, the catalog's words (fightOf).
+    const fight = b.key ? conflicts(all).find(g => g.some(x => x.id === b.id && x.key === b.key)) : undefined;
+    if (fight) wrap(fightOf(fight).why, Math.max(8, w - 9)).forEach((l, i) => label(i ? "" : "conflict", l));
     if (b.key) label("terminal", s.terminal ? "in a terminal tile the program gets it" : "the door takes it even in a terminal tile");
     label("keymap", !b.key ? (b.rebind === true ? "no key on any screen: r gives it one, ⏎ runs it" : `no key: ${b.rebind}`) : b.yours ? `yours: ${keymapPath()}` : b.rebind === true ? "built-in: r moves it, u unbinds it" : `can't move: ${b.rebind}`);
     if (this.record && this.record.b.id === b.id) {
@@ -220,7 +225,9 @@ export class KeysPane implements Pane {
           for (const t of e.takes.slice(0, 3)) out.push(fg(C.yellow) + ellipsize(`  takes ${cap} from ${t.id} (${t.does})`, w) + RESET);
           for (const o of e.over.slice(0, 2)) out.push(fg(C.grey) + ellipsize(`  ${o.id} (${o.scope}) still gets ${cap} first`, w) + RESET);
           for (const u of e.under.slice(0, 2)) out.push(fg(C.grey) + ellipsize(`  ${u.id} (${u.scope}: ${u.does}) stops getting ${cap} where both are`, w) + RESET);
-          if (!e.takes.length && !e.over.length && !e.under.length) out.push(fg(C.grey) + `  ${keyCaption(r.key)} is free here` + RESET);
+          // A key some terminals never send is never "free": said whole, wrapped (PIE-1688).
+          if (e.sends) for (const l of wrap(e.sends, Math.max(8, w - 2))) out.push(fg(C.yellow) + `  ${l}` + RESET);
+          if (!e.takes.length && !e.over.length && !e.under.length && !e.sends) out.push(fg(C.grey) + `  ${keyCaption(r.key)} is free here` + RESET);
           this.button(out, "⏎ save", "keys.confirm");
         }
       }
@@ -365,7 +372,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     summary: "move a binding to another key: the selected one (or id=<its act line> with key=<its key now>) to to=<key> (one key, alt+n, or a ^W chord, ctrl+w q), said first and saved when confirmed; without to= the person's next key is the new one, then ⏎ saves it",
     keys: [{ keys: "r", does: "then the new key, then ⏎" }, { keys: "click", does: "on r rebind" }],
     touches: "tile", touchesWith: a => (a.to !== undefined ? "nothing" : "tile"), replay: "ask", way: "an agent passes to= (and id=, key=): it's saved at once and said",
-    says: r => r.saved ? `${r.from} → ${r.to}: ${r.id}` : null, confirms: true,
+    says: r => r.saved ? savedWords(r) : null, confirms: true,
     args: {
       id: { type: "string", optional: true, about: "the binding's act line (tile.close, element.select by=1); default the selected row" },
       key: { type: "string", optional: true, about: "with id=: which of its keys moves (^W x, x)" },
@@ -385,7 +392,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
   }),
   "keys.confirm": def({
     summary: "save the rebind the keys window is showing (what it takes from what was said above it)", keys: [{ keys: "⏎", does: "while a rebind shows its key" }, { keys: "click", does: "on ⏎ save" }],
-    touches: "tile", replay: "ask", says: r => r.saved ? `${r.from} → ${r.to}: ${r.id}` : null, confirms: true, args: {},
+    touches: "tile", replay: "ask", says: r => r.saved ? savedWords(r) : null, confirms: true, args: {},
     run(_, { pane, desk }) {
       const p = paneOf(pane), r = p.record;
       if (!r?.key) throw new ActionRefused("no new key yet: r, then press the key");
@@ -488,11 +495,15 @@ function save(p: KeysPane, b: Binding, to: string, desk: DeskApi): Record<string
   if (e.problem) throw new ActionRefused(`${keyCaption(to)}: ${e.problem}`);
   setKeys(b.id, keysAfter(p, b, to));
   p.record = null;
-  const took = e.takes.map(t => t.id);
-  p.said = `${b.cap || "no key"} → ${keyCaption(to)} for ${b.id}${took.length ? `; ${took.join(", ")} lost it` : ""} · ctrl+z undoes`;
+  const took = e.takes.map(t => t.id), still = e.over.map(o => o.id), cap = keyCaption(to);
+  // What keeps the key first and a terminal that never sends it are said with the save, never only before it (PIE-1688).
+  p.said = `${b.cap || "no key"} → ${cap} for ${b.id}${took.length ? `; ${took.join(", ")} lost it` : ""}${still.length ? `; ${still.join(", ")} gets ${cap} first` : ""}${e.sends ? `; ${e.sends}` : ""} · ctrl+z undoes`;
   desk.redraw();
-  return { saved: true, id: b.id, from: b.cap || null, to: keyCaption(to), took, still: e.over.map(o => o.id), file: keymapPath() };
+  return { saved: true, id: b.id, from: b.cap || null, to: cap, took, still, ...(e.sends ? { sends: e.sends } : {}), file: keymapPath() };
 }
+/** A saved rebind in the status bar's words: the move, then what still takes the key first and a terminal that never sends it. */
+const savedWords = (r: { from?: string | null; to: string; id: string; still?: string[]; sends?: string }) =>
+  `${r.from ?? "no key"} → ${r.to}: ${r.id}${r.still?.length ? ` · ${r.still.join(", ")} gets it first` : ""}${r.sends ? ` · ${r.sends}` : ""}`;
 
 /** The keys window as a tile kind: one list, opened by the `keys` screen (`?`) or ^W o. */
 export const KEYS_KIND: TileKind = {
