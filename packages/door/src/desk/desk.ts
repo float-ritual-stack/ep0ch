@@ -1916,7 +1916,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? "" : this.nameOf(id); }
   /** `p`'s door-wide tile id on this desk: what the person's own steps hand the dispatcher, never its name (two layers can share one). */
   tileIdOfPane(p: Pane): string | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.tileId(id); }
-  enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)}`); this.redraw(); }
+  enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)}`, undefined, { passing: true }); this.redraw(); }
   leave() { this.shell("screen.back"); }
   /** The tiles a columns container's source supplied, in its order (wherever they are now). */
   private sourcedIn(c: Columns<number>): number[] {
@@ -4808,7 +4808,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (open && want) {
         this.failedOpens.delete(rd);
         this.entered.enter(rd);
-        this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`);
+        this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`, undefined, { passing: true });
         for (const key of token.keys) rd.surface.key(key, rd.host(this));
       }
       this.redraw();
@@ -5068,7 +5068,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       } else if (k.kind !== "mouse" && !this.prefix && !this.contentCover(this.focus).fold) {
         // One they aren't in (and can see: a spine's is out of sight) (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn scroll,
         // and the desk's keys keep working. None of its own keys get here.
-        if (c === "e" || k.kind === "enter") { this.entered.enter(focused); ctx.flash(`in ${sessionName(focused)}`); return this.redraw(); }
+        if (c === "e" || k.kind === "enter") { this.entered.enter(focused); ctx.flash(`in ${sessionName(focused)}`, undefined, { passing: true }); return this.redraw(); }
         if (focused.scrollKey(k, this)) return;
       }
     }

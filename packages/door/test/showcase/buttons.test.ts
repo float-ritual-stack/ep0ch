@@ -35,6 +35,19 @@ describe.skipIf(!outliner)("the showcase screen: buttons", () => {
     expect(screen()).toContain("! Water");
   }, 30_000);
 
+  test("the pointer resting on a button that can't run reads its whole why above the status bar, not cut to the button (PIE-1686)", async () => {
+    const plain = (l: string) => l.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
+    const frame = () => { (app as any).paint(); return h.painted.map(plain); };
+    const y = frame().findIndex(l => l.includes("(Turn the compost)")), x = frame()[y]!.indexOf("(Turn the compost)");
+    expect(y).toBeGreaterThanOrEqual(0);
+    await app.dispatch.press("text.hover", { x: x + 3, y });
+    const said = frame().slice(-6, -1).map(l => l.trim()).join(" ").replace(/\s+/g, " ");
+    expect(said).toContain("no tile is called compost-heap");
+    // Off it, the rows are the screen's again.
+    await app.dispatch.press("text.hover", { x: 0, y: 0 });
+    expect(frame().slice(-6, -1).join(" ")).not.toContain("no tile is called");
+  });
+
   test("a button drawn dim is refused when pressed, with the words the pointer reads", async () => {
     const why = await app.dispatch.act({ action: "button.press", args: { label: "Turn the compost" }, tile: "notes" }, { kind: "agent", id: "test-agent" }).then(() => "", (e: Error) => e.message);
     expect(why).toContain("compost-heap");

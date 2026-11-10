@@ -577,8 +577,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       const pane = b.pane(reader) as ReaderPane;
       key(char("e"));                                                          // enter the agent's comment
       key({ kind: "end" }); type(more); key(ctrl("s"));
-      await until(() => pane.session?.mode === "threads" && !pane.session.busy, "the comment sent");
-      key({ kind: "esc" });
+      // Sent on the passage picked for it, the reader is back reading (PIE-1687).
+      await until(() => !pane.session || pane.session.done, "the comment sent");
       return threads(id);
     };
     let list = await commentOn(m.id, "Prune the apple", "Which branches?");

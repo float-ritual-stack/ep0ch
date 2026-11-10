@@ -2323,7 +2323,9 @@ ctrl+z undoes it once. Query errors are shown after saving the text. Esc or [can
 The tune inspector uses the same field (`e` or Enter), with its existing nudges and save behavior.
 
 Every reader (board, desk, river, the BBS message reader) shows a note the way the outliner's Detail does:
-the title, a one-line **summary** of chosen properties, then the body. The block's `[key::value]` metadata
+the title, a one-line **summary** of chosen properties, then the body. In a narrow tile the byline's pieces (who and
+when, the property count, each summary value, the comment count) move to the next row whole rather than being cut
+(PIE-1686); `[sources]` and `[comment]` are left out where they don't fit, and the tile menu has them. The block's `[key::value]` metadata
 lines aren't printed; they are in the **property panel**, one key away.
 
 The **BBS message reader** (`N`, `R` and `J` on the main menu, `⏎` in a message list) is
@@ -2626,8 +2628,9 @@ the person's or touches their clipboard. A river column draws a digest of the no
 
 ### The property panel
 
-`i` in any reader (Detail's Props inspector), and on the board from the lanes too (the preview takes
-focus with it open); `I` fills the reader with it instead. It lists every
+`i` in any reader (Detail's Props inspector), or a click on the byline's `i N properties` (the BBS reader's too,
+PIE-1685), and on the board from the lanes too (the preview takes focus with it open); `I` fills the reader with it
+instead. It lists every
 property token of the note: repeated keys stay separate rows, and line and inline scope are marked.
 `■` marks the keys the summary line shows. While it is open it takes the reader's keys, the board's and
 desk's own shortcuts (`Tab`, `o`, …) included, except scrolling: `PgDn`, `PgUp` and `Space` still page
