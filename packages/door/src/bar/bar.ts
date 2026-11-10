@@ -31,7 +31,8 @@ import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note"
 import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
-import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
+import { previewPlace } from "./list-preview";
+import { C, chip, dim, drawEllipsized, ellipsize, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -116,6 +117,8 @@ export class PowerBar {
   private docsRect: Rect | null = null;
   /** Where the lit row's preview (its docs) was drawn last, docs or not: the line's completion list keeps off it (PIE-1439). */
   private previewRect: Rect | null = null;
+  /** Whether this frame draws the lit row's preview (beside or under the list): its row is then cut, not scrolled. */
+  private previewUp = false;
   private docsLines: string[] = [];
   private docsDoc: ReturnType<typeof draftPreviewDoc> | null = null;
   private docsRows() {
@@ -523,9 +526,11 @@ export class PowerBar {
     const kind = r.chip && w - width(r.chip) - 2 - (r.keycap ? width(keyCaption(r.keycap)) + 2 : 0) >= CHIP_ROOM ? ` ${r.chip} ` : "";
     const cap = (r.keycap ? ` ${keyCaption(r.keycap)} ` : "") + kind;
     // One line whose name fits: only what follows the name is cut short, so the lit row's marquee (PIE-1140) scrolls the
-    // detail in its own cells and the name stays where it is (PIE-1405).
+    // detail in its own cells and the name stays where it is (PIE-1405). With its preview up, the lit row is cut at its
+    // end and stays so: the preview reads it whole, and a scroll would rest on its last words, mid-word (PIE-1705).
     const room = w - width(cap), named = head + r.label + " · ";
-    const lines = r.oneLine && said && width(named) < room && width(head + r.label + detail) > room ? [named + drawEllipsized(said, room - width(named))]
+    const cut = on && this.previewUp ? ellipsize : drawEllipsized;
+    const lines = r.oneLine && said && width(named) < room && width(head + r.label + detail) > room ? [named + cut(said, room - width(named))]
       : rowLines(head + r.label + detail, room, r.oneLine ? 1 : undefined, { hang: width(head) });
     return lines.map((line, i) =>
       pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
@@ -536,7 +541,7 @@ export class PowerBar {
     const rect: Rect = { col: 0, row: 0, cols: a.cols, rows: a.rows }, w = rect.cols - 2;
     const compact = this.compact();
     if (compact) {
-      this.scopeHits = []; this.sourceHead = [];
+      this.scopeHits = []; this.sourceHead = []; this.previewUp = false;
       const label = clipText(compact.title, Math.max(1, w - 12));
       this.fieldW = Math.max(1, w - width(label) - 2);
       const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, this.fieldW)) + "█" : this.input.oneRow.render(this.fieldW);
@@ -581,6 +586,8 @@ export class PowerBar {
     const empty = !this.items.length && !this.asking.size;
     const hint = this.scope ? barSource(this.scope)?.about ?? "" : none ? "no matches" : this.query.trim() ? "" : "nothing open yet";
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
+    // Where the picker will put it (listPreview's own rule), known before the rows are drawn.
+    this.previewUp = previewPlace(rect.rows - 2 - head.length - tail.length, rect.cols) !== null;
     return {
       rect, title: " power bar ",
       foot: this.docsMode ? `docs: ${modeHint(DOCS_KEYS, () => undefined)}` : scoped?.foot?.() ?? modeHint(BAR_KEYS, () => undefined),
@@ -726,6 +733,9 @@ export class PowerBar {
 
   private recordRun(line: string, result: unknown, refused: boolean) {
     this.justRan = refused ? null : line;
+    // A refused line leaves the line (PIE-1701): kept, the next words were added to it. It waits under "this session"
+    // with why, where ↑ brings it back to fix.
+    if (refused && this.query === line) this.input.splice(0, this.query.length, "");
     this.host.runs.push({ line, answer: runAnswer(line, result), refused });
     if (this.host.runs.length > 8) this.host.runs.shift();
     this.refresh(); this.host.ctx.redraw();

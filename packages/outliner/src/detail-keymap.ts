@@ -444,6 +444,10 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
       case "detail.buffer.redo":
         await dispatch({ type: "buffer.redo" });
         return true;
+      case "detail.buffer.pageup":
+      case "detail.buffer.pagedown":
+        await dispatch({ type: "buffer.page", direction: actionId === "detail.buffer.pageup" ? "up" : "down" });
+        return true;
       case "detail.tree.new":
         if (options.openNewTree) await options.openNewTree();
         else await setStatus("Creating a Tree pane is unavailable in this host");

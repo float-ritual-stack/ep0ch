@@ -71,6 +71,7 @@
     "test:e2e:pane-bars": "bun run test/e2e/pane-bars.ts",
     "test:e2e:goto": "bun run test/e2e/goto-search.ts && bun run test/e2e/goto-search.ts --composed",
     "test:e2e:console": "bun run test/e2e/herdr-console.ts",
+    "test:e2e:detail-console-gaps": "bun run test/e2e/detail-console-gaps.ts",
     "test:e2e:documentation": "bun run test/e2e/documentation.ts",
     "test:e2e:ownership": "bun run test/e2e/workspace-ownership.ts",
     "test:e2e:capture": "bun run test/e2e/capture-retry.ts",

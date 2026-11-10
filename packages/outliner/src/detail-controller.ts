@@ -100,7 +100,7 @@ import {
   type PropertyInspectorEntry,
   type PropertyInspectorGroupBy,
   type PropertyInspectorModel,
-  type PropertyInspectorTarget,
+  propertyInspectorTargetLink,
 } from "./property-inspector";
 import {
   focusedPreviewRegion,
@@ -276,30 +276,6 @@ export function visiblePropertyInspectorEntries(
   });
 }
 
-export function propertyInspectorTargetLink(
-  target: PropertyInspectorTarget,
-  options: { preserveSource?: boolean; intent?: "reveal" } = {},
-): OutlinerLinkTarget {
-  if (target.kind === "link") {
-    const parsed = parseOutlinerLinkUri(target.uri);
-    return {...parsed, ...options, preserveSource: parsed.preserveSource === true || options.preserveSource === true};
-  }
-  if (target.kind === "resource-reference") {
-    throw new Error("Resource property navigation requires its source occurrence");
-  }
-  if (target.kind === "block") {
-    return {
-      kind: "block",
-      value: target.blockId,
-      ...(target.fragmentId ? { fragmentId: target.fragmentId } : {}),
-      ...options,
-    };
-  }
-  if (target.kind === "work-id") {
-    return { kind: "work", value: target.workId, ...options };
-  }
-  return { kind: "page", value: target.address, ...options };
-}
 
 
 export function backlinkGroupRegionId(kind: string): string {
@@ -587,6 +563,7 @@ export interface DetailState {
   attention: AttentionClientState;
   attentionRevealSourceLine: number | null;
   selectedAnnotationId?: string;
+  annotationReveal?: { readonly threadId: string; readonly sequence: number }; // a thread just written to: its end comes into view once per sequence (PIE-1703)
   completion: DetailCompletionState | null;
   status: string;
   busy: boolean;
@@ -807,6 +784,7 @@ export type DetailIntent =
   | { type: "buffer.backspace" }
   | { type: "buffer.delete" }
   | { type: "buffer.move"; direction: TextBufferEditorMoveDirection; extend?: boolean }
+  | { type: "buffer.page"; direction: "up" | "down"; extend?: boolean }
   | { type: "buffer.select-all" }
   | { type: "buffer.copy" }
   | { type: "buffer.undo" }
@@ -2342,6 +2320,8 @@ export function createDetailController(
     return true;
   };
 
+  // After a save the thread stays where it was written: selected, open, its end (the new words) in view (PIE-1703).
+  const revealWrittenThread = (threadId?: string): void => { if (threadId && selectAnnotationThread(threadId, true)) state.annotationReveal = { threadId, sequence: (state.annotationReveal?.sequence ?? 0) + 1 }; };
   const readingModeNow = (): DetailReadingMode | null =>
     state.mode.kind === "preview" || state.mode.kind === "file" || state.mode.kind === "annotation" ? state.mode : null;
 
@@ -2513,10 +2493,12 @@ export function createDetailController(
         const body = state.buffer.text.trim();
         if (!body) throw new Error("A comment cannot be edited down to nothing");
         const isReply = state.annotationThreads.some(thread => thread.replies.some(reply => reply.block.id === draft.annotationId));
+        const threadId = state.annotationThreads.find(thread => [thread, ...thread.replies].some(mark => mark.block.id === draft.annotationId))?.block.id;
         await effects.updateAnnotation({ annotationId: draft.annotationId, expectedRevision: draft.revision, body });
         written = true;
         state.mode = returnTo;
-        await loadAnnotations();
+        await loadAnnotations(loadGeneration, "current-turn");
+        revealWrittenThread(threadId);
         state.status = isReply ? "Reply edited" : "Comment edited";
       } else if (state.mode.kind === "comment" && state.mode.draft.kind === "reply") {
         const draft = state.mode.draft, returnTo = state.mode.returnTo;
@@ -2527,7 +2509,8 @@ export function createDetailController(
         } });
         written = true;
         state.mode = returnTo;
-        await loadAnnotations();
+        await loadAnnotations(loadGeneration, "current-turn");
+        revealWrittenThread(draft.annotationId);
         state.status = "Reply added";
       } else if (state.mode.kind === "comment" && state.mode.draft.kind === "new") {
         const draft = state.mode.draft, returnTo = state.mode.returnTo;
@@ -2546,7 +2529,7 @@ export function createDetailController(
         // Saving this comment may have assigned an item ID. Reconcile against the
         // resulting source, never the pre-save reader snapshot.
         if (receipt.annotations.some(record => record.originalTarget.listItemId)) await loadCurrentTarget(true);
-        else await loadAnnotations();
+        else await loadAnnotations(loadGeneration, "current-turn"); // in this turn, so the next key ([ or ]) finds it
         const anchor = draft.target.anchor;
         const range = anchor.kind === "text-quote" &&
             anchor.start !== null &&
@@ -3690,6 +3673,12 @@ export function createDetailController(
       case "buffer.move": {
         applyTextBufferEditorCommand(state.buffer, { type: "move", direction: intent.direction, extend: intent.extend ?? false });
         ensureEditorCursorVisible(viewport);
+        break;
+      }
+      case "buffer.page": { // a page is the editor's drawn height (PIE-1703): the cursor moves by it at its column, the view with it
+        const layout = editorLayout(viewport), delta = (intent.direction === "up" ? -1 : 1) * detailVisibleEditorHeight(state, viewport);
+        state.editorVisualOffset = Math.max(0, Math.min(editorMaxOffset(layout, viewport), state.editorVisualOffset + delta));
+        await dispatch({ type: "editor.cursor.place", visualRow: layout.cursorRow + delta, contentColumn: layout.cursorColumn, extend: intent.extend }, viewport);
         break;
       }
       case "editor.viewport.scroll": {

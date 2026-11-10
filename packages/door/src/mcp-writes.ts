@@ -334,7 +334,9 @@ const REF_ADDRESS = {
 };
 
 /** How the gateway names the block a shared tool acts on (outline-core agent-tool-definitions' `{note}` and `{parent}`). */
-const GATEWAY_WORDS: TargetWords = { note: "the note (its uri, or ref in `outline`)", parent: "the parent (its uri, or ref in `outline`)" };
+const GATEWAY_WORDS: TargetWords = { note: "the note (its uri, or ref in `outline`)", parent: "the parent (its uri, or ref in `outline`; ref root for the top level)" };
+/** A tool whose block is a parent (outline_create) also takes `root`, the top level, as the mod's `parent` does (PIE-1704). */
+const PARENT_REF = { ...REF_ADDRESS.ref, description: `${REF_ADDRESS.ref.description}; for a new note at the top level, root` };
 
 /** What the outline's access setting makes of each shared write, said after its description. */
 const ACCESS_NOTES: Readonly<Record<string, string>> = {
@@ -387,9 +389,9 @@ export function gatewayExample(name: string): Record<string, unknown> | undefine
 
 /** The write tools' definitions, for tools/list. `outline`: the outline property the read tools describe. */
 export function writeToolDefinitions(outline: Record<string, unknown>) {
-  const addressed = (properties: Record<string, unknown>, required: readonly string[]) => ({
+  const addressed = (properties: Record<string, unknown>, required: readonly string[], parent = false) => ({
     type: "object",
-    properties: { ...REF_ADDRESS, outline, ...properties, call: CALL_PROPERTY, persona: PERSONA_PROPERTY },
+    properties: { ...REF_ADDRESS, ...(parent ? { ref: PARENT_REF } : {}), outline, ...properties, call: CALL_PROPERTY, persona: PERSONA_PROPERTY },
     required,
     additionalProperties: false,
     oneOf: [{ required: ["ref"] }, { required: ["uri"] }],
@@ -402,7 +404,7 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     return {
       name: definition.name,
       description: [describeTool(definition, GATEWAY_WORDS), definition.target ? "" : "The uri or ref is the note the thread is on.", ACCESS_NOTES[definition.name], answer].filter(Boolean).join(" "),
-      inputSchema: addressed(properties, definition.required.filter(key => key !== definition.target)),
+      inputSchema: addressed(properties, definition.required.filter(key => key !== definition.target), definition.target === "parent"),
     };
   });
   const tools = [

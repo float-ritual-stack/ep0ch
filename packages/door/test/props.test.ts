@@ -16,7 +16,7 @@ import { metadataLines, setUserSummaryKeys, summaryKeys, summarySegments, type S
 import { invalidateReferences, presentLinks, stripMarks } from "../src/refs";
 import { MainMenu } from "../src/screens";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { width } from "../src/style";
 import { headerShown, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { valueTarget } from "../src/surface/props-panel";
@@ -162,6 +162,29 @@ describe("transclusions", () => {
 });
 
 describe("the surface: summary, panel and embeds at any width", () => {
+  test("a click on the property count that's refused says why on a host with no session start of its own (PIE-1685, review)", () => withState(async () => {
+    const src = fakeSource(notes), flashes: string[] = [];
+    let redraws = 0;
+    const h: SurfaceHost = { ctx: { board: src.board, flash(m: string) { flashes.push(m); }, t: { cellW: 9, cellH: 16 }, graphics: false, copy() {} } as any, redraw() { redraws++; }, navigate() {} };
+    Object.assign(src.board, { ancestors: async () => [], comments: async () => [] });
+    const m = msg("eeeeeeee-5555-4555-8555-555555555555", "Sow the chard [priority::high] [track::soil]", { properties: P(["priority", "high"], ["track", "soil"]) });
+    const s = new NoteSurface();
+    s.show(m, h);
+    s.render(60, 20, h);
+    (s as any).session = { busy: null, startedBy: USER };                     // a comment open here: the panel is refused
+    const unhandled: unknown[] = [], seen = (e: unknown) => { unhandled.push(e); };
+    process.on("unhandledRejection", seen);
+    try {
+      const before = redraws;
+      expect(s.pressTarget({ row: 2, from: 0, to: 14, start: "props" }, h)).toBe(true);
+      await until(() => flashes.length > 0, "the refusal said");
+      expect(flashes.at(-1)).toContain("close that first");
+      expect(redraws).toBeGreaterThan(before);
+      await Bun.sleep(20);
+      expect(unhandled).toEqual([]);
+    } finally { process.off("unhandledRejection", seen); }
+  }));
+
   test("a roadmap-like note opens with the title, the summary line, then its body; i opens the panel", () => withState(async () => {
     const src = fakeSource(notes);
     const h: SurfaceHost = { ctx: { board: src.board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false, copy() {} } as any, redraw() {}, navigate() {} };

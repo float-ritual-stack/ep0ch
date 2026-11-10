@@ -358,7 +358,8 @@ value, never the value), and one state:
   `settings <name>` row beside it previews every field and the file; ⏎ opens the form of `ext.<id>.settings`, an action
   whose arguments are the schema's fields (a command field as its words, `secret-<name>` as `env:NAME`, `file:~/path` or
   `group:GROUP/KEY`, sent only when typed), filled with what's set. An agent: `ep0ch act ext.tidy.settings
-  answer='claude -p --model sonnet'`; `unset=answer` takes a field out (back to its default); the fields not named stay.
+  answer='claude -p --model sonnet'`; `answer='[]'` sets a command field to none (yo with no model; a JSON list of
+  words is taken whole), and `unset=answer` (or `answer=''`) takes a field out, back to its default; the fields not named stay.
 - **The request:** `extensions.configure` (`extension`; `set` and `unset` for named fields, merged into the file as it
   is on disk, or `config` replacing it whole; `secrets` setting or, with `null`, taking out a reference) is checked against the schema first (the same words a load uses) and refused
   whole with the reason; the file's `enabled` and `sources` stay; a secret's value is refused (only references pass).

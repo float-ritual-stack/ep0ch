@@ -37,6 +37,7 @@ import {
 } from "../src/detail-controller";
 import { composedTreeNavigation } from "../src/composed-surface";
 import { OutlinerActionKeymap } from "../src/outliner-actions";
+import { createDetailKeyHandler } from "../src/detail-keymap";
 import { detailBacklinkRegions, renderBacklinksDocument } from "../src/detail-pi-preview";
 import { detailAnnotationGroups, resolveAnnotationReferences } from "../src/detail-annotations";
 import { detailPropertyInspectorRegions } from "../src/property-inspector";
@@ -1013,6 +1014,11 @@ describe("detail controller projection and deferred refresh", () => {
     expect(submissions[1]!.input).toEqual({ annotationId: "annotation-1", body: "Human reply\nsecond line", source: "user" });
     expect(harness.controller.state.annotationThreads[0]!.replies[0]!.body).toBe("Human reply\nsecond line");
     expect(commentDraft(harness.controller.state, "reply")).toBeUndefined();
+    // The thread stays where the reply was written: selected, focused, its end to be brought into view (PIE-1703).
+    expect(harness.controller.state.selectedAnnotationId).toBe("annotation-1");
+    expect(harness.controller.state.previewRegions.focusedRegionId).toBe("annotation-thread:annotation-1");
+    expect(harness.controller.state.annotationReveal).toEqual({ threadId: "annotation-1", sequence: 1 });
+    expect(harness.controller.state.status).toBe("Reply added");
     for (const lifecycle of ["seen", "open"] as const) {
       await harness.controller.dispatch({ type: "annotation.thread.lifecycle" }, viewport);
       expect(harness.controller.state.annotationThreads[0]!.lifecycle).toBe(lifecycle);
@@ -1411,6 +1417,31 @@ describe("detail controller projection and deferred refresh", () => {
     await harness.controller.dispatch({ type: "buffer.copy" }, viewport);
     expect(harness.calls.copiedTexts).toEqual(["pha beta\ngam"]);
     expect(harness.controller.state.status).toBe("No text selected");
+  });
+
+  test("PgUp and PgDn page the editor by its drawn height (PIE-1703)", async () => {
+    const text = Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n");
+    const harness = createHarness(makeBlock({ text }));
+    const small: DetailViewport = { width: 30, editorWidth: 30, height: 12 };
+    const keys = createDetailKeyHandler({ controller: harness.controller, viewport: () => small, stop: () => {} });
+    const page = detailVisibleEditorHeight(harness.controller.state, small);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, small);
+    await harness.controller.dispatch({ type: "editor.cursor.place", visualRow: 0, contentColumn: 2 }, small);
+    expect(harness.controller.state.buffer.row).toBe(0);
+
+    await keys("", { name: "pagedown" }, "pass");
+    expect(harness.controller.state.buffer.row).toBe(page);
+    expect(harness.controller.state.buffer.column).toBe(2);
+    expect(harness.controller.state.editorVisualOffset).toBe(page);
+    await keys("", { name: "pagedown" }, "pass");
+    expect(harness.controller.state.buffer.row).toBe(page * 2);
+    await keys("", { name: "pageup" }, "pass");
+    expect(harness.controller.state.buffer.row).toBe(page);
+    expect(harness.controller.state.editorVisualOffset).toBe(page);
+    for (let press = 0; press < 6; press += 1) await keys("", { name: "pagedown" }, "pass");
+    expect(harness.controller.state.buffer.row).toBe(39);
+    expect(harness.controller.state.buffer.text).toBe(text);
   });
 
   test("keeps wheel viewport movement independent until cursor input resumes following", async () => {

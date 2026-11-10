@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerStore } from "../src/store";
 import type { WebMarkdownExtractor } from "../src/web-markdown";
+import { createPdfFixture } from "./pdf-fixture";
 
 const NOTES = "# Garden notes\n\nWater at  dawn, <kbd>not</kbd> noon &amp; never late.\n\n    indented: code block\n\n- peas\n  - snap\n";
 const PAGES: Record<string, { type?: string; body: string; etag?: string }> = {
@@ -25,6 +26,8 @@ const PAGES: Record<string, { type?: string; body: string; etag?: string }> = {
   "/switch": { type: "text/plain", body: "<p>Same bytes</p>", etag: '"switch-1"' },
 };
 let switched: false | "full" | "304" = false;
+// A PDF on the web, served as one (PIE-1702): the same bytes a `[file::…pdf]` reads.
+const PAPER = createPdfFixture([{ width: 300, height: 400, lines: [{ text: "Compost turns in nine weeks", x: 36, y: 350 }] }]);
 
 let server: Server;
 let base = "";
@@ -34,6 +37,12 @@ beforeAll(async () => {
   server = createServer((request, response) => {
     const path = request.url ?? "/";
     requests.push({ path, accept: request.headers.accept });
+    if (path === "/paper.pdf") {
+      response.setHeader("content-type", "application/pdf");
+      response.setHeader("content-length", String(PAPER.byteLength));
+      response.end(PAPER);
+      return;
+    }
     const page = PAGES[path];
     if (!page) { response.statusCode = 404; response.end(); return; }
     const fresh = path === "/switch" && switched === "full";
@@ -107,7 +116,7 @@ test("plain text reads as text; a page with no media type is read by its bytes; 
     const binary = await store.resources.refreshWeb(web(store, "/binary").id, true);
     expect(binary.webStatus?.freshness).toBe("failed");
     expect(binary.webStatus?.lastError).toBe(
-      "Web provider returned unsupported media type: application/octet-stream (it reads text/html, text/markdown and text/plain)",
+      "Web provider returned unsupported media type: application/octet-stream (it reads text/html, text/markdown, text/plain and application/pdf)",
     );
 
     const bareBinary = await store.resources.refreshWeb(web(store, "/bare-binary").id, true);
@@ -144,6 +153,36 @@ test("with no media type, only an HTML signature means HTML: an autolink first i
   try {
     expect((await store.resources.refreshWeb(web(store, "/bare-autolink.md").id, true)).web?.markdown).toBe(PAGES["/bare-autolink.md"]!.body);
     expect((await store.resources.refreshWeb(web(store, "/bare-comment.html").id, true)).web?.markdown).toBe("Comment first.");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a [web::…pdf] reads as a PDF, the way a file does, and an oversize one says the limit (PIE-1702)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-web-media-"));
+  let store = new OutlinerStore(join(root, "garden.sqlite"));
+  try {
+    // As Detail does: follow the authored link, then read it.
+    requests = [];
+    const { resource } = await store.resources.followAuthoredReference({ kind: "web", url: `${base}/paper.pdf` });
+    const read = await store.resources.refresh(resource.id, true);
+    expect(read.webStatus?.lastError ?? null).toBeNull();
+    expect(read.pdfError).toBeUndefined();
+    expect(read.pdf?.markdown).toContain("Compost turns in nine weeks");
+    expect(read.resource.mediaType).toBe("application/pdf");
+    // Opened again, it is a PDF from the start: no text-route fetch first.
+    requests = [];
+    const again = await store.resources.refresh(resource.id, true);
+    expect(again.pdf?.markdown).toContain("Compost turns in nine weeks");
+    expect(requests.map((request) => request.accept)).toEqual(["application/pdf"]);
+    store.close();
+
+    store = new OutlinerStore(join(root, "small.sqlite"), { maximumPdfBytes: 8 });
+    const small = await store.resources.followAuthoredReference({ kind: "web", url: `${base}/paper.pdf` });
+    const limited = await store.resources.refresh(small.resource.id, true);
+    expect(limited.pdf).toBeNull();
+    expect(limited.pdfError).toBe("PDF exceeds 8 bytes");
   } finally {
     store.close();
     rmSync(root, { recursive: true, force: true });

@@ -665,6 +665,20 @@ describe.skipIf(!outliner)("the power bar", () => {
     }
   });
 
+  test("a typed line the action refuses leaves the line empty, its why under \"this session\", and ↑ brings it back to fix (PIE-1701)", async () => {
+    key(ctrlK); type("tile.focus tile=nowhere-at-all");
+    key({ kind: "enter" });
+    await until(() => peek().bar?.runs.at(-1)?.line === "tile.focus tile=nowhere-at-all", "the refused run", 5000);
+    expect(peek().bar.runs.at(-1)).toMatchObject({ refused: true });
+    expect(peek().bar.runs.at(-1).answer).toContain("nowhere-at-all");
+    // The bar stays open, its line empty: the next words are a line of their own, not added to the refused one.
+    expect(peek().bar.query).toBe("");
+    expect(frame().join("\n")).toContain("refused: ");
+    key({ kind: "up" });
+    expect(peek().bar.query).toBe("tile.focus tile=nowhere-at-all");
+    closeBar();
+  });
+
   test("a paste lands whole in the bar's line, and an action line pasted with its arguments is the lit row that ⏎ runs (PIE-856)", async () => {
     key(ctrlK);
     // As a terminal sends it (bracketed paste), copied from a chat with its line break.

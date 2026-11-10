@@ -267,4 +267,13 @@ test("a press finds its button moved by an edit above it, and a gone sequence is
   expect(buttonPressed("Shelf", { line: 0, act: "status.log" })).toBeNull();
   // A press with no label isn't a note's button (a chip's, drawn at line 0): a button written on that line isn't it.
   expect(buttonPressed('::button{label="Go" act="status.log"}\nShelf', { line: 0, act: "theme.cycle" })).toBeNull();
+  // PIE-1699: an answer written in an open edit and not saved yet holds the button: the saved text first, then the typed one.
+  const typed = `Shelf\n@yo drop it\n> [!note]+ answered\n${button}`;
+  expect(buttonPressed("Shelf", { ...press, line: 3 }, typed)).toMatchObject({ line: 3, sequence: true });
+  expect(buttonPressed(drawn, press, typed)).toMatchObject({ line: 3 });
+  expect(() => buttonPressed("Shelf", press, "Shelf\nnothing typed")).toThrow("isn't in the note as it is now");
+  // The service runs the saved note's button on a line before the edit's: where the saved note has another button on the
+  // line the typed one is on, the press is refused (save first), never running the other one.
+  const other = 'Shelf\n\n\n::button{label="Water" act=["status.log"]}';
+  expect(() => buttonPressed(other, { ...press, line: 3 }, typed)).toThrow("save the note");
 });

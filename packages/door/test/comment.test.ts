@@ -153,7 +153,8 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(pane.session!.mode).toBe("compose");
     keys(pane, "Who reviews these?", d);
     pane.key(ctrl("s"), d);
-    await until(() => pane.session?.mode === "threads", "the comment to land");
+    // Written on the passage the reader picked, it lands where the composer was and the reader is back reading (PIE-1687).
+    await until(() => !pane.session || pane.session.done, "the comment to land");
 
     const list = await threads(b.id);
     expect(list).toHaveLength(1);
@@ -164,9 +165,8 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(flashes.at(-1)).toBe("comment added");
     expect((await current(b.id))!.text).toBe(NOTE);      // commenting didn't touch the note's text
 
-    // The thread list shows it; Esc back to the reader shows the count.
-    expect(plain(pane.render(80, 30, true, d).lines.join("\n"))).toContain('"release notes"');
-    pane.key({ kind: "esc" }, d);
+    // The reader shows it in place, open, and the byline counts it.
+    await until(() => plain(pane.render(80, 30, true, d).lines.join("\n")).includes("Who reviews these?"), "the thread in place");
     expect(pane.session).toBeNull();
     expect(plain(pane.render(80, 30, true, d).lines[2]!)).toContain("1 comment · short cards (M)");
   });
@@ -198,7 +198,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       pane.key({ kind: "enter" }, d);
       keys(pane, body, d);
       pane.key(ctrl("s"), d);
-      await until(() => pane.session?.mode === "threads", `the comment to land: ${body}`);
+      await until(() => !pane.session || pane.session.done, `the comment to land: ${body}`);
       expect((await threads(b.id)).map(t => t.body)).toEqual([body]);
       // The warning about a reference that leads nowhere follows the save (PIE-761), so on a fast machine it can be the
       // last flash by now: what matters is that the comment was added, not refused.
@@ -263,12 +263,12 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       expect(await threads(b.id)).toHaveLength(1);                   // it did land
 
       pane.key(ctrl("s"), d);
-      await until(() => pane.session?.mode === "threads", "the retry");
+      await until(() => !pane.session || pane.session.done, "the retry");
       expect(ids).toHaveLength(2);
       expect(ids[1]).toBe(ids[0]!);
       expect(await threads(b.id)).toHaveLength(1);                   // not twice
       expect(flashes.at(-1)).toContain("already saved");
-      expect(pane.session!.threads).toHaveLength(1);
+      await until(() => pane.surface.comments?.length === 1, "the one thread in the reader");
     } finally {
       delete (board as any).request;
     }
@@ -296,7 +296,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
       expect(pane.session!.error).toContain("second comment");
       await idle(pane);                                              // the first answer is in: keys typed before it wait (PIE-1613)
       pane.key(ctrl("s"), d);
-      await until(() => pane.session?.mode === "threads", "the confirmed send");
+      await until(() => !pane.session || pane.session.done, "the confirmed send");
       expect(sent).toBe(2);
       expect((await threads(b.id)).map((t: any) => t.body).sort()).toEqual(["First words", "First words, changed"]);
     } finally {
@@ -323,7 +323,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key(ctrl("r"), d);
     await until(() => !!pane.session?.composer?.note.startsWith("found the quote again"), "the quote to be found again");
     pane.key(ctrl("s"), d);
-    await until(() => pane.session?.mode === "threads", "the send");
+    await until(() => !pane.session || pane.session.done, "the send");
     const list = await threads(b.id);
     const now = (await current(b.id))!.text as string;
     expect(quoteOf(list[0]!.originalTarget.anchor).start).toBe(now.indexOf("Ship the release notes"));
@@ -345,7 +345,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key({ kind: "enter" }, d);
     expect(pane.session!.composer!.text).toBe("Keep me.");
     pane.key(ctrl("s"), d);
-    await until(() => pane.session?.mode === "threads", "the send");
+    await until(() => !pane.session || pane.session.done, "the send");
     expect(quoteOf((await threads(b.id))[0]!.originalTarget.anchor).exact).toBe("Ship it Monday.");
   });
 

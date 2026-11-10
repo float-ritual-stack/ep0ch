@@ -68,6 +68,7 @@ describe("the status bar keeps time while the door is idle", () => {
 import { afterAll, afterEach, beforeAll } from "bun:test";
 import { join } from "node:path";
 import { readStatusNote, StatusBarNote } from "../src/status-bar";
+import { buttonRows } from "../src/surface/button";
 import { SocketBoard, USER } from "../src/socket";
 import { openScreen } from "../src/desk/screen-specs";
 import { traceActions } from "../src/surface/actions";
@@ -445,6 +446,24 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       app.flush();
       expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).not.toContain("Pipe stopped");
     } finally { size.cols = 220; app.flash(""); }
+  });
+
+  test("at 44 columns a hovered button's why past four rows says … more, and the message log has it whole (PIE-1686, review)", async () => {
+    size.cols = 44;
+    const why = "this button can't run here: " + Array.from({ length: 12 }, (_, i) => `the bed ${i + 1} has no tile of its own`).join(", ") + ", and the last word is compost";
+    const screen = { title: "buttons", render: () => ({ lines: ["", ` ${buttonRows("Turn the compost", { state: "disabled", why })[0]}`, ...Array(37).fill("")] }), key() {} };
+    app.push(screen as any);
+    try {
+      (app as any).paint();
+      const y = painted.findIndex(l => visible(l).includes("Turn the compost")), x = visible(painted[y]!).indexOf("Turn");
+      await app.dispatch.press("text.hover", { x: x + 2, y });
+      (app as any).paint();
+      expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).toContain("more alt+M");
+      // The rest is in the message log (alt+M, or a click on the rows), whole, once however long the pointer rests.
+      await app.dispatch.press("text.hover", { x: x + 3, y });
+      (app as any).paint();
+      expect(app.messages.rows.filter(r => r.message === why)).toHaveLength(1);
+    } finally { app.pop(); size.cols = 220; }
   });
 
   test("at 44 columns a refusal past four rows says … more; a click opens the log, which draws it whole with its label, and the label opens (PIE-1453)", async () => {

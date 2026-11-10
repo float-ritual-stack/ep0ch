@@ -756,6 +756,11 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => asked().includes("answer") && asked().includes("--model sonnet"), "tidy's settings form, filled in", 8000)
       .catch(e => { throw new Error(`${e.message}\n${asked()}`); });
     for (let i = 0; i < 3 && app.bar && !app.bar.ended(); i++) press({ kind: "esc" });
+    // PIE-1705: [] is no command (no model), stored as none and read back as [], so the form puts back none, not the default.
+    await app.act({ action: "ext.tidy.settings", args: { answer: "[]" }, as: "test-agent" });
+    expect(JSON.parse(readFileSync(file, "utf8")).config.answer).toEqual([]);
+    await until(() => app.actions().actions.find(a => a.name === "ext.tidy.settings")?.args.answer?.default === "[]", "the form's answer reads []", 5000);
+    await expect(app.act({ action: "ext.tidy.settings", args: { answer: "[claude" }, as: "test-agent" })).rejects.toThrow("answer='[]' for none");
     await app.act({ action: "ext.tidy.settings", args: { answer: "" }, as: "test-agent" });
     expect(JSON.parse(readFileSync(file, "utf8")).config).toEqual({});
     // Installed by act, used once, uninstalled: its settings go with its folder.

@@ -139,8 +139,8 @@ export interface HostLayer {
   unnamed(sel: string): string | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
   put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
-  /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
-  keep(moved: MovedTile[]): Pane[];
+  /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. keepTogether: `run`'s keeps said once, in the drawer's order (a screen left with its groups, PIE-1697). */
+  keep(moved: MovedTile[]): Pane[]; keepTogether?(run: () => void): void;
   /** Why tiles like these couldn't be kept in the drawer now, or null. */
   keepRefusal(moved: Pick<MovedTile, "name" | "spec" | "kept">[]): string | null;
   /** The tile the drawer shows now (not its own tab), or null. */
@@ -865,7 +865,7 @@ export class App implements Ctx {
     this.quit();
     return null;
   }
-  private messageWarning = true;
+  private messageWarning = true; private messagePassing = false;   // a passing message (MessageDetails.passing) is never said whole above the bar
   readonly messages = new StatusLog();
   private showMessage(msg: string, ms: number, warning: boolean, details: MessageDetails = {}) {
     const meta = { ...messageContext.getStore(), ...details };
@@ -873,7 +873,7 @@ export class App implements Ctx {
     const desk = focus?.startsWith("drawer:") ? this.drawer.desk : tilesOf(this.stack.at(-1));
     const tile = meta.tile === undefined ? desk?.tileOutline().find(t => t.focused) : undefined;
     this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...meta });
-    this.messageWarning = warning; this.message = printable(msg, " ");
+    this.messageWarning = warning; this.message = printable(msg, " "); this.messagePassing = !!details.passing;
     if (details.href) this.message = `\x1b]8;;${new URL(details.href).href}\x1b\\${this.message}${OSC8_CLOSE}`;
     this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
   }
@@ -1229,7 +1229,7 @@ export class App implements Ctx {
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => (req.action === "button.press" || req.action === "button.slot") && req.args?.note !== undefined && req.tile === undefined,
-      on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
+      on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {}, layoutNewestSeq: () => (tilesOf(this.stack.at(-1)) ?? this.hostLayer.desks()[0])?.layoutNewestSeq() } }) }, // the newest layout step, so sources.undo takes back an agent's note= press whole (PIE-1700)
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
       open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, reveal),
@@ -1838,7 +1838,7 @@ export class App implements Ctx {
     const bar = this.statusBar(s, cols);
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
     // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
-    const whole = this.messageSaid?.cut && this.message ? referenceWords(this.message) : "";
+    const whole = this.messageSaid?.cut && this.message && !this.messagePassing ? referenceWords(this.message) : "";
     // Above the screen's own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays there to click.
     const at = Math.max(1, Math.min(chromeAt, lines.length));
     if (whole) lines = [...withWhole(lines.slice(0, at), whole, cols, this.messageWarning), ...lines.slice(at)];
@@ -1847,6 +1847,7 @@ export class App implements Ctx {
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(this.strips.draw(lines, cols, rows), cols, Date.now());
+    const saying = this.overflow.saying(); if (saying) { readable.lines = [...withWhole(readable.lines.slice(0, at), saying, cols, true), ...readable.lines.slice(at)]; if (wrap(printable(saying, " "), Math.max(1, cols - 2)).length > 4) this.messages.appendOnce(saying, { kind: "refusal" }); }   // a button's why under the pointer, said whole (PIE-1686)
     if (readable.overlay) placements = uncover(placements, readable.overlay);
     this.display.show(readable.lines, placements);
     this.speed.frame();

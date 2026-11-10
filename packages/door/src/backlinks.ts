@@ -1,6 +1,6 @@
 import { drawEllipsized, width } from "./style";
 import {
-  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkGroupExpanded, backlinkReferenceLabel, backlinkGroupRows, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
+  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkGroupExpanded, backlinkGroupRows, backlinkRowSuffix, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
   type BacklinkViewOptions, type BacklinkStageValue,
 } from "@ep0ch/outline-core/backlink-view";
 
@@ -29,21 +29,6 @@ export function backlinkStageSummary(group: BacklinkViewGroup): string {
 /** A collapsed group's rows are its open sources: how many more it holds, said on its header (`· 2 more`). */
 export function backlinkGroupHidden(group: BacklinkViewGroup, expanded: boolean): number {
   return expanded ? 0 : group.sources.length - backlinkGroupRows(group, false).length;
-}
-
-/** A row's dim suffix: stage, resolved, this note, the breadcrumb, Trash, then each reference kind ×N. */
-export function backlinkRowSuffix(source: BacklinkSource, where = ""): string {
-  const facets = source.facets;
-  return [
-    ...(facets?.stage ? [facets.stage.value] : []),
-    ...(facets?.comment?.resolved ? ["resolved"] : []),
-    ...(facets && facets.placement !== "other" ? [facets.placement === "self" ? "this note" : "inside this note"] : []),
-    // The line that links here and its anchor (PIE-884), after the facts about the note and before where it sits.
-    ...(where ? [where] : []),
-    source.parentContext,
-    ...(source.deletedRootId ? ["Trash"] : []),
-    ...source.referenceGroups.map(backlinkReferenceLabel),
-  ].join(" · ");
 }
 
 /** A control in the status line: clicking it (or its key) does what `control` names. */
