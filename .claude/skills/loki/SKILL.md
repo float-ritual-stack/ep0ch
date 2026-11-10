@@ -200,6 +200,11 @@ first, then opens the build log it links.
   in the app. Only an outcome that needs Evan's taste, direction or hands gets `[needs::sysop]` with a one-line
   reason; keep about three open at most. Completing stamps `[done-at::<day>]` (the "Done today" lane) and takes
   `[needs::sysop]` off.
+- **Notable at the close:** a ticket whose change is performance, infrastructure, cost, an incident or the
+  architecture gets `[notable::<kind>]` in the same step (`work_set` or `outline_set_property`). pie's "pie, this
+  week" page counts `type=roadmap-item AND notable AND done-at >= -7d`; no hand-written landed note is needed.
+- **Answered asks come off:** when Evan answers a `[needs::sysop]` note that isn't a ticket (a review, a health
+  note), take the property off in the same turn; nothing else removes it, and the page's Needs you keeps showing it.
 
 ## Briefing builders
 
