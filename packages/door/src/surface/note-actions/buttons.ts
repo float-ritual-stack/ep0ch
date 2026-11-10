@@ -108,7 +108,7 @@ export const BUTTON_DEFS = {
       value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
       next: { type: "string", optional: true, about: "after this, ask for these slots of the same button, in order (key,key: a re-pick of filled ones)" },
-      run: { type: "boolean", optional: true, about: "after the last slot is answered, press the button (the person's press that asked for them)" },
+      run: { type: "boolean", optional: true, about: "after the last slot is answered, press the button: the person's press that asked for them, or an agent's own (refused with why while a slot is empty); sources.undo then takes back the words and what that press did" },
       alt: { type: "boolean", optional: true, about: "the alt press's slot: the value is read as alt='s argument (a slot act= and alt= both read), and with run= its alt= runs" },
     },
     examples: [

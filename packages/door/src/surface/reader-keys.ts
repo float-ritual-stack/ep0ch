@@ -21,7 +21,7 @@ export const READER_GUARDS = {
   outline: "the note is the outline's",
   parent: "the note has a parent",
   preview: "it is a list's preview of a row's children",
-  resolvable: "a proposal can be resolved: the current one, the one shown, or the only one in view (with several in view, R asks which)",
+  resolvable: "a proposal can be resolved: the current one, the one shown, or the only one in view (with several in view, R asks which), and [ ] isn't on a line that runs (there R fetches it again)",
   proposal: "a proposal is shown, or is the current element",
   element: "an element is current ([ ] or a click)",
   tinted: "someone's focus mark is on the note",

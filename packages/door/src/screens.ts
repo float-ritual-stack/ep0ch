@@ -1675,6 +1675,7 @@ export class MessageReader implements Screen {
       ctx,
       // Framed in a desk's tile, the desk's layout undo and untrash are what its ctrl+z yields to (PIE-1470).
       ...(ctx.layoutUndoSeq ? { layoutUndoSeq: () => ctx.layoutUndoSeq!() } : {}),
+      ...(ctx.layoutNewestSeq ? { layoutNewestSeq: () => ctx.layoutNewestSeq!() } : {}),
       ...(ctx.untrash ? { untrash: (b: object) => ctx.untrash!(b) } : {}),
       redraw: () => ctx.redraw(),
       navigate: (m, how) => {

@@ -169,7 +169,7 @@ export class ScreenTile implements Pane {
       // Esc with nothing left in the screen: out of it when the person is in it, else the desk's own steps (a zoom, a dock, a float's keys).
       () => (this.inside ? this.goIn(false) : on().escaped ? on().escaped!() : nothingToClose(on().ctx)),
       // Its screen's ctrl+z, with nothing of its own, is the desk's (layout.undo, note.untrash): the one answer (PIE-1470).
-      () => ({ layoutUndoSeq: () => on().layoutUndoSeq?.(), untrash: (b: object) => on().untrash?.(b) ?? false }));
+      () => ({ layoutUndoSeq: () => on().layoutUndoSeq?.(), layoutNewestSeq: () => on().layoutNewestSeq?.(), untrash: (b: object) => on().untrash?.(b) ?? false }));
   }
 
   /** q with nothing left in its screen: out of it (the person was in it), else the screen holding it goes back. */

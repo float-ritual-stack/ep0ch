@@ -545,7 +545,9 @@ export class ScriptRuns {
         said([ended?.state ?? "done", ended?.error ?? ended?.message].filter(Boolean).join(" · "));
         if (trace) { actionAnswer = answer; effects.push(`${name}: ${JSON.stringify(answer)}`); }
         // A press's door steps say whether they changed anything (PIE-1626, PIE-1678): an answer of `changed: false` changed nothing.
-        if ((extension.doorActor || sequence) && (answer as { changed?: unknown } | null | undefined)?.changed !== false) this.doorMoved.set(undo, true);
+        // An extension's action that wrote nothing (`written: []`) changed nothing either.
+        const told = answer as { changed?: unknown; written?: unknown } | null | undefined;
+        if ((extension.doorActor || sequence) && told?.changed !== false && !(name.startsWith("ext.") && told?.changed === undefined && Array.isArray(told?.written) && !told.written.length)) this.doorMoved.set(undo, true);
         return answer;
       },
     });

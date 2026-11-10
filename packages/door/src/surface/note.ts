@@ -6899,7 +6899,8 @@ export class NoteSurface {
     if (own) this.modes.focus(own, true);
     for (const kind of this.attachments.kinds()) {
       const mode = kind === target ? null : this.attachedMode(kind);
-      if (mode && this.attachments.def(kind).tileKeys() && (!own || PRECEDENCE[mode.name as ModeName] >= PRECEDENCE[own.name as ModeName])) this.modes.focus(mode, false);
+      const d = this.attachments.def(kind);   // open as this kind: the `i` panel is the panel mode too, but no settings card
+      if (mode && d.owner() && d.tileKeys() && (!own || PRECEDENCE[mode.name as ModeName] >= PRECEDENCE[own.name as ModeName])) this.modes.focus(mode, false);
     }
   }
 
@@ -7352,14 +7353,11 @@ export class NoteSurface {
    * while that is still the newest (layout.undo); a layout changed since is left as it is, and said.
    */
   private async undoPress(then: NonNullable<LineUndo["then"]>, host: SurfaceHost, actor: Actor): Promise<Record<string, unknown>> {
-    if ("run" in then) return { undid: await this.undoExtension(host, actor, then.run) };
+    // The words are back already: an undo of what the press did that is refused (changed since, nothing to take back) is said, not thrown.
+    const kept = (e: unknown) => { const why = e instanceof Error ? e.message : String(e); asActor(host.ctx, actor).flash(`took the words back; what the press did stays: ${why}`); return { press: `kept: ${why}` }; };
+    if ("run" in then) return this.undoExtension(host, actor, then.run).then(undid => ({ undid }), kept);
     if (host.layoutNewestSeq?.() !== then.layout) { host.ctx.flash("took the words back; the layout changed since, so what the press did stays · ^W B undoes the newest"); return { press: "kept: the layout changed since" }; }
-    // The words are back already: a layout that refuses this actor's undo keeps what the press did, and says why.
-    try { return { undid: await host.ctx.dispatch!.act({ action: "layout.undo", args: { anywhere: true } }, actor) }; } catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      asActor(host.ctx, actor).flash(`took the words back; what the press did stays: ${why}`);
-      return { press: `kept: ${why}` };
-    }
+    return host.ctx.dispatch!.act({ action: "layout.undo", args: { anywhere: true } }, actor).then(undid => ({ undid }), kept);
   }
 
   private sourcesModeOf(P: SourcesPanel, host: SurfaceHost): SourcesMode {

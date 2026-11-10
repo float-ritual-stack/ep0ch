@@ -513,7 +513,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
   }, 30_000);
 
   test("ctrl+z after an alt press takes back the words and the title they gave; an agent's slot comes back with sources.undo (PIE-1666)", async () => {
-    const { reader, line } = await pressNote();
+    const { note, reader, line } = await pressNote();
     const was = await title();
     const asking = () => (app as any).bar?.describe() as { scope: string } | undefined;
     await act("button.press", { label: "title it", alt: true }, reader);
@@ -534,5 +534,11 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     const back = await act("sources.undo", {}, reader, AGENT);
     expect(await line("title it")).toBe(TITLE);
     expect(back.press ?? "").toMatch(/^kept: .*an agent doesn't lay the desk out/);
+    // The line the door hands an agent (note= and line=, no tile) writes where no reader is asked; the reader showing the note
+    // undoes it all the same: source writes are one history (PIE-1666).
+    await act("button.slot", { note: note.id, line: 2, key: "word", alt: true, value: "Corn patch", run: true }, undefined, AGENT);
+    await untilAsync(async () => (await title()) === "Corn patch", "the agent's note= press titling the preview");
+    await act("sources.undo", {}, reader, AGENT);
+    expect(await line("title it")).toBe(TITLE);
   }, 30_000);
 });

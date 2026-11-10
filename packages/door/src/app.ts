@@ -190,6 +190,8 @@ export interface Ctx {
   readonly glass?: FloatLayer; readonly hover?: Hover; // the float layer above every screen; what is under the pointer
   /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
   layoutUndoSeq?(): number | undefined;
+  /** The newest change on any of that desk's layouts (`layout.undo anywhere=true`'s): what a press finished by a slot took (PIE-1666). */
+  layoutNewestSeq?(): number | undefined;
   untrash?(board: object): boolean;
   /** Local extension undo owns the layout receipt; consume its broadcast without undoing twice. */
   readonly scriptUndos?: Set<string>;
