@@ -1278,7 +1278,8 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     const earlier = target.queuedFor && outlines.netmail ? outlines.netmail.pending(target.queuedFor, where.outline, target.id, { actorId: actor.actorId, subject: caller.sub }).filter(w => w.state === "queued") : [];
     let done: Awaited<ReturnType<typeof applyWrite>>;
     // The note a write changed comes back drawn by the door's own drawNote (PIE-588), as outline_read's view is.
-    const draw = async (id: string, o: { width: number; lines?: [number, number]; rows: number }) => (await drawNote(board, id, o.width, undefined, o.lines))?.map(l => visible(l).trimEnd()).slice(0, o.rows) ?? null;
+    // Each part it changed shares the rows (PIE-588): the cut is the drawing's, which knows how many rows each part draws.
+    const draw = async (id: string, o: { width: number; lines?: [number, number][]; rows: number }) => (await drawNote(board, id, o.width, undefined, o.lines ? { parts: o.lines, rows: o.rows } : undefined))?.map(l => visible(l).trimEnd()).slice(0, o.rows) ?? null;
     const hostedOutlines = async () => (await hostRequest(board.path, "outlines.list")).outlines.map(o => o.name);
     const askOutline = async (outline: string, { action, ...params }: { action: string } & Record<string, unknown>) => {
       const there = new SocketBoard(board.path, 15_000, outline);

@@ -677,3 +677,43 @@ test("a patch deep in a long section is drawn: its rows, under the section's hea
   expect(drawn).toContain("Bed log");
   expect(patched.json.view.length).toBeLessThanOrEqual(40);
 }, 30_000);
+
+test("a patch in two sections far apart draws each change under its own heading, within the budget (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  const rows = (what: string) => Array.from({ length: 30 }, (_, k) => `- ${what} ${k + 1}: done by the shed.`);
+  const made = await agent("create", { parent: "root", text: ["Bed log", "## Weeding", ...rows("Weed"), "## Sowing", ...rows("Sow")].join("\n") });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [
+    { observed: "- Weed 2: done by the shed.", replacement: "- Weed 2: the nettles came back." },
+    { observed: "- Sow 28: done by the shed.", replacement: "- Sow 28: the carrots came up thin." },
+  ] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  expect(patched.json.viewError).toBeUndefined();
+  const view = patched.json.view as string[], drawn = view.join("\n");
+  expect(drawn).toMatch(/nettles\s+came\s+back/);
+  expect(drawn).toMatch(/carrots\s+came\s+up\s+thin/);
+  // Each change under its heading: Sowing's is far above its change, so it's drawn as a line of its own.
+  expect(view.findIndex(l => l.includes("Weeding"))).toBeLessThan(view.findIndex(l => /nettles/.test(l)));
+  const sowing = view.findIndex(l => l.includes("Sowing"));
+  expect(sowing).toBeGreaterThan(view.findIndex(l => /nettles/.test(l)));
+  expect(sowing).toBeLessThan(view.findIndex(l => /carrots/.test(l)));
+  expect(drawn).not.toContain("Sow 10:");
+  expect(view.length).toBeLessThanOrEqual(40);
+  expect(patched.json.viewOf).toStartWith("lines 2–4, 33, 61–63 of 63");
+}, 30_000);
+
+test("a patch in more places than the drawing holds names the ones it left out (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  const rows = Array.from({ length: 90 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
+  const made = await agent("create", { parent: "root", text: ["Bed log", ...rows].join("\n") });
+  const note = store.require(made.json.id);
+  const at = [5, 20, 35, 50, 65, 80];
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: at.map(k => ({ observed: `- Row ${k}: weeded and watered.`, replacement: `- Row ${k}: mulched.` })) });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const drawn = (patched.json.view as string[]).join("\n");
+  for (const k of at.slice(0, 4)) expect(drawn).toContain(`Row ${k}: mulched.`);
+  expect(drawn).not.toContain("Row 80: mulched.");
+  expect(patched.json.viewOf).toContain("lines 66, 81 not drawn");
+  expect(patched.json.viewOf).toContain(`--lines 66,81`);
+}, 30_000);

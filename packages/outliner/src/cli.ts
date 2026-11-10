@@ -845,7 +845,7 @@ async function blockAndSiblings(ref: string): Promise<{ block: import("./types")
 function doorDrawer(at: { socket: string; outline?: string }) {
   return async (id: string, o: import("./agent-tools").NoteDrawing): Promise<string[] | null> => {
     const main = resolve(import.meta.dir, "../../door/src/main.ts");
-    const child = Bun.spawn([process.execPath, main, "show", id, "--width", String(o.width), "--rows", String(o.rows), ...(o.lines ? ["--lines", `${o.lines[0]}-${o.lines[1]}`] : [])], {
+    const child = Bun.spawn([process.execPath, main, "show", id, "--width", String(o.width), "--rows", String(o.rows), ...(o.lines ? ["--lines", o.lines.map(([a, b]) => a === b ? `${a}` : `${a}-${b}`).join(",")] : [])], {
       env: { ...process.env, EP0CH_SOCKET: at.socket, ...(at.outline ? { EP0CH_WS: at.outline } : {}) }, stdout: "pipe", stderr: "pipe", stdin: "ignore",
     });
     // The answer waits for it only so long (agent-tools' DRAW_BUDGET_MS): past that it's stopped, never left running.
