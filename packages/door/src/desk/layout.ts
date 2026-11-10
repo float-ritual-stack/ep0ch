@@ -137,9 +137,10 @@ export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number; id?: strin
 /**
  * A dock (PIE-505): a container holding any tiles (a tile, a tab set, a split of them) that slides out from
  * its `edge` over the others, or shuts to a handle. It sits in its parent split where it is pinned (its weight is
- * its size when open); `overlay: false` in its policy makes it take that room while open instead.
+ * its size when open); `overlay: false` in its policy makes it take that room while open instead. `keeps`: the one dock a
+ * rebuild keeps work in (a running program an undo has no place for, PIE-1571); the next one kept joins it (PIE-1575).
  */
-export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: boolean; view?: I[]; id?: string; policy?: Policy };
+export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: boolean; view?: I[]; id?: string; policy?: Policy; keeps?: true };
 /** The edge's choices overlay the saved arrangement; tucking them away never rearranges its tiles. */
 export function dockBody<I>(d: Dock<I>): LNode<I> { return d.view ? splitOf(d.edge === "left" || d.edge === "right" ? "col" : "row", d.view.map(leaf)) : d.kid; }
 /** Choose the tiles that slide out without changing the dock's saved arrangement. */
@@ -1021,7 +1022,7 @@ export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: numbe
 /** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
 export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number; id?: string; policy?: Policy };
 /** A dock as saved (PIE-505): what it holds, its edge, open or shut. */
-export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; view?: number[]; id?: string; policy?: Policy };
+export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; view?: number[]; id?: string; policy?: Policy; keeps?: true };
 const savedId = (x: any) => ({ ...(typeof x?.id === "string" && x.id ? { id: x.id as string } : {}), ...savedPolicy(x?.policy) });
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 /** The glyph a dock's header, its handle and a drop into it show for the edge it slides from. */
@@ -1064,7 +1065,7 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
   const x = s as any;
   if (x.t === "dock") {
     const kid = x.kid ? revive(x.kid, leafOf) : { t: "tabs" as const, ids: [], active: 0 }, ids = leaves(kid);
-    return { t: "dock", kid, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...(Array.isArray(x.view) ? { view: x.view.map((i: number) => ids[i]).filter((id: I | undefined): id is I => id !== undefined) } : {}), ...savedId(x) };
+    return { t: "dock", kid, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...(Array.isArray(x.view) ? { view: x.view.map((i: number) => ids[i]).filter((id: I | undefined): id is I => id !== undefined) } : {}), ...(x.keeps === true ? { keeps: true as const } : {}), ...savedId(x) };
   }
   if (x.t === "flow") {
     const kids: LNode<I>[] = (Array.isArray(x.kids) ? x.kids : []).map((k: any) => revive(k, leafOf));
@@ -1113,7 +1114,7 @@ const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || 
 export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> {
   if (n.t === "leaf") return leafOf(n.id);
   if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active, ...idOf(n) };
-  if (n.t === "dock") return { t: "dock", edge: n.edge, open: n.open, ...(n.view ? { view: n.view.map(id => leaves(n.kid).indexOf(id)) } : {}), kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
+  if (n.t === "dock") return { t: "dock", edge: n.edge, open: n.open, ...(n.view ? { view: n.view.map(id => leaves(n.kid).indexOf(id)) } : {}), kid: serialize(n.kid, leafOf) as NaryForm<L>, ...(n.keeps ? { keeps: true as const } : {}), ...idOf(n) };
   if (n.t === "columns") return { t: "columns", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.source ? { source: n.source } : {}), ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   if (n.t === "flow") {
     const col = (id: I | undefined) => columnOf(n, id);

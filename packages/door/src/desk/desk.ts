@@ -1238,8 +1238,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       } else this.tileLeaves(id, "rebuilt");
     }
     if (kept.length) { adopt?.kept.push(...kept.map(id => `${names.get(id)} ${kindOf(old.get(id)!)?.workWords?.(old.get(id)!) ?? "holds work"}`));
-      const kid: LNode = kept.length > 1 ? { t: "tabs", ids: kept, active: 0 } : leaf(kept[0]!);
-      tree = splitOf("row", [tree, { t: "dock", kid, edge: "right", open: false }], [0.7, 0.3]);
+      // One dock keeps them all (PIE-1575): what an earlier undo kept is in it already, and the newest is its tab in front.
+      const into = docks(tree).find(d => d.keeps), held = into ? leaves(into.kid) : [];
+      const ids = [...held, ...kept], kid: LNode = ids.length > 1 ? { t: "tabs", ids, active: ids.length - 1 } : leaf(ids[0]!);
+      if (into && (into.kid.t === "leaf" || into.kid.t === "tabs")) into.kid = kid;
+      else if (into) into.kid = splitOf("col", [into.kid, kept.length > 1 ? { t: "tabs", ids: kept, active: kept.length - 1 } : leaf(kept[0]!)], [0.5, 0.5]);
+      else tree = splitOf("row", [tree, { t: "dock", kid, edge: "right", open: false, keeps: true }], [0.7, 0.3]);
     }
     const wires: TileWire[] = [];
     this.selectSeeds.clear();
