@@ -8,8 +8,8 @@ import { rawKey } from "./kbd";
 import { asHintEsc, escByHint, escWordOf, DOOR_ESC, ESC_DRAWER, ESC_DRAWER_KEYS, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
 import { runningModules } from "./door-modules";
 import { nothingToClose } from "./shell-keys";
-import { keyCaption, keyName } from "./surface/actions";
-import { layerEntry } from "./surface/keymap";
+import { keyName } from "./surface/actions";
+import { layerEntry, movedSays } from "./surface/keymap";
 import { scriptBindings } from "./extensions";
 
 /** The App as these steps read it. */
@@ -31,9 +31,10 @@ export class DoorEsc {
   press(): void {
     const closes = escByHint() ? null : this.next();
     escPress(DOOR_ESC, doorEscSteps(this.a));
-    const { key, word } = closes ? escWordOf(closes) : { key: "esc", word: "" };
+    const { key, what, how } = closes ? escWordOf(closes) : { key: "esc", what: "", how: null };
     // Said only when it closed nothing: a line's popup still closes on Esc itself (completer.ts), and that's no lie to tell.
-    if (key !== "esc" && this.next() === closes) this.a.flash(`esc no longer closes ${word}: your keymap gives it ${keyCaption(key)} (? shows the keys)`);
+    // The way out's own words, what it closes apart from how (PIE-1719): "closes the comment (twice puts it aside)".
+    if (key !== "esc" && this.next() === closes) this.a.flash(movedSays("esc", `closes ${what}${how ? ` (${how})` : ""}`, [key]));
   }
   /** The key's work, for a click on the hint: what it closed. */
   close(): string | null { const closes = this.next(); asHintEsc(() => this.press()); this.a.redraw(); return closes && escWordOf(closes).word; }

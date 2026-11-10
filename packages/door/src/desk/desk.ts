@@ -442,9 +442,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: reader ? reader.surface.boxAt() : null, list: reader ? reader.surface.listAt() : null, ...(reader && shown ? { hero: reader.surface.heroInfo(shown) } : {}) };
   }
   paneNamed(name: string): Pane | undefined { const id = this.idNamed(name); return id === undefined ? undefined : this.panes.get(id); }
-  dismiss(p: Pane) {
+  dismiss(p: Pane, step = true) {
     const id = [...this.panes].find(([, q]) => q === p)?.[0];
-    if (id === undefined) return;
+    if (id === undefined) return; if (!step) { this.closeId(id, false); this.save(); return this.redraw(); }   // !step: its owner left this desk (an answer tile's reader, PIE-1716): no step of its own
     // An attached tile closing: the next of its kind opens the size this one was.
     if (p instanceof AttachedTilePane) this.attachedShare[p.attachment] = this.shareOf(id) ?? this.attachedShare[p.attachment] ?? 0.45;
     try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
@@ -6861,8 +6861,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** A program or supplied tile that ended is gone; its normal close rules no longer apply. */
-  private closeId(id: number) {
-    const r = this.ask({ op: "close", tile: id, gone: true });
+  private closeId(id: number, step = true) {
+    const r = this.ask({ op: "close", tile: id, gone: true }); if (r.ok && !step) this.asked.set(r, { ...this.asked.get(r)!, left: true });   // !step: the layout catching up, so an undo takes back the change that made it, never bounces on this
     if (!r.ok || !r.changed) return;
     this.commit(r); this.tileLeaves(id, "end");
   }

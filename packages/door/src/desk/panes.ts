@@ -33,6 +33,7 @@ import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
 import { AskAgainAt, heardBy, SearchSchedule } from "../search-schedule";
+import { tileRegistry } from "./tile-registry";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
 export interface PaneView { wide?: { row: number; col: number; cols: number }[]; frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
@@ -87,8 +88,8 @@ export interface DeskApi {
   paneNamed?(name: string): Pane | undefined;
   /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
   writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
-  /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
-  dismiss?(p: Pane): void;
+  /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended); `step` false: its owner left this desk, and the move that left it is the undo step (PIE-1716). */
+  dismiss?(p: Pane, step?: boolean): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
   answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
   selectionSource?(p: ReaderPane): Pane | null;
@@ -675,6 +676,9 @@ export class ReaderPane implements Pane, AttachedOwner {
       } } : {}),
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
+      // Where it is now (PIE-1716): the desk's one owner of where a tile is (the host layer's resolveTile) names the desk
+      // holding it after a move into a group or the drawer; still here, nothing (the host the caller has stands).
+      current: () => { const at = desk.ctx?.hostLayer?.resolveTile(tileRegistry.idOf(pane))?.desk; return at && at !== desk ? pane.host(at) : undefined; },
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       // Its attachments in tiles of their own (PIE-1536): one hand-off for every kind.

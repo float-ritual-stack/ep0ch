@@ -1,4 +1,4 @@
-import { DRAFT_ESC, escNext, escVia } from "../esc-rule";
+import { DRAFT_ESC, escHow, escNext, escVia } from "../esc-rule";
 import { pageRows } from "../scroll";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
@@ -963,7 +963,7 @@ export function draftEscCloses(d: Draft, noun: string): string | null {
     // Brought back and untouched, the second press lets the kept draft go (a copy stays on disk); with anything typed it puts it aside.
     draft: () => {
       const goes = d.restored !== null && d.restored === d.text;
-      return word(!d.written || d.stray() !== null ? noun : d.status.armed() === "discard" ? `${noun}, ${goes ? "dropped" : "put aside"}` : `${noun}, twice ${goes ? "drops it" : "puts it aside"}`);
+      return word(!d.written || d.stray() !== null ? noun : escHow(noun, d.status.armed() === "discard" ? (goes ? "dropped" : "put aside") : `twice ${goes ? "drops it" : "puts it aside"}`));
     },
   });
   // Esc is the draft's only until the keymap moves edit.close: then the hint names the key that is.

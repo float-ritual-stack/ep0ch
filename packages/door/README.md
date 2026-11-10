@@ -77,7 +77,9 @@ Write an `@name` ask on its own line and keep typing below it. The ask's quiet t
 not the rest of the draft. Its reply lands through `draft.patch`, attributed and undoable, folded under
 the ask. Clicking or moving the caret onto the ask opens its fold and selects the answer beside the note. In the answer tile, `f` opens or closes
 the fold, ↑/↓ or the wheel scrolls, and a click or 1–9 follows a link or presses a button. A button pressed there acts as it does in
-the note: a tile-relative one (`tile.agent`, `tile.title` with no `tile=`) acts on the reader you're typing in, never the answer tile. The paired tile leaves the editor's keys alone. The `asks` showcase demonstrates this with `@planter`.
+the note: a tile-relative one (`tile.agent`, `tile.title` with no `tile=`) acts on the reader you're typing in, never the answer tile. The paired tile leaves the editor's keys alone.
+Gather the reader into a group or put it in the drawer with the edit still open, and the next ask (or the caret on one) opens
+the answer beside it there; one left behind on the screen it moved from closes, as a comment's tile does when its reader goes. The `asks` showcase demonstrates this with `@planter`.
 
 A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
 default to read-only; `[effects::write]` declares writes and door actions. Runs are attributed to
@@ -2119,7 +2121,10 @@ a binding's keys, so moving `^W x` leaves the board's `x` alone; a key left out 
 
 The key, the ^W panel, the tile menu, the power bar and the desk's hint row follow it; a key you moved away says
 where it went, on the status bar wherever you type (esc after edit.close moved to alt+q: "esc no longer closes the
-query: your keymap gives it alt+q"). While `r` waits, every key is the window's (alt+u too, which the glass would take);
+query: your keymap gives it alt+q"; a way out that goes twice keeps its own words apart: "esc no longer closes the comment
+(twice puts it aside): your keymap gives it alt+q"). At 44 columns the sentence is drawn whole just above the bar. While
+`r` waits, every key is the window's (alt+u too, which the glass would take), and what the new key would do is said
+first in the detail, wrapped, so a 42-column keys tile shows who still gets it before anything else;
 a key a layer over every screen keeps first (the glass's alt+u) is said and listed in Conflicts, and a key some terminals
 never send (alt+[, alt+;: the Kitty keyboard protocol only) is said, never "free here". Edit it by hand too: the door reads it again within half a second and names a bad entry at the top of
 the window. Agents read and change it through the window's actions (`keys.find`, `keys.rebind id= key= to=`,

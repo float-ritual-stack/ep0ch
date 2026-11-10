@@ -1,5 +1,6 @@
 import { modeHint, type ModeKey } from "./modes";
 import { keyTable } from "./keymap";
+import { escWordOf } from "../esc-rule";
 
 // Pointer targets dispatch through their drawn hit records; these rows keep action metadata on the same table.
 const row = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, args });
@@ -68,6 +69,15 @@ export const COMMENT_KEYS: readonly ModeKey[] = keyTable("comment", "a comment b
   row("esc", "comment.escape", "close comment"), row("ctrl+s", "comment.send", "send"),
   say(row("ctrl+o", "comment.place", "placement"), "choose where the comment being written sits"), row("ctrl+g", "comment.grip", "move"), row("click", "comment.place", ""),
 ]);
+/**
+ * The comment's keys as its foot says them, from its way out's own words (`closes`, draftEscCloses): the key its draft's
+ * `edit.close` is on now, wherever the person's keymap put it (alt+q, PIE-1719), and "twice puts comment aside" only
+ * when the way out says it goes twice (something written, not only spaces).
+ */
+export function commentKeys(closes: string | null): ModeKey[] {
+  const { key, how } = escWordOf(closes ?? "");
+  return COMMENT_KEYS.map(r => (r.key === "esc" ? { ...r, ...(key !== "esc" ? { key } : {}), ...(how?.startsWith("twice") ? { label: "twice puts comment aside" } : {}) } : r));
+}
 export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "an edit's preview (ctrl+p)", [
   row("esc", "draft.preview", "close preview", { on: false }), row("ctrl+p", "draft.preview", "close preview", { on: false }),
   row("up", "draft.scroll", "scroll", { preview: true, by: -1 }), row("k", "draft.scroll", "scroll", { preview: true, by: -1 }),
