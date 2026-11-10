@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A dropped file with spaces in its name runs as an artifact, and a card's error reads whole (PIE-1656)
+
+- **A path written as a terminal's drop writes it names the file:** `[artifact::/made/up/LATE\ SHIFT.html]`, a quoted path, and any other escape (`\(`, `'it'\''s'`) are read as a shell reads one word, by outline-core's media line (`shellPath`), so the door, the service's copy on save, `artifacts.show` and the publisher all ask for the same file. The note keeps what you wrote. Before, the service asked for the backslashes and answered "isn't on laptop or float-2" for a file that was there.
+- **The card is titled by the whole name:** `fileName` no longer splits on `\`, so `Vent\ Rail.html` is "Vent Rail.html", not "Rail.html".
+- **A dropped HTML, JSX, SVG or Mermaid file becomes an artifact line:** dropped on the terminal while you edit, its path lands as `[artifact::<path>]` with its spaces as they are (pictures are still copied into `media/`; an artifact runs from where it is). Pasted after a typed `[artifact::` or `[img::`, a drop stays as it was pasted, on its one line.
+- **A card's "can't read it" reason wraps inside the tile,** at 44 columns too, so the part that says what to do is read whole; an image or video's "file not found" caption wraps the same way.
+- **One shell reader:** the door's drop (`droppedFiles`) and its file lookup (`resolveMediaPath`) read paths through outline-core's `shellWords` and `shellPath`, no longer their own.
+- **Run:** `ep0ch install --apply` (GRAMMAR 45 → 46: an older door still draws, warned once, and asks for the escaped path until it updates; no PROTOCOL or schema change).
+
 ### A choice left to Evan is a box he can tick (PIE-1657)
 
 - **The write review answers fix for a choice he can only read:** a `::graph-decision` whose `status:` is still open (proposed, open, pending…), or a `[needs::sysop…]` on a note with no open box. Its ready patch puts one `- [ ]` per option at the top and marks the note `[needs::sysop: …]`; ticked, the choice is answered.

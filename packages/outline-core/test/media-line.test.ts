@@ -1,7 +1,7 @@
 // The media line's grammar is shared (PIE-598): the service's property parser and every client agree on it.
 import { describe, expect, test } from "bun:test";
 import { artifactFolderPath, artifactKind, artifactRepoRef, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseImageLine, parseMediaLine, parsePictureFence, rewriteImageLine, rewritePictureFence, rewriteMediaLine, withHeroLine } from "../src/media-line";
-import { noteArtifactPaths } from "../src/picture-address";
+import { noteArtifactPaths, notePicturePaths } from "../src/picture-address";
 
 test("a media line is an image or video reference and its layout, nothing else", () => {
   expect(isMediaLine("[img::/p/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]")).toBe(true);
@@ -150,4 +150,24 @@ test("an artifact line names a folder that runs whole by its path from / or ~, a
   for (const value of ["lantern", "owner/lantern", "/srv/notes.txt", "/srv/lantern.html"]) expect(artifactFolderPath(value)).toBe(false);
   expect(parseMediaLine("[artifact::/srv/notes.txt]")?.problems).toEqual(["notes.txt isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid)"]);
   expect(noteArtifactPaths("Sites\n[artifact::/srv/sites/moth site]\n[artifact::lantern]\n[artifact::~/x/flat eden.html]\n[artifact::owner/lantern]")).toEqual(["/srv/sites/moth site", "~/x/flat eden.html"]);
+});
+
+test("a path written as a terminal's drop writes it names the file (PIE-1656): escapes and quotes read, the line kept as written", () => {
+  const file = "/made/up/LATE SHIFT.html";
+  for (const written of [String.raw`/made/up/LATE\ SHIFT.html`, `'${file}'`, `"${file}"`, file]) {
+    expect(parseMediaLine(`[artifact::${written}]`)!.path).toBe(file);
+    expect(parseMediaLine(`artifact:: ${written} [height::12]`)!.path).toBe(file);
+  }
+  expect(parseMediaLine(String.raw`[img::/made/up/plot\ at\ dusk.png]`)!.path).toBe("/made/up/plot at dusk.png");
+  expect(parseMediaLine(String.raw`[artifact::/made/up/lamp\ \(night\).html]`)!.path).toBe("/made/up/lamp (night).html");
+  expect(parseMediaLine(String.raw`[artifact::'/made/up/Robin'\''s page.html']`)!.path).toBe("/made/up/Robin's page.html");
+  // A quote that is part of the name, not quoting: as written.
+  expect(parseMediaLine("[artifact::/made/up/Robin's page.html]")!.path).toBe("/made/up/Robin's page.html");
+  // Its title is the whole name, never the part after a backslash.
+  expect(artifactTitle(parseMediaLine(String.raw`[artifact::/made/up/Vent\ Rail.html]`)!)).toBe("Vent Rail.html");
+  // A change to its layout keeps the path as the person wrote it.
+  expect(rewriteMediaLine(String.raw`[artifact::/made/up/LATE\ SHIFT.html]`, { height: "20" })).toBe(String.raw`[artifact::/made/up/LATE\ SHIFT.html] [height::20]`);
+  // What the service copies on save is the file, not the escapes.
+  expect(noteArtifactPaths(`Shift\n[artifact::/made/up/LATE\\ SHIFT.html]\n[artifact::'${file}']`)).toEqual([file]);
+  expect(notePicturePaths("Plot\n[img::'/made/up/plot at dusk.png']")).toEqual(["/made/up/plot at dusk.png"]);
 });

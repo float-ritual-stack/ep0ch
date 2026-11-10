@@ -846,7 +846,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       mediaRefs.push(ref);
       if (i === env.heroLine) {
         hero = { ...ref, media: entry };
-        out.push(caption(entry, spec, W, env, i, true));
+        out.push(...caption(entry, spec, W, env, i, true));
         continue;
       }
       const drawn = mediaRows(spec, W, env, i, entry);
@@ -1093,8 +1093,10 @@ export function mediaRows(spec: MediaSpec, W: number, env: DocEnv, line: number,
     // An SVG's links (PIE-1555): each <a href> a press over the cells it covers, under the picture, as a link in the text is.
     if (entry.state === "ready" && env.tag && !isHero) linkCells(lines, 0, box, pictureLinks(entry.path) ?? [], env.tag);
   }
-  lines.push(caption(entry, spec, W, env, line, isHero, laid));
-  return { lines, caption: lines.length - 1, entry, ...(image ? { image } : {}), ...(laid ? { box: laid } : {}) };
+  // The caption's first row is the image's own (its `[ ]` element); a reason it wraps goes under it.
+  const at = lines.length;
+  lines.push(...caption(entry, spec, W, env, line, isHero, laid));
+  return { lines, caption: at, entry, ...(image ? { image } : {}), ...(laid ? { box: laid } : {}) };
 }
 
 /**
@@ -1136,7 +1138,7 @@ const sizeControls = (env: DocEnv, line: number): string => env.image ? rowsCont
  * written, and its controls when the reader tags them (− + its size, ◂ ▸ where it sits, ▀ the header). It is also
  * the row the image's `[ ]` element is on.
  */
-function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: number, hero: boolean, box?: { cols: number; rows: number }): string {
+function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: number, hero: boolean, box?: { cols: number; rows: number }): string[] {
   const name = env.printed ? entry.path : entry.path.split("/").pop()!;
   const label = hero ? "▀ header" : spec.kind === "video" ? "▶" : "▣";
   const facts = [
@@ -1154,8 +1156,9 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
     : ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} ${ctl({ align: -1 }, "[◂]")}${ctl({ align: 1 }, "[▸]")} ${ctl({ hero: true }, "[▀]")}`;
   const room = Math.max(4, W - vwidth(controls));
   const fit = (x: string) => ellipsize(x, room);
-  if (entry.state === "loading") return fg(C.dark) + pad(fit(`◌ ${label} ${name} · ${waitingText()}`), room) + controls + RESET;
-  if (entry.state === "error") return fg(C.lred) + pad(`✗ ${label} ${name} · ${entry.reason}`, W) + RESET;
+  if (entry.state === "loading") return [fg(C.dark) + pad(fit(`◌ ${label} ${name} · ${waitingText()}`), room) + controls + RESET];
+  // Why it isn't there is read whole (PIE-1656), wrapped under its first row.
+  if (entry.state === "error") return wrap(`✗ ${label} ${name} · ${entry.reason}`, W).slice(0, MOST_REASON_ROWS).map(part => fg(C.lred) + pad(part, W) + RESET);
   const off = !env.graphics && env.noImages && !env.printed ? ` · ${env.noImages}` : "";
   const problems = spec.problems.length ? ` · ⚠ ${spec.problems.join(" · ")}` : "";
   // Why it isn't drawn comes before what it is: cut short, the facts go first.
@@ -1163,8 +1166,11 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
   // What's wrong is said in yellow, after what it is.
   const at = problems ? head.lastIndexOf(" · ⚠") : -1;
   const text = at >= 0 ? head.slice(0, at) + fg(C.yellow) + head.slice(at) + fg(C.dark) : head;
-  return (env.graphics ? fg(C.dark) : fg(C.cyan)) + pad(text, room) + controls + RESET;
+  return [(env.graphics ? fg(C.dark) : fg(C.cyan)) + pad(text, room) + controls + RESET];
 }
+
+/** The most rows a card's or a caption's reason takes: a whole sentence and its path at 44 columns, never a page of them. */
+const MOST_REASON_ROWS = 8;
 
 /**
  * An artifact's card (PIE-793): no script runs in a terminal, so the line is drawn as what it is, its kind on the frame,
@@ -1204,9 +1210,11 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
   if (facts2) out.push(row(fg(C.dark) + ellipsize(facts2, inner)));
   for (const x of said) {
     const ink = fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : x.startsWith("●") ? C.lgreen : x.startsWith("run: ") ? C.cyan : C.dark);
-    // Why a repo isn't live and the command that fixes it are read whole, wrapped on a narrow card; the rest is cut.
-    // A missing name's line holds the DNS records to add, so it gets the room they need.
-    const whole = deploy && /^(?:✗|●|○|run: )/.test(x) ? wrap(x, inner).slice(0, x.startsWith("○") ? 12 : 4) : [ellipsize(x, inner)];
+    // Why it can't be read, why a repo isn't live and the command that fixes it are read whole, wrapped on a narrow
+    // card (PIE-1656: what to do is at a reason's end); the rest is cut. A missing name's line holds the DNS records to
+    // add, so it gets the room they need.
+    const whole = x.startsWith("✗ can't read it") ? wrap(x, inner).slice(0, MOST_REASON_ROWS)
+      : deploy && /^(?:✗|●|○|run: )/.test(x) ? wrap(x, inner).slice(0, x.startsWith("○") ? 12 : 4) : [ellipsize(x, inner)];
     for (const part of whole) out.push(row(ink + part));
   }
   edge(out.length);

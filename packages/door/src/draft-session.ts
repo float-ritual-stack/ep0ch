@@ -257,7 +257,7 @@ export class DraftSession {
     host.run(a);
   }
 
-  /** What the last paste holds, when it is nothing but image files: its host's `drop` command takes it (draft.drop). */
+  /** What the last paste holds, when it is nothing but image or artifact files: its host's `drop` command takes it (draft.drop). */
   dropped = "";
   private pasteSoFar: string | null = null;
   /**
