@@ -18,7 +18,13 @@ const PAGES: Record<string, { type?: string; body: string; etag?: string }> = {
   "/bare.html": { body: "<!doctype html><html><body><h1>Bare page</h1><p>Still HTML.</p></body></html>" },
   "/binary": { type: "application/octet-stream", body: "\u0000\u0001" },
   "/bare-binary": { body: "\u0000\u0001\u0002" },
+  // Markdown that opens with an autolink, served with no media type: a `<` that isn't an HTML tag.
+  "/bare-autolink.md": { body: "<https://example.com/guide>\n\nRead  it twice.\n" },
+  "/bare-comment.html": { body: "<!-- kept -->\n<p>Comment first.</p>" },
+  // The same bytes and ETag, served first as text/plain, then as text/html (`switched` flips it).
+  "/switch": { type: "text/plain", body: "<p>Same bytes</p>", etag: '"switch-1"' },
 };
+let switched: false | "full" | "304" = false;
 
 let server: Server;
 let base = "";
@@ -30,8 +36,10 @@ beforeAll(async () => {
     requests.push({ path, accept: request.headers.accept });
     const page = PAGES[path];
     if (!page) { response.statusCode = 404; response.end(); return; }
-    if (page.etag && request.headers["if-none-match"] === page.etag) { response.statusCode = 304; response.end(); return; }
-    if (page.type !== undefined) response.setHeader("content-type", page.type);
+    const fresh = path === "/switch" && switched === "full";
+    if (page.etag && !fresh && request.headers["if-none-match"] === page.etag) { response.statusCode = 304; response.end(); return; }
+    if (path === "/switch" && switched) response.setHeader("content-type", "text/html");
+    else if (page.type !== undefined) response.setHeader("content-type", page.type);
     if (page.etag) response.setHeader("etag", page.etag);
     response.end(page.body);
   });
@@ -106,6 +114,36 @@ test("plain text reads as text; a page with no media type is read by its bytes; 
     expect(bareBinary.webStatus?.lastError).toBe(
       "Web provider returned no media type, and the page isn't text",
     );
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a snapshot's kind is its current representation's: the same bytes served as HTML stay HTML after a 304 (PIE-1694)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-web-media-"));
+  const store = new OutlinerStore(join(root, "garden.sqlite"));
+  try {
+    const page = web(store, "/switch");
+    switched = false;
+    expect((await store.resources.refreshWeb(page.id, true)).web?.markdown).toBe("<p>Same bytes</p>");
+    switched = "full";
+    expect((await store.resources.refreshWeb(page.id, true)).web?.markdown).toBe("Same bytes");
+    switched = "304";
+    expect((await store.resources.refreshWeb(page.id, true)).web?.markdown).toBe("Same bytes");
+  } finally {
+    switched = false;
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("with no media type, only an HTML signature means HTML: an autolink first is Markdown (PIE-1694)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-web-media-"));
+  const store = new OutlinerStore(join(root, "garden.sqlite"));
+  try {
+    expect((await store.resources.refreshWeb(web(store, "/bare-autolink.md").id, true)).web?.markdown).toBe(PAGES["/bare-autolink.md"]!.body);
+    expect((await store.resources.refreshWeb(web(store, "/bare-comment.html").id, true)).web?.markdown).toBe("Comment first.");
   } finally {
     store.close();
     rmSync(root, { recursive: true, force: true });

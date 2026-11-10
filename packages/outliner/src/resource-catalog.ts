@@ -2897,7 +2897,7 @@ export class ResourceCatalog {
         signal,
       );
       // A snapshot stored as text (its representation says so; no column does) keeps its text; only HTML is extracted again.
-      const storedKind: WebBodyKind = snapshot.sourceSnapshot && this.database.query("SELECT 1 FROM web_representations WHERE source_snapshot_id = ? AND adapter_id = ? LIMIT 1").get(snapshot.sourceSnapshot.id, WEB_TEXT_ADAPTER.id) ? "text" : "html";
+      const storedKind: WebBodyKind = snapshot.representation?.source_snapshot_id === snapshot.sourceSnapshot?.id && snapshot.representation?.adapter_id === WEB_TEXT_ADAPTER.id ? "text" : "html";
       const storedAdapter = webAdapterFor(storedKind, this.webExtractor);
       const representationMatchesExtractor =
         snapshot.representation?.source_snapshot_id === snapshot.sourceSnapshot?.id &&

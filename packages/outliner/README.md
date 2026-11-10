@@ -568,7 +568,7 @@ Click a resolved block row's disclosure triangle or press Right to inspect its o
   - `[web::https://example.com/guide]` addresses a web Resource. An HTML page
     is extracted to Markdown; a page served as `text/markdown` or `text/plain`
     is its own text; a page that names no media type is read by its first bytes
-    (a tag means HTML); any other type is refused naming it.
+    (an HTML signature such as `<html` or `<p` means HTML; a Markdown autolink is text); any other type is refused naming it.
   - `[jira::PC-515]` addresses an issue through the single configured Jira
     Source for project `PC`. Activation resolves the provider's immutable issue
     identity before interning it.

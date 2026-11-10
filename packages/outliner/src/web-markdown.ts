@@ -44,6 +44,9 @@ export function webAdapterCurrent(id: string, version: number, extractor: WebMar
 }
 
 const HTML_MEDIA_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+// The WHATWG sniffing standard's HTML signatures, after an optional byte-order mark: a Markdown autolink
+// (`<https://…>`) is not one.
+const HTML_SIGNATURE = /^\uFEFF?\s*(?:<!doctype html|<(?:html|head|script|iframe|h1|div|font|table|a|style|title|b|body|br|p)|<!--)[\s>]/i;
 const TEXT_MEDIA_TYPES = new Set(["text/markdown", "text/x-markdown", "text/plain"]);
 
 /** The media types a web Resource asks for and reads, in the Accept header's order. */
@@ -51,7 +54,7 @@ export const WEB_ACCEPT = "text/html,application/xhtml+xml,text/markdown,text/pl
 
 /**
  * The kind of a page by its media type (lowercased, no parameters; "" when it named none), or why it can't be read.
- * With no media type the body decides: one that opens with a tag is HTML, other text is text, a body with control
+ * With no media type the body decides: one that opens with an HTML signature is HTML, other text is text, a body with control
  * bytes is not a page this reads.
  */
 export function webBodyKind(mediaType: string, body: string): WebBodyKind | { readonly refused: string } {
@@ -63,7 +66,7 @@ export function webBodyKind(mediaType: string, body: string): WebBodyKind | { re
   if (/[\u0000-\u0008\u000e-\u001a\u001c-\u001f]/.test(body.slice(0, 4096))) {
     return { refused: "Web provider returned no media type, and the page isn't text" };
   }
-  return /^﻿?\s*</.test(body) ? "html" : "text";
+  return HTML_SIGNATURE.test(body) ? "html" : "text";
 }
 
 /**
