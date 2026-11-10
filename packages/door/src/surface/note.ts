@@ -861,7 +861,7 @@ export class NoteSurface {
   }
   leaveForm() { this.modes.drop("form"); }
   private formHit(x: number, y: number) {
-    return this.hits.find(h => "link" in h && h.link.form && h.row === y - (this.drawn?.heroRows ?? 0) && x >= h.from && x < h.to);
+    return this.hits.find(h => "link" in h && h.link.form && h.row === y - this.heroTop && x >= h.from && x < h.to);
   }
   /**
    * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
@@ -918,7 +918,7 @@ export class NoteSurface {
   private agentDraft: Draft | null = null;
   /** The property panel, while open (`i`). It holds the reader's keys; editing a value also holds the note. */
   get panel(): PropertyPanel | null { return (this.modes.get("panel") as PanelMode | null)?.panel ?? null; }
-  set panel(p: PropertyPanel | null) { if (p) this.modes.push(panelMode(this, p, (k, host) => this.panelKey(k, host), (x, y) => { const hit = this.hitAt(x, y); return hit && "prop" in hit ? hit : null; }, host => host.attachment ? 0 : this.drawn?.heroRows ?? 0, row => describeRow(row, this.src, this.msg!.text))); else this.modes.drop("panel"); }
+  set panel(p: PropertyPanel | null) { if (p) this.modes.push(panelMode(this, p, (k, host) => this.panelKey(k, host), (x, y) => { const hit = this.hitAt(x, y); return hit && "prop" in hit ? hit : null; }, host => host.attachment ? 0 : this.heroTop, row => describeRow(row, this.src, this.msg!.text))); else this.modes.drop("panel"); }
   /** The summary keys the host gave for the note shown (a lane's), refreshed on every render. */
   private viewKeys: readonly string[] | null = null;
   /** Where this reader's property, link and embed reads go (its host's connection), from the last host seen. */
@@ -1392,7 +1392,7 @@ export class NoteSurface {
     const hero = this.heroOf(w, h, host); if (!hero) this.heroHits = [];
     this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over", max: Math.floor(h / 2), picture: hero.box.rows };
     let v = this.renderNote(w, h, host);
-    const shown = this.drawn?.heroRows ?? 0;
+    const shown = this.heroTop;
     if (hero && shown) {
       const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
       if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · ${waitingText()}`, w));
@@ -1420,7 +1420,7 @@ export class NoteSurface {
    * image. A picture under the box isn't drawn while it's there.
    */
   private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup", focused: boolean): SurfaceView {
-    const heroRows = this.drawn?.heroRows ?? 0;
+    const heroRows = this.heroTop;
     const lines = this.innerFrame ? v.lines : v.lines.slice(heroRows), room = Math.max(lines.length, h - heroRows);
     let box!: ComposerBox;
     this.boxRect = attachedRect(place, w, room, {
@@ -1451,7 +1451,7 @@ export class NoteSurface {
   private renderSplit(w: number, h: number, host: SurfaceHost | undefined, c: { d: Draft; f: EditFrame }): SurfaceView {
     return this.attachments.beside(w, h, (cols, rows, row, col) => {
       const box = composerBox(c.d, c.f, cols, rows, true);
-      placeBox(c.d, box, row - (this.drawn?.heroRows ?? 0), col);
+      placeBox(c.d, box, row - this.heroTop, col);
       return { lines: box.lines, placements: previewPictures(c.d, row, rows) };
     }, (cols, rows) => this.renderReading(cols, rows, host, null), this.session?.composer === c.d ? "comment" : undefined);
   }
@@ -2999,7 +2999,7 @@ export class NoteSurface {
   private replyRowAt(x: number, y: number): LinkRow | undefined {
     const mode = this.replyLinks;
     if (!mode) return;
-    y += this.drawn?.heroRows ?? 0;
+    y += this.heroTop;
     const r = mode.rect;
     if (x < r.x || x >= r.x + r.w || y <= r.y || y >= r.y + r.h) return;
     return mode.rowsAt[mode.drawnItems[y - r.y - 1] ?? -1];
@@ -3041,7 +3041,7 @@ export class NoteSurface {
       editing: () => false, covers: () => false,
       key: k => { const b = modeBinding(REVISION_KEYS, k); if (b) run(b.action, b.args); return !!b; },
       click: (x, y) => {
-        y += this.drawn?.heroRows ?? 0;
+        y += this.heroTop;
         const r = mode.rect;
         // A click outside it while a comment is being written gives the comment its keys back; one in it, the compare.
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.session && this.modes.active(mode)) run("revision.focus", { on: false }); return undefined; }
@@ -3050,7 +3050,7 @@ export class NoteSurface {
         return true;
       },
       wheel: (dir, _host, at) => {
-        const r = mode.rect, y = at ? at.y + (this.drawn?.heroRows ?? 0) : -1;
+        const r = mode.rect, y = at ? at.y + this.heroTop : -1;
         if (!at || at.x < r.x || at.x >= r.x + r.w || y < r.y || y >= r.y + r.h) return false;
         run("revision.scroll", { by: dir * 3 }); return true;
       },
@@ -3110,7 +3110,7 @@ export class NoteSurface {
         return true;
       },
       click: (x, y, host) => {
-        y += this.drawn?.heroRows ?? 0;
+        y += this.heroTop;
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
         if (y === r.y) {
@@ -3668,7 +3668,7 @@ export class NoteSurface {
       click: (x, y, host) => {
         const w = writing(), r = w && completerOf(w)?.within(x, y) ? null : this.boxRect;
         if ((cs.place === "floating" || cs.place === "popup") && r && (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) return undefined;
-        if (this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host) === "comment" && this.sourcesMode) void this.runKey("sources.focus", { on: false }, host);
+        if (this.floatAt(x, y + this.heroTop, host) === "comment" && this.sourcesMode) void this.runKey("sources.focus", { on: false }, host);
         const d = writing();
         return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false;
       },
@@ -4164,7 +4164,7 @@ export class NoteSurface {
       chip: () => {
         const control = (this.session?.composer ? this.session.composer.views.raw.frame : null)?.controls.find(c => c.action === "place");
         if (!control) throw new ActionRefused("write a comment in a reader at least 28 columns wide to show its placement chip");
-        return { col: control.from, row: control.row + (this.session?.place === "tile" ? 0 : this.drawn?.heroRows ?? 0) };
+        return { col: control.from, row: control.row + (this.session?.place === "tile" ? 0 : this.heroTop) };
       },
       // The thread list (m) goes into its tile beside the note and back over it (PIE-846); a comment anywhere.
       refuse: (want, _side, asked) => this.session?.mode !== "compose" && asked !== undefined && want !== "tile" && this.session?.place !== "tile" ? "the thread list is drawn over the note, or in its own tile beside it: place=tile" : null,
@@ -4255,7 +4255,7 @@ export class NoteSurface {
   /** A right-click at the surface's cell `x`, `y` is an element's own (a step's box, a callout's type: its choice opens there). */
   ownsRightClick(x: number, y: number): boolean {
     // The note's rows are under its header image, as a click finds them.
-    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
+    const h = this.hitAt(x, y - this.heroTop);
     return !!h && "link" in h && (h.link.role === "task" || h.link.role === "callout");
   }
 
@@ -4265,17 +4265,17 @@ export class NoteSurface {
    * so the tile menu that opens there is about it (its "pin to status bar", PIE-1415). Null anywhere else.
    */
   pointAt(x: number, y: number, host: SurfaceHost): Promise<unknown> | null {
-    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0)), i = h && "link" in h && h.link.press && h.elem ? this.elems.findIndex(el => el.key === h.elem) : -1;
+    const h = this.hitAt(x, y - this.heroTop), i = h && "link" in h && h.link.press && h.elem ? this.elems.findIndex(el => el.key === h.elem) : -1;
     return i < 0 ? null : this.runKey("element.select", { n: i + 1 }, host);
   }
 
   hoverAt(x: number, y: number): { target?: LinkTarget; collection?: ListView; rect: { col: number; row: number; cols: number; rows: number } } | null {
-    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
-    const point = h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + (this.drawn?.heroRows ?? 0), cols: h.to - h.from, rows: 1 } } : null;
+    const h = this.hitAt(x, y - this.heroTop);
+    const point = h && "link" in h && (h.link.block || h.link.page) ? { target: h.link, rect: { col: h.from, row: h.row + this.heroTop, cols: h.to - h.from, rows: 1 } } : null;
     for (const l of this.listsDrawn.filter(l => l.collection)) {
       const hits = this.hits.filter(h => "link" in h && h.link.listRow?.key === l.key);
-      const col = Math.min(...hits.map(h => h.from)), row = Math.min(...hits.map(h => h.row)) + (this.drawn?.heroRows ?? 0);
-      const cols = Math.max(...hits.map(h => h.to)) - col, rows = Math.max(...hits.map(h => h.row)) + (this.drawn?.heroRows ?? 0) - row + 1;
+      const col = Math.min(...hits.map(h => h.from)), row = Math.min(...hits.map(h => h.row)) + this.heroTop;
+      const cols = Math.max(...hits.map(h => h.to)) - col, rows = Math.max(...hits.map(h => h.row)) + this.heroTop - row + 1;
       if (x >= col && x < col + cols && y >= row && y < row + rows) return { ...point, collection: l.view, rect: point?.rect ?? { col, row, cols, rows } };
     }
     return point;
@@ -5679,6 +5679,8 @@ export class NoteSurface {
   }
   /** How many rows the header image takes now, or null when the reader doesn't draw one. */
   heroRowsDrawn(): number | null { return this.hero?.full ?? null; }
+  /** The rows the header image took above the body in the last render (none before one): what a cell's row is under. */
+  private get heroTop(): number { return this.drawn?.heroRows ?? 0; }
 
   /**
    * Change an image's line (PIE-532): its layout properties (`set`), and with `others`, other image lines of the
@@ -5987,10 +5989,10 @@ export class NoteSurface {
     const heroLink = this.heroLinkAt(x, y);
     if (heroLink && !this.editing && !this.floatAt(x, y, host)) return this.pressLink(heroLink.link, undefined, this.cur, undefined, !!host.freshClick, host);
     // The note's rows are under its header image (PIE-532).
-    y -= host.attachment ? 0 : this.drawn?.heroRows ?? 0;
+    y -= host.attachment ? 0 : this.heroTop;
     // The `[ ]` position as the click found it: a click's own reading.place lets go of it first.
     const was = this.cur;
-    const float = this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host);
+    const float = this.floatAt(x, y + this.heroTop, host);
     if (float) { this.attachedMode(float)?.click(x, y, host); return true; }
     const h = this.hitAt(x, y);
     if (h && ("listPreview" in h || "sources" in h || "zoom" in h)) return this.pressTarget(h, host, was);
@@ -5998,14 +6000,14 @@ export class NoteSurface {
     const taken = this.modes.click(x, y, host);
     if (taken !== undefined) return taken;
     if (!this.editing && !host.attachment) {
-      const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0));
+      const line = this.sourceLineAt(y + this.heroTop);
       const p = this.msg && this.foldsIn(this.msg).points.find(p => this.foldsIn(this.msg!).lines[p.line] === line && this.previews(p));
       if (p && !(h && "link" in h)) {
         const e = this.elems.find(e => e.key === `fold:${p.key}`);
         if (e) { void this.runKey(was === e.key ? "element.open" : "element.select", { n: this.elems.indexOf(e) + 1 }, host); return true; }
       }
     }
-    if (!this.editing) { const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0)); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
+    if (!this.editing) { const line = this.sourceLineAt(y + this.heroTop); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
     // The header image: a click on it makes it the `[ ]` position, as a click on any image does.
     if (y < 0) { const i = this.elems.findIndex(e => !!e.link?.media && e.link.image?.line === this.hero?.line); if (i >= 0) void this.runKey("element.select", { n: i + 1 }, host); return i >= 0; }
     return this.pressTarget(h, host, was);
@@ -7325,12 +7327,12 @@ export class NoteSurface {
       },
       click: (x, y, host) => {
         if (mode.place === "tile" && host.attachment !== "sources") return undefined;
-        y += host.attachment ? 0 : this.drawn?.heroRows ?? 0;
+        y += host.attachment ? 0 : this.heroTop;
         const r = mode.rect;
         // Another attachment drawn over it there takes the click (the layer's order: the last painted is on top).
         const over = this.floatAt(x, y, host);
         if (over && over !== "sources") return undefined;
-        if (mode.place === "inline" && y < (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) return undefined;
+        if (mode.place === "inline" && y < (this.drawn?.top ?? 0) + this.heroTop) return undefined;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) {
           if (this.floatAt(x, y, host) === "sources") { run("sources.focus", { on: true }); return true; }
           if (this.modes.active(mode)) run("sources.focus", { on: false });
@@ -7971,7 +7973,7 @@ export class NoteSurface {
         pointer.clicks.press(x, y); pointer.hold({ kind: "form", shift }); return;
       }
     }
-    const control = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
+    const control = this.hitAt(x, y - this.heroTop);
     if (!this.editing && !(control && "link" in control && control.link.role === "figure") && !this.floatAt(x, y, host) && this.figureSizing.edge(x, y)) { void this.runKey("figure.resize", { phase: "start", x, y }, host); return; }
     if (this.placementMenu) { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
@@ -7992,7 +7994,7 @@ export class NoteSurface {
     const split = !float && this.attachments.divider(x, y);
     if (split) { pointer.hold({ kind: "split", frame: split }); return; }
     const sm = this.sourcesMode, r = sm?.rect;
-    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && (!float || float === "sources") && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + this.heroTop) && (!float || float === "sources") && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
       if (y >= r.y + sm.footer) { pointer.clicks.press(x, y); pointer.hold({ kind: "control" }); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y - 1 + sm.view.top, col: x - r.x }, host);
       pointer.hold({ kind: "sources", letGo: () => sm.view.release() });
@@ -8007,7 +8009,7 @@ export class NoteSurface {
     const beside = this.attachments.besideRect;
     if (this.editing && (!this.replyParent || !beside || (x >= beside.x && y >= beside.y))) {
       // The composer is drawn in the note (PIE-770), under its header image: its cells are the note's, as a click's are.
-      y -= this.drawn?.heroRows ?? 0;
+      y -= this.heroTop;
       // `keepCursor`: the press that brought the keys back to a draft left open here (PIE-812). It still presses (a
       // frame control runs on its release), but the cursor and selection stay where the person left them.
       const d0 = keepCursor ? this.writingDraft : null;
@@ -8061,7 +8063,7 @@ export class NoteSurface {
         return;
       }
       // The comment's frame was pressed in the composer's cells, under the header image.
-      case "frame": this.dragFrame(g, x, g.target === "comment" ? y - (this.drawn?.heroRows ?? 0) : y, host); return;
+      case "frame": this.dragFrame(g, x, g.target === "comment" ? y - this.heroTop : y, host); return;
       case "sources": {
         const sm = this.sourcesMode;
         if (sm) void this.runKey("sources.select", { phase: "drag", row: Math.max(0, y - sm.rect.y - 1) + sm.view.top, col: Math.max(0, x - sm.rect.x) }, host);
@@ -8070,7 +8072,7 @@ export class NoteSurface {
       case "reply": case "control": clicks.drag(x, y); return;
       case "draft":
         clicks.drag(x, y);
-        if (g.placed && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw();
+        if (g.placed && this.modes.press(x, y - this.heroTop, host, true)) host.redraw();
         return;
       case "text": {
         const p = clicks.pressed;
