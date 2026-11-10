@@ -58,7 +58,7 @@ export function openSettings(surface: NoteSurface, subject: SettingsSubject): Se
   surface.panel ??= new PropertyPanel();
   surface.panel.full = false;
   const card = new SettingsCard(subject.schemas, subject.list?.key);
-  if (surface.panel.card?.id !== card.id || surface.panel.card?.list !== card.list) surface.panel.card = card;
+  if (surface.panel.card?.id !== card.id || surface.panel.card?.list !== card.list) { card.place = surface.attachments.keptPlace("settings") ?? card.place; surface.panel.card = card; }
   surface.attachedKeys("settings");
   return surface.panel.card;
 }
