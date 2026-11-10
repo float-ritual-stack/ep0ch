@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A rebound draft key tells the truth in the keys window, the power bar, `act` and the status bar (Nov 3 review card 1, #1390 walk follow-ups)
+
+- **A rebind another table reaches first is a Conflict:** `draft.erase to=word-back` on alt+j does nothing in the power bar, where `bar.docs` scrolls on alt+j before the line's table. The keys window's Conflicts tab lists it (the bar's binding runs, the rebind doesn't, and why); a built-in row never counts (tab completes in the bar by design).
+- **The old key in the power bar says where it went:** ctrl+w after erase-word moved says "^W no longer runs draft.erase to=word-back: your keymap gives it alt+e", as it does in a draft.
+- **`act` lists a rebind once:** `actions` showed `alt+z: yours: to=word-back` three times for `draft.erase`; reading an action's keys again no longer repeats a row of yours.
+- **The rebound `edit.close` closes from every host and the status bar names it:** a completion popup, an inspector value, the comment's own esc row (`comment.escape`) and the lanes' composer follow the key `edit.close` is on; the status bar's way-out reads `alt+q: the edit, put aside` instead of `esc: …`, and a click on it (`esc.close`) still closes. Where Esc is a host's own action (the power bar's clear-then-close, a filter's) it stays.
+- **In the kitchen sink:** the keys section's test also reads the way-out as `alt+q: the edit`.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
 ### A refusal says which kind it is on the wire, and clients stop reading its words (Nov 3 review, card 13)
 
 - **Every refusal carries a `kind`:** the outline host's failure envelope, the door's control socket (`ActionRefused`) and the MCP tool error say `stale-revision`, `moved`, `conflict`, `not-found`, `ambiguous`, `busy`, `no-access`, `invalid`, `unavailable` or `failed` (outline-core `refusal.ts`, the one closed list). A refusal nobody classified is `failed`.

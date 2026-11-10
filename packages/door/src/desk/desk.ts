@@ -1,5 +1,5 @@
 import { Again } from "../arm";
-import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, escRead, type EscRead, type EscRung } from "../esc-rule";
+import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, escRead, escSays, escWordOf, type EscRead, type EscRung } from "../esc-rule";
 import { deskEscFront, deskEscSteps, deskLiftEsc, type DeskEscHost } from "./desk-esc";
 import { returnPlace, mapPlace } from "./return-place";
 import { AGAIN_PART, LEAVE_PART, readerHeldParts, escFoot } from "../hint-parts";
@@ -4683,7 +4683,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
     }
     // What the next Esc closes (PIE-1614), in place of any part that says Esc again: first, where a float over the row's end doesn't hide it, and kept when the row is narrow.
-    if (closes) tabs.unshift({ label: `esc: ${closes}`, ...(cols >= 40 ? { keep: true } : { short: "esc" }), hit: { action: "esc.close" } });
+    if (closes) tabs.unshift({ label: escSays(closes), ...(cols >= 40 ? { keep: true } : { short: escWordOf(closes).key }), hit: { action: "esc.close" } });
     const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, overflow: "drop", style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
     // A click is strip.pick while an App paint records the strip; a desk drawn on its own presses a chip's action
     // itself, and a keyed part's key as typed (the key spots after), as a screen on a stand-in context does.

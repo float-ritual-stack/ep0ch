@@ -11,6 +11,7 @@ import { ScreenTile } from "../src/desk/screen-tile";
 import { SocketBoard } from "../src/socket";
 import { KeyDecoder } from "../src/term";
 import { completerOf } from "../src/surface/completer";
+import { escSays } from "../src/esc-rule";
 import { reloadKeymap, setKeys } from "../src/surface/keymap";
 import { visible } from "../src/style";
 import { outliner, Scratch, until } from "./scratch";
@@ -131,6 +132,38 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
       await d.feed(ESC);
       expect(d.reader().surface.draft).toBeFalsy();
       expect(said() ?? "").not.toContain("edit");
+    } finally { d.quit(); }
+  });
+
+  test("edit.close moved to alt+q: the popup and the edit close on it, the hint row names it, Esc is left alone, the hint's click still closes (Nov 3 review card 1)", async () => {
+    process.env.EP0CH_EDIT_ARM = "off";
+    setKeys("edit.close", ["alt+q"]); reloadKeymap();
+    const d = await door();
+    try {
+      const said = () => escSays(d.app.esc.next() ?? "");
+      const row = () => (d.desk.render(d.app).lines as string[]).map(visible).find(l => l.includes("alt+q:")) ?? "";
+      await d.feed("e");
+      await until(() => !!d.reader().surface.draft, "the edit opens");
+      await d.feed("xy [[Ven");
+      await until(() => !!completerOf(d.reader().surface.draft!)?.shown, "the popup");
+      expect(said()).toBe("alt+q: the popup");
+      expect(row()).toContain("alt+q: the popup");
+      await d.feed(ESC);
+      expect(completerOf(d.reader().surface.draft!)?.shown).toBeTruthy();
+      await d.feed("\x1bq");
+      expect(completerOf(d.reader().surface.draft!)?.shown).toBeFalsy();
+      expect(d.reader().surface.draft).toBeTruthy();
+      expect(said()).toBe("alt+q: the edit, twice puts it aside");
+      expect(row()).toContain("alt+q: the edit");
+      await d.feed(ESC);
+      expect(d.reader().surface.draft).toBeTruthy();
+      // The hint's own click is the key: it puts the typed text aside in two presses, as alt+q would.
+      await d.app.dispatch.press("esc.close", {});
+      expect(d.reader().surface.draft).toBeTruthy();
+      expect(said()).toBe("alt+q: the edit, put aside");
+      await sleep(400);
+      await d.app.dispatch.press("esc.close", {});
+      await until(() => !d.reader().surface.draft, "the edit put aside");
     } finally { d.quit(); }
   });
 

@@ -14,7 +14,7 @@ export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, NotePictures, bandBesidePicture, pictureEdits, pictureRows, pictureRowsOf, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
-import { READER_ESC, escNext, escPress } from "../esc-rule";
+import { READER_ESC, asHintEsc, escNext, escPress } from "../esc-rule";
 import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
 import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
@@ -4042,8 +4042,8 @@ export class NoteSurface {
     return true;
   }
 
-  /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. */
-  commentEscape(host: SurfaceHost) { return this.session ? this.commentKey(this.session, { kind: "esc" }, host, true) : false; }
+  /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. comment.escape (esc, its own row) is the composer's edit.close key, wherever the keymap put that. */
+  commentEscape(host: SurfaceHost) { const s = this.session; return s ? asHintEsc(() => this.commentKey(s, { kind: "esc" }, host, true)) : false; }
 
   private commentKey(s: CommentSession, k: Key, host: SurfaceHost, escape = false): boolean {
     if (!escape && s.mode === "compose" && s.composer && !s.busy && !s.composer.busy && !completerOf(s.composer)?.shown) {

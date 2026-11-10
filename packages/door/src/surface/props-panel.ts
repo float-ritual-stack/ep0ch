@@ -194,7 +194,7 @@ export class PropertyPanel {
       if (f.session.holding(k, held => { f.input.take(held); })) return null;
       // An open completion popup takes ⏎, esc and the arrows first (the line's own keys, PIE-626); what it leaves is the panel's.
       if (f.input.take(k)) { f.session.status.say(""); return null; }
-      if (k.kind === "esc") return "cancel";
+      if (f.input.closesBy(k)) return "cancel";
       // ⏎, and the draft's own save and reload keys (ctrl+s, ctrl+r: DRAFT_KEYS, as every place a person types has them).
       const bound = f.input.binding(k)?.action;
       return k.kind === "enter" || bound === "edit.save" ? "save" : bound === "edit.reload" ? "reload" : null;

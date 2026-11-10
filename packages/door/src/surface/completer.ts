@@ -1,4 +1,4 @@
-import { DRAFT_ESC, escNext } from "../esc-rule";
+import { DRAFT_ESC, escNext, escVia } from "../esc-rule";
 import { pageRows } from "../scroll";
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
@@ -89,6 +89,8 @@ export interface CompletionField {
   readonly note: string;
   /** Its status line (src/draft-status.ts): what completion says goes there. */
   readonly status: { say(text: string): string };
+  /** Whether `k` is the key that closes it (its edit.close row, or the hint's click): the popup's too. */
+  closesBy(k: Key): boolean;
   /** What a line completes: a draft has none of this and completes text. */
   readonly complete?: LineCompletion;
   /** Its views (src/draft-view.ts): the popup is kept there. */
@@ -953,7 +955,8 @@ export function lineEscCloses(line: CompletionField | null | undefined, noun: st
 export function draftEscCloses(d: Draft, noun: string): string | null {
   const c = completerOf(d), shown = c?.shown, ready = !!shown?.items.length && !shown.loading;
   const word = (closes: string | null) => (closes ? { closes, run() {} } : null);
-  return escNext(DRAFT_ESC, {
+  const via = d.keyOf("edit.close");
+  const closes = escNext(DRAFT_ESC, {
     popup: () => word(ready || (shown && !d.snippet) ? "the popup" : null),
     snippet: () => word(d.snippet ? "the snippet" : null),
     selection: () => word(d.selection() ? "the selection" : null),
@@ -963,6 +966,8 @@ export function draftEscCloses(d: Draft, noun: string): string | null {
       return word(!d.written || d.stray() !== null ? noun : d.status.armed() === "discard" ? `${noun}, ${goes ? "dropped" : "put aside"}` : `${noun}, twice ${goes ? "drops it" : "puts it aside"}`);
     },
   });
+  // Esc is the draft's only until the keymap moves edit.close: then the hint names the key that is.
+  return closes && via !== "(unbound)" ? escVia(via, closes) : closes;
 }
 
 /** The draft's popup, if one is open (for drawing). */
@@ -986,7 +991,9 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
     if (k.kind === "char" && k.ctrl && k.ch === "c" && s.previewSelection) {
       ambient?.host?.().ctx.copy?.(s.previewSelection.text(rowsOf(s.previewLines ?? [])), "component preview"); return true;
     }
-    if (k.kind === "esc") { personRuns("complete.dismiss", {}, c); return !line || !!s.items.length; }
+    // The key that closes the draft (its edit.close row: Esc until the keymap moves it) closes the popup first. A line's host
+    // has Esc of its own (the bar's, a filter's), so there Esc is still the popup's too.
+    if (d.closesBy(k) || (line && k.kind === "esc")) { personRuns("complete.dismiss", {}, c); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
       const item = s.items[s.index];
       if (k.kind === "char" && !k.ctrl && k.ch === "y" && s.picked && item?.source) { void COMPLETION_ACTIONS.run("complete.copy", {}, c, USER); return true; }
@@ -1038,7 +1045,7 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
   if (k.kind === "char" && !k.ctrl && d.selectedText() === null && reopenReference(d, k.ch)) { void c.refresh(); return "keep"; }
   const before = d.text, open = c.state?.target;
   const a = d.key(k);
-  if (a !== "keep" || k.kind === "esc") { c.dismiss(); return a; }
+  if (a !== "keep" || d.closesBy(k)) { c.dismiss(); return a; }
   // What's left selected (a wrap's text) is still being worked on: `[[` over it is the person's link, no popup to take ⏎.
   if (d.selection()) { c.dismiss(); return a; }
   followCursor(c, d.text !== before, open);
@@ -1081,6 +1088,6 @@ lineCompletionHooks.after = (i, k, took, was) => {
   const c = lineCompleter(i);
   if (!c || k.kind === "mouse") return;
   // A paste lands as text and opens nothing (a draft's is the same): the next ⏎ is the caller's.
-  if (!took || k.kind === "esc" || k.kind === "paste") { c.dismiss(); return; }
+  if (!took || i.closesBy(k) || k.kind === "esc" || k.kind === "paste") { c.dismiss(); return; }
   followCursor(c, i.text !== was, openAt.get(i));
 };
