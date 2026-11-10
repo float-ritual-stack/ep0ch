@@ -556,7 +556,7 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
 
   // PIE-1719: what a rebind says reads at 44 columns and in a 42-column keys tile, without widening anything.
   test("at 44 columns the old key's sentence is drawn whole above the bar, and a way out with a suffix reads as a sentence (PIE-1719)", async () => {
-    writeFileSync(keymapPath(), JSON.stringify({ "edit.close": ["alt+q"] }));
+    writeFileSync(keymapPath(), JSON.stringify({ "edit.close": ["alt+q"], "draft.erase to=word-back": ["alt+e"] }));
     reloadKeymap();
     cols = 44; rows = 24;
     try {
@@ -581,6 +581,13 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       expect(said()).toContain("esc no longer closes the comment (twice puts it aside): your keymap gives it alt+q");
       key({ kind: "alt", ch: "q" }); key({ kind: "alt", ch: "q" });
       await until(() => !frame().join("\n").includes("more beans"), "alt+q twice put it aside");
+      // An old key in a line field (the rename prompt draws no note of its own): said whole above the bar too.
+      key(char("w", true)); key(char("n"));
+      await until(() => frame().join("\n").includes("Rename this tile"), "the rename prompt");
+      for (const ch of "plum tree") key(char(ch));
+      key(char("w", true));
+      await until(() => said().includes("^W no longer runs draft.erase to=word-back: your keymap gives it alt+e (? shows the keys)"), `the old ^W said above the bar (${said()})`);
+      key({ kind: "alt", ch: "q" });
       await desk().dispatch.act({ action: "tile.close", tile: "swap" }, USER);
     } finally {
       cols = 177; rows = 60;
