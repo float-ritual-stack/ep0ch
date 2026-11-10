@@ -274,3 +274,23 @@ test("a query embed (PIE-1720): !((query: …)) projects the first note its quer
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("Detail draws a query embed from the real service's answer, the note it found whole (PIE-1720)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-query-detail-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "outliner.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  cleanups.push(async () => { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const client = new OutlinerClient(socket);
+  await client.request<Block>({ action: "create", text: "Plan, Mon [type::plan] [day::2026-03-02]\n- [ ] sharpen the hoe" });
+  const tue = await client.request<Block>({ action: "create", text: "Plan, Tue [type::plan] [day::2026-03-03]\n- [ ] soak the lentils" });
+  const hub = await client.request<Block>({ action: "create", text: "Where we are\n!((query: type=plan sort: day desc))\n!((query: type=plan colour=teal))" });
+  const { projectDetailRead } = await import("../src/detail-embeds");
+  const projection = await projectDetailRead(client, hub.text, { hostBlockId: hub.id, hostRevision: hub.revision });
+  expect(projection.text).toContain(`Embedded block: ((${tue.id}))`);
+  expect(projection.text).toContain("- [ ] soak the lentils");
+  expect(projection.text).not.toContain("sharpen the hoe");
+  expect(projection.text).toContain("!((query: type=plan colour=teal)) · MISSING TARGET · no notes have colour");
+});
+

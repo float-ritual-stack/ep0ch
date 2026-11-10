@@ -79,12 +79,51 @@ describe.skipIf(!outliner)("a plan read whole on a hub page (PIE-1720)", () => {
   }, 60_000);
 
   test("!((query: …)) draws the newest plan whole and follows a newer one; a query nothing answers says why", async () => {
-    const hub = await create("Today\n!((query: type=plan sort: day desc))\n\n!((query: type=plan colour=teal))");
+    const hub = await create("Today\n!((query: type=plan sort: day desc))\n\n!((query: type=plan colour=teal))\n\n!((query: type!=plan))");
     await open(hub, "job 1 of 2026-03-03");
     await wheelUntil(() => lines().join("\n").includes("job 60 of 2026-03-03"), "the embedded plan's last job, by the wheel");
     await wheelUntil(() => lines().join("\n").includes("no notes have colour"), "the second embed's why");
+    // A query the grammar refuses: the whole refusal, wrapped at 44 columns, with its fix.
+    await wheelUntil(() => lines().join(" ").replace(/[║▌\s]+/g, " ").includes("Did you mean NOT type=plan?"), "the third embed's refusal, whole");
     // A newer plan: the embed moves to it, live.
     await create(planText("2026-03-04", 2));
     await until(() => lines().join("\n").includes("job 2 of 2026-03-04") || (reader().surface.scrollBy(-500), lines().join("\n").includes("job 1 of 2026-03-04")), "the newer plan in the embed");
+  }, 60_000);
+});
+
+describe.skipIf(!outliner)("a plan previewed beside its list, at full width (PIE-1720)", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, desk: Desk;
+  let key: (k: Key) => void = () => {};
+  const D = () => desk as any;
+  const reader = () => desk.pane("reader") as ReaderPane;
+  const lines = () => desk.render(D().ctx).lines.map(plain);
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    const term = { info: { cols: 130, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term as any, board, Date.now(), () => {});
+    board.subscribe(e => app.event(e));
+    app.push(new MainMenu());
+    desk = new Desk({ name: "one", title: "one reader", layout: { root: { t: "leaf", kind: "reader", name: "reader" }, focus: "reader" } });
+    app.push(desk);
+    await board.createBlock(null, planText("2026-03-02", 3));
+    await board.createBlock(null, planText("2026-03-03", 60));
+  }, 60_000);
+
+  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
+
+  test("preview: right with height: fill draws the plan whole beside the list; the wheel reaches its last job, the keys staying in the note", async () => {
+    const hub = await board.createBlock(null, "Where we are\n::links{query=\"type=plan\" sort=\"day desc\" preview=right height=fill}\n::\nAfter the plan.");
+    showIn(desk, hub);
+    D().focus = D().idNamed("reader");
+    await until(() => reader().msg?.id === hub.id && lines().some(l => /Plan, 2026-03-02.* │ /.test(l)) && lines().join("\n").includes("job 1 of 2026-03-03"), "the list with the plan beside it");
+    for (let i = 0; i < 100 && !lines().join("\n").includes("job 60 of 2026-03-03"); i++) { key({ kind: "mouse", action: "wheel-down", button: 64, x: 90, y: 15 }); lines(); }
+    const drawn = lines().join("\n");
+    expect(drawn).toContain("job 60 of 2026-03-03");
+    expect(drawn).not.toContain("more rows");
+    expect(reader().surface.listIn).toBeNull();
   }, 60_000);
 });

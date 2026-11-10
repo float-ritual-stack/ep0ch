@@ -315,7 +315,8 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
       // On a row of its own, so a narrow preview doesn't cut it; a click on it opens that passage.
       return near ? [...said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: noteOf(node), fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : said;
     }
-    return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status)}` + RESET)];
+    // Wrapped, so a query embed's refusal (its whole query, then why) reads at 44 columns (PIE-1720).
+    return wrap(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status)}` + RESET, w - 1).map(S);
   }
   const target = node.block, id = noteOf(node);
   if (node.kind === "view") {

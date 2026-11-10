@@ -289,6 +289,18 @@ test("figures draw live from the service, links list the note's links, and an em
   expect(html.split("<article>")[1]!.split("</article>")[0]).not.toContain("::graph-decision");
 });
 
+test("a ::links query's matches publish in its sort: order (PIE-1720)", async () => {
+  const { store, page } = await setup();
+  store.create("Plan, Mon [type::plan] [day::2026-03-02]");
+  store.create("Plan, Wed [type::plan] [day::2026-03-04]");
+  store.create("Plan, Tue [type::plan] [day::2026-03-03]");
+  const hub = store.create("Where we are\n::links\nquery: type=plan\nsort: day desc\n::");
+  const html = await page(`/p/${hub.id}`);
+  const order = ["Plan, Wed", "Plan, Tue", "Plan, Mon"].map(t => html.indexOf(t));
+  expect(order.every(i => i > 0)).toBe(true);
+  expect(order).toEqual([...order].sort((a, b) => a - b));
+});
+
 test("a figure written without its --- lines says so on the page (PIE-941)", async () => {
   const { store, page } = await setup();
   const bare = store.create("Deploys\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::");
