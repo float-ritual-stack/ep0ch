@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import {readFile, rename, writeFile} from "node:fs/promises";
-import {dirname, join, resolve, sep} from "node:path";
+import {readFile, writeFile} from "node:fs/promises";
+import {join} from "node:path";
 import {visibleWidth} from "@earendil-works/pi-tui";
 import type {Block, InternResourceReceipt, OutlinerNavigationTarget, ResourceDescription} from "../../src/types";
-import {forwardService} from "./service-forwarder";
 import {runHerdrScenario} from "./herdr-runner";
 
 const result = await runHerdrScenario({
