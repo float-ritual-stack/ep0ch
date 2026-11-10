@@ -13,6 +13,7 @@
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { Block } from "./types";
 import { blockDisplayTitle } from "./references";
+import { getProperty } from "./properties";
 
 /** What a client is making. */
 export type NewNoteIntent =
@@ -46,7 +47,7 @@ export type PlacementRule = (intent: NewNoteIntent, reads: PlacementReads) => Pl
 export const isSystemNote = (block: Block): boolean =>
   block.properties.some(p => p.key === "system-view" || p.key === "system-doc");
 
-const propertyValue = (block: Block, key: string): string | undefined => block.properties.find(p => p.key === key)?.value.trim().toLowerCase();
+const propertyValue = (block: Block, key: string): string | undefined => getProperty(block.properties, key)?.trim().toLowerCase();
 
 /** What a system note is, in the words a refusal uses: the Inbox, Trash, Bookmarks, the Deploys record, a snapshot record, a guide. */
 export function systemNoteKind(block: Block): string {

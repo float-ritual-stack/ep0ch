@@ -1,6 +1,8 @@
 import { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 import { readLinkConfig } from "@ep0ch/outliner/link-config";
-import { outlineFiles } from "./outline-files";
+import { databases, outlineFiles } from "./outline-files";
+
+export { databases };
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
 // here writes a database, starts a host or changes a config.
@@ -17,7 +19,7 @@ export { doorExtState } from "./ext-links";
 import { skillLinkFacts } from "./skill-links";
 import { outlinerPlugin } from "../skills";
 import { packDir, packs } from "../packs";
-import { outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { configuredMachineName, dialsIn, suggestedMachineName } from "@ep0ch/outliner/machine-name";
 import { tossHealth } from "@ep0ch/outliner/echo-health";
 import { doorAgents } from "../desk/agent-env";
@@ -524,14 +526,6 @@ export async function codeChanges(root: string, froms: readonly (string | null |
     if (r.code === 0) out[codeKey(from, to)] = r.out.split("\n").filter(Boolean);
   }));
   return out;
-}
-
-/** Every outline database in the outlines folder (`<name>.sqlite`), read even when the host is down. */
-export function databases(folder: string): DatabaseFacts[] {
-  if (!existsSync(folder)) return [];
-  return readdirSync(folder, { withFileTypes: true })
-    .flatMap(e => { const name = e.isFile() ? outlineOfFile(e.name) : null; return name ? [{ name, path: join(folder, e.name) }] : []; })
-    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Where a checkout keeps its schema version and its migration scripts (PIE-617), from the repo root. */

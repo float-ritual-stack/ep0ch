@@ -32,6 +32,7 @@ import type {
 } from "./types";
 import { isVirtualBranchDefinition, parseVirtualBranchConfig, virtualBranchMembershipQuery } from "./virtual-branches";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 
 /** Stages a roadmap item is never created in: it's created in Queued or Doing, then moved. */
 export const ROADMAP_NOT_CREATED_IN: ReadonlySet<string> = new Set(["review", "validate", "done", "superseded"]);
@@ -236,7 +237,7 @@ export function planCreateInView(view: WriteView, text: string | undefined, now 
     if (!same) defaults.push(dflt);
   }
   const roadmap = born.some(p => p.key === "type" && sameValue(p.value, "roadmap-item"));
-  const stage = born.find(p => p.key === "work-stage")?.value.toLowerCase();
+  const stage = valueOf({ properties: born }, "work-stage")?.toLowerCase();
   if (roadmap && stage && ROADMAP_NOT_CREATED_IN.has(stage)) {
     return { kind: "refused", reason: `${view.name} lists work-stage=${stage}: roadmap items are created in Queued or Doing, then moved` };
   }

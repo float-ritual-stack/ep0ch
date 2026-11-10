@@ -23,6 +23,7 @@
 //   <base>/door/door.js, client.js, fonts/<file>   the page's script, ptyZZZ's mouse adapter, the terminal font
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { escapeHtml } from "./html-escape";
 
 /** ptyZZZ's mouse adapter, vendored from e-schultz/ptyZZZ at this commit (static/ptyzzz-client.js, MIT). */
 export const PTYZZZ_COMMIT = "bf0f730d6445cb11e4f75d40f4b8fe3912e6d75f";
@@ -309,14 +310,13 @@ const asset = (body: string, type: string) => new Response(body, { headers: { ..
 const DOOR_CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 function page(base: string, terminal: string, open: string | undefined): Response {
-  const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
 <meta name="color-scheme" content="dark"><title>ep0ch door</title>
-<style>${PAGE_STYLE.replaceAll("__BASE__", attr(base))}</style>
-<script type="module" src="${attr(`${base}/door/door.js`)}"></script></head>
-<body data-base="${attr(base)}" data-t="${attr(terminal)}"${open ? ` data-open="${attr(open)}"` : ""}>
+<style>${PAGE_STYLE.replaceAll("__BASE__", escapeHtml(base))}</style>
+<script type="module" src="${escapeHtml(`${base}/door/door.js`)}"></script></head>
+<body data-base="${escapeHtml(base)}" data-t="${escapeHtml(terminal)}"${open ? ` data-open="${escapeHtml(open)}"` : ""}>
 <div id="term" class="pane" data-pane="door"><div class="scroll"><div id="grid-door">connecting…</div></div></div>
 <div id="bar" role="toolbar" aria-label="keys">
 <button data-key="Escape">esc</button><button data-key="Tab">tab</button><button data-mod="4" aria-pressed="false">ctrl</button><button data-mod="2" aria-pressed="false">alt</button>

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { escapeHtml } from "./html-escape";
 
 /**
  * Artifacts as claude.ai runs them, for the publisher (README "Publishing
@@ -159,10 +160,6 @@ function withoutCachePaths(script: string, cacheDirectory: string): string {
 /** Escapes a bundle so it can sit inside `<script>` without ending it early. */
 export function inlineScript(script: string): string {
   return script.replace(/<\/(script)/gi, "<\\/$1").replace(/<!--/g, "<\\x21--");
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 /** Mounts the artifact's default export (or its only exported component) under an error boundary. */

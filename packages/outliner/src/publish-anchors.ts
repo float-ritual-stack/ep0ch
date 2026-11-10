@@ -9,6 +9,7 @@ import { quoteDepth } from "@ep0ch/outline-core/callouts";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences, pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { codeLineSet, ensureFragmentAnchor, fragmentCandidates, resolveFragmentSlice } from "./fragments";
+import { SENTINEL_BLOCKS, SENTINEL_MARKERS } from "./publish-sentinels";
 
 /** Stable within a source revision, just like the door's Reveal.at from references.backlinks. */
 export const linkingLineId = (at: number) => `at:${at}`;
@@ -52,15 +53,18 @@ export function lineAddresses(text: string, prefix: string, ids: string[]): Map<
 
 /** A replacement's marker group is moved inside its rendered container after Markdown draws it. */
 export const replacementAddresses = (indices: readonly number[]) => indices.length
-  ? `${indices.map(index => anchorSentinel(index)).join("")}` : "";
+  ? `${GROUP}${indices.map(index => anchorSentinel(index)).join("")}${GROUP}` : "";
 
-const MARK = "", BASE = 0xE300;
-const SENTINEL = /(<p>)?([-])([-])(<\/p>)?/g;
+const { anchor: MARK, anchorGroup: GROUP } = SENTINEL_MARKERS, ANCHORS = SENTINEL_BLOCKS.anchors;
+const SENTINEL = new RegExp(`(<p>)?${MARK}(${ANCHORS.char})(${ANCHORS.char})${MARK}(</p>)?`, "g");
+/** A replacement's group of anchors, between its two group markers, after the tag that closes what it follows. */
+const GROUPED = `${GROUP}((?:${MARK}${ANCHORS.char}{2}${MARK})+)${GROUP}`, CLOSER = "(</(?:figure|section|div|p|h[1-6]|table)>)(\\s*)";
+const GROUP_ALONE = new RegExp(`${CLOSER}<p>${GROUPED}</p>`, "g"), GROUP_AFTER = new RegExp(`${CLOSER}(<p>)?${GROUPED}`, "g");
+const GROUP_MARK = new RegExp(GROUP, "g");
 /** At most this many anchors on one page: two private-use characters each. */
-export const MAX_ANCHORS = 256 * 256;
+export const MAX_ANCHORS = ANCHORS.capacity;
 
-const anchorSentinel = (index: number) =>
-  `${MARK}${String.fromCharCode(BASE + (index >> 8))}${String.fromCharCode(BASE + (index & 0xFF))}${MARK}`;
+const anchorSentinel = (index: number) => `${MARK}${ANCHORS.encode(index)}${MARK}`;
 
 /**
  * `text` (a block's Markdown, as drawn) with block `index`'s sentinel at the end of its first line, before a hard
@@ -99,12 +103,12 @@ export function drawAnchors(html: string, ids: readonly string[]): string {
   if (!ids.length) return html;
   // Replacement destinations belong inside the rendered figure/callout, not to its following paragraph.
   html = html
-    .replace(/(<\/(?:figure|section|div|p|h[1-6]|table)>)(\s*)<p>((?:[-]{2})+)<\/p>/g, "$3$1$2")
+    .replace(GROUP_ALONE, "$3$1$2")
     // When following prose shares the paragraph, keep its opening tag.
-    .replace(/(<\/(?:figure|section|div|p|h[1-6]|table)>)(\s*)(<p>)?((?:[-]{2})+)/g, "$4$1$2$3")
-    .replace(//g, "");
+    .replace(GROUP_AFTER, "$4$1$2$3")
+    .replace(GROUP_MARK, "");
   return html.replace(SENTINEL, (_, open: string | undefined, high: string, low: string, close: string | undefined) => {
-    const id = ids[((high.charCodeAt(0) - BASE) << 8) + low.charCodeAt(0) - BASE];
+    const id = ids[ANCHORS.decode(high + low)];
     const span = id?.startsWith("#") ? `<span class="line-anchor" id="${id.slice(1).replace(/[^0-9A-Za-z_:-]/g, "")}"></span>` : id ? `<span class="bk" data-block="${id.replace(/[^0-9A-Za-z-]/g, "")}"></span>` : "";
     return open && close ? span : `${open ?? ""}${span}${close ?? ""}`;
   });

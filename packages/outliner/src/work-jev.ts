@@ -59,7 +59,6 @@ export const noul = (answers: JevAnswers | undefined, id: string): number | unde
 };
 
 /** Text clipped for Jev's state or a record: one line, at most `max` characters. */
-export const clip = (text: string, max = 300) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat; };
 
 /** Dollars for `tokens` input tokens, as a chip shows them. */
 export const costOf = (tokens: number) => (tokens * JEV_DOLLARS_PER_MTOK / 1_000_000).toFixed(6);

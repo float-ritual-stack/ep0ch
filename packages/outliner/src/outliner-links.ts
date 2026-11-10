@@ -40,10 +40,9 @@ import type {
   AnnotationReferenceContext,
   ResourceTarget,
 } from "./types";
-import { blockIdMatcher } from "@ep0ch/outline-core/addressable-resource";
+import { blockIdMatcher, LOOSE_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 const OUTLINER_SCHEME = "pi-outliner:";
-const BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
 const BLOCK_ID_TOKEN_PATTERN = blockIdMatcher();
 
 const TERMINAL_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
@@ -103,7 +102,7 @@ export function outlinerLinkUri(
   }
   if (!normalized) throw new Error("Outliner link target cannot be empty");
   if (
-    ((kind === "block" || kind === "reference") && !BLOCK_ID_PATTERN.test(normalized)) ||
+    ((kind === "block" || kind === "reference") && !LOOSE_ID_PATTERN.test(normalized)) ||
     (kind === "work" && !isWorkIdAddress(normalized))
   ) {
     throw new Error(`Invalid outliner ${kind} target: ${normalized}`);
@@ -193,7 +192,7 @@ export function parseOutlinerLinkUri(uri: string): OutlinerLinkTarget {
   if (
     !value ||
     TERMINAL_CONTROL_PATTERN.test(value) ||
-    ((kind === "block" || kind === "reference") && !BLOCK_ID_PATTERN.test(qualifiedReference(value).target)) ||
+    ((kind === "block" || kind === "reference") && !LOOSE_ID_PATTERN.test(qualifiedReference(value).target)) ||
     (kind === "work" && !isWorkIdAddress(value))
   ) {
     throw new Error(`Invalid outliner ${kind} target`);

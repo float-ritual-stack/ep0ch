@@ -31,6 +31,7 @@ import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 import { gate } from "./write-gate";
+import { getProperty } from "./properties";
 
 /** A command or URL as a run note says it: what ran, how it ended, how much, and its first lines. */
 function reachLine(step: HostStep): string {
@@ -282,7 +283,7 @@ export class ScriptRuns {
    */
   private link(source: ScriptSource, blockId: string | undefined, line: number | undefined): LinkedScript {
     if (!importedNames(source.code).length) return { code: source.code, modules: "", moduleIds: [] };
-    const own = source.blockId ? this.store.get(source.blockId)?.properties.find(p => p.key === "script")?.value : undefined;
+    const own = source.blockId ? getProperty(this.store.get(source.blockId)?.properties ?? [], "script") : undefined;
     let entries: ReturnType<typeof scriptsAt> | undefined;
     return linkScript({ name: source.fence?.name ?? own ?? "this script", code: source.code }, name => {
       entries ??= scriptsAt(this.store, this.registry.list().extensions, blockId ? { blockId, ...(line !== undefined ? { line } : {}) } : {});
@@ -663,7 +664,7 @@ export class ScriptRuns {
           // Notes only: never its own log, a proposal or comment it wrote (at propose access a write is one), a tool's
           // bookkeeping ([machine::…], a figure-fit record a create leaves), nor a note it made and trashed again in the same run.
           const notes = [...changed].flatMap(([id, change]) => {
-            const b = this.store.get(id), type = b?.properties.find(p => p.key === "type")?.value;
+            const b = this.store.get(id), type = b && getProperty(b.properties, "type");
             if (!b || id === log?.id || NOT_NOTES.has(type ?? "") || isMachinery(b.properties) || (change === "created" && b.effectiveDeletedRootId)) return [];
             return [{ id, title: blockDisplayTitle(b) || id.slice(0, 8), change }];
           });
@@ -672,7 +673,7 @@ export class ScriptRuns {
           // note, and a create's, a move's or a trash's comment on it (its thread), each with the note it is for.
           const beside = [...changed].flatMap(([id, change]) => {
             const b = this.store.get(id);
-            if (change !== "created" || !b || b.effectiveDeletedRootId || b.properties.find(p => p.key === "type")?.value !== DRAFT_PROPOSAL_TYPE) return [];
+            if (change !== "created" || !b || b.effectiveDeletedRootId || getProperty(b.properties, "type") !== DRAFT_PROPOSAL_TYPE) return [];
             return [{ id, note: b.parentId ?? "" }];
           });
           const proposed = [...beside, ...commented.filter(c => !beside.some(b => b.id === c.id))].map(({ id, note }) => {

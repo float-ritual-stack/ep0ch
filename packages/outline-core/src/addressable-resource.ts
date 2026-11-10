@@ -17,6 +17,11 @@ export const BLOCK_ID_LIKE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 export const looksLikeBlockId = (value: unknown): value is string => typeof value === "string" && BLOCK_ID_LIKE_PATTERN.test(value);
 /** `BLOCK_ID_SOURCE` as a JSON Schema `pattern` takes it (no flags): either case, anchored. */
 export const BLOCK_ID_SCHEMA_PATTERN = `^${BLOCK_ID_SOURCE.replace(/a-f/g, "a-fA-F").replace("[89ab]", "[89abAB]")}$`;
+/**
+ * The loose shape of a reference's target, as a link names one (`((id))`, `ep0ch://block/<id>`): eight or more letters,
+ * digits, `_` or `-`, an id's first characters among them. Whether it names a block is the service's answer.
+ */
+export const LOOSE_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
 export const FRAGMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 const EP0CH_BLOCK_URI = /^ep0ch:\/\/([^@/?#]+)@([^/?#]+)\/b\/([^/?#]+)(?:#([^?#]*))?$/;

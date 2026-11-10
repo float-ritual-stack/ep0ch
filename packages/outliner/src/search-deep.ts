@@ -11,6 +11,7 @@ import { askJev, jevKey, type JevOptions, type JevReading } from "./jev";
 import { blockDisplayTitle } from "./references";
 import { jevOff } from "./work-jev";
 import type { Block } from "./types";
+import { getProperty } from "./properties";
 
 /** A Choice takes at most 255 options (docs.typesafe.ai, line-by-line search). */
 export const WINDOW = 250;
@@ -34,7 +35,7 @@ export interface DeepAnswer {
 /** A note as one option reads: its title (with its work id), its type, and the start of what's under the title. */
 export function optionOf(block: Block): string {
   const title = headedTitle(blockDisplayTitle(block), workIdOf(block)).slice(0, 100);
-  const type = block.properties.find(p => p.key === "type")?.value;
+  const type = getProperty(block.properties, "type");
   const body = block.text.split("\n").slice(1).join(" ").replace(/\[[^\]]*::[^\]]*\]/g, "").replace(/\s+/g, " ").trim().slice(0, 80);
   return [title, type ? `(${type})` : "", body ? `: ${body}` : ""].filter(Boolean).join(" ");
 }
@@ -44,7 +45,7 @@ export function deepPool(blocks: Iterable<Block>, where?: (b: Block) => boolean)
   const out: Block[] = [];
   for (const b of blocks) {
     if (b.deletedAt || b.effectiveDeletedRootId) continue;
-    const type = b.properties.find(p => p.key === "type")?.value;
+    const type = getProperty(b.properties, "type");
     if (type === "annotation" || type === "annotation-reply" || type === "annotations-root" || b.properties.some(p => p.key === "machine")) continue;
     if (where && !where(b)) continue;
     out.push(b);

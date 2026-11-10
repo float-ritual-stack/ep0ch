@@ -85,6 +85,8 @@ import type {
   ResolvedBlockReferences,
 } from "./types";
 import { BLOCK_ID_LIKE_PATTERN, BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { escapeHtml } from "./html-escape";
+import { PRIVATE_USE } from "./publish-sentinels";
 
 /**
  * Outline as server: an HTTP publisher for blocks carrying `[publish::…]`, and on
@@ -374,9 +376,7 @@ export function assignPaths(blocks: readonly ProjectedVisibleBlock[]): Array<{ b
   });
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
-}
+const FROM_SENTINEL = new RegExp(`${PRIVATE_USE}.*$`, "s"); // a line's first sentinel (an address rides at its end) on
 
 const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;
 
@@ -2891,7 +2891,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
       const start = offset;
       offset += raw.length + 1;
       if (inCode(start) || (raw.trim() && inCode(start + raw.length - raw.trimStart().length))) return;
-      const sentinel = /[\ue000-\uf8ff].*$/s.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
+      const sentinel = FROM_SENTINEL.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
       const button = text.includes("::button") ? buttonCallAt([text], 0) : null;
       // In a list item or a quote (PIE-1224) the label keeps the item's marker or the quote's bar.
       if (button) { lines[i] = `${button.prefix ?? ""}**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }

@@ -77,9 +77,9 @@ import {
   SourceSpannedMarkdown,
   type SourceSpannedMarkdownRowRender,
 } from "./source-spanned-markdown";
+import { backlinkReferenceLabel } from "@ep0ch/outline-core/backlink-view";
 import {
   type AnnotationThread,
-  type BacklinkReferenceGroup,
   type BacklinkSource,
 } from "./types";
 
@@ -604,15 +604,6 @@ function neutralizeCommentBlockSyntax(line: string): string {
 
 const COMMENT_AUTOLINK = /^ {0,3}<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)>/;
 
-function backlinkGroupLabel(group: BacklinkReferenceGroup): string {
-  if (group.kind === "property") return `${group.propertyKey} property ×${group.count}`;
-  let label = "Work ID";
-  if (group.kind === "block") label = "block reference";
-  else if (group.kind === "page") label = "page link";
-  // The anchor it aims at (PIE-1247): which part of this note is linked or embedded.
-  return `${label}${group.fragmentId ? ` ^${group.fragmentId}` : ""} ×${group.count}`;
-}
-
 export type DetailPreviewAction = PreviewRegionAction;
 
 export function detailBacklinkToggleUri(blockId: string): string {
@@ -745,7 +736,7 @@ function backlinkRowSuffix(source: BacklinkSource): string {
     ...(facets && facets.placement !== "other" ? [facets.placement === "self" ? "this note" : "inside this note"] : []),
     source.parentContext,
     ...(source.deletedRootId ? ["Trash"] : []),
-    ...source.referenceGroups.map(backlinkGroupLabel),
+    ...source.referenceGroups.map(backlinkReferenceLabel),
   ].join(" · ");
 }
 

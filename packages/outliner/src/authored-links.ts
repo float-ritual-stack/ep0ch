@@ -28,6 +28,7 @@ import {
   type ResourceSource,
 } from "./resources";
 import { linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
+import { LOOSE_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import type {
   Block,
   BacklinkStageBucket,
@@ -193,7 +194,6 @@ type ResourceReferenceCandidate =
 
 type AuthoredCandidate = OutlinerReferenceOccurrence | ResourceReferenceCandidate;
 
-const BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 const RESOURCE_DESTINATION_PREFIX = "pi-outliner://resource/";
 const INLINE_MARKDOWN_LINK_PATTERN = /(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)/g;
@@ -213,7 +213,7 @@ function isResourceProvider(value: string): value is ResourceProvider {
 export function normalizeAuthoredLinksOwnerId(value: unknown): string {
   if (typeof value !== "string") throw new Error("Authored-links owner block ID must be a string");
   const ownerId = value.trim();
-  if (!BLOCK_ID_PATTERN.test(ownerId)) {
+  if (!LOOSE_ID_PATTERN.test(ownerId)) {
     throw new Error("Authored-links owner block ID must use the canonical block ID grammar");
   }
   return ownerId;

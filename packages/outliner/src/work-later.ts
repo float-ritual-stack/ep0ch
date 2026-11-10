@@ -17,9 +17,11 @@
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
-import { askNouls, board, chips, clip, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, board, chips, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle } from "./work-twins";
 import { KEEP_DAYS, keptBecause } from "./work-keep";
+import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 export { KEEP_DAYS, keptBecause };
 import { propertyTransition } from "./work-tools";
@@ -32,7 +34,6 @@ const DAY = 86_400_000;
 const LIVE = new Set(["unprioritized", "queued", "doing", "review", "validate"]);
 const PARKED_OR_CLOSED = new Set(["later", "done", "superseded"]);
 
-const propOf = (b: Pick<Block, "properties">, key: string) => b.properties.find(p => p.key === key)?.value;
 const bodyLines = (text: string) => text.split("\n").slice(1);
 
 /**
@@ -40,9 +41,9 @@ const bodyLines = (text: string) => text.split("\n").slice(1);
  * `[wreckage::<day>]` (a whole UTC day: what an older cut wrote that day isn't news), or null.
  */
 export function parkedAt(item: Pick<Block, "properties">): Date | null {
-  const exact = new Date(propOf(item, "parked-at")?.trim() ?? "");
+  const exact = new Date(valueOf(item, "parked-at")?.trim() ?? "");
   if (!Number.isNaN(exact.getTime())) return exact;
-  const day = propOf(item, "wreckage")?.trim();
+  const day = valueOf(item, "wreckage")?.trim();
   if (!day) return null;
   const at = new Date(/^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T00:00:00Z` : day);
   if (Number.isNaN(at.getTime())) return null;
@@ -157,7 +158,7 @@ export async function revive(client: WorkJevClient, o: LaterOptions = {}): Promi
     if (nudge) { rows.push(row("restored", `nudged: a comment ${nudge.note.createdAt.slice(0, 10)}: ${nudge.line}`, "code", nudge.note.id)); continue; }
     // Parked against the rule and nothing asked since: listed with its restore command, for a person or agent to judge.
     // A wreckage day reads as its end (parkedAt): the keep rule is asked as of its start, when the cut ran.
-    const kept = keptBecause(item, propOf(item, "parked-at") ? since : since.getTime() - DAY);
+    const kept = keptBecause(item, valueOf(item, "parked-at") ? since : since.getTime() - DAY);
     if (!signals.length) { rows.push(kept ? row("misparked", `parked though ${kept}: ep0ch work stage ${ticket} queued`) : row("stays", "nothing asked for it since")); continue; }
     const say = (s: Signal) => {
       const name = noteName(s.note), line = s.line.startsWith(name.replace(/…$/, "")) ? "" : `: ${s.line}`;

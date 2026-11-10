@@ -2,6 +2,16 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, unlinkSync }
 import { dirname, join, resolve } from "node:path";
 import { migrateBinding } from "@ep0ch/outliner/outline-binding";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import type { DatabaseFacts } from "./model";
+
+/** Every outline database in the outlines folder (`<name>.sqlite`), by name, read even when the host is down. */
+export function databases(folder: string): DatabaseFacts[] {
+  if (!existsSync(folder)) return [];
+  return readdirSync(folder, { withFileTypes: true }).flatMap(e => {
+    const name = e.isFile() ? outlineOfFile(e.name) : null;
+    return name ? [{ name, path: join(folder, e.name) }] : [];
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
 
 export interface OutlineFiles { folder: string; binding: boolean; scripts: boolean; backup: boolean }
 

@@ -43,6 +43,7 @@ import {
   type TreeRow as ProjectedTreeRow,
   type VirtualBranchState,
 } from "./virtual-branches";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 
 type TreeRow = ProjectedTreeRow<TreeIndexBlock>;
 type TreeDisplayRow = ProjectedDisplayRow<TreeIndexBlock>;
@@ -883,7 +884,7 @@ export function renderTreeFrame(
   } else if (view.mode === "purge") {
     const required =
       isBlockTreeRow(selectedRow)
-        ? selectedRow.block.properties.find((property) => property.key === "work-id")?.value
+        ? valueOf(selectedRow.block, "work-id")
           ?? selectedRow.canonicalId.slice(0, 8)
         : "identifier";
     output.push(`\x1b[31;1mPurge ${required}: \x1b[0m${view.quick.input}▏`);

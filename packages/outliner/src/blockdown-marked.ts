@@ -2,6 +2,10 @@ import { STRIKETHROUGH_DELIMITER } from "@ep0ch/outline-core/inline-grammar";
 import { Tokenizer, type MarkedExtension } from "marked";
 import { COMPONENT_OPEN, componentBlockAt } from "@ep0ch/outline-core/component-block";
 import { parseStyleAttrs, resolveStyle } from "@ep0ch/outline-core/style-cascade";
+import { PRIVATE_USE } from "./publish-sentinels";
+
+/** Every sentinel a page's render carries (publish-sentinels.ts), and any other private-use character. */
+const ANY_SENTINEL = new RegExp(PRIVATE_USE, "g");
 
 /** A component boundary within the current paragraph; Marked asks again for every paragraph. */
 export function componentLineIn(source: string, name?: string): number {
@@ -44,7 +48,7 @@ export const blockdownMarked: MarkedExtension = {
     // The sentinels that ride through a render (a page's anchors, marks, steps, components) draw as nothing, so they say
     // nothing about emphasis: `**Roof on:**` closes though an anchor follows it. Punctuation, one for one, because a closer
     // after punctuation needs punctuation or a space next, and a space before a closer would stop `**word<mark>**` closing.
-    emStrongMask: source => source.replace(/[-]/g, "."),
+    emStrongMask: source => source.replace(ANY_SENTINEL, "."),
   },
   tokenizer: {
     lheading(source) {

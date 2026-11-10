@@ -13,10 +13,12 @@ import { rankTextSearchMatches, type SearchMatchKind } from "@ep0ch/outline-core
 import { workIdOf, workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { deepCandidates } from "./search-deep";
-import { askNouls, chips, clip, dayOf, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, chips, dayOf, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { writeRecord } from "./records";
 import type { TwinAnswer as WireTwinAnswer, TwinCandidate } from "@ep0ch/outline-core/protocol";
 import type { Block, BlockAuthor, BlockProvenance, VisibleBlockCollection } from "./types";
+import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 /**
  * Candidates Jev is asked about, at most. Wide on purpose (PIE-1402): a twin filed in other words may share no word with
@@ -40,8 +42,6 @@ const WEAK: ReadonlySet<SearchMatchKind> = new Set(["title-fuzzy", "text-fuzzy"]
 export type { TwinCandidate };
 /** The answer, with Jev's reading for the run's tokens. */
 export type TwinAnswer = Omit<WireTwinAnswer, "tokens"> & { reading?: JevReading };
-
-const propOf = (b: Block, key: string) => b.properties.find(p => p.key === key)?.value;
 
 /** An item's title without its Work ID. */
 export function itemTitle(b: Pick<Block, "text" | "properties">): string {
@@ -71,7 +71,7 @@ export function twinCandidates(open: readonly Block[], title: string, limit = TW
   const words = [...best.values()].slice(0, Math.max(limit - meant.length, Math.ceil(limit / 2)));
   const filled = [...words, ...meant.map(d => ({ document: d, kind: "some-terms" as const, score: 0, title: d.title, inTitle: 0, filler: true as const }))];
   return filled.slice(0, limit).map(m => ({ ...("filler" in m ? { filler: true as const } : {}),
-    id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: propOf(m.document.block, "work-stage") ?? "unknown", match: m.kind, inTitle: Math.round(m.inTitle * 100) / 100, block: m.document.block,
+    id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: valueOf(m.document.block, "work-stage") ?? "unknown", match: m.kind, inTitle: Math.round(m.inTitle * 100) / 100, block: m.document.block,
   }));
 }
 

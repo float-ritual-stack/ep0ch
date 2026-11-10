@@ -8,11 +8,13 @@
 // so offsets other parts place by (decorations, components) still land; `drawSteps` puts the control in its place.
 import { checklistItems } from "./checklist-items";
 import { statusWord, stepClosed, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+import { SENTINEL_BLOCKS, SENTINEL_MARKERS } from "./publish-sentinels";
+import { escapeHtml } from "./html-escape";
 
-const MARK = "", BASE = 0xE400;
-const SENTINEL = /([-])([-])/g;
+const MARK = SENTINEL_MARKERS.step, STEPS = SENTINEL_BLOCKS.steps;
+const SENTINEL = new RegExp(`${MARK}(${STEPS.char})(${STEPS.char})`, "g");
 /** At most this many steps on one page: two private-use characters each. */
-export const MAX_PUBLISHED_STEPS = 256 * 256;
+export const MAX_PUBLISHED_STEPS = STEPS.capacity;
 
 /**
  * A step as a page drew it: the note it's in, the revision read, and how `checklist.update` addresses it. `live` (PIE-864):
@@ -25,7 +27,7 @@ export interface PublishedStep {
 }
 
 /** Step `index`'s sentinel, three characters: what a box is replaced by until drawSteps draws it. */
-const stepSentinel = (index: number) => `${MARK}${String.fromCharCode(BASE + (index >> 8))}${String.fromCharCode(BASE + (index & 0xFF))}`;
+const stepSentinel = (index: number) => `${MARK}${STEPS.encode(index)}`;
 
 /**
  * A figure's row as a step on the page (PIE-864: a `::graph-check` row, written or live): numbered after the page's
@@ -64,26 +66,24 @@ export function placeStepSentinels(text: string, block: { id: string; revision: 
   return out;
 }
 
-const attr = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
 /** The page's HTML with each step's sentinel as its box: a button on a page that may write (`writable`), else a glyph. */
 export function drawSteps(html: string, steps: readonly PublishedStep[], writable: boolean): string {
   if (!steps.length) return html;
   // Each step once, and only in text (never inside a tag's attribute): anything else is left as it was.
   const drawn = new Set<number>();
   return html.replace(SENTINEL, (whole: string, high: string, low: string, at: number) => {
-    const index = ((high.charCodeAt(0) - BASE) << 8) + low.charCodeAt(0) - BASE;
+    const index = STEPS.decode(high + low);
     const step = steps[index];
     if (!step || drawn.has(index) || html.lastIndexOf("<", at) > html.lastIndexOf(">", at)) return whole;
     drawn.add(index);
     const said = `${statusWord(step.status)}${stepClosed(step.status) ? "" : " (open)"}`;
     const glyph = STEP_GLYPHS[step.status];
     // The glyph is drawn by the style (`data-glyph`), so it's never part of words selected across the step.
-    if (!writable) return `<span class="step s-${step.status}" role="img" aria-label="${attr(said)}" data-glyph="${glyph}"></span>`;
-    return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${attr(`${said}: change`)}"`
-      + ` data-step-block="${attr(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
-      + `${step.itemId ? ` data-step-id="${attr(step.itemId)}"` : ""} data-step-evidence="${attr(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"`
-      + `${step.live ? ` data-step-note="${attr(step.live.note)}" data-step-figure="${step.live.figure}"` : ""}></button>`;
+    if (!writable) return `<span class="step s-${step.status}" role="img" aria-label="${escapeHtml(said)}" data-glyph="${glyph}"></span>`;
+    return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${escapeHtml(`${said}: change`)}"`
+      + ` data-step-block="${escapeHtml(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
+      + `${step.itemId ? ` data-step-id="${escapeHtml(step.itemId)}"` : ""} data-step-evidence="${escapeHtml(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"`
+      + `${step.live ? ` data-step-note="${escapeHtml(step.live.note)}" data-step-figure="${step.live.figure}"` : ""}></button>`;
   });
 }
 

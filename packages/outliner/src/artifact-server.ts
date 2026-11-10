@@ -5,6 +5,7 @@ import { artifactKey, DEFAULT_OUTLINE, parseGrant, type Grant } from "./artifact
 import { OutlinerClient } from "./client";
 import { forwardFor } from "./machine-forward";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
+import { escapeHtml } from "./html-escape";
 
 /**
  * What the artifact host asks of the world beyond its folder: whether a share is open (the one share store, the outline
@@ -54,7 +55,7 @@ export async function artifactAccess(root: string, request: Request, access: Art
   try { parts = decodeURIComponent(new URL(request.url).pathname).split("/").slice(1); } catch { parts = []; }
   const refused = (said: string, ref?: string) => {
     const open = ref && artifactReference(ref) && access.web ? `${access.web}/a/${encodeURIComponent(ref)}/` : undefined;
-    return { ok: false as const, response: page("Sign in", `<h1>${said}</h1>\n<p>${open ? `<a href="${open.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">Sign in to open it</a>, or ask for` : "Sign in to the web client, or ask for"} a share link.</p>`, 401, headers) };
+    return { ok: false as const, response: page("Sign in", `<h1>${said}</h1>\n<p>${open ? `<a href="${escapeHtml(open)}">Sign in to open it</a>, or ask for` : "Sign in to the web client, or ask for"} a share link.</p>`, 401, headers) };
   };
   const parsed = parseGrant(artifactKey(root), parts);
   // A bare `/<id>/<ref>/` (before Oct 25) names its artifact but grants nothing.

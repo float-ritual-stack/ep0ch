@@ -8,11 +8,10 @@ import { hostUnit, hostUnitPath, run, unitState } from "./facts";
 import { sh } from "./links";
 import { detectPlatform, type HostUnit, type Platform } from "./model";
 import { hostUnitArgv, hostUnitCommand } from "./plan";
+import { plistText, unitWord } from "./service-words";
 
 type Env = Record<string, string | undefined>;
 const hostProgram = resolve(import.meta.dir, "../../../outliner/src/host-main.ts");
-const xml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
-const quoted = (s: string) => '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
 
 /** The missing host's service definition; existing units remain owned by their installer. */
 /**
@@ -27,8 +26,8 @@ export function hostInstall(o: { platform: Platform; home: string; bun: string |
   const argv = [o.bun, o.program];
   const log = join(o.home, "Library/Logs/ep0ch-outliner-host.log");
   const text = mac
-    ? `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>${name}</string><key>ProgramArguments</key><array>${argv.map(a => `<string>${xml(a)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${xml(o.outlines)}</string><key>PATH</key><string>${xml(o.path)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>StandardErrorPath</key><string>${xml(log)}</string></dict></plist>\n`
-    : `[Unit]\nDescription=ep0ch outline host\n\n[Service]\nExecStart=${argv.map(quoted).join(" ")}\nEnvironment=${quoted(`EP0CH_OUTLINES=${o.outlines}`)}\nEnvironment=${quoted(`PATH=${o.path}`)}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`;
+    ? `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>${name}</string><key>ProgramArguments</key><array>${argv.map(a => `<string>${plistText(a)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${plistText(o.outlines)}</string><key>PATH</key><string>${plistText(o.path)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>StandardErrorPath</key><string>${plistText(log)}</string></dict></plist>\n`
+    : `[Unit]\nDescription=ep0ch outline host\n\n[Service]\nExecStart=${argv.map(unitWord).join(" ")}\nEnvironment=${unitWord(`EP0CH_OUTLINES=${o.outlines}`)}\nEnvironment=${unitWord(`PATH=${o.path}`)}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`;
   const unit: HostUnit = { kind: mac ? "launchd" : "systemd", name, path, program: o.program, outlines: o.outlines, stale: [], ...(mac ? { state: { active: false, detail: "not loaded in launchd" } } : {}) };
   const prepare = mac ? [] : [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", name]];
   return { unit, text, log, prepare, commands: [...prepare.map(argv => argv.map(sh).join(" ")), hostUnitCommand(unit, "start")] };

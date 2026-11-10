@@ -13,11 +13,13 @@
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, board, chips, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle, olderFirst, sameWork } from "./work-twins";
 import { deepCandidates } from "./search-deep";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
+import { valueOf } from "@ep0ch/outline-core/block-record";
+import { clip } from "./clip";
 
 const LOOP = "work-groom";
 
@@ -73,7 +75,6 @@ export function latestLines(text: string, max = 600): string {
   return clip(paragraphs.at(-1) ?? "", max);
 }
 
-const propOf = (b: Block, key: string) => b.properties.find(p => p.key === key)?.value;
 const bodyOf = (b: Block) => clip(b.text.split("\n").slice(headerLine(b.text).line + 1).filter(l => !/^\s*\[[^\]]+::[^\]]*\]\s*$/.test(l)).join("\n"), 800);
 const describe = (s: Shipped) => `${s.kind === "pr" ? "pull request" : "CHANGELOG"}: ${s.title}`;
 
@@ -99,7 +100,7 @@ export function groomCandidates(ticket: Block, shipped: readonly Shipped[], othe
   };
   const changelog = top(shipped.filter(s => s.kind === "changelog"), 4), prs = top(shipped.filter(s => s.kind === "pr"), 4);
   const docs = others.filter(b => b.id !== ticket.id).map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
-  const stageOf = (b: Block) => propOf(b, "work-stage") ?? "unknown";
+  const stageOf = (b: Block) => valueOf(b, "work-stage") ?? "unknown";
   const closed = top(docs.filter(d => ["done", "superseded"].includes(stageOf(d.block))), 3), open = top(docs.filter(d => !["done", "superseded"].includes(stageOf(d.block))), 4);
   // Then the tickets deep search found by meaning (search-deep.ts): a duplicate filed in other words shares no word.
   const words = new Set([...closed, ...open].map(d => d.id));

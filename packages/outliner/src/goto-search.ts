@@ -8,6 +8,7 @@ import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { ancestorPath, contextList, searchContext, sortByContext, type ContextReason } from "./search-context";
 import type { Block, GotoSearchCollection, GotoSearchMatch } from "./types";
+import { getProperty } from "./properties";
 
 export const GOTO_CANDIDATE_LIMIT = 80;
 export const GOTO_RESULT_LIMIT = 30;
@@ -61,7 +62,7 @@ export function gotoCandidates(blocks: readonly Block[], query: string, options:
 
 /** A note as a search's row: its title, path, the snippet for `terms` and the facts Jev reads (not exact). */
 export function gotoMatch(block: Block, byId: ReadonlyMap<string, Block>, terms: readonly string[], title = blockDisplayTitle(block)): GotoSearchMatch {
-  const type = block.properties.find(p => p.key === "type")?.value;
+  const type = getProperty(block.properties, "type");
   return {
     block: { id: block.id, revision: block.revision }, title: headedTitle(title, workIdOf(block)).slice(0, 250), subtitle: subtitleOf(block),
     path: ancestorPath(block, byId),

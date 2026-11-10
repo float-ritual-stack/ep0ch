@@ -22,6 +22,7 @@ import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
 import { askJev as askJevRequest, JEV_MODEL, jevKey, NOT_CONFIGURED, type JevAsked, type JevOptions, type JevReading } from "./jev";
 import type { AskReading, QuestionFacet } from "@ep0ch/outline-core/protocol";
+import { clip } from "./clip";
 
 /** A Noul at or over this reads as yes; under `NO` as no (the skill's starting thresholds). */
 export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS };
@@ -80,7 +81,6 @@ export type ReviewReading = JevReading;
 
 interface Section { id: string; heading: string; line: number; end: number; text: string }
 
-const clip = (text: string, max = 200) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat; };
 const HEADING = /^[ \t]{0,3}#{1,6}[ \t]+(.*)$/;
 
 /** The note's sections: what comes before its first heading, then each heading's lines, outside code and components. */
@@ -294,7 +294,7 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
   const codeIn = (s: Section, rubric: Rubric) => code.some(f => f.rubric === rubric && f.line !== undefined && f.line - 1 >= s.line && f.line - 1 <= s.end);
   for (const s of sections) {
     const where = s.id === "s0" ? "the top of the note" : `the section "${clip(s.heading, 40)}"`;
-    const base = { line: s.line + 1, passage: clip(s.text), new: true, by: "jev" as const };
+    const base = { line: s.line + 1, passage: clip(s.text, 200), new: true, by: "jev" as const };
     const kit = a[`kit::${s.id}`], structured = a[`structured::${s.id}`]?.noul, prose = a[`prose::${s.id}`]?.noul;
     // Rows a figure could draw: list items, table rows, dated lines, a callout's body lines (as figure-fit counts them).
     const rows = s.text.split("\n").filter(l => /^[ \t>]*(?:[-*+]|\d+[.)]|\||\d{4}-\d{2})\s*\S/.test(l) || /^[ \t]*>[ \t]*(?!\[!)\S/.test(l)).length;
@@ -333,7 +333,7 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
       // The phrase it leans on, quoted where code finds one; else the section's opening, said as such.
       const cue = contextCue(s, lines);
       out.push({
-        ...base, ...(cue ? { line: cue.line + 1, passage: clip(cue.text) } : {}), rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`,
+        ...base, ...(cue ? { line: cue.line + 1, passage: clip(cue.text, 200) } : {}), rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`,
         say: cue
           ? `line ${cue.line + 1} leans on today's context ("${cue.phrase}"): name the thing it means, or link it as ((id|label)), so it reads without this session`
           : `${where} leans on today's context (a bare id, jargon, or a thing named as if known): name the thing, or link it as ((id|label)), so it reads without this session`,
@@ -344,11 +344,11 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
     const m = /^unclear::L(\d+)$/.exec(id);
     if (!m || !yes(`asks::L${m[1]}`) || !unit(answer.noul) || answer.noul > t.no) continue;
     const i = Number(m[1]);
-    out.push({ rule: "unclear", rubric: "unclear", key: `unclear:${clip(lines[i] ?? "", 40)}`, line: i + 1, passage: clip(lines[i] ?? ""), new: true, by: "jev", say: `line ${i + 1} asks Evan something, but not so it can be answered in a line: say the decision and the choices ("- [ ] Ship X today, or wait for Y?")` });
+    out.push({ rule: "unclear", rubric: "unclear", key: `unclear:${clip(lines[i] ?? "", 40)}`, line: i + 1, passage: clip(lines[i] ?? "", 200), new: true, by: "jev", say: `line ${i + 1} asks Evan something, but not so it can be answered in a line: say the decision and the choices ("- [ ] Ship X today, or wait for Y?")` });
   }
   if (yes("argues")) {
     const opening = sections.find(s => s.id === "s0") ?? sectionsOf(text)[0];
-    out.push({ rule: "argues", rubric: "argues", key: "argues", line: (opening?.line ?? 0) + 1, passage: clip(opening?.text ?? ""), new: true, by: "jev", say: "the note builds a case before its point: put the conclusion first, in one line, then the reasons under it" });
+    out.push({ rule: "argues", rubric: "argues", key: "argues", line: (opening?.line ?? 0) + 1, passage: clip(opening?.text ?? "", 200), new: true, by: "jev", say: "the note builds a case before its point: put the conclusion first, in one line, then the reasons under it" });
   }
   return out;
 }
@@ -406,7 +406,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
     if (n) had.set(f.key, n - 1);
     // A ready patch the writer was told and hasn't applied is still theirs to apply: the verdict says fix while the list
     // holds it (PIE-1388: two walls, one patched, answered ship with both listed). Told without a patch, it's carried.
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: (!n && !toldOf(input.told, f.key)) || owed(input.told, f.key, !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text), 200), new: (!n && !toldOf(input.told, f.key)) || owed(input.told, f.key, !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
@@ -449,7 +449,7 @@ const ASKS_QA = /\b(?:can you|could you|please|would you|evan[,:]?)\s+(?:try|tes
 function qaFindings(text: string, before: string | undefined, qaRule: string): ReviewFinding[] {
   const lines = text.split("\n"), structure = noteStructure(lines), had = new Set(before?.split("\n") ?? []);
   return lines.flatMap((line, i) => structure[i] === -1 && ASKS_QA.test(line) ? [{
-    rule: "qa-for-evan", rubric: "qa-for-evan" as Rubric, key: `qa:${clip(line, 40)}`, line: i + 1, passage: clip(line), new: !had.has(line), by: "code" as const,
+    rule: "qa-for-evan", rubric: "qa-for-evan" as Rubric, key: `qa:${clip(line, 40)}`, line: i + 1, passage: clip(line, 200), new: !had.has(line), by: "code" as const,
     say: `line ${i + 1} asks Evan to try or check something: ${qaRule}`,
   }] : []);
 }

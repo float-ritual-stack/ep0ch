@@ -38,7 +38,7 @@ import {rankSearchWithJev} from './search-ranking';
 import { deepCandidates } from './search-deep';
 import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, SEARCH_TALLY_MS, SearchTallies, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
-import { previewPropertyParse } from "./properties";
+import { getProperty, previewPropertyParse } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { rankGotoWithJev, visibleGotoResults, readGoto } from "./goto-search";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
@@ -57,7 +57,7 @@ import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
 import { siteBudget } from "./site-budget";
 import { templatePropsOf, templateUse } from "./template-use";
-import { readSources } from "./site-sources";
+import { readSources, type TransformOf } from "./site-sources";
 import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate } from "./template-stamp";
@@ -170,6 +170,7 @@ import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_META
 import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 /** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
 const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
 
@@ -2156,10 +2157,7 @@ export class OutlinerServer {
           } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
         }
       }
-      const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
-        const ext = this.extensionRegistry.extension(id);
-        return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
-      } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
+      const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => this.transformOf(id) }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
       return this.answered(request, { ...answer, deps: [...deps], sources });
     }
     if (request.action === "site.answer" && request.scriptLine !== undefined) {
@@ -2197,9 +2195,9 @@ export class OutlinerServer {
       await this.extensionRegistry.reload();
       const scripts = (await scriptSources(this.store)).filter(s => s.script?.blockId === request.blockId);
       const properties = this.store.require(request.blockId).properties;
-      const name = properties.find(p => p.key === "script")?.value;
+      const name = getProperty(properties, "script");
       // A folder's script has no note of its own: its extension's page names it (`[[ext-keep]]`).
-      const page = scripts.length ? undefined : properties.find(p => p.key === "ext.page")?.value;
+      const page = scripts.length ? undefined : getProperty(properties, "ext.page");
       const bundled = page ? this.extensionRegistry.extension(`script:${page}`) : undefined;
       const nameOf = (s: (typeof scripts)[number]) => s.script!.fence?.name ?? name;
       if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(nameOf).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
@@ -2325,7 +2323,7 @@ export class OutlinerServer {
         const item = (parseWorkId(input.item.trim()) ? (await own.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${input.item.trim()}`, limit: 1 } })).blocks[0] : this.store.get(input.item.trim()))
           ?? (() => { throw new Error(`no roadmap item ${input.item}: attach names an open item by its Work ID (PIE-12) or block id`); })();
         if (!item.properties.some(p => p.key === "type" && p.value === "roadmap-item")) throw new Error(`${input.item} isn't a roadmap item: attach names open work by its Work ID (PIE-12)`);
-        const stage = item.properties.find(p => p.key === "work-stage")?.value;
+        const stage = valueOf(item, "work-stage");
         if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
         const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
         let updated: Block | undefined;
@@ -2334,7 +2332,7 @@ export class OutlinerServer {
           try { updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation }); }
           catch (error) { if (attempt) throw error; }
         }
-        const workId = item.properties.find(p => p.key === "work-id")?.value ?? item.id;
+        const workId = valueOf(item, "work-id") ?? item.id;
         await recordTwin(own, { candidates: [], twins: [workId], jev: "not asked: attached" }, { title: input.title, outcome: "attached", item: workId, ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}), twin: workId });
         return this.answered(request, { attached: workId, block: updated! });
       }
@@ -2736,12 +2734,7 @@ export class OutlinerServer {
           result = wired(action, readSources({
             store: this.store, projections: read.projections,
             sequenceSource: (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text),
-            transformOf: (id) => {
-              const ext = this.extensionRegistry.extension(id);
-              return ext?.script
-                ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code }
-                : { kind: "extension", label: ext?.name ?? id };
-            },
+            transformOf: (id) => this.transformOf(id),
           }, request));
           break;
         }
@@ -3814,6 +3807,13 @@ export class OutlinerServer {
     if (error !== undefined || answer === undefined) waiting.reject(new Error(error || "the door gave no answer"));
     else waiting.resolve(answer);
     return { accepted: true };
+  }
+
+  /** What made a projection a page's Sources names: the extension's script (with its note and code), else the extension. */
+  private transformOf(id: string): TransformOf {
+    const ext = this.extensionRegistry.extension(id);
+    if (!ext?.script) return { kind: "extension", label: ext?.name ?? id };
+    return { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code };
   }
 
   private broadcast(event: OutlinerEvent): void {

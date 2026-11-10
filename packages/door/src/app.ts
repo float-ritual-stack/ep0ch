@@ -22,6 +22,7 @@ import { INVITES } from "./surface/invite";
 import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 import { lookFor, tuningOf } from "./look";
 import { nextFrame, onMediaChange, useMediaFetch } from "./media";
 import { onResizeEnd, resizing } from "./resize";
@@ -1097,7 +1098,7 @@ export class App implements Ctx {
     const read = async (id: string) => (await this.board.records([id]).catch(() => null))?.records[0];
     let verb = w.verb, r = w.blockId ? await read(w.blockId) : undefined;
     // A comment or a proposal is a block of its own: said as what it does to the note it's under.
-    const type = r?.properties.find(p => p.key === "type")?.values[0];
+    const type = r && valueOf(r, "type");
     if (r?.parent && (type === "annotation" || type === "draft-proposal")) { verb = type === "annotation" ? "commented on" : "proposed a change to"; r = await read(r.parent); }
     // An edit of the note right after a proposal of it (an older proposal's embed line): the proposal is what's said.
     const said = this.remoteSaid, now = this.now();

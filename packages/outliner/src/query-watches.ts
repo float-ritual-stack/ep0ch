@@ -29,6 +29,7 @@
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
 // `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (their `watch` row in actions.ts).
 import { QUERIES_CHANGED, WATCH_LIMITS, type OutlinerResponse, type QueryChange } from "@ep0ch/outline-core/protocol";
+import { stableJson } from "@ep0ch/outline-core/stable-json";
 
 /** Where a watch's changes go: the connection that asked (a socket). */
 export interface WatchConnection {
@@ -87,16 +88,7 @@ function hashOf(response: OutlinerResponse): string {
       ? { ...(response.result as Record<string, unknown>), sequence: undefined }
       : response.result)
     : { error: response.error };
-  return Bun.hash(stable(body)).toString(36);
-}
-
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().filter(k => (value as Record<string, unknown>)[k] !== undefined)
-      .map(k => `${JSON.stringify(k)}:${stable((value as Record<string, unknown>)[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
+  return Bun.hash(stableJson(body)).toString(36);
 }
 
 export interface QueryWatchOptions {
@@ -197,7 +189,7 @@ export class QueryWatches {
       return { id: request.id, ok: false, error: "generation is the number a queries.changed event gave for this watch", sequence: this.options.sequence() };
     }
     const { id: _id, watch: _watch, generation: _generation, ...question } = request;
-    const signature = stable(question);
+    const signature = stableJson(question);
     const slot = `${this.id(connection)}\0${key}`;
     const held = this.all.get(slot);
     if (held && held.signature === signature) return this.reply(request.id, held);

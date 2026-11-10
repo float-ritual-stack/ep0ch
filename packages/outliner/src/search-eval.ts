@@ -21,6 +21,7 @@ import { deepCandidates } from "./search-deep";
 import type { SearchPick } from "./search-records";
 import type { Block, GotoSearchCollection, GotoSearchMatch, VisibleBlockCollection } from "./types";
 import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
+import { getProperty } from "./properties";
 
 export const EVAL_EXPERIMENT = "search-eval";
 const EVAL: RecordWho = { author: "agent", provenance: { actorId: "jev/search-eval" } };
@@ -374,11 +375,10 @@ const read = async (client: EvalClient, where: string, limit = 1) => (await clie
 /** The cases kept in `into`, as the eval reads them, each with its record. */
 export async function keptCases(client: EvalClient): Promise<(EvalCase & { record: { id: string; revision: number; text: string } })[]> {
   const blocks = await read(client, "type=search-eval-case", 1000);
-  const prop = (b: { properties?: { key: string; value: string }[] }, k: string) => b.properties?.find(p => p.key === k)?.value;
   // The query is written in the record's body (it can hold brackets and colons a chip can't).
   return blocks.flatMap(b => {
-    const query = /^Query: (.*)$/m.exec(b.text)?.[1]?.trim() ?? prop(b, "query");
-    const outline = prop(b, "outline"), expect = prop(b, "expect"), source = prop(b, "source") as EvalCase["source"] | undefined;
+    const query = /^Query: (.*)$/m.exec(b.text)?.[1]?.trim() ?? getProperty(b.properties, "query");
+    const outline = getProperty(b.properties, "outline"), expect = getProperty(b.properties, "expect"), source = getProperty(b.properties, "source") as EvalCase["source"] | undefined;
     if (!query || !outline || !expect || !source) return [];
     return [{ query, outline, expect: expect === "none" ? "none" as const : expect.split(/[ ,]+/).filter(Boolean), source, record: { id: b.id, revision: b.revision, text: b.text } }];
   });

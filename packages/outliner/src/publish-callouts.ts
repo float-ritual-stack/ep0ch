@@ -9,6 +9,7 @@ import {
   type CalloutTone,
   type CalloutType,
 } from "@ep0ch/outline-core/callouts";
+import { escapeHtml } from "./html-escape";
 
 /**
  * A published page's callouts (PIE-783): `> [!type]± Title` drawn as a box with the type's icon and title, by
@@ -21,8 +22,6 @@ import {
 export function publishedCalloutRegistry(types: readonly CalloutType[] | undefined): CalloutRegistry {
   return types ? calloutRegistry(types) : BUILTIN_CALLOUT_REGISTRY;
 }
-
-const esc = (text: string) => text.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** Which tone a class names: styled in PAGE_STYLE's `.callout-<tone>`. */
 const toneClass = (tone: CalloutTone) => `callout-${tone}`;
@@ -69,8 +68,8 @@ export function calloutExtension(registry: () => CalloutRegistry): TokenizerAndR
       const title = this.parser.parseInline(titleTokens);
       const inner = this.parser.parse(tokens);
       if (header.type === "output") return `<div class="output-region">${inner}</div>\n`;
-      const open = `class="callout ${toneClass(type.tone)}" data-callout="${esc(type.name)}"`;
-      const heading = `<span class="callout-icon" aria-hidden="true">${esc(type.icon)}</span><span class="callout-title">${title}</span>`;
+      const open = `class="callout ${toneClass(type.tone)}" data-callout="${escapeHtml(type.name)}"`;
+      const heading = `<span class="callout-icon" aria-hidden="true">${escapeHtml(type.icon)}</span><span class="callout-title">${title}</span>`;
       const content = `<div class="callout-body">${inner}</div>`;
       return header.fold
         ? `<details ${open}${header.fold === "+" ? " open" : ""}><summary>${heading}</summary>${content}</details>\n`

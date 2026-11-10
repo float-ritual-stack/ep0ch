@@ -13,6 +13,7 @@ import { SOFT_LINK_IGNORE_KEY } from "@ep0ch/outline-core/soft-links";
 import { resourcePropertyKeys } from "./resource-references";
 import { softOccurrences, type SoftMentionsOf } from "./backlinks";
 import type { Block, PageAddressResolution } from "./types";
+import { getProperty } from "./properties";
 
 /** A place a soft link could land: a note that's there, or what following it would make (nothing is made until asked). */
 export interface SoftLinkCandidate {
@@ -109,7 +110,7 @@ export function projectsAround(source: Pick<SoftLinkSource, "block">, place: Sof
   // Under a project's own page (`[type::project] [page::floatty]`), it is that project.
   for (const note of [block, ...ancestorChain(source, block.id)]) {
     const properties = parsePropertyRecords(note.text);
-    const page = properties.find(p => p.key === "page")?.value.trim();
+    const page = getProperty(properties, "page")?.trim();
     if (page && properties.some(p => p.key === "type" && p.value.trim().toLowerCase() === "project")) return [page];
   }
   return [];

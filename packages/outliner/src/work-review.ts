@@ -14,6 +14,7 @@ import { headerLine } from "@ep0ch/outline-core/header-line";
 import { shapeNext, type Rubric } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt } from "./ai-prompts";
 import { askJevQuestions, QA_RULE, REVIEW_THRESHOLDS, type ReviewFinding, type ReviewReading, type WriteReview } from "./write-review";
+import { clip } from "./clip";
 
 export interface HouseRuleClient { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> }
 
@@ -25,8 +26,6 @@ export const HOUSE_RULE_DEFAULTS = {
 } as const;
 export type HouseRule = keyof typeof HOUSE_RULE_DEFAULTS;
 
-const clip = (text: string, max = 240) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat; };
-
 /**
  * A rule's words as the outline has them: the note carrying `[house-rule::<name>]` (its first paragraph under the title,
  * or its title), with a link to it; the default otherwise, saying how to word it in the outline.
@@ -37,7 +36,7 @@ export async function houseRule(client: HouseRuleClient, name: HouseRule): Promi
     if (note) {
       const header = headerLine(note.text);
       const body = note.text.split("\n").slice(header.line + 1).join("\n").split(/\n\s*\n/).map(p => p.trim()).find(p => p && !p.startsWith("::") && !p.startsWith("```"));
-      return `${clip((body ?? header.prose).replace(/^>\s*(?:\[![^\]]+\][+-]?\s*)?/gm, ""))} ((${note.id}))`;
+      return `${clip((body ?? header.prose).replace(/^>\s*(?:\[![^\]]+\][+-]?\s*)?/gm, ""), 240)} ((${note.id}))`;
     }
   } catch { /* the default words */ }
   return `${HOUSE_RULE_DEFAULTS[name]} (tag a note [house-rule::${name}] to word it in this outline)`;

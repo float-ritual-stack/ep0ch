@@ -33,6 +33,7 @@ import { answerSite, siteReader } from "./site-answer";
 import type { Block, BlockProvenance, NewNoteReceipt } from "./types";
 import { findTemplate, TEMPLATE_FOR_KEY, TEMPLATE_ONLY_KEYS, templateProps } from "./templates";
 import type { TemplateUseStore } from "./template-use";
+import { getProperty } from "./properties";
 
 /** What a stamp needs of the store, beyond reading. */
 export interface StampStore extends TemplateUseStore {
@@ -191,7 +192,7 @@ function subtreeOf(store: StampStore, block: Block, count: { n: number }): Node 
   count.n += 1;
   if (count.n > MAX_BLOCKS) throw new Error(`the template holds more than ${MAX_BLOCKS} blocks; a stamp writes at most that many`);
   const children = store.children(block.id)
-    .filter(child => !NOT_STAMPED.has(String(child.properties.find(p => p.key === "type")?.value ?? "").toLowerCase()))
+    .filter(child => !NOT_STAMPED.has((getProperty(child.properties, "type") ?? "").toLowerCase()))
     .map(child => subtreeOf(store, child, count));
   return { text: block.text, children };
 }
@@ -235,7 +236,7 @@ function prepareStamp(store: StampStore, request: TemplateStampRequest, clock: (
   for (const name of checked.defaulted) checked.values[name] = checked.values[name]!.map(value => fill(value, settle, warnings));
   const root = subtreeOf(store, template, { n: 0 });
   const addresses = new Set(parsePropertyRecords(template.text).filter(r => ADDRESS_KEYS.has(r.key)).map(r => r.value.trim().toLowerCase()));
-  const forWord = (template.properties.find(p => p.key === TEMPLATE_FOR_KEY)?.value ?? "").trim().split(/[\s,]+/)[0] || undefined;
+  const forWord = (getProperty(template.properties, TEMPLATE_FOR_KEY) ?? "").trim().split(/[\s,]+/)[0] || undefined;
 
   return { template, title, warnings, author, mutation, matches, parent, checked, root, addresses, forWord };
 }

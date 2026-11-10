@@ -47,7 +47,7 @@ import { blockDisplayTitle } from "./references";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
-import { recordProperties, type BlockRecord } from "@ep0ch/outline-core/block-record";
+import { recordProperties, valueOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
@@ -132,7 +132,7 @@ function requireRevision(value: unknown): number {
 }
 
 function workIdOf(block: Block): string | undefined {
-  return block.properties.find(property => property.key === "work-id")?.value;
+  return valueOf(block, "work-id");
 }
 
 // ─── Resolve ───────────────────────────────────────────────────────────────
@@ -1070,7 +1070,7 @@ export async function viewOrder(
     view: order.viewId,
     ref: `((${order.viewId}))`,
     order: order.blockIds.map(id => {
-      const b = byId.get(id), workId = b?.properties?.find(p => p.key === "work-id")?.value;
+      const b = byId.get(id), workId = b && valueOf(b, "work-id");
       return { id, title: b?.title ?? "", ...(workId ? { workId } : {}) };
     }),
     ...(order.completeness.kind === "truncated" ? { truncated: true as const } : {}),
