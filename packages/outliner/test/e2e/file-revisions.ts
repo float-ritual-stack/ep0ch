@@ -7,14 +7,14 @@ import { runHerdrScenario } from "./herdr-runner";
 const STAMP = 1_700_000_000;
 const result = await runHerdrScenario({
   name: "file-revisions",
-  async prepare(root) {
+  async prepare(_project, _paths, root) {
     const path = join(root, "file-conflict.txt");
     writeFileSync(path, "ORIGINAL");
     utimesSync(path, STAMP, STAMP);
   },
   async run(session) {
     const terminal = await session.attachClient();
-    const path = join(session.projectRoot, "file-conflict.txt");
+    const path = join(session.outlineRoot, "file-conflict.txt");
     const { resource } = await session.client.request<InternResourceReceipt>({
       action: "resources.intern-filesystem", input: { path: "file-conflict.txt", mediaType: "text/plain" },
     });
