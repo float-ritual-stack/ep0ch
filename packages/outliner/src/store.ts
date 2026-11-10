@@ -45,7 +45,7 @@ import { blockAnnotationRepresentation } from "./annotation-representations";
 import { DEFAULT_ENTITY_KEY_PATTERN, resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
-import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
+import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning, questionWorkIdHint } from "./question-answer";
 import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
@@ -4189,7 +4189,7 @@ export class OutlinerStore {
       const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key || key === "tag" && record.key === "tags").flatMap(record => splitPropertyValue(record.value));
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys, query.facetSearch);
-      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope))].filter(Boolean).join(" · ");
+      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope)), rows.length ? undefined : questionWorkIdHint(query, graph.propertyRecordsByBlock, id => !graph.byId.get(id)?.effectiveDeletedRootId)].filter(Boolean).join(" · ");
       if (hint && !options.select) answer.hint = hint;
     }
     return answer;

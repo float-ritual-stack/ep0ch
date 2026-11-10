@@ -19,8 +19,8 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
 import { parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
-import { hasCountCandidate, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
-import { outlineFacets, reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
+import { hasCountCandidate, SHAPE_LIMITS, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
+import { bareIds, outlineFacets, reviewWarnings, reviewWrite, sectionsOf, type BareIdAnswers, type WriteReview } from "./write-review";
 import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
@@ -83,7 +83,21 @@ import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 /** The client these operations use: requests, and the protocol check before a write or a newer read. */
 export interface AgentToolsClient extends WorkToolsClient {
   requireCompatibleService(): Promise<unknown>;
+  /**
+   * The note as the door draws it (PIE-588): the door's own drawing, lent by a host that has it (the MCP gateway draws
+   * in process, the outliner CLI runs `ep0ch show`), so a write's answer can carry it. `lines` (from 1) keeps the rows
+   * those source lines draw, under the note's header; at most `rows` of them. Null when there's no such note. A client
+   * without it answers a write undrawn, saying so.
+   */
+  draw?(id: string, o: NoteDrawing): Promise<string[] | null>;
+  /** The outlines the host this client reaches serves, by name (`outlines.list`, a host's request that names no outline). */
+  hostedOutlines?(): Promise<string[]>;
+  /** A read of another outline that host serves (one `hostedOutlines` named): where a bare Work ID is checked before it's linked there. */
+  askOutline?(outline: string, request: { action: string } & Record<string, unknown>): Promise<unknown>;
 }
+
+/** What a write's drawing asks for: the width, the source lines (from 1) it is about, and how many rows at most. */
+export interface NoteDrawing { width: number; lines?: [number, number]; rows: number }
 
 /** The agent a write is attributed to: always `author: agent`, with its actor id and session. */
 export interface AgentActor {
@@ -787,9 +801,9 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
     // Each read is bounded on its own; the outline's facets (pie's answer in about 0.2 s since PIE-1396, 2 to 7 s before)
     // are read while Jev answers, and only when the text types a number before a word, so they never hold Jev up.
     // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
-    const [schemas, qaRule, told] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client as never, at.note), undefined)]);
+    const [schemas, qaRule, told, ids] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client as never, at.note), undefined), within(bareIdAnswers(client, text), undefined)]);
     const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
-    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}), ...(told ? { told } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
+    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}), ...(told ? { told } : {}), ...(ids ? { ids } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
   };
   // The whole review is bounded, and any failure leaves code's measures alone, saying why Jev wasn't heard: the write has landed.
   const codeOnly = (why: string) => reviewWrite({ ...input, schemas: null, jev: false, jevWhy: why });
@@ -799,6 +813,39 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
   ]).catch((e: unknown) => codeOnly(`not heard: ${(e as Error)?.message ?? String(e)} (after ${((Date.now() - started) / 1000).toFixed(1)} s)`));
   if (!off) await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
   return review;
+}
+
+/**
+ * Where the ids a note names bare lead (write-review.ts `bareIds`, PIE-588): a Work ID whose prefix isn't one this outline
+ * uses, by the outline this host serves under that prefix's name (the client's `hostedOutlines`), when that outline has it
+ * (`askOutline`) (`PIE-587` is pie's, linked `[[pie:PIE-587]]`); a block
+ * id, by the note here it names, with its title. Asked only of a text that names one; undefined when there's none.
+ */
+async function bareIdAnswers(client: AgentToolsClient, text: string): Promise<BareIdAnswers | undefined> {
+  const ids = bareIds(text);
+  if (!ids.length) return undefined;
+  const answers: BareIdAnswers = { work: {}, blocks: {} };
+  const work = [...new Set(ids.filter(id => id.kind === "work").map(id => id.token))];
+  if (work.length) {
+    const [status, hosted] = await Promise.all([
+      client.request<{ prefix: string | null; prefixesInUse: string[] }>({ action: "work-ids.status" }).catch(() => null),
+      client.hostedOutlines ? client.hostedOutlines().catch(() => null) : Promise.resolve(null),
+    ]);
+    const here = new Set([...(status?.prefix ? [status.prefix] : []), ...(status?.prefixesInUse ?? [])]);
+    const byPrefix = new Map((hosted ?? []).map(name => [name.toUpperCase(), name] as const));
+    for (const token of work) {
+      const prefix = token.slice(0, token.lastIndexOf("-"));
+      const outline = here.has(prefix) ? undefined : byPrefix.get(prefix);
+      // Linked only to an item that outline has: a patch never writes a link that leads nowhere.
+      const there = outline && client.askOutline ? await client.askOutline(outline, { action: "blocks.resolve", refs: [token] }).catch(() => null) as { resolved?: { id?: string }[] } | null : null;
+      if (outline && there?.resolved?.[0]?.id) answers.work[token] = outline;
+    }
+  }
+  for (const token of new Set(ids.filter(id => id.kind === "block").map(id => id.token))) {
+    const found = await resolveReference(client, token).catch(() => null);
+    if (found) answers.blocks[token] = { id: found.block.id, title: headerLine(found.block.text).prose.trim() };
+  }
+  return answers;
 }
 
 /** Asks the service to make the records of what Jev said (jev-suggestions.ts); waits for it no longer than the budget, and never throws. */
@@ -999,8 +1046,8 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
  * - `had`: the text before a patch, when only the warnings this write brought in are news (PIE-761): a warning the
  *   note already had isn't this write's.
  */
-type WriteAnswer = { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string };
-async function warned(client: AgentToolsClient, text: string, o: { near?: string; self?: string; gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }; had?: string } = {}): Promise<WriteAnswer> {
+type WriteAnswer = { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; view?: string[]; viewOf?: string; viewError?: string; next?: string };
+async function warned(client: AgentToolsClient, text: string, o: { near?: string; self?: string; gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }; had?: string; undrawn?: string } = {}): Promise<WriteAnswer> {
   const { near, self = near, gate } = o;
   const [{ warnings, components }, review, rows, had] = await Promise.all([
     writtenReading(client, text, near, self),
@@ -1009,7 +1056,62 @@ async function warned(client: AgentToolsClient, text: string, o: { near?: string
     o.had === undefined ? null : referenceWarningsFor(client, o.had, near, self).then(w => new Set(w)),
   ]);
   const all = [...(had ? warnings.filter(w => !had.has(w)) : warnings), ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
-  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review } : {}), ...(near ? { next: review?.next ?? shapeNext(near) } : {}) };
+  // The part written, as the door draws it (PIE-588): every create, edit and patch of a note's words, a fix's result too.
+  const drawing = gate && near ? await drawnWrite(client, near, text, gate.before, review, o.undrawn) : null;
+  const next = near ? review?.next ?? shapeNext(near) : undefined;
+  return {
+    ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review } : {}),
+    ...(drawing ?? {}),
+    ...(next ? { next: drawing?.view ? next.replace(shapeNext(near!), drawnNext(near!)) : next } : {}),
+  };
+}
+
+/** The drawing's size: Evan's reading width (a 44-column desk tile) and at most this many rows of the part written. */
+const DRAW_ROWS = 40;
+/** How far from a change its section's heading and end, or a new finding's line, may be and still be drawn with it. */
+const DRAW_CONTEXT_LINES = 6;
+/** At most this long added to a write's answer by its drawing (the door settles live figures for up to 3 s). */
+const DRAW_BUDGET_MS = 6000;
+
+/** What `next` says when the answer holds the drawing: read it there, and the whole note with ep0ch show. */
+const drawnNext = (id: string) => `read \`view\` (the part this write changed, as the door draws it at ${SHAPE_LIMITS.readingWidth} columns) before you call it done; the whole note: \`ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth}\``;
+
+/**
+ * The part of the note a write changed, drawn as the door draws it (PIE-588), by the client's drawer: the lines that
+ * differ from `before` (all of a new note), from the start of the section they're in, and each new finding's line,
+ * under the note's header and at most DRAW_ROWS rows. `viewError` says why there's none (no drawer, a draft, a failure).
+ */
+async function drawnWrite(client: AgentToolsClient, id: string, text: string, before: string | undefined, review: WriteReview | null, undrawn?: string): Promise<Pick<WriteAnswer, "view" | "viewOf" | "viewError">> {
+  // Off only where a test says so (the outliner's preload): its writes are about their words, not the drawing.
+  if (process.env.OUTLINER_WRITE_VIEW === "off") return {};
+  if (undrawn) return { viewError: undrawn };
+  if (!client.draw) return { viewError: `this client can't draw the note: ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth} (or outline_read with view: true) shows it` };
+  const lines = text.split("\n");
+  let lo = 0, hi = lines.length - 1;
+  if (before !== undefined) {
+    const was = before.split("\n");
+    while (lo < lines.length && lo < was.length && lines[lo] === was[lo]) lo++;
+    let a = lines.length - 1, b = was.length - 1;
+    while (a >= lo && b >= lo && lines[a] === was[b]) { a--; b--; }
+    hi = Math.max(lo, a);
+    // From the heading of the section the change starts in to the end of the one it ends in, so the drawing says where it
+    // is: when they're near. A change deep in a long section is drawn from itself, inside the row budget.
+    const sections = sectionsOf(text), first = sections.find(s => s.line <= lo && lo <= s.end), last = sections.find(s => s.line <= hi && hi <= s.end);
+    if (first && lo - first.line <= DRAW_CONTEXT_LINES) lo = first.line;
+    if (last && last.end - hi <= DRAW_CONTEXT_LINES) hi = last.end;
+  }
+  // A new finding's line is drawn too, when it's near what was written (a far one is named in the finding itself).
+  for (const f of review?.findings ?? []) if (f.new && f.line && f.line - 1 >= lo - DRAW_CONTEXT_LINES && f.line - 1 <= hi + DRAW_CONTEXT_LINES) { lo = Math.min(lo, f.line - 1); hi = Math.max(hi, f.line - 1); }
+  lo = Math.max(0, Math.min(lo, lines.length - 1)); hi = Math.max(lo, Math.min(hi, lines.length - 1));
+  const whole = lo === 0 && hi === lines.length - 1;
+  try {
+    const drawn = await Promise.race([client.draw(id, { width: SHAPE_LIMITS.readingWidth, ...(whole ? {} : { lines: [lo + 1, hi + 1] as [number, number] }), rows: DRAW_ROWS }), Bun.sleep(DRAW_BUDGET_MS).then(() => "late" as const)]);
+    if (drawn === "late") return { viewError: `the drawing took over ${DRAW_BUDGET_MS / 1000} s: ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth} shows it` };
+    if (!drawn) return { viewError: `no note ${id} to draw` };
+    return { view: drawn, viewOf: `${whole ? "the note" : `lines ${lo + 1}–${hi + 1} of ${lines.length}`}, as the door draws it at ${SHAPE_LIMITS.readingWidth} columns${drawn.length >= DRAW_ROWS ? `, its first ${DRAW_ROWS} rows` : ""}` };
+  } catch (e) {
+    return { viewError: `the note couldn't be drawn (${(e as Error).message}): ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth}` };
+  }
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -1446,7 +1548,9 @@ export async function patchDraft(
   if (after === undefined || after === was) return result;
   const revisionNow = (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision;
   const gate = o.suggest === false ? undefined : { before: was, at: { note: block.id, revision: revisionNow, actorId: actor.actorId } };
-  const { next, ...answer } = await warned(client, after, { near: block.id, had: was, ...(gate ? { gate } : {}) });
+  // A patch into a live draft: the drawing reads the saved note, which isn't what was written.
+  const draft = result.outcome === "applied" && result.edits.some(e => e.blockId === block.id && e.route === "draft");
+  const { next, ...answer } = await warned(client, after, { near: block.id, had: was, ...(gate ? { gate } : {}), ...(draft ? { undrawn: "the note is open in a draft, so the saved note the door would draw isn't what you wrote yet; read it as drawn once it's saved" } : {}) });
   return { ...result, ...answer, ...(gate && next ? { next } : {}) };
 }
 

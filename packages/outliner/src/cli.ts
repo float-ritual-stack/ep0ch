@@ -18,7 +18,7 @@ import {
   focusBlockByQuery,
   formatBlockFocusMatch,
 } from "./block-focus";
-import { createOutlinerClient, OutlinerRequestError, type RequestInput } from "./client";
+import { createOutlinerClient, OutlinerClient, OutlinerRequestError, type RequestInput } from "./client";
 import { requireClientIdForRole } from "./client-target";
 import { cliActorId } from "./machine-name";
 import { boundFolderOf, clientSocket, machineFor, outlinesLayout, resolveClientPaths, resolveOutlinesFolder, whichOutlineFor, writeDotEp0ch } from "./paths";
@@ -839,6 +839,24 @@ async function blockAndSiblings(ref: string): Promise<{ block: import("./types")
  * input, printed as compact JSON. Writes are `author: agent`, attributed to --actor. A refusal exits 1
  * with the reason on stderr.
  */
+/**
+ * The agent tools' drawer here (agent-tools.ts `draw`): `ep0ch show` from this checkout's door, at the socket and
+ * outline this CLI reaches, so the drawing is the door's own and of the same note. Its rows, or why there are none.
+ */
+function doorDrawer(at: { socket: string; outline?: string }) {
+  return async (id: string, o: import("./agent-tools").NoteDrawing): Promise<string[] | null> => {
+    const main = resolve(import.meta.dir, "../../door/src/main.ts");
+    const child = Bun.spawn([process.execPath, main, "show", id, "--width", String(o.width), "--rows", String(o.rows), ...(o.lines ? ["--lines", `${o.lines[0]}-${o.lines[1]}`] : [])], {
+      env: { ...process.env, EP0CH_SOCKET: at.socket, ...(at.outline ? { EP0CH_WS: at.outline } : {}) }, stdout: "pipe", stderr: "pipe", stdin: "ignore",
+    });
+    // The answer waits for it only so long (agent-tools' DRAW_BUDGET_MS): past that it's stopped, never left running.
+    const late = setTimeout(() => child.kill(), 7_000);
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]).finally(() => clearTimeout(late));
+    if (code !== 0) throw new Error(err.trim().split("\n")[0]?.replace(/^ep0ch: /, "") || `ep0ch show exited ${code}`);
+    return out.replace(/\s+$/, "").split("\n");
+  };
+}
+
 async function runAgentCommand(args: string[]): Promise<number> {
   const { AGENT_OPERATIONS, runAgentOperation } = await import("./agent-tools");
   try {
@@ -855,6 +873,12 @@ async function runAgentCommand(args: string[]): Promise<number> {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("the input is a JSON object");
     const actor = values.actor?.trim() ? writerProvenance(values) : undefined;
     await client.requireCompatibleService();
+    // A write's answer carries the note as the door draws it (PIE-588): this checkout's door draws it, on this socket.
+    Object.assign(client, {
+      draw: doorDrawer(paths),
+      hostedOutlines: async () => (await new OutlinerClient(paths.socket, 5_000).request<{ outlines: { name: string }[] }>({ action: "outlines.list" })).outlines.map(o => o.name),
+      askOutline: (outline: string, request: RequestInput) => createOutlinerClient({ ...paths, outline }).request(request),
+    });
     const result = await gatedAgentOperation(operation as (typeof AGENT_OPERATIONS)[number], input as Record<string, unknown>, actor, runAgentOperation);
     console.log(JSON.stringify(result));
     return 0;

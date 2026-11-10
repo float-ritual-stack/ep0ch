@@ -1,7 +1,7 @@
 import type { On, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
-import { bashReadRefusal, isDeploy, isOutlineWrite, reportOf, SWEEP_TOOLS, sweepBrief, sweepsFor } from '../hooks/freshness'
+import { bashReadRefusal, isDeploy, isOutlineWrite, MAIN_FILE_HOW, reportOf, SWEEP_TOOLS, sweepBrief, sweepsFor } from '../hooks/freshness'
 
 tier('user')
 
@@ -145,5 +145,14 @@ describe('freshness helpers', () => {
     expect(sweepBrief('- a merged PR with no build-log line', 'Three merges.')).toContain('--- .claude/freshness.md ---\n- a merged PR with no build-log line')
     expect(reportOf('- PIE-12 still in review')).toContain('- PIE-12 still in review')
     expect(reportOf('')).toContain('Nothing stale.')
+  })
+
+  // Nov 10: three "no CHANGELOG entry" reports in one night came from a checkout parked behind main.
+  test('the brief reads the repository as main has it, never the checkout, and the way it says to passes the read-only rule', () => {
+    const brief = sweepBrief('- a merged PR with no CHANGELOG entry', 'Three merges.')
+    expect(brief).toContain('never judge the repository by its files')
+    expect(brief).toContain(MAIN_FILE_HOW)
+    expect(bashReadRefusal("gh api 'repos/o/r/contents/CHANGELOG.md?ref=main' -H 'Accept: application/vnd.github.raw'")).toBeNull()
+    expect(bashReadRefusal('gh pr view 1390 --json files')).toBeNull()
   })
 })
