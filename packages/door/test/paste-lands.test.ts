@@ -286,7 +286,7 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       expect(names.filter(n => /trash|close|collapse/.test(n))).toEqual([]);
       board.get = get;
       await d.untouched("typing while a comment failed to open", before);
-      const desk = d.desk, name = desk.nameOf(desk.focus), rows = () => (desk.render((desk as any).ctx).lines.map(visible) as string[]).join("\n");
+      const desk = d.desk as any, name = desk.nameOf(desk.focus), rows = () => (desk.render((desk as any).ctx).lines.map(visible) as string[]).join("\n");
       expect(desk.hasFailedEdit(name)).toBe(true);
       expect(rows()).toContain("tile menu: recover typed text");
       const kept = await d.app.press("edit.recover", { op: "copy" }, name) as any;

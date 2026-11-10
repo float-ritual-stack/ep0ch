@@ -72,8 +72,7 @@ describe("a screen is a spec", () => {
     expect(keyName({ kind: "char", ch: " " })).toBe("space");
     expect(keyName({ kind: "backtab" })).toBe("shift+tab");
     expect(keyName({ kind: "back" })).toBe("alt+left");                         // the mouse's back button is alt+←
-    expect(keyName({ kind: "char", ch: "x", pasted: true })).toBeNull();
-    expect(keyName({ kind: "enter", pasted: true })).toBeNull();
+    expect(keyName({ kind: "paste", text: "x\n" })).toBeNull();
     // A key map names keys this way only: the old words are refused, not read as another key.
     expect(() => readSpec({ name: "x", title: "x", layout: { root: { t: "leaf", kind: "reader", name: "r" } }, keys: [{ key: "alt-left", action: "x" }] })).toThrow(/names no key/);
     for (const never of [" ", "ctrl+E"]) expect(() => readSpec({ name: "x", title: "x", layout: { root: { t: "leaf", kind: "reader", name: "r" } }, keys: [{ key: never, action: "x" }] })).toThrow(/names no key/);

@@ -403,7 +403,7 @@ export class SessionTerm implements Display {
 
   /** A watcher's key: q or ctrl+c stops watching; nothing else is anyone's. */
   private watcherKey(c: SessionClient, k: Key) {
-    if (k.kind === "char" && ((k.ch === "q" && !k.ctrl && !k.pasted) || (k.ch === "c" && k.ctrl))) c.link.close({ t: "bye", reason: "detached", message: "stopped watching · the session goes on" });
+    if (k.kind === "char" && ((k.ch === "q" && !k.ctrl) || (k.ch === "c" && k.ctrl))) c.link.close({ t: "bye", reason: "detached", message: "stopped watching · the session goes on" });
   }
 
   private key(c: SessionClient, k: Key) {

@@ -23,11 +23,8 @@ import { paintable } from "./text";
 
 export type Key =
   | { kind: "modifier"; key: "ctrl"; event: "press" | "release" | "tap" }
-  /**
-   * `pasted`: it came inside a paste typed out as keys (`pasteKeys`): a draft takes it as it came. `shift` with `ctrl`: held
-   * with a ctrl+letter, as only the Kitty keyboard protocol can say (ctrl+shift+z, a draft's redo).
-   */
-  | { kind: "char"; ch: string; ctrl?: boolean; shift?: true; pasted?: true }
+  /** `shift` with `ctrl`: held with a ctrl+letter, as only the Kitty keyboard protocol can say (ctrl+shift+z, a draft's redo). */
+  | { kind: "char"; ch: string; ctrl?: boolean; shift?: true }
   /** Alt (Meta) with a printable key: ESC then the character in one read. Its own kind, so no plain-key handler mistakes it for the letter. */
   | { kind: "alt"; ch: string }
   /**
@@ -60,10 +57,11 @@ export type Key =
   | { kind: "alt-left" | "alt-right" | "alt-up" | "alt-down" | "back" | "forward"; shift?: true; ctrl?: true; super?: true }
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down" | "wheel-left" | "wheel-right"; button: number; x: number; y: number; mods?: number }
-  /** A paste (bracketed paste, mode 2004): the text as one piece, never typed out as keys; where it lands is src/paste-path.ts's. */
-  | { kind: "paste"; text: string }
-  /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
-  | { kind: "enter" | "tab"; pasted: true };
+  /**
+   * A paste (bracketed paste, mode 2004): the text as one piece, never typed out as keys (PIE-1673: the one form, so
+   * every editor takes it as one step, its line breaks and tabs as text); where it lands is src/paste-path.ts's.
+   */
+  | { kind: "paste"; text: string };
 
 
 /**
@@ -109,11 +107,6 @@ export function optionKeysOn(env: Record<string, string | undefined> = process.e
   if (!locale || /^(C|POSIX)(\.|$)/i.test(locale)) return true;
   const m = /^([a-z]{2,3})(?:_([A-Za-z]{2}))?/.exec(locale);
   return !!m && m[1] === "en" && !["GB", "IE"].includes((m[2] ?? "").toUpperCase());
-}
-
-/** A paste typed out as keys, CRLF one break: the form a draft still takes (its tests'). The door hands a paste whole (src/paste-path.ts). */
-export function pasteKeys(text: string): Key[] {
-  return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
 }
 
 /** The terminal's own default text and background again (OSC 110, 111), after a theme's ground (Term.setGround). */

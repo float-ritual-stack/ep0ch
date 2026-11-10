@@ -447,9 +447,8 @@ export const isKeyName = (s: unknown): s is string =>
 /** Words that are a mouse gesture: in a hint, what follows them is what's clicked, not more keys. */
 const MOUSE = new Set(["click", "drag", "wheel"]);
 
-/** The one name of a key: `q`, `Q`, `space`, `enter`, `ctrl+w`, `alt+l`, `shift+tab`, `click`; null for a paste (or a key typed out of one). */
+/** The one name of a key: `q`, `Q`, `space`, `enter`, `ctrl+w`, `alt+l`, `shift+tab`, `click`; null for a paste. */
 export function keyName(k: Key): string | null {
-  if ("pasted" in k && k.pasted) return null;
   switch (k.kind) {
     case "modifier": return "ctrl";
     case "char": return k.ctrl ? `ctrl+${k.ch.toLowerCase()}` : k.ch === " " ? "space" : k.ch;
@@ -478,7 +477,6 @@ export function keyName(k: Key): string | null {
  * alt+←, ctrl+← is ←), so nothing outside a draft moves. Null for a paste, a mouse side button and the rest `keyName` names alone.
  */
 export function exactKeyName(k: Key): string | null {
-  if ("pasted" in k && k.pasted) return null;
   const held = (o: { ctrl?: true; alt?: true; super?: true; shift?: true }, base: string) => `${o.ctrl ? "ctrl+" : ""}${o.alt ? "alt+" : ""}${o.super ? "super+" : ""}${o.shift ? "shift+" : ""}${base}`;
   switch (k.kind) {
     case "alt-left": case "alt-right": case "alt-up": case "alt-down": return held({ ...k, ...(k.super ? {} : { alt: true as const }) }, k.kind.slice(4));

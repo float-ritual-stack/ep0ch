@@ -349,8 +349,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private readonly overlays = new Modes<Desk, ListPicker<any, Desk>>();
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
-  /** Typing kept from an edit or comment that failed to open (PIE-1674): what was opening, so recovering it opens the same kind. */
-  private failedOpens = new Map<ReaderPane, { of: string; kind: SessionKind; opener: Key | null; keys: Key[]; text: string; copy: string; why: string }>();
+  private failedOpens = new Map<ReaderPane, { of: string; kind: SessionKind; opener: Key | null; keys: Key[]; text: string; copy: string; why: string }>();   // typing from an edit or comment that failed to open, with what was opening (PIE-1674)
   /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
   private pending: { pane: ReaderPane; kind: SessionKind; opener: Key | null; keys: Key[] } | null = null;
 
@@ -4793,9 +4792,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
 
   /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
-  /** …; resolves true when the person is in it (opened, and still wanted), false when it didn't open or was cancelled. */
-  // `opener`: the key that started it, which pressed again while it opens isn't typing; an edit's e (ctrl+e) when not said,
-  // nothing for another kind (C then e is the comment's letter, PIE-1674).
+  /** …; resolves true when the person is in it (opened, and still wanted), false when it didn't open or was cancelled. `opener`: the key that started it (pressed again while it opens it isn't typing): an edit's e when not said, none for another kind (C then e is the comment's e, PIE-1674). */
   startSession(rd: ReaderPane, kind: SessionKind, opener: Key | null = kind === "edit" || kind === "external" ? { kind: "char", ch: "e", ctrl: kind === "external" } : null, keys: Key[] = []): Promise<boolean> {
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     // The person's session is where their keys are: a reader the key wasn't pressed in (the board's preview, from a lane) takes focus.
@@ -4818,12 +4815,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = startSession(rd, kind, this, still);
     const said = (e: unknown) => {
       const why = e instanceof Error ? e.message : String(e);
-      // What was typed while it opened is kept, whichever kind was opening (an edit, a comment): recovered into the same kind.
-      const word = TYPED_WHILE_OPENING.get(kind);
-      if (still() && token.keys.length && word) {
+      if (still() && token.keys.length && TYPED_WHILE_OPENING.has(kind)) {   // kept whichever kind was opening, recovered into the same kind (PIE-1674)
         const text = new Draft(rd.msg!.id, 0, "");
         for (const key of token.keys) text.key(key);
-        const copy = keepCopy(text.text, `${word}-opening`);
+        const copy = keepCopy(text.text, `${TYPED_WHILE_OPENING.get(kind)}-opening`);
         this.failedOpens.set(rd, { of: rd.msg!.id, kind, opener, keys: token.keys, text: text.text, copy, why });
         this.ctx.flash(`${why} · tile menu: recover typed text · copy kept at ${copy}`, undefined, errorDetails(e));
       } else this.ctx.flash(why, undefined, errorDetails(e));
@@ -4843,9 +4838,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   async recoverEdit(sel?: string, op?: string) {
     const t = this.tile(sel), rd = this.panes.get(t.id);
-    const kept = rd instanceof ReaderPane ? this.failedOpens.get(rd) : undefined;
+    const kept = rd instanceof ReaderPane ? this.failedOpens.get(rd) : undefined, word = kept && TYPED_WHILE_OPENING.get(kept.kind);
     if (!kept || !(rd instanceof ReaderPane) || kept.of !== rd.msg?.id) throw new ActionRefused("this reader has no typing from an edit or a comment that failed to open");
-    const word = TYPED_WHILE_OPENING.get(kept.kind) ?? "edit";
     if (!op) {
       this.overlay(new ListPicker<{ label: string; op: string }, Desk>({
         name: "recover typed text", clickChooses: true,
@@ -4891,7 +4885,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pending = this.pending;
     if (pending && TYPED_WHILE_OPENING.has(pending.kind)) {
       const here = pending.pane === this.focusedReader() && !this.overlays.top();
-      const pasted = k.kind === "paste" || "pasted" in k && k.pasted;
+      const pasted = k.kind === "paste";
       const o = pending.opener, repeat = !pasted && !!o && k.kind === o.kind && (k.kind !== "char" || o.kind !== "char" || k.ch === o.ch && !!k.ctrl === !!o.ctrl);
       const text = k.kind === "paste" || k.kind === "char" && !k.ctrl && /^[^\x00-\x1f\x7f]+$/u.test(k.ch)
         || k.kind === "enter" && !("ctrl" in k && k.ctrl) || k.kind === "tab" || k.kind === "backspace";
@@ -5038,7 +5032,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A restored edit invites e or Enter to carry on; that key belongs to entering, not to its text.
     const resuming = focused?.surface.draft && !this.entered.in(focused) && focused.surface.keepsOnFocusAway();
     this.reenter();
-    if (resuming && this.entered.in(focused) && (c === "e" || k.kind === "enter") && !("pasted" in k && k.pasted)) return this.redraw();
+    if (resuming && this.entered.in(focused) && (c === "e" || k.kind === "enter")) return this.redraw();
     // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
     const choosing = this.choosingReader();
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }
