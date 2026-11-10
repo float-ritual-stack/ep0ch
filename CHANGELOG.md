@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent's write answers with the note as drawn, and every finding names its lines; a Work ID in a query finds its item (PIE-588, PIE-1682)
+
+- **The note as drawn, in the write's answer:** a create, edit or patch that holds a component, has a warning or a fix to make answers with `view`, the part it changed as the door draws it at 44 columns (`viewOf` says which lines), on the claude.ai connector as in Claude Code. The agent tools draw it with the door's own drawing (the gateway in process, the CLI through `ep0ch show --lines`); the mod no longer runs its own `ep0ch show` after a write. A patch into a note someone has open in a draft says why it isn't drawn.
+- **A bare id is quoted, with its link:** a Work ID of another outline written bare (`PIE-587` in gurgle) is a finding that quotes it and gives `[[pie:PIE-587]]` as a ready patch, the outline found by its name on the host; a note's id written bare gets `((id|its title))`.
+- **A mixed section names its lines:** Jev reads each line of a long section as what's true, what was decided or what's still open; the finding says which lines are which, and its patch moves the decided and the open under headings of their own. A section whose lines are all one kind isn't mixed, so a rewrite as told clears it instead of moving it. A context finding that can't say where is advice, not a fix.
+- **`PIE-587 OR PIE-588` in a query returns those two items:** a bare Work ID clause reads as `work-id=PIE-587`, in outline-core's clause parser, so `outline_query`, `outline_find`, `ep0ch find --query` and views agree. An empty answer names each Work ID no item has ("no item has PIE-999 (read as work-id=PIE-999)"), and a key written like one (`pie-587`) says `work-id=` in its hint.
+- **`ep0ch show --lines a-b`:** only the rows those source lines draw, under the note's header, with a `⋮` where rows were left out.
+- **Run:** `ep0ch install --apply`. GRAMMAR goes to 48 (the query clause); PROTOCOL and the schema don't move.
+
 ### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
 
 - **Nothing you use changes:** the door draws, answers keys and lists its actions exactly as before; the one thing drawn differently is the kitchen sink's file pointers, which name the new modules. This is for whoever opens the code next.

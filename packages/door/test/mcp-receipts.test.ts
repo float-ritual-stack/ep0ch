@@ -72,8 +72,8 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: "test-key", alg: "RS256" }] });
 
     await here.start(); await far.start();
-    // "gdn" is the outline a GDN- Work ID belongs to, by its name: what a bare one in another outline is linked to.
-    await here.create("garden-notes"); await here.create("quiet-notes"); await here.create("gdn"); await far.create("attic-notes");
+    // "shed" is the outline a SHED- Work ID belongs to, by its name: what a bare one in another outline is linked to.
+    await here.create("garden-notes"); await here.create("quiet-notes"); await here.create("shed"); await far.create("attic-notes");
     const garden = boardOn(here, "garden-notes", HERE), quiet = boardOn(here, "quiet-notes", HERE), attic = boardOn(far, "attic-notes", FAR);
     await garden.request("mcp.access.configure", { level: "full" }); await quiet.request("mcp.access.configure", { level: "read" }); await attic.request("mcp.access.configure", { level: "full" });
     const make = async (b: SocketBoard, key: string, text: string) => { ids[key] = (await b.request("create", { parentId: null, text, author: "user" })).id; };
@@ -263,15 +263,15 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
         return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 10, output_tokens: 2 } });
       },
     });
-    const saved = { fit: process.env.OUTLINER_FIGURE_FIT, key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
-    Object.assign(process.env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${jev.port}/v1/systemone` });
+    const saved = { fit: process.env.OUTLINER_FIGURE_FIT, view: process.env.OUTLINER_WRITE_VIEW, key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
+    Object.assign(process.env, { OUTLINER_FIGURE_FIT: "on", OUTLINER_WRITE_VIEW: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${jev.port}/v1/systemone` });
     try {
       const text = [
         "Gate repair",
         "## Where it stands",
         "- The latch on the garden gate sheared off in the wind on Monday night, and the gate swung wide into the lane until morning.",
         "- The hinges and the post are sound: only the latch and its keeper plate need replacing, and both are a standard size.",
-        "- We decided to fit a gravity latch this time, since the spring latch kept rusting shut every winter (see GDN-12).",
+        "- We decided to fit a gravity latch this time, since the spring latch kept rusting shut every winter (see SHED-12).",
         "- Still open: whether the gate needs a second latch at the bottom to stop it rattling in a strong wind?",
       ].join("\n");
       const made = await tool("outline_create", { outline: "garden-notes", ref: ids.a!, text });
@@ -286,8 +286,8 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
       expect(mixed.say).toContain("what's true on lines 3–4; what was decided on line 5; what's still open on line 6");
       // The bare Work ID is quoted, with the outline it lives in.
       const context = findings.find(f => f.rule === "context")!;
-      expect(context.say).toContain("names GDN-12 bare");
-      expect(context.patch![0]!.replacement).toContain("(see [[gdn:GDN-12]])");
+      expect(context.say).toContain("names SHED-12 bare");
+      expect(context.patch![0]!.replacement).toContain("(see [[shed:SHED-12]])");
 
       // Each fix applied as written: the link first, then the move (its patch comes with the next review).
       const id = made.json.uri.split("/").pop();
@@ -303,7 +303,7 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
       expect((moved.json.detail.review.findings as typeof findings).filter(f => f.rule === "mixed")).toEqual([]);
       expect(moved.json.view.join("\n")).toContain("Decided");
     } finally {
-      Object.assign(process.env, { OUTLINER_FIGURE_FIT: saved.fit ?? "off" });
+      Object.assign(process.env, { OUTLINER_FIGURE_FIT: saved.fit ?? "off", OUTLINER_WRITE_VIEW: saved.view ?? "off" });
       if (saved.key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = saved.key;
       if (saved.endpoint === undefined) delete process.env.OUTLINER_JEV_ENDPOINT; else process.env.OUTLINER_JEV_ENDPOINT = saved.endpoint;
       jev.stop(true);
