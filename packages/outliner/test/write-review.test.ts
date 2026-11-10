@@ -161,6 +161,9 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
     const title = String(state.title);
     if (title !== argue) return undefined;
     if (id === "argues" || id.startsWith("mixed::") || id.startsWith("context::")) return { type: "noul", noul: 0.9 };
+    // Mixed holds as far as its lines say so (PIE-588): the second paragraph is what was settled, the first what happened.
+    const at = /^kind::(L\d+)$/.exec(id)?.[1];
+    if (at) { const kind = /settled/.test(String((state.lines as Record<string, string>)[at])) ? "decision" : "fact"; return { type: "choice", choice: kind, confidence: 0.8, probabilities: { [kind]: 0.9 } }; }
     return undefined;
   });
   const essay = [argue, "", "To understand why the beds moved, it helps to go back to the spring, when the light along the north fence was poor all morning and the soil there stayed heavy and cold well into May. We tried two rows of beans there and both came up late and thin.", "", "As discussed, the issue above is settled now: the beds face south from next year, and the north strip becomes the compost and the water butts, which never minded the shade."].join("\n");
@@ -180,11 +183,12 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
   expect(context.passage).toStartWith("As discussed, the issue above");
 
   // A rewrite Jev still says it of isn't "followed", and isn't told again: the writer heard it once, so it is carried
-  // and the verdict can ship (PIE-1402). One Jev reads and doesn't say it of is followed.
+  // (PIE-1402). Only the mixed finding stays the writer's, as any told finding with a ready patch not yet applied does
+  // (PIE-1388): its patch puts the settled paragraph under a heading of its own (PIE-588).
   const note = store.require(made.json.id);
   const repeat = await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("north fence", "north wall") });
-  expect((repeat.json.review as Review).findings.filter(f => f.new).map(f => f.rule)).toEqual([]);
-  expect((repeat.json.review as Review).verdict).toBe("ship");
+  expect((repeat.json.review as Review).findings.filter(f => f.new).map(f => f.rule)).toEqual(["mixed"]);
+  expect((repeat.json.review as Review).findings.find(f => f.rule === "mixed")!.patch![0]!.replacement).toContain("## Decided\nAs discussed");
   expect((await records("suggestion-outcome")).filter(o => o.rule === "argues")).toEqual([]);
   expect((await records("review-finding")).filter(r => r.rule === "argues")).toHaveLength(1);
   const again = store.require(note.id);

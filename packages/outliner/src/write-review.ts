@@ -184,6 +184,8 @@ export function bareIds(text: string): BareId[] {
       for (const m of line.matchAll(pattern)) {
         const token = m[0], at = starts[i]! + m.index!;
         if (kind === "block" && token.length === 8 && !(/\d/.test(token) && /[a-f]/.test(token))) continue;
+        // An unclosed `((id` or `[[page` is a reference written wrong: the reference warnings say so, with the fix.
+        if (/(?:\(\(|\[\[)$/.test(line.slice(0, m.index))) continue;
         if (free(at, at + token.length)) out.push({ line: i, start: m.index!, end: m.index! + token.length, token, kind });
       }
     }

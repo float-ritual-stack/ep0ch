@@ -1074,6 +1074,8 @@ const drawnNext = (id: string) => `read \`view\` (the part this write changed, a
  * under the note's header and at most DRAW_ROWS rows. `viewError` says why there's none (no drawer, a draft, a failure).
  */
 async function drawnWrite(client: AgentToolsClient, id: string, text: string, before: string | undefined, review: WriteReview | null, undrawn?: string): Promise<Pick<WriteAnswer, "view" | "viewOf" | "viewError">> {
+  // Off only where a test says so (the outliner's preload): its writes are about their words, not the drawing.
+  if (process.env.OUTLINER_WRITE_VIEW === "off") return {};
   if (undrawn) return { viewError: undrawn };
   if (!client.draw) return { viewError: `this client can't draw the note: ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth} (or outline_read with view: true) shows it` };
   const lines = text.split("\n");

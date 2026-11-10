@@ -38,7 +38,7 @@ async function setup(extraEnv: Record<string, string> = {}) {
     rmSync(root, { recursive: true, force: true });
   });
   // The real Jev is never asked (src/figure-fit.ts): a test that wants a suggestion turns it on, with a fake endpoint.
-  const cliEnv = { ...isolatedEnv(env), OUTLINER_FIGURE_FIT: "off", EP0CH_MACHINE_NAME: "garden-box", ...extraEnv };
+  const cliEnv = { ...isolatedEnv(env), OUTLINER_FIGURE_FIT: "off", OUTLINER_WRITE_VIEW: "off", EP0CH_MACHINE_NAME: "garden-box", ...extraEnv };
   /** One `agent` operation as the mod runs it: JSON on stdin, as the garden agent. */
   const agent = async (operation: string, input: unknown, actor = "garden-agent") => {
     const child = Bun.spawn(["bun", "src/cli.ts", "agent", operation, "--stdin", "--actor", actor, "--session", "s-9"], {
