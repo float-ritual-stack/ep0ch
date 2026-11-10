@@ -1,6 +1,7 @@
 import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { ticketScope } from "@ep0ch/outline-core/work-ids";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';
@@ -889,23 +890,20 @@ export function selectedDetailFileRange(state: Readonly<DetailState>): DetailLin
 
 
 
-export function detailVisibleEditorHeight(
-  state: Pick<DetailState, "completion">,
-  viewport: DetailViewport,
-): number {
+/** The rows Detail's frame leaves its body: the bar, a subtitle if any, metadata and rule above, status and help below.
+ * The one page size (PIE-1689): the note, a file, the editor and the annotations page by what the renderer draws. */
+export function detailBodyRows(state: Pick<DetailState, "context">, viewport: Pick<DetailViewport, "height">): number {
+  return Math.max(1, viewport.height - 5 - (state.context?.selected && subtitleOf(state.context.selected) ? 1 : 0));
+}
+
+export function detailVisibleEditorHeight(state: Pick<DetailState, "completion" | "context">, viewport: DetailViewport): number {
   if (viewport.editorBody) return viewport.editorBody.height;
-  const completionRows = state.completion
-    ? Math.min(COMPLETION_ROWS,Math.floor(viewport.height*0.65))
-    : 0;
-  return Math.max(1, viewport.height - 5 - completionRows);
+  const completionRows = state.completion ? Math.min(COMPLETION_ROWS, Math.floor(viewport.height * 0.65)) : 0;
+  return Math.max(1, detailBodyRows(state, viewport) - completionRows);
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function pageSize(viewport: DetailViewport): number {
-  return Math.max(1, viewport.height - 6);
 }
 
 export function createDetailController(
@@ -1811,7 +1809,7 @@ export function createDetailController(
   };
 
   const ensureFileCursorVisible = (viewport: DetailViewport): void => {
-    const page = pageSize(viewport);
+    const page = detailBodyRows(state, viewport);
     if (state.fileCursor < state.fileOffset) state.fileOffset = state.fileCursor;
     if (state.fileCursor >= state.fileOffset + page) {
       state.fileOffset = state.fileCursor - page + 1;
@@ -2516,10 +2514,10 @@ export function createDetailController(
         if (!body) throw new Error("A comment cannot be edited down to nothing");
         const isReply = state.annotationThreads.some(thread => thread.replies.some(reply => reply.block.id === draft.annotationId));
         await effects.updateAnnotation({ annotationId: draft.annotationId, expectedRevision: draft.revision, body });
+        written = true;
         state.mode = returnTo;
         await loadAnnotations();
         state.status = isReply ? "Reply edited" : "Comment edited";
-        return;
       } else if (state.mode.kind === "comment" && state.mode.draft.kind === "reply") {
         const draft = state.mode.draft, returnTo = state.mode.returnTo;
         const body = state.buffer.text.trim();
@@ -2527,10 +2525,10 @@ export function createDetailController(
         await effects.replyAnnotation({ requestId: draft.requestId, input: {
           annotationId: draft.annotationId, body, source: "user",
         } });
+        written = true;
         state.mode = returnTo;
         await loadAnnotations();
         state.status = "Reply added";
-        return;
       } else if (state.mode.kind === "comment" && state.mode.draft.kind === "new") {
         const draft = state.mode.draft, returnTo = state.mode.returnTo;
         const body = state.buffer.text.trim();
@@ -2624,12 +2622,12 @@ export function createDetailController(
     const lineCount = state.mode.kind === "annotation"
       ? buildDetailAnnotationView(state, viewport.width).length
       : state.resolvedSelectedText.split(/\r?\n/).length;
-    const maximum = Math.max(0, lineCount - (state.mode.kind === "annotation" ? Math.max(1, viewport.height - 5) : 1));
+    const maximum = Math.max(0, lineCount - (state.mode.kind === "annotation" ? detailBodyRows(state, viewport) : 1));
     if (direction === "top") state.previewOffset = 0;
     else if (direction === "bottom") state.previewOffset = maximum;
     else {
       const amount = direction === "pageup" || direction === "pagedown"
-        ? pageSize(viewport)
+        ? detailBodyRows(state, viewport)
         : 1;
       const delta = direction === "up" || direction === "pageup" ? -amount : amount;
       state.previewOffset = Math.max(0, Math.min(maximum, state.previewOffset + delta));
@@ -2645,7 +2643,7 @@ export function createDetailController(
     if (direction === "home") state.fileCursor = 0;
     else if (direction === "end") state.fileCursor = maximum;
     else {
-      const amount = direction === "pageup" || direction === "pagedown" ? pageSize(viewport) : 1;
+      const amount = direction === "pageup" || direction === "pagedown" ? detailBodyRows(state, viewport) : 1;
       const delta = direction === "up" || direction === "pageup" ? -amount : amount;
       state.fileCursor = Math.max(0, Math.min(maximum, state.fileCursor + delta));
     }
@@ -3389,10 +3387,10 @@ export function createDetailController(
         const maximum = Math.max(
           0,
           visiblePropertyInspectorEntries(state.propertyInspector).length * 2 + 8 -
-            pageSize(viewport),
+            detailBodyRows(state, viewport),
         );
         const amount = intent.direction === "pageup" || intent.direction === "pagedown"
-          ? pageSize(viewport)
+          ? detailBodyRows(state, viewport)
           : 1;
         if (intent.direction === "home") state.propertyInspector.viewportOffset = 0;
         else if (intent.direction === "end") state.propertyInspector.viewportOffset = maximum;
@@ -3770,7 +3768,7 @@ export function createDetailController(
       }
       case "buffer.save":
         await saveBuffer(viewport);
-        return;
+        break;
       case "buffer.cancel":
         await cancelBuffer();
         break;

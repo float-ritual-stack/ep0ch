@@ -997,3 +997,77 @@ test("a file link whose folder now resolves elsewhere is refused with the comman
     expect(store.resources.readFilesystemReference(join(inbox, "hub-16.md")).text).toBe("# Someone else's\n");
   });
 });
+
+test("every Resource write takes the catalog's clock (PIE-1690)", () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-resource-clock-"));
+  const at = "2031-02-03T04:05:06.007Z";
+  const store = new OutlinerStore(join(root, "workspace.sqlite"), { now: () => at });
+  try {
+    const source = filesystemSource(store, "Clock", join(root, "notes"));
+    writeFileSync(join(root, "notes", "beds.md"), "Beds\n");
+    writeFileSync(join(root, "notes", "rows.md"), "Rows\n");
+    const resource = store.resources.intern({ sourceId: source.id, address: { kind: "filesystem", path: "beds.md" } }).resource;
+    const moved = store.resources.relocate({
+      resourceId: resource.id, expectedVersion: resource.version, destinationSourceId: source.id,
+      address: { kind: "filesystem", path: "rows.md" },
+    });
+    const [rebound] = store.resources.rebindFilesystemRoot(join(root, "notes"));
+    expect([source.createdAt, source.updatedAt, resource.createdAt, moved.updatedAt, rebound!.updatedAt]).toEqual([at, at, at, at, at]);
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a remote refresh that fails after its Resource moved says it was overtaken, as the web's does (PIE-1690)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-remote-superseded-"));
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const client = {
+    async resolveLocator(_source: unknown, locator: string) { return { entityId: "immutable-31", locator }; },
+    async observe() {
+      await gate;
+      throw new Error("provider offline");
+    },
+    async execute() { throw new Error("not used"); },
+  };
+  const store = new OutlinerStore(join(root, "workspace.sqlite"), { remoteEntityClient: client as never });
+  try {
+    const source = store.resources.createSource({
+      name: "Seed Jira", provider: "ext:jira",
+      boundary: { origin: "https://issues.example.test", project: "SEED", credentialEnv: "SEED_JIRA_TOKEN" },
+    });
+    const resource = store.resources.intern({
+      sourceId: source.id, address: { kind: "ext:jira", entityId: "immutable-31", key: "SEED-31" },
+    }).resource;
+    const overtaken = store.resources.refreshRemoteEntity(resource.id, true);
+    store.resources.relocate({
+      resourceId: resource.id, expectedVersion: resource.version, destinationSourceId: source.id,
+      address: { kind: "ext:jira", entityId: "immutable-31", key: "SEED-32" },
+    });
+    release();
+    // As the web's does: the refresh that was overtaken says so, and the newer state stands.
+    await expect(overtaken).rejects.toMatchObject({ code: "version-conflict" });
+    expect(store.resources.describe(resource.id, true).remoteStatus).toMatchObject({ freshness: "unknown", lastError: null });
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a web page in Latin-1 reads as its charset says (PIE-1690)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-web-charset-"));
+  const latin1 = new Uint8Array([...new TextEncoder().encode("<p>Caf"), 0xe9, ...new TextEncoder().encode(" au lait</p>")]);
+  const store = new OutlinerStore(join(root, "workspace.sqlite"), {
+    fetch: (async () => new Response(latin1, { headers: { "content-type": "text/html; charset=ISO-8859-1" } })) as unknown as typeof fetch,
+  });
+  try {
+    const source = store.resources.createSource({ name: "Cafe", provider: "web", boundary: { baseUrl: "https://example.com/" } });
+    const resource = store.resources.intern({ sourceId: source.id, address: { kind: "web", url: "https://example.com/menu" } }).resource;
+    const page = await store.resources.refreshWeb(resource.id, true);
+    expect(page.web?.markdown).toContain("Café au lait");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

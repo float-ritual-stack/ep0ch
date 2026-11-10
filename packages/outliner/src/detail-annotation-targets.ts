@@ -5,6 +5,7 @@
 import { lineStart } from "@ep0ch/outline-core/code-ranges";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import { annotationSourceHash, createPdfPageRegionAnchor, createTextQuoteAnchor } from "./annotations";
+import { filesystemRepresentationId } from "./annotation-representations";
 import type { DetailState } from "./detail-controller";
 import type { ReferencedFile } from "./files";
 import type { TextBuffer, TextBufferRange } from "./text-buffer";
@@ -84,7 +85,7 @@ export function filesystemAnnotationRepresentation(
       }
     : null;
   return {
-    id: `filesystem:${resource.id}:${file.sourceVersion ?? contentHash}:${contentHash}`,
+    id: filesystemRepresentationId(resource.id, revision?.revision ?? null, contentHash),
     subject: { kind: "resource", resourceId: resource.id },
     sourceSnapshot: {
       kind: "resource",
