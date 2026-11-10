@@ -14,13 +14,8 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
   const mode: PanelMode = {
       name: "panel", of: P, panel: P, holdsKeys: true, noun: "the property value",
       word: "property panel",
-      changed: (revision, partial) => {
-        // A list row's revision says nothing about the value's token: only a whole read marks it.
-        const f = P.field;
-        if (partial || !f || f.saving || revision === f.revision) return;
-        f.changedElsewhere = true;
-        f.note = "the note changed elsewhere since this value was read · saving would be refused · esc, then enter edits the current value";
-      },
+      // A list row's revision says nothing about the value's token: only a whole read is news, the value's session's (PIE-1658).
+      changed: (revision, partial) => { if (!partial) P.field?.session.changedTo(revision); },
       editing: () => !!P.field, covers: () => P.full,
       key: (k, host) => key(k, host),
       click: (x, y, host) => {
@@ -59,7 +54,7 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
       },
       // Drawn by the reading render: above the note, or filling the reader under its header (full).
       rows: () => null,
-      leave: async host => { if (P.field) { P.field = null; host.redraw(); } return { left: "nothing" }; },
+      leave: async host => { if (P.field) { P.field.session.dispose(); P.field = null; host.redraw(); } return { left: "nothing" }; },
       leaveRefusal: () => {
         const f = P.field;
         return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; // says, not a hint row
@@ -75,7 +70,7 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
         }
         return m ? {
           open: P.full ? "full" : "inline", selected: P.sel + 1, note: P.note || null,
-          editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.input.text, revision: P.field.revision, changedElsewhere: P.field.changedElsewhere, note: P.field.note || null } : null,
+          editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.input.text, revision: P.field.input.base, changedElsewhere: P.field.input.status.changedElsewhere, conflict: P.field.input.status.conflict, note: P.field.input.note || null } : null,
           rows: surface.rows(m).map(r => describeRow(r)),
         } : null;
       },
