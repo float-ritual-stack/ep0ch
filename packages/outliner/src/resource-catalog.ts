@@ -16,7 +16,7 @@ import { commitFilesystemText, recoverFilesystemSave } from "./filesystem-commit
 import {
   BasicWebMarkdownExtractor,
   sha256,
-  WEB_ACCEPT, WEB_TEXT_ADAPTER, unsupportedWebMediaType, webAdapterCurrent, webAdapterFor, webBodyKind, webMarkdown,
+  WEB_ACCEPT, WEB_PDF_MEDIA_TYPE, WEB_TEXT_ADAPTER, webMediaRoute, webAdapterCurrent, webAdapterFor, webBodyKind, webMarkdown,
   type WebBodyKind,
   type WebMarkdownExtractor,
 } from "./web-markdown";
@@ -1629,6 +1629,7 @@ export class ResourceCatalog {
     const pending = this.pendingWebRefreshes.get(normalized);
     if (pending) return pending;
     const refresh = this.performWebRefresh(normalized, destinationHostRegistered)
+      .then((read) => read === "pdf" ? this.refreshPdf(normalized, destinationHostRegistered) : read)
       .finally(() => this.pendingWebRefreshes.delete(normalized));
     this.pendingWebRefreshes.set(normalized, refresh);
     return refresh;
@@ -2826,7 +2827,7 @@ export class ResourceCatalog {
   private async performWebRefresh(
     resourceId: string,
     destinationHostRegistered: boolean,
-  ): Promise<ResourceDescription> {
+  ): Promise<ResourceDescription | "pdf"> {
     const snapshot = this.database.transaction(() => {
       const resource = this.requireFromCurrentRead(resourceId);
       const source = this.requireSourceFromCurrentRead(resource.sourceId);
@@ -2990,8 +2991,20 @@ export class ResourceCatalog {
         );
       }
       const mediaType = responseMediaType(response);
-      const unsupported = unsupportedWebMediaType(mediaType);
-      if (unsupported) { await cancelResponseBody(response); throw new ResourceCatalogError("invalid-input", unsupported); }
+      const route = webMediaRoute(mediaType);
+      if (route !== "page") await cancelResponseBody(response);
+      if (route === "pdf") {
+        // A PDF from then on: the Resource reads through the PDF path a file uses, and asks for a PDF (PIE-1702).
+        this.database.transaction(() => {
+          this.assertWebRefreshCurrent(snapshot.resource, snapshot.generation);
+          this.database.query(`
+            UPDATE resources SET media_type = ?, version = version + 1, updated_at = ? WHERE id = ?
+          `).run(WEB_PDF_MEDIA_TYPE, checkedAt, snapshot.resource.id);
+          this.bumpSequence();
+        })();
+        return "pdf";
+      }
+      if (route !== "page") throw new ResourceCatalogError("invalid-input", route.refused);
       const declaredLength = Number(response.headers.get("content-length"));
       if (Number.isFinite(declaredLength) && declaredLength > this.maximumWebBytes) {
         await cancelResponseBody(response);
