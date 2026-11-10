@@ -37,8 +37,20 @@ describe.skipIf(!outliner)("the showcase screen: an empty desk", () => {
   // PIE-1726: the stage empty, the keys in the drawer's reader, `e`: the edit arms, its hint shows on that reader in the
   // drawer, and no paint throws the empty stage's refusal (it crashed the door from finishFrame → syncModeHint).
   test("an empty stage, the keys in the drawer's reader, e: the edit arms there and ⏎ opens it, nothing thrown", async () => {
+    // Its own stage and reader, run alone or after the test above: the section, the keys in it, a reader opened by the bar.
+    (app as any).lastInput = 0;
     const n = SECTIONS.findIndex(s => s.key === "empty-desk") + 1;
+    await app.act({ action: "section", args: { name: "empty-desk" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(empty-desk\)/.test(e.message)) throw e; });
+    screen();
     const stage = () => S().stages.get(n - 1).top as any;
+    if (S().focus !== "stage") press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    if (!stage().layoutGet().tiles.length) {
+      await app.dispatch.act({ action: "bar.open", args: { query: "Bike shed", scope: "notes" } }, USER);
+      screen();
+      await app.dispatch.act({ action: "bar.pick", args: { n: 1 } }, USER);
+      await until(() => { screen(); return stage().layoutGet().tiles.length === 1; }, "a reader on the stage");
+    }
     const [reader] = stage().layoutGet().tiles;
     expect(reader?.kind).toBe("reader");
     // The reader into the drawer, the stage's other tile closed (^W x): the stage is empty again; the keys go into the drawer.
