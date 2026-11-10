@@ -13,6 +13,7 @@ import type { Canvas, Rect } from "../canvas";
 import { pageRows, RowView, wheelRows } from "../scroll";
 import { C, fg, pad, RESET, floatSelectedRow } from "../style";
 import { type Key } from "../term";
+import { escVia } from "../esc-rule";
 import { LineField } from "./line";
 import { modeBinding, modeHint, type Mode, type ModeKey } from "./modes";
 
@@ -110,7 +111,7 @@ export class ListPicker<T, H> implements Mode<H> {
   }
 
   /** What Esc closes in it, in the hint's words: a filter it clears first, its own name for itself, or the picker. */
-  escCloses(): string { return this.spec.escClears && this.spec.input?.text ? "the filter" : this.spec.clickChooses ? "the menu" : "the picker"; }
+  escCloses(): string { return escVia(this.spec.input?.closeKey(), this.spec.escClears && this.spec.input?.text ? "the filter" : this.spec.clickChooses ? "the menu" : "the picker"); }
   get bindings(): readonly ModeKey[] {
     const input = this.spec.input, chooses = this.spec.clickChooses ?? this.spec.stays;
     return [

@@ -211,6 +211,8 @@ describe("a picker with a line closes on the line's close key (PIE-1688)", () =>
       expect(closed).toEqual([]);
       expect(p.hint()).toContain("alt+q");
       expect(p.hint()).not.toMatch(/\besc close/);
+      const { escSays } = await import("../src/esc-rule");
+      expect(escSays(p.escCloses())).toBe("alt+q: the picker");   // the way-out on the hint row names it too
       p.key({ kind: "alt", ch: "q" }, null);
       expect(closed).toEqual(["esc"]);
     } finally {
