@@ -24,4 +24,5 @@ export const pasteALink = (id: string, link: string, uri: string) => [
   "Copy one yourself: open the ⋯ menu of the rota (or right-click a row in the links tile) and pick copy note web link, or put the cursor on a line of the rota and pick copy line reference. Press e here, paste it on a line of its own, save, and click it.",
   "- Paste here:",
   "Paste anything where nothing is being typed (this reader with no edit open, a board, the drawer) and no letter of it runs: the power bar opens with it in its line, a note's address as that note's row, other words as a search. ⏎ picks, one Esc puts it away.",
+  "If an edit or a comment can't open (its note didn't answer), what you typed and pasted while it opened is kept: that reader's tile menu offers recover typed text, to copy it or to open the same kind again with it in. A copy also stays in drafts/.",
 ].join("\n");
