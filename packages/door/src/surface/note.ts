@@ -3719,6 +3719,8 @@ export class NoteSurface {
       // ctrl+r is the draft's own key (DRAFT_KEYS); it's named here only when there's something to reload.
       get keys() { return cs.mode === "compose" ? [...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row), ...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload") : [])] : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
+      // The note moved on: a comment on a passage of it, or on the whole of it, is told as a note's edit is (PIE-1658).
+      changed: revision => cs.noteChanged(revision),
       // Its way out: what was over it went with it (a grip, the placement menu, the leave ask); the keys it took go back.
       dropped: () => {
         if (this.revisionMode) this.modes.focus(this.revisionMode, true);

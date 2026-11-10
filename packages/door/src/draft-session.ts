@@ -80,10 +80,11 @@ export interface DraftTarget {
  * What a target read on ctrl+r (PIE-1591). The session owns everything else: the hold and the replay, copying what was
  * typed, where the text lands, when the conflict clears and what the line says.
  * - `loaded`: the block as it is now, which the draft takes.
- * - `stays`: the draft's text stands and its place was found again (a comment's quote); what to say about it.
+ * - `stays`: the draft's text stands and its place was found again (a comment's quote, a whole note's revision); what to
+ *   say about it, and the revision it now stands on, which the session takes as its base (PIE-1658).
  * - `none`: nothing to load (it's gone, or nothing is out of date), so the conflict stands; why.
  */
-export type ReloadRead = { loaded: Msg } | { stays: string } | { none: string };
+export type ReloadRead = { loaded: Msg } | { stays: string; revision: number } | { none: string };
 
 /** What a session asks of whoever hosts it: its connection (for the hold), a redraw, and what to say. */
 export interface SessionEnv {
@@ -450,7 +451,7 @@ export class DraftSession {
   private land(read: ReloadRead, was: string, rich: ElementEdit | null, cell: ReturnType<ElementEdit["cellNow"]>) {
     if ("none" in read) { this.status.say(read.none); return; }
     this.status.settled();
-    if ("stays" in read) { this.status.say(read.stays); return; }
+    if ("stays" in read) { this.standsOn(read.revision); this.status.say(read.stays); return; }
     const d = this.draft, copy = d.dirty ? d.copyOut(this.target.label) : this.status.savedCopy;
     d.rebase(read.loaded);
     this.hold?.revise(d.base);
@@ -508,6 +509,15 @@ export class DraftSession {
     // The line is still the reload's, for a newer change to retire (`changedTo`), only when no replayed key spoke over it.
     if (said === this.reloadSaid) this.reloadSaid = reloads ? d.note : null;
     this.env.redraw?.();
+  }
+
+  /**
+   * What its text stands on is `revision` now, with nothing to load (a comment's passage picked again in the note's newer
+   * text): no news, so later word of that revision says nothing (`changedTo`).
+   */
+  standsOn(revision: number) {
+    this.draft.base = revision;
+    this.hold?.revise(revision);
   }
 
   /**
@@ -591,7 +601,8 @@ export class DraftSession {
   private restore(): boolean {
     const d = this.draft, u = unsent(this.target.place);
     if (!u) return false;
-    if (u.base !== d.base) { this.status.say(`you started an edit ${onDay(dayOf(u.at))} and didn't save; the note has changed since · your edit is kept (open the note's kept-edit line to compare it) · its copy is at ${tidy(u.copy ?? "")}`); return false; }
+    // Only an edit is written over what it read; a comment or a new card stands on whatever the note is now (PIE-1658).
+    if (this.target.verb === "save" && u.base !== d.base) { this.status.say(`you started an edit ${onDay(dayOf(u.at))} and didn't save; the note has changed since · your edit is kept (open the note's kept-edit line to compare it) · its copy is at ${tidy(u.copy ?? "")}`); return false; }
     unshelve(this.target.place);
     d.lines = u.text.split("\n");
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
@@ -1037,10 +1048,11 @@ export function commentTarget(o: {
         const msg = e instanceof Error ? e.message : String(e);
         if (e instanceof Refused) {
           o.out.refused();
-          const stale = t.kind === "quote" && /revision is stale|was not found|ambiguous/i.test(msg);
+          // A reply names no revision; a comment on a passage or on the whole note goes stale when the note moves on (PIE-1658).
+          const stale = t.kind !== "reply" && /revision is stale|was not found|ambiguous/i.test(msg);
           // A refusal never strands the text (PIE-761): it stays open here, and a copy is on disk, said with what to do
           // next. A stale one is the session's to copy and say, as a note's edit is.
-          if (stale) return no(/revision is stale/i.test(msg) ? "the note changed since you picked the passage · not sent" : /was not found/i.test(msg) ? "the quote isn't in the note's current text · not sent" : `refused, not sent: ${msg}`, { stale });
+          if (stale) return no(/revision is stale/i.test(msg) ? `the note changed since you ${t.kind === "note" ? "started the comment" : "picked the passage"} · not sent` : /was not found/i.test(msg) ? "the quote isn't in the note's current text · not sent" : `refused, not sent: ${msg}`, { stale });
           return no(`refused, not sent: ${msg} · your text is kept here and copied to ${tidy(d.copyOut(label))} · ctrl+s tries again, esc esc puts it aside (${back})`);
         }
         o.out.unsure();
