@@ -455,7 +455,7 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
     });
 
     // PIE-1663: carrying a group's last tile out left only its kept dock, which spilled its terminals as tiles.
-    test("a group's last tile carried out by real keys: the terminals an undo kept stay in one shut dock", async () => {
+    test("a group's last tile carried out by real keys: the terminals an undo kept stay in their one dock, and the carry says so", async () => {
       const d = await door(cols, rows);
       try {
         await d.desk.dispatch.act({ action: "tile.group", tile: "replies", args: { name: "hob" } }, USER);
@@ -471,23 +471,32 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         }
         const inner = () => tile.inner.layoutGet().tiles as { name: string; container?: string; shown?: boolean }[];
         const dockOf = (name: string) => inner().find(t => t.name === name)?.container;
-        expect(dockOf("pty")).toMatch(/^d\d+$/);
-        expect(dockOf("pty2")).toBe(dockOf("pty"));
+        const keeping = () => docks(tile.inner.root).filter(x => x.keeps).map(x => leaves(x.kid).length);
+        const kept = dockOf("pty");
+        expect(kept).toMatch(/^d\d+$/);
+        expect(dockOf("pty2")).toBe(kept);
         await tile.inner.dispatch.act({ action: "tile.focus", tile: "replies" }, USER);
         d.paint();
         await d.press(ctrl("w"), char("a"));
         expect(inner().map(t => t.name)).not.toContain("replies");
-        // The group holds only the dock now: both terminals still in it, one dock, the one that keeps work.
-        const kept = dockOf("pty");
-        expect(kept).toMatch(/^d\d+$/);
+        // The group holds only that dock now: both terminals in it, still the one that keeps work (the next an undo keeps
+        // joins it: keptInDock), and the carry says where they are.
+        expect(dockOf("pty")).toBe(kept);
         expect(dockOf("pty2")).toBe(kept);
-        // All the group shows is that dock, so it stands open, its newest terminal in front (a dock that is all a
-        // screen shows never shuts: tile.slide refuses it).
+        expect(keeping()).toEqual([2]);
+        expect(d.said()).toContain("the group holds only the dock keeping pty and pty2");
+        // It's all the group shows, so it stands open (a dock that is all a screen shows never shuts: tile.slide refuses it).
         expect(inner().find(t => t.name === "pty2")?.shown).toBe(true);
         expect(tile.inner.outOfStep()).toEqual([]);
         expect((tile.inner.pane("pty") as PtyPane).running && (tile.inner.pane("pty2") as PtyPane).running).toBe(true);
-        // Still the dock that keeps work: the next terminal an undo keeps joins it, not a dock of its own (keptInDock).
-        expect(docks(tile.inner.root).filter(x => x.keeps).map(x => leaves(x.kid).length)).toEqual([2]);
+        // ctrl+z takes the carry back: replies is in the group again and the dock shuts beside it, both terminals in it.
+        await d.press(ctrl("z"));
+        expect(inner().map(t => t.name)).toContain("replies");
+        expect(dockOf("pty")).toBe(kept);
+        expect(dockOf("pty2")).toBe(kept);
+        expect(keeping()).toEqual([2]);
+        expect(inner().filter(t => t.name === "pty" || t.name === "pty2").some(t => t.shown)).toBe(false);
+        expect((tile.inner.pane("pty") as PtyPane).running && (tile.inner.pane("pty2") as PtyPane).running).toBe(true);
       } finally { d.quit(); }
     });
 

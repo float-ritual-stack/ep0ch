@@ -7422,8 +7422,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { moved, done } = this.inTxn("carry", () => { const moved = this.carryOut(p.t, p.plan, how.heir); return { moved, done: dest.carryIn(moved, p.plan, p.land) }; }, dest);
     // The keys were in it: they stay with it, focused there and through each mount around it. carry.ts decided that once.
     if (p.plan.keys) { keysThrough<Desk>(dest, moved.pane, actor); if (moved.typing && moved.pane instanceof PtyPane) dest.doorKeys.typeIn(dest, moved.pane); }
-    // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
-    return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
+    // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed. So is a
+    // desk left holding only the dock an undo kept programs in (PIE-1663): that dock is all it shows now (`keptOnly`).
+    const keeps = docks(this.root).find(x => x.keeps), kept = keeps ? leaves(keeps.kid) : [];
+    const keptOnly = kept.length && leaves(this.root).every(id => kept.includes(id)) ? kept.map(id => this.nameOf(id)) : undefined;
+    return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}), ...(keptOnly ? { keptOnly } : {}) };
   }
   /** This desk's half of a carry: its `take` committed, the tile's pane and its links across taken with it. */
   private carryOut(t: { name: string; id: number }, plan: Extract<Carried<number>, { ok: true }>, heir?: Pane): MovedTile {

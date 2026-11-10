@@ -1071,7 +1071,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.save": def({
     summary: "write the nudges to the outline: every level's this tile has (auto), or the level picked's: a page's onto its note, a named style's or a level's onto its style note (a new one when it has none, under the outline's Looks note), a value reset off the note it came from; attributed, checked against the revision it read. One step of the history: u takes it back",
     keys: "s, a click on [save]",
-    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => (out.saved ? `· saved ${out.fields} to ${out.at}` : "· nothing to save there"),
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, says: out => (out.saved ? `· saved ${out.fields} to ${out.at}` : out.unchanged ? `· ${out.at} already holds ${out.fields}: nothing written` : "· nothing to save there"),
     args: { level: { type: "string", optional: true, about: "auto, global, tile, screen, page, instance or list; default the inspector's" } },
     examples: [
       { act: "tune.save tile=tune", does: "writes the tuned tile's nudges to the style notes they belong to" },
@@ -1094,12 +1094,12 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       const on = lv === "list" ? (list ? parseListTarget(list)?.note : place.page?.id) : undefined;
       if (on) for (const u of tuning.unsaved()) if (!targets.includes(u.target) && parseListTarget(u.target)?.note === on) targets.push(u.target);
       if (lv !== "auto" && !targets.length) throw new ActionRefused(`${pane.source} has no ${lv} level`);
-      const done: { at: string; fields: string[]; created: boolean; note: string }[] = [], writes: NoteWrite[] = [];
+      const done: { at: string; fields: string[]; created: boolean; changed: boolean; note: string }[] = [], writes: NoteWrite[] = [];
       const before = tuning.snapshot();
       try {
         for (const target of targets) {
           const r = await refuseAsync(() => saveTuning({ board: desk.ctx.board, redraw: () => desk.redraw() } as Parameters<typeof saveTuning>[0], target, actor, writes, desk.tileLooks));
-          if (r) done.push({ at: targetWords(target), fields: r.fields, created: r.created, note: r.note });
+          if (r) done.push({ at: targetWords(target), fields: r.fields, created: r.created, changed: r.changed, note: r.note });
         }
       } finally {
         // What was written is one step, even when a later note refused: u takes back what was saved.
@@ -1107,6 +1107,8 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       }
       desk.redraw();
       if (!done.length) return { saved: false, at: lv === "auto" ? "nothing unsaved" : targetWords(targets[0]!) };
+      // Every value was already there (PIE-1661): nothing was written, so nothing was saved and no one is recorded.
+      if (!done.some(d => d.changed)) return { saved: false, unchanged: true, at: done.map(d => d.at).join(", "), fields: done.flatMap(d => d.fields).join(" ") };
       const words = done.map(d => `${d.fields.join(" ")} to ${d.at}${d.created ? " (a new style note)" : ""}`).join("; ");
       desk.ctx.flash(says(actor, `saved ${words}`));
       return { saved: true, at: done.map(d => d.at).join(", "), fields: done.flatMap(d => d.fields).join(" "), notes: done.map(d => d.note), created: done.some(d => d.created), ...(inOutline(writes) ? { recordedAs: recordedAnswer(actor) } : {}) };

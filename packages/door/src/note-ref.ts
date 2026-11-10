@@ -6,7 +6,7 @@
 // (`lineRef`, PIE-1390), and the person's copy goes to their clipboard while an agent's comes back to it.
 import { blockRefText, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { subject, type Msg } from "./board";
-import { mutationFor, type Actor } from "./socket";
+import { mutationFor, RECORDED_AS, recordedAnswer, type Actor, type RecordedAs } from "./socket";
 import { ActionRefused, actionSet, def } from "./surface/actions";
 import type { Ctx } from "./app";
 import { outlineBoards, readNote, type NoteAddress } from "./desk/outline-boards";
@@ -55,7 +55,7 @@ type LineRefAt = { blockId: string; line: number; revision: number; next?: boole
  * as `actor`), and `((id^anchor|its words))` (`((outline:id^anchor|…))` with `outline`). A note saved since it was read is
  * refused, with the words to try again. `note.copy-ref kind=line`, a `::fields` row's ¶ and a step's copy link all give it.
  */
-export async function lineRef(board: Ctx["board"], actor: Actor, a: LineRefAt): Promise<{ text: string; anchor: string; created: boolean; line: number }> {
+export async function lineRef(board: Ctx["board"], actor: Actor, a: LineRefAt): Promise<{ text: string; anchor: string; created: boolean; line: number; recordedAs?: RecordedAs }> {
   const again = "the note changed since it was read; it is read again, copy once more";
   const found = await board.request("fragments.at", { blockId: a.blockId, line: a.line, ...(a.next ? { next: true } : {}) }), part = found.part;
   // The line was chosen in the text that was read: a note saved since may hold another part there.
@@ -68,13 +68,14 @@ export async function lineRef(board: Ctx["board"], actor: Actor, a: LineRefAt): 
     throw new ActionRefused(/changed since/.test(said) ? `not anchored: ${again}` : `not anchored: ${said}`);
   }
   const text = blockRefText(a.blockId, lineLabel(a.label ?? part?.label ?? "") || a.title || "", { ...(a.outline ? { outline: a.outline } : {}), fragment: anchored.fragmentId });
-  return { text, anchor: anchored.fragmentId, created: anchored.created, line: part?.lineIndex ?? a.line };
+  // Adding the anchor is a write: who it was recorded as goes with it, for every caller (PIE-1661); reading one writes nothing.
+  return { text, anchor: anchored.fragmentId, created: anchored.created, line: part?.lineIndex ?? a.line, ...(anchored.created ? { recordedAs: recordedAnswer(actor) } : {}) };
 }
 
 /** `lineRef`, copied (`deliverNoteRef`): the person's to their clipboard, an agent's back to it. */
 export async function copyLineRef(ctx: Pick<Ctx, "board" | "copy" | "flash">, actor: Actor, a: LineRefAt, said?: (msg: string) => void) {
   const r = await lineRef(ctx.board, actor, a);
-  return { ...deliverNoteRef(ctx, actor, a.blockId, "line", r.text, said), line: a.line + 1, anchor: r.anchor, created: r.created };
+  return { ...deliverNoteRef(ctx, actor, a.blockId, "line", r.text, said), line: a.line + 1, anchor: r.anchor, created: r.created, ...(r.recordedAs ? { recordedAs: r.recordedAs } : {}) };
 }
 
 /**
@@ -137,7 +138,7 @@ export const NOTE_REF_ACTIONS = actionSet<NoteRefOn>()("note-ref", {
     summary: "copy the address of the note the tile points at (PIE-1297: a reader's note, a list's, the tree's or a lane's selected row, a power-bar hit; or ref=<block id>, outline= when it's another outline's): kind=id its full id (a short one doesn't resolve), kind=ref ((id|title)) to paste into another note (((outline:id|title)) for another outline's note), kind=link its web link, as the service answers it (its publisher's address, naming its outline: https://my.ep0ch.sh/pub/o/<outline>/p/<id>, a roadmap item's by its Work ID; the home outline's redirects to /pub/p/; pasted bare into a note it opens the note), kind=line in a reader ((id^anchor|words)) for one line (line=, else your selection's first line, the heading the keys selected or the line being read), adding the ^anchor when it has none. An inline list's row in a reader is the reader's note: open the row to copy it. The person's goes to their clipboard and the status line says what; an agent's is returned to it and never touches the clipboard",
     keys: [{ keys: "^W y", does: "a reference", says: "copy a reference to the note, to paste into another note" }, { via: "the tile menu's Copy group (\"copy note id\", \"copy note reference\", \"copy note web link\", \"copy line reference\")" }, { keys: "alt+m right-click", does: "a power-bar hit's menu (1 2 3 or a click)" }],
     // A line's copy may write its anchor into the note: the draft rule holds for it as for any write; the rest read.
-    touches: "draft", draft: "write", touchesWith: ({ kind }) => (kind === "line" ? "draft" : "nothing"), replay: "ask",
+    touches: "draft", draft: "write", touchesWith: ({ kind }) => (kind === "line" ? "draft" : "nothing"), replay: "ask", answer: RECORDED_AS,
     menu: ([["copy note id", "id", ""], ["copy note reference", "ref", "ctrl+w y"], ["copy note web link", "link", ""], ["copy line reference", "line", ""]] as const).map(([label, kind, key]) => ({
       label, group: COPY_GROUP, key, args: { kind },
       now: (on: NoteRefOn) => (on.has(kind === "line") ? null : { hide: true }),
