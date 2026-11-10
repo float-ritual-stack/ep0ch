@@ -26,7 +26,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
-import { USER, hostRequest, type Actor, type RoadmapItemInput, SocketBoard, mutationFor } from "../socket";
+import { Refused, USER, hostRequest, type Actor, type RoadmapItemInput, SocketBoard, mutationFor } from "../socket";
 import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
@@ -137,7 +137,7 @@ export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: M
     await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
     throw new Error("the showcase's conflicting patch should be refused");
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("read it again and send the patch")) throw error;
+    if (!(error instanceof Refused) || error.kind !== "stale-revision") throw error;
   }
   const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
   if (lost.outcome !== "proposed" || !lost.proposalId) throw new Error(`the showcase's race: @${RACE_AGENTS.loser}'s patch was ${lost.outcome}, not proposed`);

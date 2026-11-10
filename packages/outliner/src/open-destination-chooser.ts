@@ -1,3 +1,4 @@
+import { Refusal, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import {
   DEFAULT_OUTLINER_ACTION_KEYMAP,
   outlinerActionLink,
@@ -118,7 +119,7 @@ export function openDestinationChooserHelp(
 }
 
 export function missingNavigationDestination(error:unknown):boolean {
-  return error instanceof Error && /^(?:No linked destination|Linked destination closed)/.test(error.message);
+  return refusalKindOf(error) === "unavailable";
 }
 
 export function destinationRecoveryKey(action:string):{str:string;key:TerminalKey}|null {
@@ -287,7 +288,7 @@ export class OpenDestinationChooser {
           this.effects.invalidate();
           return;
         }
-        if (!opened) throw new Error("No linked destination · choose once, replace here, or a split direction");
+        if (!opened) throw new Refusal("unavailable", "No linked destination · choose once, replace here, or a split direction");
       }
       if (!isCurrent()) {
         this.effects.invalidate();

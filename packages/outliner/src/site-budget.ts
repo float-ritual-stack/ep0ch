@@ -12,6 +12,7 @@ export const SITE_ANSWER_BUDGET_MS = 2_000;
  */
 export class StillCounting extends Error {
   readonly problem;
+  readonly kind = "busy" as const;
   constructor(readonly budgetMs: number, readonly what: string) {
     super(`still counting: ${what} took more than ${budgetMs / 1000} s, so the outline host stopped it to answer other requests; try again in a moment`);
     this.name = "StillCounting";

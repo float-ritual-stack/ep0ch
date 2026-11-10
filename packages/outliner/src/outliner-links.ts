@@ -1,3 +1,5 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
+import { blockNotFound, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import {atomicDocument, concatDocuments, generatedDocument, sliceDocument, type MappedDocument} from './document-provenance';
 import { hyperlink } from "@earendil-works/pi-tui";
 import { createAnnotationReferenceContext } from "./annotations";
@@ -266,7 +268,7 @@ export async function followResourceOccurrence(
   }
   const block = await requester.request<Block>({ action: "get", blockId: target.value });
   if (block.deletedAt || block.effectiveDeletedRootId || block.revision !== target.occurrence.revision) {
-    throw new Error("Reference source changed; reopen the block before following it");
+    throw new Refusal("stale-revision", "Reference source changed; reopen the block before following it");
   }
   const occurrence = authoredResourceReferenceOccurrences(block.text).find(reference =>
     reference.start === target.occurrence!.start && reference.end === target.occurrence!.end
@@ -303,14 +305,14 @@ export async function resolveOutlinerLinkTarget(
     if (!qualifiedReference(target.value).outline) {
       try { block = await requester.request<Block>({ action: "get", blockId: target.value }); }
       catch (error) {
-        if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(target.value) || !(error instanceof Error) || !error.message.startsWith("Block not found")) throw error;
+        if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(target.value) || !(error instanceof Error) || refusalKindOf(error) !== "not-found") throw error;
       }
     }
     if (!block) {
       const resolved = await requester.request<{ references: BlockReferenceResolution[] }>({ action: "references.resolve", text: `((${target.value}))` });
       const ref = resolved.references[0];
       block = ref?.block;
-      if (!block) throw new Error(`Block not found: ${target.value}`);
+      if (!block) throw blockNotFound(target.value);
       address = { outline: ref!.outline, machine: ref!.machine };
     }
     if (!target.fragmentId) return { block, ...address };

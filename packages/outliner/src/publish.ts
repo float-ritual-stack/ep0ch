@@ -1,3 +1,4 @@
+import { blockNotFound } from "@ep0ch/outline-core/refusal";
 import { dateTimeHtml, timeHtml } from "./publish-time";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactDeployState, type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
@@ -87,7 +88,6 @@ import type {
 import { BLOCK_ID_LIKE_PATTERN, BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { escapeHtml } from "./html-escape";
 import { PRIVATE_USE } from "./publish-sentinels";
-
 /**
  * Outline as server: an HTTP publisher for blocks carrying `[publish::…]`, and on
  * the tailnet a light web client for the whole outline (PIE-782): every note is a
@@ -1053,7 +1053,7 @@ export class Publisher {
     const audience = options.audience ?? "tailnet";
     const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["title", "properties", "timestamps"] });
     const block = read.blocks[0];
-    if (!block) throw new Error(`Block not found: ${blockId}`);
+    if (!block) throw blockNotFound(blockId);
     if ((await this.lockedIds([blockId])).size) {
       throw new Error(`${blockId} is [publish::never], or under a note that is: it isn't rendered for anywhere outside the outline`);
     }

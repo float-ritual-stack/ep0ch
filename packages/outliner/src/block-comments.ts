@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import type { OutlinerClient } from "./client";
 import { blockAnnotationRepresentation } from "./annotation-representations";
 import { createTextQuoteAnchor } from "./annotations";
@@ -48,8 +49,8 @@ export function blockCommentSelection(text: string, passage?: BlockCommentPassag
     exclude: (start, end) => descendants.some(child => start < child.span.end && end > child.span.start),
   });
   if (isMiss(found)) {
-    if (found.count > 1) throw new Error(`Comment quote is ambiguous; supply start, prefix/suffix or a unique checklist itemId (${missMessage(found)})`);
-    throw new Error(`Comment quote or context was not found; read the current source and select it again (${missMessage(found)})`);
+    if (found.count > 1) throw new Refusal("ambiguous", `Comment quote is ambiguous; supply start, prefix/suffix or a unique checklist itemId (${missMessage(found)})`);
+    throw new Refusal("not-found", `Comment quote or context was not found; read the current source and select it again (${missMessage(found)})`);
   }
   const matches = [found.start];
   return { anchor: createTextQuoteAnchor(text, matches[0]!, matches[0]! + passage.quote.length),

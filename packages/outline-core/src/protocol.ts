@@ -11,10 +11,13 @@
 // uses component source bounds. Component presentation, figures, property display, heading display, styles,
 // search and dates are GRAMMAR-owned. Never use a GRAMMAR-only parse to choose a write range.
 // A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
+// A refusal's `kind` (refusal.ts) is on the failure envelope: clients branch on it, never on the words, so PROTOCOL
+// also guards the set of kinds and which refusal carries which.
+import type { RefusalKind } from "./refusal";
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 319;
+export const PROTOCOL = 320;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 48;
 
@@ -268,7 +271,7 @@ export interface PartAt {
 /** One answer line on the socket. */
 export type OutlinerResponse =
   | { id: string; ok: true; result: unknown; sequence: number }
-  | { id: string; ok: false; error: string; problem?: OutlinerRequestProblem; sequence: number };
+  | { id: string; ok: false; error: string; kind: RefusalKind; problem?: OutlinerRequestProblem; sequence: number };
 
 // ── The outline host: `ping` and `outlines.*` (packages/outliner src/outline-host.ts) ──
 

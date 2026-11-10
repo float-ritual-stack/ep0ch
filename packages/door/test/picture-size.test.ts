@@ -109,7 +109,10 @@ describe("two fences that read alike", () => {
     const { s, h } = await reader(twins);
     const saved: string[] = [];
     fakeBoard(h, () => ({ ...note(`${twins}\n\n\`\`\`svg\n${A}\n\`\`\``), revision: 3 }), saved);
-    await expect(s.changeImage(s.imagesIn(note(twins))[1]!, { height: "12" }, "height 12 rows", h, { kind: "user" } as any)).rejects.toThrow(/changed since it was drawn/);
+    const refused = await s.changeImage(s.imagesIn(note(twins))[1]!, { height: "12" }, "height 12 rows", h, { kind: "user" } as any).catch(e => e);
+    expect(String(refused.message)).toMatch(/changed since it was drawn/);
+    // The kind says so too (Nov 3 review card 13): an agent reads it again on stale-revision, never on the words.
+    expect(refused.kind).toBe("stale-revision");
     expect(saved).toEqual([]);
   });
 

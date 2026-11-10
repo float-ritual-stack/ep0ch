@@ -1,0 +1,23 @@
+{
+  "contract": 2,
+  "id": "artifact-deploy",
+  "version": 1,
+  "name": "Artifact deploy",
+  "description": "Saving a note that names an ep0ch-artifacts repo deploys it. Write [artifact::ep0ch-artifacts/<repo>] on its header or a line of its own; the repo decides where (Vercel, or float-2's static store). Installed per outline.",
+  "installs": "outline",
+  "scripts": [
+    {
+      "name": "deploy-artifact",
+      "file": "scripts/deploy-artifact.js",
+      "about": "Deploys every ep0ch-artifacts repo the note it runs on names: what the kit's rule runs when such a note is saved"
+    }
+  ],
+  "rules": [
+    {
+      "id": "deploy",
+      "description": "Deploys the repos a note names when it starts naming one, and again each time it's saved",
+      "match": { "property": "artifact", "propertyScope": "all" },
+      "on": { "start": "script:deploy-artifact", "change": "script:deploy-artifact" }
+    }
+  ]
+}

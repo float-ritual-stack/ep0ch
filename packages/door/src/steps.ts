@@ -155,27 +155,5 @@ export interface UndoEntry {
 /** Who a change is for Undo: the person, or the agent by its id (each party undoes only its own). */
 export const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");
 
-/** Every change a reader records for undo, in order, so ctrl+z can tell which kind came last (a step's, a callout's). */
-let undoSeq = 0;
-/** The next place in the one order undoable changes are made in (so ctrl+z can tell which came last across histories). */
-export const undoStamp = () => ++undoSeq;
-/** A reader's changes of one kind (steps' statuses, callouts' types), newest last, 50 at most. Each party undoes only its own. */
-export class UndoHistory<E extends { by: string; context: string } = UndoEntry> {
-  private entries: (E & { seq?: number })[] = [];
-  push(e: E) { this.entries.push({ ...e, seq: ++undoSeq }); if (this.entries.length > 50) this.entries.shift(); }
-  /** The newest change `by` made while reading `context`, or null. */
-  last(by: string, context: string): (E & { seq?: number }) | null {
-    return this.entries.findLast(e => e.by === by && e.context === context) ?? null;
-  }
-  /** Only our own box writes preserve a row's position; other edits leave its undo stale. */
-  advance(block: string, before: number, after: number) {
-    for (const e of this.entries) {
-      const step = e as E & Partial<UndoEntry>;
-      if (step.block === block && step.at?.revision === before) step.at.revision = after;
-    }
-  }
-  drop(e: E) { const i = this.entries.lastIndexOf(e as E & { seq?: number }); if (i >= 0) this.entries.splice(i, 1); }
-  /** Forget every entry `gone` holds for: a change found to have nothing to take back (PIE-1678). */
-  dropWhere(gone: (e: E) => boolean) { this.entries = this.entries.filter(e => !gone(e)); }
-  get size() { return this.entries.length; }
-}
+/** The undo journal (undo-journal.ts): the reader's changes, one journal per note. */
+export { undoStamp, UndoHistory } from "./undo-journal";

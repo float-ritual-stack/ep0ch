@@ -90,7 +90,7 @@ const HEADING = /^[ \t]{0,3}#{1,6}[ \t]+(.*)$/;
 /** The heading of what comes before a note's first heading. */
 const TOP = "(the top)";
 /** Whether a section starts with its heading (the top of a note has none: its first line is its first written line). */
-const headed = (s: Section) => s.heading !== TOP;
+export const headed = (s: Pick<Section, "heading">) => s.heading !== TOP;
 
 /** The note's sections: what comes before its first heading, then each heading's lines, outside code and components. */
 export function sectionsOf(text: string): Section[] {

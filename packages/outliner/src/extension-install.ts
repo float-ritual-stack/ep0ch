@@ -1,10 +1,11 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { keyLineWords } from "./secret-keys";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { cliActorId } from "./machine-name";
 import { checkServiceCompatibility } from "./service-compatibility";
 import type { OutlinerServiceStatus } from "./types";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -159,6 +160,11 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
   }
   lines.push("The service watches the folder: it loads now, with no restart; code changes apply on the next call.");
   return lines;
+}
+
+/** Whether a built-in says it installs per outline (`installs: "outline"`, PIE-1509): the install row puts it in the outline's own folder. */
+export function installsPerOutline(id: string, builtInsDir = BUILT_INS): boolean {
+  try { return JSON.parse(readFileSync(join(builtInsDir, id, "extension.json"), "utf8")).installs === "outline"; } catch { return false; }
 }
 
 /** Deletes an installed extension's folder. Its records stay as blocks; the service drops what it declared. */
@@ -579,7 +585,10 @@ export async function runExtCommand(args: readonly string[], connect: (outlineFo
       const folderGone = operation !== "add" && !!client && values.demo === "remove" && (() => {
         try { removeRoot(name, pick, carry); return false; } catch (error) { return error instanceof Error && error.message.startsWith("No extension "); }
       })();
-      const lines = operation === "add"
+      // A built-in that installs per outline (PIE-1509) goes where the install row puts it: the service's outline's own folder.
+      const viaService = operation === "add" && !!client && !values.from && !values["user-folder"] && !outlineFolder && installsPerOutline(name);
+      const lines = viaService ? (await client!.request<{ lines: string[] }>({ action: "extensions.install", extension: name, mutation: { author: "user" } }, EXTENSION_RUN_WAIT_MS)).lines
+        : operation === "add"
         ? await addExtension(name, { ...(values.from ? { from: values.from } : {}), ...(outlineFolder ? { outlineFolder } : {}) })
         : folderGone ? [] : await removeExtension(name, { ...pick, carry });
       for (const line of lines) print(line);
@@ -599,7 +608,7 @@ export async function runExtCommand(args: readonly string[], connect: (outlineFo
         } else {
           // Its demo notes: kept unless --demo remove said otherwise (never silently).
           const done = await client.request<{ lines: string[] }>({ action: "extensions.uninstall", extension: id, demo: values.demo ?? "keep" }, EXTENSION_RUN_WAIT_MS)
-            .catch((error: Error) => ({ lines: /none of its demo notes are left/.test(error.message) ? [] : [`its demo notes: ${error.message}`] }));
+            .catch((error: Error) => ({ lines: refusalKindOf(error) === "not-found" ? [] : [`its demo notes: ${error.message}`] }));
           print(`service: ${id} is gone`);
           for (const line of done.lines) print(line);
         }

@@ -20,6 +20,7 @@ import { errorDetails, type MessageDetails } from "./status-log";
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { TXN } from "./surface/txn";
+import { declareAttachmentKinds } from "./surface/attachments";
 import { INVITES, type Press } from "./surface/invite";
 import { useResourceProviders } from "./resource-providers";
 import { hostname } from "node:os";
@@ -29,7 +30,8 @@ import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import type { Actor, SocketBoard, WireAnswer } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
-import { partyOf, UndoHistory } from "./steps";
+import { partyOf } from "./steps";
+import { NOTE_JOURNAL, UndoHistory } from "./undo-journal";
 import { closest } from "./cli-words";
 import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
 import { READER_OWN_KEYS } from "./surface/reader-keys";
@@ -99,7 +101,7 @@ export const EXT_ACTIONS = new ActionSet<Record<string, ExtArgs>, ExtOn>("extens
  * The extension actions' write groups that landed as one step (PIE-784), newest last: each kept for whoever asked and
  * the note it acted on, so that note's reader undoes it on ctrl+z (`ext.undo`) like its own changes, each party its own.
  */
-export const EXT_UNDO = new UndoHistory<{ undo: string; label: string; by: string; context: string }>();
+export const EXT_UNDO = new UndoHistory<{ undo: string; label: string; by: string; context: string }>(NOTE_JOURNAL, { kind: "ext", via: "ext.undo", label: e => e.label.toLowerCase() });
 
 // ── the list, as last read ───────────────────────────────────────────────────
 
@@ -114,10 +116,10 @@ const boundKinds = new Map<string, string>();
   ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
 
 /**
- * An extension the service serves from: active, or failed but still on its last good version (it has a name).
- * What it serves is the service's call: a folder it doesn't serve lists no handlers, actions or tiles.
+ * An extension the service serves from: active, or failed but still on its last good version. The host's record says it
+ * (`serving`, from the registry's own `serving()`); a folder it doesn't serve lists no handlers, actions or tiles.
  */
-const serving = (e: ExtensionEntry) => e.state === "active" || (e.state === "failed" && !!e.name);
+const serving = (e: ExtensionEntry) => e.serving;
 
 /** One line of extension text (a name, a label, a message): no control characters reach the terminal. */
 export const oneLine = (v: unknown) => printable(v, " ").trim();
@@ -526,6 +528,13 @@ export async function passageByQuote(board: Pick<SocketBoard, "get">, block: str
   return passageAt(m.text, at.start, at.end, m.id, m.revision);
 }
 
+/**
+ * The door's own words on an extension action's request (PIE-1676): the button that pressed it, and that its arguments were
+ * asked where the person typed. Named outside the declared arguments' grammar (FORM_FIELD_NAME: lowercase letters, digits,
+ * - and _), so no extension's argument or script's slot can be called one: yo's remember takes an `asked` of its own.
+ */
+export const PRESSED_VIA = "door:via", ASKED_IN_PLACE = "door:asked";
+
 /** The ActionDef for a handler line's or a block's action. */
 function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, ExtOn> {
   if (a.on === "passage") return passageAction(e, a);
@@ -543,13 +552,13 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
       with: { type: "string", optional: true, context: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
       invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
-      via: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
-      asked: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
+      [PRESSED_VIA]: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      [ASKED_IN_PLACE]: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
       ...(e.script ? Object.fromEntries(Object.entries(declaredArgs(a)).map(([k, v]) => [k, { ...v, many: true as const }])) : declaredArgs(a)),
       // A script takes any other word as a slot, as a button passes it (`left=[[a]] fold=terminal`).
       ...(e.script ? { [FREE_ARGS]: { type: "string", optional: true, context: true, about: "any other key=value is a slot of the script (props.<key>); a key written twice is a list" } } : {}),
     } as ActionDef<ExtArgs, ExtOn>["args"],
-    run({ block: named, line, with: w, invitation, via, asked, ...rest }, on, actor) {
+    run({ block: named, line, with: w, invitation, [PRESSED_VIA]: via, [ASKED_IN_PLACE]: asked, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
@@ -890,6 +899,8 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   setAnsweringAgents((next?.extensions ?? []).flatMap(e => (e.agents ?? []).filter(a => a.threads).map(a => ({ name: a.name, ...(a.description ? { description: a.description } : {}), ...(a.ask ? { ask: a.ask } : {}), ...(next?.pages?.[e.id] ? { page: next.pages[e.id]! } : {}) }))));
   useResourceProviders(next?.resourceProviders ?? []);
   const served = (next?.extensions ?? []).filter(serving);
+  // The surfaces they attach beside a note: their kinds are accepted as a `target=` while they're served, gone when they stop.
+  declareAttachmentKinds(served.flatMap(e => e.attachments ?? []));
   const problems: string[] = [];
   for (const id of boundFacets) unregisterFacetSource(id);
   boundFacets.clear();

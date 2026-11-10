@@ -33,7 +33,7 @@ describe("the one status line", () => {
     const msg = { id: "note-hedge", title: "Hedge", text: "Hedge\nCut it", revision: 1 } as any;
     const now = { ...thread, body: "Cut the hedge in March?", revision: 6 };
     const env: any = {
-      board: { async updateComment() { throw new Refused("revision is stale"); } },
+      board: { async updateComment() { throw new Refused("revision is stale", "stale-revision"); } },
       fetch: async () => msg, setMsg() {}, reloadComments: async () => [now], external() {}, flash() {}, redraw() {},
     };
     const s = new CommentSession(msg, [thread as any], "threads");
@@ -62,7 +62,7 @@ describe("the one status line", () => {
     const msg = { id: "note-rota", title: "Rota", text: "Rota\nThursdays", revision: 1 } as any;
     const now = { ...thread, body: "Swap Fridays?", revision: 4 };
     const env: any = {
-      board: { async updateComment() { throw new Refused("revision is stale"); } },
+      board: { async updateComment() { throw new Refused("revision is stale", "stale-revision"); } },
       fetch: async () => msg, setMsg() {}, reloadComments: async () => [now], external() {}, flash() {}, redraw() {},
     };
     const s = new CommentSession(msg, [thread as any], "threads");
@@ -92,7 +92,7 @@ describe("the one status line", () => {
   }
 
   test("a short split keeps a row of the text being typed under a stale edit's status", async () => {
-    const { s, w } = await staleEdit(async () => { throw new Refused("revision is stale"); }, async () => []);
+    const { s, w } = await staleEdit(async () => { throw new Refused("revision is stale", "stale-revision"); }, async () => []);
     const box = composerBox(w.draft, s.composerFrame()!, 30, 8, true);
     expect(box.lines.length).toBeLessThanOrEqual(8);
     expect(box.lines.map(visible).join("\n")).toContain("Rake the leaves?!");

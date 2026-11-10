@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 // The remote MCP gateway's writes (PIE-615, PIE-877): eleven tools, one write path. The tools take the Claude mod's shapes
 // (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`, `outline_reply`,
 // `outline_resolve_thread`, `outline_assign_id`, `outline_move`, `outline_trash` and `outline_restore`), and `outline_quote` (marks quoted into a new block, the service's `quote`), addressed as the read tools are (a
@@ -222,7 +223,7 @@ const ADDRESSED = "(the addressed block)";
  * check the Claude mod and the host API make); the address is the caller's (`uri` or `ref`), filled in once resolved.
  * The service checks the rest.
  */
-export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): Omit<McpWrite, "blockId"> | { error: string } {
+export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): Omit<McpWrite, "blockId"> | { error: string; kind?: RefusalKind } {
   if (tool === "outline_quote") {
     const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(nonEmpty));
     const many = (v: unknown) => (Array.isArray(v) ? v.length : 0);

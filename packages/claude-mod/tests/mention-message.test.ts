@@ -45,6 +45,13 @@ describe('mention-message', () => {
     expect(failureReasonOf('')).toBe('')
   })
 
+  test('a CLI failure names its kind on a line of its own, and the words never decide it', async () => {
+    const { failureKindOf } = await import('../hooks/mention-message')
+    expect(failureKindOf('error: some reworded sentence\nkind: conflict\nBun v1.3.14 (Linux x64)')).toBe('conflict')
+    expect(failureKindOf('error: Destination is protected: active edit')).toBeUndefined()
+    expect(failureKindOf('')).toBeUndefined()
+  })
+
   test('a configured option wins; an empty or unset one falls back to the environment', async () => {
     expect(effectiveWorkspaces('/option', '/env')).toEqual(['/option'])
     expect(effectiveWorkspaces('', '/env')).toEqual(['/env'])

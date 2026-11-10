@@ -1,3 +1,4 @@
+import { blockNotFound } from "@ep0ch/outline-core/refusal";
 import { expect, test } from "bun:test";
 import type { RequestInput } from "../src/client";
 import {
@@ -78,7 +79,7 @@ class FakeRequester implements DetailEmbedRequester {
       const failure = this.getFailures.get(input.blockId);
       if (failure) throw failure;
       const result = this.blocks.get(input.blockId);
-      if (!result) throw new Error(`Block not found: ${input.blockId}`);
+      if (!result) throw blockNotFound(input.blockId);
       return result as T;
     }
     if (input.action === "pages.resolve") {

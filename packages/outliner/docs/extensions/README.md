@@ -954,6 +954,16 @@ figures' narrow width (48 columns) a band is its plain heading. Their text targe
 - A triggered action's input has `trigger: { rule, blocks? }`. A block it makes may ask the extension's **own**
   agents (`@name` lines; other agents also wake by default): it's asked at once, as `R`
   would, by whoever set the trigger off. The rule the person wrote is what asked; its guards are the limit.
+- **A script it ships** (PIE-1509): `"start": "script:<name>"` runs a script from the extension's own `scripts[]` on the
+  block (its `this`), as a rule note's `[rule-on::script:<name>]` does; no `run` program and no `actions[]` needed.
+  The artifact-deploy kit is one: a rule and a script, nothing else.
+
+  ```json
+  { "scripts": [{ "name": "deploy-artifact", "file": "scripts/deploy-artifact.js", "about": "Deploys the repos a note names" }],
+    "rules": [{ "id": "deploy", "match": { "property": "artifact", "propertyScope": "all" },
+                "on": { "start": "script:deploy-artifact", "change": "script:deploy-artifact" } }] }
+  ```
+
 - **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
 - The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
   whose save set it off.
@@ -1633,6 +1643,9 @@ A drawn one, and a view, from the same manifest shape:
   the outline's own) at start when no copy is installed, unless `.off/<id>` there says it was uninstalled
   (`extensions.uninstall` writes it, `extensions.install` takes it back). what-changed is one: the door's +N new never
   asks anyone to install it.
+- **`installs: "outline"`** (a built-in only): `extensions.install` (the power bar's install row, `act`) puts it in
+  the outline's own folder, not the user folder, so each outline turns it on or off by itself; `where` still picks.
+  artifact-deploy is one: uninstalling it from an outline that publishes nothing leaves the others deploying.
 
 ### What the door's registry consumes
 
@@ -1736,6 +1749,19 @@ with no restart. [waiting](../../extensions/waiting) is the first: the main menu
   the command that installs it (`extensions.list`'s `available[].screens`).
 - **Its tiles** are usually its own kinds (`waiting.list`); a kind it `replaces` keeps a layout saved with the old
   built-in working.
+
+## A surface beside a note
+
+**What it is.** `attachments[]` declares a kind of attached surface (the door's attachment layer: a split, float, popup
+or tile beside a reader's note): `{ "kind": "facts", "noun": "facts", "render": "beside" }` (`render` is a render script the extension ships in `scripts[]`; it is run with the reader's note as `props.note` and the markdown it returns is the surface's rows). `extensions.list` names it `<id>.<kind>`
+(`beside.facts`) on the entry's `attachments`, and while the extension is served the door accepts that name as
+`target=` of `attachment.open`, `attachment.place`, `attachment.move`, `attachment.scroll`, `attachment.close` and `attachment.split`.
+[beside](../../extensions/beside) is the first. The five built-in kinds (comment, sources, list-preview,
+edit-preview, settings) stay the reader's; an extension can't take their names. A `target=` nobody declares is refused
+once, saying which kinds exist.
+
+**The entry also says** `serving` (the host serves it: active, or failed on its last good copy) and, for an available
+extension, `install` (the shell command). Clients show these; they don't work them out from `state`.
 
 ## A door module
 

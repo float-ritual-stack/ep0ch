@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { BACKLINK_QUERY_LIMIT } from "../src/backlink-view";
 import {observeDocument} from "../src/document-provenance";
 import {captureAnnotationPassage} from "../src/document-annotation";
@@ -1044,7 +1045,7 @@ describe("detail controller projection and deferred refresh", () => {
     let stale = true;
     harness.effects.updateAnnotation = async input => {
       updates.push(input);
-      if (stale) { stale = false; throw new Error("annotations.update: the comment's revision is stale"); }
+      if (stale) { stale = false; throw new Refusal("stale-revision", "annotations.update: the comment's revision is stale"); }
       const edited = (mark: AnnotationRecord) => ({ ...mark, edited: "2026-10-13T00:00:00.000Z", editedBy: "user", body: input.body,
         block: { ...mark.block, revision: mark.block.revision + 1 } });
       if (input.annotationId === "reply-1") thread = { ...thread!, replies: [edited(thread!.replies[0]!)] };
@@ -2912,7 +2913,7 @@ describe("detail controller projection and deferred refresh", () => {
     const harness = createHarness(source);
     await harness.controller.initialize();
     harness.effects.dispatchNavigation = async () => {
-      throw new Error(
+      throw new Refusal("unavailable",
         "No linked destination · choose a Detail",
       );
     };
@@ -5937,7 +5938,7 @@ test("link confirmation names the chosen document and cancel leaves the existing
 test("keyboard reference Open offers local recovery immediately and protects unsaved edits", async()=>{
  const source=makeBlock({id:"keyboard-source",text:"See ((target01))"});
  const h=createHarness(source);await h.controller.initialize();
- h.effects.resolveNavigation=async()=>{throw Error("No linked destination");};
+ h.effects.resolveNavigation=async()=>{throw new Refusal("unavailable", "No linked destination");};
  await h.controller.dispatch({type:"reference.follow"},viewport);
  expect(h.controller.state.destinationChooser.openHereOnEnter).toBe(true);
  expect(h.controller.state.context.selected?.id).toBe(source.id);
@@ -5951,7 +5952,7 @@ test("a late missing-destination reply cannot reopen recovery after Detail is re
  const gate=Promise.withResolvers<never>();h.effects.dispatchNavigation=()=>gate.promise;
  const opening=h.controller.dispatch({type:"reference.open",target:{kind:"block",value:"target01"},routing:"linked"},viewport);
  await new Promise(resolve=>setTimeout(resolve,0));h.controller.releaseDocument();
- gate.reject(Error("No linked destination"));await opening;
+ gate.reject(new Refusal("unavailable", "No linked destination"));await opening;
  expect(h.controller.state.destinationChooser.active).toBe(false);
 });
 

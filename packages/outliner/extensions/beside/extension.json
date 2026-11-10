@@ -1,0 +1,22 @@
+{
+  "contract": 2,
+  "id": "beside",
+  "version": 1,
+  "name": "Beside",
+  "description": "A card of facts kept beside the note you are reading. It lists its properties and how many notes sit under it; the first extension to attach a surface to a reader.",
+  "demo": "demo",
+  "scripts": [
+    {
+      "name": "beside",
+      "file": "scripts/beside.js",
+      "about": "beside:: draws the facts card for the note named by note= (the reader's note when it is attached beside one)"
+    }
+  ],
+  "attachments": [
+    {
+      "kind": "facts",
+      "noun": "facts",
+      "render": "beside"
+    }
+  ]
+}

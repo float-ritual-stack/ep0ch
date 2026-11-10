@@ -551,7 +551,8 @@ export class PowerBar {
     const tabs = scopes!.text;
     this.scopeHits = scopes!.hits;
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
-    const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
+    // The line's own words too: a key the keymap moved says where it went, as in a draft (the edit control's status).
+    const said = [...[...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`), ...(this.input.note ? [this.input.note] : [])].join(" · ");
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
     const rows = none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, verdict = [...this.said.values()].join(" · ");
