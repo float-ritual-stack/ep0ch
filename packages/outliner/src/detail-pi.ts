@@ -30,7 +30,6 @@ import { getProperty } from "./properties";
 import { createHerdrSession, startHerdrClient, waitForService } from "./herdr-session";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
-  decodeKittyPrintable,
   getCapabilities,
   getOsc8LinkAtColumn,
   Key,
@@ -85,6 +84,7 @@ import {
   createPiDetailInputListener,
   decodePiDetailInput,
   detailChooserOwnsPiInput,
+  findInputText,
   piDetailChooserInput,
   piDetailLinkClick,
   PiDetailInputStreamDecoder,
@@ -1196,8 +1196,7 @@ class FuzzyActionMenu implements Component {
       this.updateQuery(eraseBack(this.query, this.query.length).text);
       return;
     }
-    const printable = decodeKittyPrintable(data) ??
-      (data.length === 1 && data >= " " && data !== "\x7f" ? data : undefined);
+    const printable = findInputText(data);
     if (printable !== undefined && !this.decisionTitle) {
       this.updateQuery(this.query + printable);
       return;

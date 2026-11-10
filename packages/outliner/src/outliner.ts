@@ -174,7 +174,7 @@ const controller = createTreeController({
 
 function enqueueWork(task: () => void | Promise<void>): void { session.enqueue(task); }
 
-// Outside Herdr there is no mouse reporting; a paste arrives as keys there, and in Herdr too (no bracketed paste).
+// Outside Herdr there is no mouse reporting. A paste arrives whole (the session turns bracketed paste on).
 const session = createHerdrSession({
   modes: { mouse: mouseEnabled ? "drag" : false },
   draw,

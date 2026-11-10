@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Herdr console takes a paste, a click and a dead host (PIE-1649, PIE-1650, PIE-1653)
+
+- **A paste lands whole in Tree's search and Find, and in Detail's action-menu Find** (PIE-1649). A newline in it is a space, never an Enter; the session runner turns bracketed paste on for every Herdr popup, once.
+- **The backlink peek takes clicks** (PIE-1650): ‹ and › peek the other backlinks, a click on the backlink opens the destination chooser, each word in the help row (the chooser's too) is a button, and the wheel scrolls. Herdr's select-and-copy gives way to them there, as in the other popups.
+- **A peek or navigator that can't start says why and what to run,** and stays up until Esc, q or Enter, instead of closing at once.
+- **The goto-search e2e passes again** (PIE-1653): Herdr e2e runs keep Jev off (`OUTLINER_FIGURE_FIT=off`), so a key in `~/.config/secrets` no longer turns them into API calls.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
+
 ### Dead code gone: the door flags unused declarations, and the one-shot tools that already ran are deleted (PIE-1645)
 
 - **`bun run check` fails on an unused local, parameter or import in the door,** as it already did in the outliner and outline-core. `scripts/health-ratchet.ts` also pins the count of exports nothing reads.

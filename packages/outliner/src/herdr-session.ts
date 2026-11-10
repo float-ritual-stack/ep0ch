@@ -5,17 +5,19 @@
  *
  * - `startHerdrClient`: the theme, the paths, the client and its compatibility check, the keymap.
  * - `createHerdrSession`: the work queue, the screen (alternate screen, cursor, mouse, bracketed paste), the input
- *   (keys, clicks and pastes, split), resize, the signals and one ordered leave.
+ *   (keys, clicks and pastes, split), resize, the signals, one ordered leave, and the screen a client that could
+ *   not start shows (`fail`).
+ * - `requiredEnvironment`: a launch variable the popup can't start without.
  */
-import { StdinBuffer, type ProcessTerminal } from "@earendil-works/pi-tui";
+import { StdinBuffer, truncateToWidth, wrapTextWithAnsi, type ProcessTerminal } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { emitKeypressEvents } from "node:readline";
 import { PassThrough, type Readable } from "node:stream";
-import { createOutlinerClient, type OutlinerClient } from "./client";
+import { createOutlinerClient, nobodyThere, OutlinerTimeoutError, type OutlinerClient } from "./client";
 import { reexecClient } from "./client-code";
 import { OutlinerActionKeymap } from "./outliner-actions";
 import { reportCurrentPaneWorkspace } from "./pane-control";
-import { resolveClientPaths, type OutlinerClientPaths } from "./paths";
+import { hostHint, resolveClientPaths, type OutlinerClientPaths } from "./paths";
 import { reportWhile } from "./program-status-emit";
 import { waitForCompatibleService } from "./service-compatibility";
 import {
@@ -26,6 +28,13 @@ import {
   type TerminalKey,
 } from "./terminal";
 import { isTreeMouseSequence } from "./tree-mouse";
+
+/** A launch variable the popup can't start without (the pane that opened it sets it): its value, trimmed. */
+export function requiredEnvironment(name: string, env: NodeJS.ProcessEnv = process.env): string {
+  const value = env[name]?.trim();
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
 
 /** Refuses outside Herdr: `<what> requires Herdr`. */
 export function requireHerdr(what: string): void {
@@ -69,11 +78,23 @@ export async function waitForService(client: OutlinerClient, paths: OutlinerClie
   }
 }
 
+/**
+ * What a failed start should say to run: when no host answered (nobody at the socket, or no answer in time), where it
+ * looked and how to start or reach the host; otherwise nothing, the reason says it.
+ */
+export function startFailureHint(error: unknown, paths: Pick<OutlinerClientPaths, "mode" | "socket" | "machine">): string | undefined {
+  if (!nobodyThere(error) && !(error instanceof OutlinerTimeoutError)) return undefined;
+  return `No outline host answers at ${paths.socket}. ${hostHint(paths)}`;
+}
+
 /** Mouse reporting: clicks and the wheel (SGR), or with button motion for drags. */
 export type MouseMode = "click" | "drag";
-export interface ScreenModes {
+/** What a client asks of the screen: only the kind of mouse reporting it takes. */
+export interface ClientScreenModes {
   mouse?: MouseMode | false;
-  /** Bracketed paste, so a paste arrives as one piece and never as keys. */
+}
+export interface ScreenModes extends ClientScreenModes {
+  /** Bracketed paste, so a paste arrives as one piece and never as keys. The session decides it, never a client. */
   paste?: boolean;
 }
 
@@ -138,8 +159,11 @@ export type HerdrSessionInput =
 
 export interface HerdrSessionOptions {
   input: HerdrSessionInput;
-  /** Mouse reporting and bracketed paste. A Pi terminal brings its own paste; an own TUI, everything. */
-  modes?: ScreenModes;
+  /**
+   * Mouse reporting. Bracketed paste is the session's: always on for keypress input (a paste reaches `paste` whole,
+   * or is dropped, never typed as keys), Pi's own for a Pi terminal; an own TUI writes all of its modes.
+   */
+  modes?: ClientScreenModes;
   /** Runs on resize (a Pi terminal's goes through the terminal). */
   draw?: () => void;
   /** A queued task's failure; the session keeps running. */
@@ -171,6 +195,8 @@ const SIGNAL_EXIT: Record<HerdrSignal, number> = { SIGINT: 130, SIGTERM: 143, SI
 export interface HerdrSession {
   /** True from the moment a stop goes ahead: queued work is skipped and draws should stop. */
   readonly stopping: boolean;
+  /** True once `fail` drew the start-failure screen: the client's own draws should stop. */
+  readonly failed: boolean;
   /** Enters the screen, attaches the input, listens for resize and the signals. */
   start(): void;
   /** One task at a time, in order; a failure goes to `onError` and the queue goes on. Skipped once stopping. */
@@ -182,6 +208,20 @@ export interface HerdrSession {
   /** Hands the terminal to another program (an external editor) and takes it back. */
   suspend(): void;
   resume(): void;
+  /**
+   * The client could not start (keypress input only): the screen says `title`, why, and `hint` (what to run), and
+   * stays up until Esc, q, Enter or Ctrl+C, which stop with 1. The client's own handlers and draw are left out.
+   */
+  fail(title: string, error: unknown, hint?: string): void;
+}
+
+/** The screen of a client that could not start: what, why, what to run, and how to close it. */
+export function renderStartFailure(failure: { title: string; reason: string; hint?: string }, width: number, height: number): string {
+  const lines = [`\x1b[1;31m${failure.title}\x1b[0m`, "", ...wrapTextWithAnsi(failure.reason, Math.max(1, width))];
+  if (failure.hint) lines.push("", ...wrapTextWithAnsi(failure.hint, Math.max(1, width)));
+  while (lines.length < height - 1) lines.push("");
+  lines.push("\x1b[2mEsc, q or Enter closes\x1b[0m");
+  return `\x1b[H\x1b[2J${lines.slice(0, Math.max(1, height)).map(line => truncateToWidth(line, Math.max(1, width))).join("\n")}`;
 }
 
 export function createHerdrSession(options: HerdrSessionOptions): HerdrSession {
@@ -190,21 +230,36 @@ export function createHerdrSession(options: HerdrSessionOptions): HerdrSession {
   const write = options.io?.write ?? ((data: string) => { stdout.write(data); });
   const exit = options.io?.exit ?? ((code: number) => process.exit(code));
   const input = options.input;
-  // A Pi terminal turns bracketed paste on and off itself; an own TUI writes all of its modes.
-  const modes: ScreenModes = input.kind === "own" ? {} : input.kind === "pi" ? { ...options.modes, paste: false } : options.modes ?? {};
+  // Bracketed paste is on for every keypress client, once, here (PIE-1649); a Pi terminal turns it on and off itself,
+  // and an own TUI writes all of its modes.
+  const modes: ScreenModes = input.kind === "own" ? {} : { mouse: options.modes?.mouse ?? false, paste: input.kind === "keypress" };
   let stopping = false, stopRequested = false, started = false;
   let stopInFlight: Promise<void> | undefined;
   let queue: Promise<void> = Promise.resolve();
   let detachInput: (() => void) | undefined;
-  const resize = () => options.draw?.();
+  let failure: { title: string; reason: string; hint?: string } | null = null;
+  const draw = () => failure
+    ? write(renderStartFailure(failure, stdout.columns ?? 80, stdout.rows ?? 24))
+    : options.draw?.();
+  const resize = () => draw();
+  // A failed start takes the input: the client's handlers belong to a client that isn't there.
+  const handlers = (base: KeypressHandlers): KeypressHandlers => ({
+    keypress(text, key, action) {
+      if (!failure) return base.keypress(text, key, action);
+      if (key.name === "escape" || key.name === "return" || text === "q" || (key.ctrl && key.name === "c")) void session.stop(1);
+    },
+    paste: text => { if (!failure) base.paste?.(text); },
+    mouse: sequence => { if (!failure) base.mouse?.(sequence); },
+    ...(base.raw ? { raw: (data: string) => !failure && base.raw!(data) } : {}),
+  });
 
   function attach(): void {
     if (input.kind !== "keypress") return;
     if (stdin.isTTY) stdin.setRawMode(true);
     write(screenEnter(modes));
-    detachInput = attachKeypressInput(stdin, input.handlers);
+    detachInput = attachKeypressInput(stdin, handlers(input.handlers));
     stdin.resume();
-    if (options.draw) stdout.on("resize", resize);
+    stdout.on("resize", resize);
   }
   function detach(): void {
     if (input.kind !== "keypress") return;
@@ -234,6 +289,7 @@ export function createHerdrSession(options: HerdrSessionOptions): HerdrSession {
 
   const session: HerdrSession = {
     get stopping() { return stopping; },
+    get failed() { return failure !== null; },
     start() {
       if (started) return;
       started = true;
@@ -268,7 +324,11 @@ export function createHerdrSession(options: HerdrSessionOptions): HerdrSession {
     },
     resume() {
       attach();
-      options.draw?.();
+      draw();
+    },
+    fail(title, error, hint) {
+      failure = { title, reason: error instanceof Error ? error.message : String(error), ...(hint ? { hint } : {}) };
+      draw();
     },
   };
   return session;

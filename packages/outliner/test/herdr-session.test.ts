@@ -5,9 +5,11 @@ import {
   createHerdrSession,
   screenEnter,
   screenLeave,
+  startFailureHint,
   type HerdrSessionOptions,
   type HerdrSignal,
 } from "../src/herdr-session";
+import { OutlinerTimeoutError } from "../src/client";
 import { TextBuffer } from "../src/text-buffer";
 import { applyTextBufferEditorCommand, textBufferEditorCommand } from "../src/text-buffer-editor";
 
@@ -73,7 +75,7 @@ function harness(options: Partial<HerdrSessionOptions> = {}) {
   const exited = Promise.withResolvers<number>();
   const session = createHerdrSession({
     input: { kind: "keypress", handlers: { keypress() {} } },
-    modes: { mouse: "click", paste: true },
+    modes: { mouse: "click" },
     onError: error => errors.push(error),
     ...options,
     io: {
@@ -84,7 +86,7 @@ function harness(options: Partial<HerdrSessionOptions> = {}) {
   });
   /** Resolves once everything queued before it has run. */
   const drained = () => new Promise<void>(resolve => session.enqueue(resolve));
-  return { session, written, exits, signals, errors, exited: exited.promise, drained };
+  return { session, written, exits, signals, errors, exited: exited.promise, drained, stdin: stdin as unknown as PassThrough };
 }
 
 test("queued work runs in order, a failure goes to onError, and nothing queued runs once stopping", async () => {
@@ -170,11 +172,54 @@ test("a Pi terminal is drained and stopped before the screen is put back; it bri
     stop() { order.push("terminal stop"); },
   };
   const { session, written } = harness({
-    modes: { mouse: "click", paste: true },
+    modes: { mouse: "click" },
     input: { kind: "pi", terminal: terminal as never, onData() {} },
   });
   session.start();
   await session.stop();
   expect(order).toEqual(["start", "drain", "terminal stop"]);
   expect(written).toEqual([screenEnter({ mouse: "click" }), screenLeave({ mouse: "click" })]);
+});
+
+test("every keypress client gets bracketed paste from the session, asked or not (Tree asks for none)", () => {
+  const { session, written } = harness({ modes: { mouse: "drag" } });
+  session.start();
+  expect(written).toEqual([screenEnter({ mouse: "drag", paste: true })]);
+  const bare = harness({ modes: undefined });
+  bare.session.start();
+  expect(bare.written).toEqual([screenEnter({ paste: true })]);
+});
+
+test("a client that could not start shows why and what to run, takes no other input, and closes on a key with 1", async () => {
+  const keys: string[] = [], pastes: string[] = [];
+  let draws = 0;
+  const { session, written, exits, exited, stdin } = harness({
+    draw: () => { draws++; },
+    input: { kind: "keypress", handlers: { keypress: (_text, key) => keys.push(key.name ?? ""), paste: text => pastes.push(text) } },
+  });
+  session.start();
+  session.fail("Backlink peek could not start", new Error("connect ENOENT /tmp/nobody.sock"), "No outline host answers at /tmp/nobody.sock.");
+  expect(session.failed).toBe(true);
+  const screen = written.at(-1)!;
+  expect(screen).toContain("Backlink peek could not start");
+  expect(screen).toContain("connect ENOENT /tmp/nobody.sock");
+  expect(screen).toContain("No outline host answers at /tmp/nobody.sock.");
+  expect(screen).toContain("Esc, q or Enter closes");
+  expect(draws).toBe(0);
+  stdin.write("x");
+  stdin.write("\x1b[200~pasted\x1b[201~");
+  await tick(50);
+  expect(keys).toEqual([]);
+  expect(pastes).toEqual([]);
+  expect(exits).toEqual([]);
+  stdin.write("q");
+  expect(await exited).toBe(1);
+});
+
+test("startFailureHint names the socket and the host's start command only when nobody answered", () => {
+  const local = { mode: "host" as const, socket: "/tmp/outlines/.host/host.sock" };
+  const gone = Object.assign(new Error("connect ENOENT"), { code: "ENOENT" });
+  expect(startFailureHint(gone, local)).toBe(`No outline host answers at /tmp/outlines/.host/host.sock. The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.`);
+  expect(startFailureHint(new OutlinerTimeoutError(300), { mode: "remote", socket: "/tmp/x.sock", machine: "garden-box" })).toContain("ssh garden-box ep0ch status");
+  expect(startFailureHint(new Error("OUTLINER_BACKLINK_VIEW is required"), local)).toBeUndefined();
 });

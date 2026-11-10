@@ -2,7 +2,7 @@ import type { OutlinerRequester } from "./client-target";
 import type { DetailReadPreviewDocument } from "./detail-pi-preview";
 import { loadDetailReadPreview } from "./detail-read-preview";
 import { TextBuffer } from "./text-buffer";
-import { isPrintableInput, sanitizeDynamicText, type TerminalKey } from "./terminal";
+import { isPrintableInput, pastedLine, sanitizeDynamicText, type TerminalKey } from "./terminal";
 import type { Block, GotoSearchCollection, GotoSearchMatch } from "./types";
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -67,7 +67,7 @@ export class GotoController {
   async cancel(): Promise<void> { this.dispose(); await this.effects.close(); }
 
   paste(text: string): void {
-    this.buffer.insert(boundedInput(sanitizeDynamicText(text.replace(/[\r\n]+/g, " ")), Math.max(0, 500 - this.query.length)));
+    this.buffer.insert(boundedInput(pastedLine(text), Math.max(0, 500 - this.query.length)));
     this.changed();
   }
 

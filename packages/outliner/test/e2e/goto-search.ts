@@ -49,7 +49,8 @@ const result = await runHerdrScenario({
 
     await begin("saffron");
     await waitPopup("ALPHA-PREVIEW-BODY");
-    await waitPopup("Jev is not configured");
+    // The runner turns Jev off (OUTLINER_FIGURE_FIT=off), and goto says so beside its text matches.
+    await waitPopup("Jev is not configured here");
     assert.deepEqual(await selection(), before);
     assert.deepEqual((await detail()).currentTarget, detailBefore);
     await terminal.write("\x1b[B");

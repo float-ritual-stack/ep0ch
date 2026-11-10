@@ -2,6 +2,7 @@ import {
   Markdown,
   stripTerminalSequences,
   truncateToWidth,
+  visibleWidth,
   type MarkdownTheme,
 } from "@earendil-works/pi-tui";
 import {
@@ -12,7 +13,9 @@ import {
   createOpenDestinationChooserState,
   openDestinationBlockId,
   OpenDestinationChooser,
+  type OpenDestinationControl,
 } from "./open-destination-chooser";
+import { parseTreePrimaryClick, parseTreeWheelEvent, treeClickActivates } from "./tree-mouse";
 import {
   DEFAULT_OUTLINER_ACTION_KEYMAP,
   displayActionChord,
@@ -112,14 +115,60 @@ export class BacklinkPeekController {
     return this.destinationChooserState.active;
   }
 
-  get destinationChooserHelpText(): string {
-    return this.destinationChooser.helpText();
+  /** The help row's controls: the chooser's while it is open, else the peek's own. A click on one presses its key. */
+  get helpControls(): readonly OpenDestinationControl[] {
+    if (this.destinationChooserState.active) return this.destinationChooser.helpControls();
+    const right = this.actionKeymap.defaultInput("detail.pane.right");
+    const down = this.actionKeymap.defaultInput("detail.pane.below");
+    return [
+      { label: "Esc cancel", str: "", key: { name: "escape" } },
+      { label: "← prev", str: "", key: { name: "left" } },
+      { label: "→ next", str: "", key: { name: "right" } },
+      { label: "↑/↓ scroll", str: "", key: {} },
+      ...(right ? [{ label: `${displayActionChord(this.actionKeymap.primaryBinding("detail.pane.right"))} right`, ...right }] : []),
+      ...(down ? [{ label: `${displayActionChord(this.actionKeymap.primaryBinding("detail.pane.below"))} down`, ...down }] : []),
+      { label: "Enter choose destination", str: "\r", key: { name: "return" } },
+    ];
   }
 
-  get directOpenHelpText(): string {
-    const right = displayActionChord(this.actionKeymap.primaryBinding("detail.pane.right"));
-    const down = displayActionChord(this.actionKeymap.primaryBinding("detail.pane.below"));
-    return `${right} right  ${down} down`;
+  /** The title row's controls: ‹ and › peek the other backlinks, the rest is the backlink (Enter). */
+  get titleControls(): readonly OpenDestinationControl[] {
+    const source = this.selectedSource;
+    const open = { str: "\r", key: { name: "return" } };
+    return [
+      { label: "‹", str: "", key: { name: "left" } },
+      { label: source ? `Backlink ${this.selectedIndex + 1}/${this.sources.length}` : "Backlink peek", ...open },
+      { label: "›", str: "", key: { name: "right" } },
+      { label: source?.title ?? "No source", ...open },
+    ];
+  }
+
+  /**
+   * A click or the wheel, at the rows and columns `renderBacklinkPeekFrame` drew at `width` × `height`: the wheel
+   * scrolls the preview, a click on a title or help control presses its key (the same path as typing it), a click
+   * on the summary row or a Ctrl/⌘-click in the preview opens the chooser (Enter), and a plain click there does
+   * nothing.
+   */
+  async handleMouse(sequence: string, width: number, height: number): Promise<void> {
+    if (this.closed) return;
+    const wheel = parseTreeWheelEvent(sequence);
+    if (wheel) {
+      if (this.destinationChooserState.active) return;
+      this.scrollBy(wheel.direction === "up" ? -3 : 3);
+      this.effects.invalidate();
+      return;
+    }
+    const click = parseTreePrimaryClick(sequence);
+    if (!click) return;
+    const layout = backlinkPeekLayout(height);
+    const press = (control: OpenDestinationControl | undefined) => control && (control.key.name || control.str)
+      ? this.handleKeypress(control.str, control.key, "pass", height)
+      : undefined;
+    if (click.row === layout.titleRow) await press(controlAt(this.titleControls, TITLE_GAP, click.column, width));
+    else if (click.row === layout.helpRow) await press(controlAt(this.helpControls, HELP_GAP, click.column, width));
+    else if (click.row === layout.summaryRow || (click.row >= layout.bodyTop && click.row < layout.bodyTop + layout.bodyHeight && treeClickActivates(click))) {
+      await this.handleKeypress("\r", { name: "return" }, "pass", height);
+    }
   }
 
   async initialize(): Promise<void> {
@@ -249,6 +298,30 @@ export class BacklinkPeekController {
 
 }
 
+const TITLE_GAP = " ", HELP_GAP = "  ";
+
+/** Where the peek's rows are at `height`: the title, the summary, the rule, the preview, the status, the help row. */
+function backlinkPeekLayout(height: number) {
+  const bodyHeight = Math.max(1, height - 6);
+  return { titleRow: 0, summaryRow: 1, bodyTop: 3, bodyHeight, helpRow: Math.max(3 + bodyHeight, height - 1) };
+}
+
+/** Controls drawn in order with `gap` between them, cut at `width`. */
+function controlRow(controls: readonly OpenDestinationControl[], gap: string, width: number): string {
+  return truncateToWidth(controls.map(control => control.label).join(gap), width);
+}
+
+function controlAt(controls: readonly OpenDestinationControl[], gap: string, column: number, width: number): OpenDestinationControl | undefined {
+  let start = 0;
+  for (const control of controls) {
+    const end = start + visibleWidth(control.label);
+    if (start >= width) return undefined;
+    if (column >= start && column < end) return control;
+    start = end + visibleWidth(gap);
+  }
+  return undefined;
+}
+
 function occurrenceSummary(source: BacklinkSource): string {
   const count = source.occurrenceCount === 1 ? "1 reference" : `${source.occurrenceCount} references`;
   return `${source.parentContext} · ${count}`;
@@ -260,16 +333,16 @@ export function renderBacklinkPeekFrame(
   height: number,
   theme: MarkdownTheme,
 ): string {
-  const output = ["\x1b[H\x1b[2J"];
   const source = controller.selectedSource;
-  const position = source
-    ? `Backlink ${controller.selectedIndex + 1}/${controller.sources.length}`
-    : "Backlink peek";
-  output.push(truncateToWidth(`\x1b[1;36m${position}\x1b[0m  ${source?.title ?? "No source"}`, width));
+  const layout = backlinkPeekLayout(height);
+  const [prev, position, next, title] = controller.titleControls.map(control => control.label);
+  // Drawn from titleControls, so a click finds each label at the column it was drawn in.
+  const titleRow = `\x1b[2m${prev}\x1b[0m${TITLE_GAP}\x1b[1;36m${position}\x1b[0m${TITLE_GAP}\x1b[2m${next}\x1b[0m${TITLE_GAP}${title}`;
+  const output = [`\x1b[H\x1b[2J${truncateToWidth(titleRow, width)}`];
   output.push(truncateToWidth(`\x1b[2m${source ? occurrenceSummary(source) : controller.targetBlockId}\x1b[0m`, width));
   output.push("─".repeat(Math.max(1, width)));
 
-  const bodyHeight = Math.max(1, height - 6);
+  const bodyHeight = layout.bodyHeight;
   const previewText = controller.preview?.text ?? "_No preview available._";
   const markdown = new Markdown(
     detailMarkdownPresentation(sanitizeMarkdownDocument(previewText)),
@@ -286,11 +359,6 @@ export function renderBacklinkPeekFrame(
     ? controller.status || "Loading…"
     : controller.status;
   output.push(truncateToWidth(`\x1b[2m${stripTerminalSequences(status)}\x1b[0m`, width));
-  output.push(truncateToWidth(
-    controller.destinationChooserState.active
-      ? controller.destinationChooserHelpText
-      : `Esc cancel  ←/→ peek  ↑/↓ scroll  ${controller.directOpenHelpText}  Enter choose destination`,
-    width,
-  ));
+  output.push(controlRow(controller.helpControls, HELP_GAP, width));
   return output.join("\n");
 }

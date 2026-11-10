@@ -203,7 +203,7 @@ function draw(): void {
 
 function enqueueWork(task: () => void | Promise<void>): void { session.enqueue(task); }
 const session = createHerdrSession({
-  modes: { mouse: "click", paste: true },
+  modes: { mouse: "click" },
   draw,
   onError(error) {
     controller.status = error instanceof Error ? error.message : String(error);

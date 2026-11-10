@@ -61,6 +61,11 @@ export interface HerdrScenarioSession {
   restartService(): Promise<void>;
   attachClient(): Promise<{ write(input: string): Promise<void>; visible(): Promise<string>; cursor(): Promise<{column: number; row: number}>; resize(columns: number, rows: number): Promise<void> }>;
   openCapturePopup(blockId: string, socketPath: string): Promise<void>;
+  /**
+   * Opens the backlink peek over the owned Detail, as Detail's `backlinks.open` does: `target`'s backlinks with
+   * `source` selected. `env` adds to the popup's environment (an `EP0CH_SOCKET` nobody serves, for a dead host).
+   */
+  openBacklinkPeek(target: string, source: string, env?: Record<string, string>): Promise<void>;
   openRemoteBrowsingContext(options?: { name?: string; treeTransport?: "direct" | "forwarded"; detailTransport?: "direct" | "forwarded" }): Promise<{ workspaceRoot: string; tree: string; detail: string; firstTreeFrameMs: number }>;
   forwardedTreeRequests(): readonly ForwardedRequest[];
   forwardedDetailRequests(): readonly ForwardedRequest[];
@@ -395,8 +400,11 @@ function makeEnvironment(options: {
     HERDR_BIN_PATH: options.herdrBinary,
     EP0CH_OUTLINES: options.outlinerState,
     OUTLINER_KEYBINDINGS_PATH: options.keymapPath,
-    // A developer's Bun .env file must not turn isolated UI journeys into API calls.
+    // A developer's Bun .env file or ~/.config/secrets/typesafe.env must not turn isolated UI journeys into API
+    // calls: an empty key alone still reads the secrets file (jevKey), so every Jev loop is turned off too
+    // (PIE-1653). `allowJev` turns it back on for the one live journey.
     TYPESAFE_API_KEY: "",
+    OUTLINER_FIGURE_FIT: "off",
   };
 }
 
@@ -1160,6 +1168,23 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
           "--env", `EP0CH_SOCKET=${socketPath}`,
           "--env", `EP0CH_WS=${OUTLINE_NAME}`]);
       },
+      async openBacklinkPeek(target, source, env = {}) {
+        if (!resources.client) throw new Error("Popup evidence requires an attached client");
+        const detail = (await getRegistrations()).find(entry => entry.role === "detail" && entry.runtime?.paneId === ownedPanes.detail);
+        if (!detail?.contextId) throw new Error("The owned Detail must be registered before a backlink peek opens over it");
+        const view = { filter: "", sortField: "updated", sortDirection: "desc", showRelated: true, showResolved: true, kind: null, stage: "all" };
+        await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID, "--entrypoint", "backlink-peek",
+          "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
+          "--env", `OUTLINER_BROWSING_CONTEXT_ID=${detail.contextId}`,
+          "--env", `OUTLINER_BACKLINK_SOURCE_CLIENT_ID=${detail.clientId}`,
+          "--env", `OUTLINER_BACKLINK_TARGET_BLOCK_ID=${target}`,
+          "--env", `OUTLINER_BACKLINK_SELECTED_SOURCE_ID=${source}`,
+          "--env", `OUTLINER_BACKLINK_VIEW=${JSON.stringify(view)}`,
+          "--env", `EP0CH_WS=${OUTLINE_NAME}`,
+          ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+          "--focus"]);
+        await artifacts.event("setup", { kind: "backlink_peek_open", target, source, env: Object.keys(env) });
+      },
       async focus(paneId) {
         requireOwned(paneId);
         await runHerdr(["plugin", "pane", "focus", paneId]);
@@ -1320,6 +1345,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     if (scenario.allowJev) {
       if (!process.env.TYPESAFE_API_KEY) throw new Error("The live Jev journey requires TYPESAFE_API_KEY");
       environment.TYPESAFE_API_KEY = process.env.TYPESAFE_API_KEY;
+      environment.OUTLINER_FIGURE_FIT = "on";
     }
     if (scenario.promptDirectory) {
       const directory = resolve(projectRoot, scenario.promptDirectory);

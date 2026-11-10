@@ -83,13 +83,38 @@ export function createOpenDestinationChooserState(): OpenDestinationChooserState
   return { active: false, loading: false, target: null, status: "" };
 }
 
+/** One entry of the chooser's help row: its words, and the key it stands for (a click on it presses that key). */
+export interface OpenDestinationControl {
+  readonly label: string;
+  readonly str: string;
+  readonly key: TerminalKey;
+  /** The action link Detail's reader draws it as, where it has one. */
+  readonly actionId?: string;
+}
+
+/** The chooser's help row as controls, in order; `openDestinationChooserHelp` is their words. */
+export function openDestinationChooserControls(
+  actionKeymap: OutlinerActionKeymap = DEFAULT_OUTLINER_ACTION_KEYMAP,
+  readerLabel = "linked destination",
+): OpenDestinationControl[] {
+  const right = displayActionChord(actionKeymap.primaryBinding("detail.pane.right"));
+  const down = displayActionChord(actionKeymap.primaryBinding("detail.pane.below"));
+  return [
+    { label: "⇧R replace here", str: "R", key: { name: "r", shift: true } },
+    { label: "c choose once", str: "c", key: { name: "c" } },
+    { label: `f ${readerLabel}`, str: "f", key: { name: "f" } },
+    { label: `${right}/r split right`, str: "r", key: { name: "r" } },
+    { label: `${down}/d split down`, str: "d", key: { name: "d" } },
+    { label: "Esc close", str: "", key: { name: "escape" } },
+    { label: "Enter default", str: "\r", key: { name: "return" } },
+  ];
+}
+
 export function openDestinationChooserHelp(
   actionKeymap: OutlinerActionKeymap = DEFAULT_OUTLINER_ACTION_KEYMAP,
   readerLabel = "linked destination",
 ): string {
-  const right = displayActionChord(actionKeymap.primaryBinding("detail.pane.right"));
-  const down = displayActionChord(actionKeymap.primaryBinding("detail.pane.below"));
-  return `⇧R replace here  c choose once  f ${readerLabel}  ${right}/r split right  ${down}/d split down  Esc close  Enter default`;
+  return openDestinationChooserControls(actionKeymap, readerLabel).map(control => control.label).join("  ");
 }
 
 export function missingNavigationDestination(error:unknown):boolean {
@@ -142,12 +167,18 @@ export class OpenDestinationChooser {
     this.effects.invalidate();
   }
   helpText(): string {
-    if(this.state.openHereOnEnter)return [
-      outlinerActionLink('destination.here','[Enter: Open here]'),
-      outlinerActionLink('destination.choose','[L: Choose destination]'),
-      outlinerActionLink('destination.cancel','[Esc: Cancel]'),
-    ].join(' ');
+    // After a missing destination its controls are action links Detail's reader clicks (destination.*).
+    if (this.state.openHereOnEnter) return this.helpControls().map(control => outlinerActionLink(control.actionId!, control.label)).join(" ");
     return openDestinationChooserHelp(this.actionKeymap, this.readerLabel);
+  }
+  /** The help row as controls, for a surface that takes clicks on it by column (the backlink peek). */
+  helpControls(): OpenDestinationControl[] {
+    if (this.state.openHereOnEnter) return [
+      { label: "[Enter: Open here]", str: "\r", key: { name: "return" }, actionId: "destination.here" },
+      { label: "[L: Choose destination]", str: "l", key: { name: "l" }, actionId: "destination.choose" },
+      { label: "[Esc: Cancel]", str: "", key: { name: "escape" }, actionId: "destination.cancel" },
+    ];
+    return openDestinationChooserControls(this.actionKeymap, this.readerLabel);
   }
 
   async handleKeypress(str: string, key: TerminalKey): Promise<boolean> {

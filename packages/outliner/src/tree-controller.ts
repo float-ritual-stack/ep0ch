@@ -52,6 +52,7 @@ import {
   historyNavigationDirection,
   isDetailToggle,
   isPrintableInput,
+  pastedLine,
   sanitizeDynamicText,
   type TerminalInputAction,
   type TerminalKey,
@@ -2712,10 +2713,9 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if(mode.kind === "browse" && localReader.state?.focused && localReader.paste(text))return;
     cancelReadSequence();
     if (mode.kind === "goto") { goto.paste(text); return; }
-    if (mode.kind === "action-menu") {
-      updateActionMenuQuery(mode, mode.query + text);
-    } else if (mode.kind !== "browse" && mode.kind !== "delete" && mode.kind !== "viewer") {
-      mode.buffer.insert(text);
+    if (mode.kind === "action-menu") updateActionMenuQuery(mode, mode.query + pastedLine(text));
+    else if (mode.kind !== "browse" && mode.kind !== "delete" && mode.kind !== "viewer") {
+      mode.buffer.insert(mode.kind === "edit" || mode.kind === "add-child" || mode.kind === "add-sibling" ? text : pastedLine(text));
       if (mode.kind === "branch-filter") { applyBranchFilter(); return; }
       if(mode.kind!=="filter"&&mode.kind!=="purge")void completions.refresh();
     }
