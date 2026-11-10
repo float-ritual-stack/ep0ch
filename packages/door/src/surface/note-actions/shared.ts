@@ -200,11 +200,16 @@ export async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: 
 export async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor) {
   const s = surface.session;
   if (!s || s.mode !== "compose" || !s.composer) throw new ActionRefused("no comment is being written here; comment.write first");
-  const kind = s.target?.kind; if (actor.kind !== "agent") surface.revealComposerNext();
+  // What was sent, read before the send clears it: the words and where they went (a macro records them as one line, PIE-1718).
+  const t = s.target, kind = t?.kind, body = s.composer.text, text = s.msg.text;
+  if (actor.kind !== "agent") surface.revealComposerNext();
   await s.send(surface.env(host, actor));
   if (s.error || s.mode === "compose") throw new ActionRefused(s.error ?? s.composer?.note ?? "not sent");
   surface.noteAgent(actor, kind === "reply" ? "replied to a comment" : kind === "edit" ? "edited a comment" : "commented on this note");
-  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })), recordedAs: recordedAnswer(actor, kind === "edit" ? "revision" : "new") };
+  const on = t?.kind === "note" ? { whole: true }
+    : t?.kind === "quote" ? { quote: t.passage.quote, ...(text.indexOf(t.passage.quote) !== text.lastIndexOf(t.passage.quote) ? { near: t.passage.start } : {}) }
+    : t?.kind === "reply" ? { thread: t.thread.id } : {};
+  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", body, ...on, ...(t && "props" in t && t.props ? { props: t.props } : {}), threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })), recordedAs: recordedAnswer(actor, kind === "edit" ? "revision" : "new") };
 }
 /** What `R` with no line runs: `refreshTarget`'s answer, or its refusal said on the person's status bar (the key's own is quiet). */
 export function refreshOf(surface: NoteSurface, host: SurfaceHost, actor: Actor): { block: string; line?: number } {

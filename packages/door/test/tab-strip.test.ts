@@ -51,3 +51,22 @@ test("a yielding tab is whole when the others can make room, and costs them noth
   expect(long.hits.some(h => h.index === -1)).toBe(false);
   expect(width(long.text)).toBeLessThanOrEqual(56);
 });
+
+// PIE-1719 (the drawer's tabs at 44 columns): a lit tab the strip cut reads from its start, cut at its end, as a cut message
+// does (PIE-1707): never a window from its middle the Overflow pass scrolled to by itself.
+test("a lit tab the strip cuts reads from its start, and stays so", async () => {
+  const { Overflow } = await import("../src/overflow");
+  const { visible } = await import("../src/style");
+  const { StripState, withStrips, withStripOwner } = await import("../src/surface/strip-state");
+  const strips = new StripState();
+  const tabs = [{ label: "sh", key: "1" }, { label: "Bike shed list", key: "2" }, { label: "Shed door drill for the long winter", key: "3", on: true }];
+  for (const w of [24, 30]) {
+    // Drawn as an App paint draws a tile's tab set (desk.ts: a strip recorded for its tile, so the Overflow pass knows it).
+    const [row] = withStrips(strips, () => withStripOwner("t-drawer-tab", w, () => tabStrip(tabs, { id: "tabs", width: w, overflow: "share", style: { on: "", off: "", pad: " " } })), true);
+    const o = new Overflow();
+    for (const now of [0, 1000, 2000, 4000]) {
+      const drawn = visible(o.draw([row!.text], w, now).lines[0]!);
+      expect(drawn, `at ${w} columns, ${now} ms`).toMatch(/3 Shed/);
+    }
+  }
+});

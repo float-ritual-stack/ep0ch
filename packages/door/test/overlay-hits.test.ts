@@ -107,11 +107,12 @@ describe.skipIf(!outliner)("in a door, the pointer over the power bar reads only
       };
       const app = new App(term, board, Date.now(), () => {});
       try {
-        // Evan's desk: four 44-column tiles, a reader leftmost whose byline is cut short there and runs on under the bar.
-        const note = await board.createBlock(null, `Seed swap at the allotment [kind::plan] [season::spring] [plot::north-bed] [crop::beans] [owner::committee] [type::note]\nbring jars`, { kind: "agent", id: "claude-code:allotment-box" });
+        // Evan's desk: four 44-column tiles, the tree leftmost, its row for a long title running on under the bar. (A reader's
+        // byline flows onto rows of whole pieces since PIE-1686 and is never cut there now: PIE-1724.)
+        const note = await board.createBlock(null, `Seed swap at the allotment by the water butt and the old rhubarb crowns [kind::plan] [season::spring] [plot::north-bed] [crop::beans] [owner::committee] [type::note]\nbring jars`, { kind: "agent", id: "claude-code:allotment-box" });
         const reader = (name: string) => ({ t: "leaf" as const, kind: "reader", name, note: note.id });
         const s = screen === "river" ? openScreen("river") as Desk
-          : new Desk({ name: "four", title: "four", layout: { focus: "a", root: { t: "split", dir: "row", weights: [1, 1, 1, 1], kids: [reader("a"), reader("b"), { t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "activity", name: "activity" }] } } });
+          : new Desk({ name: "four", title: "four", layout: { focus: "a", root: { t: "split", dir: "row", weights: [1, 1, 1, 1], kids: [{ t: "leaf", kind: "tree", name: "tree" }, reader("a"), reader("b"), { t: "leaf", kind: "activity", name: "activity" }] } } });
         app.push(s);
         await Bun.sleep(150);
         // The frame as composed, before the hit map reads it (what's painted has the marks taken out).
@@ -129,7 +130,7 @@ describe.skipIf(!outliner)("in a door, the pointer over the power bar reads only
         own.draw(overBar(Array.from({ length: rows - 1 }, () => " ".repeat(cols)), bar), cols, 0);
         const ownAt = (own as any).cuts.map((c: { x: number; y: number }) => `${c.x}:${c.y}`) as string[];
         const { col, row, cols: w, rows: h } = bar.rect;
-        // The case is real on the desk: the reader's byline starts left of the bar and is cut short under where it opens.
+        // The case is real on the desk: the tree's row starts left of the bar and runs on under where it opens.
         // (At 40 columns the bar takes the row from its second column; the sweep still holds.)
         if (screen === "desk") expect((before as any).cuts.some((c: { x: number; y: number; end: number }) => c.y >= row && c.y < row + h && c.x < col && c.end > col)).toBe(true);
         for (let y = row; y < row + h; y++) for (let x = col; x < col + w; x++) {

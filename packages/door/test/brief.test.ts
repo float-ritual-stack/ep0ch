@@ -61,14 +61,15 @@ describe("where the door opens", () => {
 });
 
 describe("the daily-brief skill", () => {
-  test("ships with the door, with frontmatter, and ep0ch --skill lists it and prints its path", () => {
+  test("ships with the door, with frontmatter, and ep0ch --skill lists it and prints it", () => {
     const skills = join(import.meta.dir, "../skills");
     const own = skillsIn([{ source: "ep0ch", dir: skills }]);
     const brief = own.find(s => s.name === "daily-brief");
     expect(brief?.description).toMatch(/^Use when/);
     const door = join(import.meta.dir, "..");
     expect(skillCommand(["--skill"], door, null).out).toMatch(/^daily-brief\s+ep0ch\s+Use when/m);
-    expect(skillCommand(["--skill", "daily-brief"], door, null)).toEqual({ out: join(skills, "daily-brief/SKILL.md"), code: 0 });
+    expect(skillCommand(["--skill", "daily-brief", "--path"], door, null)).toEqual({ out: join(skills, "daily-brief/SKILL.md"), code: 0 });
+    expect(skillCommand(["--skill", "daily-brief"], door, null).out).toContain("name: daily-brief");
   });
 });
 

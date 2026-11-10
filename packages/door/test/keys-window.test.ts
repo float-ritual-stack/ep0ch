@@ -189,7 +189,9 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
   let key: (k: Key) => void = () => {};
-  let cols = 177, rows = 60;
+  let cols = 177, rows = 60, painted: string[] = [];
+  /** The door's whole frame as the terminal gets it (the bar, and what is said above it), drawn now. */
+  const frame = () => { (app as any).paint(); return painted.map(l => visible(l)); };
   const screen = () => (app as any).stack.at(-1) as any;
   const lines = () => screen().render(screen().ctx).lines.map(visible) as string[];
   const keysWin = () => screen().describe().tiles?.find?.((t: any) => t.keys)?.keys ?? screen().describe().keys;
@@ -200,7 +202,7 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     delete process.env.EP0CH_KEYMAP;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const term = { info: { get cols() { return cols; }, get rows() { return rows; }, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { get cols() { return cols; }, get rows() { return rows; }, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow(r: number, l: string) { painted[r] = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     app.push(openScreen("desk"));
@@ -549,6 +551,83 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     } finally {
       writeFileSync(keymapPath(), "{}\n");
       reloadKeymap();
+    }
+  });
+
+  // PIE-1719: what a rebind says reads at 44 columns and in a 42-column keys tile, without widening anything.
+  test("at 44 columns the old key's sentence is drawn whole above the bar, and a way out with a suffix reads as a sentence (PIE-1719)", async () => {
+    writeFileSync(keymapPath(), JSON.stringify({ "edit.close": ["alt+q"], "draft.erase to=word-back": ["alt+e"] }));
+    reloadKeymap();
+    cols = 44; rows = 24;
+    try {
+      const note = await board.createBlock(null, "Seed swap\n\nTomatoes for beans.\n");
+      await desk().dispatch.act({ action: "tile.open", args: { kind: "reader", id: note.id, name: "swap" } }, USER);
+      await desk().dispatch.act({ action: "tile.focus", tile: "swap" }, USER);
+      // The reader alone on the 44-column screen, whatever the tests before left open.
+      await desk().dispatch.act({ action: "tile.zoom", tile: "swap" }, USER);
+      await until(() => frame().join("\n").includes("Tomatoes"), "the note").catch(e => { throw new Error(`${e.message}:\n${frame().join("\n")}`); });
+      key(char("C"));
+      await until(() => frame().join("\n").includes("alt+q"), "the composer, its way out alt+q").catch(e => { throw new Error(`${e.message}:\n${frame().join("\n")}`); });
+      // Only spaces typed: one press closes it, and the foot says so (CodeRabbit on #1421).
+      for (const ch of "   ") key(char(ch));
+      cols = 177;
+      expect(frame().join("\n")).toContain("alt+q close comment");
+      expect(frame().join("\n")).not.toContain("twice puts comment aside");
+      cols = 44;
+      for (const ch of "more beans") key(char(ch));
+      // The composer's own foot names the key its way out is now, not esc (wide enough to read the foot).
+      cols = 177;
+      expect(frame().join("\n")).toContain("alt+q twice puts comment aside");
+      expect(frame().join("\n")).not.toContain("esc twice puts comment aside");
+      cols = 44;
+      key({ kind: "esc" });
+      // Above the bar, whole (wrapped): what esc no longer does to the comment, its way out's words kept apart from it.
+      const said = () => frame().slice(-6, -1).map(l => l.trim()).join(" ").replace(/\s+/g, " ");
+      await until(() => said().includes("alt+q"), `the old esc said above the bar (${said()})`);
+      expect(said()).toContain("esc no longer closes the comment (twice puts it aside): your keymap gives it alt+q");
+      key({ kind: "alt", ch: "q" }); key({ kind: "alt", ch: "q" });
+      await until(() => !frame().join("\n").includes("more beans"), "alt+q twice put it aside");
+      // An old key in a line field (the rename prompt draws no note of its own): said whole above the bar too.
+      key(char("w", true)); key(char("n"));
+      await until(() => frame().join("\n").includes("Rename this tile"), "the rename prompt");
+      for (const ch of "plum tree") key(char(ch));
+      key(char("w", true));
+      await until(() => said().includes("^W no longer runs draft.erase to=word-back: your keymap gives it alt+e (? shows the keys)"), `the old ^W said above the bar (${said()})`);
+      key({ kind: "alt", ch: "q" });
+      await desk().dispatch.act({ action: "tile.close", tile: "swap" }, USER);
+    } finally {
+      cols = 177; rows = 60;
+      writeFileSync(keymapPath(), "{}\n");
+      reloadKeymap();
+    }
+  });
+
+  test("in a 42×23 keys tile the rebind's preview is in view first, whole: who still gets the key (PIE-1719)", async () => {
+    const { runningModules, useDoorModules } = await import("../src/door-modules");
+    if (!runningModules().some(([n]) => n === "glass")) useDoorModules(["glass"]);
+    try {
+      await shell("keys.open", {});
+      await until(() => focusedKind() === "keys", "the window");
+      await act("keys.filter", { text: "draft.clear" });
+      const found: any = await act("keys.find", {});
+      await act("keys.select", { n: found.bindings.findIndex((b: any) => b.key === "ctrl+u") + 1 });
+      key(char("r"));
+      await until(() => keysWin().record?.id === "draft.clear", "waiting for the key");
+      key({ kind: "alt", ch: "u" });
+      await until(() => keysWin().record?.key === "alt+u", "alt+u recorded");
+      // The tile's inside at 42×23 (its frame takes a column each side and its title and foot rows).
+      for (const [w, h] of [[40, 21], [42, 23]] as const) {
+        const drawn = (keysPane().render(w, h, true, desk()).lines.map(visible) as string[]).map(l => l.trim()).join(" ").replace(/\s+/g, " ");
+        expect(drawn, `at ${w}×${h}`).toContain("^U → alt+u");
+        expect(drawn, `at ${w}×${h}`).toContain("glass.toggle (glass) still gets alt+u first");
+        expect(drawn, `at ${w}×${h}`).toContain("⏎ save");
+      }
+    } finally {
+      await act("keys.cancel", {}).catch(() => {});
+      writeFileSync(keymapPath(), "{}\n");
+      reloadKeymap();
+      await act("keys.close", {}).catch(() => {});
+      await until(() => focusedKind() !== "keys", "closed");
     }
   });
 

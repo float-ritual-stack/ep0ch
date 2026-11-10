@@ -10,13 +10,27 @@ import { isOutlineNote } from "../../authored";
 import { modeActionKeys } from "../modes";
 import { movedOn, noteRow, type On, personComments, postComment, sendComment, findThread, attention, threadIn } from "./shared";
 import { readerKeys } from "../reader-keys";
-import { type ActionDef, ActionRefused, asActor, def } from "../actions";
+import { type ActionDef, ActionRefused, asActor, def, type RecordStep } from "../actions";
 import { askInBar } from "../../bar/ask";
+
+/** What the person typed and sent records as the one action that sends it again, words included (PIE-1718). */
+const recordsSent: RecordStep = ({ out }) => {
+  const body = out?.body as string | undefined;
+  if (out?.sent === "comment" && body?.trim() && !out.props) {
+    if (out.whole) return { action: "comment.note", args: { body } };
+    if (out.quote !== undefined) return { action: "comment", args: { quote: out.quote, ...(out.near !== undefined ? { near: out.near } : {}), body } };
+  }
+  if (out?.sent === "reply" && body?.trim() && out.thread) return { action: "reply", args: { thread: out.thread, body } };
+  // An edit, an ask's comment: as pressed (what opened it records as it was pressed).
+  return { action: "comment.send", args: {} };
+};
+/** Sent at once with its words (`arg`), it records as pressed; left out, it only opened the person's composer, and the send records. */
+const sentAtOnce = (arg: string): RecordStep<any> => s => (typeof s.args[arg] === "string" && s.args[arg].trim() ? { action: s.action, args: s.args } : null);
 
 export const COMMENT_DEFS = {
   "passage.select": def({
     summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: [{ keys: "C", does: "on selected words" }, { via: "an agent: quote=" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", record: () => null,
     // The menu's way to it is the person's words selected (PIE-846): with none, the menu offers the whole note instead.
     menu: noteRow("comment on the selected words", "C", { busy: true, now: on => (on.surface.selection ? null : { hide: true }) }),
     args: {
@@ -43,7 +57,7 @@ export const COMMENT_DEFS = {
   }),
   "comment.write": def({
     summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text. An agent's replaces only a comment it opened, never one the person is writing; invited (their @name line), it rewrites the text above that line, once", keys: [{ keys: "enter", does: "then typing" }],
-    touches: "draft", draft: "text", replay: "ask",
+    touches: "draft", draft: "text", replay: "ask", record: () => null,
     args: {
       body: { type: "string", about: "the comment's text" },
       invitation: { type: "string", optional: true, about: "the invitation the person's @name line gave this agent: body replaces the text above that line (one reply)" },
@@ -74,7 +88,7 @@ export const COMMENT_DEFS = {
   }),
   "comment.send": def({
     summary: "send the comment or reply; a retry of the same text can't land twice", keys: modeActionKeys(ATTACHED_KEYS, "comment.send"),
-    touches: "draft", draft: "leave", replay: "ask", answer: RECORDED_AS,
+    touches: "draft", draft: "leave", replay: "ask", answer: RECORDED_AS, record: recordsSent,
     args: {},
     run: (_, { surface, host }, actor) => sendComment(surface, host, actor),
   }),
@@ -99,7 +113,7 @@ export const COMMENT_DEFS = {
   "comment.note": def({
     summary: "comment on the whole note, not a passage (PIE-846): the person's composer opens at the top of the note, where whole-note threads are (a comment put aside on the note comes back in it); body= sends it at once, as an agent's always is. Its thread sits at the top of the note, its card in the margin's first row",
     keys: [{ keys: "C", does: "with nothing selected" }, { keys: "click", does: "the byline's [comment]" }, { via: "the tile menu's \"comment on the whole note\"" }],
-    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS, record: sentAtOnce("body"),
     menu: noteRow("comment on the whole note", "C", { busy: true }),
     args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
     examples: [
@@ -129,6 +143,8 @@ export const COMMENT_DEFS = {
     summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
     keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask", says: "ask the agent about the selected passage" }, { keys: "a then e", does: "explain", says: "have the selected passage explained" }, { keys: "a then h", does: "highlight", says: "highlight the selected passage" }, { keys: "a then d", does: "define", says: "define the selected passage" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
     touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
+    // A comment the person writes by hand records at its send; an ask opened for them to write records as pressed.
+    record: s => (s.args.action === "comment" && !s.args.body?.trim() ? null : { action: s.action, args: s.args }),
     args: {
       action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
       quote: { type: "string", optional: true, about: "the exact words, as stored (default: your selection)" },
@@ -235,6 +251,8 @@ export const COMMENT_DEFS = {
     // comment.escape, which closes through this once nothing is unsent. The rows say which.
     keys: [{ keys: "esc", does: "in the thread list or the passage picker" }, { via: "esc in a comment being written runs comment.escape, which closes it this way when nothing is unsent (esc twice puts typed text aside first)" }],
     touches: "draft", draft: "leave", replay: "ask",
+    // A close of what was open before the recording began is left out of it: replayed with nothing open, it would refuse.
+    record: s => (s.out?.opened < s.since ? null : { action: s.action, args: s.args }),
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
     examples: [
       { act: "comment.close", does: "closes the comment session when no text is unsent" },
@@ -247,7 +265,7 @@ export const COMMENT_DEFS = {
       if (s.dirty && !discard) throw new ActionRefused("the comment isn't sent; comment.send sends it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
       const r = s.writing?.close(true);
       surface.closeSession(); host.redraw();
-      return { closed: true, keptAt: r?.keptAt };
+      return { closed: true, keptAt: r?.keptAt, opened: s.opened };
     },
   }),
 } satisfies Record<string, ActionDef<any, On>>;
@@ -288,7 +306,7 @@ export const THREAD_DEFS = {
   }),
   "reply": def({
     summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: [{ keys: "m", does: "the thread list" }, { keys: "j k", does: "pick a thread" }, { keys: "r", does: "reply, then typing" }, { keys: "ctrl+s", does: "save the reply" }, { keys: "click", does: "[Reply] on an expanded thread" }],
-    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS, record: sentAtOnce("body"),
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the reply's text, sent at once; left out, the person writes it" } },
     examples: [
       { act: 'reply thread=5b2e8d body="Yes, the front bed too"', does: "sends that reply on the comment thread at once" },

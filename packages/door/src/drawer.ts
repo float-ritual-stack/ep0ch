@@ -103,6 +103,8 @@ export interface DrawerHost {
   ctx?(): Ctx | undefined;
   /** Where the person is (the shell's query, PIE-514): the host layer's operations are applied with it. */
   person?(): Whereabouts;
+  /** A macro is recording (MacroRecording): alt+Q in the drawer stops it, as on a screen. */
+  recording?(): boolean;
 }
 
 const clamp = (share: number) => Math.max(MIN_SHARE, Math.min(MAX_SHARE, share));
@@ -1370,6 +1372,8 @@ export class AgentDrawer {
       if (isAlt(k, "M") && !this.desk?.rawInput()) { void this.host.ctx?.()?.press?.("status.log"); return true; }
       const d = this.desk;
       if (!d) return true;
+      // alt+Q records from the drawer too, as on a screen (PIE-1718's walk): on any tile but a terminal's.
+      if (isAlt(k, "Q") && !d.rawKeys()) { void this.host.ctx?.()?.press?.(this.host.recording?.() ? "macro.stop" : "macro.record"); return true; }
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them and the tile with the keys (in
       // a group too) doesn't claim them (the keys window closes on them); never the screen's back.
       // A terminal there that exited isn't using them either.

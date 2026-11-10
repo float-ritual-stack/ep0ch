@@ -55,11 +55,12 @@ this terminal on the door session running on that machine (ssh -t
 machine doesn't have is asked about first, as for --machine (--create
 makes it there)
 ```text
-ep0ch --skill [--all] [<name>]
+ep0ch --skill [--all] [<name> [--path]]
 ```
 
-the stack's skills (this door's and the installed Outliner's), or the
-path of one skill's SKILL.md; --all adds contributor skills
+the stack's skills (this door's and the installed Outliner's), or one
+skill's SKILL.md printed whole (--path prints the file's path instead);
+--all adds contributor skills
 
 ## door
 

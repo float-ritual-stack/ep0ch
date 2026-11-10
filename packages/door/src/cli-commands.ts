@@ -58,9 +58,9 @@ export const DOOR_OPTIONS: readonly CliFlag[] = [
   ...target, ["--screen <name> [<target>]", "Open a screen, optionally on a note or hub", "screen"],
   ["--layout <name>", "Open a saved desk layout"], ["--create", "Create a missing outline on another machine"],
   ["--here", "Open the outline here even when .ep0ch names a machine"], ["--remote <ssh-name>", "Run the door there and carry its terminal here", "rest"],
-  ["--showcase", "Explore shared parts on made-up notes"], ["--reset", "Reseed the showcase"],
+  ["--showcase", "Explore shared parts on made-up notes"], ["--reset", "Reseed the showcase"], ["--prepare", "Seed the showcase and exit: the headless path"],
   ["--no-daemon", "Run in this terminal instead of a lasting session"], ["--daemon", "Attach to a lasting session"],
-  ["--no-create", "Refuse a missing outline"], json, ["--skill [<name>]", "List skills or print one skill's path", "rest"],
+  ["--no-create", "Refuse a missing outline"], json, ["--skill [<name>]", "List skills or print one (--path: its file)", "rest"],
 ];
 
 
@@ -160,9 +160,9 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "door [<ssh-name>] [<outline>]", flags: [],
     examples: ["ep0ch door", "ep0ch door garden-door garden"] },
   { name: "try", group: "Open", summary: "Explore a copy or the kitchen sink",
-    synopsis: "try --ws <name> [--copy] | try --showcase [--reset]",
-    flags: [ws, ["--copy", "Use a private copy of the outline"], ["--hub <id>", "Open this hub"], ["--showcase", "Open the seeded kitchen sink"], ["--reset", "Reseed the showcase"]],
-    examples: ["ep0ch try --showcase", "ep0ch try --ws garden --copy"] },
+    synopsis: "try --ws <name> [--copy] | try --showcase [--reset] [--prepare]",
+    flags: [ws, ["--copy", "Use a private copy of the outline"], ["--hub <id>", "Open this hub"], ["--showcase", "Open the seeded kitchen sink"], ["--reset", "Reseed the showcase"], ["--prepare", "Seed the showcase and exit, with no terminal: the headless path"]],
+    examples: ["ep0ch try --showcase --prepare", "ep0ch try --ws garden --copy"] },
   { name: "init", group: "Outlines", summary: "Bind this folder to an outline",
     synopsis: "init [<name>] [--create] [--json]", flags: [...target, ["--create", "Create a missing outline on another machine"], json],
     examples: ["ep0ch init garden", "ep0ch init garden --machine box-a"] },
@@ -176,7 +176,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     examples: ["ep0ch show '[[seed-plan]]' --ws garden", "ep0ch show '[[seed-plan]]' --ws garden --source"] },
   { name: "find", group: "Notes", summary: "Find notes by words, properties or a view",
     synopsis: "find [<words>…] [--query <expression> | --recent | --tree [<root>]]",
-    flags: [...target, ["--query <expression>", "Use the views' query grammar"], ["--view <id>", "Read a saved view in its order"], ["--under <id>", "Search this note and its descendants"], ["--recent", "Show the newest 30 notes"], ["--tree [<root>]", "Walk the outline or a branch"], ["--lexical", "Search without Jev's ranking"], ["--timeout <seconds>", "Wait this long for each answer (15 by default)"], ["--property-scope <scope>", "Read block, line, inline or all properties"], ["--machinery hide|only|show", "Choose whether generated notes appear"], ["--sort <key>", "Sort on any property, created or updated"], ["--direction asc|desc", "Choose the sort direction"], ["--updated-after <date>", "Keep notes updated after this date"], ["--updated-before <date>", "Keep notes updated before this date"], ["--created-after <date>", "Keep notes created after this date"], ["--created-before <date>", "Keep notes created before this date"], ["--ids", "Print references, one per line"], ["--lines", "Print tab-separated rows"], json],
+    flags: [...target, ["--query <expression>", "Use the views' query grammar"], ["--view <id>", "Read a saved view in its order"], ["--under <id>", "Search this note and its descendants"], ["--recent", "Show the newest 30 notes"], ["--tree [<root>]", "Walk the outline or a branch"], ["--lexical", "Search without Jev's ranking"], ["--timeout <seconds>", "Wait this long for each answer (15 by default)"], ["--property-scope <scope>", "Read block, line, inline or all properties"], ["--machinery hide|only|show", "Choose whether generated notes appear"], ["--sort <key>", "Sort on any property, created or updated"], ["--direction asc|desc", "Choose the sort direction"], ["--updated-after <date>", "Keep notes updated after this date"], ["--updated-before <date>", "Keep notes updated before this date"], ["--created-after <date>", "Keep notes created after this date"], ["--created-before <date>", "Keep notes created before this date"], ["--limit <n>", "Print the first n notes (stderr says when it cut)"], ["--ids", "Print references, one per line"], ["--lines", "Print tab-separated rows"], json],
     examples: ["ep0ch find seeds --ws garden", "ep0ch find --query 'due <= +3d' --ws garden"] },
   { name: "new", group: "Notes", summary: "Capture a note in the Inbox or under another",
     synopsis: "new <text>… [--near <id>]", flags: [...target, ["--near <id>", "Add as this note's last child"], actor, json],

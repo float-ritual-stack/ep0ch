@@ -77,7 +77,9 @@ Write an `@name` ask on its own line and keep typing below it. The ask's quiet t
 not the rest of the draft. Its reply lands through `draft.patch`, attributed and undoable, folded under
 the ask. Clicking or moving the caret onto the ask opens its fold and selects the answer beside the note. In the answer tile, `f` opens or closes
 the fold, ↑/↓ or the wheel scrolls, and a click or 1–9 follows a link or presses a button. A button pressed there acts as it does in
-the note: a tile-relative one (`tile.agent`, `tile.title` with no `tile=`) acts on the reader you're typing in, never the answer tile. The paired tile leaves the editor's keys alone. The `asks` showcase demonstrates this with `@planter`.
+the note: a tile-relative one (`tile.agent`, `tile.title` with no `tile=`) acts on the reader you're typing in, never the answer tile. The paired tile leaves the editor's keys alone.
+Gather the reader into a group or put it in the drawer with the edit still open, and the next ask (or the caret on one) opens
+the answer beside it there; one left behind on the screen it moved from closes, as a comment's tile does when its reader goes. The `asks` showcase demonstrates this with `@planter`.
 
 A reply whose first line declares `[script::name]` is kept as a script block and runs immediately. Scripts
 default to read-only; `[effects::write]` declares writes and door actions. Runs are attributed to
@@ -360,6 +362,11 @@ and `ext.undo` takes back the run. The adjacent reader stays available for typin
 **Record a macro:** `Alt+Shift+Q` (shown as `alt+Q`) or the status bar's `⇧⌥Q` starts recording;
 press it again or click `REC stop` to save. `macro.record name=planting` and `macro.stop` are the same actions.
 Only your successful actions are recorded; agent actions and power-bar navigation stay out.
+A comment you type and send (`C`, your words, `^S`) records as the one line that sends it with its words
+(`comment.note body="…"`, `comment quote="…" body="…"`, a reply's `reply thread=… body="…"`), not the keys that opened it.
+A close of threads that were open before you started recording, and a copy of your mouse selection, are left out:
+replayed, they'd find nothing to close or copy. alt+Q works on any tile but a terminal's (a thread list or an edit holding
+the keys too); stopping with nothing recorded saves no script and says so.
 The new `[script::planting]` block contains an `actions` fence using the power bar's action-line grammar.
 Edit it normally, replacing a value with `{{props.tag}}` or another `{{props.slot}}`. Run it from the power bar to fill its
 slots, or pass them as `act ext.<script-id>.run tag=beans`. Replay uses the script runtime, stops at the
@@ -723,7 +730,7 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
 | `ep0ch doctor`, `ep0ch install [--apply]` | the stack's state, and bringing it up to date (see [Install and update](#install-and-update)) |
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
-| `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
+| `ep0ch --skill [--all] [<name> [--path]]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or one skill's `SKILL.md` printed whole (`--path`: the file's path); `--all` adds contributor skills |
 | `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (`tree.search`, the ranker Goto, `/` and `((` use, asked from no note and without Jev; at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path<TAB>uri`, and with `--tree` `id<TAB>title<TAB>path<TAB>depth<TAB>glyphs<TAB>about<TAB>uri` (about: work id, stage, type; the canonical `ep0ch://` URI always last, so a column added never shifts the others); television's `ep0ch` channel reads them |
 | `ep0ch find [<words>…] [--query "<expression>" [--property-scope block\|line\|inline\|all] [--machinery hide\|only\|show]] [--view <id>] [--under <id>] [--sort <key> [--direction asc\|desc]] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`, and the atoms `#tag`, `links:[[page]]`, `linkedfrom:[[page]]`, `under:[[page]]`, `parent:[[page]]`, `title~text`), `--view` a saved view's members in its order, `--under` a subtree (the note included); `--machinery` what a `--query` or `--under` holds of the notes tools stamp `[machine::…]` (hide, the default, says on stderr how many it left out; only; show); they combine with each other and with words (every word, any order), in outline order (or `--sort`'s: `created`, `updated` or any property key, numbers as numbers, notes without it last; not with `--view`, which has its own order), paging until every match is read. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--property-scope all` reads a chip on any line, not only the note's header (PIE-1277): each note then says the line it matched on (`line 9 to do asks: …`), and `--json` gives each record its `matches`; a chip on a ticked step no longer matches, and a `NOT` clause still asks the header. A view says its own with `[property-scope::all]`. `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
 | `ep0ch export [--all \| <id>…] [find's flags] [--children] [--format md\|json] [--out <dir>\|-] [--split] [--resolve-links] [--manifest]` | notes out as files (PIE-534, PIE-1420), paging selections without a cap; `--all` selects every live note. Markdown: a file a note, `<title>-<id8>.md`; the header line's `[k::v]` chips (outline-core's `header-line.ts`) move into YAML front matter, values verbatim strings (a repeated key a one-line flow list), after the note's id, parent, path breadcrumb, created, updated and author; the body is the rest verbatim, its first line the prose line 1 held; `--children` adds what's under it as nested lists, or files of their own in the ancestor tree with `--split`; `--resolve-links` makes `((id))` and `[[page]]` links to exported notes relative file links. JSON: block records, keys sorted. Deterministic, so a folder of them can live in git; `--manifest` writes `manifest.json` (the export time, the outline, the selection, and `leftOut` extension pages). Without `--out`, stdout |
@@ -2114,7 +2121,10 @@ a binding's keys, so moving `^W x` leaves the board's `x` alone; a key left out 
 
 The key, the ^W panel, the tile menu, the power bar and the desk's hint row follow it; a key you moved away says
 where it went, on the status bar wherever you type (esc after edit.close moved to alt+q: "esc no longer closes the
-query: your keymap gives it alt+q"). While `r` waits, every key is the window's (alt+u too, which the glass would take);
+query: your keymap gives it alt+q"; a way out that goes twice keeps its own words apart: "esc no longer closes the comment
+(twice puts it aside): your keymap gives it alt+q"). At 44 columns the sentence is drawn whole just above the bar. While
+`r` waits, every key is the window's (alt+u too, which the glass would take), and what the new key would do is said
+first in the detail, wrapped, so a 42-column keys tile shows who still gets it before anything else;
 a key a layer over every screen keeps first (the glass's alt+u) is said and listed in Conflicts, and a key some terminals
 never send (alt+[, alt+;: the Kitty keyboard protocol only) is said, never "free here". Edit it by hand too: the door reads it again within half a second and names a bad entry at the top of
 the window. Agents read and change it through the window's actions (`keys.find`, `keys.rebind id= key= to=`,

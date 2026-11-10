@@ -74,7 +74,8 @@ export const SELECT_DEFS = {
   }),
   "select.copy": def({
     summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52), and a selection they make with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is returned to it and never touches the person's clipboard", keys: [{ keys: "y Y cmd+c", does: "copy" }, { keys: "click", does: "the [y copy] control" }, { keys: "drag", does: "the release of a drag copies (or a double or triple click)" }],
-    touches: "nothing", replay: "safe",
+    // The person's copy is of their mouse selection, which no step records: replayed, it would find nothing selected.
+    touches: "nothing", replay: "safe", record: false,
     args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) instead of what's drawn" } },
     examples: [
       { act: "select.copy", does: "copies the selected words as the note draws them" },

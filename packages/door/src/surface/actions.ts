@@ -97,6 +97,12 @@ export type Touches = "nothing" | "tile" | "shape" | "draft" | "screen";
  */
 export type Replay = "safe" | "ask";
 /**
+ * A finished step as a macro saw it: the action, its arguments and its answer, and `since`, when the recording began
+ * (Date.now()). What it answers is the line saved (its tile is the step's), or null for none (ActionDef.record).
+ */
+export interface RecordedStep<A = Record<string, unknown>> { action: string; args: A; out: any; since: number }
+export type RecordStep<A = Record<string, unknown>> = (step: RecordedStep<A>) => { action: string; args?: Record<string, unknown> } | null;
+/**
  * What a `draft` action does to a draft (draftRule): types in it (`type`: a reference put in at the cursor too), leaves
  * it (save, close, send), writes the block, changes it in a way the session keeps safe for the person itself (`safe`:
  * an undo takes back only that actor's own patch), replaces the whole text of the tile's comment or reply (`text`), or
@@ -187,10 +193,14 @@ export interface ActionDef<A, H> {
    */
   repaints?: boolean | ((out: any, args: A) => boolean);
   /**
-   * `false`: a macro never records it. For a read that follows the pointer (text.hover fires on every mouse move), which
-   * would fill a recording with thousands of steps and slow the door while it records.
+   * How a macro records the person's press (MacroRecording). `false`: never. For a read that follows the pointer
+   * (text.hover fires on every mouse move), which would fill a recording with thousands of steps and slow the door while
+   * it records, or one that works on what no step records (the person's mouse selection). A function: the line its
+   * finished step saves, from what it was asked and answered: the step itself, another action that does the same again
+   * (a comment the person typed records as the one line that sends it, with its words: PIE-1718), or null, nothing
+   * (the composer it only opened, a close of what was open before the recording began). Left out: the step as pressed.
    */
-  record?: false;
+  record?: false | RecordStep<A>;
   /**
    * What an agent may do to a tile the screen limits (PIE-639) is decided by the action's own rule, not the dispatcher's
    * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
