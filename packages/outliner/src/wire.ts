@@ -7,7 +7,7 @@
  * Types only. The record is closed over `ActionName`: a new action fails the check until it has a row here, as it does
  * in actions.ts. The door checks this file (and what it imports) under its own, stricter settings.
  */
-import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, AnnotationAgentProposalReceipt, AnnotationBatchReceipt, AnnotationReconcileReceipt, AnnotationRecord, AnnotationThread, AttentionClientState, BacklinkCollection, Block, BlockEditActivityPage, BlockReadCollection, BlockRevisionEntry, BlockRevisions, BlockTarget, BookmarkRemoveReceipt, BookmarkResolution, BookmarkStatus, BookmarkToggleReceipt, CaptureOwner, CaptureOwnerClaim, CaptureReceipt, ChangeFeedPage, ChecklistCollection, ChecklistSearchCollection, ChecklistUpdateReceipt, DeliveryReceipt, DeliverySyncReceipt, GotoSearchCollection, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline, LinkTargetFacets, NavigationLinkState, NavigationState, NewNoteReceipt, OutlinerClientRegistration, OutlinerHostStatus, OutlinerNavigationDispatch, OutlinerNavigationIntent, OutlinerNavigationTarget, OutlinerRegion, OutlinerRequest, OutlinerUiCommand, PageAddressCollection, PageAddressFollowResult, PageAddressRecord, PageAddressRemoval, PageAddressResolution, ProjectedBlockCollection, PropertyCatalogItem, PropertyInventory, PropertyParsePreview, QuickCaptureDraft, ResolvedBlockReferences, RoadmapItemCreateReceipt, SavedViewReadResult, SelectionContext, TreeFocusCollection, TreeIndexBlock, TreeIndexCollection, TreeIndexSnapshot, ViewWritePlanResult, VirtualBranchOrder, VirtualOccurrenceMoveResult, VirtualOccurrenceRank, VisibleBlock, VisibleBlockCollection, WorkIdAllocation, WorkIdAllocatorStatus, WorkflowPromotionPreview, WorkflowPromotionReceipt, WorkflowRun, WorkflowStartReceipt, WorkflowStructure, WorkingSelection, WorkingSelectionRecovery, WorkspaceSnapshot } from "./types";
+import type { AnnotationAgentEvidenceSummary, AnnotationAgentPromptPackage, AnnotationAgentProposalReceipt, AnnotationBatchReceipt, AnnotationReconcileReceipt, AnnotationRecord, AnnotationThread, AttentionClientState, BacklinkCollection, Block, BlockEditActivityPage, BlockReadCollection, BlockRevisionEntry, BlockRevisions, BlockTarget, BookmarkRemoveReceipt, BookmarkResolution, BookmarkStatus, BookmarkToggleReceipt, CaptureOwner, CaptureOwnerClaim, CaptureReceipt, ChangeFeedPage, ChecklistCollection, ChecklistSearchCollection, ChecklistUpdateReceipt, DeliveryReceipt, DeliverySyncReceipt, GotoSearchCollection, HostedOutlineArchival, HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline, LinkTargetFacets, NavigationLinkState, NavigationState, NewNoteReceipt, OutlinerClientRegistration, OutlinerHostStatus, OutlinerNavigationDispatch, OutlinerNavigationIntent, OutlinerNavigationTarget, OutlinerRegion, OutlinerRequest, OutlinerUiCommand, PageAddressCollection, PageAddressFollowResult, PageAddressRecord, PageAddressRemoval, PageAddressResolution, ProjectedBlockCollection, PropertyCatalogItem, PropertyInventory, PropertyParsePreview, QuickCaptureDraft, ResolvedBlockReferences, RoadmapItemCreateReceipt, SavedViewReadResult, SelectionContext, TreeFocusCollection, TreeIndexBlock, TreeIndexCollection, TreeIndexSnapshot, ViewWritePlanResult, VirtualBranchOrder, VirtualOccurrenceMoveResult, VirtualOccurrenceRank, VisibleBlock, VisibleBlockCollection, WorkIdAllocation, WorkIdAllocatorStatus, WorkingSelection, WorkingSelectionRecovery, WorkspaceSnapshot } from "./types";
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { ImportReport } from "./outline-import";
 import type { GrepResult } from "@ep0ch/outline-core/text-search";
@@ -351,15 +351,6 @@ export interface WireAnswers {
   "web.sessions.resolve": { found: { session: WebSession; renewed: boolean; } | null; };
   "web.sessions.revoke": { revoked: WebSession[]; };
   "web.sessions.start": { token: string; session: WebSession; };
-  "workflows.cancel": WorkflowRun;
-  "workflows.get": WorkflowRun;
-  "workflows.list": WorkflowRun[];
-  "workflows.plan": WorkflowRun;
-  "workflows.promotion.commit": WorkflowPromotionReceipt;
-  "workflows.promotion.preview": WorkflowPromotionPreview;
-  "workflows.start": WorkflowStartReceipt;
-  "workflows.structure": WorkflowStructure;
-  "workflows.transition": WorkflowRun;
   "work-ids.allocate": WorkIdAllocation;
   "work-ids.configure": WorkIdAllocatorStatus;
   "work-ids.status": WorkIdAllocatorStatus;

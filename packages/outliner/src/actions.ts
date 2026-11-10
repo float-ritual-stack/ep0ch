@@ -20,7 +20,7 @@ import type {
   InternResourceReceipt, NavigationState, NewNoteReceipt, OutlinerEvent, OutlinerNavigationDispatch, OutlinerRequest, OutlinerResponse,
   PageAddressFollowResult, QuickCaptureDraft, QuoteReceipt, Resource, ResourceDescription, ResourceProviderCommandResult,
   ResourceRetentionCollectionReceipt, ResourceRetentionPin, ResourceRetentionReference, RoadmapItemCreateReceipt,
-  VirtualOccurrenceMoveResult, WorkflowPromotionReceipt,
+  VirtualOccurrenceMoveResult,
 } from "./types";
 
 /** Actions the outline host answers that the request union doesn't carry (outline-host.ts, the extension call reference). */
@@ -396,15 +396,6 @@ export const ACTIONS = {
   "work-ids.allocate": { event: onBlock },
   "work-ids.configure": { event: () => content() },
   "work-ids.status": { ext: "read" },
-  "workflows.cancel": {},
-  "workflows.get": {},
-  "workflows.list": {},
-  "workflows.plan": {},
-  "workflows.promotion.commit": { event: (_, { result }) => { const r = result as WorkflowPromotionReceipt; return r.deduplicated ? null : content(r.block.id); } },
-  "workflows.promotion.preview": {},
-  "workflows.start": {},
-  "workflows.structure": {},
-  "workflows.transition": {},
   "working-selection.get": {},
   "working-selection.recoverable": {},
   "working-selection.resume": {},

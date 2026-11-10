@@ -642,8 +642,6 @@ project-documentation mutations.
 - `page_addresses` — unique normalized symbolic address to canonical block mapping for page declarations, Work IDs, and explicit aliases; foreign keys cascade only on physical purge.
 - `reserved_work_ids` — immutable Work-ID reservation ledger with the original canonical owner UUID retained after purge.
 - `work_id_allocator` — singleton workspace prefix and next monotonic sequence number.
-- `workflow_runs` — idempotent typed invocation, allowlist, limits, planner comparison, ordered source-anchor route, current step, provenance, cancellation, and linked results.
-- `workflow_promotions` — idempotent exact-preview publication receipt linking one workflow request to its canonical result block.
 - `resource_sources` — durable provider identity, provider-qualified boundary, workspace policy, filesystem root binding when applicable (the root's real path, device and inode; re-bound when the same real path holds a new directory, by `resource-sources.rebind` when it leads elsewhere), and timestamps.
 - `resources` — durable Resource UUID, Source-qualified normalized provider address, optional media type, resource version, address version, and timestamps; `(source_id, canonical_key)` is unique without merging identities across Sources.
 - `computed_invocations` — invocation UUID, Resource and Source identity, producer version and declaration snapshot, canonical structured inputs, exact dependency revisions, input version, optimistic version, and timestamps.
@@ -724,7 +722,6 @@ Do not leave older editors running across this upgrade.
 - targeted ephemeral attention: `attention.get`, `attention.mark`, `attention.advance`, `attention.clear`, and `attention.acknowledge`
 - agent edits while someone types (PIE-501): `draft.patch`, `draft.proposal.apply`, `drafts.read`; a door's live-draft lease `drafts.hold | heartbeat | release` and its `drafts.answer` to a `draft` event (see "Agent edits while someone types")
 - extensions (PIE-507): `extensions.list`, `extensions.act`, `extensions.render`, and the `extensions` event when the registry changes (see "Extensions")
-- typed workflows: `workflows.start`, `workflows.get`, `workflows.list`, `workflows.structure`, `workflows.plan`, `workflows.transition`, `workflows.cancel`, `workflows.promotion.preview`, and `workflows.promotion.commit`
 
 ### Live client identity
 
@@ -777,40 +774,6 @@ client must supply an explicit Detail destination before any side effects.
 `author` remains the coarse `user | agent | system` role used by renderers and existing clients. Agent creation requests may additionally carry `{ actorId, sessionId?, taskId? }`; the service accepts that provenance only with `author: "agent"`, stores it on the new block, and never rewrites it during later content updates.
 
 The Pi/OMP adapter forces `author: "agent"`. It identifies the host as `pi` or `omp`, reads the durable session ID from Pi's `ExtensionContext.sessionManager`, and records the tool-call ID as the originating task ID. Legacy and user-authored blocks omit these optional fields.
-
-### Typed walkthrough workflows
-
-The service accepts one declared action, `walkthrough.plan`; Markdown and
-callout bodies are data, never executable programs. Start requests carry an
-explicit invocation, capability allowlist, fan-out and call ceilings, planner,
-optional target client, and Pi provenance. The service performs bounded
-structure reads that return properties, source sizes, completeness, and exact
-heading/callout anchors without returning full bodies. It validates every
-planned step against current source revision/hash evidence before storing the
-semantic route.
-
-The Pi extension launches [`src/workflow-main.ts`](../src/workflow-main.ts) as a
-separate process from the canonical service. The orchestrator measures a
-sequential direct-tool baseline and executes an inert Callscript plan with only
-the read-only `outline.structure` and `outline.route` tools mounted. Stored
-metrics report model-turn estimate, operations, context bytes, wall time,
-truncation/completeness, structure-first behavior, and artifact quality. The
-selected planner changes only which validated route is stored.
-
-Workflow transitions are durable; narration is not. `next`, `previous`,
-`resume`, and `skip` atomically replace the target client's PIE-180 current
-attention mark and emit a targeted reveal instruction. `pause` and `branch`
-suspend without moving the mark; `end` removes it. Selection, navigation
-history, drafts, source text, and user-owned annotation lifecycle remain
-unchanged.
-
-Questions and replies use the canonical PIE-210 annotation tables. A workflow
-outcome becomes canonical only through `promotion.preview` followed by
-`promotion.commit` with the exact SHA-256 approval token. The request ID and
-preview hash make commit replay atomic and idempotent; changing approver,
-content, target, or kind requires a new preview. Created results link the
-workflow run, workflow step, and source annotation through block-scoped
-properties and remain available to normal query, embed, and reference surfaces.
 
 ### Clickable outliner identities
 
@@ -1846,9 +1809,6 @@ src/paths.ts                  which outline a client opens, with the disk (outli
 src/outline-chooser.ts        Choose outline: pick, new or import, then .ep0ch
 src/schema.ts                 the one schema version (CREATE statements, PRAGMA user_version)
 src/outline-import.ts         a new outline from an older database (import)
-src/workflows.ts               typed workflow state, structure, navigation, and publication
-src/workflow-orchestrator.ts   direct-tool and bounded Callscript planner comparison
-src/workflow-main.ts           separate Pi-side workflow orchestration process
 src/outliner.ts               Tree terminal process
 src/tree-controller.ts        Tree behavior
 src/tree-renderer.ts          Tree ANSI rendering
