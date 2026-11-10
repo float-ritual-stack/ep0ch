@@ -81,3 +81,8 @@ describe("references a save warns about (PIE-761)", () => {
     expect(anchorsOfText("Notes\n## Monday ^mon\n```\nexample ^example\n```\n- a ^dup\n- b ^dup")).toEqual(["mon"]);
   });
 });
+
+test("a query embed is no suspect; a ((query: …)) without its ! still is (PIE-1720)", () => {
+  expect(referenceSuspects("Today\n!((query: type=plan sort: day desc))\n!((query: (type=plan OR type=day) AND day=today))")).toEqual([]);
+  expect(referenceSuspects("Today ((query: type=plan))").map(s => s.kind)).toEqual(["not-a-reference"]);
+});

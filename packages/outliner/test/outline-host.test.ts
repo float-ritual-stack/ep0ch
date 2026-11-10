@@ -534,6 +534,21 @@ test("references cross outline boundaries and backlinks name their source outlin
 });
 
 
+test("a query embed is answered in the outline it is read in, through the host (PIE-1720)", async () => {
+  const host = await startHost(scratch(), "garden");
+  await host.create("garden");
+  await host.create("orchard");
+  await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Plan, Mon [type::plan] [day::2026-03-02]\n- [ ] sharpen the hoe" });
+  const tue = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Plan, Tue [type::plan] [day::2026-03-03]\n- [ ] soak the lentils" });
+  await ok<Block>(host.socketPath, { action: "create", outline: "orchard", text: "Plan, Wed [type::plan] [day::2026-03-04]\n- [ ] prune the pears" });
+  const hub = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Where we are\n!((query: type=plan sort: day desc))" });
+  const read = await ok<import("../src/transclusions").TransclusionRead>(host.socketPath, { action: "transclusions.read", outline: "garden", hostBlockId: hub.id, targets: [{ blockId: "?type=plan sort: day desc" }, { blockId: "?type=plan colour=teal" }] });
+  expect(read.results[0]).toMatchObject({ status: "ready", resolvedBlockId: tue.id, title: "Plan, Tue" });
+  expect(read.blocks[tue.id]?.text).toContain("soak the lentils");
+  expect(read.results[1]).toMatchObject({ status: "missing" });
+  expect(read.results[1]!.message).toContain("no notes have colour");
+});
+
 test("UUID links and backlinks cross forwarded host sockets without switching outlines", async () => {
   const nearRoot = scratch(), farRoot = scratch();
   const near = await startHost(nearRoot, "garden"), far = await startHost(farRoot, "orchard");

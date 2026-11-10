@@ -78,16 +78,19 @@ describe("the record", () => {
 });
 
 describe("a tile recording a key (PIE-1688)", () => {
-  test("gets the key itself, never through what the screen has open first (a composer, a pending open); a click and the drawer stay out", () => {
+  test("gets the key itself at the person's address, with that tile's desk, never a screen's own focused pane; a click, no address and a tile not recording stay out", () => {
     const got: string[] = [];
-    const pane = { recordsKey: () => true, key: (k: any) => { got.push(k.kind === "alt" ? `alt+${k.ch}` : k.kind); return true; } };
-    const screen = { focusedPane: () => pane as any, key: () => { got.push("the screen"); } };
+    const pane = (name: string, records: boolean) => ({ recordsKey: () => records, key: (k: any, d: any) => { got.push(`${k.kind === "alt" ? `alt+${k.ch}` : k.kind} in ${name} on ${d.name}`); return true; } });
+    // A group: the screen's own focused pane is the mount; the address names the tile inside, on the group's desk.
+    const inner = { name: "the group's desk", pane: (n: string) => (n === "keys" ? pane("keys", true) : undefined) };
+    const resolve = (a: string) => (a === "t-keys" ? { tile: { name: "keys" }, desk: inner } : a === "t-reader" ? { tile: { name: "reader" }, desk: { name: "the screen", pane: () => pane("reader", false) } } : null) as any;
     const keys = new DoorKeys("screen");
-    expect(keys.recordsInto(screen, false, { kind: "alt", ch: "u" })).toBe(true);
-    expect(got).toEqual(["alt+u"]);
-    expect(keys.recordsInto(screen, true, { kind: "alt", ch: "u" })).toBe(false);
-    expect(keys.recordsInto(screen, false, { kind: "mouse", action: "down", button: 0, x: 1, y: 1 } as any)).toBe(false);
-    expect(keys.recordsInto({ focusedPane: () => ({ key: () => true }) as any }, false, { kind: "alt", ch: "u" })).toBe(false);
-    expect(got).toEqual(["alt+u"]);
+    expect(keys.recordsInto({ address: "t-keys", resolve }, { kind: "alt", ch: "u" })).toBe(true);
+    expect(got).toEqual(["alt+u in keys on the group's desk"]);
+    expect(keys.recordsInto({ address: "t-keys", resolve }, { kind: "mouse", action: "down", button: 0, x: 1, y: 1 } as any)).toBe(false);
+    expect(keys.recordsInto({ address: "t-reader", resolve }, { kind: "alt", ch: "u" })).toBe(false);
+    expect(keys.recordsInto({ address: "t-gone", resolve }, { kind: "alt", ch: "u" })).toBe(false);
+    expect(keys.recordsInto({ address: null, resolve }, { kind: "alt", ch: "u" })).toBe(false);
+    expect(got).toEqual(["alt+u in keys on the group's desk"]);
   });
 });

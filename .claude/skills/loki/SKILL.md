@@ -37,9 +37,6 @@ After a merge to main (yours, or a sha an agent hands you):
    removes one. Read every leg's ✓ or !: a failed client leaves the host successful and prints the exact command
    to run by hand. Busy door sessions stay running; after typing ends, run that command again. `--as-client`
    prevents fan-out from a client. The laptop has its own host and stays separate.
-   For PIE-905's first rollout, update float-2 and float-box once with their existing `ep0ch install --apply`
-   while the door is idle, then register float-box: the old installer cannot accept `--as-client`. If install
-   leaves an older session protocol running, finish typing and use the exact session-upgrade command it prints.
 4. `ep0ch doctor`: the host, the CLI and the doors on one `PROTOCOL`, nothing behind.
 5. Restart what install doesn't: doors and agents that should run the new code (`ep0ch session upgrade`,
    `ep0ch act agent.restart`); say which. The publishers and the MCP gateway are install's now: never restart them by

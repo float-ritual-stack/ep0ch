@@ -591,8 +591,10 @@ export async function readLinks(board: Pick<SocketBoard, "backlinks" | "children
 
 /** The narrowest frame a preview goes beside the list in; narrower, the list alone. */
 export const PREVIEW_MIN_WIDTH = 70;
-/** The most rows a preview draws: the rest is the note's, a ⏎ away. */
+/** The most rows a preview draws when its component says no `height:`: the rest is the note's, a ⏎ away. */
 const PREVIEW_ROWS = 16;
+/** The rows a component's preview draws (PIE-1720): its `height:`, every row for `fill`, else the default. */
+export const previewRows = (spec: Pick<LinkBlockSpec, "height">) => (spec.height === "fill" ? Infinity : spec.height ?? PREVIEW_ROWS);
 
 // What the service answers for the inline components (a block's links and backlinks, its children, a query's
 // matches): watched reads (src/watched.ts), told when their answer changed, so a redraw never asks and nothing is
@@ -637,9 +639,9 @@ export function linksOf(id: string): LinkData | null {
 /**
  * A question's matches with the facets the service computes for each (`blocks.facets`), in the service's order: a
  * block's children (`parent:this`, comments left out) or an inline component's `query`, whose `this` is the note it
- * sits in. Watched: asked again only when the service says the answer changed.
+ * sits in, in its `sort:` when it writes one (the service sorts). Watched: asked again only when the service says the answer changed.
  */
-function questionRows(b: LinksBoard, question: { where: string; this?: string }, limit: number): Load<ChildLink[]> {
+function questionRows(b: LinksBoard, question: { where: string; this?: string; sort?: string }, limit: number): Load<ChildLink[]> {
   return loaded(watchedOn(b).read("blocks.query", { query: { ...question, limit }, fields: LIST_FIELDS }, async (r: { blocks: any[]; hint?: string }) => {
     const notes = b.toMsgs(r.blocks);
     if (!notes.length && r.hint) throw new Error(r.hint);
@@ -691,7 +693,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const count = blocks ? (blocks.drawn ??= { n: 0 }) : { n: 0 };
   const n = ++count.n;
   const key = spec.id ? `^${spec.id}` : `#${n}`;
-  if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
+  if (spec.problem) return frame(title, wrap(spec.problem, Math.max(10, W - 4)).map(l => fg(C.lred) + l + RESET), W);
   const own = groups.some(g => g !== "matches");
   const of = spec.of ?? note;
   if (own && !blocks?.data && (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:"))) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
@@ -700,7 +702,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const links = blocks?.data ?? (has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!)! : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData);
   const children = blocks?.data ? blocks.data.children : has("children") ? childLinks(source!, of!) : undefined;
   // `this` in the query is the note the component sits in (`links:this NOT linkedfrom:this`).
-  const matches = blocks?.data ? blocks.data.matches : spec.query ? questionRows(source!, { where: spec.query, ...(note ? { this: note } : {}) }, 200) : undefined;
+  const matches = blocks?.data ? blocks.data.matches : spec.query ? questionRows(source!, { where: spec.query, ...(note ? { this: note } : {}), ...(spec.sort ? { sort: spec.sort } : {}) }, 200) : undefined;
   const data: LinkData = { ...links, ...(children ? { children } : {}), ...(matches ? { matches } : {}) };
   // A query the service refused (PIE-729): its whole answer, wrapped, under the query as written: what it read, the
   // did-you-mean, an example. Not cut to a row, and the frame stays so the block holds its place in the note.
@@ -731,7 +733,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const drawn = view.draw({
     cols: inner, lines: spec.lines ?? lines, focused: entered, selection: previewing || entered, tag: tagRow,
     empty: head?.kind === "group" && head.note ? head.note : filter ? `nothing matches ${filter}` : "nothing here yet",
-    ...(previewing ? { preview: { side: spec.preview, minWidth: PREVIEW_MIN_WIDTH - 4, maxRows: PREVIEW_ROWS, of: (row: ListViewRow<LinkRow>, w: number) => {
+    ...(previewing ? { preview: { side: spec.preview, minWidth: PREVIEW_MIN_WIDTH - 4, maxRows: previewRows(spec), of: (row: ListViewRow<LinkRow>, w: number) => {
       const id = linkBlock(row.source);
       return id ? blocks!.preview!(id, w) : [fg(C.dark) + "a Resource: ⏎ opens it" + RESET];
     } } } : {}),

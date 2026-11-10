@@ -110,6 +110,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
       target = { kind: syntax.kind, start, end: replacementEnd, query: beforeCursor.slice(start + syntax.opening.length) };
     }
   }
+  // A query embed's words (`!((query: type=plan`, PIE-1720) are a query, not a note's title: no note is offered for them.
+  if (target?.kind === "block" && line[target.start - 1] === "!" && /^query:\s/.test(target.query)) target = null;
   if (button && (!target || target.kind === "block")) return { kind: "button-step", start: target?.start ?? 0, end: target?.end ?? line.length, query: target ? "((" + target.query : beforeCursor };
   if (target) return target;
   const attribute = componentAttributeAtCursor(line, column);

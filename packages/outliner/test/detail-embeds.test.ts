@@ -52,6 +52,8 @@ class FakeRequester implements DetailEmbedRequester {
   /** The protocol the stand-in service reports on ping. */
   protocolVersion = PROTOCOL;
   /** The open proposals beside each note (`draft.proposals.list`), by note id. */
+  /** What the service answers for a query embed's target (`?type=plan`), by target. */
+  readonly queries = new Map<string, { status: string; resolvedBlockId?: string; message?: string }>();
   readonly beside = new Map<string, { revision: number; proposals: { id: string; afterLine: number; author: string; actorId?: string; applies: boolean }[] }>();
 
   constructor(
@@ -81,6 +83,10 @@ class FakeRequester implements DetailEmbedRequester {
       const result = this.blocks.get(input.blockId);
       if (!result) throw blockNotFound(input.blockId);
       return result as T;
+    }
+    if (input.action === "transclusions.read") {
+      // Stands in for the service's query embeds (PIE-1720): each target's answer as `queries` holds it.
+      return { results: input.targets.map(t => ({ blockId: t.blockId, depth: 1, ...(this.queries.get(t.blockId) ?? { status: "missing", message: "MISSING TARGET" }) })) } as T;
     }
     if (input.action === "pages.resolve") {
       // Stands in for the page registry: a block whose `[page::…]` is the address, compared caseless.
@@ -301,6 +307,23 @@ test("![[page^anchor]] (PIE-1247): Detail embeds the page's anchored figure only
     { blockId: plan.id, fragmentId: "sowing", status: "ready", count: 1 },
     { blockId: "[[Nowhere]]", fragmentId: "x", status: "missing", count: 0 },
   ]);
+});
+
+test("!((query: …)) (PIE-1720): Detail embeds the note the service's query finds, whole; a query that finds none says why", async () => {
+  const plan = block("plan-tue", "Plan, Tue [type::plan]\n- [ ] soak the lentils", [{ key: "type", value: "plan" }]);
+  const requester = new FakeRequester(new Map([[plan.id, plan]]), new Map(), new Map(), new Error("snapshot must not be loaded"));
+  requester.queries.set("?type=plan sort: day desc", { status: "ready", resolvedBlockId: plan.id });
+  requester.queries.set("?type=plan colour=teal", { status: "missing", message: "MISSING TARGET · no notes have colour; nearest: day" });
+  const projection = await projectDetailRead(requester, "Where we are\n!((query: type=plan sort: day desc))\n!((query: type=plan colour=teal))", { hostBlockId: "hub" });
+  expect(projection.text).toBe([
+    "Where we are",
+    "Embedded block: ((plan-tue))",
+    "Plan, Tue [type::plan]",
+    "- [ ] soak the lentils",
+    "!((query: type=plan colour=teal)) · MISSING TARGET · no notes have colour; nearest: day",
+  ].join("\n"));
+  expect(projection.embeds.map(e => [e.blockId, e.status])).toEqual([[plan.id, "ready"], ["?type=plan colour=teal", "missing"]]);
+  expect(requester.calls).toContainEqual(expect.objectContaining({ action: "transclusions.read", hostBlockId: "hub" }));
 });
 
 test("a figure written without its --- lines gets a notice line after it; its authored lines stay as they were (PIE-941)", async () => {

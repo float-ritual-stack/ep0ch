@@ -12,8 +12,8 @@ import {atomicDocument, concatDocuments, observeDocument, sourceDocument, sliceD
 import type { RequestInput } from "./client";
 import {isChecklistView,projectChecklistView} from './checklist-views';
 import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
-import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
-import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING } from "./transclusions";
+import { embeddedPageAddress, embeddedQuery, queryEmbedText, resolvedEmbedTarget } from "@ep0ch/outline-core/link-syntax";
+import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionRead } from "./transclusions";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, markdownValueWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -144,8 +144,9 @@ function explicitFallback(
 ): ProjectedEmbed {
   const reference = embedReference(blockId, fragmentId);
   const page = embeddedPageAddress(blockId);
+  const written = embeddedQuery(blockId) ? queryEmbedText(blockId) : page === null ? `!((${reference}))` : `![[${page}${fragmentId ? `^${fragmentId}` : ""}]]`;
   return {
-    text: `${page === null ? `!((${reference}))` : `![[${page}${fragmentId ? `^${fragmentId}` : ""}]]`} · ${detail}`,
+    text: `${written} · ${detail}`,
     state: { blockId, ...(fragmentId ? { fragmentId } : {}), status, count: 0 },
   };
 }
@@ -841,7 +842,7 @@ export async function projectDetailRead(
     let pending = targetCache.get(blockId);
     if (!pending) {
       // A page embed whose page isn't there (`targetIds` resolved the others to their notes): missing, as a block's is.
-      pending = embeddedPageAddress(blockId) !== null ? Promise.reject(blockNotFound(blockId))
+      pending = resolvedEmbedTarget(blockId) ? Promise.reject(blockNotFound(blockId))
         : requester.request<Block>({ action: "get", blockId });
       targetCache.set(blockId, pending);
     }
@@ -884,10 +885,23 @@ export async function projectDetailRead(
 
   // A page embed (`![[page^anchor]]`, PIE-1247) is the note its page resolves to, by the service's page registry; one
   // whose page isn't there keeps its `[[page]]` target and says MISSING TARGET.
-  const pages = new Map<string, Promise<string>>();
+  // A query embed (`!((query: …))`, PIE-1720) is the note the service's query finds, asked as the door asks it; one
+  // that finds none keeps its `?query` target and says the service's why after MISSING TARGET.
+  const pages = new Map<string, Promise<string>>(), queries = new Map<string, Promise<string>>(), unmatched = new Map<string, string>();
   const targetIds = await Promise.all(matches.map((match, index) => {
+    if (index >= MAX_DETAIL_EMBEDS) return match[1];
+    if (embeddedQuery(match[1])) {
+      if (!queries.has(match[1])) queries.set(match[1], requester.request<TransclusionRead>({ action: "transclusions.read", targets: [{ blockId: match[1] }], maxDepth: 1, ...(options.hostBlockId ? { hostBlockId: options.hostBlockId } : {}) })
+        .then(r => {
+          const node = r.results[0];
+          if (node?.status === "ready" && node.resolvedBlockId) return node.resolvedBlockId;
+          if (node?.message) unmatched.set(match[1], node.message);
+          return match[1];
+        }, () => match[1]));
+      return queries.get(match[1])!;
+    }
     const page = embeddedPageAddress(match[1]);
-    if (page === null || index >= MAX_DETAIL_EMBEDS) return match[1];
+    if (page === null) return match[1];
     if (!pages.has(page)) pages.set(page, requester.request<PageAddressResolution>({ action: "pages.resolve", address: page })
       .then(r => (r.status !== "missing" && r.block ? r.block.id : match[1]), () => match[1]));
     return pages.get(page)!;
@@ -908,7 +922,7 @@ export async function projectDetailRead(
         () => loadTarget(blockId),
         loadTarget,
         loadPhysicalBlocks,
-      ),
+      ).then(p => (p.state.status === "missing" && unmatched.has(blockId) ? explicitFallback(blockId, "missing", unmatched.get(blockId)!, fragmentId) : p)),
     );
   }
   let consumed = 0;

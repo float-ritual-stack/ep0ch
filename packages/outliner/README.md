@@ -871,7 +871,8 @@ Links and embeds written in code stay as written. At most 1,000 blocks of a
 subtree are published, and the page says so when it is cut off.
 
 **Embeds show their content, published or not.** An embed `!((block))`,
-`!((block^anchor))` or `![[page^anchor]]` (PIE-1247) shows the embedded note's text (or the anchor's slice: a
+`!((block^anchor))`, `![[page^anchor]]` (PIE-1247) or `!((query: type=plan sort: day desc))` (PIE-1720: the first
+note the query matches, its lock and share that note's) shows the embedded note's text (or the anchor's slice: a
 heading's section, a paragraph, a list item and its children, a figure anchored on its opening line, or a whole
 blockquote or callout when the anchor ends its last line or a callout's head, PIE-592) as a
 quote, in published blocks and in rendered markdown attachments alike, whether
@@ -2647,6 +2648,10 @@ Detail read mode projects `!((block-id))` without changing authored text.
 Ordinary targets render their full canonical Markdown once.
 `!((block-id^fragment-id))` renders only the deterministic fragment slice.
 Canonical `[type::virtual-branch]` targets execute their existing bounded query.
+`!((query: type=plan sort: day desc))` (PIE-1720) renders the first note its query
+matches (the service's `transclusions.read` answers which, the note edited last when
+no `sort:` is written); one that matches nothing says the service's why after
+MISSING TARGET (`no notes have colour; nearest: …`).
 Generated embed output is read-only, refreshes after canonical content events,
 and Detail does not expand an embed inside an embed. Missing/deleted targets, fragment failures,
 invalid definitions, query failures, truncation, and the 16-embed document limit

@@ -240,7 +240,9 @@ per match). A prop the template doesn't declare is a warning with the nearest na
 Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` for a passage. Never write
 directions ("the draft is in the outbox below"). Look the id up and link it. `[[page]]` for a named page
 (`[[page^anchor]]` for a part of it), `!((id))` or `![[page^anchor]]` to show a block's text or one part in place (it
-stays canonical). The same holds in chat: give the link.
+stays canonical). A note that should always show the latest of something (today's plan on a hub page) embeds a query,
+not an id: `!((query: type=plan sort: day desc))` draws the first note it matches, whole, and moves to a newer one by
+itself (no `sort:`, the note edited last). The same holds in chat: give the link.
 A link in a property's value is an edge too (PIE-874): `[via::[[HUB-23]]]`, `[ticket::PC-582]` (a value that is
 exactly a ticket key) or `[related::((id)), notes]` show in the target's backlinks labelled by the property (`via`,
 `ticket`), so write the fact once, in the property, not again in the body.
@@ -592,6 +594,9 @@ rows as the door's links tile. `::outlinks`, `::resources` and `::backlinks` lis
 after the name filter the rows (`::resources jira`), or a `((ref))` names whose links. Or a block closed by `::`
 before a blank line, each line `of:`, `filter:`, `title:` or `groups:` (Comark's `---` lines are allowed). Each
 row is a link the reader opens: a note, a ticket's block, a resource's stored content. Detail shows the source.
+With `query:`, the selected row is previewed (`preview: right|below|none`); `height:` sizes the preview in rows (16
+when left out, then `⋮ n more rows · ⏎ opens it`), and `height: fill` draws the previewed note whole, so the wheel
+scrolls through it with the reader while the keys stay in the note.
 A `^name` at the end of the first line (`::links{query="type=letter"} ^outbox`) names the component inside its note: the reader keeps
 its selection and filter under it, `((note^outbox))` opens its line, and `list=outbox` names it to `list.pick`, `list.open`, `list.filter`.
 An extension's view can return `view.list({ rows })` for the same list (selectable, filterable, a preview, one activation per row).
