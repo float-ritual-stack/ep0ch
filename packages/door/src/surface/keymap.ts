@@ -294,7 +294,16 @@ export function moved(action: string, args: Record<string, unknown>, declared: K
   // The second key of a ^W chord the file gives it (^W q: the desk's table ran it, at q).
   if (e.keys.includes(t.key) || e.keys.includes(`ctrl+w ${t.key}`)) return null;
   const to = e.keys.filter(k => !builtInKeys(e.id).has(k));
-  return `${keyCaption(t.key)} no longer runs ${e.id}: your keymap ${to.length ? `gives it ${to.map(keyCaption).join(", ")}` : "takes it away"} (? shows the keys; ctrl+z in it undoes)`;
+  return movedSays(t.key, `runs ${e.id}`, to, "takes it away", "? shows the keys; ctrl+z in it undoes");
+}
+
+/**
+ * The one sentence for a key the person's keymap moved (PIE-1688, PIE-1719): what `key` no longer does, the keys it went
+ * to (or `none`), and where to look. Every place an old key is said (a typed action, a table's row, Esc's way out) says
+ * it in these words, built from that place's own (`does`, as its action or its way out reads).
+ */
+export function movedSays(key: string, does: string, to: readonly string[], none = "unbinds it", tail = "? shows the keys"): string {
+  return `${keyCaption(key)} no longer ${does}: your keymap ${to.length ? `gives it ${to.map(keyCaption).join(", ")}` : none} (${tail})`;
 }
 
 // ── the tables, by where they bind ──────────────────────────────────────────
@@ -351,6 +360,5 @@ export function movedInTable(rows: readonly TableRow[], prefix: string, key: str
   if (!r || effective(rows, prefix).some(x => x.key === key)) return null;
   const e = entriesOf(r.action).find(x => x.id === bindingId(r.action, r.args ?? {}));
   if (!e) return null;
-  const to = e.keys.filter(k => !builtInKeys(e.id).has(k));
-  return `${keyCaption(full)} no longer runs ${e.id}: your keymap ${to.length ? `gives it ${to.map(keyCaption).join(", ")}` : "unbinds it"} (? shows the keys)`;
+  return movedSays(full, `runs ${e.id}`, e.keys.filter(k => !builtInKeys(e.id).has(k)));
 }

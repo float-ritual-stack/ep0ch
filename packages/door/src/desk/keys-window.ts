@@ -198,6 +198,9 @@ export class KeysPane implements Pane {
   private detail(b: Binding, w: number, all: readonly Binding[]): string[] {
     this.buttons = [];
     const out: string[] = [];
+    // A rebind waiting for its key says what it would do first, whole (PIE-1719): in a 42×23 tile the binding's own rows
+    // below it are what goes past the fold, never who still gets the key.
+    if (this.record && this.record.b.id === b.id) { this.recording(b, w, all, out); out.push(""); }
     const label = (k: string, v: string) => out.push(fg(C.dark) + pad(k, 9) + RESET + ellipsize(v, Math.max(4, w - 9)));
     // The selected row's sentence whole, wrapped under its key where the list cut it (a 40-column tile, PIE-1425).
     const capW = b.key ? width(b.cap) + 3 : 0, said = wrap(b.does, Math.max(8, w - capW - 1));
@@ -212,34 +215,36 @@ export class KeysPane implements Pane {
     if (fight) wrap(fightOf(fight).why, Math.max(8, w - 9)).forEach((l, i) => label(i ? "" : "conflict", l));
     if (b.key) label("terminal", s.terminal ? "in a terminal tile the program gets it" : "the door takes it even in a terminal tile");
     label("keymap", !b.key ? (b.rebind === true ? "no key on any screen: r gives it one, ⏎ runs it" : `no key: ${b.rebind}`) : b.yours ? `yours: ${keymapPath()}` : b.rebind === true ? "built-in: r moves it, u unbinds it" : `can't move: ${b.rebind}`);
-    if (this.record && this.record.b.id === b.id) {
-      out.push("");
-      const r = this.record;
-      if (!r.key) out.push(fg(C.lcyan) + ellipsize(`press the new key for ${b.id}${r.first ? `: ${keyCaption(r.first)} …` : b.key.startsWith("ctrl+w ") ? " (^W, then the key)" : ""} · esc cancels`, w) + RESET); // says, not a hint row
-      else {
-        const e = rebindEffects(b, r.key, all);
-        if (e.problem) out.push(fg(C.lred) + ellipsize(`${keyCaption(r.key)}: ${e.problem}`, w) + RESET);
-        else {
-          out.push(fg(C.lcyan) + ellipsize(`${b.key ? b.cap : "no key"} → ${keyCaption(r.key)}`, w) + RESET);
-          const cap = keyCaption(r.key);
-          for (const t of e.takes.slice(0, 3)) out.push(fg(C.yellow) + ellipsize(`  takes ${cap} from ${t.id} (${t.does})`, w) + RESET);
-          for (const o of e.over.slice(0, 2)) out.push(fg(C.grey) + ellipsize(`  ${o.id} (${o.scope}) still gets ${cap} first`, w) + RESET);
-          for (const u of e.under.slice(0, 2)) out.push(fg(C.grey) + ellipsize(`  ${u.id} (${u.scope}: ${u.does}) stops getting ${cap} where both are`, w) + RESET);
-          // A key some terminals never send is never "free": said whole, wrapped (PIE-1688).
-          if (e.sends) for (const l of wrap(e.sends, Math.max(8, w - 2))) out.push(fg(C.yellow) + `  ${l}` + RESET);
-          if (!e.takes.length && !e.over.length && !e.under.length && !e.sends) out.push(fg(C.grey) + `  ${keyCaption(r.key)} is free here` + RESET);
-          this.button(out, "⏎ save", "keys.confirm");
-        }
-      }
-      this.button(out, "esc cancel", "keys.cancel", true);
-    } else if (b.rebind === true) {
+    if (b.rebind === true && !(this.record && this.record.b.id === b.id)) {
       out.push("");
       this.button(out, b.key ? "r rebind" : "r give it a key", "keys.rebind");
       if (b.key) this.button(out, "u unbind", "keys.unbind", true);
       if (entriesOf(b.action).length) this.button(out, "d built-in keys", "keys.reset", true);
     }
-    if (this.said) out.push("", fg(C.lgreen) + ellipsize(this.said, w) + RESET);
+    if (this.said) out.push("", ...wrap(this.said, Math.max(8, w)).map(l => fg(C.lgreen) + l + RESET));
     return out;
+  }
+  /** The rebind waiting here, in `out`: the key it waits for, or what the new key would do (whole, wrapped) and its buttons. */
+  private recording(b: Binding, w: number, all: readonly Binding[], out: string[]) {
+    const r = this.record!;
+    const say = (ink: string, words: string, indent = "") => { for (const l of wrap(words, Math.max(8, w - indent.length))) out.push(ink + indent + l + RESET); };
+    if (!r.key) say(fg(C.lcyan), `press the new key for ${b.id}${r.first ? `: ${keyCaption(r.first)} …` : b.key.startsWith("ctrl+w ") ? " (^W, then the key)" : ""} · esc cancels`); // says, not a hint row
+    else {
+      const e = rebindEffects(b, r.key, all);
+      if (e.problem) say(fg(C.lred), `${keyCaption(r.key)}: ${e.problem}`);
+      else {
+        say(fg(C.lcyan), `${b.key ? b.cap : "no key"} → ${keyCaption(r.key)}`);
+        const cap = keyCaption(r.key);
+        for (const t of e.takes.slice(0, 3)) say(fg(C.yellow), `takes ${cap} from ${t.id} (${t.does})`, "  ");
+        for (const o of e.over.slice(0, 2)) say(fg(C.grey), `${o.id} (${o.scope}) still gets ${cap} first`, "  ");
+        for (const u of e.under.slice(0, 2)) say(fg(C.grey), `${u.id} (${u.scope}: ${u.does}) stops getting ${cap} where both are`, "  ");
+        // A key some terminals never send is never "free": said whole, wrapped (PIE-1688).
+        if (e.sends) say(fg(C.yellow), e.sends, "  ");
+        if (!e.takes.length && !e.over.length && !e.under.length && !e.sends) say(fg(C.grey), `${keyCaption(r.key)} is free here`, "  ");
+        this.button(out, "⏎ save", "keys.confirm");
+      }
+    }
+    this.button(out, "esc cancel", "keys.cancel", true);
   }
   /** A clickable button on the detail's last line (`same`: beside the one before it). */
   private button(out: string[], text: string, action: string, same = false) {

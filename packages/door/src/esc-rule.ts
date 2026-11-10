@@ -74,11 +74,19 @@ export function escPress<N extends string>(order: readonly N[], steps: EscSteps<
 const VIA = "␟";
 /** `word` as closed by `key`: Esc's words stay plain. */
 export const escVia = (key: string | null | undefined, word: string): string => (!key || key === "esc" ? word : `${key}${VIA}${word}`);
-/** A rung's word split into the key that closes it (Esc unless it says another) and what it closes. */
-export function escWordOf(closes: string): { key: string; word: string } {
-  const i = closes.indexOf(VIA);
-  return i < 0 ? { key: "esc", word: closes } : { key: closes.slice(0, i), word: closes.slice(i + 1) };
+/**
+ * A rung's word split into the key that closes it (Esc unless it says another) and what it closes (`word`, as the hint
+ * says it), that again as what it is (`what`) and how the key does it when the word says (`how`: an edit with text in it
+ * goes twice, `escHow`).
+ */
+export function escWordOf(closes: string): { key: string; word: string; what: string; how: string | null } {
+  const i = closes.indexOf(VIA), key = i < 0 ? "esc" : closes.slice(0, i), word = i < 0 ? closes : closes.slice(i + 1);
+  const j = word.indexOf(HOW);
+  return { key, word, what: j < 0 ? word : word.slice(0, j), how: j < 0 ? null : word.slice(j + HOW.length) };
 }
+const HOW = ", ";
+/** What a rung closes with how its key does it (`the edit, twice puts it aside`): the one place that grammar is written; `escWordOf` reads it back. */
+export const escHow = (what: string, how: string): string => `${what}${HOW}${how}`;
 /** The hint's words for a rung: `esc: the popup`, `alt+q: the edit, put aside`. */
 export const escSays = (closes: string): string => { const { key, word } = escWordOf(closes); return `${key}: ${word}`; };
 let hinted = 0;
