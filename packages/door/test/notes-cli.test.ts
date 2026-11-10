@@ -23,11 +23,29 @@ describe("show --lines: the rows a part of the note draws, under its header (PIE
   const source = [undefined, undefined, 1, 2, 2, undefined, 4, 5];
   const lineOf = (r: number) => source[r];
   test("the header, a ⋮ for rows left out above and below, and every row its lines drew", () => {
-    expect(partOf(rows, 2, lineOf, [3, 3])).toEqual(["Shed roof", "loki · today", "  ⋮", " ∙ felt torn", "   on the north side", "  ⋮"]);
-    expect(partOf(rows, 2, lineOf, [5, 6])).toEqual(["Shed roof", "loki · today", "  ⋮", " ## Decided", " ∙ sheets"]);
+    expect(partOf(rows, 2, lineOf, [[3, 3]])).toEqual(["Shed roof", "loki · today", "  ⋮", " ∙ felt torn", "   on the north side", "  ⋮"]);
+    expect(partOf(rows, 2, lineOf, [[5, 6]])).toEqual(["Shed roof", "loki · today", "  ⋮", " ## Decided", " ∙ sheets"]);
   });
-  test("a part no row draws gives the whole drawing", () => {
-    expect(partOf(rows, 2, lineOf, [40, 41])).toEqual(rows);
+  test("several parts: each one's rows in order, a ⋮ between, parts that touch drawn as one", () => {
+    expect(partOf(rows, 2, lineOf, [[6, 6], [2, 2]])).toEqual(["Shed roof", "loki · today", " ## Plan", "  ⋮", " ∙ sheets"]);
+    expect(partOf(rows, 2, lineOf, [[2, 2], [3, 3]])).toEqual(["Shed roof", "loki · today", " ## Plan", " ∙ felt torn", "   on the north side", "  ⋮"]);
+  });
+  test("within a row budget the parts share it: a long part is cut to its share, never a later part left out", () => {
+    // 6 rows: the header's 2, then 4 for the parts: sheets keeps its 1, Plan's 3 rows are cut to 2 and its count's row.
+    expect(partOf(rows, 2, lineOf, [[2, 3], [6, 6]], 6)).toEqual(["Shed roof", "loki · today", " ## Plan", " ∙ felt torn", "  ⋮ 1 more row", " ∙ sheets"]);
+  });
+  test("a part inside what draws as one is drawn from the line that draws it", () => {
+    // Source line 4 (from 1) draws no row of its own here: the rows of line 3, drawn above it, stand for it.
+    expect(partOf(rows, 2, lineOf, [[4, 4]])).toEqual(["Shed roof", "loki · today", "  ⋮", " ∙ felt torn", "   on the north side", "  ⋮"]);
+  });
+  test("a part that starts inside a figure and runs past it is drawn from the figure's opening line", () => {
+    // A figure's rows all belong to its opening line (source line 2, from 0); its lines 3 and 4 draw none of their own.
+    const drawn = ["Bed log", "loki · today", " ## Plan", " [ BEDS ]", " 2   0", " └──", " Then the beans."];
+    const at = [undefined, undefined, 1, 2, 2, 2, 5];
+    expect(partOf(drawn, 2, r => at[r], [[4, 6]])).toEqual(["Bed log", "loki · today", "  ⋮", " [ BEDS ]", " 2   0", " └──", " Then the beans."]);
+  });
+  test("a request no row draws gives the whole drawing", () => {
+    expect(partOf(rows, 2, lineOf, [[1, 1]])).toEqual(rows);
   });
 });
 

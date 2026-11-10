@@ -86,7 +86,7 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    --json each note as a block record (outline-core's block-record.ts: title,
                                    header, properties as lists, children, tasks, links, backlinks, resources,
                                    created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --tree, the rows
-  ep0ch show <id>… [--json | --source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--lines <a-b>] [--ws <name>] [--machine <ssh-name>]
+  ep0ch show <id>… [--json | --source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--lines <a-b>[,…]] [--ws <name>] [--machine <ssh-name>]
                                    --json reads the same block records as find --json, including the newest revision's writer;
                                    otherwise each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
@@ -100,7 +100,8 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
                                    terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
                                    (counted in replaced); --rows keeps the first n rows; --lines a-b only the rows
-                                   source lines a to b draw (from 1), under the note's header; --site prints each note as a
+                                   source lines a to b draw (from 1), under the note's header (several
+                                   parts, like --lines 2-3,60, share --rows, a ⋮ between); --site prints each note as a
                                    line of JSON {id, uri, text, site}: its text as written and, when it holds a {{ }},
                                    the service's whole answer for it (outline_read's site: each placeholder's values,
                                    or problem and nearest keys, how it was found, and the notes it came from)
@@ -482,9 +483,10 @@ const SETTLE = { quiet: 250, max: 3000 };
 
 /**
  * The note drawn by the note surface at `width`, once what it reads besides the note has arrived (each render may ask
- * for more: it's drawn again until a quiet spell passes with nothing new); null when there's no such note.
+ * for more: it's drawn again until a quiet spell passes with nothing new); null when there's no such note. `cut` keeps
+ * only the rows its `parts` (source lines from 1) draw, under the header, sharing at most `rows` (`partOf`).
  */
-export async function drawNote(board: SocketBoard, id: string, width: number, settle = SETTLE, part?: [number, number]): Promise<string[] | null> {
+export async function drawNote(board: SocketBoard, id: string, width: number, settle = SETTLE, cut?: { parts: readonly (readonly [number, number])[]; rows?: number }): Promise<string[] | null> {
   const m = await board.get(id);
   if (!m) return null;
   let arrived = false;
@@ -505,7 +507,7 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   // …and a tabs figure prints every group in turn under a heading, with no tab or density control.
   surface.printed = true;
   let drawn: string[] = [];
-  /** Each drawn row's source line (from 0), where the reader knows it: what `part` keeps rows by. */
+  /** Each drawn row's source line (from 0), where the reader knows it: what `cut` keeps rows by. */
   let lineOfRow: (row: number) => number | undefined = () => undefined, headRows = 0;
   try {
     const loaded = await loadExtensions(board);
@@ -531,30 +533,83 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
     if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }
   let lines = drawn.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
-  if (part) lines = partOf(lines, headRows, lineOfRow, part);
+  if (cut) lines = partOf(lines, headRows, lineOfRow, cut.parts, cut.rows);
   while (lines.length && !visible(lines.at(-1)!).trim()) lines.pop();
   return lines;
 }
 
 /**
- * A drawing cut to the rows source lines `part` (from 1, both ends) draw (PIE-588: a write's answer shows what it
- * changed): the note's header (its title and byline rows), then from the first row such a line draws to the last, a
- * `⋮` where rows were left out above or below. A part the reader drew no row of gives the whole drawing.
+ * A drawing cut to the rows source lines `parts` (from 1, both ends of each) draw (PIE-588: a write's answer shows each
+ * part it changed): the note's header (its title and byline rows), then each part's rows in order, a `⋮` where rows
+ * were left out between, above or below them. A part that starts inside what draws as one (a figure's source) is
+ * drawn from the line that draws it. Within `rows` the parts share what's left after the header and the gaps, a short part keeping
+ * all of its rows and a long one cut to its share with `⋮ n more rows` under it, so no part is left out for one
+ * before it. A request no row draws gives the whole drawing.
  */
-export function partOf(lines: readonly string[], head: number, lineOf: (row: number) => number | undefined, part: [number, number]): string[] {
-  const [lo, hi] = [part[0] - 1, part[1] - 1];
-  let first = -1, last = -1;
-  for (let r = head; r < lines.length; r++) {
-    const l = lineOf(r);
-    if (l === undefined || l < lo || l > hi) continue;
-    if (first < 0) first = r;
-    last = r;
+export function partOf(lines: readonly string[], head: number, lineOf: (row: number) => number | undefined, parts: readonly (readonly [number, number])[], rows = Infinity): string[] {
+  const lineAt = (r: number) => r < head ? undefined : lineOf(r);
+  const spanOf = (lo: number, hi: number): [number, number] | null => {
+    let first = -1, last = -1;
+    for (let r = head; r < lines.length; r++) {
+      const l = lineAt(r);
+      if (l === undefined || l < lo || l > hi) continue;
+      if (first < 0) first = r;
+      last = r;
+    }
+    if (first < 0) return null;
+    // A row the reader drew under the last line (a figure's rows, a callout's foot) belongs to it until the next line starts.
+    while (last + 1 < lines.length && lineAt(last + 1) === undefined && visible(lines[last + 1]!).trim()) last++;
+    return [first, last];
+  };
+  // A part starts from the drawn line its first line belongs to: a line inside a figure's source draws no row of its
+  // own (the figure's rows are its opening line's), so the part starts at that opening line, whatever follows it.
+  const drawnLines = new Set<number>();
+  for (let r = head; r < lines.length; r++) { const l = lineAt(r); if (l !== undefined) drawnLines.add(l); }
+  const spans: [number, number][] = [];
+  for (const [a, b] of parts) {
+    const hi = b - 1;
+    let lo = a - 1;
+    if (!drawnLines.has(lo)) { const from = Math.max(-1, ...[...drawnLines].filter(l => l < lo)); if (from >= 0) lo = from; }
+    const span = spanOf(lo, hi);
+    if (span) spans.push(span);
   }
-  if (first < 0) return [...lines];
-  // A row the reader drew under the last line (a figure's rows, a callout's foot) belongs to it until the next line starts.
-  while (last + 1 < lines.length && lineOf(last + 1) === undefined && visible(lines[last + 1]!).trim()) last++;
+  if (!spans.length) return [...lines];
+  spans.sort((x, y) => x[0] - y[0]);
+  const merged: [number, number][] = [];
+  for (const s of spans) {
+    const last = merged.at(-1);
+    if (last && s[0] <= last[1] + 1) last[1] = Math.max(last[1], s[1]);
+    else merged.push([...s]);
+  }
+  const end = merged.at(-1)![1];
+  const above = merged[0]![0] > head, below = end + 1 < lines.length && lines.slice(end + 1).some(l => visible(l).trim());
+  const sizes = merged.map(([f, l]) => l - f + 1);
+  let keep = sizes;
+  const gaps = (cut: boolean) => Number(above) + merged.length - 1 + Number(below || cut);
+  // Water-filling: the shortest parts first, each up to an even share of what's left, at least a row each.
+  const share = (budget: number) => {
+    const out = [...sizes];
+    let left = budget, count = merged.length;
+    for (const i of sizes.map((_, i) => i).sort((x, y) => sizes[x]! - sizes[y]!)) {
+      out[i] = Math.max(1, Math.min(sizes[i]!, Math.floor(left / count)));
+      left -= out[i]!; count--;
+    }
+    return out;
+  };
+  if (head + gaps(false) + sizes.reduce((n, s) => n + s, 0) > rows) {
+    keep = share(rows - head - gaps(false));
+    // The last part cut with nothing under it takes a row for its count too.
+    if (!below && keep.at(-1)! < sizes.at(-1)!) keep = share(rows - head - gaps(true));
+  }
   const gap = "  ⋮";
-  return [...lines.slice(0, head), ...(first > head ? [gap] : []), ...lines.slice(first, last + 1), ...(last + 1 < lines.length && lines.slice(last + 1).some(l => visible(l).trim()) ? [gap] : [])];
+  const out = [...lines.slice(0, head), ...(above ? [gap] : [])];
+  merged.forEach(([first], i) => {
+    out.push(...lines.slice(first, first + keep[i]!));
+    const more = sizes[i]! - keep[i]!;
+    if (more) out.push(`${gap} ${more} more row${more === 1 ? "" : "s"}`);
+    else if (i < merged.length - 1 || below) out.push(gap);
+  });
+  return out.slice(0, rows);
 }
 
 /** `ep0ch show <id>… …`: its exit code. */
@@ -607,11 +662,11 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  // --lines a-b: only the rows the note's source lines a to b draw (from 1), under its header (a write's answer, PIE-588).
+  // --lines a-b,c,…: only the rows those source lines draw (from 1), under the note's header, the parts sharing --rows
+  // (a write's answer, PIE-588: each part it changed).
   const linesArg = flag(args, "--lines") as string | undefined;
-  const part = linesArg === undefined ? undefined : /^(\d+)-(\d+)$/.exec(linesArg);
-  if (linesArg !== undefined && (!part || Number(part[1]) < 1 || Number(part[2]) < Number(part[1]))) { io.err("ep0ch: --lines takes the source lines to draw, first-last from 1, like --lines 4-9"); return 2; }
-  const lineRange = part ? [Number(part[1]), Number(part[2])] as [number, number] : undefined;
+  const parts = linesArg === undefined ? undefined : linesArg.split(",").map(p => /^(\d+)(?:-(\d+))?$/.exec(p.trim())).map(m => m && [Number(m[1]), Number(m[2] ?? m[1])] as [number, number]);
+  if (parts && parts.some(p => !p || p[0] < 1 || p[1] < p[0])) { io.err("ep0ch: --lines takes the source lines to draw, first-last from 1, a part or several, like --lines 4-9 or --lines 2-3,60"); return 2; }
   const ids = without(args, ["--ws", "--machine", "--width", "--rows", "--lines"], ["--json", "--ansi", "--cells", "--source", "--markdown", "--site", "--here"]);
   if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
@@ -658,7 +713,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       // A figure the outline didn't answer in time is said in its place; the exit code says the copy isn't whole.
       if (page?.unanswered) { io.err(`ep0ch: ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} in ${id} not answered in time: ask again with ep0ch show ${id} --markdown`); code = 1; }
       const text = page ? page.text : written;
-      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width, undefined, lineRange);
+      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width, undefined, parts ? { parts: parts as [number, number][], rows } : undefined);
       if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
       // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
       const kept = lines.slice(0, rows);
