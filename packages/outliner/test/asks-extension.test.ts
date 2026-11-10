@@ -725,6 +725,19 @@ test("PIE-1708: a model that isn't logged in names the command that stores claud
   expect(t.store.require(old.id).text).toBe(before);
 });
 
+test("PIE-1715: a model command that fails is said once, read whole, and the run stops instead of failing every note", async () => {
+  const answer = [process.execPath, "-e", "process.exit(3)", "--", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", "You answer with JSON only."];
+  const t = await setup(["Older yard\n\nSome text.\n\n- Should the hedge be low?", "Older shed\n\nSome text.\n\n- Should the shed face south?", "Older pond\n\nSome text.\n\n- Should the pond be netted?"], 100, { answer });
+  const out: string[] = [];
+  expect(await asksBackfill(boardOf(t), { since: "30d", write: false }, { out: s => { out.push(s); }, err: s => { out.push(s); } })).toBe(1);
+  const said = out.join("\n");
+  // The command as it runs, every argument, the empty ones quoted: nothing reads as cut off.
+  expect(said).toContain(`--tools "" --setting-sources "" --strict-mcp-config --disable-slash-commands --system-prompt "You answer with JSON only."`);
+  expect(said).toContain("exited 3");
+  expect(said.match(/couldn't confirm/g)).toHaveLength(1);
+  expect(said).toContain("failed the same way");
+});
+
 test("with only unsure lines the model isn't called, so a live settle still writes the maybe with no model at all", async () => {
   const t = await setup([], 100, { answer: ["false"] });
   const note = await t.write("Yard\n\nSome text.\n\n- Maybe move the beans, what do you think?");
