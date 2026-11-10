@@ -382,6 +382,43 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "tile.close", tile: links }, USER);
   }, 90_000);
 
+  // PIE-1712, the verifier's walk on the default desk: a desk with a replies tile (a links tile listing children alone). The
+  // button's links step aims a links tile that lists backlinks, never the replies, and the run says the button's words.
+  test("▸ by kind on a desk with a replies tile groups the note's backlinks, and says ▸ by kind done", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "G\n\nA note others link to.\n");
+    await h.board.createBlock(null, `Planning notes [type::plan]\n\nSee ((${own.id})) and again ((${own.id})).`);
+    await h.board.createBlock(null, "backlinks by kind: backlinks.view step=kind [yo-memory::answer] [yo-action::backlinks.view] [yo-asked::backlinks by kind] [yo-line::backlinks.view step=kind]");
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const rows = () => stage().layoutGet().tiles as { name: string; kind: string }[];
+    for (const t of rows().filter(t => t.kind === "backlinks")) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await h.app.dispatch.act({ action: "tile.open", args: { kind: "backlinks", name: "replies", source: "tile:ask", where: "down" } }, USER);
+    await h.app.dispatch.act({ action: "backlinks.groups", tile: "replies", args: { show: "children" } }, USER);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const read = async () => (await h.board.get(own.id))!;
+    const m = await read();
+    await h.board.update(m.id, `${m.text.trimEnd()}\n\n@yo backlinks by kind\n`, m.revision!, USER);
+    await untilAsync(async () => (await read()).text.includes("@yo answered"), "yo's answer", 30_000);
+    const surface = () => stage().pane("ask").surface;
+    await until(() => surface().describeElements().some((e: { label: string }) => e.label.includes("▸ by kind")), "the button drawn", 8000);
+    const ended: string[] = [], app = h.app as unknown as { showMessage(m: string, ...rest: unknown[]): unknown }, shown = app.showMessage.bind(app);
+    app.showMessage = (m: string, ...rest: unknown[]) => { ended.push(m); return shown(m, ...rest); };
+    await h.app.dispatch.act({ action: "button.press", tile: "ask", args: { label: "▸ by kind" } }, USER);
+    const line = (await read()).text.split("\n").findIndex(l => l.includes('label="▸ by kind"'));
+    await until(() => ["done", "failed"].includes(pressState(own.id, line, "▸ by kind").state ?? ""), "the press settled", 15_000);
+    expect(pressState(own.id, line, "▸ by kind")).toEqual({ state: "done" });
+    // The run says the button's words, never the note's title.
+    await until(() => ended.some(m => m.endsWith("done") || m.includes("done ·")), "the run's end said", 8000).finally(() => { app.showMessage = shown; });
+    expect(ended.find(m => /done/.test(m))).toStartWith("▸ by kind done");
+    const replies = stage().pane("replies") as unknown as { options: { kind: string | null }; groups: string[] };
+    expect(replies.options.kind).toBeNull();
+    const links = rows().find(t => t.kind === "backlinks" && t.name !== "replies")!;
+    expect((stage().pane(links.name) as unknown as { options: { kind: string | null } }).options.kind).not.toBeNull();
+    for (const t of rows().filter(t => t.kind === "backlinks")) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
+  }, 90_000);
+
   // PIE-1722 (the verifier's gap): a note action yo offers (note.rename's ▸ rename), pressed in the answer tile, renames the
   // note the reader shows: the answer tile shows no note.
   test("typed in the editor: a note.rename button pressed in the answer tile renames the reader's note", async () => {
