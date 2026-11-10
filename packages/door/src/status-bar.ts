@@ -9,6 +9,7 @@ import type { MenuRow } from "./surface/dispatch";
 import type { Reveal } from "./reveal";
 import { buttonText, pressState } from "./surface/button";
 import type { ButtonLookWords } from "@ep0ch/outline-core/button-call";
+import { lineStart } from "@ep0ch/outline-core/code-ranges";
 
 /** Bindings name the existing ActionDefs; the dispatcher owns their execution and descriptions. */
 export interface StatusItem {
@@ -323,7 +324,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
       const note = await on.note.ensure(on.builtins(), actor);
       const lines = note.text.split("\n"), n = line && line >= 1 && line <= lines.length ? line - 1 : null;
       const why = n === null ? undefined : on.note.problems.find(p => p.line === n)?.message;
-      await on.open(note.id, actor, n === null ? undefined : { at: lines.slice(0, n).reduce((a, l) => a + l.length + 1, 0), ...(why ? { says: why } : {}) });
+      await on.open(note.id, actor, n === null ? undefined : { at: lineStart(lines, n), ...(why ? { says: why } : {}) });
       return { note: note.id, ...(n === null ? {} : { line: n + 1 }) };
     },
   }),

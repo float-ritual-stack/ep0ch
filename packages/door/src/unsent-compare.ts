@@ -4,6 +4,7 @@
 // files (src/unsent.ts reads those), so the reader, the exit message and anything that lists drafts say the same thing.
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { DRAFT_PATCH_CONTEXT, locateSpanForced } from "@ep0ch/outline-core/draft-patch-compare";
+import { lineStart } from "@ep0ch/outline-core/code-ranges";
 import { diffLines } from "diff";
 
 // ── a draft's own changes ────────────────────────────────────────────────────
@@ -23,7 +24,7 @@ export interface DraftHunk { start: number; end: number; removed: string[]; adde
  */
 export function draftHunks(from: string, put: string): DraftHunk[] {
   const a = from.split("\n"), out: DraftHunk[] = [];
-  const offsetOf = (line: number) => a.slice(0, line).reduce((n, l) => n + l.length + 1, 0);
+  const offsetOf = (line: number) => lineStart(a, line);
   const ctx = (s: string, far: "start" | "end") => (far === "start" ? s.slice(-DRAFT_PATCH_CONTEXT) : s.slice(0, DRAFT_PATCH_CONTEXT));
   let line = 0;
   const parts = diffLines(`${from}\n`, `${put}\n`);

@@ -15,8 +15,8 @@ const cap = 2_000;
 const owners = {
   "width-length": "the door's width helpers: packages/door/src/style.ts:168 (width), :258 (pad), :288 (drawEllipsized); packages/door/src/text.ts:147 (rowLines)",
   "pad-end": "the door's width helpers: packages/door/src/style.ts:258 (pad), :288 (drawEllipsized)",
-  "line-offset-reduce": "outline-core's sourceLines in packages/outline-core/src/code-ranges.ts:16 (line offsets; no lineAt/offsetOf exports exist)",
-  "heading-regex": "outline-core's headerLine/titleWords in packages/outline-core/src/header-line.ts:54 and :128",
+  "line-offset-reduce": "outline-core's lineStart (a line's offset) and lineAtOffset (an offset's line) in packages/outline-core/src/code-ranges.ts; sourceLines for every line's range",
+  "heading-regex": "outline-core's HEADING_LINE in packages/outline-core/src/style-cascade.ts, or headerLine/titleWords in packages/outline-core/src/header-line.ts:54 and :128",
   "host-ctx-cast": "the typed SurfaceHost.ctx in packages/door/src/surface/note.ts:180; extend its Ctx contract instead of casting it",
   "unused-export": "the declaration without `export`, or none: an export nothing imports (tests count) is dead code",
 };

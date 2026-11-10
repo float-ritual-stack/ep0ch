@@ -66,6 +66,7 @@ import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { linkOccurrences, referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { landingLine } from "@ep0ch/outline-core/block-insert";
+import { lineAtOffset, lineStart } from "@ep0ch/outline-core/code-ranges";
 import { CommentSession, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { codeSpans, compareFoldPosition, foldPoints, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, inertButton } from "../doc";
@@ -4926,7 +4927,7 @@ export class NoteSurface {
   anchorView() { if (!this.position.view) this.positionRows.top = this.scroll; }
 
   readingLine(line: number) {
-    this.position.reading = (this.msg?.text ?? "").split("\n").slice(0, line).reduce((n, l) => n + l.length + 1, 0);
+    this.position.reading = lineStart(this.msg?.text ?? "", line);
   }
 
   readingSourceLine() { return lineAtOffset(this.msg?.text ?? "")(this.position.reading); }
@@ -8389,7 +8390,7 @@ export class NoteSurface {
     }
     if (!lines.length) return null;
     const lo = Math.min(...lines), hi = Math.max(...lines), all = m.text.split("\n");
-    const start = all.slice(0, lo).reduce((n, l) => n + l.length + 1, 0);
+    const start = lineStart(all, lo);
     const span = all.slice(lo, hi + 1).join("\n");
     const seen = s.text(rows);
     // The `{{ }}` on these lines are drawn as their values (refs.ts presentLinks): a selection of those words is the whole token.
@@ -8851,13 +8852,6 @@ const SOURCES_CHIP = "[sources]";
 
 
 
-/** The note line (from 0, the subject) each offset of `text` is on. */
-const lineAtOffset = (text: string) => {
-  const starts: number[] = [];
-  let o = 0;
-  for (const l of text.split("\n")) { starts.push(o); o += l.length + 1; }
-  return (off: number) => Math.max(0, starts.findLastIndex(s => s <= off));
-};
 
 
 /** Where `quote` is in `text`: the occurrence nearest `near` (an offset), or the first; -1 when it isn't. */

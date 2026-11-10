@@ -48,7 +48,7 @@ import type { Key } from "../term";
 import { rowLines, waitingText } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, FRAGMENT_ID_SOURCE, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
-import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
+import { cursorInCode, lineStart } from "@ep0ch/outline-core/code-ranges";
 import { attributeScalar, yamlScalar, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
@@ -672,12 +672,12 @@ export class Completer {
         this.preview = { item, surface, host };
         if (item.fragmentId && !item.anchor && own?.blockId !== item.blockId) await surface.revealFragment(item.fragmentId, host);
         else if (item.passageLine !== undefined) {
-          const offset = note.text.split("\n").slice(0, item.passageLine).reduce((n, l) => n + l.length + 1, 0);
+          const offset = lineStart(note.text, item.passageLine);
           await surface.revealAt(offset, host);
         } else {
           const lines = note.text.split("\n");
           const hit = rankTextSearchMatches(lines.map((text, line) => ({ id: String(line), title: "", text, line })), this.state!.target.query, 1)[0]?.document;
-          if (hit) await surface.revealAt(lines.slice(0, hit.line).reduce((n, l) => n + l.length + 1, 0), host);
+          if (hit) await surface.revealAt(lineStart(lines, hit.line), host);
         }
         // The popup is measured before it's placed (completion-float): a height other than the last render's reveals the passage again.
         let shownRows = -1;
