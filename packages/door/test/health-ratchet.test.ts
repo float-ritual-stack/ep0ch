@@ -171,3 +171,22 @@ test("two branches whose counts agree merge the baseline clean; counts that real
   expect(differing.stdout.toString()).toContain("CONFLICT (content): Merge conflict in scripts/health-baseline.json");
   expect(differing.stdout.toString()).not.toContain("Merge conflict in packages/door/src/");
 });
+
+test("the report in a shallow checkout says it needs more history instead of counting every file as new", () => {
+  const dir = repo(), shallow = `${dir}-shallow`;
+  scratch.push(shallow);
+  const commit = (message: string) => {
+    git(dir, "add", ".");
+    git(dir, "-c", "user.name=Gardener", "-c", "user.email=garden@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", message);
+  };
+  writeFileSync(join(dir, file), "// drawing\n".repeat(1_001));
+  commit("A garden drawing");
+  expect(run(dir, "--write").code).toBe(0);
+  commit("Baseline");
+  git(dir, "clone", "-q", "--depth", "1", `file://${dir}`, shallow);
+  const report = run(shallow, "--report", "--json");
+  expect(report.code).toBe(1);
+  expect(report.text).toContain("shallow checkout");
+  expect(report.text).toContain("git fetch --unshallow");
+  expect(run(dir, "--report", "--json").code).toBe(0);
+});

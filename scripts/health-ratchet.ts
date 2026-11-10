@@ -180,7 +180,13 @@ function baselineRevision(head: string | null): string | null {
   const wrote = git("log", "-1", "--format=%H", "--", baselinePath).trim();
   if (!wrote) return head;
   const parent = Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `${wrote}^`]);
-  return parent.exitCode === 0 ? parent.stdout.toString().trim() : null;
+  if (parent.exitCode === 0) return parent.stdout.toString().trim();
+  // No parent: the first commit, or a shallow checkout's boundary, where every file would read as new.
+  if (git("rev-parse", "--is-shallow-repository").trim() === "true") {
+    console.error(`--report needs the commit before ${wrote.slice(0, 9)}, which last changed ${baselinePath}, and this is a shallow checkout: run git fetch --unshallow (or --deepen=<n>), then --report again`);
+    process.exit(1);
+  }
+  return null;
 }
 
 // Git supplies the baseline's smaller files without storing a second full line-count inventory in the baseline.
