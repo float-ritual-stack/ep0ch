@@ -2,6 +2,14 @@ import {annotationSourceHash} from "./annotations";
 import type {AnnotationRepresentation, Block} from "./types";
 import type {ResourceDescription} from "./resources";
 
+/**
+ * A file snapshot's representation id (PIE-1690): its Resource, modification time, size and text hash. The one
+ * builder: Detail's comment on a file and the service's reading of that file name the snapshot alike.
+ */
+export function filesystemRepresentationId(resourceId: string, revision: { mtimeNs: string; size: string } | null, contentHash: string): string {
+  return revision ? `filesystem:${resourceId}:${revision.mtimeNs}:${revision.size}:${contentHash}` : `filesystem:${resourceId}:${contentHash}`;
+}
+
 export function blockAnnotationRepresentation(block: Pick<Block, "id" | "text" | "updatedAt">, inboxAttemptId?:string): AnnotationRepresentation {
   const contentHash = annotationSourceHash(block.text);
   return {
@@ -48,7 +56,7 @@ export function resourceAnnotationRepresentation(
       throw new Error("Filesystem Resource has a non-filesystem revision");
     }
     return {
-      id: `filesystem:${description.resource.id}:${revision.mtimeNs}:${revision.size}:${filesystem.contentHash}`,
+      id: filesystemRepresentationId(description.resource.id, revision, filesystem.contentHash),
       subject: { kind: "resource", resourceId: description.resource.id },
       sourceSnapshot: {
         kind: "resource",

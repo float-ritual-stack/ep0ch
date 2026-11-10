@@ -20,10 +20,11 @@ import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 import { valueOf } from "@ep0ch/outline-core/block-record";
 import { clip } from "./clip";
+export { changelogText } from "./changelog-entries";
 
 const LOOP = "work-groom";
 
-/** Something shipped: a CHANGELOG section or a merged pull request. */
+/** Something shipped: a CHANGELOG section (waiting entries included, changelogText) or a merged pull request. */
 export interface Shipped { id: string; kind: "changelog" | "pr"; title: string; text: string }
 export interface GroomEvidence { changelog: string; prs: { ref: string; title: string; body?: string }[] }
 

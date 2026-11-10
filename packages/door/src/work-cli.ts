@@ -12,6 +12,7 @@ interface Groom {
   groom(source: Client, evidence: { changelog: string; prs: { ref: string; title: string; body?: string }[] }, o: { jev: boolean; where?: string; limit?: number; progress?: (line: string) => void }): Promise<unknown>;
   keepGroom(into: Client, report: unknown): Promise<{ verdicts: number; comments: number; run: string }>;
   groomSummary(report: unknown): string;
+  changelogText(repo: string): string | null;
 }
 interface Later {
   park(source: Client, o: { where?: string; limit?: number; apply?: boolean; olderThanDays?: number; actor?: string }): Promise<{ rows: { id: string; outcome: string }[] }>;
@@ -119,8 +120,8 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
       // verifier, kept in --into, else (with --apply) in the outline it read.
       const stays = report.rows.filter(r => r.outcome === "stays").map(r => r.ticket);
       const repo = opts["--repo"] ?? join(import.meta.dir, "../../..");
-      const changelog = await Bun.file(join(repo, "CHANGELOG.md")).text().catch(() => "");
       const m = await import(GROOM) as Groom;
+      const changelog = m.changelogText(repo) ?? "";
       const shipped = stays.length && changelog
         ? await m.groom(clientOf(source), { changelog, prs: await mergedPullRequests(repo, opts["--since"] ?? "120d") }, { jev, where: `type=roadmap-item (${stays.map(t => `work-id=${t}`).join(" OR ")})` })
         : undefined;
@@ -132,9 +133,10 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
     }
     if (op === "groom") {
       const repo = opts["--repo"] ?? join(import.meta.dir, "../../..");
-      const changelog = await Bun.file(join(repo, "CHANGELOG.md")).text().catch(() => { throw new Error(`no CHANGELOG.md in ${repo}: --repo names the checkout`); });
-      const prs = await mergedPullRequests(repo, opts["--since"] ?? "120d");
       const m = await import(GROOM) as Groom;
+      const changelog = m.changelogText(repo);
+      if (changelog === null) throw new Error(`no CHANGELOG.md in ${repo}: --repo names the checkout`);
+      const prs = await mergedPullRequests(repo, opts["--since"] ?? "120d");
       const report = await m.groom(clientOf(source), { changelog, prs }, { jev, ...(opts["--where"] ? { where: opts["--where"] } : {}), ...(limit ? { limit } : {}), progress: line => { if (!rest.includes("--json")) process.stderr.write(`\r${line}\x1b[K`); } });
       if (!rest.includes("--json")) process.stderr.write("\r\x1b[K");
       const kept = into ? await m.keepGroom(clientOf(into), report) : undefined;

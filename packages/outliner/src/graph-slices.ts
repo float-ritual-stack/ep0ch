@@ -54,3 +54,18 @@ export function noteGraphWrites(database: Database): void {
     CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_delete AFTER DELETE ON main.block_properties BEGIN ${note("OLD.block_id")} END;
   `);
 }
+
+/**
+ * What a selection reads (PIE-1691): the note, its ancestors root first, and its children: the trashed ones only when
+ * the note is itself in Trash. The one rule for the store's read of the selection and its graph's (a workspace snapshot).
+ */
+export function selectionContext<B extends { id: string; parentId: string | null; effectiveDeletedRootId?: string }>(
+  selected: B | null, byId: (id: string) => B | null, children: (id: string, withTrashed: boolean) => B[],
+): { selected: B | null; ancestors: B[]; children: B[] } {
+  if (!selected) return { selected: null, ancestors: [], children: [] };
+  const ancestors: B[] = [];
+  for (let parent = selected.parentId ? byId(selected.parentId) : null; parent; parent = parent.parentId ? byId(parent.parentId) : null) {
+    ancestors.unshift(parent);
+  }
+  return { selected, ancestors, children: children(selected.id, Boolean(selected.effectiveDeletedRootId)) };
+}

@@ -7,6 +7,7 @@ active dogfood: the protocol and the schema still change, one version at a time.
 Before the two repositories became one (October 3, 2026), the door kept no changelog; its merged pull requests
 are its record. The outliner's entries from then are kept below, under
 [Outliner, before the one repository](#outliner-before-the-one-repository).
+Entries newer than the last fold wait in [`changelog/`](changelog/), one file per pull request, newest first by name.
 
 ## [Unreleased]
 
@@ -27,6 +28,7 @@ are its record. The outliner's entries from then are kept below, under
 - **`props.summary reset=false` and `toggle=`** are refused with the usage line instead of a TypeError.
 - **Opening many notes reads each attachment's saved place once** (the previews, Sources and settings), from the attachments layer.
 - **Run:** `ep0ch install --apply` (the service and the door both change); PROTOCOL, GRAMMAR and the schema don't move.
+
 ### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
 
 - **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".
