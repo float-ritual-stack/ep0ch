@@ -31,10 +31,16 @@ declarations, generated grammar bundles and vendor code are excluded.
 
 After removing copies or shrinking a large file, run `bun scripts/health-ratchet.ts --write` and commit the lowered
 `scripts/health-baseline.json` in the same PR. The check fails for a stale higher baseline too; `--write` refuses to
-raise an existing count or cap. The baseline keeps site fingerprints so moving lines does not invent copies, and no
-commit id: two branches whose counts agree write the same file and merge clean, while counts that differ conflict.
-`.gitattributes` merges `CHANGELOG.md` with git's `union` driver, so two entries added at the top of `[Unreleased]`
-keep both; two edits of one line keep both lines too, with no conflict, so read the merged entry (PIE-1696).
+raise an existing count or cap. The baseline keeps site fingerprints so moving lines does not invent copies, and
+neither a commit id nor a count (a pattern's count is its number of sites), so it merges like code (PIE-1696): two
+branches whose counts agree write the same file, two that each remove a different site merge to the right count, and
+only edits to the same sites or the same file cap conflict.
+
+A CHANGELOG entry is a file of its own, `changelog/<date>-<branch>.md` (the branch's `/` as `-`): one `###` section,
+written as it would sit in `CHANGELOG.md`. No other PR touches it, so entries never conflict; GitHub ignores
+`merge=union`, which is why they aren't lines in one file. loki folds them in with `bun scripts/changelog-fold.ts` in
+its daily PR, and whatever reads what shipped (`ep0ch work groom`, the freshness sweep) reads both
+(`packages/outliner/src/changelog-entries.ts`).
 
 The repository mod's existing clock hands loki a **Code health** pass at its first tick on Sunday at or after 18:00
 America/Toronto, once per ISO week in the persistent plugin store, including across restarts. The pass reads main with

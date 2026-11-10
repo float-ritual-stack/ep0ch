@@ -58,7 +58,8 @@ or `ep0ch act` shows as `scout`, with its principal (`scout/claude-code@box-a`) 
 
 ## Where to read next
 
-- [CHANGELOG.md](CHANGELOG.md): what changed, and what to run after an update.
+- [CHANGELOG.md](CHANGELOG.md): what changed, and what to run after an update; the newest entries wait in
+  [changelog/](changelog/) until they're folded in.
 - [packages/door/README.md](packages/door/README.md): the door, screen by screen.
 - [packages/outliner/README.md](packages/outliner/README.md): the outline host, Tree/Detail, the CLI and publishing.
 - [packages/outliner/docs/extensions/README.md](packages/outliner/docs/extensions/README.md): userland extensions (data, inline output, rich components, tiles, `@agents`).

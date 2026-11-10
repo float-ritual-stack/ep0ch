@@ -1,7 +1,7 @@
 // PIE-1258 step 1: the groom's first pass over queued tickets, against a made-up CHANGELOG and made-up tickets on a
 // scratch service, with a fake Jev answering by question. Jev never closes; a confident "solved" is a comment for the verifier.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -10,7 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
-import { changelogSections, groom, groomCandidates, groomSummary, groomVerdict, keepGroom, latestLines, namedIn, originalFirst } from "../src/work-groom";
+import { changelogSections, changelogText, groom, groomCandidates, groomSummary, groomVerdict, keepGroom, latestLines, namedIn, originalFirst } from "../src/work-groom";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -155,4 +155,19 @@ test("of two twins the newer is the duplicate; the original stays open and names
   // A twin already done did the work; one with no Work ID says nothing of which came first.
   expect(originalFirst("PIE-2", dup, true)).toEqual(dup);
   expect(originalFirst("PIE-2", { ...dup, of: "a1b2c3d4" })).toEqual({ ...dup, of: "a1b2c3d4" });
+});
+
+test("the groom reads the entries waiting in changelog/ as the top of [Unreleased], newest first (PIE-1696)", () => {
+  const repo = mkdtempSync(join(tmpdir(), "groom-changelog-"));
+  cleanups.push(async () => rmSync(repo, { recursive: true, force: true }));
+  writeFileSync(join(repo, "CHANGELOG.md"), CHANGELOG);
+  expect(changelogText(repo)).toBe(CHANGELOG);
+  mkdirSync(join(repo, "changelog"));
+  writeFileSync(join(repo, "changelog/2026-03-01-fix-hoses.md"), "### Hoses coil themselves (GDN-9)\n\n- **A coiled hose** after each watering.\n");
+  writeFileSync(join(repo, "changelog/2026-03-02-feat-rakes.md"), "### Rakes hang by size (GDN-8)\n\n- **Biggest first.**\n");
+  writeFileSync(join(repo, "changelog/notes.txt"), "not an entry");
+  const sections = changelogSections(changelogText(repo)!);
+  expect(sections.map(s => s.title).slice(0, 3)).toEqual(["Rakes hang by size (GDN-8)", "Hoses coil themselves (GDN-9)", "The garden board shows which beds were watered (GDN-7)"]);
+  expect(namedIn("GDN-9", sections).map(s => s.title)).toEqual(["Hoses coil themselves (GDN-9)"]);
+  expect(changelogText(join(repo, "changelog"))).toBeNull();
 });

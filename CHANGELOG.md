@@ -7,14 +7,9 @@ active dogfood: the protocol and the schema still change, one version at a time.
 Before the two repositories became one (October 3, 2026), the door kept no changelog; its merged pull requests
 are its record. The outliner's entries from then are kept below, under
 [Outliner, before the one repository](#outliner-before-the-one-repository).
+Entries newer than the last fold wait in [`changelog/`](changelog/), one file per pull request, newest first by name.
 
 ## [Unreleased]
-
-### Two PRs that both touch the CHANGELOG or the health baseline merge without a conflict (PIE-1696)
-
-- **CHANGELOG:** `.gitattributes` merges `CHANGELOG.md` with git's `union` driver: two entries added at the top of `[Unreleased]` keep both. Two edits of one line keep both lines, without a conflict.
-- **Health baseline:** `scripts/health-baseline.json` no longer stores a commit id; `--report` reads it from git. Two branches whose counts agree write the same file; counts that differ still conflict.
-- **Run:** nothing. PROTOCOL and the schema don't move.
 
 ### The nightly run on main is green again (PIE-1692)
 
