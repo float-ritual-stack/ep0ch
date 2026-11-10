@@ -133,9 +133,16 @@ describe.skipIf(!outliner)("the showcase screen: paste a link", () => {
   // PIE-1316: every row that is a note copies it through its own tile's menu: the tree's selected row too, with no ref=.
   test("the tree's selected row copies its note's web link, the service's answer", async () => {
     await app.dispatch.act({ action: "section", args: { name: "entity" } }, USER);
-    let r: any = null;
-    await untilAsync(async () => !!(r = await act("note.copy-ref", { kind: "id" }, "tree", AGENT).catch(() => null)), "the tree on a row", 8000);
-    const link = (await act("note.copy-ref", { kind: "link" }, "tree", AGENT)).text as string;
+    // The section's tree settles its row as it loads: the id and the link are read of one row, the same before and after
+    // (a busy box let the row move between two reads, PIE-1692).
+    const copy = (kind: string) => act("note.copy-ref", { kind }, "tree", AGENT).then((answer: any) => answer.text as string, () => null);
+    let r: any = null, link = "";
+    await untilAsync(async () => {
+      const id = await copy("id"), linked = await copy("link"), again = await copy("id");
+      if (!id || !linked || id !== again) return false;
+      r = { text: id }; link = linked;
+      return true;
+    }, "the tree settled on a row", 8000);
     expect(link).toMatch(new RegExp(`/pub/o/${(await board.info()).outline}/p/[^/]+$`));
     expect(link.endsWith(`/p/${r.text}`) || /\/p\/[A-Z]+-\d+$/.test(link)).toBe(true);
     await app.dispatch.act({ action: "section", args: { name: "paste-a-link" } }, USER);

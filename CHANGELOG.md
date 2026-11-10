@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The nightly run on main is green again (PIE-1692)
+
+- **The river's kept dock shows the first program in front:** loading the river (or any layout) with programs still running keeps them in one shut dock, the first of them the tab in front, as before Nov 10; one an undo adds later still comes in front.
+- **The Asks extension's page reads at a glance:** its "the workboard's own notes" bullet is three short items instead of one long one.
+- **Run:** `ep0ch install --apply`. PROTOCOL and the schema don't move.
+
 ### Every key, hint and undo on a note says and does one thing (PIE-1667, PIE-1668, PIE-1669, PIE-1671, PIE-1672, PIE-1681, PIE-1678, PIE-1666)
 
 - **R says what it does:** with a proposal in view, the hint row names `R resolve`; with `[ ]` on a ticket or a line that runs, R fetches it again, as its line says, and the proposal waits for R off it.
