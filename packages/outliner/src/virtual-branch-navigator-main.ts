@@ -1,23 +1,11 @@
 import {MentionsNavigator} from "./mentions-navigator";
-import { emitKeypressEvents } from "node:readline";
-import { PassThrough } from "node:stream";
-import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
-import { StdinBuffer } from "@earendil-works/pi-tui";
-import { createOutlinerClient } from "./client";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { createHerdrSession, requireHerdr, startHerdrClient } from "./herdr-session";
 import { listLiveClients } from "./client-target";
 import { loadDetailReadPreview } from "./detail-read-preview";
-import { OutlinerActionKeymap } from "./outliner-actions";
-import { reportCurrentPaneWorkspace, currentPaneRuntime, openDetailPane } from "./pane-control";
-import { resolveClientPaths } from "./paths";
+import { currentPaneRuntime, openDetailPane } from "./pane-control";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
 import { blockDisplayTitle } from "./references";
-import {
-  BRACKETED_PASTE_DISABLE,
-  BRACKETED_PASTE_ENABLE,
-  TerminalInputDecoder,
-  type TerminalKey,
-} from "./terminal";
-import { isTreeMouseSequence } from "./tree-mouse";
 import type {
   Block,
   BookmarkResolution,
@@ -43,9 +31,7 @@ import {
   type VirtualBranchOccurrenceRow,
 } from "./virtual-branches";
 
-if (process.env.HERDR_ENV !== "1") {
-  throw new Error("Virtual branch navigator popup requires Herdr");
-}
+requireHerdr("Virtual branch navigator popup");
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -72,16 +58,11 @@ function parseLaunch(): VirtualBranchNavigatorLaunch {
 }
 
 const launch = parseLaunch();
-const paths = resolveClientPaths();
-reportCurrentPaneWorkspace(paths.workspaceRoot);
-const client = createOutlinerClient(paths);
+const { paths, client, keymap: actionKeymap } = await startHerdrClient();
 const mentions = launch.adapter === "mentions" ? new MentionsNavigator(client) : null;
-const actionKeymap = OutlinerActionKeymap.load();
 const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
   process.env.OUTLINER_OPEN_DESTINATION_TIMEOUT_MS,
 );
-let stopping = false;
-let workQueue = Promise.resolve();
 let rendered: VirtualBranchNavigatorRenderResult | null = null;
 let stopWatcher: (() => Promise<void>) | null = null;
 
@@ -256,7 +237,7 @@ const controller = new VirtualBranchNavigatorController(launch.sourceRole, {
     }
     : {}),
   close() {
-    stop();
+    void stop();
   },
   invalidate() {
     draw();
@@ -273,63 +254,34 @@ function draw(): void {
   process.stdout.write(rendered.frame);
 }
 
-function enqueueWork(task: () => void | Promise<void>): void {
-  workQueue = workQueue.then(task).catch((error) => {
+const stop = (exitCode = 0) => session.stop(exitCode);
+function enqueueWork(task: () => void | Promise<void>): void { session.enqueue(task); }
+const session = createHerdrSession({
+  // A paste is taken whole and dropped, never typed as keys.
+  modes: { mouse: "click", paste: true },
+  draw,
+  onError(error) {
     controller.status = error instanceof Error ? error.message : String(error);
     draw();
-  });
-}
-
-function stop(exitCode = 0): void {
-  if (stopping) return;
-  stopping = true;
-  void stopWatcher?.();
-  process.stdin.off("data", handleRawInput);
-  mouseInput.destroy();
-  keyboardInput.destroy();
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  process.stdout.off("resize", draw);
-  process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l`);
-  process.exit(exitCode);
-}
-
-initTheme(undefined, false);
-const inputDecoder = new TerminalInputDecoder();
-const mouseInput = new StdinBuffer();
-const keyboardInput = new PassThrough();
-function handleRawInput(data: string | Buffer): void {
-  mouseInput.process(data);
-}
-// Separate complete mouse reports before readline can turn their trailing m into a key.
-mouseInput.on("data", (sequence) => {
-  if (isTreeMouseSequence(sequence)) {
-    const clickedFrame = rendered;
-    if (clickedFrame) enqueueWork(() => controller.handleMouse(sequence, clickedFrame));
-  } else {
-    keyboardInput.write(sequence);
-  }
+  },
+  leave: () => void stopWatcher?.(),
+  input: { kind: "keypress", handlers: {
+    mouse(sequence) {
+      const clickedFrame = rendered;
+      if (clickedFrame) enqueueWork(() => controller.handleMouse(sequence, clickedFrame));
+    },
+    keypress(text, key, action) {
+      enqueueWork(() => controller.handleKeypress(
+        text,
+        key,
+        action,
+        process.stdout.rows ?? 30,
+        (process.stdout.columns ?? 100) < 84,
+      ));
+    },
+  } },
 });
-emitKeypressEvents(keyboardInput);
-if (process.stdin.isTTY) process.stdin.setRawMode(true);
-process.stdout.write(`\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h${BRACKETED_PASTE_ENABLE}`);
-process.stdin.on("data", handleRawInput);
-keyboardInput.on("keypress", (str: string | undefined, key: TerminalKey) => {
-  const text = str ?? "";
-  const sequence = key.sequence ?? text;
-  if (!sequence && !key.name) return;
-  const action = inputDecoder.consume(text, key);
-  enqueueWork(() => controller.handleKeypress(
-    text,
-    key,
-    action,
-    process.stdout.rows ?? 30,
-    (process.stdout.columns ?? 100) < 84,
-  ));
-});
-process.stdout.on("resize", draw);
-process.on("SIGINT", () => stop(130));
-process.on("SIGTERM", () => stop(143));
-process.on("SIGHUP", () => stop(129));
+session.start();
 
 try {
   // Bookmark scopes query blocks.query with the parsed view, which may carry a `where` expression.
@@ -365,5 +317,5 @@ try {
   draw();
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  stop(1);
+  await stop(1);
 }

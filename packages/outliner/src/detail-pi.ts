@@ -1,5 +1,5 @@
 import { eraseBack } from "@ep0ch/outline-core/graphemes";
-import { clientReload, reexecClient } from "./client-code";
+import { clientReload } from "./client-code";
 import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { installCrashLog } from "./crash-log";
 import { requestCompletionRows } from "./reference-completion";
@@ -27,9 +27,8 @@ import {createDetailDestination, type DetailDestinationPlacement} from "./detail
 import { ComposedLayout, ComposedTree, composedTreeNavigation, composedPointer, composedWidths } from "./composed-surface";
 import { navigationDestinationItems, navigationDestinationStatus, navigationPlacementItems, navigationPlacementStatus, NavigationDestinationDisplay, NavigationDestinationPreview, renderNavigationDestinationPreview } from "./navigation-destination-menu";
 import { getProperty } from "./properties";
-import { waitForCompatibleService } from "./service-compatibility";
-import { reportWhile } from "./program-status-emit";
-import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
+import { createHerdrSession, startHerdrClient, waitForService } from "./herdr-session";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
   decodeKittyPrintable,
   getCapabilities,
@@ -50,7 +49,7 @@ import {
   type OverlayHandle,
   type TuiInputListener,
 } from "@earendil-works/pi-tui";
-import { createOutlinerClient, type OutlinerWatcher } from "./client";
+import { type OutlinerWatcher } from "./client";
 import {
   startClientRuntimeSync,
   type ClientRuntimeSync,
@@ -60,7 +59,6 @@ import {
   actionMenuItemText,
   displayActionChord,
   filterActionMenuItems,
-  OutlinerActionKeymap,
   outlinerActionLink,
   type OutlinerActionMenuItem,
 } from "./outliner-actions";
@@ -113,7 +111,7 @@ import {
   editTextInExternalEditor,
   resolveExternalEditorConfiguration,
 } from "./external-editor";
-import { reportCurrentPaneWorkspace,
+import {
   configureCurrentPaneRightClick,
   detailTargetFromEnvironment,
   currentPaneRuntime,
@@ -134,7 +132,6 @@ import { openExternalUrl } from "./open-external";
 import { readHerdrPaneSnapshot } from "./herdr-comment-selection";
 import {copyRenderedSelection} from './rendered-links';
 import { TUI_RESOURCE_PRESENTATION_CONTEXT } from "./resource-presentation";
-import { resolveClientPaths } from "./paths";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
 import {
   isTreeMouseSequence,
@@ -195,7 +192,7 @@ class DetailTuiAltScreen extends TuiAltScreen {
   }
 }
 
-initTheme(undefined, false);
+const { paths, client, keymap: actionKeymap } = await startHerdrClient();
 setKeybindings(
   new KeybindingsManager(TUI_KEYBINDINGS, {
     "tui.altScreen.pageUp": [],
@@ -227,16 +224,12 @@ const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
 );
 const WEB_RESOURCE_REQUEST_TIMEOUT_MS = 17_000;
 
-const paths = resolveClientPaths();
 const uiConfig = OutlinerUiConfig.load();
 const paneDisplay = new PaneDisplay(() => synchronizeLayout?.());
-reportCurrentPaneWorkspace(paths.workspaceRoot);
-const client = createOutlinerClient(paths);
 const editRecovery = new EditRecoveryClient(client,paths.stateDir);
 const clientId = crypto.randomUUID();
 const destinationDisplay = new NavigationDestinationDisplay(client, {clientId, region: "detail"}, () => tui.requestRender());
 const browsingContextId = process.env.OUTLINER_BROWSING_CONTEXT_ID?.trim() || clientId;
-const actionKeymap = OutlinerActionKeymap.load();
 const rightClickOwnership = outlinerRightClickOwnership();
 let invokeDetailAction: (actionId: string) => Promise<void> = async () => {};
 const detailPresentation = process.env.OUTLINER_DETAIL_PRESENTATION?.trim() || "block";
@@ -351,7 +344,7 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
     }
     const pointer = pendingLinkClick;
     pendingLinkClick = { activate: false, routing: "linked", suppress: false };
-    if (pointer.suppress || stopping) return;
+    if (pointer.suppress || session.stopping) return;
     if (actionMenuInvoke && url.startsWith("pi-outliner-action:")) { actionMenuInvoke(url.slice("pi-outliner-action:".length)); return; }
     serviceEventScheduler.scheduleWork(async () => {
       if (focusedReader().state.destinationChooser.active) {
@@ -385,11 +378,9 @@ const tui = new DetailTuiAltScreen(processTerminal, false, undefined, {
     });
   },
 });
-let stopping = false;
 let externalEditorActive = false;
 let watcher: OutlinerWatcher | null = null;
 let runtimeSync: ClientRuntimeSync | null = null;
-let workQueue = Promise.resolve();
 const firstWatcherConnection = Promise.withResolvers<void>();
 let runtimeInitialized = false;
 
@@ -871,11 +862,7 @@ const composedTree: ComposedTree | null = composed ? new ComposedTree({
   detach: openTargetInNewDetail,
 }) : null;
 
-function enqueueWork(task: () => void | Promise<void>): void {
-  workQueue = workQueue.then(task).catch((error) => {
-    controller.onServiceError(error);
-  });
-}
+function enqueueWork(task: () => void | Promise<void>): void { session.enqueue(task); }
 const serviceEventScheduler = new DetailEventScheduler({
   clientId,
   enqueue: enqueueWork,
@@ -903,18 +890,6 @@ const serviceEventScheduler = new DetailEventScheduler({
   },
   supersedePreview: () => inspection.supersedePassivePreview(),
 });
-
-async function waitForService(): Promise<void> {
-  try {
-    // Said to a terminal that speaks the Program Status Protocol (OSC 7501) while it waits.
-    await reportWhile("ep0ch-detail", "waiting for the outline host", () => waitForCompatibleService(client, {
-      timeoutMs: paths.mode === "remote" ? 30_000 : 5_000,
-      pingTimeoutMs: paths.mode === "remote" ? 3_000 : 300,
-    }));
-  } catch (error) {
-    throw new Error(`Compatible outliner service is not available: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
 
 function startWatcher(): void {
   let runtime: ReturnType<typeof currentPaneRuntime>;
@@ -998,38 +973,44 @@ function calloutTypesSoon(): void {
   calloutTimer.unref?.();
 }
 
-async function stop(exitCode = 0, restart = false): Promise<void> {
-  if (stopping) return;
-  try {controller.checkpointRecovery();inspection.checkpointRecovery();}
-  catch(error){controller.onServiceError(error);return;}
-  await paneDisplay.stop();
-  destinationDisplay.dispose();
-  if (paneOwnsRightClick) {
-    try {
-      configureCurrentPaneRightClick("herdr");
-    } catch {
-      // The pane is already closing; do not mask terminal restoration.
+const stop = (exitCode = 0, restart = false) => session.stop(exitCode, restart);
+const session = createHerdrSession({
+  // Pi's TUI owns the screen, the mouse and the paste modes, and its own input.
+  input: { kind: "own" },
+  draw: handleResize,
+  onError: error => controller.onServiceError(error),
+  async prepare() {
+    try {controller.checkpointRecovery();inspection.checkpointRecovery();}
+    catch(error){controller.onServiceError(error);return false;}
+    await paneDisplay.stop();
+    destinationDisplay.dispose();
+    if (paneOwnsRightClick) {
+      try {
+        configureCurrentPaneRightClick("herdr");
+      } catch {
+        // The pane is already closing; do not mask terminal restoration.
+      }
     }
-  }
-  stopping = true;
-  provenanceInspector.dispose();
-  provenanceInspectorHandle?.hide();
-  keyInspector.dispose();
-  keyInspectorHandle?.hide();
-  composedTree?.dispose();
-  if (inputFlushTimer) clearTimeout(inputFlushTimer);
-  await runtimeSync?.stop();
-  await watcher?.stop();
-  process.stdout.off("resize", handleResize);
-  try {
-    await terminal.drainInput(100, 20);
-  } catch {
-    // Best effort during terminal shutdown.
-  }
-  tui.stop({ preserveScreen: true });
-  if (restart) reexecClient();
-  process.exit(exitCode);
-}
+  },
+  async leave() {
+    provenanceInspector.dispose();
+    provenanceInspectorHandle?.hide();
+    keyInspector.dispose();
+    keyInspectorHandle?.hide();
+    composedTree?.dispose();
+    if (inputFlushTimer) clearTimeout(inputFlushTimer);
+    await runtimeSync?.stop();
+    await watcher?.stop();
+    try {
+      await terminal.drainInput(100, 20);
+    } catch {
+      // Best effort during terminal shutdown.
+    }
+  },
+  restoreScreen: () => tui.stop({ preserveScreen: true }),
+  // Ctrl+C belongs to an external editor while one runs; every signal leaves with 0.
+  onSignal: signal => { if (signal !== "SIGINT" || !externalEditorActive) void stop(); },
+});
 
 let actionMenuHandle: OverlayHandle | null = null;
 let actionMenuInvoke: ((id: string) => void) | null = null;
@@ -1039,10 +1020,10 @@ let paneOwnsRightClick = rightClickOwnership === "outliner";
 /** While a menu is open the pane takes right-clicks (they pin), then hands them back to Herdr. */
 function syncRightClickOwnership(): void {
   const wanted = rightClickOwnership === "outliner" || actionMenuPin !== null || (composedTree ? treeMenuPinnable(composedTree.controller.view()) : false);
-  if (wanted === paneOwnsRightClick || stopping) return;
+  if (wanted === paneOwnsRightClick || session.stopping) return;
   paneOwnsRightClick = wanted;
   setImmediate(() => {
-    if (stopping) return;
+    if (session.stopping) return;
     try { configureCurrentPaneRightClick(paneOwnsRightClick ? "outliner" : "herdr"); }
     catch (error) { controller.onServiceError(error); }
   });
@@ -1735,7 +1716,7 @@ function scheduleInputFlush(): void {
   inputFlushTimer = setTimeout(() => {
     inputFlushTimer = undefined;
     serviceEventScheduler.scheduleWork(() => {
-      if (generation === inputGeneration && !stopping && !keyInspector.active && !provenanceInspector.active && !composedTree?.keyInspectorActive) return composedTree && focusedRegion === "tree" ? composedTree.flushInput() : flushInput();
+      if (generation === inputGeneration && !session.stopping && !keyInspector.active && !provenanceInspector.active && !composedTree?.keyInspectorActive) return composedTree && focusedRegion === "tree" ? composedTree.flushInput() : flushInput();
     });
   }, INPUT_IDLE_FLUSH_MS);
 }
@@ -1922,7 +1903,7 @@ synchronizeLayout();
 
 const detailInputListener = createPiDetailInputListener(
   data => {
-    if (!stopping) { serviceEventScheduler.scheduleWork(() => handleInput(data)); scheduleInputFlush(); }
+    if (!session.stopping) { serviceEventScheduler.scheduleWork(() => handleInput(data)); scheduleInputFlush(); }
   },
   data => shouldPassDetailInputToTui(data),
 );
@@ -2009,7 +1990,7 @@ function handleResize(): void {
 }
 
 async function initialize(): Promise<void> {
-  await waitForService();
+  await waitForService(client, paths, "ep0ch-detail");
   startWatcher();
   await firstWatcherConnection.promise;
   await controller.initialize();
@@ -2030,13 +2011,7 @@ try {
 clientReload.handover = () => stop(0, true);
 installCrashLog("detail", () => tui.stop({ preserveScreen: true }));
 
-process.on("SIGINT", () => {
-  if (!externalEditorActive) void stop();
-});
-process.on("SIGTERM", () => void stop());
-process.on("SIGHUP", () => void stop());
-process.stdout.on("resize", handleResize);
-
+session.start();
 tui.start();
 // Open the key inspector on startup, for keys the host intercepts before any menu can open.
 if (process.env.OUTLINER_DEBUG_KEYS === "1") openKeyInspector();

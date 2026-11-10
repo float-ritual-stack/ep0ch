@@ -1,28 +1,18 @@
-import { reportCurrentPaneWorkspace } from "./pane-control";
-import { initTheme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, ProcessTerminal } from "@earendil-works/pi-tui";
-import { createOutlinerClient } from "./client";
 import { decodePiDetailInput } from "./detail-pi-input";
 import { GotoController } from "./goto-controller";
 import { handleGotoMouse, renderGotoFrame } from "./goto-renderer";
-import { OutlinerActionKeymap } from "./outliner-actions";
-import { resolveClientPaths } from "./paths";
+import { createHerdrSession, requireHerdr, startHerdrClient } from "./herdr-session";
 import { isTreeMouseSequence } from "./tree-mouse";
 
-if (process.env.HERDR_ENV !== "1") throw new Error("Goto popup requires Herdr");
+requireHerdr("Goto popup");
 const sourceClientId = process.env.OUTLINER_GOTO_SOURCE_CLIENT_ID?.trim();
 if (!sourceClientId) throw new Error("OUTLINER_GOTO_SOURCE_CLIENT_ID is required");
 const sourceRegion = process.env.OUTLINER_GOTO_SOURCE_REGION;
 if (sourceRegion !== "tree" && sourceRegion !== "detail") throw new Error("OUTLINER_GOTO_SOURCE_REGION must be tree or detail");
 
-const paths = resolveClientPaths();
-reportCurrentPaneWorkspace(paths.workspaceRoot);
-const client = createOutlinerClient(paths);
-await client.requireCompatibleService();
-const keymap = OutlinerActionKeymap.load();
+const { client, keymap } = await startHerdrClient({ compatible: true });
 const terminal = new ProcessTerminal();
-let stopping = false;
-let workQueue = Promise.resolve();
 
 // The popup is a transient reader, not another registered Tree or Detail.
 const controller = new GotoController({
@@ -44,48 +34,37 @@ const controller = new GotoController({
 });
 
 function draw(): void {
-  if (stopping) return;
+  if (session.stopping) return;
   terminal.write("\x1b[H\x1b[2J" + renderGotoFrame(controller, terminal.columns, terminal.rows,
     keymap.helpText("tree", "goto")).join("\r\n"));
 }
 
-function enqueue(task: () => void | Promise<void>): void {
-  workQueue = workQueue.then(async () => { if (!stopping) await task(); }).catch(error => {
+const stop = (exitCode = 0) => session.stop(exitCode);
+const session = createHerdrSession({
+  modes: { mouse: "click" },
+  draw,
+  onError(error) {
     controller.status = error instanceof Error ? error.message : String(error);
     draw();
-  });
-}
-
-async function stop(exitCode = 0): Promise<void> {
-  if (stopping) return;
-  stopping = true;
-  controller.dispose();
-  await terminal.drainInput();
-  terminal.stop();
-  terminal.write("\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l");
-  process.exit(exitCode);
-}
-
-initTheme(undefined, false);
-// Keyboard protocol state belongs to the active screen buffer. Enter it first.
-terminal.write("\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h");
-terminal.start(data => {
-  if (isKeyRelease(data)) return;
-  if (isTreeMouseSequence(data)) {
-    enqueue(() => handleGotoMouse(controller, data, terminal.columns, terminal.rows));
-    return;
-  }
-  // ProcessTerminal already assembles complete keys and bracketed pastes.
-  const input = decodePiDetailInput(data);
-  if (input.kind === "paste") { enqueue(() => controller.paste(input.text)); return; }
-  if (input.inputAction === "suppress") return;
-  const mapped = keymap.canonicalize("tree", "goto", input.str, input.key);
-  if (mapped.suppressed) return;
-  enqueue(() => mapped.actionId === "tree.close" || (mapped.key.ctrl && mapped.key.name === "c")
-    ? controller.cancel()
-    : controller.input(mapped.str, mapped.key));
-}, draw);
-process.on("SIGINT", () => void stop(130));
-process.on("SIGTERM", () => void stop(143));
-process.on("SIGHUP", () => void stop(129));
+  },
+  leave: () => controller.dispose(),
+  input: { kind: "pi", terminal, onData(data) {
+    if (isKeyRelease(data)) return;
+    if (isTreeMouseSequence(data)) {
+      session.enqueue(() => handleGotoMouse(controller, data, terminal.columns, terminal.rows));
+      return;
+    }
+    // ProcessTerminal already assembles complete keys and bracketed pastes.
+    const input = decodePiDetailInput(data);
+    if (input.kind === "paste") { session.enqueue(() => controller.paste(input.text)); return; }
+    if (input.inputAction === "suppress") return;
+    const mapped = keymap.canonicalize("tree", "goto", input.str, input.key);
+    if (mapped.suppressed) return;
+    session.enqueue(() => mapped.actionId === "tree.close" || (mapped.key.ctrl && mapped.key.name === "c")
+      ? controller.cancel()
+      : controller.input(mapped.str, mapped.key));
+  } },
+});
+// Keyboard protocol state belongs to the active screen buffer: the session enters it first.
+session.start();
 controller.start();

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, ProcessTerminal } from "@earendil-works/pi-tui";
+import { createHerdrSession, requireHerdr } from "./herdr-session";
 import { decodePiDetailInput } from "./detail-pi-input";
 import { relaunchArgs, relaunchEnvironment } from "./herdr-open-relaunch";
 import { createHostedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
@@ -17,27 +18,18 @@ import { reportCurrentPaneWorkspace } from "./pane-control";
 import { clientSocket, machineFor, writeDotEp0ch } from "./paths";
 import { isTreeMouseSequence } from "./tree-mouse";
 
-if (process.env.HERDR_ENV !== "1") throw new Error("The outline chooser requires Herdr");
+requireHerdr("The outline chooser");
 const context = parseOutlineChooserContext(process.env.OUTLINER_CHOOSER_CONTEXT);
 reportCurrentPaneWorkspace(context.workspaceRoot);
 const chooser = new OutlineChooser(context);
 const terminal = new ProcessTerminal();
-let stopping = false;
-let workQueue = Promise.resolve();
 
 function draw(): void {
-  if (stopping) return;
+  if (session.stopping) return;
   terminal.write("\x1b[H\x1b[2J" + renderChooserFrame(chooser, terminal.columns, terminal.rows).join("\r\n"));
 }
 
-async function stop(exitCode = 0): Promise<void> {
-  if (stopping) return;
-  stopping = true;
-  await terminal.drainInput();
-  terminal.stop();
-  terminal.write("\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l");
-  process.exit(exitCode);
-}
+const stop = (exitCode = 0) => session.stop(exitCode);
 
 async function choose(): Promise<void> {
   const row = chooser.selected;
@@ -81,24 +73,14 @@ async function choose(): Promise<void> {
   await stop();
 }
 
-/** Waits for an in-progress choice so a created outline always gets its `.ep0ch`. */
-function queueStop(exitCode = 0): void {
-  workQueue = workQueue.then(() => stop(exitCode), () => stop(exitCode));
-}
-
 function apply(intent: ChooserIntent): void {
-  if (intent === "close") queueStop();
-  else if (intent === "choose") workQueue = workQueue.then(choose).catch(error => {
-    chooser.busy = false;
-    chooser.status = error instanceof Error ? error.message : String(error);
-    draw();
-  });
+  // Closing waits for an in-progress choice so a created outline always gets its `.ep0ch`.
+  if (intent === "close") session.stopAfterQueue();
+  else if (intent === "choose") session.enqueue(choose);
   else if (intent === "changed") draw();
 }
 
-initTheme(undefined, false);
-terminal.write("\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h");
-terminal.start(data => {
+function onData(data: string): void {
   try {
     if (isKeyRelease(data)) return;
     if (isTreeMouseSequence(data)) {
@@ -118,10 +100,22 @@ terminal.start(data => {
     console.error(error);
     void stop(1);
   }
-}, draw);
-process.on("SIGINT", () => queueStop(130));
-process.on("SIGTERM", () => void stop(143));
-process.on("SIGHUP", () => void stop(129));
+}
+
+initTheme(undefined, false);
+const session = createHerdrSession({
+  modes: { mouse: "click" },
+  draw,
+  onError(error) {
+    chooser.busy = false;
+    chooser.status = error instanceof Error ? error.message : String(error);
+    draw();
+  },
+  // Ctrl+C waits for a choice being written, as Esc does; TERM and HUP leave at once.
+  onSignal: (signal, exitCode) => signal === "SIGINT" ? session.stopAfterQueue(exitCode) : void stop(exitCode),
+  input: { kind: "pi", terminal, onData },
+});
+session.start();
 draw();
 void (async () => {
   const host = await outlineHostClient();
