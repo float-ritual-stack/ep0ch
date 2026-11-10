@@ -31,14 +31,17 @@ declarations, generated grammar bundles and vendor code are excluded.
 
 After removing copies or shrinking a large file, run `bun scripts/health-ratchet.ts --write` and commit the lowered
 `scripts/health-baseline.json` in the same PR. The check fails for a stale higher baseline too; `--write` refuses to
-raise an existing count or cap. The baseline keeps site fingerprints so moving lines does not invent copies.
+raise an existing count or cap. The baseline keeps site fingerprints so moving lines does not invent copies, and no
+commit id: two branches whose counts agree write the same file and merge clean, while counts that differ conflict.
+`.gitattributes` merges `CHANGELOG.md` with git's `union` driver, so two entries added at the top of `[Unreleased]`
+keep both; two edits of one line keep both lines too, with no conflict, so read the merged entry (PIE-1696).
 
 The repository mod's existing clock hands loki a **Code health** pass at its first tick on Sunday at or after 18:00
 America/Toronto, once per ISO week in the persistent plugin store, including across restarts. The pass reads main with
 `bun scripts/health-ratchet.ts --report` (also `--json`): large files, growth, 7-day churn, co-change pairs and copy counts.
 `--report previous.json` compares with the previous health note's JSON figures; the first pass uses the baseline and
-its Git revision. Loki picks one hotspot, inventories it only if PIE-1376 has no inventory, and writes one
-`Code health, <date>` note under PIE-1376 with `[type::health-pass]` and deltas. Nothing to report means one gurgle line
+the revision it was written from (the parent of the commit that last changed it). Loki picks one hotspot, inventories
+it only if PIE-1376 has no inventory, and writes one `Code health, <date>` note under PIE-1376 with `[type::health-pass]` and deltas. Nothing to report means one gurgle line
 and no note or tickets. Inventory writing and #hydra ticket filing belong to loki.
 
 ## Verification

@@ -120,3 +120,54 @@ test("the weekly report measures committed growth and co-changes against the pre
   }
   expect(run(dir, "--report", "previous.json").text).toContain(`${file}: 1006, +5, 2 commits`);
 });
+
+test("two branches whose counts agree merge the baseline clean; counts that really differ conflict (PIE-1696)", () => {
+  const dir = repo(), files = [0, 1, 2, 3, 4].map(n => `packages/door/src/bed-${n}.ts`);
+  const commit = (message: string) => {
+    git(dir, "add", ".");
+    git(dir, "-c", "user.name=Gardener", "-c", "user.email=garden@example.test", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", message);
+  };
+  const merge = (branch: string) => Bun.spawnSync(["git", "-c", "user.name=Gardener", "-c", "user.email=garden@example.test",
+    "-c", "commit.gpgsign=false", "merge", "--no-edit", branch], { cwd: dir });
+  const site = "const labelWidth = (label: string) => label.length + 1;\n";
+  const plant = (n: number, comment = "") => writeFileSync(join(dir, files[n]!), `// bed ${n}${comment}\n${site}`);
+  const weed = (n: number) => writeFileSync(join(dir, files[n]!), `// bed ${n}\n`);
+  files.forEach((_, n) => plant(n));
+  git(dir, "checkout", "-qb", "main");
+  commit("Five garden copies");
+  expect(run(dir, "--write").code).toBe(0);
+  commit("Baseline");
+  expect(readFileSync(join(dir, "scripts/health-baseline.json"), "utf8")).not.toMatch(/[0-9a-f]{40}/);
+
+  // Each branch changes code, rewrites the baseline as a PR does after merging main, and the next merges into main.
+  const branch = (name: string, change: () => void) => {
+    git(dir, "checkout", "-qb", name, "main");
+    change();
+    commit(`${name}: code`);
+    expect(run(dir, "--write").code).toBe(0);
+    commit(`${name}: baseline`);
+  };
+  const pair = (a: [string, () => void], b: [string, () => void]) => {
+    git(dir, "checkout", "-q", "main");
+    branch(...a);
+    branch(...b);
+    return merge(a[0]);
+  };
+
+  // Counts the same, different code: the same baseline on both sides.
+  const same = pair(["tulips", () => plant(0, ", tulips")], ["roses", () => plant(4, ", roses")]);
+  expect(same.exitCode).toBe(0);
+  expect(run(dir).code).toBe(0);
+
+  // Each removes a different copy: both removals land and the count is the sites left, with no stale number to lower.
+  const apart = pair(["weed-first", () => weed(0)], ["weed-last", () => weed(4)]);
+  expect(apart.exitCode).toBe(0);
+  expect(run(dir).code).toBe(0);
+  expect(JSON.parse(readFileSync(join(dir, "scripts/health-baseline.json"), "utf8")).patterns["width-length"].sites).toHaveLength(3);
+
+  // One removes a copy, the other that copy and its neighbour: the counts really differ, and the baseline conflicts.
+  const differing = pair(["prune-one", () => weed(1)], ["prune-two", () => { weed(1); weed(2); }]);
+  expect(differing.exitCode).not.toBe(0);
+  expect(differing.stdout.toString()).toContain("CONFLICT (content): Merge conflict in scripts/health-baseline.json");
+  expect(differing.stdout.toString()).not.toContain("Merge conflict in packages/door/src/");
+});
