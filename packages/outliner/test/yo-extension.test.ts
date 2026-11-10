@@ -125,9 +125,9 @@ async function until<T>(what: string, check: () => T | undefined | null | false)
 }
 
 /** A scratch service with yo installed, a made-up catalog (`ep0ch actions --all`) and a model that answers by its log. */
-async function setup(plan: unknown) {
+async function setup(plan: unknown, options: { claude?: { login?: string } } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-yo-")));
-  const was = Object.fromEntries(["OUTLINER_EXTENSIONS_DIR", "OUTLINER_RESOURCE_EXTENSIONS"].map(k => [k, process.env[k]]));
+  const was = Object.fromEntries(["OUTLINER_EXTENSIONS_DIR", "OUTLINER_RESOURCE_EXTENSIONS", "HOME", "PATH", "WITH_SECRETS_DIR", "CLAUDE_CODE_OAUTH_TOKEN"].map(k => [k, process.env[k]]));
   Object.assign(process.env, { OUTLINER_EXTENSIONS_DIR: join(root, "user"), OUTLINER_RESOURCE_EXTENSIONS: join(root, "none.json") });
   const folder = join(root, "outline"), yo = join(folder, "extensions", "yo");
   mkdirSync(join(folder, "extensions"), { recursive: true });
@@ -136,7 +136,18 @@ async function setup(plan: unknown) {
   writeFileSync(fakeCli, `const a = process.argv.slice(2); console.log(a[0] === "actions" && a[1] === "--all" ? ${JSON.stringify(JSON.stringify([LIFT, WATER]))} : a[0] === "actions" ? "the page" : "# Doc\\nnothing");`);
   writeFileSync(fakeModel, `import { appendFileSync } from "node:fs"; await Bun.stdin.text(); appendFileSync(${JSON.stringify(log)}, "answer\\n"); console.log(${JSON.stringify(JSON.stringify(plan))});`);
   writeFileSync(act, `import { appendFileSync } from "node:fs"; await Bun.stdin.text(); appendFileSync(${JSON.stringify(log)}, "act\\n"); console.log(JSON.stringify({ press: true, args: {} }));`);
-  writeFileSync(join(yo, "config.json"), JSON.stringify({ config: { answer: [process.execPath, fakeModel], act: [process.execPath, act], memory: {}, ep0ch: [process.execPath, fakeCli] } }));
+  if (options.claude) {
+    // PIE-1708: yo's own default (`claude -p …`), on a host with no Claude login of its own: a made-up HOME, no
+    // CLAUDE_CODE_OAUTH_TOKEN, and a `claude` that answers only with the made-up login and otherwise says what the
+    // real one says (on stdout) and exits 1. The login, when there is one, is the with-secrets `claude` group's.
+    const bin = join(root, "bin"), secrets = join(root, "secrets");
+    mkdirSync(bin); mkdirSync(join(root, "home")); mkdirSync(secrets);
+    writeFileSync(join(bin, "claude"), `#!/bin/sh\nif [ "$CLAUDE_CODE_OAUTH_TOKEN" = "tok-made-up-login" ]; then exec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeModel)}; fi\necho "Not logged in · Please run /login"\nexit 1\n`, { mode: 0o755 });
+    if (options.claude.login) writeFileSync(join(secrets, "claude.env"), `CLAUDE_CODE_OAUTH_TOKEN=${options.claude.login}\n`, { mode: 0o600 });
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    Object.assign(process.env, { HOME: join(root, "home"), PATH: `${bin}:${process.env.PATH}`, WITH_SECRETS_DIR: secrets });
+  }
+  writeFileSync(join(yo, "config.json"), JSON.stringify({ config: { ...(options.claude ? {} : { answer: [process.execPath, fakeModel], act: [process.execPath, act] }), memory: {}, ep0ch: [process.execPath, fakeCli] } }));
   const store = new OutlinerStore(join(root, "o.sqlite"), { workspaceRoot: folder });
   const socket = join(root, "o.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0 });
@@ -158,6 +169,24 @@ test("a quote runs only the answer model; the reply is the doc's words, with its
   expect(text).toContain('> [!note]+ @yo answered\n> `barrow.lift`: "lift the barrow above the bench as a column"\n> keys: ✦b · ^W Z\n> ::button{label="▲ lift"');
   expect(text).toMatch(/> > \[!note\]- \d+ steps\n> > - read memory: 0 notes/);
   expect(t.models()).toEqual(["answer"]);
+}, 30_000);
+
+test("PIE-1708: yo's default claude answers on a host with no Claude login of its own, from the with-secrets claude group", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" }, { claude: { login: "tok-made-up-login" } });
+  const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).not.toContain("no answer from the model");
+  expect(t.models()).toEqual(["answer"]);
+  expect(text).not.toContain("tok-made-up-login");
+}, 30_000);
+
+test("PIE-1708: with no Claude login stored, yo's line names the command that stores one, not \"exited 1\"", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" }, { claude: {} });
+  const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).toContain("no answer from the model: the answer model command: claude isn't logged in where the outline host runs; store its login: with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN");
+  expect(text).not.toContain("exited 1");
+  expect(t.models()).toEqual([]);
 }, 30_000);
 
 test("PIE-1629: a how-do-I question never reaches the act model, even when the answer model says act; a command does", async () => {

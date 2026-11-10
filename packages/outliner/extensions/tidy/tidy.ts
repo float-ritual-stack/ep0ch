@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { codeFenceLines } from "./link-grammar.js";
-import { LIST_ITEM, tidyPassage } from "./tidy-line";
+import { CLAUDE_LOGIN_FIX, LIST_ITEM, notLoggedIn, tidyPassage } from "./tidy-line";
 
 interface Request {
   operation: string;
@@ -46,6 +46,7 @@ async function modelAnswer(command: string[], prompt: string): Promise<unknown> 
   try { proc = Bun.spawn(command, { stdin: new Blob([prompt]), stdout: "pipe", stderr: "pipe" }); }
   catch (e) { throw failure(command, `answer command couldn't start (${(e as Error).message})`); }
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  if (code !== 0 && notLoggedIn(out, err)) throw new Error(CLAUDE_LOGIN_FIX);
   if (code !== 0) throw failure(command, `answer command exited ${code}${err.trim() ? `, saying "${firstLines(err)}"` : ""}`);
   let result: unknown;
   try { result = JSON.parse(out.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1")); } catch { throw new Error(`model did not return JSON (${shown(command)} printed "${firstLines(out)}")`); }

@@ -81,7 +81,8 @@ It reads the whole window, however many notes, and marks the confirmed lines onl
     - **What that saves:** about 900 tokens on top of the prompt; a bare `claude -p --tools ""` carries about 245,000.
     - **What it needs:** a `claude` whose `--help` lists `--safe-mode`; an older one fails the call, and nothing is written.
   - **To change it:** `ep0ch act ext.asks.settings answer='…'`.
-  - **Where `claude` can't read its login,** such as a host under launchd: start the command with `with-secrets claude --`.
+  - **Where `claude` can't read its login,** such as a host under launchd: store it once, `with-secrets --add claude
+    CLAUDE_CODE_OAUTH_TOKEN`, and the host gives it to every extension's `claude`; a call with no login says that command.
 
 ## How it's made
 

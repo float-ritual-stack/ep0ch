@@ -1,7 +1,7 @@
 // The host API (src/host-api.ts, scripting slice 1, PIE-720): the agent tools as plain functions over the service, as a
 // script calls them. Against a private scratch service; fictional notes only.
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -400,6 +400,29 @@ test("a render that draws query() is drawn again when a new note matches", async
   expect(await until("one open", () => output(note.id)[0])).toContain("open: 1");
   create("Oil the hinge [type::errand] [status::open]");
   await until("two open", () => output(note.id)[0]?.includes("open: 2"));
+});
+
+test("PIE-1708: sh hands a script's claude the host's Claude login, and never hands the login back in its output or its step", async () => {
+  const { client } = await setup();
+  const secrets = mkdtempSync(join(tmpdir(), "outliner-sh-login-"));
+  writeFileSync(join(secrets, "claude.env"), "CLAUDE_CODE_OAUTH_TOKEN=tok-made-up-sh-login\n", { mode: 0o600 });
+  const was = { dir: process.env.WITH_SECRETS_DIR, token: process.env.CLAUDE_CODE_OAUTH_TOKEN };
+  process.env.WITH_SECRETS_DIR = secrets;
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  cleanups.push(async () => {
+    for (const [key, value] of [["WITH_SECRETS_DIR", was.dir], ["CLAUDE_CODE_OAUTH_TOKEN", was.token]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(secrets, { recursive: true, force: true });
+  });
+  const steps: import("../src/host-api").HostStep[] = [];
+  const api = hostApi(client, { actorId: "seed-script" }, { onStep: s => { if (s.phase !== "start") steps.push(s); } });
+  // A script that prints its environment into a note: the login reached it, and comes back redacted.
+  const printed = await api.sh([process.execPath, "-e", "console.log('login=' + process.env.CLAUDE_CODE_OAUTH_TOKEN); console.error('also ' + process.env.CLAUDE_CODE_OAUTH_TOKEN); process.exit(2)"]);
+  expect(printed).toMatchObject({ exit: 2, stdout: "login=[redacted]\n", stderr: "also [redacted]\n" });
+  await Bun.sleep(0);
+  expect(JSON.stringify(steps)).not.toContain("tok-made-up-sh-login");
+  expect(JSON.stringify(steps)).toContain("login=[redacted]");
 });
 
 test("sh and fetch hand the script their whole output and record a step with its first lines", async () => {
