@@ -157,7 +157,7 @@ import { clipboardImage, dropActions, droppedImage, imageLine, imagePathAt, keep
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
 import { COMPLETION_ACTIONS, COMPLETION_DOCS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, completerFor, completerOf, completionOf, draftEscCloses, recordCompletionPick, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
-import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
+import { checkValue, propertyRows, PropertyPanel, valueField, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { filterLine, LineField } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlocksEnv } from "../links";
@@ -969,7 +969,7 @@ export class NoteSurface {
   get replyParent(): Msg | null { return (this.modes.get("draft") as DraftMode | null)?.reply ?? null; }
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** The draft session the reader holds: its edit's, else its comment's text (the draft rule asks it, PIE-514). */
-  draftSession(): DraftSession | null { return this.drafting ?? this.session?.writing ?? this.listEditor.field?.session ?? null; }
+  draftSession(): DraftSession | null { return this.drafting ?? this.session?.writing ?? this.listEditor.field?.session ?? this.panel?.field?.session ?? null; }
   /**
    * The person is in this reader's edit, comment or panel: it holds the keys, and it isn't an agent's own that the
    * person hasn't typed in (an agent's comment holds a reader's keys from the start; it's the person's once they type).
@@ -1890,7 +1890,7 @@ export class NoteSurface {
       this.panel.origin = at;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
-      const ph = Math.min(rows.length + 2 + (info.values.length ? Math.min(info.values.length, 6) + 1 : 0) + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4, Math.floor((h - head.length) * 0.5)));
+      const ph = Math.min(rows.length + 2 + (info.values.length ? Math.min(info.values.length, 6) + 1 : 0) + (this.panel.foot() ? 1 : 0), Math.max(4, Math.floor((h - head.length) * 0.5)));
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
@@ -2771,7 +2771,7 @@ export class NoteSurface {
   }
   settingFields(m: Msg, _schema: readonly ComponentSchema[]): SettingField[] { return settingsSubject(this, m).fields; }
   closePanel(): boolean {
-    if (this.panel?.field && this.panel.field.input.text !== this.panel.field.row.value && !this.panel.field.saving) return false;
+    if (this.panel?.field && this.panel.field.input.text !== this.panel.field.row.value && !this.panel.field.session.busy) return false;
     this.panel = null;
     return true;
   }
@@ -2820,57 +2820,49 @@ export class NoteSurface {
   editValue(r: PropRow): void {
     const m = this.msg!;
     if (!this.panel || m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked; open it again");
-    this.panel.field = { row: r, input: Object.assign(new LineField(r.value, false, { complete: { valueKey: r.key } }), { near: m.id }), revision: m.revision, saving: false, note: "", changedElsewhere: false };
+    const board = () => { if (!this.src) throw new Error("no connection to the outline"); return this.src.board; };
+    this.panel.field = valueField({ ...m, revision: m.revision }, this.rows(m), r, {
+      write: (note, revision, row, value, by) => this.patchValue(note, revision, row, value, board(), by),
+      read: async () => { const now = await board().get(m.id), t = now && await tokensFor(now.text, this.src); return now && { m: now, rows: this.rows(now, t?.state === "ready" ? t.tokens : null) }; },
+    }, { redraw: () => this.src?.redraw(), said: text => this.context?.flash(text) });
   }
 
   /**
    * One `properties.patch` of `row`'s token in `m`, at `revision`: the revision `row`'s ordinal was read
    * from, so the service refuses it if the note has moved on. Returns the saved note (also shown here).
    */
-  async patchValue(m: Msg, revision: number, row: PropRow, value: string, host: SurfaceHost, actor: Actor): Promise<Msg> {
+  async patchValue(m: Msg, revision: number, row: PropRow, value: string, board: SocketBoard, actor: Actor): Promise<Msg> {
     // Never underneath a draft someone has open on that note (the draft session's agent rule).
-    const no = agentRefusal(actor, { board: host.ctx.board, blockId: m.id });
+    const no = agentRefusal(actor, { board, blockId: m.id });
     if (no) throw new ActionRefused(no);
     let ordinal = row.ordinal;
     if (ordinal === null) {
       // No properties.preview on this service: ask it for this key's tokens, at the same revision.
-      const t = await host.ctx.board.propertyTokens(m.id, row.key);
+      const t = await board.propertyTokens(m.id, row.key);
       if (t.revision !== revision) throw new EditConflict(m.id, "changed since the panel read it");
       const nth = this.rows(m).filter(r => r.key === row.key && r.n <= row.n).length - 1;
       ordinal = t.tokens.filter(x => x.scope === "block")[nth]?.ordinal ?? null;
       if (ordinal === null) throw new Error(`the service doesn't list ${row.key} on the note any more`);
     }
-    const saved = await host.ctx.board.patchProperties(m.id, revision, [{ op: "replace", ordinal, value }], actor);
+    const saved = await board.patchProperties(m.id, revision, [{ op: "replace", ordinal, value }], actor);
     if (this.msg?.id === m.id) { this.refresh({ ...saved, childIds: this.msg.childIds }); this.links = linksOf(this.msg!); }
     return saved;
   }
 
   /**
-   * Save the value being typed: one `properties.patch` of that token, refused by the service if the note
-   * changed since the panel read it (nothing is retried over someone else's change). Returns the new
-   * revision, or null with the reason in the field's note.
+   * Save the value being typed, through its session (a refusal, a stale one included, is said on its line and keeps the
+   * text). Returns the new revision, or null.
    */
   async saveValue(host: SurfaceHost, actor: Actor = host.actor ?? USER): Promise<number | null> {
-    const f = this.panel?.field, m = this.msg;
-    if (!f || !m || f.saving) return null;
-    const why = checkValue(f.row, f.input.text);
-    if (why) { f.note = why; host.redraw(); return null; }
-    const value = f.input.text.trim();
-    if (value === f.row.value) { this.panel!.field = null; this.panel!.note = "unchanged"; host.redraw(); return m.revision ?? null; }
-    f.saving = true; f.note = "saving…"; host.redraw();
-    try {
-      const saved = await this.patchValue(m, f.revision, f.row, value, host, actor);
-      if (this.panel?.field === f) this.panel.field = null;
-      const said = `saved · revision ${saved.revision} · ${f.row.key}: ${printable(f.row.value)} → ${printable(value)}`;
-      if (this.panel) this.panel.note = said;
-      host.ctx.flash(said);
-      return saved.revision ?? null;
-    } catch (e) {
-      f.saving = false;
-      if (e instanceof EditConflict) { f.changedElsewhere = true; f.note = "changed elsewhere since the panel read it · not saved · esc, then enter edits the current value"; }
-      else f.note = `not saved: ${e instanceof Error ? e.message : String(e)}`;
-      return null;
-    } finally { host.redraw(); }
+    const f = this.panel?.field, m = this.msg, was = f?.row.value ?? "", value = f?.input.text.trim() ?? "";
+    if (!f || !m || f.session.busy) return null;
+    const r = await f.session.submit(actor).finally(() => host.redraw());
+    if (!r.ok) return null;
+    if (this.panel?.field === f) this.panel.field = null;
+    const said = r.said ?? `saved · revision ${r.revision} · ${f.row.key}: ${printable(was)} → ${printable(value)}`;
+    if (this.panel) this.panel.note = said;
+    if (r.said === undefined) host.ctx.flash(said);
+    return r.revision ?? m.revision ?? null;
   }
 
   /** `s`: show or hide this key in the summary line, as your own choice (kept on this machine). */
@@ -2904,7 +2896,8 @@ export class NoteSurface {
     // The panel's commands are the props.* actions (PIE-506); moving its selection and typing a value are its own.
     if (intent === "close") void this.runKey("props.close", {}, host);
     else if (intent === "full") P.full = !P.full;
-    else if (intent === "cancel") { P.field = null; P.note = ""; }
+    else if (intent === "cancel") { P.field?.session.dispose(); P.field = null; P.note = ""; }
+    else if (intent === "reload") void this.runKey("edit.reload", {}, host);
     else if (intent === "save") void this.saveValue(host);
     else if (r && intent === "copy") void this.runKey("props.copy", { n: r.n }, host);
     else if (r && intent === "follow") void this.runKey("props.follow", { n: r.n }, host, true);
@@ -3719,6 +3712,8 @@ export class NoteSurface {
       // ctrl+r is the draft's own key (DRAFT_KEYS); it's named here only when there's something to reload.
       get keys() { return cs.mode === "compose" ? [...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row), ...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload") : [])] : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
+      // The note moved on: a comment on a passage of it, or on the whole of it, is told as a note's edit is (PIE-1658).
+      changed: revision => cs.noteChanged(revision),
       // Its way out: what was over it went with it (a grip, the placement menu, the leave ask); the keys it took go back.
       dropped: () => {
         if (this.revisionMode) this.modes.focus(this.revisionMode, true);
@@ -10403,7 +10398,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit.reload": def({
-    summary: "ctrl+r in any draft, after what it's written on moved on: a note's edit or a posted comment's edit starts over from its current text (what was typed is copied to disk first), a comment finds its quote again in the note's current text (nearest where it was), or picks the passage again when its words are gone, its text staying; what's typed during the read is held and lands after it. A draft with nothing behind it (a new card, a reply) says so", keys: "ctrl+r",
+    summary: "ctrl+r in any draft, after what it's written on moved on: a note's edit or a posted comment's edit starts over from its current text (what was typed is copied to disk first), a comment finds its quote again in the note's current text (nearest where it was), or picks the passage again when its words are gone, its text staying, a comment on the whole note takes the note's current revision, and a property's value in the panel starts over from its current value; what's typed during the read is held and lands after it. A draft with nothing behind it (a new card, a reply) says so", keys: "ctrl+r",
     touches: "draft", draft: "type", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.reload(host, actor),
@@ -11645,7 +11640,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ n, key, value, revision }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       const f = surface.panel?.field;
-      if (f && (f.saving || f.input.text !== f.row.value)) throw new ActionRefused(f.saving ? "a value is being saved here" : `a value (${f.row.key}) is being typed here; it's someone else's until saved or cancelled`);
+      if (f && (f.session.busy || f.input.text !== f.row.value)) throw new ActionRefused(f.session.busy ? "a value is being saved here" : `a value (${f.row.key}) is being typed here; it's someone else's until saved or cancelled`);
       const { m, row } = await propRow(surface, n, key);
       if (revision !== undefined && m.revision !== revision) throw new ActionRefused(`the note is at revision ${m.revision}, not ${revision}; read the properties again (props)`);
       if (m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked");
@@ -11659,7 +11654,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (to === row.value) return { saved: false, unchanged: true, key: row.key, revision: m.revision };
       // Straight to the service at the revision the ordinal came from; the person's panel and keys are left alone.
       let saved: Msg;
-      try { saved = await surface.patchValue(m, m.revision, row, to, host, actor); } catch (e) {
+      try { saved = await surface.patchValue(m, m.revision, row, to, host.ctx.board, actor); } catch (e) {
         throw new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its properties were read · not saved; read them again (props)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);
       }
       host.ctx.flash(`saved · revision ${saved.revision} · ${row.key}: ${printable(row.value)} → ${printable(to)}`);

@@ -18,6 +18,14 @@ are its record. The outliner's entries from then are kept below, under
 - **In the kitchen sink:** the Pick a tile section's title it button (`ep0ch --showcase`).
 - **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL and GRAMMAR don't move.
 
+### ctrl+r does the same in every draft: a comment and a property's value too (PIE-1658)
+
+- **A comment hears the note move:** a comment on a passage or on the whole note now says "changed elsewhere" when someone else saves the note, as a note's edit does. ctrl+r finds the quote again (or takes the whole note as it is now), keeps what you type during the read, and clears the warning once.
+- **A comment on the whole note no longer gets stuck:** sent after the note moved on, it was refused with no way forward. It's now a stale refusal like any other: your text is kept and copied, and ctrl+r then ctrl+s sends it.
+- **A property's value in the panel reloads:** it used to say "esc, then enter edits the current value", which dropped what you'd typed. It now warns on a change elsewhere, keeps your text on a refused save, and ctrl+r loads the value as the note has it now, with what you type meanwhile landing on it.
+- **One owner:** the draft session decides the warning, the reload and when it clears for all five (a note's edit, a comment, a comment's edit, a reply, a property's value). The comment's own stale flag and the panel's own saving, note and changed-elsewhere are gone.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
+
 ### Paste a note's link into a note and it opens (PIE-1401, PIE-1316, PIE-1390)
 
 - **A bare address is a link.** A note's web link (`https://my.ep0ch.sh/pub/p/HOME-006`) or its `ep0ch://` address pasted on its own into a note is drawn as written and opens that note when clicked (⏎ on it, or `link.follow`); one of this outline's opens as its own note. Any other `https://` page opens in the browser. Code, Markdown links, references and `[key::…]` values are left as they were.
