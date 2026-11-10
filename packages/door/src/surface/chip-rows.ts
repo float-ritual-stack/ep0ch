@@ -112,10 +112,11 @@ export function tabStrip(tabs: readonly Tab[], o: StripOptions): TabRow[] {
     const marked = t.cursor ? `\x1b[4m${drawn}\x1b[24m` : hot && !t.on && s.key ? `${p}${s.key}${hot}${RESET}${look}${label ? " " + label : ""}${p}` : drawn;
     // A segment yielded down to nothing draws nothing: a cut value's marker around no cells would still show a letter.
     const full = !n && t.label ? "" : fullText(t.hint ?? `${p}${hot}${hot ? " " : ""}${t.label}${p}`, marked, undefined, record ? { id: record.id, n: i } : undefined, { ...t, hit: t.hit ? { ...t.hit, tile: t.hit.tile ?? record?.tile } : undefined });
-    // A yielding tab (a message) the strip cut reads from its start, cut at its end (the shared ellipsize, PIE-1707): lit, it
-    // isn't the strip's selected value, so the Overflow pass never scrolls it to a window from its middle by itself. The
-    // pointer on it still reads it whole, and a message is said whole above the bar (PIE-1428).
-    const body = look + (t.on && !(t.yield && label !== t.label) ? selectFullText(full) : full) + RESET;
+    // A tab the strip cut reads from its start, cut at its end (the shared ellipsize): lit, it isn't the strip's selected
+    // value, so the Overflow pass never scrolls it to a window from its middle by itself, a message (PIE-1707) or a tile's
+    // tab (the drawer's at 44 columns, PIE-1719). The pointer on it still reads it whole, and a message is said whole above
+    // the bar (PIE-1428).
+    const body = look + (t.on && label === t.label ? selectFullText(full) : full) + RESET;
     text += (o.tag && i >= 0 ? o.tag(body, i) : body) + (t.label.includes("\x1b]8;") ? OSC8_CLOSE : "") + gap;
     under += (t.on && s.under ? s.under + "▀".repeat(n) + RESET : " ".repeat(n)) + " ".repeat(width(gap));
     if (t.hit) hits.push({ from: (o.at ?? 0) + x, to: (o.at ?? 0) + x + n, index: i, label: t.label, alt: t.alt, ...t.hit });

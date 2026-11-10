@@ -1798,7 +1798,7 @@ export class Showcase implements Screen {
 
   private hints(cols: number): string {
     return pad(paint(this.focus === "index"
-      ? "|08 ↑↓ j k 1-9 0 section · |15⏎ → l tab|08 try it · click a section or the part · |15V|08 video · |15q|08 back"
+      ? "|08 ↑↓ j k 1-9 0 section · |15⏎ → l tab|08 try it · click a section or the part · |15V|08 video · |15?|08 keys · |15q|08 back"
       : `|14 in ${SECTIONS[this.sel]!.key}|08 · the part's own keys and mouse (its hints are on its bottom row) · |15esc|08 backs out, to the sections at last`), cols);
   }
 
@@ -1813,12 +1813,14 @@ export class Showcase implements Screen {
     if (/^[0-9]$/.test(c)) return this.run("section", { name: c === "0" ? "10" : c });
     if (k.kind === "enter" || k.kind === "right" || k.kind === "tab" || c === "l") return this.run("section.try", {});
     if (c === "V") return this.shell("video.cycle");
+    // ? is the keys on every screen, the section rail too (PIE-1719).
+    if (c === "?") return this.shell("keys.open");
   }
 
   /** A key or click on the index as the person: the showcase's own action. A refusal is said. */
   private run(name: "section" | "section.try", args: { name?: string }) { void this.dispatch.pressIn(SHOWCASE_ACTIONS, name, args); }
   /** The shell's q and V (src/shell-keys.ts: screens.ts imports this module). */
-  private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
+  private shell(name: "screen.back" | "video.cycle" | "keys.open") { shellKeyOf(name, this, this.ctx); }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const r = this.stageRect;

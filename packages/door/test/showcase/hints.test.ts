@@ -301,4 +301,15 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     await d.dispatch.press("tile.header", { mode: "note" }, "source");
   }, 40_000);
 
+  // PIE-1719: ? on the section rail opens the keys, as on every screen; it was swallowed there.
+  test("? on the showcase's section rail opens the keys window", async () => {
+    await h.app.act({ action: "section", args: { name: "hints" }, as: "test-agent" }).catch(() => {});
+    (h.S() as any).focus = "index";
+    const top = () => (h.app as any).stack.at(-1);
+    const before = top();
+    h.ch("?");
+    await until(() => top() !== before && /keys/i.test(top().title ?? ""), `the keys window over the showcase (on ${top().title})`, 8000);
+    h.press({ kind: "esc" });
+    await until(() => top() === before, "esc closed it", 8000);
+  });
 });
