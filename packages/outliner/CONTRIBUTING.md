@@ -86,7 +86,16 @@ source evidence or distinguish authored glyphs from controls.
 - `src/loki-leases.ts` owns host-wide query leases, expiry, revocation and rate limits. `src/publish-loki.ts` proxies only admitted reads through the existing signed-in publisher; CLI and MCP mint through the host.
 - `src/upload-tokens.ts` owns upload leases and device tokens (host-wide, persisted as digests); `src/publish-upload.ts` is the one route that takes a file under them and `src/artifact-store.ts`'s watcher the one place a drop is installed; `src/artifact-archive.ts` owns the zip rules beside the tar path's `untar`; `src/artifact-handover.ts` writes the card and the record. A lease is asked of an outline (`artifacts.lease`) so the card has a home.
 - `src/env-file.ts` owns settings-file parsing (trim, then unquote; preserve empty values), shared with the door through its package export.
-- `src/store.ts` owns persistence and canonical graph invariants.
+- `src/store.ts` owns persistence and canonical graph invariants. What it computes without its state lives beside
+  it: `src/tree-index-labels.ts` (a tree index's per-note labels, which the store keeps per outline),
+  `src/roadmap-input.ts` (what a new roadmap item may say), `src/graph-slices.ts` (`PROPERTY_COLUMNS`,
+  `compareBinary`). Its metadata reads and writes go through `readMetadata`/`writeMetadata`; a Work ID written as its
+  canonical form is outline-core's `canonicalWorkId`.
+- `src/resource-catalog.ts` owns Resources: sources, interning, reads, refreshes and computed execution, one class
+  over the catalog's tables. `src/resource-rows.ts` says what each row holds and how it becomes a record;
+  `src/filesystem-source.ts` owns a filesystem Source's root (binding, drift, the rebind command, confinement,
+  `escapesRoot`); `src/http-response.ts` reads a fetched response the same way for the web, PDF and remote-entity
+  fetchers; `web-markdown.ts`'s `sha256` is the content hash for text and bytes.
 - `src/create-request.ts` keeps a create's request receipt in the store's transaction. `store.create` still owns
   placement and creation time; `create` and every `outline_create` caller use it for idempotent appends.
 - `src/extension-pages.ts` owns extension pages and removal of demos and explicitly marked generated output;
@@ -119,7 +128,7 @@ source evidence or distinguish authored glyphs from controls.
   chrome per pane kind, shared in shape with the door); `src/reader-chrome.ts`
   draws every pane's bar and hint row from it and the action registry. A new
   pane kind adds a kind there, not its own header or footer.
-- `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation. `DetailState.mode` is its one machine (`DetailModeState`): a comment holds its draft and where it returns, the file view its line selection; the ready document holds its read status, and `detailDocumentRefreshing` answers "is this about to change".
+- `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation. `DetailState.mode` is its one machine (`DetailModeState`): a comment holds its draft and where it returns, the file view its line selection; the ready document holds its read status, and `detailDocumentRefreshing` answers "is this about to change". The controller's closure is banded by region (loading, backlinks, navigation, editing, comments, save, `dispatch`); what reads none of its state lives in siblings: `src/detail-annotation-targets.ts` (a selection made into an annotation target), `src/detail-resource-document.ts` (the document shown for a Resource). The backlink panel's open/closed rule is outline-core's `backlinkGroupExpanded`, the door's too; the editor's moves are `text-buffer-editor.ts`'s `applyTextBufferEditorCommand`.
 - `src/virtual-branches.ts` owns projection semantics, saved-view record compilation (`parseVirtualBranchConfig` → `virtualBranchMembershipQuery`, shared by reads, write planning and collection producers), and create-parent resolution.
 - `src/program-status-emit.ts` (a declared export, `@ep0ch/outliner/program-status-emit`) is the one emitter of
   program status (OSC 7501, PIE-614) for our own commands: whether this terminal speaks it (`EP0CH_PROGRAM_STATUS`,
