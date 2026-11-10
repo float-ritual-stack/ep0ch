@@ -318,6 +318,15 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect((await board.get(seeded.notes.looksLab.id))!.text).toMatch(/\[style\.(narrow\.)?list\.gap::2\]/);
     expect(await app.act({ action: "tune.set", args: { row: "list.gap", value: "1" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "1" });
     expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
+    // Nudged and nudged back (PIE-1661): the style note already holds that value, so saving writes nothing and says so.
+    const lab = (await board.get(seeded.notes.looksLab.id))!.revision;
+    await app.act({ action: "tune.nudge", args: { row: "list.gap", by: 1 }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.nudge", args: { row: "list.gap", by: -1 }, tile: "tune", as: "test-agent" });
+    const same = await app.act({ action: "tune.save", tile: "tune", as: "test-agent" }) as Record<string, unknown>;
+    expect(same).toMatchObject({ saved: false, unchanged: true });
+    expect(same.recordedAs).toBeUndefined();
+    expect((await board.get(seeded.notes.looksLab.id))!.revision).toBe(lab);
+    expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: false, at: "nothing unsaved" });
     for (const [row, value] of [["header.bg", "raised"], ["header.bg.opacity", "100"], ["header.rule", "line"]]) {
       expect(await app.act({ action: "tune.set", args: { row, value }, tile: "tune", as: "test-agent" })).toMatchObject({ value });
     }

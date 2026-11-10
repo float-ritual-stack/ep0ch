@@ -103,7 +103,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, RECORDED_AS, recordedAnswer, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, RECORDED_AS, recordedAnswer, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, copyLineRef, deliverNoteRef, lineRef, noteCopyText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
@@ -5952,7 +5952,7 @@ export class NoteSurface {
    * heading the keys selected, then the line being read. `own`: this door's outline, so another's note is named with
    * its outline. The person's goes to their clipboard; an agent's is returned to it.
    */
-  async copyNoteRef(kind: NoteRefKind, host: SurfaceHost, actor: Actor, own: string | undefined, line?: number): Promise<{ id: string; kind: string; text: string; clipboard: boolean; line?: number; anchor?: string; created?: boolean }> {
+  async copyNoteRef(kind: NoteRefKind, host: SurfaceHost, actor: Actor, own: string | undefined, line?: number): Promise<{ id: string; kind: string; text: string; clipboard: boolean; line?: number; anchor?: string; created?: boolean; recordedAs?: RecordedAs }> {
     const m = await this.whole();
     const where = { outline: m.address?.outline ?? own, foreign: !!m.address?.outline && m.address.outline !== own };
     const said = (msg: string) => this.noteAgent(actor, msg);
@@ -7441,7 +7441,7 @@ export class NoteSurface {
     try { r = await copyLineRef(host.ctx, actor, { blockId: drawnFields.from, line: row.line, revision: drawnFields.revision }, said => this.noteAgent(actor, said)); }
     catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); throw e; }
     host.redraw();
-    return { block: drawnFields.from, noteLine: row.line + 1, anchor: r.anchor, created: r.created, link: r.text, clipboard: r.clipboard, recordedAs: recordedAnswer(actor) };
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: r.anchor, created: r.created, link: r.text, clipboard: r.clipboard, ...(({ recordedAs }) => (recordedAs ? { recordedAs } : {}))(r) };
   }
 
   /**

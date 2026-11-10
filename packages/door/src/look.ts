@@ -385,7 +385,8 @@ export function listFieldsTuned(src: ListSource | null | undefined, note: string
 
 
 /** Where a save of `target` went, in words. */
-export interface Saved { target: TuneTarget; note: string; fields: string[]; created: boolean }
+/** One target saved: `changed` false when its notes (or its tile) already held every value, so nothing was written (PIE-1661). */
+export interface Saved { target: TuneTarget; note: string; fields: string[]; created: boolean; changed: boolean }
 
 /** A new style note's home: beside the outline's other style notes, else under a `Looks` note made for them. */
 async function styleHome(board: StyleWriteBoard, sheets: readonly StyleSheet[], actor: Actor): Promise<string | null> {
@@ -548,7 +549,7 @@ async function writeAgain(board: StyleWriteBoard, tuning: Tuning, tiles: TileLoo
  * nudges stay over the outline until its answer says the same.
  */
 export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, target: TuneTarget, actor: Actor = USER, done: NoteWrite[] = [], tiles?: TileLooks): Promise<Saved | null> {
-  const t = tuningOf(src.board), entry = t.unsaved().find(u => u.target === target);
+  const t = tuningOf(src.board), entry = t.unsaved().find(u => u.target === target), had = done.length;
   if (!entry) return null;
   // This tile's: into its tile spec, by field (the layout saves it). This list's: onto its owner line, as tokens.
   if (target.startsWith("instance:")) {
@@ -556,7 +557,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     const w = writeTile(tiles, t, target, want);
     if (w) done.push(w);
     t.markSaved(target, entry.fields);
-    return { target, note: target, fields: entry.fields.map(([k, v]) => (v === UNSET ? `${k} removed` : `${k}=${v}`)), created: false };
+    return { target, note: target, fields: entry.fields.map(([k, v]) => (v === UNSET ? `${k} removed` : `${k}=${v}`)), created: false, changed: done.length > had };
   }
   const list = parseListTarget(target);
   if (list) {
@@ -573,7 +574,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     // The revision seen belongs to the nudges just saved: the next nudge takes the note's revision as the reader has it
     // then, so a save after an undo (ctrl+z in the reader, PIE-1512) is checked against the note as it is now.
     t.listSeen.delete(target);
-    return { target, note: list.note, fields: Object.entries(want).map(([k, v]) => (v === null ? `${k} removed` : `${k}=${v}`)), created: false };
+    return { target, note: list.note, fields: Object.entries(want).map(([k, v]) => (v === null ? `${k} removed` : `${k}=${v}`)), created: false, changed: done.length > had };
   }
   const prop = (k: FieldKey) => { const f = parseFieldKey(k)!; return styleProperty(f.token, f.variant); };
   const sets = entry.fields.filter(([, v]) => v !== UNSET).map(([k, v]) => ({ key: prop(k), value: v }));
@@ -618,7 +619,7 @@ export async function saveTuning(src: ListSource & { board: StyleWriteBoard }, t
     await onto(id, [], keys);
     note ||= id;
   }
-  return { target, note, fields: [...sets.map(p => `${p.key}=${p.value}`), ...gone.map(g => `${g.key} removed`)], created };
+  return { target, note, fields: [...sets.map(p => `${p.key}=${p.value}`), ...gone.map(g => `${g.key} removed`)], created, changed: done.length > had };
 }
 
 /**
