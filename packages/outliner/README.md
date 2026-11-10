@@ -89,8 +89,8 @@ One live `role: "composed"` registration represents the host pane. Its
 `treeSelection` and `currentTarget` describe different facts; `focusedRegion`
 identifies the active region. Agent `ui.command.send` requests and attention
 reveal/focus requests must name `targetRegion: "tree" | "detail"` for this client.
-Walkthrough document steps target Detail. Resource retention uses Detail’s target,
-including its exact revision, regardless of which region has keyboard focus.
+Resource retention uses Detail’s target, including its exact revision, regardless
+of which region has keyboard focus.
 
 Run `bun run test:e2e:composed` for the isolated actual-application journeys.
 They record frames, state, native pointer input, registry fault/restoration,
@@ -2327,7 +2327,7 @@ inside fenced code are code, a fence inside a region keeps its contents
 marker ends the region. An opening marker without a closing line protects
 nothing, and Detail shows a warning. Detail hides matched marker lines (each
 reads as a paragraph break, as GitHub renders an HTML comment); Markdown
-renderers hide them too. Titles in Tree, links, workflows and Inbox skip matched
+renderers hide them too. Titles in Tree, links and Inbox skip matched
 marker lines, so they show the note's first visible line, as Detail does. An
 embedded note's markers are judged by that note's own text, so an embedded slice
 that holds only one marker of a closed region hides it without a warning.
@@ -2951,7 +2951,6 @@ The project Pi extension is auto-discovered through [`.pi/extensions/outliner.ts
 - `outliner_annotation_lifecycle`
 - `outliner_annotation_batch`
 - `outliner_attention`
-- `outliner_workflow`
 
 `outliner_query` accepts structured filters such as `{ key: "status", value: "in progress" }`, plus optional text and subtree fields. The service normalizes keys/values and applies the same bounded semantics used by human surfaces. `outliner_focus` targets an explicit or unique live Tree client and returns compact structural context.
 
@@ -3092,21 +3091,6 @@ anchors carry source version/hash evidence; stale source is rejected on create
 and existing marks become visibly stale after a source change. `reveal` and
 `focus` are explicit, independent opt-ins. Without them, the target pane's
 selection, navigation history, drafts, and canonical content do not change.
-
-`outliner_workflow` starts only the typed `walkthrough.plan` action with an
-explicit capability allowlist, fan-out bound, call bound, and invocation
-(`block`, `callout`, structured query, or the literal `walkthrough` command).
-A separate Pi SDK-side orchestrator compares ordinary sequential tool use with
-an inert Callscript plan that can call only `outline.structure` and
-`outline.route`. Both paths produce the same ordered route of source anchors;
-neither copies source bodies or persists narration. Run state records identity,
-inputs, provenance, route, current step, completeness, truncation, operations,
-model-turn estimate, context bytes, wall time, cancellation, and linked result
-blocks. `next`, `previous`, `pause`, `resume`, `skip`, `branch`, and `end`
-advance targeted `outliner_attention` without changing selection or canonical
-source text. Questions remain ordinary PIE-210 annotation threads. Promotion
-requires an exact preview token and an idempotent commit request before creating
-one linked canonical decision, follow-up, task, or artifact.
 
 `outliner_roadmap_create` is the canonical new-work path: it fails without a partial block or consumed Work ID when queue discovery, metadata, or relationship validation fails. New work defaults to `unprioritized`. `outliner_branch_rank` updates only persisted virtual occurrence ranks; it neither moves canonical blocks nor changes `work-stage`, and ranks remain available across temporary query mismatches.
 

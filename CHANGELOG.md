@@ -18,6 +18,14 @@ are its record. The outliner's entries from then are kept below, under
 - **`access.apply` answers `recordedAs`:** it stays the person's alone, so an agent's is refused, naming the agent, before it reads anything.
 - **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change; the host restart lets an agent's yolo take-back reach the service).
 
+### Pi's guided walkthrough is gone, with its tables (PIE-1586)
+
+- **Pi and the outliner no longer offer `outliner_workflow`.** The walkthrough had no runs on pie since it shipped (Evan: "not used in a while, it can go"). Its code, its process (`bun run workflow`) and the `callscript` dependency are gone.
+- **The nine `workflows.*` actions are gone from the wire;** a client that sends one gets `Unsupported action: workflows.list`.
+- **Schema 11 drops `workflow_runs` and `workflow_promotions`.** A note a walkthrough promoted is an ordinary note and stays.
+- **The roadmap skill (`outliner-workflow`) still works.** Its walkthrough steps became a plain review with `outliner_query`, `outliner_attention` and comments.
+- **Run:** `ep0ch install --apply` on float-2 and the laptop: it stops the host, runs `0011-drop-workflows.ts` on every outline at schema 10, and starts it again (PROTOCOL 317 → 318; schema 10 → 11).
+
 ### The Herdr console takes a paste, a click and a dead host (PIE-1649, PIE-1650, PIE-1653)
 
 - **A paste lands whole in Tree's search and Find, and in Detail's action-menu Find** (PIE-1649). A newline in it is a space, never an Enter; the session runner turns bracketed paste on for every Herdr popup, once.

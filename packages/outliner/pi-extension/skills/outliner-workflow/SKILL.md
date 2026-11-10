@@ -44,37 +44,23 @@ Use `outliner_selection` and `outliner_query` to inspect roadmap items, decision
 - Pass `clientId` when explicit focus is requested and several Tree clients are live.
 - Follow semantic order: governing task or decision first, supporting findings next, implementation proof last.
 - Narrate from bounded ancestors, properties, dependencies, and children.
-- Use the typed `outliner_workflow` route; never invent a second comment model, copy source bodies, or persist a block per walkthrough step.
+- Never invent a second comment model, copy source bodies, or persist a block per step of a review.
 
-## Conduct a walkthrough or review
+## Review with the owner
 
-Use this workflow when the user wants to inspect, discuss, prioritize, or review
-a connected set of blocks:
+Use this when the user wants to inspect, discuss, prioritize, or review a
+connected set of blocks:
 
-1. Start `outliner_workflow` with the explicit `walkthrough.plan` action
-   surface: a block, callout, bounded structured query, or literal
-   `walkthrough` command; an explicit capability allowlist; fan-out and call
-   ceilings; and `callscript` unless the user specifically requests the direct
-   baseline.
-2. Supply a live Detail `clientId` only when the user asks for shared visual
-   attention. The returned run stores its ordered source anchors and comparison
-   metrics without storing source bodies or narration.
-3. Use one `transition` at a time. `next`, `previous`, `resume`, and `skip`
-   reveal the exact current source anchor through ephemeral PIE-180 attention;
-   `pause` suspends in place; `branch` records one bounded question; `end`
-   clears current attention.
-4. Discuss the current passage in chat. Read the full body only when the
+1. Query the set (`outliner_query`) and take it one block at a time in semantic
+   order. When the user asks for shared visual attention, point at the current
+   passage with `outliner_attention` on a live Detail `clientId`.
+2. Discuss the current passage in chat. Read the full body only when the
    current judgment needs it. Do not recite every property or child.
-5. Put source-situated owner questions and replies in existing PIE-210
+3. Put source-situated owner questions and replies in existing PIE-210
    annotations. Preserve owner comments and lifecycle; never convert silence,
-   model narration, or a branch question into a decision.
-6. Promote an agreed outcome only with `promotion_preview`, show or otherwise
-   obtain approval for that exact text and provenance, then call
-   `promotion_commit` with its unchanged approval token. A changed approver,
-   target, kind, or text requires a new preview.
-7. End with the agreed ordering, unresolved questions, and next action.
-   Publish only durable conclusions; the run and result properties provide
-   query/embed links without copying canonical sources.
+   model narration, or a question into a decision.
+4. End with the agreed ordering, unresolved questions, and next action.
+   Publish only durable conclusions the owner agreed to.
 
 Treat Tree focus as an explicit foreground action: it switches the user's active
 Herdr pane. Background agent work must query, publish, reveal, read, or send to

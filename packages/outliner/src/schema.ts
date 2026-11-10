@@ -22,10 +22,10 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * version with the host stopped (PIE-617), and it is deleted once done
  * (git keeps it); for a large change, a fresh database plus `outliner import`
  * (src/outline-import.ts) is the other way. Every table is created here,
- * including those one subsystem uses alone (workflows, agent mentions), so a
+ * including those one subsystem uses alone (agent mentions, marks), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -779,41 +779,6 @@ ${MARKS_SQL}  CREATE TABLE IF NOT EXISTS capture_requests (
       ifnull(pdf_source_snapshot_id, ''),
       ifnull(pdf_representation_id, '')
     );
-
-  -- Workflows (workflows.ts).
-  CREATE TABLE IF NOT EXISTS workflow_runs (
-    run_id TEXT PRIMARY KEY,
-    request_id TEXT NOT NULL UNIQUE,
-    action_id TEXT NOT NULL,
-    invocation_json TEXT NOT NULL,
-    capabilities_json TEXT NOT NULL,
-    limits_json TEXT NOT NULL,
-    planner TEXT NOT NULL,
-    target_client_id TEXT,
-    provenance_json TEXT,
-    status TEXT NOT NULL,
-    route_json TEXT NOT NULL,
-    current_step_index INTEGER,
-    branch_question_json TEXT,
-    metrics_json TEXT,
-    comparison_json TEXT,
-    result_block_ids_json TEXT NOT NULL,
-    cancellation_requested INTEGER NOT NULL DEFAULT 0,
-    request_hash TEXT NOT NULL,
-    error TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS workflow_runs_updated ON workflow_runs(updated_at DESC);
-  CREATE TABLE IF NOT EXISTS workflow_promotions (
-    request_id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES workflow_runs(run_id) ON DELETE CASCADE,
-    step_id TEXT NOT NULL,
-    annotation_id TEXT NOT NULL REFERENCES blocks(id),
-    block_id TEXT NOT NULL REFERENCES blocks(id),
-    proposal_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
 
   -- Preserved history, read only. The removed Inbox agent and note assistance (PIE-613) kept the
   -- person's original writing here: each result's recovery_json holds the before-images of the notes
