@@ -637,7 +637,7 @@ const EXTENSIONS: BarSource = {
   },
   async preview(row) {
     const d = row.data as ExtRow;
-    if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend`, then read that file.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
+    if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend` prints it.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
     if (d.kind === "door") {
       const e = (await doorExts().catch(() => [] as ExtFacts[])).find(x => x.name === d.id);
       return e ? { markdown: doorExtMarkdown(e) } : { lines: [`${d.id} isn't in ${tilde(join(DOOR_DIR, "ext"))} now`] };

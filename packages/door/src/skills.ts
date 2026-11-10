@@ -83,12 +83,13 @@ export function formatSkills(skills: readonly Skill[], width = 100): string {
  */
 export function skillCommand(args: readonly string[], doorRoot = resolve(import.meta.dir, ".."), outliner = outlinerRoot()): { out: string; code: number } {
   const all = args.includes("--all");
-  const name = args.find(a => a !== "--skill" && a !== "--all" && !a.startsWith("--"));
+  const name = args.find(a => a !== "--skill" && a !== "--all" && !a.startsWith("--")), path = args.includes("--path");
   const skills = skillsIn(skillRoots(doorRoot, outliner, all || !!name));
   const note = outliner ? "" : "\n(the Outliner plugin wasn't found through Herdr, so its skills aren't listed)";
   if (!name) return { out: formatSkills(skills, process.stdout.columns ?? 100) + note, code: 0 };
   const hits = skills.filter(s => s.name === name);
-  if (hits.length) return { out: hits.map(s => s.path).join("\n"), code: 0 };
+  // The skill itself, as an agent reads it (PIE-1714); --path names the file, for a tool that opens it.
+  if (hits.length) return { out: path ? hits.map(s => s.path).join("\n") : hits.map(s => readFileSync(s.path, "utf8").trimEnd()).join("\n\n"), code: 0 };
   const near = skills.filter(s => s.name.includes(name) || name.includes(s.name)).map(s => s.name);
   return { out: `no skill named ${name}${near.length ? `; did you mean ${near.join(", ")}?` : ""}${note}`, code: 1 };
 }

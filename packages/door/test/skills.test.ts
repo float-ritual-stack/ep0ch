@@ -1,4 +1,4 @@
-// `ep0ch --skill`: the stack's skills from the door and the installed Outliner, and one skill's path.
+// `ep0ch --skill`: the stack's skills from the door and the installed Outliner, and one skill's text (or its path).
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,9 +32,11 @@ describe("ep0ch --skill", () => {
     expect(skillCommand(["--skill", "--all"], door, outliner).out).toMatch(/^compost-review\s+outliner \(contributor\)/m);
   });
 
-  test("a name prints the path of its SKILL.md; contributor skills are found by name too", () => {
-    expect(skillCommand(["--skill", "garden-planning"], door, outliner)).toEqual({ out: join(outliner, "pi-extension/skills/garden-planning/SKILL.md"), code: 0 });
-    expect(skillCommand(["--skill", "compost-review"], door, outliner).out).toBe(join(outliner, ".agents/skills/compost-review/SKILL.md"));
+  test("a name prints its SKILL.md, and --path the file's path; contributor skills are found by name too (PIE-1714)", () => {
+    expect(skillCommand(["--skill", "garden-planning"], door, outliner)).toEqual({ out: `---\nname: garden-planning\ndescription: "Use to plan the allotment beds."\n---\n\n# garden-planning`, code: 0 });
+    expect(skillCommand(["--skill", "garden-planning", "--path"], door, outliner)).toEqual({ out: join(outliner, "pi-extension/skills/garden-planning/SKILL.md"), code: 0 });
+    expect(skillCommand(["--skill", "compost-review", "--path"], door, outliner).out).toBe(join(outliner, ".agents/skills/compost-review/SKILL.md"));
+    expect(skillCommand(["--skill", "compost-review"], door, outliner).out).toContain("# compost-review");
   });
 
   test("an unknown name exits 1 and suggests near names", () => {

@@ -58,9 +58,9 @@ export const DOOR_OPTIONS: readonly CliFlag[] = [
   ...target, ["--screen <name> [<target>]", "Open a screen, optionally on a note or hub", "screen"],
   ["--layout <name>", "Open a saved desk layout"], ["--create", "Create a missing outline on another machine"],
   ["--here", "Open the outline here even when .ep0ch names a machine"], ["--remote <ssh-name>", "Run the door there and carry its terminal here", "rest"],
-  ["--showcase", "Explore shared parts on made-up notes"], ["--reset", "Reseed the showcase"],
+  ["--showcase", "Explore shared parts on made-up notes"], ["--reset", "Reseed the showcase"], ["--prepare", "Seed the showcase and exit: the headless path"],
   ["--no-daemon", "Run in this terminal instead of a lasting session"], ["--daemon", "Attach to a lasting session"],
-  ["--no-create", "Refuse a missing outline"], json, ["--skill [<name>]", "List skills or print one skill's path", "rest"],
+  ["--no-create", "Refuse a missing outline"], json, ["--skill [<name>]", "List skills or print one (--path: its file)", "rest"],
 ];
 
 
@@ -160,9 +160,9 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "door [<ssh-name>] [<outline>]", flags: [],
     examples: ["ep0ch door", "ep0ch door garden-door garden"] },
   { name: "try", group: "Open", summary: "Explore a copy or the kitchen sink",
-    synopsis: "try --ws <name> [--copy] | try --showcase [--reset]",
-    flags: [ws, ["--copy", "Use a private copy of the outline"], ["--hub <id>", "Open this hub"], ["--showcase", "Open the seeded kitchen sink"], ["--reset", "Reseed the showcase"]],
-    examples: ["ep0ch try --showcase", "ep0ch try --ws garden --copy"] },
+    synopsis: "try --ws <name> [--copy] | try --showcase [--reset] [--prepare]",
+    flags: [ws, ["--copy", "Use a private copy of the outline"], ["--hub <id>", "Open this hub"], ["--showcase", "Open the seeded kitchen sink"], ["--reset", "Reseed the showcase"], ["--prepare", "Seed the showcase and exit, with no terminal: the headless path"]],
+    examples: ["ep0ch try --showcase --prepare", "ep0ch try --ws garden --copy"] },
   { name: "init", group: "Outlines", summary: "Bind this folder to an outline",
     synopsis: "init [<name>] [--create] [--json]", flags: [...target, ["--create", "Create a missing outline on another machine"], json],
     examples: ["ep0ch init garden", "ep0ch init garden --machine box-a"] },

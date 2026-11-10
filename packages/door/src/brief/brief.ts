@@ -179,7 +179,7 @@ export class BriefReader extends ReaderPane {
     return [
       fg(C.white) + "No daily brief yet." + RESET, "",
       fg(C.grey) + `A brief is a note with [type::${BRIEF_TYPE}] and [brief-date::YYYY-MM-DD]. Ask an agent to draft this morning's:` + RESET,
-      fg(C.grey) + "the daily-brief skill says how (ep0ch --skill daily-brief prints its path)." + RESET,
+      fg(C.grey) + "the daily-brief skill says how (ep0ch --skill daily-brief prints it)." + RESET,
     ];
   }
 
