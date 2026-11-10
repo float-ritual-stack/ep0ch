@@ -214,8 +214,10 @@ export class SettingsCard {
   /** The schemas' ids, joined: whether a card drawn before still fits the note. */
   get id(): string { return this.schemas.map(s => s.id).join("+"); }
 
+  /** An extension's card (PIE-1709): its try and its reset of every setting are its keys; a note's card hints neither. */
+  ext = false;
   hint(): string {
-    return modeHint(SETTINGS_KEYS, () => undefined);
+    return modeHint(this.ext ? SETTINGS_KEYS : SETTINGS_KEYS.filter(r => r.action !== "settings.try" && r.action !== "settings.reset"), () => undefined);
   }
 
   draw(fields: readonly SettingField[], w: number, h: number, row: number, col: number, revision?: number): string[] {

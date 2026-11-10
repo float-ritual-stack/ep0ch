@@ -336,9 +336,12 @@ test("try runs a model setting once: its answer, or why not in its own words; an
 test("asked about itself, yo answers from its own page and settings, with no model; a greeting gets what it's for", async () => {
   const { selfAsk } = await import("../extensions/yo/yo-line");
   expect(["how do I use yo", "how do i sue yo", "how do use yo", "what do you do"].map(selfAsk)).toEqual(["use", "use", "use", "use"]);
-  expect(["how do I set you up", "which model do you use", "how do i configure yo"].map(selfAsk)).toEqual(["setup", "setup", "setup"]);
+  expect(["how do I set you up", "which model do you use", "how do i configure yo", "what model are you on", "where are your settings"].map(selfAsk)).toEqual(["setup", "setup", "setup", "setup", "setup"]);
   expect(["whats good", "hi", "what can you do", "hey!"].map(selfAsk)).toEqual(["greeting", "greeting", "greeting", "greeting"]);
-  expect(["how do I lift the agent", "can you lift the agent?", "could you lift the agent for me", "mamama"].map(selfAsk)).toEqual([null, null, null, null]);
+  // About the door, not yo, though "you" is in them: the actions' business, and the empty ask about a tile is the tile's.
+  const door = ["how do I lift the agent", "can you lift the agent?", "could you lift the agent for me", "mamama", "how do you split a tile", "can you set the trail to 7 days",
+    "how do you install an extension", "how do you get the trail", "can you zoom", "how do you use the power bar", "can you change the model of the trail", ""];
+  expect(door.map(selfAsk)).toEqual(door.map(() => null));
 
   const t = await setup({ kind: "quote", action: "barrow.lift" });
   const ask = async (words: string) => {

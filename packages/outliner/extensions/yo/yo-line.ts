@@ -338,17 +338,21 @@ const GREETING = /^(hi+|hey+|hello|hiya|howdy|sup|yo+|gm|morning|whats? ?(good|u
 
 /**
  * What an ask about yo itself is (PIE-1710), told by its words, before any model: a greeting ("whats good", "hi", "what
- * can you do"), how to use it ("how do I use yo"), or how to set it up ("how do I set you up", "which model"); null when
- * it's about the door, the actions' business. A slip in a word is read through ("how do i sue yo").
+ * can you do"), how to use it ("how do I use yo"), or how to set it up ("how do I set you up", "which model do you use");
+ * null when it's about the door, the actions' business ("how do you split a tile", "can you set the trail to 7 days").
+ * yo has to be what the ask is about: the object of use, set up, configure or install, or the one whose model or
+ * settings are asked. A slip in a word is read through ("how do i sue yo"). An empty ask (ask yo about this tile) is the
+ * tile's, never a greeting.
  */
 export function selfAsk(asked: string): "greeting" | "use" | "setup" | null {
   const text = asked.toLowerCase().trim();
-  if (!text || GREETING.test(text)) return "greeting";
-  const words = text.split(/[^a-z0-9']+/).filter(Boolean).map(w => SELF_WORDS.find(k => oneSlip(w, k)) ?? w);
-  const aboutYo = words.some(w => w === "yo" || w === "you" || w === "u" || w === "yourself");
-  if (!aboutYo) return null;
-  if (words.some(w => ["set", "setup", "configure", "config", "settings", "setting", "model", "models", "install", "login"].includes(w))) return "setup";
-  if (words.some(w => ["use", "using", "work", "works", "do", "help", "ask"].includes(w)) || words.length <= 3) return "use";
+  if (!text) return null;
+  if (GREETING.test(text)) return "greeting";
+  const said = text.split(/[^a-z0-9']+/).filter(Boolean).map(w => SELF_WORDS.find(k => oneSlip(w, k)) ?? w).join(" ");
+  const me = "(?:yo|you|u|yourself)";
+  if (new RegExp(`\\b(?:set|setup|configure|config|install)\\b(?: \\S+)? ${me}\\b`).test(said)) return "setup";
+  if (new RegExp(`\\b(?:your|yo's|yos) (?:settings?|models?|config|setup)\\b`).test(said) || new RegExp(`\\bmodels?\\b(?: \\S+){0,2} (?:do|does|are|is) ${me}\\b|\\b${me}(?:'re| are)? (?:using|on) (?:\\S+ )?models?\\b`).test(said)) return "setup";
+  if (new RegExp(`\\b(?:use|using)\\b(?: \\S+)? ${me}\\b|\\b(?:what|how) (?:do|can|does) ${me} (?:do|work|works)\\b|\\b${me} (?:work|works)\\b`).test(said)) return "use";
   return null;
 }
 

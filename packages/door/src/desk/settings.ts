@@ -54,7 +54,10 @@ export const SETTINGS_TILE: TileKind = {
   keys: [{ key: ",", label: "settings" }],
   defaults: (spec, at) => at.pane instanceof ReaderPane ? { note: at.pane.msg?.id, view: at.pane.surface.listHost().current() ?? undefined, ...spec } : spec,
   make: spec => { if (spec.source?.startsWith("tile:")) return new AttachedTilePane(spec.source.slice(5), "settings"); const pane = new SettingsPane(spec.view, spec.args?.fills === true); pane.want = spec.note ?? null; return pane; },
-  accepts: { notes: true }, shows: p => (p as SettingsPane).msg, facts: readerFacts,
+  accepts: { notes: true }, shows: p => (p as SettingsPane).msg,
+  // The screen's card holds the keys while it's open, but it's the card the list shows into: only a setting being typed
+  // keeps another extension out of it (a select or an open from the list lands here, never in a new tile).
+  facts: (p, ask) => { const f = readerFacts(p, ask); return p instanceof SettingsPane && p.fills && !p.surface.panel?.card?.editing ? { ...f, holdsKeys: undefined, editing: undefined } : f; },
   take: (p, m, desk, by) => { if (!(p instanceof SettingsPane)) return "this settings tile follows its reader; open the note in a reader"; p.hold(m, desk, by); return null; },
   start: async (p, env) => {
     const pane = p as SettingsPane;

@@ -89,6 +89,7 @@ export function openSettings(surface: NoteSurface, subject: SettingsSubject, on?
   const card = new SettingsCard(subject.schemas, subject.list?.key);
   if (surface.panel.card?.id !== card.id || surface.panel.card?.list !== card.list) { card.place = surface.attachments.keptPlace("settings") ?? card.place; surface.panel.card = card; }
   // An extension's card says the machine its config.json is on (PIE-1709): the one the outline's host runs on.
+  surface.panel.card.ext = !!subject.ext;
   if (subject.ext && on) surface.panel.card.on = on.machine ?? on.host;
   surface.attachedKeys("settings");
   return surface.panel.card;
@@ -214,13 +215,13 @@ function extGiven(subject: SettingsSubject, key: string, raw: string): Record<st
  * An extension's setting written (PIE-1709): through the one write (`configureExtension`: the schema checks it, config.json
  * on the host holds it), kept for ctrl+z, and said on the card and to an agent's watcher.
  */
-async function extWrite(on: Pick<On, "surface" | "host">, subject: SettingsSubject, key: string, given: Record<string, unknown>, actor: Actor) {
+async function extWrite(on: Pick<On, "surface" | "host">, subject: SettingsSubject, key: string, given: Record<string, unknown>, actor: Actor, words?: string) {
   const { surface, host } = on, { entry } = subject.ext!;
   const before = subject.fields.find(f => f.prop.key === key)?.value ?? null;
   const r = await configureExtension(host.ctx, entry, settingsNow(entry) ?? subject.ext!.settings, given, actor);
   const after = extensionCardValues(entry, r.settings).get(key)?.value ?? null;
   SETTINGS_UNDO.push({ block: subject.note.id, before: "", after: "", key, by: partyOf(actor), context: surface.msg?.id ?? subject.note.id, ext: { id: entry.id, before, after } });
-  const said = `${after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""}`;
+  const said = `${words ?? (after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`)}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""}`;
   if (surface.panel?.card) surface.panel.card.say(said, r.error ? "problem" : "news");
   host.ctx.flash(said);
   surface.noteAgent(actor, said);
@@ -248,7 +249,10 @@ function editInPlace(on: Pick<On, "surface" | "host">, subject: SettingsSubject,
       catch (e) { const why = e instanceof Error ? e.message : String(e); return { ok: false, why, said: why }; }
     },
   };
-  card.editing = { key, input, session: DraftSession.open(target, { draft: input.draft, base: 0 }, { redraw: () => on.host.redraw(), said: text => on.host.ctx.flash(text) }) };
+  // The surface's draft session while it's open (draftSession): edit.save and edit.close reach it, as the agent rule does.
+  const session = DraftSession.open(target, { draft: input.draft, base: 0 }, { redraw: () => on.host.redraw(), said: text => on.host.ctx.flash(text),
+    closed: (_, s) => { if (card.editing?.session === s) card.editing = null; on.host.redraw(); } });
+  card.editing = { key, input, session };
   card.note = "";
   on.host.redraw();
   return { editing: key };
@@ -472,7 +476,7 @@ export const SETTINGS_DEFS = {
       if (!subject.ext) throw new ActionRefused("settings.reset is an extension's (its page's settings card) · x clears one field of a note's");
       const set = subject.ext.settings.fields.filter(f => f.state === "set").map(f => f.name);
       if (!set.length) throw new ActionRefused(`${subject.schemas[0]!.title}'s settings are all their defaults already`);
-      return extWrite(on, subject, set[0]!, { unset: set.join(",") }, actor);
+      return extWrite(on, subject, set[0]!, { unset: set.join(",") }, actor, `every setting back to its default: ${set.join(", ")}`);
     },
   }),
   "settings.clear": def({

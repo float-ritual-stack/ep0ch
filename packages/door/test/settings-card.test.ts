@@ -105,3 +105,18 @@ test("a note that is two things gets a section each: a view named as an EchoNet 
   const twice = settingFields([found[1]!, { ...found[1]!, id: "again" }], view);
   expect(twice.map(f => f.prop.key)).toEqual(["echo"]);
 });
+
+// PIE-1709: an extension's command setting edits as one shell line. yo's own default, shown as the card shows it and with
+// one word changed as a person types it, saves back as its words: the empty ones and the one with spaces whole.
+test("yo's default model command reads as one line and saves back word for word, one word changed", async () => {
+  const { changeOf, shownValue } = await import("../src/extension-settings");
+  const manifest = await Bun.file(new URL("../../outliner/extensions/yo/extension.json", import.meta.url)).json() as { configSchema: { properties: { answer: { default: string[]; description: string } } } };
+  const answer = manifest.configSchema.properties.answer.default;
+  const field = { name: "answer", type: "command" as const, description: "the answer model", default: answer, state: "default" as const };
+  const line = shownValue(field, answer);
+  expect(line).toContain(`--tools "" --setting-sources ""`);
+  const s = { file: "/made-up/yo/config.json", exists: false, state: "default" as const, fields: [field], secrets: [], config: {} };
+  const typed = line.replace("--model haiku", "--model sonnet");
+  expect(changeOf(s, { answer: typed }).set).toEqual({ answer: answer.map(w => (w === "haiku" ? "sonnet" : w)) });
+  expect(changeOf(s, { answer: line }).set!.answer).toEqual(answer);
+});
