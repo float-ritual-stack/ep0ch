@@ -1,4 +1,6 @@
 import { scriptSourceId } from "./script-sources";
+import { addExtension } from "./extension-install";
+import { extensionRoots } from "./extension-registry";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -328,28 +330,50 @@ const EARLIER_SCRIPTS = [
 const earlierRule = (action: string) => `Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.`;
 const deployRule = (action: string) => `Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [property-scope::all] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy, named on the note's header or a line of its own. The repo decides the destination; remove this rule to stop automatic deployment.`;
 
+/** The kit that deploys on save (PIE-1509): `extensions/artifact-deploy`, installed per outline from the power bar. */
+export const ARTIFACT_KIT = "artifact-deploy";
+
 /**
- * The deploy rule and its script, made once per outline. A copy that still reads as an earlier version seeded it (nobody
- * edited it) is brought up to this one: the first read only the header's [artifact::], so a repo on a line of its own
- * never deployed (PIE-1060). An edited copy is left as its author wrote it.
+ * An outline from before the kit (PIE-1509) holds the rule note and script note the host used to write into every outline;
+ * `artifacts.deploy-rule` names the rule. Never edited, they are the kit's: `install` puts it in the outline's own folder
+ * (unless `installed` says a copy serves this outline already), then both go to Trash, so deploying carries on with
+ * nothing to redo. Edited, they are their author's own rule and stay (an earlier script nobody edited is still brought up
+ * to reading lines, PIE-1060). Either way the key goes, so this runs once: a rule trashed before is never brought back.
+ * An install that fails leaves the notes and the key, and is tried again at the next start.
  */
-export function seedArtifactRule(store: OutlinerStore) {
-  const actor = { actorId: "ext:artifact-deploy" };
+export async function adoptSeededArtifactRule(store: OutlinerStore, installed: () => boolean, install: () => Promise<unknown>): Promise<"adopted" | "kept" | "none"> {
   const seeded = store.readMetadata("artifacts.deploy-rule");
-  if (seeded) {
-    const rule = store.get(seeded);
-    if (!rule || rule.effectiveDeletedRootId) return;
-    const action = parsePropertyRecords(rule.text).find(p => p.key === "rule-on" && p.scope === "block")?.value;
-    if (!action) return;
-    if (rule.text === earlierRule(action)) store.update(rule.id, deployRule(action), rule.revision, DEPLOY_ACTOR);
-    const script = store.queryBlocks({ filters: [{ key: "script", value: "deploy-artifact" }], limit: 10 }).blocks
-      .find(block => action === `${scriptSourceId(block.id)}/run`);
+  if (!seeded) return "none";
+  const done = <T>(said: T): T => { store.writeMetadata("artifacts.deploy-rule", ""); return said; };
+  const rule = store.get(seeded);
+  if (!rule || rule.effectiveDeletedRootId) return done("none");
+  const action = parsePropertyRecords(rule.text).find(p => p.key === "rule-on" && p.scope === "block")?.value;
+  const script = action ? store.queryBlocks({ filters: [{ key: "script", value: "deploy-artifact" }], limit: 10 }).blocks
+    .find(block => action === `${scriptSourceId(block.id)}/run`) : undefined;
+  const ruleAsSeeded = !!action && (rule.text === deployRule(action) || rule.text === earlierRule(action));
+  const scriptAsSeeded = !!script && (script.text === DEPLOY_SCRIPT || EARLIER_SCRIPTS.includes(script.text));
+  if (!ruleAsSeeded || !scriptAsSeeded) {
     if (script && EARLIER_SCRIPTS.includes(script.text)) store.update(script.id, DEPLOY_SCRIPT, script.revision, DEPLOY_ACTOR);
-    return;
+    return done("kept");
   }
-  const script = store.create(DEPLOY_SCRIPT, null, "agent", actor);
-  const rule = store.create(deployRule(`${scriptSourceId(script.id)}/run`), null, "agent", actor);
-  store.writeMetadata("artifacts.deploy-rule", rule.id);
+  if (!installed()) await install();
+  store.delete(script.id, DEPLOY_ACTOR, { revision: script.revision });
+  store.delete(rule.id, DEPLOY_ACTOR, { revision: rule.revision });
+  return done("adopted");
+}
+
+/**
+ * The host's side of adoptSeededArtifactRule, at each outline's open: the kit goes in the outline's own folder, so
+ * uninstalling it there leaves every other outline deploying. A refusal is said on stderr and never stops the open.
+ */
+export async function adoptArtifactKit(store: OutlinerStore, readOnly: boolean, outline = "outline"): Promise<void> {
+  const root = store.workspaceRoot;
+  if (readOnly || !root) return;
+  try {
+    const installed = () => extensionRoots(root).some((r) => existsSync(join(r.path, ARTIFACT_KIT, "extension.json")));
+    const said = await adoptSeededArtifactRule(store, installed, () => addExtension(ARTIFACT_KIT, { outlineFolder: root }));
+    if (said === "adopted") console.error(`${outline}: the seeded deploy rule and script are the ${ARTIFACT_KIT} kit now (in ${join(root, "extensions", ARTIFACT_KIT)}); the two notes are in Trash`);
+  } catch (error) { console.error(`${outline}: ${ARTIFACT_KIT} kit: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
 interface VercelDeployment { name: string; url: string; state: string }

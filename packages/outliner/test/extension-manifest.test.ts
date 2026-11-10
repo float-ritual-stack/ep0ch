@@ -37,3 +37,20 @@ test.each([
 ] as const)("a screen with no name, a bad name or a name twice is refused, naming it: %j", (screens, error) => {
   expect(() => withScreens([...screens])).toThrow(error);
 });
+
+// A kit's rule runs a script it ships (PIE-1509): `script:<name>` in `on`, with no `run` program and no actions[].
+function withScriptRule(on: Record<string, string>, scripts = [{ name: "sow-row", file: "scripts/sow-row.js", about: "Sows a row" }]) {
+  return loadExtensionManifest({ origin: "outline", directory: "/scratch/sower", expectedId: "sower", idFrom: "folder", configRaw: "{}",
+    manifestRaw: JSON.stringify({ contract: 2, id: "sower", version: 1, name: "Sower", scripts, rules: [{ id: "sow", match: { property: "bed" }, on }] }) });
+}
+
+test("a rule may run a script its extension ships, by script:<name>", () => {
+  expect(withScriptRule({ start: "script:sow-row", change: "script:sow-row" }).manifest.rules?.[0]?.on).toMatchObject({ start: "script:sow-row" });
+});
+
+test.each([
+  [{ start: "script:weed-row" }, /rules\/0\/on\/start names script:weed-row, which scripts\[\] doesn't declare/],
+  [{ change: "sow-row" }, /rules\/0\/on\/change names sow-row, which actions\[\] doesn't declare/],
+] as const)("a rule naming a script or action its extension doesn't have is refused, naming it: %j", (on, error) => {
+  expect(() => withScriptRule({ ...on })).toThrow(error);
+});

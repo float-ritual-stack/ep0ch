@@ -237,9 +237,7 @@ export const galleryCards = (dir = SHOWCASE_ASSETS) => [
 export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
 
 export async function placeArtifacts(board: SocketBoard): Promise<string> {
-  // The showcase contacts no deployment account: its outline goes without the deploy rule, so its repo lines never clone.
-  const [rule] = (await board.request("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
-  if (rule) await board.trash(rule.id);
+  // The showcase contacts no deployment account: it never installs the artifact-deploy kit, so its repo lines never clone.
   await board.request("artifacts.put", { name: "showcase-orbit", files: { "index.html": readFileSync(join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html"), "utf8") } });
   const frozen = await board.request("artifacts.snapshot", { name: "showcase-orbit" });
   return `showcase-orbit@${frozen.version}`;
@@ -257,6 +255,8 @@ export const artifactsText = (pinned = "showcase-orbit@1") => [
   "Orbit lamp [repo::example/orbit-lamp] [where::float-2] [commit::demo] [deployed-at::2026-01-01]",
   "",
   "This is a fictional deployment row over the scratch store's live artifact above. A real repo deployment adds its URL and commit to the catalogue and the requesting note. Static files use the store; a build script, app framework or server uses Vercel. No deployment account is contacted by this showcase.",
+  "",
+  "Deploying on save is a kit, Artifact deploy: ctrl+k, &artifact and install it, and a saved note naming an ep0ch-artifacts repo deploys it. It installs in this outline alone; its remove row turns it off here and nowhere else. This outline leaves it out.",
   "",
   "The snapshot is pinned by number:",
   "",

@@ -24,9 +24,7 @@ const record = (wanted?: { name: string; said: string }) => {
 
 test("the card says the address the app answers at and the name it's missing; attached, it says the name alone", async () => {
   const board = new SocketBoard(scratch.sock);
-  // No deployment account here: the outline goes without the deploy rule, so the repo line never clones (as the showcase does).
-  const [rule] = (await board.request("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
-  if (rule) await board.trash(rule.id);
+  // No deployment account here: the artifact-deploy kit isn't installed, so the repo line never clones (as in the showcase).
   const note = await board.createBlock(null, "Moth garden\n\n[artifact::ep0ch-artifacts/moth-garden]");
   record({ name: "moth-garden.ep0ch.sh", said: 'Vercel wants this DNS record: _vercel.ep0ch.sh. 300 IN TXT "vc-domain-verify=moth-garden.ep0ch.sh,tok3n" and moth-garden.ep0ch.sh. 300 IN CNAME cname.vercel-dns.com. No hetzner-dns secrets group: run with-secrets --add hetzner-dns HCLOUD_TOKEN to store a token with DNS rights, or add it by hand, then run the command again.' });
   const missing = await show(note.id);
