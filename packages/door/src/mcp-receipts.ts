@@ -15,11 +15,12 @@ import type { NetmailReceipt, NetmailSummary } from "./mcp-netmail";
 export type ProposalSeen = "open" | "applied" | "dismissed" | "missing";
 
 import { actorLabel, callOf } from "@ep0ch/outline-core/attribution";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 import { callShown } from "./mcp-calls";
 
 export const PROPOSAL_STATUS_KEY = "proposal-status";
 export const proposalSeen = (properties: readonly { key: string; values: string[] }[] | undefined): ProposalSeen => {
-  const v = properties?.find(p => p.key === PROPOSAL_STATUS_KEY)?.values[0];
+  const v = valueOf({ properties }, PROPOSAL_STATUS_KEY);
   return v === "applied" || v === "dismissed" ? v : "open";
 };
 

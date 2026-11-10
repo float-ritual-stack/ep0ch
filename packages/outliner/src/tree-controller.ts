@@ -102,6 +102,7 @@ import {
   type VirtualBranchState,
   type TreePresentationState,
 } from "./virtual-branches";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 
 type TreeRow = ProjectedTreeRow<TreeIndexBlock>;
 type PhysicalTreeRow = ProjectedPhysicalRow<TreeIndexBlock>;
@@ -3033,7 +3034,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       reloadRequired = true;
     } else if (str === "p" && selected?.block.deletedAt) {
       const required =
-        selected.block.properties.find((property) => property.key === "work-id")?.value
+        valueOf(selected.block, "work-id")
         ?? selected.canonicalId.slice(0, 8);
       status = `Type ${required} to permanently purge`;
       await beginInput("purge");

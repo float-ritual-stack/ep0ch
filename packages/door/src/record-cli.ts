@@ -54,8 +54,8 @@ export async function recordCommand(args: string[]): Promise<number> {
     console.log(JSON.stringify(result));
     if (kind === "run-end" && props.report && props.run) {
       const start = await board.request("get", { blockId: props.run });
-      const { parsePropertyRecords } = await import("@ep0ch/outline-core/property-parse");
-      const ticket = parsePropertyRecords(start.text).find(p => p.key === "ticket")?.value;
+      const [{ parsePropertyRecords }, { valueOf }] = await Promise.all([import("@ep0ch/outline-core/property-parse"), import("@ep0ch/outline-core/block-record")]);
+      const ticket = valueOf({ properties: parsePropertyRecords(start.text) }, "ticket");
       if (ticket && ticket !== "unknown") {
         const answer = await board.request("blocks.resolve", { refs: [ticket] });
         const resolved = answer.resolved[0]!;

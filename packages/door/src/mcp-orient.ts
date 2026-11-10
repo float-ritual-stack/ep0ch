@@ -6,7 +6,7 @@
 //   dedupe      within one response a body goes once (`see`); a derived block points at its target (`target: id@rev`)
 //               instead of copying it; and `seen: ["id@rev"]` turns a block the caller holds at that revision into a stub.
 //   layer 4     (a content hash across outlines and mirrors) is a follow-up: see the README's orient recipe.
-import type { BlockRecord } from "@ep0ch/outline-core/block-record";
+import { valueOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { IndexBlock } from "./socket";
 import type { NotesBoard } from "./notes-cli";
@@ -73,7 +73,6 @@ export function projectRecord(r: BlockRecord, fields: readonly string[], ctx: Ro
 // ── folding ──────────────────────────────────────────────────────────────────
 // The classifier and the summary are outline-core's (derived.ts): the publisher folds a page's "inside" list with them too.
 
-export const typeOf = (r: Pick<BlockRecord, "properties">) => r.properties.find(p => p.key === "type")?.values[0];
 
 export interface Changes extends ChangeCounts { summary: string; ids: string[] }
 export interface FoldedRow { id: string; changes?: Changes }
@@ -155,7 +154,6 @@ const loadDraftPatch = (): Promise<DraftPatchModule> => draftPatch ??= import(DR
 
 // ── derived blocks point at their target ─────────────────────────────────────
 
-const prop = (r: Pick<BlockRecord, "properties">, key: string) => r.properties.find(p => p.key === key)?.values[0];
 const who = (r: BlockRecord) => r.actor ? `@${r.actor}` : r.author;
 
 /** The target revisions a pointer names, read once (a body is not sent from them). */
@@ -173,7 +171,7 @@ const ref = (id: string, revs: Map<string, number>) => revs.has(id) ? pairOf(id,
  * proposal whose patch can't be read (it is then sent as it is stored).
  */
 export async function derivedPointer(board: NotesBoard, r: BlockRecord): Promise<Record<string, unknown> | null> {
-  const kind = derivedKindOf(typeOf(r));
+  const kind = derivedKindOf(valueOf(r, "type"));
   if (kind === "proposal") {
     const p = (await loadDraftPatch()).parseProposal(r.text);
     if (!p) return null;
@@ -181,8 +179,8 @@ export async function derivedPointer(board: NotesBoard, r: BlockRecord): Promise
     // The diff names the revision it was proposed against; `now` says where a target has moved on since.
     const moved = [...new Set(p.edits.filter(e => revs.has(e.blockId) && revs.get(e.blockId) !== e.revision).map(e => ref(e.blockId, revs)))];
     return {
-      kind: "proposal", id: r.id, revision: r.revision, status: prop(r, "proposal-status") ?? "open",
-      ...(prop(r, "proposal-applies") === "no" ? { applies: false } : {}),
+      kind: "proposal", id: r.id, revision: r.revision, status: valueOf(r, "proposal-status") ?? "open",
+      ...(valueOf(r, "proposal-applies") === "no" ? { applies: false } : {}),
       proposedBy: p.actor?.actorId ? `@${p.actor.actorId}` : who(r), reason: p.reason, changes: p.edits.reduce((n, e) => n + e.patches.length, 0),
       diff: p.edits.flatMap(e => e.patches.map(s => ({ target: pairOf(e.blockId, e.revision), observed: s.observed, replacement: s.replacement }))),
       ...(moved.length ? { now: moved } : {}),
@@ -193,7 +191,7 @@ export async function derivedPointer(board: NotesBoard, r: BlockRecord): Promise
     let owner: string | null = r.parent;
     for (let hops = 0; owner && hops < 6; hops++) {
       const up: BlockRecord | undefined = (await board.records([owner]).catch(() => ({ records: [] as BlockRecord[] }))).records[0];
-      if (!up || derivedKindOf(typeOf(up)) !== "comment") break;
+      if (!up || derivedKindOf(valueOf(up, "type")) !== "comment") break;
       owner = up.parent;
     }
     if (!owner) return null;
@@ -205,8 +203,8 @@ export async function derivedPointer(board: NotesBoard, r: BlockRecord): Promise
     const chips = /^\s*(\[[A-Za-z][\w.-]*::[^\]]*\]\s*)+$/;
     const body = r.body.split("\n").filter((line, i) => !(i === 0 && line.startsWith("Comment on ")) && !chips.test(line)).join("\n").trim();
     return {
-      kind: "comment", id: r.id, revision: r.revision, status: prop(r, "annotation-status") ?? "open",
-      ...(typeOf(r) === "annotation-reply" ? { reply: true } : {}), author: who(r), at: r.created,
+      kind: "comment", id: r.id, revision: r.revision, status: valueOf(r, "annotation-status") ?? "open",
+      ...(valueOf(r, "type") === "annotation-reply" ? { reply: true } : {}), author: who(r), at: r.created,
       target: ref(owner, revs), thread: on?.id ?? r.id,
       anchor: on && on.start !== null ? { start: on.start, end: on.end } : null,
       body,

@@ -12,6 +12,7 @@ import { displayTitleOfText } from "./references";
 import { oneLineCalls, schemaOfScript } from "@ep0ch/outline-core/script-component";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
+import { getProperty } from "./properties";
 
 /** The registry in the Site's order: this note, its nearest ancestors, then the outline. */
 export function scriptsAt(store: OutlinerStore, entries: readonly ExtensionEntry[], request: Pick<SiteAnswerRequest, "blockId" | "line" | "draft" | "chain"> = {}): ExtensionEntry[] {
@@ -48,7 +49,7 @@ export function scriptFence(text: string, named?: ScriptSource["fence"]): { code
   const fence = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language) && (named ? codeFenceInfo(f.fence.info).attrs.script === named.name : !codeFenceInfo(f.fence.info).attrs.script))[named?.occurrence ?? 0];
   const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
   const properties = parsePropertyRecords(text).filter(p => p.scope === "block");
-  const noteName = properties.find(p => p.key === "script")?.value;
+  const noteName = getProperty(properties, "script");
   const attrs = named && fence ? codeFenceInfo(fence.fence.info).attrs : {};
   const effects = attrs.effects === undefined
     ? (!named || noteName === named.name) && properties.some(p => p.key === "effects" && p.value === "write")
@@ -132,7 +133,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     const lines = block.text.split("\n");
     const fences = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language));
     const named = fences.filter(f => codeFenceInfo(f.fence.info).attrs.script);
-    const noteName = block.properties.find(p => p.key === "script")?.value;
+    const noteName = getProperty(block.properties, "script");
     const definitions: { fence: (typeof fences)[number] | undefined; language: string; attrs: Record<string, string>; named: boolean }[] = named.map(f => ({ fence: f, ...codeFenceInfo(f.fence.info), named: true }));
     // A differently named fence never supplies the note script's code.
     if (noteName && !named.some(f => codeFenceInfo(f.fence.info).attrs.script === noteName)) {
@@ -145,7 +146,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     const title = displayTitleOfText(lines.slice(0, fences[0]?.start ?? lines.length).join("\n"));
     for (const { fence, language, attrs, named: isNamed } of definitions) {
       const name = attrs.script!;
-      const setting = (key: string) => attrs[key] ?? (noteName === name ? block.properties.find(p => p.key === key)?.value : undefined);
+      const setting = (key: string) => attrs[key] ?? (noteName === name ? getProperty(block.properties, key) : undefined);
       const noteValues = (key: string) => noteName === name ? block.properties.filter(p => p.key === key).map(p => p.value) : [];
       const mode = attrs.mode === undefined ? noteValues("mode") : [attrs.mode];
       const module = mode.includes("module");

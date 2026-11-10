@@ -27,6 +27,7 @@ import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { MutationProvenance } from "./types";
 import { actorName } from "@ep0ch/outline-core/attribution";
+import { valueOf } from "@ep0ch/outline-core/block-record";
 
 /** A door's lease on the live draft it holds, when it doesn't say (ms). */
 export const DRAFT_HOLD_DEFAULT_LEASE_MS = 15_000;
@@ -555,7 +556,7 @@ export function parseProposal(text: string): DraftProposal | null {
 
 /** A proposal's status, from its properties: `open` when it names none this service knows. */
 export function proposalStatus(properties: readonly { key: string; value: string }[]): DraftProposalStatus {
-  const value = properties.find(property => property.key === "proposal-status")?.value;
+  const value = valueOf({ properties }, "proposal-status");
   return DRAFT_PROPOSAL_STATUSES.includes(value as DraftProposalStatus) ? value as DraftProposalStatus : "open";
 }
 

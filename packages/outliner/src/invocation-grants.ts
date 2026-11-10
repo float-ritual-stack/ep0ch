@@ -2,6 +2,7 @@ import { actorNamed, parseActor, parseSessionId } from "@ep0ch/outline-core/attr
 import { parseRuleCap, ruleWriter } from "@ep0ch/outline-core/rules";
 import type { Block, MutationProvenance } from "./types";
 import { blockDisplayTitle } from "./references";
+import { getProperty } from "./properties";
 
 export const DEFAULT_MAX_HOPS = 8;
 const MAX_HOPS = 8;
@@ -60,7 +61,7 @@ export function parseGrant(block: Block): InvocationGrant | null {
     if (Number.isInteger(n) && n >= 1 && n <= 1000) budget = n; else problems.push("budget is a whole number of wakes, 1 to 1000");
   }
   let cap: number | undefined;
-  const daily = block.properties.find((p) => p.key === "cap")?.value;
+  const daily = getProperty(block.properties, "cap");
   if (daily !== undefined) {
     const parsed = parseRuleCap(daily);
     if (typeof parsed === "number") cap = parsed; else problems.push(parsed.problem);

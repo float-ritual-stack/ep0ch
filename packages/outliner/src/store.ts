@@ -7,7 +7,7 @@ import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { runbookText } from "./runbook";
 import { isRunbook } from "@ep0ch/outline-core/runbook";
-import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
+import { subtitleOf, valueOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
@@ -1359,7 +1359,7 @@ export class OutlinerStore {
       if (subject.kind === "mark") {
         const block = this.getFromCurrentRead(subject.id);
         if (!block || block.effectiveDeletedRootId) throw new Error(`No mark ${subject.id}: it's gone or in the Trash`);
-        const type = block.properties.find((property) => property.key === "type")?.value;
+        const type = getProperty(block.properties, "type");
         if (type !== "annotation" && type !== "annotation-reply") throw new Error(`${subject.id} isn't a mark (a highlight, comment or reply); quote a part of a note as { kind: "element", blockId, anchor }`);
         const record = this.annotations.get(subject.id);
         if (on === undefined) {
@@ -1367,7 +1367,7 @@ export class OutlinerStore {
           let target = record.originalTarget.representation.subject;
           for (let hops = 0; target.kind === "block" && hops < 16; hops++) {
             const at = this.getFromCurrentRead(target.blockId);
-            const kind = at?.properties.find((property) => property.key === "type")?.value;
+            const kind = at && getProperty(at.properties, "type");
             if (kind !== "annotation" && kind !== "annotation-reply") break;
             target = this.annotations.get(target.blockId).originalTarget.representation.subject;
           }
@@ -3279,7 +3279,7 @@ export class OutlinerStore {
   purge(id: string, confirmation: string): void {
     const block = this.require(id);
     if (!block.deletedAt) throw new Error(`Block is not a direct Trash root: ${id}`);
-    const workId = block.properties.find((property) => property.key === "work-id")?.value;
+    const workId = valueOf(block, "work-id");
     const expected = workId ?? block.id.slice(0, 8);
     if (confirmation !== expected) throw new Error(`Permanent purge requires confirmation: ${expected}`);
     this.database.transaction(() => {

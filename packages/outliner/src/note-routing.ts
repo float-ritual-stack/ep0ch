@@ -27,6 +27,7 @@ import { isSystemNote, systemNoteKind, type Placement } from "./note-placement";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
+import { getProperty } from "./properties";
 
 /** The actor every routing write carries: the service's own, as an extension's. */
 export const ROUTE_ACTOR = "ext:note-mover";
@@ -73,7 +74,7 @@ const quoted = (s: string) => `“${s}”`;
 /** A ((id|label)) with a label that can't break the reference. */
 const ref = (block: Block) => `((${block.id}|${title(block).replace(/[|()]/g, " ").trim()}))`;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const typeOf = (block: Block) => block.properties.find(p => p.key === "type")?.value.trim().toLowerCase();
+const typeOf = (block: Block) => getProperty(block.properties, "type")?.trim().toLowerCase();
 const isRuleNote = (block: Block) => typeOf(block) === OLD_RULE_TYPE || block.properties.some(p => p.key === NOTE_MOVER);
 
 export class NoteRouting {
@@ -123,7 +124,7 @@ export class NoteRouting {
     for (const block of declared) {
       if (block.effectiveDeletedRootId) continue;
       const props = parsePropertyRecords(block.text).filter(p => p.scope === "block");
-      const value = (key: string) => props.find(p => p.key === key)?.value.trim();
+      const value = (key: string) => getProperty(props, key)?.trim();
       const where = `rule ${block.id.slice(0, 8)} ${quoted(title(block))}`;
       const named = (now: string, old: string) => value(now) ?? value(old);
       const query = value("query"), to = named(NOTE_MOVER, "route-to"), when = (named("note-mover-when", "route-when") ?? "create").toLowerCase(), at = (named("note-mover-at", "route-at") ?? "top").toLowerCase();

@@ -16,6 +16,7 @@ import { deepCandidates } from "./search-deep";
 import { askNouls, clip, jevWho, NO, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle } from "./work-twins";
 import type { Block } from "./types";
+import { getProperty } from "./properties";
 
 const LOOP = "work-try";
 const MAX_ACTIONS = 8, MAX_LINES = 6, MAX_PLACES = 6, DEEP_PLACES = 3, KEEP = 3;
@@ -150,7 +151,7 @@ export function tryMarkdown(report: TryReport): string {
       out.push(`- [ ] **Try:** ${a.summary.split(/[.;:]\s/)[0]}${a.keys ? ` · keys ${clip(a.keys.split(/,\s*|;\s*/).slice(0, 2).join(", "), 40)}` : ""} · \`ep0ch act ${example ? example.act : a.name}\`${j.p !== undefined && j.p < YES ? " (a place to start: Jev leans to it, unsure)" : ""}`);
     }
     for (const o of p.opens) {
-      const page = o.place.properties.find(q => q.key === "page")?.value;
+      const page = getProperty(o.place.properties, "page");
       out.push(`- [ ] **Open:** ((${o.place.id}|${o.title.replace(/[|)]/g, " ")}))${page ? ` · [[${page}]]` : " · a view"}${o.links ? " · it links the ticket" : ""}${o.p !== undefined && o.p < YES && !(o.links && o.p >= 0.5) ? " (Jev unsure: look, then say)" : ""}${opener ? ` · \`ep0ch act ${opener.replace(/\btarget=\S+/, `target=${o.place.id}`)}\`` : ""}`);
     }
     if (!p.journeys.length && !p.opens.length) out.push("- [ ] **Try:** no action or page reads like it; open what the line below names, by mouse and by keys");
