@@ -32,7 +32,8 @@ export class DoorEsc {
     const closes = escByHint() ? null : this.next();
     escPress(DOOR_ESC, doorEscSteps(this.a));
     const { key, word } = closes ? escWordOf(closes) : { key: "esc", word: "" };
-    if (key !== "esc") this.a.flash(`esc no longer closes ${word}: your keymap gives it ${keyCaption(key)} (? shows the keys)`);
+    // Said only when it closed nothing: a line's popup still closes on Esc itself (completer.ts), and that's no lie to tell.
+    if (key !== "esc" && this.next() === closes) this.a.flash(`esc no longer closes ${word}: your keymap gives it ${keyCaption(key)} (? shows the keys)`);
   }
   /** The key's work, for a click on the hint: what it closed. */
   close(): string | null { const closes = this.next(); asHintEsc(() => this.press()); this.a.redraw(); return closes && escWordOf(closes).word; }

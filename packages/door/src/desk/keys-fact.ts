@@ -9,16 +9,6 @@ import type { PtyPane } from "./pty";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
 
-/**
- * A tile recording a key (`Pane.recordsKey`: the keys window's rebind waits for one) gets the next key before any layer of
- * the door that would run it, the glass's alt+u and alt+v on every screen (PIE-1688), through the screen's own key path.
- * In the drawer the drawer's tiles have the keys, so this stays out of it; a click goes where it points.
- */
-export function recordsInto(top: { focusedPane?(): Pane | undefined; key(k: Key, ctx: never): unknown } | undefined, inDrawer: boolean, k: Key, ctx: unknown): boolean {
-  if (inDrawer || k.kind === "mouse" || k.kind === "paste" || !top?.focusedPane?.()?.recordsKey?.()) return false;
-  top.key(k, ctx as never);
-  return true;
-}
 
 /** How soon a second ctrl+] counts as the second of two: it goes to the program left, or back into the drawer left. */
 export const CHORD_MS = 1500;
@@ -83,6 +73,17 @@ export class DoorKeys<Lift = unknown> {
   passedOn(now = Date.now()) { this.chord.arm({ passed: true }, now); }
   /** Whatever the last ctrl+] left is over (they went in again, or its tile went). */
   chordSpent(p?: unknown) { const c = this.chord.armed(); if (!p || (c && "pane" in c && c.pane === p)) this.chord.clear(); }
+
+  /**
+   * A tile recording a key (`Pane.recordsKey`: the keys window's rebind waits for one) gets the next key before any layer
+   * of the door that would run it, the glass's alt+u and alt+v on every screen (PIE-1688), through the screen's own key
+   * path: true when it took it. In the drawer the drawer's tiles have the keys, so this stays out; a click goes where it points.
+   */
+  recordsInto(top: { focusedPane?(): Pane | undefined; key(k: Key, ctx: never): unknown } | undefined, inDrawer: boolean, k: Key, ctx: unknown): boolean {
+    if (inDrawer || k.kind === "mouse" || k.kind === "paste" || !top?.focusedPane?.()?.recordsKey?.()) return false;
+    top.key(k, ctx as never);
+    return true;
+  }
 
   // ── read ──
   typingOn(desk: object): PtyPane | null { return this.programs.get(desk) ?? null; }

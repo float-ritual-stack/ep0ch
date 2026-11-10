@@ -521,6 +521,16 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       expect(screen().holdsKeys?.()).toBe(true);
       key({ kind: "alt", ch: "q" });
       await until(() => !screen().holdsKeys?.(), "alt+q closed it");
+      // The facets query line follows edit.close too: its hint names alt+q, and the old esc says so.
+      await desk().dispatch.act({ action: "tile.open", args: { kind: "facets" } }, USER);
+      await until(() => focusedKind() === "facets", "a facets tile");
+      key(char("e"));
+      await until(() => !!screen().holdsKeys?.(), "the query line");
+      flashes.length = 0;
+      key({ kind: "esc" });
+      await until(() => flashes.some(f => f.includes("esc no longer closes the query: your keymap gives it alt+q")), `the old esc said (${flashes.join(" | ")})`);
+      key({ kind: "alt", ch: "q" });
+      await until(() => !screen().holdsKeys?.(), "alt+q closed the query");
     } finally {
       writeFileSync(keymapPath(), "{}\n");
       reloadKeymap();
