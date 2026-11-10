@@ -11,7 +11,7 @@ import { errorLines, Refusal, REFUSAL_KINDS, refusalKindOf, refusalKindOfStderr,
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { refusalEnvelope } from "../src/refusal-envelope";
+import { refusalEnvelope } from "../src/request-envelope";
 import { hostBusy, OutlinerRequestError } from "../src/client";
 import type { OutlinerRequest } from "../src/types";
 

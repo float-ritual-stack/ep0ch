@@ -28,7 +28,7 @@
 //
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
 // `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (their `watch` row in actions.ts).
-import { refusalEnvelope } from "./refusal-envelope";
+import { refusalEnvelope } from "./request-envelope";
 import { Refusal } from "@ep0ch/outline-core/refusal";
 import { QUERIES_CHANGED, WATCH_LIMITS, type OutlinerResponse, type QueryChange } from "@ep0ch/outline-core/protocol";
 import { stableJson } from "@ep0ch/outline-core/stable-json";

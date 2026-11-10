@@ -1,4 +1,4 @@
-import { refusalEnvelope } from "./refusal-envelope";
+import { refusalEnvelope } from "./request-envelope";
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
 import { warmHolds, warmReads } from "./outline-warm";

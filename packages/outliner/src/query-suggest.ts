@@ -1,4 +1,4 @@
-import { refusalEnvelope } from "./refusal-envelope";
+import { refusalEnvelope } from "./request-envelope";
 import { randomUUID } from "node:crypto";
 import { clauseText, type Clause } from "@ep0ch/outline-core/query-clauses";
 import { queryDateWords } from "@ep0ch/outline-core/query-date-words";
