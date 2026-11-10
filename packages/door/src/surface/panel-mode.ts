@@ -34,9 +34,10 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
           const e = P.card.editing, at = P.card.editAt, r = P.card.rect;
           if (e && at) return e.input.mouse({ kind: "mouse", action: "down", button: 0, x, y: yy }, { x: r.col + at.x, y: r.row + 1 + at.y, w: at.w }) || true;
           if (hit === "place") void surface.runKey("settings.place", {}, host);
+          else if (hit === "resetAll") void surface.runKey("settings.reset", {}, host);
           else if (typeof hit === "object") {
-            const f = surface.msg && surface.settingFields(surface.msg, P.card.schemas)[hit.tries - 1];
-            if (f) void surface.runKey("settings.try", { key: f.prop.key }, host);
+            const f = surface.msg && surface.settingFields(surface.msg, P.card.schemas)["tries" in hit ? hit.tries - 1 : hit.reset - 1];
+            if (f) void surface.runKey("tries" in hit ? "settings.try" : "settings.clear", { key: f.prop.key }, host);
           } else if (typeof hit === "number") {
             const f = surface.msg && surface.settingFields(surface.msg, P.card.schemas)[hit - 1];
             if (f && P.card.sel === hit - 1) void surface.runKey("settings.set", { key: f.prop.key }, host);

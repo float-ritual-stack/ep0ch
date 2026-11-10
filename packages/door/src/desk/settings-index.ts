@@ -97,11 +97,12 @@ export class SettingsIndexPane implements Pane {
   render(w: number, h: number, focused: boolean): PaneView {
     const rows = this.rows(), sel = this.selected();
     const out: string[] = [];
-    this.searchRow = out.length;
+    this.searchRow = 0;
     const search = this.field ? this.field.show(Math.max(1, w - 4)) : this.filter ? fg(C.yellow) + this.filter + RESET : fg(C.dark) + "search every setting" + RESET;
     out.push(pad(`${fg(C.lcyan)}/ ${RESET}${search}`, w));
-    if (!rows.length) out.push(pad(fg(C.dark) + `  nothing here has "${this.filter}"` + RESET, w));
-    const room = Math.max(1, h - out.length);
+    const none = !rows.length;
+    if (none) out.push(pad(fg(C.dark) + `  nothing here has "${this.filter}"` + RESET, w));
+    const room = Math.max(1, h - (none ? 2 : 1));
     const drawn = rows.map((r, n) => {
       if (r.head) return { n, text: fg(C.lcyan) + ellipsize(r.label, w) + RESET };
       const label = r.field ? fg(C.brown) + r.label : r.ext ? fg(C.yellow) + r.label : fg(C.white) + r.label;
@@ -156,9 +157,10 @@ async function show(p: SettingsIndexPane, desk: DeskApi, keys: boolean): Promise
   if (!page) throw new ActionRefused(`${r.ext}'s page isn't written yet`);
   const m = await desk.ctx.board.get(page);
   if (!m) throw new ActionRefused(`${r.ext}'s page isn't in the outline`);
-  if (p.shown !== `${r.ext}:${r.field ?? ""}` || keys) desk.openFromTile(m as Msg, { from: p, ...(keys ? {} : { keys: false as const }), keep: true });
-  p.shown = `${r.ext}:${r.field ?? ""}`;
+  // Moving onto it shows it (the select wire, the keys stay in the list); opening it gives the card the keys (the open wire).
   if (r.field) cardField.set(page, r.field);
+  if (p.shown !== `${r.ext}:${r.field ?? ""}` || keys) desk.openFromTile(m as Msg, keys ? { from: p, link: true } : { from: p });
+  p.shown = `${r.ext}:${r.field ?? ""}`;
   desk.redraw();
   return { extension: r.ext, ...(r.field ? { field: r.field } : {}) };
 }
@@ -169,7 +171,7 @@ export const cardField = new Map<string, string>();
 export const SETTINGS_INDEX_ACTIONS = actionSet<KindHost>()("settings-index", {
   "settings.index.select": def({
     summary: "select a row of the settings list (by=, or n= from one): an extension's or one of its settings shows its settings card beside, without moving the keys",
-    keys: "j k ↑ ↓, the wheel, a click on a row", touches: "tile", replay: "safe", person: "the selection is the person's",
+    keys: [{ keys: "j k ↑ ↓", does: "the row below or above" }, { keys: "wheel", does: "rows down or up" }, { keys: "click", does: "on a row: selects it" }], touches: "tile", replay: "safe", person: "the selection is the person's",
     args: { by: { type: "number", optional: true, about: "rows to move, negative up" }, n: { type: "number", optional: true, about: "the row, from one" } },
     examples: [{ act: "settings.index.select n=3 tile=index", does: "selects the third row; its card shows beside" }],
     async run({ by, n }, { pane, desk }) {
@@ -245,8 +247,10 @@ export function settingsScreenSpec(args: { ext?: unknown; extension?: unknown } 
   const ext = typeof args.ext === "string" ? args.ext : typeof args.extension === "string" ? args.extension : undefined;
   return {
     name: "settings", title: "settings", lands: "card",
-    layout: { focus: ext ? "card" : "index", root: { t: "split", dir: "row", weights: [0.34, 0.66], kids: [
-      { t: "leaf", kind: "settings-index", name: "index", ...(ext ? { state: { ext } } : {}), wires: [{ verb: "open", to: "card" }] },
+    // A flow, as the navigator's: side by side where both read, and at a phone's 44 columns the one not in use folds to a
+    // spine beside the other, so neither is squeezed past reading.
+    layout: { focus: ext ? "card" : "index", root: { t: "flow", key: "settings", anchor: 1, held: [0, 1], kids: [
+      { t: "leaf", kind: "settings-index", name: "index", ...(ext ? { state: { ext } } : {}), wires: [{ verb: "select", to: "card" }, { verb: "open", to: "card" }] },
       { t: "leaf", kind: "settings", name: "card", args: { fills: true } },
     ] } },
   };

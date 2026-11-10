@@ -89,6 +89,12 @@ export function buttonLine(a: ActionRecord, press: { line: string; slots: string
     : `::button{label="${label}" act="${press.line}"${slots}}`;
 }
 
+/**
+ * The way to yo's settings from an answer that couldn't use its model (PIE-1709): a press opens the door's settings screen
+ * at yo, where its model command reads as one line, changes and is tried. A thread's answer has it as a link.
+ */
+export const settingsButton = (thread = false): string => thread ? "[⚙ yo's settings](act: ext.yo.settings)" : '::button{label="⚙ yo\'s settings" act="ext.yo.settings"}';
+
 /** The row a press leaves: its undo only when the run can take it back, and nothing to undo when it changed nothing (PIE-1626). */
 export function doneRow(label: string, undo: string, reversible: boolean, changed = true): string {
   return `✓ yo pressed ${label} · ${!changed ? "nothing to undo: it was already so" : reversible ? `[undo](act: ext.undo run=${undo})` : "no undo: it changes no note and no layout"}`;
@@ -307,4 +313,76 @@ export function shortReason(said: string): string {
 /** The steps under an answer, folded under their count. */
 export function stepsFold(steps: readonly string[]): string[] {
   return steps.length ? [`> [!note]- ${steps.length} step${steps.length === 1 ? "" : "s"}`, ...steps.map(s => `> - ${s}`)] : [];
+}
+
+// ── yo about itself (PIE-1710) ───────────────────────────────────────────────────────────────────────────────────────
+
+/** Whether two words are one slip apart (a letter wrong, missing, extra, or two swapped: "sue" for "use"). */
+export function oneSlip(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 3) return false;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+    d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1);
+  }
+  return d[a.length]![b.length]! <= 1;
+}
+
+/** The words an ask about yo is told by, each read through one slip ("sue" is "use", "seup" is "setup"). */
+const SELF_WORDS = ["use", "using", "work", "works", "set", "setup", "configure", "config", "settings", "setting", "model", "models", "install", "login", "yourself"];
+const GREETING = /^(hi+|hey+|hello|hiya|howdy|sup|yo+|gm|morning|whats? ?(good|up)|what'?s (good|up)|what can (you|u|yo) do|who are (you|u)|what are (you|u)|help)[\s!?.]*$/;
+
+/**
+ * What an ask about yo itself is (PIE-1710), told by its words, before any model: a greeting ("whats good", "hi", "what
+ * can you do"), how to use it ("how do I use yo"), or how to set it up ("how do I set you up", "which model"); null when
+ * it's about the door, the actions' business. A slip in a word is read through ("how do i sue yo").
+ */
+export function selfAsk(asked: string): "greeting" | "use" | "setup" | null {
+  const text = asked.toLowerCase().trim();
+  if (!text || GREETING.test(text)) return "greeting";
+  const words = text.split(/[^a-z0-9']+/).filter(Boolean).map(w => SELF_WORDS.find(k => oneSlip(w, k)) ?? w);
+  const aboutYo = words.some(w => w === "yo" || w === "you" || w === "u" || w === "yourself");
+  if (!aboutYo) return null;
+  if (words.some(w => ["set", "setup", "configure", "config", "settings", "setting", "model", "models", "install", "login"].includes(w))) return "setup";
+  if (words.some(w => ["use", "using", "work", "works", "do", "help", "ask"].includes(w)) || words.length <= 3) return "use";
+  return null;
+}
+
+/** A section of yo's README by its heading ("What you do"), its bullets' first lines, at most `most`. */
+export function readmeBullets(readme: string, heading: string, most = 3): string[] {
+  const at = readme.indexOf(`\n## ${heading}\n`);
+  if (at < 0) return [];
+  const body = readme.slice(at + heading.length + 5).split(/\n## /, 1)[0]!;
+  return body.split("\n").filter(l => l.startsWith("- ")).slice(0, most).map(l => l.slice(2).trim());
+}
+
+/** The asks yo's README shows (its example's `@yo …` lines), the first `most`, as you'd type them. */
+export const exampleAsks = (readme: string, most = 2): string[] =>
+  [...new Set(readme.split("\n").map(l => /^@yo [^←]+/.exec(l)?.[0]?.trim()).filter((l): l is string => !!l))].slice(0, most);
+
+/** A model command in a few words: its model by name when it says one (`--model haiku`), else its program; none for []. */
+export function modelWords(command: readonly string[]): string {
+  if (!command.length) return "none (it quotes its closest match by its words)";
+  const at = command.indexOf("--model");
+  return at >= 0 && command[at + 1] ? `${command[at + 1]} (${command[0]})` : command[0]!.split("/").pop()!;
+}
+
+/**
+ * yo's answer about itself (PIE-1710): from its own README and settings, never the closest action by its words. A
+ * greeting says what it's for and two asks to try; how to use it, its first moves; how to set it up, its models as they
+ * are and its settings, one press away.
+ */
+export function selfAnswer(kind: "greeting" | "use" | "setup", o: { readme: string; answer: readonly string[]; act: readonly string[]; answerDefault: boolean; memory?: string; thread?: boolean }): string[] {
+  const intro = o.readme.split("\n\n")[1]?.split(/(?<=\.)\s/)[0] ?? "I answer how to do an ep0ch thing, from the actions' own docs.";
+  const tryLines = exampleAsks(o.readme).map(a => `- \`${a}\``);
+  if (kind === "greeting") return [`yo. ${intro}`, "Try:", ...tryLines];
+  if (kind === "use") return [intro, ...readmeBullets(o.readme, "What you do", 3).map(b => `- ${b}`), "Try:", ...tryLines, settingsButton(o.thread)];
+  return [
+    `My answer model: ${modelWords(o.answer)}${o.answerDefault ? ", its default" : ""}.`,
+    `My act model: ${modelWords(o.act)}. My memory: ${o.memory ? `the ${o.memory} outline` : "this outline"}.`,
+    "Change any of them, and try each, in my settings:",
+    settingsButton(o.thread),
+  ];
 }

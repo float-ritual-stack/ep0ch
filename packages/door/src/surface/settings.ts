@@ -220,7 +220,7 @@ async function extWrite(on: Pick<On, "surface" | "host">, subject: SettingsSubje
   const r = await configureExtension(host.ctx, entry, settingsNow(entry) ?? subject.ext!.settings, given, actor);
   const after = extensionCardValues(entry, r.settings).get(key)?.value ?? null;
   SETTINGS_UNDO.push({ block: subject.note.id, before: "", after: "", key, by: partyOf(actor), context: surface.msg?.id ?? subject.note.id, ext: { id: entry.id, before, after } });
-  const said = `${after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""} · in ${r.settings.file}`;
+  const said = `${after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""}`;
   if (surface.panel?.card) surface.panel.card.say(said, r.error ? "problem" : "news");
   host.ctx.flash(said);
   surface.noteAgent(actor, said);
@@ -461,6 +461,18 @@ export const SETTINGS_DEFS = {
         if (card) card.trying = null;
         on.host.redraw();
       }
+    },
+  }),
+  "settings.reset": def({
+    summary: "put every one of an extension's settings back to its default at once (its config.json keeps its secrets' references); ctrl+z puts back the last one changed",
+    keys: "X or a click on [↺ all] in an extension's settings card", touches: "nothing", replay: "ask", args: { list: LIST }, answer: RECORDED_AS,
+    examples: [{ act: "settings.reset tile=card", does: "takes yo's answer, act, memory and its deadline back to their defaults" }],
+    async run({ list }, on: On, actor) {
+      const subject = await read(on, list);
+      if (!subject.ext) throw new ActionRefused("settings.reset is an extension's (its page's settings card) · x clears one field of a note's");
+      const set = subject.ext.settings.fields.filter(f => f.state === "set").map(f => f.name);
+      if (!set.length) throw new ActionRefused(`${subject.schemas[0]!.title}'s settings are all their defaults already`);
+      return extWrite(on, subject, set[0]!, { unset: set.join(",") }, actor);
     },
   }),
   "settings.clear": def({

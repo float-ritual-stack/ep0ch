@@ -249,13 +249,16 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string, inst
     };
     // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
     out.push(installed
-      ? `- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`
-      : `- **Settings,** once it's installed: ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
+      ? `- **Settings:** the settings button above (the settings screen at ${manifest.id}), or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`
+      : `- **Settings,** once it's installed: its page's settings button (the settings screen), or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
       ...Object.entries(settings).flatMap(([key, spec]) => said(key, spec)));
   }
   return out;
 }
 
+
+/** Whether an extension has settings the settings screen shows: a configSchema, secrets or an agent (its deadline). */
+const hasSettings = (manifest: ExtensionManifest): boolean => manifest.configSchema !== undefined || !!Object.keys(manifest.secrets ?? {}).length || !!manifest.agents?.length;
 
 /**
  * Each action's arguments as a properties table (`::graph-props`, PIE-1032), the one drawing an action's page and the
@@ -658,6 +661,8 @@ export class ExtensionPages {
     const lines = [`${name} [ext.page::${entry.id}] [page::ext-${entry.id}]`];
     if (loaded?.description ?? entry.description) lines.push(words(loaded?.description ?? entry.description));
     lines.push(`\`${entry.id}\` · version ${loaded?.version ?? entry.version ?? "?"} · ${STATE_WORDS(entry)} · ${entry.origin === "outline" ? "this outline's own" : "for every outline this host serves"}`);
+    // Its settings, one press away (PIE-1709): the settings screen at it, where each reads, changes and is tried.
+    if (loaded && hasSettings(loaded.manifest)) lines.push(`::button{label="⚙ settings" act="ext.${entry.id}.settings"}`);
     const override = entry.builtIn && overrideWords(entry.id, entry.builtIn);
     if (override) lines.push(override);
     const directory = loaded?.directory ?? entry.directory;

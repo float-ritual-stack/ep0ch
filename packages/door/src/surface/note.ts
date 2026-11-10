@@ -1271,7 +1271,7 @@ export class NoteSurface {
     this.boxRect = null;
     this.listPreview.rect = null;
     this.attachments.begin();
-    if (this.panel?.card && this.msg && !this.settingsSchemaOf(this.msg)) this.closePanel();
+    if (this.panel?.card && !this.panel.card.fills && this.msg && !this.settingsSchemaOf(this.msg)) this.closePanel();
     this.attachments.sync(host);
     if (this.replyLinks) return this.attachments.beside(w, h, (cols, rows, row, col) => {
       const mode = this.replyLinks!;
@@ -2817,7 +2817,7 @@ export class NoteSurface {
     const P = this.panel!, m = this.msg;
     // Scrolling always works (PIE-411): PgDn, PgUp and Space (unless it's being typed) page the note,
     // or the property list when it fills the reader and the note isn't drawn.
-    const page = k.kind === "pgdn" || (ch(k) === " " && !P.field) ? 1 : k.kind === "pgup" ? -1 : 0;
+    const page = k.kind === "pgdn" || (ch(k) === " " && !P.field && !P.card?.editing) ? 1 : k.kind === "pgup" ? -1 : 0;
     if (page) {
       if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + this.pageBy(page))); P.note = ""; }
       else this.scroll = scrolled(this.scroll, this.pageBy(page), this.maxScroll);

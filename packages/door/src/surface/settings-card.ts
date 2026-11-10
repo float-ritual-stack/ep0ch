@@ -199,7 +199,7 @@ export class SettingsCard {
   /** Say `text` under the fields, as news or as a problem. */
   say(text: string, tone: "news" | "problem" = "news") { this.said = { text, tone }; }
   /** Where the last render drew each field (`y` in its lines), for clicks; `tries`: the row is that field's `[try]` (from `x0` to `x1`). */
-  at: { y: number; n: number; tries?: { x0: number; x1: number } }[] = [];
+  at: { y: number; n: number; tries?: { x0: number; x1: number }; reset?: { x0: number; x1: number } }[] = [];
   /** An extension's card (PIE-1709): the machine its config.json is on, said in the title. */
   on?: string;
   /** The value being typed in place, when one is (an extension's setting). */
@@ -221,15 +221,24 @@ export class SettingsCard {
   draw(fields: readonly SettingField[], w: number, h: number, row: number, col: number, revision?: number): string[] {
     this.rect = { row, col, cols: w, rows: h };
     const chip = `[${this.place} ▸]`, left = Math.max(0, w - width(chip));
-    return [pad("Settings", left) + fg(C.lcyan) + chip + RESET, ...this.render(fields, w, h - 1, revision)];
+    // An extension's card resets every setting at once (PIE-1709): `[↺ all]` beside where it sits.
+    const all = fields.some(f => f.ext?.state === "set") ? RESET_ALL : "";
+    this.resetAll = all ? { x0: left - width(all) - 1, x1: left - 1 } : null;
+    const lines = [pad("Settings", Math.max(0, left - (all ? width(all) + 1 : 0))) + (all ? fg(C.lcyan) + all + RESET + " " : "") + fg(C.lcyan) + chip + RESET, ...this.render(fields, w, h - 1, revision)];
+    // A card that is its tile (the settings screen's, PIE-1709) fills it: the note's body isn't drawn under it.
+    while (this.fills && lines[h - 1] === undefined) lines.push(pad("", w));
+    return lines;
   }
+  /** Where `[↺ all]` was drawn on the header row, when it was. */
+  resetAll: { x0: number; x1: number } | null = null;
 
-  hit(x: number, y: number): number | { tries: number } | "place" | "body" | null {
+  hit(x: number, y: number): number | { tries: number } | { reset: number } | "place" | "resetAll" | "body" | null {
     const r = this.rect;
     if (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows) return null;
-    if (y === r.row) return "place";
+    if (y === r.row) return this.resetAll && x - r.col >= this.resetAll.x0 && x - r.col < this.resetAll.x1 ? "resetAll" : "place";
     const at = this.at.find(hit => hit.y === y - r.row - 1);
     if (at?.tries && x - r.col >= at.tries.x0 && x - r.col < at.tries.x1) return { tries: at.n };
+    if (at?.reset && x - r.col >= at.reset.x0 && x - r.col < at.reset.x1) return { reset: at.n };
     return at?.n ?? "body";
   }
 
@@ -259,9 +268,9 @@ export class SettingsCard {
       if (this.schemas.length > 1 && (rows.length === 0 || f.section !== fields[f.n - 2]?.section)) rows.push({ heading: this.schemas[f.section]!.title });
       rows.push({ field: f });
     }
-    const keyW = ext ? Math.min(12, Math.max(...fields.map(f => width(f.prop.key)))) : 0;
+    const keyW = ext ? Math.min(Math.max(8, Math.floor(w / 4)), Math.max(...fields.map(f => width(f.prop.key)))) : 0;
     this.editAt = null;
-    const drawn = rows.flatMap((r): { text: string; n: number; tries?: { x0: number; x1: number }; edit?: true }[] => {
+    const drawn = rows.flatMap((r): { text: string; n: number; tries?: { x0: number; x1: number }; reset?: { x0: number; x1: number }; edit?: true }[] => {
       if ("heading" in r) return [{ text: fg(C.lcyan) + `  ${r.heading}` + RESET, n: 0 }];
       const f = r.field;
       if (f.ext) return extensionRows(f, w, keyW, this.editing?.key === f.prop.key ? this.editing : null);
@@ -273,8 +282,8 @@ export class SettingsCard {
     this.view.place(at < 0 ? null : at, drawn.length, room, at < 0 ? null : [at, end]);
     this.at = [];
     for (const r of drawn.slice(this.view.top, this.view.top + room)) {
-      if (r.n) this.at.push({ y: out.length, n: r.n, ...(r.tries ? { tries: r.tries } : {}) });
-      if (r.edit) this.editAt = { x: keyW + 4, y: out.length, w: Math.max(1, w - keyW - 4) };
+      if (r.n) this.at.push({ y: out.length, n: r.n, ...(r.tries ? { tries: r.tries } : {}), ...(r.reset ? { reset: r.reset } : {}) });
+      if (r.edit) this.editAt = w < NARROW ? { x: 3, y: out.length, w: Math.max(1, w - 3) } : { x: keyW + 4, y: out.length, w: Math.max(1, w - keyW - 4) };
       // The line being typed keeps its own lit cursor and selection: never the selected row's wash over it.
       out.push(r.n - 1 === this.sel && !r.edit ? selectedRow(r.text, w) : pad(r.text, w));
     }
@@ -287,23 +296,41 @@ export class SettingsCard {
 
 const STATE_WORDS: Record<string, string> = { set: "set", default: "its default", unset: "not set", missing: "needed" };
 /** The `[try]` chip on a setting's second row: from its third cell. */
-const TRY_CHIP = "[try]", TRY_AT = 3;
+const TRY_CHIP = "[try]", TRY_AT = 3, RESET_CHIP = "[↺]", RESET_ALL = "[↺ all]";
 
 /**
  * An extension's setting as rows (PIE-1709): its label and value (set, else its default, dim), then what it does, said
  * by its schema, and the `[try]` its extension declares for it. The value being typed is one line in the shared editor.
  */
-function extensionRows(f: SettingField, w: number, keyW: number, editing: CardEdit | null): { text: string; n: number; tries?: { x0: number; x1: number }; edit?: true }[] {
+function extensionRows(f: SettingField, w: number, keyW: number, editing: CardEdit | null): { text: string; n: number; tries?: { x0: number; x1: number }; reset?: { x0: number; x1: number }; edit?: true }[] {
   const e = f.ext!, valueAt = keyW + 4, label = "  " + fg(C.brown) + pad(printable(f.prop.key), keyW) + RESET + "  ";
   const value = e.value !== null ? fg(C.yellow) + printable(e.value) + (e.value === "[]" ? fg(C.dark) + " none" : "")
     : e.state === "missing" ? fg(C.lred) + "missing"
     : f.prop.default !== undefined ? fg(C.dark) + printable(f.prop.default) : fg(C.dark) + "—";
+  // Narrow (a phone's 44 columns): the label on its own row, its value under it, so neither is cut.
+  if (w < NARROW) {
+    const top = { text: "  " + fg(C.brown) + printable(f.prop.key) + RESET, n: f.n };
+    const val = editing ? [{ text: "   " + editing.input.show(Math.max(1, w - 3)), n: f.n, edit: true as const }]
+      : rowLines("   " + value + RESET, w, Infinity, { hang: 3 }).map(text => ({ text, n: f.n }));
+    return [top, ...val, ...describe(f, e, w)];
+  }
   const head = editing ? [{ text: label + editing.input.show(Math.max(1, w - valueAt)), n: f.n, edit: true as const }]
     : rowLines(label + value + RESET, w, Infinity, { hang: valueAt }).map(text => ({ text, n: f.n }));
+  return [...head, ...describe(f, e, w)];
+}
+
+/** Under a setting: the `[try]` its extension declares for it, its state and what it does, in the schema's words. */
+function describe(f: SettingField, e: ExtensionCardField, w: number): { text: string; n: number; tries?: { x0: number; x1: number }; reset?: { x0: number; x1: number } }[] {
   const said = `${STATE_WORDS[e.state] ?? e.state} · ${f.prop.meaning}`;
   const chip = e.tries ? fg(C.lcyan) + TRY_CHIP + RESET + " " : "";
-  const about = rowLines(" ".repeat(TRY_AT) + chip + fg(C.dark) + said + RESET, w, Infinity, { hang: TRY_AT }).map((text, i) => ({
+  // ↺ on a setting that's set: back to its default (or out), as x does.
+  const reset = e.state === "set" ? fg(C.lcyan) + RESET_CHIP + RESET + " " : "";
+  const resetAt = TRY_AT + (e.tries ? width(TRY_CHIP) + 1 : 0);
+  const about = rowLines(" ".repeat(TRY_AT) + chip + reset + fg(C.dark) + said + RESET, w, Infinity, { hang: TRY_AT }).map((text, i) => ({
     text, n: f.n, ...(i === 0 && e.tries ? { tries: { x0: TRY_AT, x1: TRY_AT + width(TRY_CHIP) } } : {}),
+    ...(i === 0 && reset ? { reset: { x0: resetAt, x1: resetAt + width(RESET_CHIP) } } : {}),
   }));
-  return [...head, ...about];
+  return about;
 }
+/** Below this width an extension's setting draws its label and value on rows of their own. */
+const NARROW = 60;

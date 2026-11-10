@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { failureWords, TRY_PROMPT, triedLine } from "./yo-line";
+import { failureWords, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine } from "./yo-line";
 import { actPrompt, argsOf, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
@@ -189,9 +189,21 @@ function quoteAnswer(a: ActionRecord, asked: string, args?: Record<string, strin
   return [...quoted(a), buttonLine(a, pressLine(a, args), asked, { thread: inThread(), ...(tileFor(a) ? { tile: tileFor(a)! } : {}) }), ...(note ? [note] : [])];
 }
 
+/** yo's own page (PIE-1710): its README, read as an action's doc is; empty when it can't be read. */
+const ownPage = () => Bun.file(join(import.meta.dir, "README.md")).text().catch(() => "");
+
 async function respond() {
   const asked = (input.request ?? "").trim();
   if (isGo(asked)) return go();
+  // About yo itself (PIE-1710): a greeting, how to use it, how to set it up. Its own README and settings answer, not the
+  // closest action by its words, and no model is asked.
+  const self = selfAsk(asked);
+  if (self) {
+    const readme = await ownPage();
+    steps.push("read yo's own page: its README and its settings");
+    const lines = selfAnswer(self, { readme, answer: config.answer ?? defaults.answer.default, act: config.act ?? defaults.act.default, answerDefault: config.answer === undefined, ...(memoryAt.outline ? { memory: memoryAt.outline } : {}), thread: inThread() });
+    return ok({ message: self === "greeting" ? "yo" : `yo, about itself: ${self === "use" ? "how to use it" : "how to set it up"}`, reply: self === "greeting" ? lines.join("\n") : withSteps(lines) });
+  }
   const tile = input.properties?.["ask-tile-kind"]?.[0];
   const known = await memories();
   const actions = await catalog();
@@ -215,7 +227,8 @@ async function respond() {
   const own = tile && wordsOf(asked).every(w => w === "tile") ? actions.filter(a => a.scope === tile) : [];
   const candidates = [...own, ...ranked(actions, asked || "tile", boost).filter(a => !own.includes(a))].slice(0, 12);
   steps.push(candidates.length ? `closest actions: ${candidates.slice(0, 4).map(a => a.name).join(", ")}` : "no action's words match");
-  const docs = (await Promise.all(["scripts", "extensions"].map(d => ep0ch(["docs", d]).catch(() => "")))).flatMap(d => sections(d, asked));
+  // yo's own page is among what it reads (PIE-1710), as the door's docs are.
+  const docs = [...sections(await ownPage(), asked, 1), ...(await Promise.all(["scripts", "extensions"].map(d => ep0ch(["docs", d]).catch(() => "")))).flatMap(d => sections(d, asked))];
   if (docs.length) steps.push(`read ${docs.length} doc section${docs.length === 1 ? "" : "s"}`);
 
   // Code reads the words first: a question never offers the model an act, and never presses (PIE-1629).
@@ -233,8 +246,10 @@ async function respond() {
 
   if (!plan) {
     const best = candidates[0];
-    if (!best) return ok({ message: "nothing here answers it", reply: withSteps([`nothing in the actions' docs answers that${trouble ? ` (${trouble})` : ""}.`]) });
-    return ok({ message: said(best), reply: withSteps(quoteAnswer(best, asked, undefined, trouble ? `closest match by its words (${trouble}).` : undefined)) });
+    // Its model couldn't answer (or none is set): said, with the way to its settings one press away (PIE-1709).
+    const fix = trouble ? [settingsButton(inThread())] : [];
+    if (!best) return ok({ message: "nothing here answers it", reply: withSteps([`nothing in the actions' docs answers that${trouble ? ` (${trouble})` : ""}.`, ...fix]) });
+    return ok({ message: said(best), reply: withSteps([...quoteAnswer(best, asked, undefined, trouble ? `closest match by its words (${trouble}).` : undefined), ...fix]) });
   }
   if (plan.kind === "chat") return ok({ message: "yo", reply: plan.line });
   if (plan.kind === "none") return ok({ message: "nothing here answers it", reply: withSteps([plan.line]) });
@@ -254,7 +269,7 @@ async function respond() {
     const answer = await model(actCommand, "the act model", actPrompt({ asked, action: action.name, page })) as { press?: boolean; args?: Record<string, unknown>; line?: string };
     if (answer?.press === false) return ok({ message: "not pressed", reply: withSteps([...quoteAnswer(action, asked, plan.args), String(answer.line ?? "not pressed: that isn't what was asked")]) });
     if (answer?.args) args = Object.fromEntries(Object.entries(answer.args).map(([k, v]) => [k, String(v)]));
-  } catch (error) { return ok({ message: "not pressed", reply: withSteps([...quoteAnswer(action, asked, plan.args), `not pressed: ${firstLine(error)}`]) }); }
+  } catch (error) { return ok({ message: "not pressed", reply: withSteps([...quoteAnswer(action, asked, plan.args), `not pressed: ${firstLine(error)}`, settingsButton(inThread())]) }); }
   const line = pressLine(action, args);
   if (line.slots.length) return ok({ message: action.name, reply: withSteps(quoteAnswer(action, asked, args, `it needs ${line.slots.join(", ")}: press it and say.`)) });
   const label = labelOf(action, line.line), pressed = await press(line.line, label);

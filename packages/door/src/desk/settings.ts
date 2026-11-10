@@ -19,11 +19,21 @@ class SettingsPane extends ReaderPane {
   override render(w: number, h: number, focused: boolean, desk?: DeskApi): PaneView {
     const drawn = super.render(w, h, focused, desk);
     const m = this.msg;
-    if (m && this.opened !== m.id && (this.surface.listsDrawn.length || this.fills)) {
+    // The screen's card stays open whatever reloads the page under it (a save rewrites the extension's page) or closes it.
+    const gone = this.fills && !this.surface.panel?.card;
+    if (m && (this.opened !== m.id || gone) && (this.surface.listsDrawn.length || this.fills)) {
+      const again = this.opened === m.id;
       const subject = settingsSubject(this.surface, m, this.view);
       if (!subject.schemas.length) return drawn;
       const card = openSettings(this.surface, subject, desk?.ctx);
       card.fills = this.fills;
+      // The screen's card is what the tile is for: its keys are the card's (⏎ edits, t tries), as `,` gives them.
+      if (this.fills) {
+        const mode = this.surface.modes.get("panel");
+        if (mode) this.surface.modes.focus(mode, true);
+        // Opened with the keys here (the settings screen at an extension, ⏎ in its list): in it at once, no ⏎ to enter.
+        if (focused && !again) desk?.enterSession?.(this);
+      }
       // A setting the settings list picked (its search found it by name or words): selected as the card opens.
       const want = cardField.get(m.id);
       if (want) { const n = subject.fields.findIndex(f => f.prop.key === want); if (n >= 0) card.sel = n; cardField.delete(m.id); }

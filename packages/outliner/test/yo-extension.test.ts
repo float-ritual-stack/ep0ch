@@ -294,4 +294,34 @@ test("try runs a model setting once: its answer, or why not in its own words; an
   const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow", author: "user" } as never);
   const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
   expect(text).toContain("closest match by its words (the answer model: Not logged in · Please run /login (exited 1))");
+  expect(text).toContain(`::button{label="⚙ yo's settings" act="ext.yo.settings"}`);
+}, 60_000);
+
+// PIE-1710: yo knows itself. Asked about itself it answers from its own README and settings, with no model and never the
+// closest action by its words; a greeting gets what it's for and two asks to try; a slip ("sue yo") reads through.
+test("asked about itself, yo answers from its own page and settings, with no model; a greeting gets what it's for", async () => {
+  const { selfAsk } = await import("../extensions/yo/yo-line");
+  expect(["how do I use yo", "how do i sue yo", "how do use yo", "what do you do"].map(selfAsk)).toEqual(["use", "use", "use", "use"]);
+  expect(["how do I set you up", "which model do you use", "how do i configure yo"].map(selfAsk)).toEqual(["setup", "setup", "setup"]);
+  expect(["whats good", "hi", "what can you do", "hey!"].map(selfAsk)).toEqual(["greeting", "greeting", "greeting", "greeting"]);
+  expect(["how do I lift the agent", "can you lift the agent?", "could you lift the agent for me", "mamama"].map(selfAsk)).toEqual([null, null, null, null]);
+
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const ask = async (words: string) => {
+    const note = await t.client.request<{ id: string }>({ action: "create", text: `Shed list\n\n@yo ${words}`, author: "user" } as never);
+    return until(`the answer to ${words}`, () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  };
+  const use = await ask("how do i sue yo");
+  expect(use).toContain("Ask `@yo` how to do an ep0ch thing");
+  expect(use).toContain("- `@yo how do I lift the agent again`");
+  expect(use).toContain(`::button{label="⚙ yo's settings" act="ext.yo.settings"}`);
+  expect(use).toContain("read yo's own page: its README and its settings");
+  expect(use).not.toContain("barrow.lift");
+  const set = await ask("how do I set you up");
+  expect(set).toContain("My answer model: bun");
+  expect(set).toContain("My memory: this outline");
+  const hi = await ask("whats good");
+  expect(hi).toContain("yo. Ask `@yo` how to do an ep0ch thing");
+  expect(hi).not.toContain("steps");
+  expect(t.models()).toEqual([]);
 }, 60_000);
