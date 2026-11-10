@@ -3,16 +3,17 @@
 // when it dropped. "The other machine" is an outline host in a scratch folder of its own, reached through a fake ssh
 // (test/fake-ssh.ts as EP0CH_SSH); this machine's sshd isn't used.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createOutlinerClient, OutlinerClient } from "../src/client";
 import { forwardFor } from "../src/machine-forward";
 import { OutlineHost } from "../src/outline-host";
 import { boundFolderOf, resolveClientPaths, writeDotEp0ch } from "../src/paths";
 import type { Block, OutlinerServiceStatus } from "../src/types";
+import { scratchDir } from "./scratch-outline";
 
-const root = mkdtempSync(join(tmpdir(), "outliner-machine-"));
+// A short folder whatever TMPDIR is: the forwards' control sockets go under it (PIE-1654).
+const root = scratchDir("outliner-machine-");
 const far = join(root, "far");
 let host: OutlineHost;
 const saved: Record<string, string | undefined> = {};
