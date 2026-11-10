@@ -4,6 +4,7 @@ import type { DetailBeside, MentionRow, MentionsList, MentionsPlacement, Mention
 import type { BlockViewElements } from './block-view'
 import { OPENS_HERE, routeOf } from './detail-view'
 import { MENTIONS_AGENT } from './mention-message'
+import { BLOCK_ID_LIKE_PATTERN } from './link-grammar.js'
 
 /**
  * Recent mentions inside Claude Code: the blocks this conversation's answers
@@ -91,7 +92,6 @@ export function opensIn(env: { EP0CH_CONTROL?: string | undefined; HERDR_PANE_ID
   return `${OPENS_HERE}, in a detail pane`
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** `HH:MM` of an ISO time, in local time; '' for anything else. */
 export function clockOf(iso: string): string {
@@ -209,7 +209,7 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
   const items = list.rows.map((row, i) => {
     const preview = m.previews.get(i)
     // What the answer wrote, unless that is the block's id or its title; when, in local time; and the words around it.
-    const written = row.address !== row.title && !UUID.test(row.address) ? row.address : ''
+    const written = row.address !== row.title && !BLOCK_ID_LIKE_PATTERN.test(row.address) ? row.address : ''
     const about = [written, clockOf(row.mentionedAt), row.excerpt, row.unavailable ?? '']
     return Box({
       key: `mention-row-${i + 1}`, flexDirection: 'column', marginBottom: 1, children: [

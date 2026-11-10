@@ -8,7 +8,7 @@
  * old `pi-outliner.invalid` stand-in is still read back, for a reply drawn before.
  */
 import { codeBlocks } from './link-grammar.js'
-import { linkOccurrences, pageLinkSpans, qualifiedReference, referencedBlock } from './link-grammar.js'
+import { BLOCK_ID_LIKE_PATTERN, linkOccurrences, pageLinkSpans, qualifiedReference, referencedBlock } from './link-grammar.js'
 
 const STAND_IN = 'https://pi-outliner.invalid/'
 
@@ -35,7 +35,8 @@ function webHref(web: WebLinks, value: string, outline: string | undefined): str
   return `${web.origin}/pub/${where ? `o/${encodeURIComponent(where)}/` : ''}p/${encodeURIComponent(target)}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`
 }
 
-const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+/** A block id as reads take it, any UUID in any case (outline-core's `BLOCK_ID_LIKE_PATTERN`), unanchored to build on. */
+const UUID = BLOCK_ID_LIKE_PATTERN.source.replace(/^\^|\$$/g, '').replaceAll('a-f', 'a-fA-F')
 
 /** A fragment id, as outline-core's link grammar has it (`((id^fragment))`). */
 const FRAGMENT = '[A-Za-z0-9][A-Za-z0-9_-]{0,63}'

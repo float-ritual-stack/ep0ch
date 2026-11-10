@@ -12,7 +12,7 @@
 // - the tool runs or is denied after that (PostToolUse, PostToolUseFailure, PermissionDenied): working again;
 // - the main loop's turn ends: answered, done (its answer's first line); interrupted, idle; refused or an API error, error;
 // - the session starts: idle; it ends: cleared.
-import { encodeProgramStatus, type StatusInput } from './program-status'
+import { encodeProgramStatus, type StatusInput } from './link-grammar.js'
 
 /** The app every report carries (a report replaces its record whole). */
 export const CLAUDE_APP = 'claude-code'

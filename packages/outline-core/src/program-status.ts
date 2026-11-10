@@ -5,7 +5,7 @@
 // outliner's panes) write it. The terminal's records follow the spec exactly: one record per id, each report
 // replacing its record whole, `clear` taking a record and everything beneath it, the limits checked on every pair
 // before any record is touched, and text with a control character refused. Pure: no I/O, no globals beyond the
-// language's own (base64 and UTF-8 are done here), so the Claude mod's copy runs where there is no Node.
+// language's own (base64 and UTF-8 are done here), so the Claude mod's bundle of it runs where there is no Node.
 
 /** The OSC number. */
 export const PROGRAM_STATUS_OSC = 7501;

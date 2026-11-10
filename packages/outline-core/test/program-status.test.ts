@@ -259,11 +259,3 @@ describe("writing", () => {
 test("security: text shown outside the grid has its direction overrides and invisible formatting taken out", () => {
   expect(statusDisplayText("safe‮txt.exe​⁦x⁩﻿")).toBe("safetxt.exex");
 });
-
-test("the Claude mod's copy (a hooks module can't import outside its plugin) stays this file, and writes the same", async () => {
-  const read = (path: string) => Bun.file(new URL(path, import.meta.url)).text();
-  const [own, copy] = await Promise.all([read("../src/program-status.ts"), read("../../claude-mod/hooks/program-status.ts")]);
-  expect(copy.slice(copy.indexOf("\n") + 1)).toBe(own);
-  const modCopy = await import("../../claude-mod/hooks/program-status");
-  expect(modCopy.encodeProgramStatus({ state: "done", msg: "Stopped" })).toBe(encodeProgramStatus({ state: "done", msg: "Stopped" }));
-});

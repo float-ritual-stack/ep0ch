@@ -17,8 +17,8 @@
  * Every write is `author: agent`, attributed to the actor `actorOf` picks.
  */
 
-import { checkToolArgs, REF_ALIASES, type ToolSchema } from './tool-args'
-import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool, toolInputSchema, type AgentToolDefinition } from './agent-tool-definitions'
+import { checkToolArgs, REF_ALIASES, type ToolSchema } from './link-grammar.js'
+import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool, toolInputSchema, type AgentToolDefinition } from './link-grammar.js'
 
 type Json = Record<string, unknown>
 

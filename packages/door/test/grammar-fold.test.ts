@@ -23,7 +23,7 @@ import { ago } from "../src/text";
 
 // The outliner's and the mod's sites, loaded by path: the door's type check holds its own sources, so these are typed
 // here by what the test calls.
-const PI = "../../outliner/src/pi-tool-args", ROWS = "../../claude-mod/hooks/tool-rows", MOD_ARGS = "../../claude-mod/hooks/tool-args";
+const PI = "../../outliner/src/pi-tool-args", ROWS = "../../claude-mod/hooks/tool-rows", MOD_ARGS = "../../claude-mod/hooks/link-grammar.js";
 const { bareBlockRef } = await import(PI) as { bareBlockRef(ref: string): string };
 const mod = await import(ROWS) as {
   blockIdOfRef(ref: string): string | null;

@@ -349,7 +349,7 @@ describe('door tools', () => {
   })
 })
 
-// One canonical `ref` for "which note", its aliases, and the corrective error (hooks/tool-args.ts).
+// One canonical `ref` for "which note", its aliases, and the corrective error (outline-core's tool-args.ts, in hooks/link-grammar.js).
 describe('tool arguments', () => {
   const REF_TOOLS = [...OUTLINE_TOOLS, ...WORK_TOOLS, SHOW_TOOL, ...DOOR_TOOLS].filter(tool => 'ref' in ((tool.inputSchema.properties as Record<string, unknown>) ?? {}))
   const ALIASES = ['ref', 'id', 'reference', 'block', 'blockId', 'uri', 'note', 'item']
