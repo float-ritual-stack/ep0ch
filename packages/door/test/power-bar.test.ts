@@ -311,6 +311,30 @@ describe.skipIf(!outliner)("the power bar", () => {
     }
   });
 
+  test("the old erase-word key in the bar does nothing and says where the action went, as a draft does (Nov 3 review card 1)", () => {
+    const { mkdtempSync, writeFileSync } = require("node:fs");
+    const { tmpdir } = require("node:os");
+    const { reloadKeymap } = require("../src/surface/keymap");
+    const was = process.env.EP0CH_KEYMAP, file = join(mkdtempSync(join(tmpdir(), "bar-keymap-")), "keybindings.json");
+    process.env.EP0CH_KEYMAP = file;
+    writeFileSync(file, JSON.stringify({ "draft.erase to=word-back": ["alt+e"] }));
+    reloadKeymap();
+    try {
+      key(ctrlK); type("/garden path now");
+      key({ kind: "char", ch: "w", ctrl: true });
+      expect(peek().bar.query).toBe("garden path now");
+      const said = frame().join("\n");
+      expect(said).toContain("^W no longer runs draft.erase to=word-back");
+      expect(said).toContain("alt+e");
+      // The next key clears it.
+      type("!");
+      expect(frame().join("\n")).not.toContain("no longer runs");
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was;
+      reloadKeymap();
+    }
+  });
+
   test("the line selects and deletes text, and esc clears before closing its scope", () => {
     key(ctrlK); type("/garden path");
     key({ kind: "left", shift: true });

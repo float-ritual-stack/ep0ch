@@ -98,6 +98,17 @@ describe("the keymap file", () => {
     expect(fightOf(fights[0]!)).toMatchObject({ wins: "tile.close", loses: ["note.new"] });
   });
 
+  test("a rebind of a draft key onto a key the power bar reads first is a conflict: the bar's binding runs, the rebind does nothing there (Nov 3 review card 1)", () => {
+    writeFileSync(keymapPath(), JSON.stringify({ "draft.erase to=word-back": ["alt+j", "alt+backspace"] }));
+    reloadKeymap();
+    const fights = conflicts(bindings()).filter(g => g.some(b => b.key === "alt+j"));
+    expect(fights.map(g => g.map(b => `${b.scope}:${b.id}`))).toEqual([["bar:bar.docs", "draft:draft.erase to=word-back"]]);
+    expect(fightOf(fights[0]!)).toMatchObject({ wins: "bar.docs", loses: ["draft.erase to=word-back"] });
+    expect(fightOf(fights[0]!).why).toContain("power bar");
+    // A key the bar leaves to the line is no fight.
+    expect(conflicts(bindings()).some(g => g.some(b => b.key === "alt+backspace"))).toBe(false);
+  });
+
   test("Unbound is every action no key reaches, read from the action sets; a key given to one is said first and moves it out", () => {
     const all = bindings(), un = unbound(all), keyed = new Set(all.map(b => b.action));
     // Every action the door has is on a key or in Unbound, never both and never neither.
