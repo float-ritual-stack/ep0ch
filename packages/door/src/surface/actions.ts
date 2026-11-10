@@ -148,7 +148,8 @@ export interface ActionDef<A, H> {
   /**
    * It works on the tile it is pressed in, as `^W g` or a click on its chip there would: with no tile=, a press made in a
    * reader (a button there, or in the answer tile beside it) names that reader, not the focused tile (Dispatcher.requestIn,
-   * PIE-1699). Only an action whose no-tile default is the focused tile says so; one with another default keeps it.
+   * PIE-1699). Only an action whose no-tile default is the focused tile says so; one with another default keeps it. The
+   * note a tile shows is one (note.rename, note.trash, block.mark, tile.header: PIE-1722): pressed in yo's answer, the reader's.
    */
   inPlace?: true;
   /**

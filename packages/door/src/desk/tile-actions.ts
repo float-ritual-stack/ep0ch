@@ -603,10 +603,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "note.rename": def({
     words: "rename the note this tile shows",
-    summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. tile.title renames the tile itself, never the note",
+    summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. Pressed by the person while they edit the note (yo's ▸ rename beside the line), the title changes in their edit, saved with it; anyone else's is refused there. tile.title renames the tile itself, never the note",
     keys: [{ via: "\"rename this note\" in the tile menu" }],
-    touches: "nothing", replay: "ask", answer: RECORDED_AS,
-    says: r => r.prompt ? null : `renamed the note: ${r.title}`,
+    touches: "nothing", inPlace: true, replay: "ask", answer: RECORDED_AS,
+    says: r => r.prompt ? null : r.inEdit ? `renamed the note in the edit: ${r.title}` : `renamed the note: ${r.title}`,
     menu: { label: "rename this note…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
       const shown = d.tileNow(reader, actor).note;
       return !shown ? { hide: true } : shown.editing ? { refused: "this reader is editing the note: change its title in the edit" } : null;
@@ -625,7 +625,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "set what this tile's header shows",
     summary: "set tile=<tile>'s header (PIE-1248): what its reader draws above the note. mode=full (the crumbs, the title and the byline), title (the title alone, on one line) or none (the note starts on the first row); note takes the tile's own away, so the note's [header::…] decides again; left out, the next one (full, title, none). Saved with the layout. It wins over the note's own [header::…]; a note that is only embeds (an attached figure) has none until the tile says otherwise. With the byline hidden, its comment, comments, properties and sources stay in the tile menu; the frame names the note while the title is hidden. A title written on the tile (tile.title) heads it in place of the note's",
     keys: [{ keys: "^W b", does: "cycle full, title, none" }, { via: "the tile menu's header row" }],
-    touches: "nothing", replay: "safe", repaints: r => r.changed !== false,
+    touches: "nothing", inPlace: true, replay: "safe", repaints: r => r.changed !== false,
     says: r => (r.changed === false ? null : `${r.name}'s header: ${r.header === "note" ? `the note's (${r.shown})` : r.header}`),
     menu: { label: "header", group: TILE, key: "ctrl+w b", now: ({ d, reader }) => {
       const h = d.headerNow(reader);
@@ -756,7 +756,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "block.mark": def({
     summary: "a mark (PIE-1237), the outline's: on block id=<id> (default: the note tile=<tile> points at: a reader's note, a list's selected row), or on line=<n> of an nvim tile's file. With reason=<a few words> it is an attention mark (\"look here\"), framed and labelled in every tile of every door that shows it; without, a pocket mark, which marked:today lists. Attributed to who made it; it never moves the person's focus, selection or cursor. Marking what you already marked answers that mark",
     keys: [{ keys: "alt+m", does: "the person's own mark on the note the tile points at, or off again (block.mark-toggle)" }, { keys: "alt+'", does: "steps through marks (marks.next)" }, { keys: "click", does: "a tile's ◆ label dismisses it" }],
-    touches: "nothing", replay: "safe", says: (_, a) => (a.reason ? `marked: ${a.reason}` : "marked"),
+    touches: "nothing", inPlace: true, replay: "safe", says: (_, a) => (a.reason ? `marked: ${a.reason}` : "marked"),
     args: { id: { type: "string", optional: true, about: "the block (note) id" }, line: { type: "number", optional: true, about: "an nvim tile's line (1-based)" }, reason: { type: "string", optional: true, about: "why, in a few words (\"needs your call\"): makes it an attention mark" }, words: { type: "string", optional: true, about: "a note kept with the mark" } },
     examples: [
       { act: "block.mark id=3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650 reason=\"needs your call\"", does: "frames that note in every tile showing it, in every door, labelled needs your call" },
@@ -769,7 +769,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "mark this note, or take your mark off",
     summary: "the person's mark on the note tile=<tile> points at (a reader's note, a list's selected row): marks it (a pocket mark, which marked:today lists, in every door at once) or, when it has their mark, takes it off. An agent's toggles its own marks only",
     keys: [{ keys: "alt+m", does: "mark or unmark" }, { via: "the tile menu's \"mark this note\" (a right-click on a row is that row's)" }],
-    touches: "nothing", replay: "safe", says: r => ((r as { marked?: boolean }).marked ? "marked" : "unmarked"),
+    touches: "nothing", inPlace: true, replay: "safe", says: r => ((r as { marked?: boolean }).marked ? "marked" : "unmarked"),
     menu: { label: "mark this note", group: "Note", key: "alt+m", args: {}, now: ({ d, reader }) => (d.noteRefOf(reader) ? null : { hide: true }) },
     args: {},
     examples: [{ act: "block.mark-toggle tile=reader", does: "marks the reader's note, or takes the mark off if it has yours" }],
@@ -1016,7 +1016,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "note.trash": def({
     summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
     keys: [{ keys: "d then d ⏎", does: "either confirms", says: "move the note to the Trash, after asking" }, { keys: "Delete then Delete ⏎", does: "the same", says: "move the note to the Trash, after asking" }, { via: "a click on the tile menu's row" }],
-    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
+    touches: "draft", inPlace: true, draft: "write", replay: "ask", answer: RECORDED_AS,
     says: r => `trashed “${r.title}”`,
     menu: { label: "trash this note", group: "Trash", key: "d", now: ({ d, reader }: On) => (d.subjectOf(reader).id ? null : { hide: true }) },
     args: {

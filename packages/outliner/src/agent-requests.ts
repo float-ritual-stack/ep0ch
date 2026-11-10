@@ -59,12 +59,11 @@ export interface RequestLine {
   readonly line: number;
   readonly start: number;
   readonly end: number;
-  /** One request per agent and wording in a block. */
+  /** One request per agent and wording in a block; the same words again further down are another (PIE-1722). */
   readonly requestKey: string;
 }
 
 const REQUEST = /^([ \t]*(?:[-*+][ \t]+)?)@([a-z][a-z0-9-]{0,31})(?=$|[\s:,])[:,]?[ \t]*(.*)$/;
-const MAX_REQUESTS = 8;
 const MAX_NOTE_TEXT = 64 * 1024;
 const MAX_REPLY = 64 * 1024;
 const MAX_PATCHES = 20;
@@ -93,19 +92,23 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
   if ((names && !names.size) || !text.includes("@")) return [];
   const literal = scanPropertyLiteralRanges(text);
   const found: RequestLine[] = [];
+  // The same words asked again further down are a request of their own (PIE-1722): the first keeps the plain key.
+  const seen = new Map<string, number>();
   let offset = 0;
   text.split("\n").forEach((raw, line) => {
     const start = offset;
     offset += raw.length + 1;
     const content = raw.replace(/\r$/, "");
     const match = REQUEST.exec(content);
-    if (!match || (names && !names.has(match[2]!)) || found.length >= (names ? MAX_REQUESTS : 256)) return;
+    // Every line a person writes is asked (PIE-1722: a cap counted answered lines too, so a note's ninth ask was never seen).
+    if (!match || (names && !names.has(match[2]!)) || found.length >= 256) return;
     const at = start + match[1]!.length;
     if (literal.some((range) => range.start <= at && at < range.end)) return;
-    const request = match[3]!.trim();
+    const request = match[3]!.trim(), words = `${match[2]}\0${request}`, again = seen.get(words) ?? 0;
+    seen.set(words, again + 1);
     found.push({
       agent: match[2]!, request, text: content, line, start: at, end: start + content.length,
-      requestKey: createHash("sha256").update(`${match[2]}\0${request}`).digest("hex").slice(0, 32),
+      requestKey: createHash("sha256").update(again ? `${words}\0${again}` : words).digest("hex").slice(0, 32),
     });
   });
   return found;
@@ -894,7 +897,7 @@ export class AgentRequests {
         }
         // Its answer to the line's earlier words goes: the line now asks this (PIE-1585).
         const current = await this.deps.readDraft(blockId);
-        const from = (requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.text === line.text)?.end ?? line.end) - line.text.length;
+        const from = (requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey)?.end ?? line.end) - line.text.length;
         const below = current.text.slice(from + line.text.length), was = this.ownAnswer(blockId, line.agent, below);
         const observed = line.text + was;
         const fold = `\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}`;

@@ -277,6 +277,39 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "tile.title", tile: reader().tile, args: { text: "ask" } }, USER);   // the section's name back
   }, 90_000);
 
+  // PIE-1722 (the verifier's gap): a note action yo offers (note.rename's ▸ rename), pressed in the answer tile, renames the
+  // note the reader shows: the answer tile shows no note.
+  test("typed in the editor: a note.rename button pressed in the answer tile renames the reader's note", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Ask yo, naming a note\n\nWhere a note action is pressed beside the line.\n");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    await h.board.createBlock(null, "retitle seed note: note.rename text=Seed-swap [yo-memory::answer] [yo-action::note.rename] [yo-asked::retitle seed note] [yo-line::note.rename text=Seed-swap]");
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo retitle the seed note") h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
+    await until(() => !!answer() && /::button\{label="[^"]+" act=\["note\.rename text=/.test(draft()?.text ?? ""), "yo's answer with a note.rename button", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    const r = await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER).then(() => "", (e: Error) => e.message);
+    expect(r).not.toContain("answer shows no note");
+    // The reader's note takes the title, in the person's edit (saved with it), never the answer tile.
+    await untilAsync(async () => /^Seed-swap\n/.test(draft()?.text ?? ""), `the note renamed (${r})`, 15_000).catch(e => { const line = (draft()?.text ?? "").split("\n").findIndex(l => l.includes("▸ rename")); throw new Error(`${e.message}\n${JSON.stringify(pressState(own.id, line, "▸ rename"))}`); });
+    expect(draft()!.text).toContain("@yo retitle the seed note");
+    await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await untilAsync(async () => (await h.board.get(own.id))!.text.startsWith("Seed-swap\n"), "the saved title");
+  }, 90_000);
+
   // PIE-1699 (the verifier's repro): a tile-relative button pressed from the answer tile while the keys are there (a click
   // moves them; a number key and answer.follow are pressed there) acts on the reader the ask came from, never the answer tile. tile.agent with
   // no tile= cycles the level of the tile it lands on: the reader goes free → edit, the answer tile stays free (agents can

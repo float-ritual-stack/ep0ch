@@ -582,7 +582,7 @@ export class Dispatcher {
 
   /**
    * An authored press defaults tile actions to its own reader. A press made in a reader places a screen set's action that
-   * says it works where it is pressed (`inPlace`: tile.agent, tile.title, tile.zoom) there too, so a press from the answer
+   * says it works where it is pressed (`inPlace`: tile.agent, tile.title, tile.zoom, and the note-a-tile-shows ones, note.rename among them, PIE-1722) there too, so a press from the answer
    * tile acts in the reader the ask was typed in, never the answer tile the keys or the click are in (PIE-1699); every
    * other screen and host action keeps its own default. The one owner of
    * where a press acts (PIE-1517): given the press (src/surface/invite.ts `Press`), its reader; made in none (`button.press

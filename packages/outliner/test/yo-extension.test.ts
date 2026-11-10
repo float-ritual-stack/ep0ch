@@ -362,3 +362,22 @@ test("asked about itself, yo answers from its own page and settings, with no mod
   expect(hi).not.toContain("steps");
   expect(t.models()).toEqual([]);
 }, 60_000);
+
+// PIE-1722: a note asked yo before is asked again like a fresh one. Its ninth ask was never seen (a cap counted every
+// @name line from the top, answered or not), and the same words asked again were taken for the first ask's.
+test("PIE-1722: a new ask in a note with eight answered asks is answered, and the same words asked again are answered again", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const asks = ["lift the barrow", "lift the barrow high", "water the tray", "lift it again", "drop the barrow", "water it now", "tilt the tray", "lift the shed"];
+  const made = await t.client.request<{ id: string }>({ action: "create", text: ["Shed list", "", ...asks.map(a => `@yo how do I ${a}\n`)].join("\n"), author: "user" } as never);
+  const answered = (n: number) => until(`${n} answers`, () => { const b = t.store.require(made.id); return t.store.agentRequests(made.id).filter(r => r.answeredAt).length >= n ? b : null; });
+  let note = await answered(8);
+  await t.client.request({ action: "update", blockId: made.id, text: `${note.text}\n\n@yo how do I sweep the shed\n`, expectedRevision: note.revision, mutation: { author: "user" } } as never);
+  note = await answered(9);
+  expect(note.text).toMatch(/@yo how do I sweep the shed\n> \[!note\]\+ @yo answered\n/);
+  // The first ask's words again, further down: a request of its own, answered under its own line.
+  await t.client.request({ action: "update", blockId: made.id, text: `${note.text}\n\n@yo how do I lift the barrow\n`, expectedRevision: note.revision, mutation: { author: "user" } } as never);
+  note = await answered(10);
+  const lines = note.text.split("\n"), last = lines.lastIndexOf("@yo how do I lift the barrow");
+  expect(lines.indexOf("@yo how do I lift the barrow")).toBeLessThan(last);
+  expect(lines[last + 1]).toBe("> [!note]+ @yo answered");
+}, 90_000);
