@@ -441,6 +441,13 @@ environment is `PATH`, `LANG`, the service user's `HOME` (a host CLI such as `gh
 keys its manifest names and the host variables its manifest's `env` names, nothing else of the host's; the working
 directory is the extension's folder.
 
+**Claude's login comes with it.** A `claude` the process starts (`claude -p …` as a model command) finds a login
+wherever the host runs: `CLAUDE_CODE_OAUTH_TOKEN` is the host's own, else the with-secrets `claude` group's
+(`with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN`, read at each call; the Keychain on macOS), scrubbed from what the
+process returns like any secret. A host under launchd can't read the Keychain login `claude` keeps, so this is what
+makes a plain `claude` work there; with neither, `claude` uses its own login as in a shell. No setting names
+`with-secrets claude --` any more. A script's `sh` gets the same.
+
 **A crash says why.** A process that exits non-zero (or is killed) fails the call with its exit code and the last
 lines it wrote to stderr, scrubbed of its secrets: `command exited with code 3: opening the sluice | failed: no such
 gate`. That is the refusal the asker sees (`ext act`, the door's message line), a line's `reason`, a schedule's

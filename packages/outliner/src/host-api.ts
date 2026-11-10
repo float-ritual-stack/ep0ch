@@ -23,6 +23,7 @@ import type { VisibleBlock, VisibleBlockCollection } from "./types";
 import { WorkToolRefusal } from "./work-tools";
 import { answerShape, shapeOfAnswer, type ScriptQueryRecord } from "./line-watches";
 import { programEnv } from "./program-env";
+import { CLAUDE_LOGIN, claudeLogin } from "./claude-login";
 import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
 
 export type HostTool = (input?: Record<string, unknown>) => Promise<unknown>;
@@ -412,8 +413,10 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
       const what = `sh ${list[0]}`;
       const end = ending(signal, opts?.timeoutMs, what);
       if (end.signal?.aborted) throw end.why();
+      // Claude's login (PIE-1708), as an extension's process gets it: a script's `claude` works on a launchd host too.
+      const claude = await claudeLogin({ extension: "" });
       const child = Bun.spawn([...list], {
-        env: programEnv(process.env),
+        env: programEnv({ ...process.env, ...(claude ? { [CLAUDE_LOGIN.key]: claude } : {}) }),
         ...(opts?.cwd !== undefined ? { cwd: String(opts.cwd) } : {}),
         stdin: opts?.stdin !== undefined ? Buffer.from(String(opts.stdin)) : "ignore", stdout: "pipe", stderr: "pipe",
       });

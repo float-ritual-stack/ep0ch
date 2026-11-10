@@ -133,7 +133,7 @@ power bar's run asks a choice from its options, and a button's empty `note` slot
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:46` |
 | `propsUsed` | `packages/outliner/src/script-sources.ts:60` |
-| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:515` |
+| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:531` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
@@ -205,10 +205,10 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 | `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:161` |
 | `query({ where, group?, sort?, limit?, facets? })` | `{ rows: [{ id, title, props }], groups?: [{ value, count, rows }], facets?, hint?, total, complete }`. Rows **carry their properties** (`props.status[0]`); `group` is a property key; `facets: true` counts every key and value the matches carry; `limit` default 200, at most 1000; `parent:this` means the note the run is about. A render redraws when the answer changes. | `packages/outliner/src/host-api.ts:321` |
 | `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:314` |
-| `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:472` |
+| `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:475` |
 | `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:405` |
 | `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:139` |
-| `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:460` |
+| `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:463` |
 | `await date(text)` | A date as people write it in a property (`2026-01-05 4:23 PM`, `Oct 20`, `2026-10-20..2026-10-24`), read as the views read one, in the service host's zone: `{ ms, at, endMs, end }` (its start and end as epoch milliseconds and ISO), or `null` when it reads as no date. Renders too. | `packages/outliner/src/script-runtime.ts:124` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:106` |
 
@@ -231,29 +231,29 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 
 | Tool | Effect | Arguments (**required**) | What it does | Source |
 |---|---|---|---|---|
-| `tools.artifact_deploy` | writes | repo, note, domain | Deploy an ep0ch-artifacts repo (`repo`), or every one the note `note` names on an [artifact::] line, register it and update notes that name it. | `packages/outline-core/src/agent-tool-definitions.ts:122` |
-| `tools.outline_read` | reads | **ref**, depth, limit, view, width | Read the note `ref`: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields`… | `packages/outline-core/src/agent-tool-definitions.ts:128` |
-| `tools.outline_find` | reads | text, properties, property, hasKey, query, view, under, limit, propertyScope, machinery | Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view grammar… | `packages/outline-core/src/agent-tool-definitions.ts:157` |
-| `tools.outline_resolve` | reads | **ref** | Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without reading the whole note. | `packages/outline-core/src/agent-tool-definitions.ts:192` |
-| `tools.outline_site` | reads | **ref**, paths, draft, chain, props, line | Read what the note `ref`'s `{{ }}` placeholders say, and any `paths` you ask, the way the person's screen reads them (the outline's one resolver). | `packages/outline-core/src/agent-tool-definitions.ts:208` |
-| `tools.outline_edit` | writes | **ref**, **expectedRevision**, text, replaceSection, append, at, allowStructural | Rewrite the note `ref`, checked against the revision you read with outline_read: its whole `text`, one `replaceSection` (the text under a heading,… | `packages/outline-core/src/agent-tool-definitions.ts:245` |
-| `tools.outline_create` | writes | **parent**, **text**, position, requestId | Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). | `packages/outline-core/src/agent-tool-definitions.ts:286` |
-| `tools.outline_comment` | writes | **ref**, body, quote, whole, start, near, kind, properties, prefix, suffix, requestId, from, revision | Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or suffix when the quote repeats),… | `packages/outline-core/src/agent-tool-definitions.ts:307` |
-| `tools.outline_reply` | writes | thread, **body**, requestId, edit, observed | Reply in a comment thread, as you. | `packages/outline-core/src/agent-tool-definitions.ts:342` |
-| `tools.outline_resolve_thread` | writes | **thread**, **resolved** | Resolve a comment thread (resolved: true), or reopen it (false), as you. | `packages/outline-core/src/agent-tool-definitions.ts:361` |
-| `tools.view_order` | writes | **ref**, ids | Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, figures and Tree show). | `packages/outline-core/src/agent-tool-definitions.ts:374` |
-| `tools.outline_changes` | reads | **since**, author, actor, limit, before, machinery | What changed since a point: an ISO time, or the `cursor` an earlier call returned. | `packages/outline-core/src/agent-tool-definitions.ts:397` |
-| `tools.outline_proposals` | reads | since, actor, limit | What became of your proposals: each edit of yours that was proposed instead of applied, and every change since. | `packages/outline-core/src/agent-tool-definitions.ts:421` |
-| `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural, propose | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:475` |
-| `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:528` |
-| `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:528` |
-| `tools.outline_proposal_resolve` | writes | **ref** | Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. | `packages/outline-core/src/agent-tool-definitions.ts:528` |
-| `tools.outline_set_property` | writes | **ref**, key, value, properties, **revision** | Set [key::value] properties on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:544` |
-| `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:578` |
-| `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:597` |
-| `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:628` |
-| `tools.outline_mark` | writes | **ref**, reason, words, remove | Mark the note `ref` (PIE-1237): one fact in the outline, attributed to you, that every door, the web page and a query see at once. | `packages/outline-core/src/agent-tool-definitions.ts:646` |
-| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:671` |
+| `tools.artifact_deploy` | writes | repo, note, domain | Deploy an ep0ch-artifacts repo (`repo`), or every one the note `note` names on an [artifact::] line, register it and update notes that name it. | `packages/outline-core/src/agent-tool-definitions.ts:123` |
+| `tools.outline_read` | reads | **ref**, depth, limit, view, width | Read the note `ref`: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields`… | `packages/outline-core/src/agent-tool-definitions.ts:129` |
+| `tools.outline_find` | reads | text, properties, property, hasKey, query, view, under, limit, propertyScope, machinery | Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view grammar… | `packages/outline-core/src/agent-tool-definitions.ts:158` |
+| `tools.outline_resolve` | reads | **ref** | Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without reading the whole note. | `packages/outline-core/src/agent-tool-definitions.ts:193` |
+| `tools.outline_site` | reads | **ref**, paths, draft, chain, props, line | Read what the note `ref`'s `{{ }}` placeholders say, and any `paths` you ask, the way the person's screen reads them (the outline's one resolver). | `packages/outline-core/src/agent-tool-definitions.ts:209` |
+| `tools.outline_edit` | writes | **ref**, **expectedRevision**, text, replaceSection, append, at, allowStructural | Rewrite the note `ref`, checked against the revision you read with outline_read: its whole `text`, one `replaceSection` (the text under a heading,… | `packages/outline-core/src/agent-tool-definitions.ts:246` |
+| `tools.outline_create` | writes | **parent**, **text**, position, requestId | Create a block under `parent` (a ref, or root), at `position` among its siblings (0 is first; default last). | `packages/outline-core/src/agent-tool-definitions.ts:287` |
+| `tools.outline_comment` | writes | **ref**, body, quote, whole, start, near, kind, properties, prefix, suffix, requestId, from, revision | Start a comment thread on the note `ref`, as you: on an exact `quote` of its source text (add start, near, prefix or suffix when the quote repeats),… | `packages/outline-core/src/agent-tool-definitions.ts:308` |
+| `tools.outline_reply` | writes | thread, **body**, requestId, edit, observed | Reply in a comment thread, as you. | `packages/outline-core/src/agent-tool-definitions.ts:343` |
+| `tools.outline_resolve_thread` | writes | **thread**, **resolved** | Resolve a comment thread (resolved: true), or reopen it (false), as you. | `packages/outline-core/src/agent-tool-definitions.ts:362` |
+| `tools.view_order` | writes | **ref**, ids | Read or set the hand-set order of the view `ref` (a view with no [sort::] is ordered by hand: the order its board lanes, figures and Tree show). | `packages/outline-core/src/agent-tool-definitions.ts:375` |
+| `tools.outline_changes` | reads | **since**, author, actor, limit, before, machinery | What changed since a point: an ISO time, or the `cursor` an earlier call returned. | `packages/outline-core/src/agent-tool-definitions.ts:398` |
+| `tools.outline_proposals` | reads | since, actor, limit | What became of your proposals: each edit of yours that was proposed instead of applied, and every change since. | `packages/outline-core/src/agent-tool-definitions.ts:422` |
+| `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural, propose | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:476` |
+| `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:529` |
+| `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:529` |
+| `tools.outline_proposal_resolve` | writes | **ref** | Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. | `packages/outline-core/src/agent-tool-definitions.ts:529` |
+| `tools.outline_set_property` | writes | **ref**, key, value, properties, **revision** | Set [key::value] properties on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:545` |
+| `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:579` |
+| `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:598` |
+| `tools.outline_trash` | writes | **ref**, **revision** | Put the note `ref` in Trash, with what is under it, against the `revision` outline_read returned: a note that changed since is refused and stays. | `packages/outline-core/src/agent-tool-definitions.ts:629` |
+| `tools.outline_mark` | writes | **ref**, reason, words, remove | Mark the note `ref` (PIE-1237): one fact in the outline, attributed to you, that every door, the web page and a query see at once. | `packages/outline-core/src/agent-tool-definitions.ts:647` |
+| `tools.outline_restore` | writes | **ref** | Bring the note `ref` back from Trash, with what went under it, to where it was. | `packages/outline-core/src/agent-tool-definitions.ts:672` |
 
 <!-- generated:tools:end -->
 
@@ -344,7 +344,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:64` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:71` |
-| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:342` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:339` |
 | `{ insert: "<line>" \| { text }, message? }` | an action run only (PIE-1507): the text goes at the person's cursor in the note the run is about, through the door's one insertion, one ctrl+z; `message` is the run's word, else `<script title> done`. The run note records `insert: <its first line>`. Checked as an action's `insert` is (text up to 8000 characters) | `packages/outliner/src/script-runs.ts:61` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:71` |
 
@@ -372,14 +372,14 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:38` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:54` |
-| `bind` | `packages/outliner/src/script-runs.ts:153` |
+| `bind` | `packages/outliner/src/script-runs.ts:162` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:271` |
-| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:182` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:280` |
+| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:196` |
 | `componentCalls` (the `::name{}` line) | `::board{where="type=errand" group=status}` | the same as `board::`: a second spelling of a render script's line | the returned value, under the line | `packages/outliner/src/extension-handlers.ts:191` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:153` |
 
@@ -408,7 +408,7 @@ examples lean on:
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:79` |
 | `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:1068` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:521` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:537` |
 
 ## A render script is a component
 
@@ -475,13 +475,13 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:373` |
-| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:787` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:383` |
+| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:796` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:636` |
-| `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:221` |
+| `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:224` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4008` |
-| `viaYolo` | `packages/outliner/src/server.ts:4031` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:655` |
+| `viaYolo` | `packages/outliner/src/server.ts:4037` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:668` |
 
 ## Lifecycle
 
@@ -515,10 +515,10 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 
 | Entry | Source |
 |---|---|
-| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:368` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:390` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:306` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:398` |
+| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:378` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:400` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:315` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:408` |
 | `scripts.stop` | `packages/outliner/src/server.ts:698` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2593` |
 

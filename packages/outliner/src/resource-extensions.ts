@@ -13,6 +13,7 @@ import { Compile } from "typebox/compile";
 import { ResourceCatalogError } from "./resources";
 import { issueGrant, revokeGrant } from "./extension-grants";
 import { readGroupSecret } from "./extension-secrets";
+import { CLAUDE_LOGIN, claudeLogin } from "./claude-login";
 import { scopeProblem } from "./secret-keys";
 import type { MutationProvenance } from "./types";
 import {
@@ -649,6 +650,9 @@ export class ResourceExtensionRuntime {
     // One list for the whole call: a group it asks for while it runs (`secrets.group`) joins it, so its answer, its
     // writes and its stderr are scrubbed of those values too.
     const secretValues = Object.values(secrets);
+    // Claude's login (PIE-1708): a `claude` the process starts finds it here, on a host that can't read its Keychain.
+    const claude = await claudeLogin({ extension: loaded.manifest.id, ...(connection.outline ? { outline: connection.outline } : {}) });
+    if (claude) secretValues.push(claude);
     const grant = issueGrant({
       extensionId: loaded.manifest.id,
       ...(connection.outline ? { outline: connection.outline } : {}),
@@ -668,6 +672,7 @@ export class ResourceExtensionRuntime {
       if (value !== undefined && !RESERVED_EXTENSION_ENV.has(name)) passed[name] = value;
     }
     const env = programEnv({
+      ...(claude ? { [CLAUDE_LOGIN.key]: claude } : {}),
       ...passed,
       ...secretEnv,
       ...baseEnv(),
