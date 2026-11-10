@@ -1532,9 +1532,8 @@ export class App implements Ctx {
     // table's keys (^W, a mode's) are the table's, which reads the file itself.
     const typedName = k.kind === "mouse" ? null : keyName(k), mine = typedName ? layerEntry(typedName) : undefined;
     if (mine && !raw && !held && this.dispatch.has(mine.action)) { void this.dispatch.press(mine.action, mine.args); return; }
-    if (k.kind === "alt" && k.ch === "Q" && !raw && (this.recording.active || !held)) {
-      void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return;
-    }
+    // alt+Q on any tile but a terminal's, a thread list or an edit holding the keys too: it types nothing (PIE-1718).
+    if (k.kind === "alt" && k.ch === "Q" && !raw) { void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return; }
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !raw) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // alt+y: the tune inspector on the focused tile (tile.tune, PIE-673), on the desk's screens, never in a terminal tile.

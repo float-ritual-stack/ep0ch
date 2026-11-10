@@ -54,14 +54,16 @@ export class MacroRecording {
     this.saving = true;
     const finished = await Promise.all(recording.steps.map(s => s.finished));
     const lines = finished.filter((line): line is string => line !== null);
+    // Nothing to replay is no script: one with an empty fence only fails to load.
+    if (!lines.length) { this.saving = false; ctx.flash("Nothing recorded · no script saved · alt+Q records again"); return { actions: 0, saved: false }; }
     const replay = recording.steps.some((s, i) => finished[i] !== null && s.replay === "ask") ? "Includes actions that write or reach outside the door. Run explicitly from the power bar." : "Recorded actions are safe to replay.";
     const body = lines.join("\n");
     const actions = [...new Set(lines.map(line => line.split(/\s/)[0]!))];
     // Its day and second keep two recordings of the same first action apart (a script name binds one script).
     const at = new Date(), two = (n: number) => String(n).padStart(2, "0");
     const when = `${at.toLocaleString("en", { month: "short" }).toLowerCase()}${at.getDate()}-${two(at.getHours())}${two(at.getMinutes())}${two(at.getSeconds())}`;
-    const name = recording.name ?? `recorded-${(actions[0] ?? "nothing").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}-${when}`;
-    const title = recording.name ?? (actions.length ? `Recorded: ${actions.slice(0, 3).join(", ")}${actions.length > 3 ? ` and ${actions.length - 3} more` : ""}` : "Recorded: nothing yet");
+    const name = recording.name ?? `recorded-${actions[0]!.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}-${when}`;
+    const title = recording.name ?? `Recorded: ${actions.slice(0, 3).join(", ")}${actions.length > 3 ? ` and ${actions.length - 3} more` : ""}`;
     const fence = "`".repeat(Math.max(3, ...[...body.matchAll(/`+/g)].map(m => m[0].length + 1)));
     const text = `${title} [script::${name}] [effects::write]\n${replay}\n\n${fence}actions\n${body}\n${fence}`;
     try {
@@ -92,7 +94,7 @@ export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>(
     },
   }),
   "macro.stop": def({
-    summary: "stop recording and save its action lines in a [script::] block; edit argument values to {{props.slot}} to fill them at replay",
+    summary: "stop recording and save its action lines in a [script::] block (nothing recorded saves nothing, and says so); edit argument values to {{props.slot}} to fill them at replay",
     keys: [{ keys: "alt+Q", does: "while recording" }, { via: "^K then macro.stop in the power bar" }, { keys: "click", does: "on REC stop or its power bar row" }],
     touches: "nothing", replay: "ask", person: "Only the person stops their recording",
     args: {}, run(_, { ctx, recording }) { return recording.stop(ctx); },

@@ -309,13 +309,9 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
 
 
   // PIE-1718: what the person types into a comment is in the recording, so its key posts the comment again.
-  const recordByKeys = async (keys: () => Promise<void>, { click = false } = {}) => {
+  const recordByKeys = async (keys: () => Promise<void>) => {
     const before = new Set((await board.queryNotes("script", 200)).notes.map(n => n.id));
-    // alt+Q waits while a tile holds the keys (the thread list does): the status bar's ⇧⌥Q is the way in then.
-    if (click) {
-      const at = ((await app.dispatch.act({ action: "status.bar.items" }, USER)) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "macro")!;
-      press({ kind: "mouse", action: "down", x: at.from!, y: 59, button: 0 });
-    } else press({ kind: "alt", ch: "Q" });
+    press({ kind: "alt", ch: "Q" });
     await until(() => app.recording.active, "the key started recording");
     await keys();
     press({ kind: "alt", ch: "Q" });
@@ -340,13 +336,14 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
   };
   /** The comments with these words on the checklist, once both are there: the replayed one arrives through the outline's event. */
   const threadsWith = async (body: string, want = 2) => {
-    let n = 0;
+    let n = 0, seen: unknown[] = [];
     await untilAsync(async () => {
       const listed = await app.dispatch.act({ action: "threads", tile: "notes" }, USER) as { threads: { body: string }[] };
       await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);
+      seen = listed.threads;
       n = listed.threads.filter(t => t.body === body).length;
       return n >= want;
-    }, `${want} comments reading "${body}"`).catch(() => {});
+    }, `${want} comments reading "${body}"`).catch(() => console.error(`threads on notes: ${JSON.stringify(seen)}\nsaved comments: ${JSON.stringify((S().stage(S().sel).top.paneNamed("notes") as ReaderPane).surface.describe().comments)}`));
     return n;
   };
   const notesTile = () => S().stage(S().sel).top.paneNamed("notes") as ReaderPane;
@@ -428,16 +425,29 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     }
   }, 30_000);
 
+  test("PIE-1718: alt+Q with nothing done between saves no script and says nothing was recorded", async () => {
+    await intoNotes();
+    const before = (await board.queryNotes("script", 200)).notes.length;
+    (app as any).message = "";
+    press({ kind: "alt", ch: "Q" });
+    await until(() => app.recording.active, "the key started recording");
+    press({ kind: "alt", ch: "Q" });
+    await until(() => !app.recording.active && /nothing recorded/i.test((app as any).message), "the stop said nothing was recorded");
+    await Bun.sleep(300);
+    expect((await board.queryNotes("script", 200)).notes.length).toBe(before);
+  }, 30_000);
+
   test("PIE-1718: a macro begun with the threads already open runs whole when replayed", async () => {
     await intoNotes();
     press({ kind: "char", ch: "m" });
     await until(() => notesTile().surface.session?.mode === "threads", "the threads open");
     const body = "Water after sowing";
+    // alt+Q starts it with the thread list holding the keys, as on any tile but a terminal's.
     const saved = await recordByKeys(async () => {
       press({ kind: "esc" });
       await until(() => !notesTile().surface.session, "the threads closed");
       await typeComment(body, "note");
-    }, { click: true });
+    });
     // The close of threads opened before the recording is left out: replayed with nothing open, it would refuse.
     expect(saved.text).not.toContain("comment.close");
     expect(await replay(saved)).toContain("done · ctrl+z");

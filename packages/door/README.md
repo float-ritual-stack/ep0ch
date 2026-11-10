@@ -363,7 +363,8 @@ Only your successful actions are recorded; agent actions and power-bar navigatio
 A comment you type and send (`C`, your words, `^S`) records as the one line that sends it with its words
 (`comment.note body="…"`, `comment quote="…" body="…"`, a reply's `reply thread=… body="…"`), not the keys that opened it.
 A close of threads that were open before you started recording, and a copy of your mouse selection, are left out:
-replayed, they'd find nothing to close or copy.
+replayed, they'd find nothing to close or copy. alt+Q works on any tile but a terminal's (a thread list or an edit holding
+the keys too); stopping with nothing recorded saves no script and says so.
 The new `[script::planting]` block contains an `actions` fence using the power bar's action-line grammar.
 Edit it normally, replacing a value with `{{props.tag}}` or another `{{props.slot}}`. Run it from the power bar to fill its
 slots, or pass them as `act ext.<script-id>.run tag=beans`. Replay uses the script runtime, stops at the
