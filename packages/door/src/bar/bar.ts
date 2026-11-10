@@ -726,6 +726,9 @@ export class PowerBar {
 
   private recordRun(line: string, result: unknown, refused: boolean) {
     this.justRan = refused ? null : line;
+    // A refused line leaves the line (PIE-1701): kept, the next words were added to it. It waits under "this session"
+    // with why, where ↑ brings it back to fix.
+    if (refused && this.query === line) this.input.splice(0, this.query.length, "");
     this.host.runs.push({ line, answer: runAnswer(line, result), refused });
     if (this.host.runs.length > 8) this.host.runs.shift();
     this.refresh(); this.host.ctx.redraw();

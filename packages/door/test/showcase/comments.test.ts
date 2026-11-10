@@ -661,10 +661,12 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     ch(" ");
     expect(d()!.text).toBe(`Beans look very good see ${ref} `);
     press({ kind: "char", ch: "s", ctrl: true });
-    await until(() => cs()?.mode === "threads" && !cs()?.busy, "the comment sent", 8000);
+    // Sent on the passage it was written on, the reader is back reading, the thread in place (PIE-1687).
+    await until(() => !cs() || !!cs()!.done, "the comment sent", 8000);
     const bodies = async () => (await board.comments(notebook.id)).map(t => t.body);
     expect(await bodies()).toContain(`Beans look very good see ${ref}`);
-    expect(cs()!.note).toBe("");
+    const said = () => app.messages.rows.map(r => r.message).join("\n");
+    expect(said()).not.toContain("lead nowhere");
     // Another, with the mistake left in: an unclosed (( and a title for an id. It's sent as written, and warned about.
     await stage().dispatch.press("passage.select", {}, "reader2");
     await stage().dispatch.press("comment.write", { body: "" }, "reader2");
@@ -673,10 +675,10 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     for (const c of broken) ch(c);
     expect(d()!.text).toBe(broken);
     press({ kind: "char", ch: "s", ctrl: true });
-    await until(() => cs()?.mode === "threads" && !!cs()?.note, "the broken comment sent, with its warning", 8000);
+    await until(() => said().includes("saved; 2 references lead nowhere"), "the broken comment sent, with its warning", 8000);
     expect(await bodies()).toContain(broken);
-    expect(cs()!.note).toContain("saved; 2 references lead nowhere");
-    expect(cs()!.note).toContain(`did you mean ${ref}`);
+    expect(said()).toContain(`did you mean ${ref}`);
+    expect(!cs() || !!cs()!.done).toBe(true);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     // The two threads go to the Trash: they'd rank in the other sections' searches for the notebook.
     for (const t of await board.comments(notebook.id)) if ([`Beans look very good see ${ref}`, broken].includes(t.body)) await board.trash(t.id);
@@ -793,8 +795,9 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     const body = `The meeting was very clear: ((${meeting}^a10)) and ((${meeting}^ana-mends-the))\nRead ((${meeting}^decision)) and ((Greenhouse meeting`;
     expect(d()!.text).toBe(body);
     press({ kind: "char", ch: "s", ctrl: true });
-    await until(() => cs()?.mode === "threads" && !!cs()?.note, "sent, with its warning", 8000);
-    expect(cs()!.note).toContain("saved; a reference leads nowhere");
+    // Sent on its passage, the reader is back reading (PIE-1687); the warning is said on the status bar and kept in the log.
+    await until(() => app.messages.rows.some(r => r.message.includes("saved; a reference leads nowhere")), "sent, with its warning", 8000);
+    expect(!cs() || !!cs()!.done).toBe(true);
     const bodies = async () => (await board.comments(guide)).map(t => t.body);
     expect(await bodies()).toContain(body);
     // The person goes back to the index. An agent, through act, in a comment of its own: complete refine=^ opens the

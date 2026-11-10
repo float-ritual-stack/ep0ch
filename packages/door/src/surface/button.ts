@@ -6,7 +6,7 @@
 // is the value that pass reads in full.
 import type { ButtonFrame, ButtonLookWords, ButtonTone } from "@ep0ch/outline-core/button-call";
 import { BORDER_BOXES, LINE_BOX, type BoxGlyphs } from "../canvas";
-import { fullText, litText } from "../overflow";
+import { litText, sayText } from "../overflow";
 import { bg, BOLD, C, fg, RESET, width } from "../style";
 
 export type ButtonState = "idle" | "running" | "done" | "failed" | "disabled";
@@ -43,7 +43,8 @@ export function buttonRows(label: string, look: ButtonLook = {}, press: (drawn: 
   const ink = fg(state.text ?? tone.text), back = look.fill && !disabled ? bg(tone.fill) + fg(state.text ?? tone.on) : "";
   const lit = fg(C.white) + BOLD + (look.fill ? bg(tone.fill) : "");
   // Under the pointer: lit, or, for one that can't run or didn't, the why read in full in its place.
-  const hover = (styled: string) => look.why && (disabled || look.state === "failed") ? fullText(look.why, styled) : litText(styled, lit);
+  // The why is said whole above the status bar while the pointer rests on it (PIE-1686), not scrolled through the button's cells.
+  const hover = (styled: string) => look.why && (disabled || look.state === "failed") ? sayText(look.why, styled) : litText(styled, lit);
   const frame = look.frame && look.frame !== "none" ? FRAMES[look.frame] : null;
   if (!frame) {
     const plain = look.fill && !disabled ? ` ${words} ` : disabled ? `(${words})` : `[${words}]`;

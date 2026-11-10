@@ -165,6 +165,7 @@ import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes } from "@ep0ch/outline-core/callouts";
 import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-pointer";
 import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
+import { type BylinePiece, flowByline, SHORT_READER_ROWS } from "./byline";
 import { type Link, calloutBase, calloutTitle, figureElemBase, linkText, linksOf, refOfLink, sameElementLink, sameLink, taskBase } from "./link-model";
 import { calloutPanel, type Choice, type Control, controlKey, type Picker, pickerPanel, rowsOfLines, type ThreadControl, threadPanel, withRows, isWholeNote } from "./note-panels";
 import { armsEdit, BUTTON_TILES, movedOn, type On, SESSION_ACTIONS, type SessionKind, tileNamed, TINT_ARGS, foldLabel, REFUSED } from "./note-actions/shared";
@@ -408,7 +409,8 @@ export function headerShown(m: Pick<Msg, "properties" | "text">, tile?: TileHead
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
 interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
-  summaryLinks: { from: number; to: number; link: Link; key: string }[];
+  /** The summary's linked values, each on its own row (`row`; left out, `summaryRow`): a narrow byline lays its segments over more rows. */
+  summaryLinks: { from: number; to: number; link: Link; key: string; row?: number }[];
   /** The title's rows (null: a host's own header stands in for it, or the note leaves it out). */
   title: { row: number; rows: number } | null;
   /** A host's own header (the BBS message header) stands in for the title, byline and crumbs. */
@@ -419,6 +421,8 @@ interface HeaderBlock {
   sourcesChip?: { row: number; from: number; to: number };
   /** The byline's comment count (PIE-873): a click cycles the margin, as M does. */
   marginChip?: { row: number; from: number; to: number };
+  /** The byline's property count, `i N properties` (PIE-1685): a click opens the property panel, as `i` does. */
+  propsChip?: { row: number; from: number; to: number };
   titleControls?: { row: number; from: number; to: number; link: Link }[];
   wholeMarks?: { row: number; from: number; to: number; thread: string }[];
 }
@@ -1511,7 +1515,7 @@ export class NoteSurface {
    * header, the BBS message header, then the summary line): the rows every reading render starts with, and the row the
    * summary is on with its links. One builder: the reading render and a digest's host (stickyHeader) both draw it.
    */
-  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null): HeaderBlock {
+  private headerBlock(m: Msg, w: number, host: SurfaceHost | undefined, src: Source | null, short = false): HeaderBlock {
     const gx = this.printed || host?.externalGutter !== undefined ? 0 : this.gutterWidth();
     w = Math.max(1, w - gx);
     // The Work ID heads the title line (PIE-809), not this one.
@@ -1520,27 +1524,30 @@ export class NoteSurface {
     // The way in to a comment on the whole note (PIE-846), by mouse: the same as C with nothing selected.
     const sourcesOn = !this.printed && this.hasSources(m);
     const commentOn = !this.printed && (isOutlineNote(m) || (m.resource && !m.resource.uncommentable));
-    const chip = (sourcesOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${SOURCES_CHIP}` : "") + (commentOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "");
     // Marks only (PIE-873): the margin's off mode said where the comments are counted, so it's found and its way back is.
     const n = this.comments?.length ?? 0, off = this.marginMode === "off" && !this.printed;
     // The chip says what's drawn (PIE-1255), in the mode's own words; its hover, what each mode does.
     const mode = MARGIN_MODE_WORDS[off ? "off" : this.marginMode].chip;
-    let said = !this.comments?.length ? "" : `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · ${mode} (M)`;
+    const said = !this.comments?.length ? "" : `${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · ${mode} (M)`;
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
-    const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
+    const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks, parts: summaryParts } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
     const count = this.rows(m).length;
     // A host's own header (the BBS message header) stands in for the title, byline and crumbs; the
     // summary line comes after it, so its row is counted rather than assumed.
     const own = host?.header?.(m, w, this.headerInfo(m, count));
     const propsText = !this.panel && count ? `i ${count} propert${count === 1 ? "y" : "ies"}` : "";
-    const props = propsText ? `${fg(C.dark)} · ${propsText}` : "";
     if (own) {
       const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (propsText ? fg(C.dark) + ` · ${propsText}` : ""), w) + RESET] : [];
       // The host's header stands in for the title, so a folded whole-note thread's [+] follows its last row (PIE-1572:
       // the BBS reader had none, and "as marks" left no way to it by mouse).
       const ownRows = [...own], wholeMarks = wholeNoteMarks(ownRows, width(visible(ownRows.at(-1) ?? "").trimEnd()), 0, w, this.foldedWhole());
-      return { rows: [...ownRows, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: ownRows.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) };
+      // The property count, wherever the host's header drew it (the BBS reader's Stat line, or after the summary): a
+      // click opens the panel, as i does (PIE-1685).
+      const all = [...ownRows, ...summaryRows], propsRow = propsText ? all.findIndex(r => visible(r).includes(propsText)) : -1;
+      const propsFrom = propsRow < 0 ? -1 : width(visible(all[propsRow]!).slice(0, visible(all[propsRow]!).indexOf(propsText)));
+      return { rows: all.map(l => " ".repeat(gx) + l), summary, summaryRow: ownRows.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })),
+        ...(propsRow >= 0 && !this.printed && propsFrom + width(propsText) <= w ? { propsChip: { row: propsRow, from: gx + propsFrom, to: gx + propsFrom + width(propsText) } } : {}) };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
     // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
@@ -1560,34 +1567,18 @@ export class NoteSurface {
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
     const accent = fg(focused ? C.lcyan : C.cyan) + BOLD;
-    const lead = `${fg(C.dark)}${meta}`;
-    // The summary's values follow the byline on the same line; its links shift by what comes before them.
-    const before = `${meta}${propsText ? ` · ${propsText}` : ""}${summary ? " · " : ""}`;
-    const merged = `${lead}${props}${fg(C.dark)} · ${summaryLine}${said}`;
-    // One line while it fits; in a narrow tile the summary (whose values are links) goes to a line of its own rather than
-    // being cut off the end of the byline.
-    const apart = !!summary && width(`${before}${summary}`) > w;
-    // Narrower still, the property count leads the next line, whole (PIE-1302: it was cut though that line had room),
-    // with the summary after it while that fits, else on a line of its own.
-    const propsApart = !!propsText && width(`${meta} · ${propsText}`) > w;
-    const shared = propsApart && !!summary && width(`${propsText} · ${summary}`) <= w;
-    const metaRows = propsApart
-      ? [`${lead}${said}`, fg(C.dark) + propsText + (shared ? ` · ${summaryLine}` : ""), ...(summary && !shared ? [fg(C.dark) + summaryLine] : [])]
-      : !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
-    // The summary's row among them, and the cells before it on that row.
-    const summaryAt = !apart ? 0 : propsApart && !shared ? 2 : 1, summaryFrom = !apart ? width(before) : shared ? width(`${propsText} · `) : 0;
-    // Marks only in a narrow tile: the short form, so its way back (M, or a click) is still on screen whole.
-    if (said && width(metaRows[0]!) > w) {
-      const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} · ${mode} (M)`;
-      metaRows[0] = pad(metaRows[0]!.slice(0, metaRows[0]!.length - said.length), Math.max(0, w - width(short))) + short;
-      said = short;
-    }
-    // The count ends the first byline row: a click on it cycles the margin (M), where it's drawn whole.
-    const saidTo = width(metaRows[0]!), marginChip = said && !this.printed && saidTo <= w ? { row: -1, from: saidTo - width(said) + 3, to: saidTo } : undefined;
-    // The [comment] chip ends the first byline row, where it fits whole: never at the cost of the byline itself.
-    const chipped = !!chip && width(metaRows[0]! + chip) <= w;
-    if (chipped) metaRows[0] += chip;
-    const links = !summary ? [] : summaryLinks.map(l => ({ ...l, from: l.from + summaryFrom, to: l.to + summaryFrom })).filter(l => l.from < w);
+    // The byline (PIE-1686): whole pieces over rows (./byline.ts), never a word cut while a row has room; the rows, the
+    // summary's links and every chip's cells come from the one layout.
+    const pieces: BylinePiece[] = [{ text: fg(C.dark) + meta }];
+    if (propsText) pieces.push({ text: fg(C.dark) + propsText, hit: "props" });
+    for (const p of summary ? summaryParts : []) pieces.push({ text: p.line, links: p.links, group: "summary" });
+    if (said) pieces.push({ text: said, short: `${fg(open ? C.yellow : C.dark)}■ ${n} · ${mode} (M)`, hit: "margin" });
+    if (sourcesOn) pieces.push({ text: fg(C.lcyan) + SOURCES_CHIP, hit: "sources", optional: true });
+    if (commentOn) pieces.push({ text: fg(C.lcyan) + COMMENT_CHIP, hit: "comment", optional: true });
+    const flowed = flowByline(pieces, w, short), metaRows = flowed.rows;
+    const placed = (hit: BylinePiece["hit"]) => flowed.placed.find(p => p.piece.hit === hit);
+    const summaryPlaced = flowed.placed.filter(p => p.piece.group === "summary");
+    const links = summaryPlaced.flatMap(p => (p.piece.links ?? []).filter(l => p.from + l.from < p.to).map(l => ({ ...l, row: p.row, from: p.from + l.from, to: Math.min(p.to, p.from + l.to) })));
     // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
     // here was the bug). The Work ID keeps the accent at the start of the first line.
     // The tile's title-only header keeps it to one line, cut with an ellipsis.
@@ -1630,9 +1621,11 @@ export class NoteSurface {
     const rows = this.printed ? [...titled, ...subRows, ...metas, pathText] : [...(omit.crumbs ? [] : [pathText]), ...titleRows, ...(omit.byline ? [] : metas)];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile; with no byline, the tile
     // menu (⋯) has the same rows: comment on the whole note, comments, properties, sources.
-    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn && !omit.byline ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
-    const sourcesChip = chipped && sourcesOn && !omit.byline ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: first + summaryAt, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { pathRow: rows.length - 1 } : omit.crumbs ? {} : { pathRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    // Each chip where the byline laid it, in the tile's cells (the gutter before them); none while the byline is hidden.
+    const chipAt = (hit: BylinePiece["hit"]) => { const p = !this.printed && !omit.byline ? placed(hit) : undefined; return p ? { row: first + p.row, from: gx + p.from, to: gx + p.to } : undefined; };
+    const commentChip = chipAt("comment"), sourcesChip = chipAt("sources"), marginChip = chipAt("margin"), propsChip = chipAt("props");
+    const summaryRow = first + (summaryPlaced[0]?.row ?? 0);
+    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, row: first + l.row, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { pathRow: rows.length - 1 } : omit.crumbs ? {} : { pathRow: 0 }), ...(commentChip ? { commentChip } : {}), ...(sourcesChip ? { sourcesChip } : {}), ...(marginChip ? { marginChip } : {}), ...(propsChip ? { propsChip } : {}) };
   }
 
   /**
@@ -1643,11 +1636,13 @@ export class NoteSurface {
    */
   private headerTargets(m: Msg, hb: HeaderBlock, w: number, elemAt?: (row: number, from: number) => string | undefined): { hits: Hit[]; elems: Element[] } {
     const hits: Hit[] = [], elems: Element[] = [];
-    if (hb.summary) for (const l of hb.summaryLinks) hits.push({ row: hb.summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: elemAt?.(hb.summaryRow, l.from) });
+    if (hb.summary) for (const l of hb.summaryLinks) { const row = l.row ?? hb.summaryRow; hits.push({ row, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: elemAt?.(row, l.from) }); }
     if (hb.pathRow !== undefined && this.zoom && !this.printed) hits.push({ row: hb.pathRow, from: 0, to: w, zoom: -1 });
     if (hb.commentChip) hits.push({ ...hb.commentChip, start: "note" });
     if (hb.sourcesChip) hits.push({ ...hb.sourcesChip, sources: true });
     if (hb.marginChip) hits.push({ ...hb.marginChip, margin: true });
+    // The property count (PIE-1685): the panel, as i opens it, where the host keeps track of the person's session.
+    if (hb.propsChip) hits.push({ ...hb.propsChip, start: "props" });
     for (const mark of hb.wholeMarks ?? []) hits.push({ ...mark, elem: `comment:${mark.thread}` });
     for (const [i, control] of (hb.titleControls ?? []).entries()) {
       const key = `control:title:${m.id}:${i}`;
@@ -1821,7 +1816,7 @@ export class NoteSurface {
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
-    const hb = this.headerBlock(m, w, host, src), { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, wholeMarks } = hb;
+    const hb = this.headerBlock(m, w, host, src, h <= SHORT_READER_ROWS), { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, wholeMarks } = hb;
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (" · " + this.proposalKeys(m.id).replace(/ · $/, "") + (proposalApplies(m) ? "" : " · it can't be applied: its passage was already gone")), w) + RESET]) } : null;
@@ -2177,7 +2172,7 @@ export class NoteSurface {
    * last paint) reuses the last layout when the note and the pane's size are the same, so scrolling a long
    * note costs a slice, not a layout. Every other frame lays it out again.
    */
-  private layOut(m: Msg, w: number, h: number, head: string[], summaryRow: number, summaryLinks: { from: number; to: number; link: Link; key: string }[], host: SurfaceHost | undefined, src: Source | null): Laid {
+  private layOut(m: Msg, w: number, h: number, head: string[], summaryRow: number, summaryLinks: { from: number; to: number; link: Link; key: string; row?: number }[], host: SurfaceHost | undefined, src: Source | null): Laid {
     const top = head.length, t = host?.ctx.t;
     // What the rules draw on the note (PIE-600), unless the person asked for it raw (R).
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
@@ -2675,11 +2670,10 @@ export class NoteSurface {
   private summaryView(m: Msg, src: Source | null, rest: number = C.dark) {
     const segs = summarySegments((m.properties ?? []).filter(p => p.key.toLowerCase() !== "subtitle"), this.summary(m).keys);
     const prefix = workIdPrefix(src) ?? null;
-    const links: { from: number; to: number; link: Link; key: string }[] = [];
-    let col = 0, line = "";
-    segs.forEach((s, i) => {
-      if (i) { line += " · "; col += 3; }
-      line += s.label + " "; col += [...s.label].length + 1;
+    // Each segment drawn on its own (`parts`: a narrow byline lays them over rows, PIE-1686), then joined as one line.
+    const parts = segs.map(s => {
+      const links: { from: number; to: number; link: Link; key: string }[] = [];
+      let col = 0, line = fg(rest) + s.label + " "; col += [...s.label].length + 1;
       splitPropertyValue(s.value).forEach((v, j) => {
         if (j) { line += ", "; col += 2; }
         const t = valueTarget(s.key, v, prefix), n = [...v].length;
@@ -2687,8 +2681,12 @@ export class NoteSurface {
         else line += v;
         col += n;
       });
+      return { line, cols: col, links };
     });
-    return { text: segs.map(s => s.plain).join(" · "), line, links };
+    const links: { from: number; to: number; link: Link; key: string }[] = [];
+    let col = 0;
+    parts.forEach((p, i) => { if (i) col += 3; links.push(...p.links.map(l => ({ ...l, from: l.from + col, to: l.to + col }))); col += p.cols; });
+    return { text: segs.map(s => s.plain).join(" · "), line: parts.map(p => p.line).join(" · "), links, parts };
   }
 
   /** The panel's rows for `m`: its own records (a comment's never its words' chips, PIE-1596), the service's once answered. */
@@ -5402,7 +5400,7 @@ export class NoteSurface {
   }
 
   /** Everything `[ ]` can stop on in this render, in reading order (content rows, then columns). */
-  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[], summaryRow = 1, imageRef: ((i: number) => ImageRef | null) | null = null): Element[] {
+  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string; row?: number }[], points: readonly FoldPoint[], top: number, head: string[], summaryRow = 1, imageRef: ((i: number) => ImageRef | null) | null = null): Element[] {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
@@ -5415,7 +5413,7 @@ export class NoteSurface {
     const block = (r: number): [number, number] => { const [a, b] = this.blockRows(doc, r); return [top + a, top + b]; };
     const text = (line: string, from: number, to: number) => cellsOf(line).slice(from, to).join("").trim();
     const sum = head[summaryRow] ?? "";
-    for (const l of summary) out.push({ key: keyOf("link", l.link), kind: "link", row: summaryRow, from: l.from, to: l.to, ruler: [summaryRow, summaryRow + 1], label: `${l.key} ${text(sum, l.from, l.to)}`, link: l.link, value: l.key });
+    for (const l of summary) { const row = l.row ?? summaryRow; out.push({ key: keyOf("link", l.link), kind: "link", row, from: l.from, to: l.to, ruler: [row, row + 1], label: `${l.key} ${text(head[row] ?? sum, l.from, l.to)}`, link: l.link, value: l.key }); }
     for (const h of doc.heads) {
       const p = points.find(p => p.key === h.key);
       if (p && (p.kind === "heading" || this.previews(p))) out.push({ key: `fold:${p.key}`, kind: "fold", fold: p.key, row: top + h.row, from: this.gutterStart, to: this.bx + h.cols, ruler: [top + h.row, top + h.row + (h.rows ?? 1)], label: p.text });
@@ -8883,6 +8881,7 @@ const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
 const COMMENT_CHIP = "[comment]";
 /** The header's quiet way into the Sources inspector, on a note that generates anything (PIE-956 S6b). */
 const SOURCES_CHIP = "[sources]";
+
 
 
 

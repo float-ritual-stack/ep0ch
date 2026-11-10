@@ -865,7 +865,7 @@ export class App implements Ctx {
     this.quit();
     return null;
   }
-  private messageWarning = true;
+  private messageWarning = true; private messagePassing = false;   // a passing message (MessageDetails.passing) is never said whole above the bar
   readonly messages = new StatusLog();
   private showMessage(msg: string, ms: number, warning: boolean, details: MessageDetails = {}) {
     const meta = { ...messageContext.getStore(), ...details };
@@ -873,7 +873,7 @@ export class App implements Ctx {
     const desk = focus?.startsWith("drawer:") ? this.drawer.desk : tilesOf(this.stack.at(-1));
     const tile = meta.tile === undefined ? desk?.tileOutline().find(t => t.focused) : undefined;
     this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...meta });
-    this.messageWarning = warning; this.message = printable(msg, " ");
+    this.messageWarning = warning; this.message = printable(msg, " "); this.messagePassing = !!details.passing;
     if (details.href) this.message = `\x1b]8;;${new URL(details.href).href}\x1b\\${this.message}${OSC8_CLOSE}`;
     this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
   }
@@ -1838,7 +1838,7 @@ export class App implements Ctx {
     const bar = this.statusBar(s, cols);
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
     // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
-    const whole = this.messageSaid?.cut && this.message ? referenceWords(this.message) : "";
+    const whole = this.messageSaid?.cut && this.message && !this.messagePassing ? referenceWords(this.message) : "";
     // Above the screen's own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays there to click.
     const at = Math.max(1, Math.min(chromeAt, lines.length));
     if (whole) lines = [...withWhole(lines.slice(0, at), whole, cols, this.messageWarning), ...lines.slice(at)];
@@ -1847,6 +1847,7 @@ export class App implements Ctx {
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(this.strips.draw(lines, cols, rows), cols, Date.now());
+    const saying = this.overflow.saying(); if (saying) readable.lines = [...withWhole(readable.lines.slice(0, at), saying, cols, true), ...readable.lines.slice(at)];   // a button's why under the pointer, said whole (PIE-1686)
     if (readable.overlay) placements = uncover(placements, readable.overlay);
     this.display.show(readable.lines, placements);
     this.speed.frame();

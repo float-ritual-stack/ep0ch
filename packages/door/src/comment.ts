@@ -197,14 +197,16 @@ export type CommentMode = "select" | "compose" | "threads";
  * these. Moving has no action of its own, so a row names the nearest (the one that picks the passage, or opens the thread).
  */
 const SELECT_KEYS: readonly ModeKey[] = [
+  { key: "esc", action: "comment.escape", label: "back" },
   ...["j", "k"].map(key => ({ key, action: "passage.select", label: "line", click: false as const })),
   ...["J", "K"].map(key => ({ key, action: "passage.select", label: "extend", click: false as const })),
   ...["h", "l"].map(key => ({ key, action: "passage.select", label: "start", click: false as const })),
   ...["H", "L"].map(key => ({ key, action: "passage.select", label: "end", click: false as const })),
   { key: "enter", action: "comment.write", label: "write", click: false },
-  { key: "esc", action: "comment.escape", label: "back" },
 ];
+// The way out leads each hint (PIE-1701): a narrow tile's frame cuts the end of its hint, never its esc.
 const THREAD_KEYS: readonly ModeKey[] = [
+  { key: "esc", action: "comment.escape", label: "done" },
   ...["j", "k"].map(key => ({ key, action: "thread.toggle", label: "thread", click: false as const })),
   ...["pgup", "pgdn"].map(key => ({ key, action: "scroll", label: "scroll", click: false as const })),
   { key: "r", action: "comment.write", label: "reply", click: false },
@@ -214,7 +216,6 @@ const THREAD_KEYS: readonly ModeKey[] = [
 ];
 const THREAD_MORE_KEYS: readonly ModeKey[] = [
   { key: "space", action: "thread.pick", label: "pick" }, { key: "C", action: "comment.note", label: "comment on the whole note" },
-  { key: "esc", action: "comment.escape", label: "done" },
 ];
 
 export class CommentSession {
@@ -476,8 +477,11 @@ export class CommentSession {
     this.mode = "threads"; this.busy = waitingText("the thread");
     const comment = t.kind !== "reply", root = comment ? r.id : t.thread.id;
     // From the reader: straight back to reading, its thread shown open where the composer was (the reader draws it as
-    // the reload brings it). Said open before the session ends, so it's never drawn closed for a moment.
-    if (this.fromReader) { env.posted?.(root); this.finished = true; }
+    // the reload brings it). Said open before the session ends, so it's never drawn closed for a moment. A comment on a
+    // passage picked in the reader (C, or a passage.select the person writes in) is from the reader too, wherever the
+    // pick began: the composer says the thread sits in place (PIE-1687). The thread list (m) is where it opened from
+    // only when it was opened as the list.
+    if (this.fromReader || (this.origin === "select" && t.kind === "quote")) { env.posted?.(root); this.finished = true; }
     env.flash(r.deduplicated ? `already saved: the service returned the ${comment ? "comment" : "reply"} from the first send, not a second copy` : t.kind === "note" ? "comment added on the whole note" : comment ? "comment added" : "reply added");
     this.threads = await env.reloadComments();
     this.busy = null;
