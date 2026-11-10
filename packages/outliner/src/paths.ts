@@ -156,5 +156,15 @@ export function remoteHint(paths: { machine?: string }): string {
     : "Check what serves EP0CH_SOCKET and the outline host at its other end.";
 }
 
+/**
+ * What to run when no outline host answers a client: this machine's host is a service (how to start it), another
+ * machine's is behind its forward (`remoteHint`). Every client that says so says it in these words.
+ */
+export function hostHint(paths: { mode: "host" | "remote"; machine?: string }): string {
+  return paths.mode === "remote"
+    ? remoteHint(paths)
+    : "The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.";
+}
+
 /** What says where a client's outline is; every pane or popup an outliner process opens is given these as it has them. */
 export const OUTLINE_ENV = ["EP0CH_OUTLINES", "EP0CH_SOCKET", "EP0CH_WS", "EP0CH_MACHINE"] as const;

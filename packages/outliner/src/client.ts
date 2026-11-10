@@ -47,7 +47,7 @@ export function createOutlinerClient(endpoint: OutlinerClientEndpoint, o: { time
 }
 
 /** A connection that found nobody at the socket (no file, or nobody listening): what a forward that isn't up looks like. */
-const nobodyThere = (error: unknown) => ["ENOENT", "ECONNREFUSED", "ENOTSOCK"].includes((error as NodeJS.ErrnoException)?.code ?? "");
+export const nobodyThere = (error: unknown) => ["ENOENT", "ECONNREFUSED", "ENOTSOCK"].includes((error as NodeJS.ErrnoException)?.code ?? "");
 
 /** A client that names an outline refuses an answer for another one rather than read the wrong outline. */
 export function requireOutlineRouting(service: OutlinerServiceStatus, socketPath: string, outline: string): void {

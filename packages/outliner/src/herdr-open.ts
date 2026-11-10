@@ -14,7 +14,7 @@ import {
   pluginInvocationWorkspaceRootSource,
   type PaneEntrypoint,
 } from "./pane-control";
-import { OUTLINE_ENV, remoteHint, resolveClientPaths } from "./paths";
+import { hostHint, OUTLINE_ENV, remoteHint, resolveClientPaths } from "./paths";
 import { attachHostedOutline, attachNamedOutline, resolveInvocationPaths, waitForOutlineHost } from "./outline-host-client";
 import type { OutlineChooserContext } from "./outline-chooser";
 import { waitForCompatibleService } from "./service-compatibility";
@@ -161,7 +161,7 @@ await reportStartupErrors(async () => {
   if (!host) {
     throw new Error(paths.mode === "remote"
       ? `No outline host answers at ${paths.socket}${paths.machine ? ` (on ${paths.machine})` : " (EP0CH_SOCKET)"}. ${remoteHint(paths)}`
-      : `No outline host answers at ${paths.socket} (outline "${name}" for ${workspaceRoot}). The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.`);
+      : `No outline host answers at ${paths.socket} (outline "${name}" for ${workspaceRoot}). ${hostHint(paths)}`);
   }
   // Only the modes that open panes create a missing outline: Pi's `service-only` check, `focus-existing` and
   // `find-detail` open nothing, so they only attach. And only on this machine (PIE-545): on another machine a name

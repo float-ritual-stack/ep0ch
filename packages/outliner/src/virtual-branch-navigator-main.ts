@@ -1,6 +1,6 @@
 import {MentionsNavigator} from "./mentions-navigator";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { createHerdrSession, requireHerdr, startHerdrClient } from "./herdr-session";
+import { createHerdrSession, requiredEnvironment, requireHerdr, startFailureHint, startHerdrClient } from "./herdr-session";
 import { listLiveClients } from "./client-target";
 import { loadDetailReadPreview } from "./detail-read-preview";
 import { currentPaneRuntime, openDetailPane } from "./pane-control";
@@ -32,12 +32,6 @@ import {
 } from "./virtual-branches";
 
 requireHerdr("Virtual branch navigator popup");
-
-function requiredEnvironment(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
 
 function parseLaunch(): VirtualBranchNavigatorLaunch {
   const sourceRole = requiredEnvironment("OUTLINER_NAVIGATOR_SOURCE_ROLE");
@@ -245,6 +239,7 @@ const controller = new VirtualBranchNavigatorController(launch.sourceRole, {
 }, { destinationTimeoutMs, actionKeymap, ...(mentions ? {commands:mentions.commands} : {}) });
 
 function draw(): void {
+  if (session.failed) return;
   rendered = renderVirtualBranchNavigatorFrame(
     controller,
     process.stdout.columns ?? 100,
@@ -257,8 +252,7 @@ function draw(): void {
 const stop = (exitCode = 0) => session.stop(exitCode);
 function enqueueWork(task: () => void | Promise<void>): void { session.enqueue(task); }
 const session = createHerdrSession({
-  // A paste is taken whole and dropped, never typed as keys.
-  modes: { mouse: "click", paste: true },
+  modes: { mouse: "click" },
   draw,
   onError(error) {
     controller.status = error instanceof Error ? error.message : String(error);
@@ -316,6 +310,5 @@ try {
   stopWatcher = () => watcher.stop();
   draw();
 } catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  await stop(1);
+  session.fail(`${mentions ? "Recent mentions" : "Navigator"} could not start`, error, startFailureHint(error, paths));
 }

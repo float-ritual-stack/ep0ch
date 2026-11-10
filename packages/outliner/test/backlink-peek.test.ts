@@ -1,4 +1,4 @@
-import type { MarkdownTheme } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth, type MarkdownTheme } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "bun:test";
 import {
   BacklinkPeekController,
@@ -193,6 +193,58 @@ describe("backlink peek controller", () => {
     expect(state.calls.openedFirst).toEqual([]);
     expect(state.calls.openedNew).toEqual([]);
     expect(state.calls.closes).toBe(1);
+  });
+
+  // Clicks land where the frame drew each label (PIE-1650): found in the drawn frame, as a person aims.
+  const clickOn = (frame: string, label: string, ctrl = false) => {
+    const lines = frame.split("\n").map(line => stripTerminalSequences(line));
+    const row = lines.findIndex(line => line.includes(label));
+    expect(row).toBeGreaterThanOrEqual(0);
+    const column = visibleWidth(lines[row]!.slice(0, lines[row]!.indexOf(label)));
+    return `\x1b[<${ctrl ? 16 : 0};${column + 1};${row + 1}M`;
+  };
+
+  test("a click on ‹ or › peeks the other backlinks, the wheel scrolls, and a click on the backlink opens the chooser", async () => {
+    const state = harness();
+    await state.controller.initialize();
+    const frame = () => renderBacklinkPeekFrame(state.controller, 100, 12, plainMarkdownTheme);
+    await state.controller.handleMouse(clickOn(frame(), "›"), 100, 12);
+    expect(state.controller.selectedSource?.blockId).toBe("three");
+    await state.controller.handleMouse(clickOn(frame(), "‹"), 100, 12);
+    expect(state.controller.selectedSource?.blockId).toBe("two");
+    state.controller.scrollOffset = 0;
+    await state.controller.handleMouse("\x1b[<65;10;6M", 100, 12);
+    expect(state.controller.scrollOffset).toBe(3);
+    // A plain click in the preview is not an open.
+    await state.controller.handleMouse("\x1b[<0;10;6M", 100, 12);
+    expect(state.controller.destinationChooserOpen).toBe(false);
+    await state.controller.handleMouse(clickOn(frame(), "Source two"), 100, 12);
+    expect(state.controller.destinationChooserOpen).toBe(true);
+    expect(state.calls.openedFirst).toEqual([]);
+  });
+
+  test("the help row's words are its controls: a click presses the key it names, the chooser's too", async () => {
+    const state = harness();
+    await state.controller.initialize();
+    const frame = () => renderBacklinkPeekFrame(state.controller, 120, 12, plainMarkdownTheme);
+    expect(frame()).toContain("Esc cancel  ← prev  → next  ↑/↓ scroll");
+    await state.controller.handleMouse(clickOn(frame(), "→ next"), 120, 12);
+    expect(state.controller.selectedSource?.blockId).toBe("three");
+    await state.controller.handleMouse(clickOn(frame(), "Enter choose destination"), 120, 12);
+    expect(state.controller.destinationChooserOpen).toBe(true);
+    await state.controller.handleMouse(clickOn(frame(), "⇧R replace here"), 120, 12);
+    expect(state.calls.replaced).toEqual(["three"]);
+    expect(state.calls.closes).toBe(1);
+  });
+
+  test("a Ctrl-click in the preview opens the chooser, and a click on the backlink there opens the default", async () => {
+    const state = harness();
+    await state.controller.initialize();
+    const frame = () => renderBacklinkPeekFrame(state.controller, 100, 12, plainMarkdownTheme);
+    await state.controller.handleMouse("\x1b[<16;10;6M", 100, 12);
+    expect(state.controller.destinationChooserOpen).toBe(true);
+    await state.controller.handleMouse(clickOn(frame(), "Source two"), 100, 12);
+    expect(state.calls.openedFirst).toEqual(["two"]);
   });
 
   test("enter opens the destination chooser and enter again uses the first unlocked Detail", async () => {

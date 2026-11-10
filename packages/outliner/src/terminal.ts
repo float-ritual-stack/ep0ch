@@ -64,6 +64,14 @@ function consumeEscapeSequence(value: string, start: number): number {
 
 export interface SanitizedTextPart { start: number; end: number; text: string }
 
+/**
+ * A paste into a one-line input (a search, a Find, a filter): its line breaks are spaces, its controls stripped.
+ * Every one-line input that takes a paste takes it through here.
+ */
+export function pastedLine(text: string): string {
+  return sanitizeDynamicText(text.replace(/[\r\n]+/g, " "));
+}
+
 export function sanitizeDynamicText(value: string, preserveLineBreaks = false): string {
   return sanitizedTextParts(value, preserveLineBreaks).map(part => part.text).join("");
 }

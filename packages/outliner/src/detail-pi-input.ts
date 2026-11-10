@@ -7,7 +7,7 @@ import {
   type KeyId,
   type TuiInputListener,
 } from "@earendil-works/pi-tui";
-import type { TerminalInputAction, TerminalKey } from "./terminal";
+import { pastedLine, type TerminalInputAction, type TerminalKey } from "./terminal";
 import {
   isTreeMouseSequence,
   parseTreePrimaryClick,
@@ -102,6 +102,17 @@ export class PiDetailInputStreamDecoder {
     this.#pending = "";
     return [decodePiDetailInput(pending)];
   }
+}
+
+/**
+ * What one chunk of Pi's input adds to a one-line Find (Detail's action menu): a typed character, or a whole
+ * bracketed paste (Pi's terminal hands a component `\x1b[200~…\x1b[201~` in one piece) as one line (PIE-1649).
+ * Anything else (a key, a click) is undefined.
+ */
+export function findInputText(data: string): string | undefined {
+  const inputs = new PiDetailInputStreamDecoder().push(data);
+  if (inputs.length === 1 && inputs[0]!.kind === "paste") return pastedLine(inputs[0]!.text);
+  return decodeKittyPrintable(data) ?? (data.length === 1 && data >= " " && data !== "\x7f" ? data : undefined);
 }
 
 function trailingPrefixLength(data: string, marker: string): number {

@@ -300,8 +300,12 @@ source evidence or distinguish authored glyphs from controls.
   check, keymap), `waitForService` (Tree and Detail, before the host is up),
   `attachKeypressInput` (keys, whole pastes and mouse reports split before
   readline; a lone Escape at once) and `createHerdrSession` (the work queue, the
-  screen's modes with options for mouse and paste, resize, the signals at
-  128 + n, suspend for an editor, and one ordered stop that may refuse). Tree,
+  screen's modes: the kind of mouse reporting a client asks for, and bracketed
+  paste on for every keypress client, never per client (PIE-1649); resize, the
+  signals at 128 + n, suspend for an editor, one ordered stop that may refuse,
+  and `fail`, the screen a client that could not start shows until a key closes
+  it, with `startFailureHint`'s words from `paths.ts`'s `hostHint`). A popup's
+  launch variables are read with its `requiredEnvironment`. Tree,
   Detail, goto, capture, backlink peek, choose-outline and the branch navigator
   all call it; a new popup is a controller and a draw handed to it, not a copy
   of one of their main files.
