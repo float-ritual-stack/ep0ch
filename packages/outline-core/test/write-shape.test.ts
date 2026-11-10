@@ -151,6 +151,18 @@ test("a number before a value the outline holds is a count for a live figure; ot
   expect(writeShape(note)).toEqual([]);
 });
 
+test("prose is read as prose: a count is a number then a value used as that key's noun, or a state after a small word (PIE-1715)", () => {
+  const facets = [
+    { key: "style.border", value: "line", count: 6 }, { key: "kind", value: "note", count: 25 }, { key: "kind", value: "review", count: 3 },
+    { key: "stage", value: "queued", count: 4 }, { key: "type", value: "roadmap-item", count: 9 }, { key: "status", value: "done", count: 7 },
+  ];
+  const prose = "Shed\n\nThe table is 20 lines long, 2,000 notes in all, and only 3 notes carry one; 4 in review.";
+  expect(writeShape(prose, { facets })).toEqual([]);
+  const counts = writeShape("Shed\n\n3 queued, 14 roadmap items, 2 reviews and 5 still done.", { facets });
+  expect(counts.map(f => f.rule)).toEqual(["count"]);
+  expect(counts[0]!.say).toContain(`"3 queued" is stage=queued, "14 roadmap items" is type=roadmap-item, "2 reviews" is kind=review, "5 still done" is status=done`);
+});
+
 test("a bare id is told to be a reference; one in a reference, a property or code is fine", () => {
   const id = "8a1c2b3d-1111-4222-8333-444455556666";
   const [found] = writeShape(`Links\n\nSee ${id} for the plan.`);

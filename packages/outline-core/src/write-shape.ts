@@ -658,13 +658,24 @@ function futureTimes(lines: readonly string[], title: number, now: Date): ShapeF
 }
 
 /** Whether the text types a number before a word anywhere: the count rule asks the outline's facets only then. */
-export const hasCountCandidate = (text: string) => /(?<![\w#$€£.\/:-])\d{1,5}(?![\w.:\/%-]|\.\d)\s+\p{L}/u.test(text);
+export const hasCountCandidate = (text: string) => /(?<![\w#$€£.\/:-]|\d,)\d{1,5}(?![\w.:\/%-]|[.,]\d)\s+\p{L}/u.test(text);
 
 // ── Counts typed in prose ────────────────────────────────────────────────────
 
 const MONTH_BEFORE = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*$/i;
 /** The small words a count's value may follow (`2 in review`): grammar, not anyone's properties. */
 const FILLERS = /^(?:in|still|now|are|were|more|left)$/i;
+/**
+ * The words that name every note, never one kind of them: "3 notes carry one" counts notes, not `kind=note`. The
+ * outline's own nouns, grammar like FILLERS (PIE-1715).
+ */
+const EVERY_NOTE = /^(?:notes?|blocks?)$/i;
+/**
+ * A key whose name says its values are states (`work-stage`, `status`, `outbox-state`): the only kind a value after a
+ * small word reads as (`2 in review`). After a number directly, a value is the key's noun (`3 reviews`, `14 roadmap
+ * items`); after `in`, it is a state, so `kind=review` never reads "4 in review" (PIE-1715).
+ */
+const STATE_KEY = /(?:^|[-_])(?:stage|status|state)$/i;
 
 const singular = (word: string) => word.toLowerCase().replace(/(?:ies)$/, "y").replace(/(?:ses|xes)$/, m => m.slice(0, -2)).replace(/(?<=[^s])s$/, "");
 
@@ -674,27 +685,34 @@ const singular = (word: string) => word.toLowerCase().replace(/(?:ies)$/, "y").r
  * either. The patch takes the number out of the sentence and puts a live `::graph-stat` after it, one tile per count.
  */
 function countFindings(lines: readonly string[], structure: readonly number[], title: number, facets: readonly ShapeFacet[]): ShapeFinding[] {
-  const byWord = new Map<string, ShapeFacet>();
+  const byWords = new Map<string, ShapeFacet[]>();
   for (const f of facets) {
     const value = f.value.trim().toLowerCase();
     // A value a count can mean: one of a small vocabulary (a stage, a status, a kind), carried by more than one note.
-    if (value.length < 3 || /^\d/.test(value) || /\s{2,}/.test(value) || (f.count ?? 2) < 2 || (f.values ?? 0) > SHAPE_LIMITS.vocabulary) continue;
-    for (const w of [value, singular(value), value.replace(/-/g, " "), singular(value.replace(/-/g, " "))]) if (!byWord.has(w)) byWord.set(w, f);
+    // A dotted key is a part's own setting (`style.border=line`, `asks.line`), never a vocabulary prose counts in.
+    if (f.key.includes(".") || value.length < 3 || /^\d/.test(value) || /\s{2,}/.test(value) || (f.count ?? 2) < 2 || (f.values ?? 0) > SHAPE_LIMITS.vocabulary) continue;
+    for (const w of new Set([value, singular(value), value.replace(/-/g, " "), singular(value.replace(/-/g, " "))])) {
+      if (!EVERY_NOTE.test(w)) byWords.set(w, [...(byWords.get(w) ?? []), f]);
+    }
   }
+  // The key a word counts: after a small word only a state key's; where several keys hold it, the one more notes carry.
+  const pick = (word: string, state: boolean) => (byWords.get(word) ?? []).filter(f => !state || STATE_KEY.test(f.key)).sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
   const out: ShapeFinding[] = [];
   lines.forEach((raw, i) => {
     if (i === title || structure[i] !== -1 || !raw.trim() || HEADING.test(raw) || TABLE_ROW.test(stripQuotes(raw, quoteDepth(raw).depth))) return;
     const m = masked(raw);
     const counts: { number: string; start: number; end: number; facet: ShapeFacet; words: string }[] = [];
-    for (const n of m.matchAll(/(?<![\w#$€£.\/:-])(\d{1,5})(?![\w.:\/%-]|\.\d)\s+/gu)) {
+    // A number, never a digit group of a bigger one (`2,000 notes` is no "000 notes").
+    for (const n of m.matchAll(/(?<![\w#$€£.\/:-]|\d,)(\d{1,5})(?![\w.:\/%-]|[.,]\d)\s+/gu)) {
       // A day of a month (`Oct 27`) or a time (`9 AM`) is no count.
       if (MONTH_BEFORE.test(raw.slice(0, n.index!)) || /^(?:am|pm)\b/i.test(raw.slice(n.index! + n[0].length))) continue;
       const candidates = (/^[\p{L}][\p{L}-]*(?:\s+[\p{L}][\p{L}-]*){0,2}/u.exec(raw.slice(n.index! + n[0].length))?.[0] ?? "").split(/\s+/).filter(Boolean);
       // The value is the word right after the number, or after one small word (`2 in review`, `3 still queued`); one word or two (`roadmap items`).
       for (let k = 0; k < Math.min(FILLERS.test(candidates[0] ?? "") ? 2 : 1, candidates.length); k++) {
         const one = candidates[k]!.toLowerCase(), two = candidates[k + 1] ? `${one} ${candidates[k + 1]!.toLowerCase()}` : "";
-        const facet = (two && (byWord.get(two) ?? byWord.get(singular(two)))) || byWord.get(one) || byWord.get(singular(one));
-        if (facet) { counts.push({ number: n[1]!, start: n.index!, end: n.index! + n[1]!.length, facet, words: candidates.slice(0, k + (byWord.get(two) || byWord.get(singular(two)) ? 2 : 1)).join(" ") }); break; }
+        const state = k > 0, both = two ? pick(two, state) ?? pick(singular(two), state) : undefined;
+        const facet = both ?? pick(one, state) ?? pick(singular(one), state);
+        if (facet) { counts.push({ number: n[1]!, start: n.index!, end: n.index! + n[1]!.length, facet, words: candidates.slice(0, k + (both ? 2 : 1)).join(" ") }); break; }
       }
     }
     if (!counts.length) return;
