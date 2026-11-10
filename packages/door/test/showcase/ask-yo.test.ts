@@ -277,6 +277,63 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "tile.title", tile: reader().tile, args: { text: "ask" } }, USER);   // the section's name back
   }, 90_000);
 
+  // PIE-1699 (the verifier's repro): a tile-relative button pressed from the answer tile while the keys are there (a click
+  // moves them; a number key and answer.follow are pressed there) acts on the reader the ask came from, never the answer tile. tile.agent with
+  // no tile= cycles the level of the tile it lands on: the reader goes free → edit, the answer tile stays free (agents can
+  // still follow there).
+  for (const how of ["click", "keys", "follow", "agent"] as const) test(`typed in the editor: a tile.agent button in the answer tile acts on the reader, by ${how}`, async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, `Ask yo, a tile's agents (${how})\n\nWhere a tile-relative button is pressed beside the line.\n`);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    await h.board.createBlock(null, `guard tile ${how}: tile.agent [yo-memory::answer] [yo-action::tile.agent] [yo-asked::guard tile ${how}] [yo-line::tile.agent]`);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of `@yo guard the tile ${how}`) h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    type Row = { name: string; tile: string; kind: string; agents?: string };
+    const rows = () => stage().layoutGet().tiles as Row[];
+    const answer = () => rows().find(t => t.kind === "answer")?.name;
+    const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
+    await until(() => !!answer() && /::button\{label="[^"]+" act=\["tile\.agent"/.test(draft()?.text ?? ""), "yo's answer with a tile.agent button", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press) && h.screen().includes("▸ agent"), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    const reader = () => rows().find(t => t.kind === "reader" && t.name === "ask")!, theAnswer = () => rows().find(t => t.kind === "answer")!;
+    try {
+      if (how === "click") {
+        const lines = h.screen().split("\n"), y = lines.findLastIndex(l => l.includes("▸ agent")), x = lines[y]!.lastIndexOf("▸ agent") + 1;
+        h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
+      } else if (how === "keys") {
+        // The keys into the answer tile (as Tab or ^W there), then its number: the focused tile is the answer tile, not the reader.
+        await h.app.dispatch.act({ action: "tile.focus", tile: answer()! }, USER);
+        h.ch(String(n));
+      } else if (how === "follow") {
+        await h.app.dispatch.act({ action: "tile.focus", tile: answer()! }, USER);
+        await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER);
+      } else {
+        // An agent's press there while the person types in the reader (the verifier's open path): it lands on the reader, and
+        // the answer tile stays free, so the agent can follow there again.
+        await h.app.act({ action: "answer.follow", tile: answer()!, args: { n }, as: "test-agent" });
+      }
+      await until(() => reader().agents === "edit", "the reader set to edit", 15_000)
+        .catch(e => { throw new Error(`${e.message}: the reader reads ${reader().agents ?? "free"}, the answer tile ${theAnswer().agents ?? "free"}`); });
+      expect(theAnswer().agents).toBeUndefined();
+      // The person's edit is still open, their words in it.
+      expect(draft()?.text).toContain(`@yo guard the tile ${how}`);
+    } finally {
+      if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+      await until(() => !draft(), "the edit saved and closed", 8000);
+      for (const t of ["ask", answer()].filter(Boolean)) await h.app.dispatch.act({ action: "tile.agent", tile: t!, args: { policy: "inherit" } }, USER);
+      await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    }
+  }, 90_000);
+
   // PIE-1676: yo's remember takes an argument named asked, and the door's own words for its run never take its place.
   test("an agent's ext.yo.remember asked=… keeps what it asked", async () => {
     await h.app.act({ action: "ext.yo.remember", args: { act: "tile.zoom", asked: "zoom-the-shed", args: "reach:full" }, as: "test-agent" });

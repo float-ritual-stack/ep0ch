@@ -374,6 +374,16 @@ export function explainNotInstalled(words: (name: string) => string | null) { no
 let alsoNamed: () => string[] = () => [];
 export function nameAlso(names: () => string[]) { alsoNamed = names; }
 
+/**
+ * Whether an action works on a tile (the one `tile=` names, else the focused one), so where its request comes from decides
+ * the tile: a tile set's, or a screen set's that is no landing (tile= there is where something lands) and changes no more
+ * than a tile's shape (not the screen). The keys' screen hands it on to the tile they are in (Dispatcher.owner), and a press
+ * places it in its reader (Dispatcher.requestIn, PIE-1699).
+ */
+function actsOnTile(reg: Registration, def: ActionDef<unknown, unknown> | undefined): boolean {
+  return reg.takes !== "none" && !!def && def.touches !== "screen" && !def.landing;
+}
+
 export class Dispatcher {
   private nextConfirmation = 0;
   private saidConfirmation = 0;
@@ -581,7 +591,10 @@ export class Dispatcher {
   takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
   /**
-   * An authored press defaults tile actions to its own reader; screen and host actions keep their scope. The one owner of
+   * An authored press defaults tile actions to its own reader, as if it were focused: a tile set's, and a screen set's that
+   * works on a tile (`actsOnTile`: tile.agent, tile.title, tile.zoom); a landing, a screen-wide change and a host action keep
+   * their scope. So a press from the answer tile acts in the reader the ask was typed in, never the answer tile the keys or
+   * the click are in (PIE-1699). The one owner of
    * where a press acts (PIE-1517): given the press (src/surface/invite.ts `Press`), its reader; made in none (`button.press
    * note=`, a status-bar button), a reader showing its note, here or on the screen this host hands tile actions to. Where
    * none does, the person's own press acts at their focus; anyone else's is refused with "open it first", never landing
@@ -603,7 +616,7 @@ export class Dispatcher {
 
   private tileAction(req: ActRequest): boolean {
     const r = this.owner(req);
-    return !!r && ("set" in r ? r.takes === "tile" : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req));
+    return !!r && ("set" in r ? r.takes === "tile" || actsOnTile(r, r.set.def(req.action)) : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req));
   }
 
   /** The set that owns a request's action: the first registered that claims it. */
@@ -616,7 +629,7 @@ export class Dispatcher {
     if (defaultTarget && defaultTarget.dispatch.host.pointerScope !== this.host.pointerScope) {
       const reg = this.regs.find(r => "set" in r && r.set.has(req.action));
       const def = reg && "set" in reg ? reg.set.def(req.action) : undefined;
-      if (reg && "set" in reg && reg.takes !== "none" && def && def.touches !== "screen" && !def.landing) return { delegate: () => defaultTarget.dispatch, listed: false };
+      if (reg && "set" in reg && actsOnTile(reg, def)) return { delegate: () => defaultTarget.dispatch, listed: false };
     }
     const addressed = this.addressed(req);
     if (addressed) return addressed;
