@@ -171,12 +171,13 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(plain(pane.render(80, 30, true, d).lines[2]!)).toContain("1 comment · short cards (M)");
   });
 
-  // PIE-1667: the key the hint row names for leaving a comment closes it, and it is esc's one action, comment.escape; comment.close
-  // is the same close for act (discard= for unsent text), reached by esc through comment.escape, never a second binding of esc.
+  // PIE-1667: the key the hint row names for leaving a comment closes it. The Esc mapping is meant: esc runs comment.close in the
+  // thread list and the passage picker, and comment.escape (which closes through comment.close) in a comment being written.
   test("the hint row's esc closes the comment by key, and comment.escape and comment.close close it through act (PIE-1667)", async () => {
     const b = await create(NOTE);
     expect(keysText(NOTE_ACTIONS.def("comment.escape")!.keys)).toBe("esc");
-    expect(declaredKeys(NOTE_ACTIONS.def("comment.close")!.keys).has("esc")).toBe(false);
+    expect(declaredKeys(NOTE_ACTIONS.def("comment.close")!.keys).has("esc")).toBe(true);
+    expect(keysText(NOTE_ACTIONS.def("comment.close")!.keys)).toContain("esc: in the thread list or the passage picker");
     expect(keysText(NOTE_ACTIONS.def("comment.close")!.keys)).toContain("comment.escape");
     for (const how of ["key", "comment.escape", "comment.close"] as const) for (const start of ["C", "m"] as const) {
       const { pane, d } = await open(b.id, start);

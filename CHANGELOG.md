@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 - **A press that changed nothing says so:** a button whose steps all changed nothing (pressed by click, key or `act`) says `nothing to undo: it was already so` and leaves no ctrl+z step behind. The pick-a-tile section's `unlock` shows it.
 - **One ctrl+z takes back a slot's words and what its press did:** after an alt press of `title it`, ctrl+z puts back the button's line and the preview's title together. An agent's `button.slot` is undone by its `sources.undo` from the reader showing the note, and its `run=true` runs the button or says why not. A title written on a tile is now a layout step, as a rename is.
 - **`note.move` is one action:** a list mounts the reader's own description and `note.move.undo`, so the keys window and `ep0ch actions` say one thing on every screen.
-- **`comment.close` stops claiming esc:** esc is `comment.escape`'s, which closes through it; the keys window now says so.
+- **`comment.close` says where esc runs it:** in the thread list and the passage picker esc runs it directly; in a comment being written esc runs `comment.escape`, which closes through it. The keys window says both.
 - **`props.summary reset=false` and `toggle=`** are refused with the usage line instead of a TypeError.
 - **Opening many notes reads each attachment's saved place once** (the previews, Sources and settings), from the attachments layer.
 - **Run:** `ep0ch install --apply` (the service and the door both change); PROTOCOL, GRAMMAR and the schema don't move.
