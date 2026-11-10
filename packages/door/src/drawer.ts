@@ -1920,7 +1920,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   // expand the drawer to float the agent"); with no agent tab open one opens running the last agent picked (PIE-1331).
   "agent.lift": preset({
     summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too); with none open, a new agent tab running the last agent picked opens first. A folded or put-away drawer stays as it is (drawer=true brings it up too). Again, or on=false, drops it. The person's lift takes their keys and clicks, the drawer down too, until it drops; an agent's lift never replaces the person's",
-    keys: [{ keys: "✦a", does: "lift the agent tab" }, { via: "a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note)" }, { keys: "^W Z", does: "on its tile, does the same where it is" }],
+    keys: [{ keys: "✦a", does: "lift the agent tab" }, { via: "a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note)" }, { via: "one that only drops it (::button{label=\"▼ drop\" act=\"agent.lift on=false\"})" }, { keys: "^W Z", does: "on its tile, does the same where it is" }],
     touches: "shape", host: true, replay: "safe",
     says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the agent tab" : "· dropped the agent tab", ms: 4000 }),
     args: {

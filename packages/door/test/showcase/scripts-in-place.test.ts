@@ -218,6 +218,28 @@ return 'wrote';
     } finally { await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
   });
 
+  test("a render sequence step that throws shows its error alone (PIE-1604)", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "button-sequences" } }, USER);
+    const note = await board.createBlock(null, `Render throws
+\`\`\`js script=boom mode=render
+throw new Error('the kettle is cold');
+\`\`\`
+::button{label=Boom}
+((boom))
+::`);
+    try {
+      await app.loadExtensions(true);
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Boom" } }, USER);
+      let source;
+      await untilAsync(async () => {
+        source = (await board.siteSources(note.id)).sources.find(s => s.name === "Boom");
+        return !!source && source.problem !== undefined;
+      }, "the failed step");
+      expect(source!.problem).toContain("the kettle is cold");
+      expect(source!.problem).not.toContain("use an action script");
+    } finally { await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
+  });
+
   test.each(["links", "'links'"])("an actions fence receives its sequence step's arguments: %s", async (slot) => {
     await app.dispatch.act({ action: "section", args: { name: "button-sequences" } }, USER);
     await app.dispatch.act({ action: "tile.collapse", tile: "links", args: { on: false } }, USER);

@@ -25,7 +25,7 @@ import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT
 import type { Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
-import { MIN_COLS, MIN_ROWS, OPEN_RULES, OPEN_RULE_WORDS, SPINES, besideDockStrips, keptInDock, type AltRule } from "./layout";
+import { MIN_COLS, MIN_ROWS, OPEN_RULES, OPEN_RULE_WORDS, SPINES, besideDockStrips, keptInDock, keptOnly, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
@@ -7037,7 +7037,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.apply({ op: "zoom", tile: p.id, reach, ...(on !== undefined ? { on } : keptDropped(this, p.id, reach, actor, !!this.layout.lift) ? { on: false } : {}) }, actor);
     if (this.layout.lift) for (const d of others) d.dropLift(actor);
     this.redraw();
-    return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed };
+    return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed, ...(r.answer.changed === false ? { changed: false } : {}) };
   }
 
   /** Float a tile, or land it in its container or beside its opener through screen-layout. */
@@ -7421,8 +7421,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { moved, done } = this.inTxn("carry", () => { const moved = this.carryOut(p.t, p.plan, how.heir); return { moved, done: dest.carryIn(moved, p.plan, p.land) }; }, dest);
     // The keys were in it: they stay with it, focused there and through each mount around it. carry.ts decided that once.
     if (p.plan.keys) { keysThrough<Desk>(dest, moved.pane, actor); if (moved.typing && moved.pane instanceof PtyPane) dest.doorKeys.typeIn(dest, moved.pane); }
-    // What travels and couldn't land there is in the answer, and the action says it (`without`), never swallowed.
-    return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}) };
+    // What travels and couldn't land there, or a desk left with only its kept dock (PIE-1663), the action says (`without`).
+    return { ...done, keys: p.plan.keys, moved, ...(p.plan.dropped.length ? { dropped: p.plan.dropped } : {}), ...((kept => (kept ? { keptOnly: kept.map(id => this.nameOf(id)) } : {}))(keptOnly(this.root))) };
   }
   /** This desk's half of a carry: its `take` committed, the tile's pane and its links across taken with it. */
   private carryOut(t: { name: string; id: number }, plan: Extract<Carried<number>, { ok: true }>, heir?: Pane): MovedTile {

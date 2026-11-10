@@ -98,6 +98,27 @@ describe.skipIf(!outliner || process.platform !== "linux")("who ran it (PIE-1651
     await h.app.act({ action: "screen.back", args: {}, as: AS });
   }, 30_000);
 
+  // PIE-1661: a line's copy that adds its anchor is a write; the answer and the note's history both name the agent.
+  test("note.copy-ref kind=line by an agent: the anchor it adds answers who it was recorded as, and the note's history names it", async () => {
+    (h.app as any).lastInput = 0;
+    await h.app.act({ action: "section", args: { name: "pick-a-tile" }, as: AS });
+    const note = h.seeded.notes.pickATile.id;
+    const reader = () => ((h.S().stage(SECTIONS.findIndex(s => s.key === "pick-a-tile")).top as Desk).pane("notes") as any);
+    // A line's reference is placed in the text the reader read: wait for it to have the note as the service does.
+    const current = async () => { const r = (await h.board.get(note))!.revision; await until(() => reader()?.msg?.revision === r, "the reader on the note as the service has it"); };
+    await current();
+    const lines = (await h.board.get(note))!.text.split("\n");
+    const line = lines.findIndex((l, i) => i > 0 && l.trim() && !/\^[\w-]+\s*$/.test(l) && !l.startsWith("[") && !l.startsWith("::")) + 1;
+    const r = await h.app.act({ action: "note.copy-ref", tile: "notes", args: { kind: "line", line }, as: AS }) as Record<string, unknown>;
+    expect(r).toMatchObject({ kind: "line", created: true, recordedAs: agent });
+    expect((await h.board.revisions(note)).revisions[0]).toMatchObject({ author: "agent", actorId: AS });
+    // The same line copied again writes nothing, so it names no writer.
+    await current();
+    const again = await h.app.act({ action: "note.copy-ref", tile: "notes", args: { kind: "line", line }, as: AS }) as Record<string, unknown>;
+    expect(again).toMatchObject({ anchor: r.anchor, created: false });
+    expect(again.recordedAs).toBeUndefined();
+  }, 30_000);
+
   test("every writing action's page says the recordedAs field, from the action's own answer", () => {
     // PIE-1406's, then PIE-1655's three and the writing runs its sweep found answering without it.
     const writes = ["tile.type", "agents.yolo", "access.apply", "edit.save", "card.create", "card.reorder", "note.trash", "note.move", "props.edit", "image.size", "settings.set",
@@ -105,7 +126,7 @@ describe.skipIf(!outliner || process.platform !== "linux")("who ran it (PIE-1651
       "card.restore", "note.untrash", "note.create", "step.set", "resolve", "thread.seen", "thread.keep", "thread.tldr", "note.move.undo", "agent.ask", "quote",
       "status.bar.pin", "button.pin", "note.new", "page.create", "template.stamp", "component.new", "facets.save", "facets.pin", "facets.tag", "trail.save",
       "screen.save", "screen.menu", "note.rename", "ask.clear", "element.detach", "element.quote", "note.reply", "edit.insert", "echo.reply", "echo.quote",
-      "tune.save", "tune.undo", "tune.redo", "tune.resetlevel", "tune.revert", "tune.retired.remove", "tune.retired.move"];
+      "note.copy-ref", "tune.save", "tune.undo", "tune.redo", "tune.resetlevel", "tune.revert", "tune.retired.remove", "tune.retired.move"];
     const listed = allActionSets().flatMap(s => s.list());
     for (const name of writes) expect({ name, field: listed.some(x => x.name === name && x.answer?.recordedAs?.type === "object") }).toEqual({ name, field: true });
   });

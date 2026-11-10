@@ -39,14 +39,21 @@ export function keysOf(a: ActionRecord, most = 3): string {
   return a.keys.flatMap(row => ("via" in row ? (row.via.includes("::button") ? [] : [row.via]) : [row.keys])).slice(0, most).join(" · ");
 }
 
-/** The button's words: the label its own doc gives one (`::button{label="▲ lift" act="agent.lift"}`), else its verb. */
-export function labelOf(a: ActionRecord): string {
-  const rows = typeof a.keys === "string" || !a.keys ? [] : a.keys;
+/**
+ * The button's words for pressing `line` (default the action bare): the label its own doc gives a button for those
+ * arguments (`::button{label="▼ drop" act="agent.lift on=false"}`, PIE-1626), the one whose arguments the line has most
+ * of, all with the same values (a bare `act="agent.lift"` fits any line); else its verb.
+ */
+export function labelOf(a: ActionRecord, line = a.name): string {
+  const rows = typeof a.keys === "string" || !a.keys ? [] : a.keys, given = argsOf(line);
+  let best: { label: string; fits: number } | null = null;
   for (const row of rows) {
-    const m = "via" in row ? /::button\{label="([^"]+)"/.exec(row.via) : null;
-    if (m) return m[1]!;
+    const m = "via" in row ? /::button\{label="([^"]+)" act="([^"]+)"/.exec(row.via) : null;
+    if (!m || m[2]!.split(/\s+/, 1)[0] !== a.name) continue;
+    const own = Object.entries(argsOf(m[2]!));
+    if (own.every(([k, v]) => given[k] === v) && own.length > (best?.fits ?? -1)) best = { label: m[1]!, fits: own.length };
   }
-  return `▸ ${a.name.split(".").at(-1)}`;
+  return best?.label ?? `▸ ${a.name.split(".").at(-1)}`;
 }
 
 /** The action line a press runs: its arguments as given, a required one it lacks asked for (`{key}`, the button's own slot). */
@@ -74,7 +81,7 @@ export const lineOf = (action: string, word = "") => [action, ...word.split(",")
 
 /** The line that draws the button; a press also tells yo it worked (`ext.yo.remember`). A comment draws no `::` line, so in a thread it's a link, naming the tile asked about. */
 export function buttonLine(a: ActionRecord, press: { line: string; slots: string[] }, asked: string, o: { thread?: boolean; tile?: string } = {}): string {
-  const label = labelOf(a), slug = slugOf(asked), slots = press.slots.map(s => ` ${s}=`).join("");
+  const label = labelOf(a, press.line), slug = slugOf(asked), slots = press.slots.map(s => ` ${s}=`).join("");
   if (o.thread && !press.slots.length) return `[${label}](act: ${press.line}${o.tile ? ` tile=${o.tile}` : ""})`;
   const word = argsWord(press.line);
   return slug && !press.slots.length
@@ -82,9 +89,9 @@ export function buttonLine(a: ActionRecord, press: { line: string; slots: string
     : `::button{label="${label}" act="${press.line}"${slots}}`;
 }
 
-/** The row a press leaves: its undo only when the run can take it back. */
-export function doneRow(label: string, undo: string, reversible: boolean): string {
-  return `✓ yo pressed ${label} · ${reversible ? `[undo](act: ext.undo run=${undo})` : "no undo: it changes no note and no layout"}`;
+/** The row a press leaves: its undo only when the run can take it back, and nothing to undo when it changed nothing (PIE-1626). */
+export function doneRow(label: string, undo: string, reversible: boolean, changed = true): string {
+  return `✓ yo pressed ${label} · ${!changed ? "nothing to undo: it was already so" : reversible ? `[undo](act: ext.undo run=${undo})` : "no undo: it changes no note and no layout"}`;
 }
 
 /**

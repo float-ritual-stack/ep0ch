@@ -16,7 +16,7 @@ import type { LoadedExtension, ScriptSource } from "./extension-manifest";
 import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
 import { planPlace, type PlaceMode } from "./place";
-import { hostApi, type HostApi, type HostStep } from "./host-api";
+import { hostApi, renderTriedToWrite, type HostApi, type HostStep } from "./host-api";
 import { isJsxLanguage, runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { asksMachinery } from "./watch-machinery";
 import { importedNames, linkScript, ScriptLinkError, type LinkedScript } from "./script-link";
@@ -101,6 +101,8 @@ export class ScriptRuns {
   /** The runs that are going, by their undo id (a run note's `script-run::`): what `stop(run)` ends. */
   private readonly runs = new Map<string, { controller: AbortController; sequence: boolean }>();
   private readonly tasks = new Map<string, Promise<string | undefined>>();
+  /** A `door.act` run's door steps (PIE-1626): whether any changed something (an answer of `changed: false` changed nothing). */
+  private readonly doorMoved = new Map<string, boolean>();
 
   async finished(run: string): Promise<string | undefined> {
     try { return await this.tasks.get(run); } finally { this.tasks.delete(run); }
@@ -253,7 +255,7 @@ export class ScriptRuns {
       onRead(linked.moduleIds);
       const result = await runScript(linked.code, api, signal, undefined, site.globals, { jsx: isJsxLanguage(source.language), modules: linked.modules });
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
-      if (!result.ok) throw new Error(controller.signal.aborted ? result.error.message : `${result.error.message}\n${RENDER_ERROR}`);
+      if (!result.ok) throw new Error(!controller.signal.aborted && renderTriedToWrite(result.error.message) ? `${result.error.message}\n${RENDER_ERROR}` : result.error.message);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}), ...(machinery ? { machinery: true as const } : {}) };
     } catch (error) {
@@ -334,7 +336,7 @@ export class ScriptRuns {
   }
 
   /** The `door.act` request (its grant named `agent`, src/server.ts `asExtension`): run it and answer when it has ended. */
-  async doorAct(asked: { agent?: unknown; extension?: unknown; line?: unknown; label?: unknown; door?: unknown; blockId?: unknown; tile?: unknown; note?: unknown; requestedBy?: MutationProvenance }): Promise<{ undo: string; done: boolean; wrote: boolean; error?: string }> {
+  async doorAct(asked: { agent?: unknown; extension?: unknown; line?: unknown; label?: unknown; door?: unknown; blockId?: unknown; tile?: unknown; note?: unknown; requestedBy?: MutationProvenance }): Promise<{ undo: string; done: boolean; wrote: boolean; changed: boolean; error?: string }> {
     if (typeof asked.agent !== "string") throw new Error("door.act is an agent extension's own (over its grant): a client acts in a door through that door's `act`");
     if (typeof asked.line !== "string" || !asked.line.trim()) throw new Error('door.act needs line: an action line, for example { action: "door.act", line: "agent.lift reach=column" }');
     if (asked.door !== undefined && typeof asked.door !== "string") throw new Error("door.act door= names a door's client id (a respond's input.door); left out, the only door here");
@@ -344,8 +346,11 @@ export class ScriptRuns {
       ...(typeof asked.blockId === "string" ? { blockId: asked.blockId } : {}), ...(asked.requestedBy ? { requestedBy: asked.requestedBy } : {}),
       ...(typeof asked.tile === "string" || typeof asked.note === "string" ? { at: { ...(typeof asked.tile === "string" ? { tile: asked.tile } : {}), ...(typeof asked.note === "string" ? { note: asked.note } : {}) } } : {}),
     });
-    const error = await this.finished(run.undo!);
-    return { undo: run.undo!, done: error === undefined, wrote: this.writes.ranWrites(run.undo!), ...(error !== undefined ? { error } : {}) };
+    const error = await this.finished(run.undo!), moved = this.doorMoved.get(run.undo!) ?? false;
+    this.doorMoved.delete(run.undo!);
+    // `changed`: the run's record holds a change, its notes' or the door's (an action that changed nothing says so).
+    const wrote = this.writes.ranWrites(run.undo!);
+    return { undo: run.undo!, done: error === undefined, wrote, changed: wrote || moved, ...(error !== undefined ? { error } : {}) };
   }
 
   /**
@@ -537,6 +542,7 @@ export class ScriptRuns {
         const ended = answer as { state?: string; message?: string; error?: string } | undefined;
         said([ended?.state ?? "done", ended?.error ?? ended?.message].filter(Boolean).join(" · "));
         if (trace) { actionAnswer = answer; effects.push(`${name}: ${JSON.stringify(answer)}`); }
+        if (extension.doorActor && (answer as { changed?: unknown } | null | undefined)?.changed !== false) this.doorMoved.set(undo, true);
         return answer;
       },
     });
@@ -587,7 +593,7 @@ export class ScriptRuns {
               site.globals.input = value;
               const answer = await execute(args);
               output.push(...answer.output.filter((o): o is { type: "text"; text: string } => o.type === "text"));
-              if (!answer.ok) throw new Error(`${answer.error.message}${source.render ? `\n${RENDER_ERROR}` : ""}`);
+              if (!answer.ok) throw new Error(`${answer.error.message}${source.render && renderTriedToWrite(answer.error.message) ? `\n${RENDER_ERROR}` : ""}`);
               if (item.kind === "script") value = answer.value;
               trace!.result.table!.push([String(index + 1), spelling, show(before), show(value), item.kind === "act" ? show(actionAnswer) : value === undefined ? "returned nothing" : show(value), effects.join("\n")]);
               trace!.result.rows++;

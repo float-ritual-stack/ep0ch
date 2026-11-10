@@ -130,7 +130,10 @@ type PolicyArgs = ArgsOf<typeof POLICY_ARGS>;
 const asking = new WeakMap<Desk, { id: string; again: boolean }>();
 
 /** A carry's answer says what travelled and couldn't land (PIE-1547): a fold in the drawer's tabs, on the glass. */
-const without = (r: { dropped?: unknown }): string => (Array.isArray(r.dropped) && r.dropped.length ? ` · without ${r.dropped.join(" and ")}` : "");
+const without = (r: { dropped?: unknown; keptOnly?: unknown; from?: unknown }): string =>
+  (Array.isArray(r.dropped) && r.dropped.length ? ` · without ${r.dropped.join(" and ")}` : "")
+  // A carry that left its desk holding only the dock an undo kept programs in (PIE-1663): where they are now.
+  + (Array.isArray(r.keptOnly) && r.keptOnly.length ? ` · ${typeof r.from === "string" ? `the ${r.from}` : "it"} holds only the dock keeping ${r.keptOnly.join(" and ")}` : "");
 
 export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.get": def({

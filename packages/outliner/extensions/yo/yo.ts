@@ -108,18 +108,22 @@ const inThread = () => Array.isArray(input.thread);
 const tileFor = (a: ActionRecord) => (a.scope === "tile" || a.scope === input.properties?.["ask-tile-kind"]?.[0] ? askedTile() : undefined);
 
 /** Press it, as yo: `door.act`, in the door and tile that asked (the dispatcher decides whether the action takes one). What came back says whether it ran. */
-async function press(line: string, label: string): Promise<{ undo: string; wrote: boolean } | { refused: string }> {
+async function press(line: string, label: string): Promise<{ undo: string; wrote: boolean; changed: boolean } | { refused: string }> {
   const door = input.door ?? input.properties?.["ask-door"]?.[0];
   const noteId = input.note && !input.note.id.startsWith("resource:") ? input.note.id : undefined;
-  const answer = await outline<{ undo: string; done: boolean; wrote?: boolean; error?: string }>({
+  const answer = await outline<{ undo: string; done: boolean; wrote?: boolean; changed?: boolean; error?: string }>({
     action: "door.act", line, label, ...(door ? { door } : {}), ...(noteId ? { blockId: noteId } : {}), ...(askedTile() ? { tile: askedTile() } : !inThread() && noteId ? { note: noteId } : {}),
   }, { timeoutMs: 30_000 }).catch((error: unknown) => ({ undo: "", done: false, wrote: false, error: firstLine(error) }));
   steps.push(answer.done ? `pressed ${line} as yo` : `the door refused ${line}: ${answer.error}`);
-  return answer.done ? { undo: answer.undo, wrote: !!answer.wrote } : { refused: answer.error ?? "the door refused it" };
+  // A host that doesn't say whether the run changed anything is taken as one that did: undo is offered, as before.
+  return answer.done ? { undo: answer.undo, wrote: !!answer.wrote, changed: answer.changed ?? true } : { refused: answer.error ?? "the door refused it" };
 }
 
-/** A run can take back what it wrote or a layout change; the action says whether it changes the layout (`touches`). */
-const reversible = (a: ActionRecord | undefined, wrote: boolean) => wrote || a?.touches === "shape";
+/**
+ * A run can take back what it wrote or a layout change (the action says whether it changes the layout: `touches`), and
+ * only when its record holds a change (PIE-1626): a press that changed nothing offers no undo.
+ */
+const reversible = (a: ActionRecord | undefined, pressed: { wrote: boolean; changed: boolean }) => pressed.changed && (pressed.wrote || a?.touches === "shape");
 const withSteps = (lines: readonly string[]) => [...lines, ...stepsFold(steps)].join("\n");
 
 /** yo's own newest answer: in a thread its newest reply, in a note the newest fold above the line. Nothing else here is pressed. */
@@ -145,7 +149,7 @@ async function go() {
   }
   await remember(answer!.ask || button.act, button.act);
   const name = button.act.split(/\s/, 1)[0]!, action = (await catalog().catch(() => [] as ActionRecord[])).find(a => a.name === name);
-  const row = doneRow(button.label, pressed.undo, reversible(action, pressed.wrote));
+  const row = doneRow(button.label, pressed.undo, reversible(action, pressed), pressed.changed);
   if (inThread()) return ok({ reply: withSteps([row]) });
   const prefix = /^[>\s]*/.exec(button.line)![0], text = input.note!.text;
   // Its own answer's button by where it is (PIE-1632): the same answer can be above it word for word. The question's
@@ -231,10 +235,10 @@ async function respond() {
   } catch (error) { return ok({ message: "not pressed", reply: withSteps([...quoteAnswer(action, asked, plan.args), `not pressed: ${firstLine(error)}`]) }); }
   const line = pressLine(action, args);
   if (line.slots.length) return ok({ message: action.name, reply: withSteps(quoteAnswer(action, asked, args, `it needs ${line.slots.join(", ")}: press it and say.`)) });
-  const pressed = await press(line.line, labelOf(action));
+  const label = labelOf(action, line.line), pressed = await press(line.line, label);
   if ("refused" in pressed) return ok({ message: "the door refused it", reply: withSteps([...quoteAnswer(action, asked, args), `the door refused it as yo: ${pressed.refused}`]) });
   await remember(asked, line.line);
-  return ok({ message: `✓ pressed ${labelOf(action)} as yo`, reply: withSteps([...quoted(action), doneRow(labelOf(action), pressed.undo, reversible(action, pressed.wrote))]) });
+  return ok({ message: `✓ pressed ${label} as yo`, reply: withSteps([...quoted(action), doneRow(label, pressed.undo, reversible(action, pressed), pressed.changed)]) });
 }
 
 try {

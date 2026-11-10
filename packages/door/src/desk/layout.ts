@@ -772,6 +772,11 @@ export function keptInDock<I>(root: LNode<I>, kept: readonly I[]): LNode<I> {
   into.kid = into.kid.t === "leaf" || into.kid.t === "tabs" ? tabs([...leaves(into.kid), ...kept]) : splitOf("col", [into.kid, tabs([...kept])], [0.5, 0.5]);
   return root;
 }
+/** The tiles of the dock that keeps work when they're all `root` holds (PIE-1663: a group whose last tile left), else undefined. */
+export function keptOnly<I>(root: LNode<I>): I[] | undefined {
+  const into = docks(root).find(d => d.keeps), kept = into ? leaves(into.kid) : [];
+  return kept.length && leaves(root).every(id => kept.includes(id)) ? kept : undefined;
+}
 /** `full` less a row or column for each edge that holds docked tiles: the dock strip drawn there never covers a tile. */
 export function besideDockStrips<I>(root: LNode<I>, full: Rect): Rect {
   const edges = new Set(docks(root).filter(d => leaves(d.kid).length).map(d => d.edge));
@@ -969,8 +974,9 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
   if (n.t === "leaf") return n;
   if (n.t === "dock") {
     const k = normalise(n.kid, min, false);
-    // A dock with nothing over which to slide (the whole layout) is just what it holds.
-    if (top) return k;
+    // A dock with nothing over which to slide (the whole layout) is just what it holds; the dock that keeps work stays
+    // shut at its edge, in a split of its own (PIE-1663: a group whose last tile was carried out holds only it).
+    if (top) return n.keeps ? splitOf("row", [{ ...n, kid: k }]) : k;
     // A dock straight inside a dock is one dock (the outer's edge and state; a policy from either).
     return k.t === "dock" ? { ...n, kid: k.kid, ...(n.policy || k.policy ? { policy: n.policy ?? k.policy } : {}) } : { ...n, kid: k };
   }
@@ -1007,8 +1013,11 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
   // place: a tile moved back in is under it again).
   if (kids.length === 1 && (n.pair || (!n.key && !hasPolicy(n)))) {
     let only = kids[0]!;
-    // At the top a lone dock has nothing to slide over: it's what it holds.
-    if (top && only.t === "dock") only = only.kid;
+    // At the top a lone dock has nothing to slide over: it's what it holds, unless it keeps work (PIE-1663).
+    if (top && only.t === "dock") {
+      if (only.keeps) return { ...n, kids, weights: [1] };
+      only = only.kid;
+    }
     return only;
   }
   if (!kids.length) return { ...n, kids, weights };

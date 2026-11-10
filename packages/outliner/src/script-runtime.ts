@@ -1,6 +1,6 @@
 import { actionScript } from "@ep0ch/outline-core/action-line";
 import { CodemodeSandbox, type CodemodeResult } from "@earendil-works/pi-codemode";
-import type { HostApi, RenderHostApi } from "./host-api";
+import { RENDER_LEFT_OUT_TOOLS, type HostApi, type RenderHostApi } from "./host-api";
 import { PRIMITIVE_FIELDS, PRIMITIVE_TYPES } from "./component-primitives";
 import { fromWallClock, readDate } from "@ep0ch/outline-core/dates";
 
@@ -107,7 +107,9 @@ export async function runScript(source: string, api: HostApi | RenderHostApi, si
     ],
   });
   try {
-    const toolScope = "act" in api ? "" : `const tools = Object.fromEntries(${JSON.stringify(api.tools)}.map(name => [name, globalThis.tools[name]]));`;
+    // A render drawing's tools are the read ones; a writing one it calls says its own name in the VM's words, so the
+    // error can tell a write (which gets the action-script advice) from anything else it threw (PIE-1604).
+    const toolScope = "act" in api ? "" : `const tools = Object.fromEntries(${JSON.stringify(api.tools)}.map(name => [name, globalThis.tools[name]])); for (const name of ${JSON.stringify(RENDER_LEFT_OUT_TOOLS)}) Object.defineProperty(tools, name, { enumerable: false, value: () => { throw new TypeError(\`tools.\${name} is not a function\`); } });`;
     const javascript = transpileScript(`${VIEW_PRELUDE}\n${siteSource(site)}\nasync function __ep0ch_script__() {\n${source}\n}`, code.jsx)
       + (code.modules ? `\n${code.modules}` : "") + "\nreturn await __ep0ch_script__.call(__this);";
     return await sandbox.execute(toolScope ? `{${toolScope}\n${javascript}\n}` : javascript, { signal });
