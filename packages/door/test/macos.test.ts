@@ -56,10 +56,10 @@ describe("Option typing characters instead of sending Alt (kitty's default)", ()
       expect(d.keys).toEqual([{ kind: "char", ch: "ç" }]);
       expect(d.flashed).toBe("");
     } finally { d.quit(); }
-    const p = door();
+    const p = door(true);
     try {
-      p.press({ kind: "char", ch: "µ", pasted: true });
-      expect(p.keys).toEqual([{ kind: "char", ch: "µ", pasted: true }]);
+      p.press({ kind: "paste", text: "µ" });
+      expect(p.keys).toEqual([{ kind: "paste", text: "µ" }]);
     } finally { p.quit(); }
   });
 

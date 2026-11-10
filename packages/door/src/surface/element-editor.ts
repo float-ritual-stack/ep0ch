@@ -308,7 +308,7 @@ export class ElementEdit {
   /** Only the draft's existing key handler types. Clamp it to the source field, keeping the delimiters. */
   key(k: Key, run: (action: "rich.toggle" | "rich.move" | "rich.change" | "rich.input" | "rich.scroll" | "rich.erase" | "draft.place", args?: Record<string, unknown>) => void): boolean {
     // shift with ↑ ↓ ⏎ is the key itself in a cell: it moves between cells, never selects out of one (PIE-1542 review).
-    const plain = (k.kind === "up" || k.kind === "down" || k.kind === "enter") && "shift" in k && k.shift && !("pasted" in k && k.pasted) ? ({ kind: k.kind } as Key) : k;
+    const plain = (k.kind === "up" || k.kind === "down" || k.kind === "enter") && "shift" in k && k.shift ? ({ kind: k.kind } as Key) : k;
     const bound = modeBinding(ELEMENT_KEYS, plain);
     if (bound?.action === "rich.toggle") { run("rich.toggle"); return true; }
     if (!this.on) return false;
@@ -318,7 +318,7 @@ export class ElementEdit {
     if (k.kind === "esc") { run("rich.toggle", { on: false }); return true; }
     if (bound?.action === "rich.move" || bound?.action === "rich.change") { run(bound.action, bound.args); return true; }
     const c = this.current(); if (!c) { this.on = false; return false; }
-    if (k.kind === "paste" || (k.kind === "char" && !k.ctrl && (c.field.encode || c.element.encode(k.ch) !== k.ch)) || k.kind === "alt-enter" || (k.kind === "enter" && "pasted" in k)) {
+    if (k.kind === "paste" || (k.kind === "char" && !k.ctrl && (c.field.encode || c.element.encode(k.ch) !== k.ch)) || k.kind === "alt-enter") {
       run("rich.input", { text: k.kind === "paste" ? k.text : k.kind === "char" ? k.ch : "\n" }); return true;
     }
     if ((k.kind === "backspace" || k.kind === "delete") && c.field.encode) {

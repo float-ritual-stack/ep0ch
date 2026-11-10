@@ -1030,7 +1030,7 @@ function followCursor(c: Completer, changed: boolean, open: CompletionTarget | u
 export function completionKey(d: Draft, k: Key, c: Completer | null): DraftAction {
   if (!c || d.busy || k.kind === "mouse") return d.key(k);
   // A line break or tab inside a paste is text: it never chooses a candidate.
-  if ("pasted" in k || k.kind === "paste") { c.dismiss(); return d.key(k); }
+  if (k.kind === "paste") { c.dismiss(); return d.key(k); }
   const shown = c.shown;
   if ((!shown?.items.length || shown.loading) && d.snippetKey(k)) { c.dismiss(); return "keep"; }
   if (popupKey(d, k, c)) return "keep";
@@ -1070,7 +1070,7 @@ lineCompletionHooks.ambient = () => ambient;
 lineCompletionHooks.before = (i, k) => {
   const c = lineCompleter(i);
   if (!c || k.kind === "mouse") return false;
-  if ("pasted" in k || k.kind === "paste") { c.dismiss(); return false; }
+  if (k.kind === "paste") { c.dismiss(); return false; }
   const shown = c.shown;
   if ((!shown?.items.length || shown.loading) && i.snippetKey(k)) { c.dismiss(); return true; }
   const took = popupKey(i, k, c, true);
@@ -1081,6 +1081,6 @@ lineCompletionHooks.after = (i, k, took, was) => {
   const c = lineCompleter(i);
   if (!c || k.kind === "mouse") return;
   // A paste lands as text and opens nothing (a draft's is the same): the next ⏎ is the caller's.
-  if (!took || k.kind === "esc" || k.kind === "paste" || "pasted" in k) { c.dismiss(); return; }
+  if (!took || k.kind === "esc" || k.kind === "paste") { c.dismiss(); return; }
   followCursor(c, i.text !== was, openAt.get(i));
 };
