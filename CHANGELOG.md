@@ -12,7 +12,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Nothing typed or pasted is lost or left hanging (PIE-1674, PIE-1675, PIE-1673)
 
-- **A comment that fails to open hands your text back:** what you typed or pasted after `C` while the note was read is kept when the open fails, as an edit's already was. The tile's hint says `tile menu: recover typed text`; it copies the text or opens a comment (not an edit) with it in. `edit.recover op=open` reopens whatever kind was opening.
+- **A comment that fails to open hands your text back:** what you typed or pasted after `C` while the note was read is kept when the open fails, as an edit's already was. The tile's hint leads with `tile menu: recover typed text`, before the reason, so a long reason (an outline that isn't answering) no longer cuts it off; it copies the text or opens a comment (not an edit) with it in. `edit.recover op=open` reopens whatever kind was opening.
 - **`C` then `e`:** an `e` typed while a comment opens is the comment's letter; only the key that opened it is taken as a repeat.
 - **One Esc puts away an offered paste:** a paste the power bar offered (on a reader, a board's lanes, the drawer) closes on the first Esc, so the next `e` edits the note. A paste into a bar you opened yourself is still your typing: Esc clears the line first. `bar.edit op=paste offer=true` is the offer.
 - **One paste path behind every editor:** the old `pasted` key form and `pasteKeys` are gone; every editor takes a paste whole, as one key and one undo step.

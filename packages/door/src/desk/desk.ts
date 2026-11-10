@@ -4072,7 +4072,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
     const recovery = pane instanceof ReaderPane ? this.failedOpens.get(pane) : undefined;
-    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? partsHint(readerHeldParts(pane.surface.scrolls())) : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
+    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `tile menu: recover typed text · ${recovery.why}` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? partsHint(readerHeldParts(pane.surface.scrolls())) : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
@@ -4820,7 +4820,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         for (const key of token.keys) text.key(key);
         const copy = keepCopy(text.text, `${TYPED_WHILE_OPENING.get(kind)}-opening`);
         this.failedOpens.set(rd, { of: rd.msg!.id, kind, opener, keys: token.keys, text: text.text, copy, why });
-        this.ctx.flash(`${why} · tile menu: recover typed text · copy kept at ${copy}`, undefined, errorDetails(e));
+        this.ctx.flash(`tile menu: recover typed text · ${why} · copy kept at ${copy}`, undefined, errorDetails(e));
       } else this.ctx.flash(why, undefined, errorDetails(e));
       opened(false);
       return false;

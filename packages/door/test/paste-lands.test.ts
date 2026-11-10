@@ -207,8 +207,7 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
   async function escPutsAwayOffer(d: Awaited<ReturnType<typeof door>>) {
     await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
     await d.feed("\x1b");
-    await sleep(100);
-    expect(d.peek().bar?.query ?? "the bar is closed").toBe("the bar is closed");
+    await until(() => d.peek().bar === undefined, "one Esc put the offer away", 3000);
     await d.feed("e");
     expect(d.peek().bar?.query ?? "the bar is closed").toBe("the bar is closed");
   }
@@ -266,6 +265,7 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       await d.feed(bracketed("bean poles"));
       await until(() => d.peek().bar?.query === "bean poles", "the paste in the bar's line", 3000);
       await d.feed("\x1b");
+      await until(() => d.peek().bar?.query === "", "Esc cleared the line", 3000);
       await sleep(100);
       expect(d.peek().bar?.query).toBe("");
       await d.feed("\x1b");
@@ -281,13 +281,13 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       await d.onBeans();
       const before = (await board.get(beans.id))!;
       // The scratch host refuses the read the comment opens on.
-      board.get = (async (id: string, ...rest: any[]) => { if (id === beans.id) throw new Error("scratch read refused"); return (get as any)(id, ...rest); }) as any;
+      board.get = (async (id: string, ...rest: any[]) => { if (id === beans.id) throw new Error("offline · the outline isn't answering (blocks.context timed out after the scratch host held its reads)"); return (get as any)(id, ...rest); }) as any;
       const names = await d.ran(`Cpea ${bracketed(TEXT)}`);
       expect(names.filter(n => /trash|close|collapse/.test(n))).toEqual([]);
       board.get = get;
       await d.untouched("typing while a comment failed to open", before);
       const desk = d.desk as any, name = desk.nameOf(desk.focus), rows = () => (desk.render((desk as any).ctx).lines.map(visible) as string[]).join("\n");
-      expect(desk.hasFailedEdit(name)).toBe(true);
+      await until(() => desk.hasFailedEdit(name), "the typing kept", 3000);
       expect(rows()).toContain("tile menu: recover typed text");
       const kept = await d.app.press("edit.recover", { op: "copy" }, name) as any;
       expect(kept.text).toBe(`pea ${TEXT}`);
