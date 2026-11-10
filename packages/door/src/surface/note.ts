@@ -3954,28 +3954,23 @@ export class NoteSurface {
       ended: () => (cs.place === "tile" ? false : (target === "comment" && cs.mode !== "compose") || cs.place !== "floating"),
       key: (k, host) => {
         const c = ch(k);
+        // An arrow or h j k l: its side; shifted, or H J K L, it sizes instead (a float only).
+        const dir = k.kind === "left" || c === "h" ? "left" : k.kind === "right" || c === "l" ? "right" : k.kind === "up" || c === "k" ? "up" : k.kind === "down" || c === "j" ? "down" : null;
+        const sized = c === "H" ? "left" : c === "L" ? "right" : c === "K" ? "up" : c === "J" ? "down" : null;
+        const done = k.kind === "enter" || k.kind === "esc" || (k.kind === "char" && k.ctrl && k.ch === "g");
         // In its own tile (PIE-846): the arrows put it on that side of its reader; its border sizes it (or ^W < > + -).
         if (tiled()) {
-          if (k.kind === "left" || c === "h") side("left", host);
-          else if (k.kind === "right" || c === "l") side("right", host);
-          else if (k.kind === "up" || c === "k") side("up", host);
-          else if (k.kind === "down" || c === "j") side("down", host);
-          else if (k.kind === "enter" || k.kind === "esc" || (k.kind === "char" && k.ctrl && k.ch === "g")) { this.modes.drop("grip"); host.redraw(); }
+          if (dir) side(dir, host);
+          else if (done) { this.modes.drop("grip"); host.redraw(); }
           else { this.modes.drop("grip"); return this.modes.key(k, host) ?? false; }
           return true;
         }
-        const step = (dx: number, dy: number) => move({ dx, dy }, host), size = (dcols: number, drows: number) => move({ dcols, drows }, host);
+        const by = { left: [-2, 0], right: [2, 0], up: [0, -1], down: [0, 1] } as const;
         const shift = "shift" in k && !!k.shift;
-        if (k.kind === "left" || c === "h") shift ? size(-2, 0) : step(-2, 0);
-        else if (k.kind === "right" || c === "l") shift ? size(2, 0) : step(2, 0);
-        else if (k.kind === "up" || c === "k") shift ? size(0, -1) : step(0, -1);
-        else if (k.kind === "down" || c === "j") shift ? size(0, 1) : step(0, 1);
-        else if (c === "H") size(-2, 0);
-        else if (c === "L") size(2, 0);
-        else if (c === "K") size(0, -1);
-        else if (c === "J") size(0, 1);
+        if (dir) move(shift ? { dcols: by[dir][0], drows: by[dir][1] } : { dx: by[dir][0], dy: by[dir][1] }, host);
+        else if (sized) move({ dcols: by[sized][0], drows: by[sized][1] }, host);
         else if (c === "0") move({ reset: true }, host);
-        else if (k.kind === "enter" || k.kind === "esc" || (k.kind === "char" && k.ctrl && k.ch === "g")) { this.modes.drop("grip"); host.redraw(); }
+        else if (done) { this.modes.drop("grip"); host.redraw(); }
         else { this.modes.drop("grip"); return this.modes.key(k, host) ?? false; }
         return true;
       },
