@@ -6,6 +6,8 @@ import { proposed } from "./wire";
 // an agent drives it through `act`. The BBS keys still work: n p ⏎ next and previous, t thread, U up, q back.
 // Fictional notes, against a throwaway outliner service only.
 import { visible } from "../src/style";
+import { hintOf } from "../src/surface/attached-keys";
+import { RESOLVE_KEYS } from "../src/surface/reader-keys";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -297,6 +299,8 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
       let r = await reader();
       await shows("[resolve]");
       expect(current(r)).toBeNull();
+      // The hint row says what R does here (PIE-1668): it resolves the proposal in view, though the note shown isn't one.
+      expect(visible(r.surface.hint())).toContain(visible(hintOf(RESOLVE_KEYS)));
       // r writes a reply whatever is in view (PIE-1599): a proposal on screen doesn't take it.
       key(char("r"));
       await until(() => !!r.surface.draft, "r opening a reply with a proposal in view");
@@ -312,6 +316,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
       const fresh = (await board.get(note.id))!; await board.update(fresh.id, fresh.text + "\nmore compost", fresh.revision!);
       r = await reader();
       await until(() => (r.surface as any).resolveTarget()?.several?.length === 2, `both proposals in view:\n${text()}`);
+      expect(visible(r.surface.hint())).toContain(visible(hintOf(RESOLVE_KEYS)));
       // An agent with several in view and no id is told which ids there are, and nothing is resolved.
       await expect(app.act({ action: "proposal.resolve", args: {}, as: AS })).rejects.toThrow(/2 proposals in view; say which: block=/);
       // A key the person bound to one proposal (`proposal.resolve block=<id>`) resolves that one, never asks which.

@@ -16,7 +16,7 @@ import { listMode, collectionBinding, collectionKey, type ListMode } from "./lis
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, NotePictures, bandBesidePicture, pictureEdits, pictureRows, pictureRowsOf, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
 import { READER_ESC, escNext, escPress } from "../esc-rule";
 import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
-import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
+import { READER_KEYS, READER_SAYS, RESOLVE_KEYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
@@ -1084,7 +1084,8 @@ export class NoteSurface {
     const zoom = this.zoomHint();
     if (this.zoom) return `${extra}${zoom} · ${backPart}${hintOf([...STEP_KEYS, ...ELEMENT_STEP_KEYS, READING_KEYS[0]!])}`;
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
-    const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
+    // Else R resolves one in view (PIE-1668): the hint names it, from the row its key runs, so R never does what it doesn't say.
+    const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : this.resolveTarget() ? `${hintOf(RESOLVE_KEYS)} · ` : "";
     return `${extra}${proposal}${backPart}${hintOf([...STEP_KEYS, ...SECTION_KEYS, ...ELEMENT_STEP_KEYS])} · ${zoom} · ${hintOf(READING_KEYS)}`;
   }
 
@@ -4341,7 +4342,8 @@ export class NoteSurface {
       case "outline": return !!m && isOutlineNote(m);
       case "parent": return !!m?.parentId;
       case "preview": return host.attachment === "list-preview" && !!this.previewPoint();
-      case "resolvable": return !!this.resolveTarget();
+      // R on a line that runs fetches it again, as its hint says (PIE-1668); a proposal elsewhere in view waits for R off it.
+      case "resolvable": return !this.runsAtCurrent() && !!this.resolveTarget();
       case "proposal": return !!m && (isOpenProposal(m) || !!this.currentProposal());
       case "element": return !!this.cur || !!this.pendingLink;
       case "tinted": return !!this.focusMark;
@@ -4636,17 +4638,21 @@ export class NoteSurface {
   }
 
   // ── refreshing a resource's projection (PIE-445) ─────────────────────────────
+  /** The line that runs under the [ ] position (an extension's line, a ticket region, a ticket), which R fetches or runs again before anything else. */
+  private runsAtCurrent(): { block: string; line?: number } | null {
+    const l = this.inView()?.link;
+    if (l?.ext) return { block: l.ext.block, line: l.ext.line };
+    if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
+    return l?.role === "resource" && l.block ? { block: l.block } : null;
+  }
   /**
    * The block `R` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
    * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `R`
    * runs none of them and says which there are: a stray key never asks an agent again or runs a script (PIE-956).
    */
   refreshTarget(): { block: string; line?: number } {
-    const x = this.inView()?.link?.ext;
-    if (x) return { block: x.block, line: x.line };
-    const l = this.inView()?.link;
-    if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
-    if (l?.role === "resource" && l.block) return { block: l.block };
+    const at = this.runsAtCurrent();
+    if (at) return at;
     const m = this.msg!;
     // Not read yet: what the note runs isn't known, so nothing is asked of the service on a guess.
     if (!projectionsLoaded(m, this.src) && mayHaveProjections(m.text)) throw new ActionRefused("reading what this note runs · press again in a moment, or put [ ] on a line first");
