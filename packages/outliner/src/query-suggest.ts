@@ -24,12 +24,29 @@ export async function querySuggestReply(suggester: QuerySuggester, request: Extr
   } catch (error) { return refusalEnvelope(request.id, error, sequence()); }
 }
 
+/**
+ * An extension's query.suggest (PIE-1711): words read into a query, its suggestion recorded as the extension's. An outcome,
+ * corrections or a suggestion of its own write the query-words rule note, which a read is no grant for: refused.
+ */
+export function suggestRead<T extends object>(request: T, actor: { actorId?: string }): T & { mutation: typeof actor } {
+  const asked = request as { outcome?: unknown; corrections?: unknown; suggestion?: unknown };
+  if (asked.outcome !== undefined || asked.corrections !== undefined || asked.suggestion !== undefined) {
+    throw new Error(`${actor.actorId ?? "an extension"} can read words into a query over its connection; an outcome or corrections write the query-words rule note, which a read is no grant for`);
+  }
+  return { ...request, mutation: actor };
+}
+
 /** Scored by scripts/evals/query-suggest.ts: uncertain clauses remain offers, with their runner-up. */
 export const QUERY_SUGGEST_THRESHOLDS = { gate: 0.7, probability: 0.35, confident: 0.7, negation: 0.7 };
 export const QUERY_SUGGEST_BUDGET_MS = 1500;
 // The kitchen sink has hundreds of keys: asking four questions about every one exceeds Jev's context.
 const COMMON_KEYS = 8, COMMON_VALUES = 20;
-const CONNECTING = new Set("a an the things thing notes note ones ones show find me about with from of on in that those these please and or".split(" "));
+// Words that join a request and name no value: "all hub items that are not sent yet" asks for hub items not sent (PIE-1711).
+const CONNECTING = new Set("a an the things thing notes note ones ones show find list me all every any about with from of on in that those these which who please and or is are was were be been being has have had yet still already currently".split(" "));
+/** Words that name no value of their own but can end one ("hub items" is hub-item's): kept for spans, never a text clause. */
+const GENERIC = new Set("items item entries entry".split(" "));
+/** A word without its plural: "items" is the item of a value hub-item. */
+const singular = (word: string) => word.toLowerCase().replace(/(?<=\p{L}{3})s$/u, "");
 const wordsOf = (text: string) => text.match(/[\p{L}\p{N}_@./'-]+/gu) ?? [];
 const meaningful = (text: string) => wordsOf(text).filter(w => !CONNECTING.has(w.toLowerCase()));
 const quote = (text: string) => JSON.stringify(text);
@@ -128,8 +145,9 @@ export class QuerySuggester {
     const prompt = await loadQuerySuggestPrompt();
     const tokens = meaningful(without(rest, dates.map(d => d.words)));
     const spans = [...new Set([...tokens.filter(t => !NEGATION.test(t)), ...axes.flatMap(axis => axis.candidates.flatMap(candidate => {
-      const value = candidate.value.toLowerCase().replace(/[-_]/g, " "), size = value.split(/\s+/).length;
-      return tokens.flatMap((_, i) => { const span = tokens.slice(i, i + size).join(" "); return size > 1 && value.startsWith(span.toLowerCase()) ? [span] : []; });
+      const value = candidate.value.toLowerCase().replace(/[-_]/g, " "), size = value.split(/\s+/).length, stem = value.split(/\s+/).map(singular).join(" ");
+      // "hub items" is hub-item's, its plural read through (PIE-1711).
+      return tokens.flatMap((_, i) => { const span = tokens.slice(i, i + size).join(" "); return size > 1 && (value.startsWith(span.toLowerCase()) || stem.startsWith(span.split(" ").map(singular).join(" "))) ? [span] : []; });
     }))])];
     const questions: Record<string, unknown> = {};
     const choices = new Map<string, { instructions: string; values: string[]; groups?: string[][] }>();
@@ -171,16 +189,26 @@ export class QuerySuggester {
       if (next.reading.usage) response.reading.usage = { input: (response.reading.usage?.input ?? 0) + next.reading.usage.input, output: (response.reading.usage?.output ?? 0) + next.reading.usage.output };
     }
     const used = new Set<string>();
-    for (const axis of axes) {
+    // Code reads the words first (PIE-1711): a value whose every word the request says (plurals read through: "hub items"
+    // says hub-item) needs only a sure pick, not Jev's gate, and a negator right before those words negates it. Values
+    // that say more of the request go first, so "shed items" is shed-item's before area=shed takes "shed".
+    const heard = tokens.map(singular);
+    const wordsAt = (value: string) => { const parts = value.toLowerCase().split(/[-_\s]+/).filter(Boolean).map(singular), at = heard.indexOf(parts[0] ?? ""); return at >= 0 && parts.every((w, i) => heard[at + i] === w) ? { at, size: parts.length } : null; };
+    const picked = (axis: Axis) => axis.candidates.find(c => c.value === valueOf(`pick:${axis.key}`, response.answers[`pick:${axis.key}`]?.choice));
+    const sayAll = (axis: Axis) => { const c = picked(axis); return c ? wordsAt(c.value)?.size ?? 0 : 0; };
+    for (const axis of [...axes].sort((a, b) => sayAll(b) - sayAll(a))) {
       const pick = response.answers[`pick:${axis.key}`];
-      if (!yes(response.answers[`gate:${axis.key}`]) || !pick?.choice || pick.choice === "none") continue;
-      const candidate = axis.candidates.find(c => c.value === valueOf(`pick:${axis.key}`, pick.choice));
+      if (!pick?.choice || pick.choice === "none") continue;
+      // Every word of a multiword value said in order ("shed items") is evidence enough with Jev's pick; one word needs a sure pick.
+      const candidate = picked(axis), lexical = candidate ? wordsAt(candidate.value) : null, sure = (pick.probabilities?.[pick.choice] ?? 0) >= (lexical && lexical.size > 1 ? QUERY_SUGGEST_THRESHOLDS.probability : 0.8);
+      if (!yes(response.answers[`gate:${axis.key}`]) && !(lexical && sure)) continue;
       if (!candidate || (pick.probabilities?.[pick.choice] ?? 0) < QUERY_SUGGEST_THRESHOLDS.probability) continue;
       const said = valueOf(`words:${axis.key}`, response.answers[`words:${axis.key}`]?.choice);
-      let from = said && spans.includes(said) ? [said] : spans.filter(s => matchesSearchText(s.replace(/['’]s$/, ""), [candidate.value]));
-      if (!from.length) continue;
-      const negative = yes(response.answers[`negate:${axis.key}`], QUERY_SUGGEST_THRESHOLDS.negation);
-      const negator = negative && tokens.find(w => NEGATION.test(w));
+      let from = lexical ? [tokens.slice(lexical.at, lexical.at + lexical.size).join(" ")] : said && spans.includes(said) ? [said] : spans.filter(s => matchesSearchText(s.replace(/['’]s$/, ""), [candidate.value]));
+      if (!from.length || from.every(w => w.split(" ").every(part => used.has(part)))) continue;
+      const negatedByWords = !!lexical && lexical.at > 0 && NEGATION.test(tokens[lexical.at - 1]!);
+      const negative = negatedByWords || yes(response.answers[`negate:${axis.key}`], QUERY_SUGGEST_THRESHOLDS.negation);
+      const negator = negative && (negatedByWords ? tokens[lexical!.at - 1] : tokens.find(w => NEGATION.test(w)));
       if (negator) from = [negator, ...from];
       const clause = negative ? `NOT (${candidate.clause})` : candidate.clause;
       const alternatives = Object.entries(pick.probabilities ?? {}).filter(([value]) => value !== pick.choice && value !== "none")
@@ -189,11 +217,17 @@ export class QuerySuggester {
       if (from.some(s => yes(response.answers[`text:${s}`]))) {
         clauses.push({ clause: negative ? `NOT (${asText})` : asText, from, confidence: response.answers[`text:${from[0]}`]?.noul ?? 1, alternatives: [clause] });
       } else clauses.push({ clause, from, confidence: pick.confidence ?? 0, alternatives: (pick.confidence ?? 0) < QUERY_SUGGEST_THRESHOLDS.confident ? [...alternatives, negative ? `NOT (${asText})` : asText] : [], ...(candidate.pick ? { pick: { ...candidate.pick, mode: negative ? "exclude" : "include" } } : {}), ...(candidate.widens ? { widens: true } : {}) });
-      from.forEach(w => used.add(w));
+      from.forEach(w => { used.add(w); for (const part of w.split(" ")) used.add(part); });
     }
     const date = yes(response.answers.dateGate) ? dates.find(d => d.words === valueOf("date", response.answers.date?.choice)) : undefined;
     if (date) { clauses.push({ clause: date.clause, from: [date.words], confidence: response.answers.date?.confidence ?? 1, alternatives: [], learn: false }); rest = without(rest, [date.words]); }
-    const leftover = meaningful(without(rest, [...used]));
+    // What no value took is text to match, but a generic word ("items") is none, and a negator says the next word is
+    // not to be there: "not sent" left over is NOT text~"sent", never text~"not" and text~"sent" (PIE-1711).
+    const left = meaningful(without(rest, [...used])).filter(w => !GENERIC.has(w.toLowerCase()));
+    const leftover = left.filter((w, i) => !NEGATION.test(w) && !(i > 0 && NEGATION.test(left[i - 1]!)));
+    for (const [i, w] of left.entries()) if (i > 0 && NEGATION.test(left[i - 1]!) && !NEGATION.test(w)) {
+      clauses.push({ clause: `NOT (${textClause(w)})`, confidence: 1, alternatives: [], from: [left[i - 1]!, w], learn: false });
+    }
     return { answer: this.assemble(text, base, clauses, leftover), reading: response.reading };
   }
 

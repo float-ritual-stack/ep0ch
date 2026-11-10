@@ -38,7 +38,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     const run = /ext\.undo run=([\w-]+)/.exec(done)![1]!;
 
     // The memory it wrote: one note, one fact.
-    const memory = await h.board.request("blocks.query", { query: { where: "yo-memory=answer", limit: 5 } });
+    const memory = await h.board.request("blocks.query", { query: { where: "yo-memory=answer yo-action=agent.lift", limit: 5 } });
     expect(memory.blocks.map(b => (b.text ?? "").split("\n")[0])).toEqual(["lift agent: agent.lift [yo-memory::answer] [yo-action::agent.lift] [yo-asked::lift agent] [yo-line::agent.lift]"]);
 
     const lifted = () => (h.app as any).hostLayer.desks().some((d: any) => d.layout?.lift);
@@ -275,6 +275,143 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "edit.save", tile: reader().tile }, USER);
     await until(() => !draft(), "the edit saved and closed", 8000);
     await h.app.dispatch.act({ action: "tile.title", tile: reader().tile, args: { text: "ask" } }, USER);   // the section's name back
+  }, 90_000);
+
+  // PIE-1711: a find's answer, as yo writes it (findAnswer, its one builder): its buttons open the query in a facets tile,
+  // put it on that tile's query line to edit, and save it as a view, each one press.
+  test("a find's buttons open the query in facets, put it on the query line, and save it as a view", async () => {
+    const { findAnswer } = await import("../../../outliner/extensions/yo/yo-line");
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const a = await h.board.createBlock(null, "Seed swap flyer [type::shed-item] [status::draft]");
+    const b = await h.board.createBlock(null, "Shed rota [type::shed-item] [status::queued]");
+    await h.board.createBlock(null, "Compost notice [type::shed-item] [status::sent]");
+    const where = "type=shed-item NOT status=sent";
+    const lines = findAnswer({ words: "shed items that are not sent", where, read: [{ clause: "type=shed-item", from: ["shed items"] }, { clause: "NOT (status=sent)", from: ["not", "sent"] }], found: { notes: [{ id: a.id, title: "Seed swap flyer" }, { id: b.id, title: "Shed rota" }], more: false } });
+    const own = await h.board.createBlock(null, ["Find the shed items", "", "@yo find me the shed items that are not sent", "> [!note]+ @yo answered", ...lines.map(l => `> ${l}`), ""].join("\n"));
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const found = () => stage().pane("found") as unknown as { query(): string | null; draft: { text: string } | null; items?: unknown[] } | undefined;
+    const text = (await h.board.get(own.id))!.text;
+    const press = async (label: string) => {
+      await h.app.dispatch.act({ action: "button.press", tile: "ask", args: { label } }, USER);
+      const line = text.split("\n").findIndex(l => l.includes(`label="${label}"`));
+      await until(() => ["done", "failed"].includes(pressState(own.id, line, label).state ?? ""), `${label} settled`, 15_000);
+      return pressState(own.id, line, label);
+    };
+    expect(await press("▸ open in facets")).toEqual({ state: "done" });
+    expect(found()?.query()).toContain("shed-item");
+    expect(await press("▸ edit the query")).toEqual({ state: "done" });
+    expect(found()?.draft?.text).toBe(where);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    // Saved under the words that asked for it, one press.
+    expect(await press("▸ save as a view")).toEqual({ state: "done" });
+    const views = await h.board.request("blocks.query", { query: { where: "type=virtual-branch", limit: 200 } });
+    expect(views.blocks.map(b => (b.text ?? "").split("\n")[0]).some(t => !!t?.startsWith("Shed items that are not sent"))).toBe(true);
+    await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
+  }, 90_000);
+
+  // PIE-1712: an answer fits the ask. backlinks.view with step=kind names its one key, K, and its button says it: ▸ by kind. Asked
+  // from a reader, where no backlinks tile is open, the button opens the note's links first (`links`), then groups them.
+  test("asked how to see backlinks by kind: K alone, ▸ by kind, and a press opens the links and groups them", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Seed swap, linked\n\nWhere backlinks are grouped by kind.\n");
+    await h.board.createBlock(null, `Swap plan [type::plan]\n\nSee ((${own.id})).`);
+    await h.board.createBlock(null, `Swap chirp [type::chirp]\n\nAlso ((${own.id})).`);
+    await h.board.createBlock(null, "backlinks by kind: backlinks.view step=kind [yo-memory::answer] [yo-action::backlinks.view] [yo-asked::backlinks by kind] [yo-line::backlinks.view step=kind]");
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const kinds = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).filter(t => t.kind === "backlinks");
+    // A screen with no backlinks tile, as a reader alone is.
+    for (const t of kinds()) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const read = async () => (await h.board.get(own.id))!;
+    const m = await read();
+    await h.board.update(m.id, `${m.text.trimEnd()}\n\n@yo backlinks by kind\n`, m.revision!, USER);
+    await untilAsync(async () => (await read()).text.includes("@yo answered"), "yo's answer", 30_000);
+    const text = (await read()).text;
+    expect(text).toContain("keys: K: by kind");
+    expect(text).toContain('::button{label="▸ by kind" act=["links", "backlinks.view step=kind", "ext.yo.remember act=backlinks.view');
+    expect(kinds()).toEqual([]);
+    const surface = () => stage().pane("ask").surface;
+    await until(() => surface().describeElements().some((e: { label: string }) => e.label.includes("▸ by kind")), "the button drawn in the reader", 8000);
+    await h.app.dispatch.act({ action: "button.press", tile: "ask", args: { label: "▸ by kind" } }, USER);
+    const line = (await read()).text.split("\n").findIndex(l => l.includes('label="▸ by kind"'));
+    await until(() => ["done", "failed"].includes(pressState(own.id, line, "▸ by kind").state ?? ""), "the press settled", 15_000);
+    expect(pressState(own.id, line, "▸ by kind")).toEqual({ state: "done" });
+    const tile = kinds()[0]!;
+    expect((stage().pane(tile.name) as unknown as { options: { kind: string | null } }).options.kind).not.toBeNull();
+    await h.app.dispatch.act({ action: "tile.close", tile: tile.name }, USER);
+  }, 90_000);
+
+  // PIE-1712, typed: the answer tile beside the line draws the ▸ by kind button while the person types, and pressing it there
+  // opens the note's links and groups them by kind.
+  test("typed in the editor: ▸ by kind in the answer tile opens the links and groups them", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Seed swap, typed\n\nWhere backlinks are grouped by kind while typing.\n");
+    await h.board.createBlock(null, `Swap list [type::plan]\n\nSee ((${own.id})).`);
+    await h.board.createBlock(null, "backlinks by kind: backlinks.view step=kind [yo-memory::answer] [yo-action::backlinks.view] [yo-asked::backlinks by kind] [yo-line::backlinks.view step=kind]");
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const rows = () => stage().layoutGet().tiles as { name: string; kind: string }[];
+    for (const t of rows().filter(t => t.kind === "backlinks")) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo backlinks by kind") h.ch(c);
+    const answer = () => rows().find(t => t.kind === "answer")?.name;
+    const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
+    await until(() => !!answer() && /label="▸ by kind"/.test(draft()?.text ?? ""), "yo's answer with ▸ by kind", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER);
+    await until(() => rows().some(t => t.kind === "backlinks"), "the links opened", 15_000);
+    const links = rows().find(t => t.kind === "backlinks")!.name;
+    await until(() => (stage().pane(links) as unknown as { options: { kind: string | null } }).options.kind !== null, "grouped by kind", 15_000);
+    if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await h.app.dispatch.act({ action: "tile.close", tile: links }, USER);
+  }, 90_000);
+
+  // PIE-1722 (the verifier's gap): a note action yo offers (note.rename's ▸ rename), pressed in the answer tile, renames the
+  // note the reader shows: the answer tile shows no note.
+  test("typed in the editor: a note.rename button pressed in the answer tile renames the reader's note", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Ask yo, naming a note\n\nWhere a note action is pressed beside the line.\n");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    await h.board.createBlock(null, "retitle seed note: note.rename text=Seed-swap [yo-memory::answer] [yo-action::note.rename] [yo-asked::retitle seed note] [yo-line::note.rename text=Seed-swap]");
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo retitle the seed note") h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    const pane = stage().pane("ask"), draft = () => pane.surface.draft as { text: string } | null;
+    await until(() => !!answer() && /::button\{label="[^"]+" act=\["note\.rename text=/.test(draft()?.text ?? ""), "yo's answer with a note.rename button", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    const r = await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER).then(() => "", (e: Error) => e.message);
+    expect(r).not.toContain("answer shows no note");
+    // The reader's note takes the title, in the person's edit (saved with it), never the answer tile.
+    await untilAsync(async () => /^Seed-swap\n/.test(draft()?.text ?? ""), `the note renamed (${r})`, 15_000).catch(e => { const line = (draft()?.text ?? "").split("\n").findIndex(l => l.includes("▸ rename")); throw new Error(`${e.message}\n${JSON.stringify(pressState(own.id, line, "▸ rename"))}`); });
+    expect(draft()!.text).toContain("@yo retitle the seed note");
+    await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await untilAsync(async () => (await h.board.get(own.id))!.text.startsWith("Seed-swap\n"), "the saved title");
   }, 90_000);
 
   // PIE-1699 (the verifier's repro): a tile-relative button pressed from the answer tile while the keys are there (a click

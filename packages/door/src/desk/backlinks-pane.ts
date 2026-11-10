@@ -117,11 +117,18 @@ const firstEntry = (rows: readonly LinkRow[]) => Math.max(0, rows.findIndex(r =>
 /** How a picked source opens: shown where the selection goes (moving), opened (⏎, a click), or fresh (alt+⏎). */
 export type PickHow = "show" | "open" | "fresh";
 
+/** The view's controls by key: each steps one to its next value (backlinks.view step=), its key row says which (PIE-1712). */
+const VIEW_STEPS = [
+  { key: "s", step: "sort", does: "the next sort order" }, { key: "K", step: "kind", does: "by kind, a kind at a time" },
+  { key: "w", step: "stage", does: "by stage, a stage at a time" }, { key: "h", step: "resolved", does: "resolved comments shown or hidden" },
+  { key: "n", step: "related", does: "this note and its descendants shown or hidden" },
+] as const;
+
 /** The keys of a links tile's hint row that don't change with the tile (key() below runs them); its open and aim rows are made in hint(). */
 const LINKS_KEYS: readonly ModeKey[] = [
   { key: "j", action: "list.step", args: { by: 1 }, label: "preview" }, { key: "k", action: "list.step", args: { by: -1 }, label: "preview" },
   { key: ".", action: "backlinks.fold", label: "fold" },
-  ...(["s", "K", "w", "h", "n"] as const).map((key, i) => ({ key, action: "backlinks.view", args: { step: ["sort", "kind", "stage", "resolved", "related"][i] }, label: "view" })),
+  ...VIEW_STEPS.map(({ key, step }) => ({ key, action: "backlinks.view", args: { step }, label: "view" })),
   { key: "v", action: "backlinks.groups", args: { choose: true }, label: "groups" },
 ];
 const LINKS_FILTER_KEYS: readonly ModeKey[] = [
@@ -825,7 +832,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   }),
   "backlinks.view": def({
     summary: "change a backlinks tile's view as Detail's controls do: filter (text to match), kind (a kind or all), stage (all, open, waiting, draft, active, done), resolved, related, sort (updated, created, title, -asc or -desc); step=filter starts typing one (the person's)",
-    keys: [{ keys: "K w h n s", does: "a setting of the view" }, { keys: "click", does: "on the status line" }, { keys: "/", does: "then typing sets the filter" }, { keys: "backspace ctrl+u", does: "edit the filter" }, { keys: "⏎", does: "keeps it", says: "keep the typed filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
+    keys: [...VIEW_STEPS.map(({ key, step, does }) => ({ keys: key, does, args: { step } })), { keys: "click", does: "on the status line" }, { keys: "/", does: "then typing sets the filter" }, { keys: "backspace ctrl+u", does: "edit the filter" }, { keys: "⏎", does: "keeps it", says: "keep the typed filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
     touches: "nothing", replay: "safe", says: r => (r.said ? `· ${r.said}` : "changed the backlinks view"),
     args: {
       filter: { type: "string", optional: true, about: "text to match, as / filters (empty clears)" },

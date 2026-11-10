@@ -174,7 +174,8 @@ test("a live draft gets tidy's reason, including repeated asks (PIE-916)", async
   const door = await fakeDoor(client, "tidy-reasons", note);
   door.text = "Plan\n- apples\n@tidy remove cruft\n@tidy  remove cruft\n@tidy yo\n";
   await client.request({ action: "drafts.touch", holdId: door.holdId });
-  await until("both unique asks finished", () => store.agentRequests(note.id).length === 2 && store.agentRequests(note.id).every(r => r.answeredAt));
+  // The same words again on another line are an ask of their own (PIE-1722): three asks, each answered.
+  await until("every ask finished", () => store.agentRequests(note.id).length === 3 && store.agentRequests(note.id).every(r => r.answeredAt));
   const lines = ["@tidy remove cruft", "@tidy  remove cruft", "@tidy yo"];
   await until("every final progress delivered", () => lines.every(line => door.progress.some(p => p.line === line && p.warning?.includes("no model"))));
   for (const line of lines) {
@@ -456,6 +457,68 @@ test("notes from before agent requests keep their @name lines old; restarts say 
   expect(store.agentRequests(waiting.id)[0]).toMatchObject({ status: "waiting", message: "the service stopped before @count answered: ask it again", requestedBy: "user" });
   await client.request({ action: "resources.projection.refresh", blockId: waiting.id, line: 1 });
   expect(calls()).toEqual(["run please"]);
+});
+
+// PIE-1722: the same words again are an ask of their own now. A baseline written before that keyed every repeat by the first
+// line's key, once per line: those repeats are old lines, and a save that touches the note asks nothing.
+test("repeated @name lines a baseline from before PIE-1722 holds stay old; a new repeat is asked", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const note = await create("Twice\n@count do it\n@count do it", "agent");
+  const calls = await counted("count");
+  const first = requestLines(note.text, null)[0]!;
+  // As the old code wrote it: the plain key once per line, and the first line answered.
+  store.database.query("DELETE FROM agent_requests").run();
+  store.setAgentRequestBaseline(note.id, [first.requestKey, first.requestKey]);
+  let current = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${current.text}\nan unrelated line`, expectedRevision: current.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(calls()).toEqual([]);
+  // A third, written now: a new ask.
+  current = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: `${current.text}\n@count do it`, expectedRevision: current.revision, mutation: PERSON });
+  await until("the new repeat asked", () => calls().length === 1);
+  expect(calls()).toEqual(["run do it"]);
+});
+
+// PIE-1722 review (CodeRabbit on #1422): the same words written again above an answered ask are the new ask. The answered
+// line keeps its answer and is not asked again; the line written now is asked and answered under itself.
+test("the same words written above an answered ask: the new line is asked, the answered one keeps its answer", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Shelf\nfirst\n@count tally\nlast");
+  await until("the first ask answered", () => store.agentRequests(note.id).some(r => r.answeredAt));
+  expect(calls()).toEqual(["run tally"]);
+  let current = store.get(note.id)!;
+  expect(current.text).toContain("@count tally\n> [!note]");
+  // Written above it, on its own line: a new ask in the same words.
+  await client.request({ action: "update", blockId: note.id, text: current.text.replace("Shelf\nfirst\n", "Shelf\n@count tally\nfirst\n"), expectedRevision: current.revision, mutation: PERSON });
+  await until("the new ask answered", () => calls().length === 2 && store.agentRequests(note.id).filter(r => r.answeredAt).length === 2);
+  current = store.get(note.id)!;
+  const lines = current.text.split("\n");
+  // Each line has one answer, right under it: the new one under the line written now, the old one where it was.
+  expect(lines[1]).toBe("@count tally");
+  expect(lines[2]).toMatch(/^> \[!note\]/);
+  expect(current.text.split("@count tally\n> [!note]").length - 1).toBe(2);
+  await Bun.sleep(300);
+  expect(calls()).toEqual(["run tally", "run tally"]);
+});
+
+test("in a live draft too: the same words typed above an answered ask are asked, and the answered one isn't", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  const calls = await counted("count");
+  const note = await create("Shelf\nfirst\n@count tally\nlast");
+  await until("the first ask answered", () => store.agentRequests(note.id).some(r => r.answeredAt));
+  const saved = store.get(note.id)!;
+  const door = await fakeDoor(client, "door-dup", saved);
+  door.text = saved.text.replace("Shelf\nfirst\n", "Shelf\n@count tally\nfirst\n");
+  await client.request({ action: "drafts.touch", holdId: door.holdId });
+  await until("the new ask answered in the draft", () => calls().length === 2);
+  await until("its answer under the new line", () => door.text.split("\n")[2]?.startsWith("> [!note]"));
+  // Touched again with nothing new: nothing more is asked.
+  await client.request({ action: "drafts.touch", holdId: door.holdId });
+  await Bun.sleep(300);
+  expect(calls()).toEqual(["run tally", "run tally"]);
+  expect(door.text.split("@count tally\n> [!note]").length - 1).toBe(2);
 });
 
 test("an outline a host opens gets the same start: old @name lines baselined, cut-off requests failed (B5, B17 hosted)", async () => {

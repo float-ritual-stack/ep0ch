@@ -307,7 +307,8 @@ export const ACTIONS = {
   "properties.preview": { ext: "read" },
   "proposals.outcomes": { ext: "read" },
   "query.matches": { read: true, watch: true, whole: true },
-  "query.suggest": { async: true },
+  // An extension may read words into a query (yo's find, PIE-1711); asExtension records its suggestion as the extension's.
+  "query.suggest": { async: true, ext: "read" },
   "quote": { async: true, event: (_, { result }) => { const r = result as QuoteReceipt; return content("block" in r ? r.block.id : r.into.blockId); } },
   "reader.report": { copy: true, async: true },
   "reader.view": { copy: true, async: true },
