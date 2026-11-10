@@ -29,7 +29,10 @@ export const QUERY_SUGGEST_THRESHOLDS = { gate: 0.7, probability: 0.35, confiden
 export const QUERY_SUGGEST_BUDGET_MS = 1500;
 // The kitchen sink has hundreds of keys: asking four questions about every one exceeds Jev's context.
 const COMMON_KEYS = 8, COMMON_VALUES = 20;
-const CONNECTING = new Set("a an the things thing notes note ones ones show find me about with from of on in that those these please and or".split(" "));
+// Words that join a request and name no value: "all hub items that are not sent yet" asks for hub items not sent (PIE-1711).
+const CONNECTING = new Set("a an the things thing notes note ones ones items item entries entry show find list me my all every any about with from of on in that those these which who please and or is are was were be been being has have had yet still already currently".split(" "));
+/** A word without its plural: "items" is the item of a value hub-item. */
+const singular = (word: string) => word.toLowerCase().replace(/(?<=\p{L}{3})s$/u, "");
 const wordsOf = (text: string) => text.match(/[\p{L}\p{N}_@./'-]+/gu) ?? [];
 const meaningful = (text: string) => wordsOf(text).filter(w => !CONNECTING.has(w.toLowerCase()));
 const quote = (text: string) => JSON.stringify(text);
@@ -128,8 +131,9 @@ export class QuerySuggester {
     const prompt = await loadQuerySuggestPrompt();
     const tokens = meaningful(without(rest, dates.map(d => d.words)));
     const spans = [...new Set([...tokens.filter(t => !NEGATION.test(t)), ...axes.flatMap(axis => axis.candidates.flatMap(candidate => {
-      const value = candidate.value.toLowerCase().replace(/[-_]/g, " "), size = value.split(/\s+/).length;
-      return tokens.flatMap((_, i) => { const span = tokens.slice(i, i + size).join(" "); return size > 1 && value.startsWith(span.toLowerCase()) ? [span] : []; });
+      const value = candidate.value.toLowerCase().replace(/[-_]/g, " "), size = value.split(/\s+/).length, stem = value.split(/\s+/).map(singular).join(" ");
+      // "hub items" is hub-item's, its plural read through (PIE-1711).
+      return tokens.flatMap((_, i) => { const span = tokens.slice(i, i + size).join(" "); return size > 1 && (value.startsWith(span.toLowerCase()) || stem.startsWith(span.split(" ").map(singular).join(" "))) ? [span] : []; });
     }))])];
     const questions: Record<string, unknown> = {};
     const choices = new Map<string, { instructions: string; values: string[]; groups?: string[][] }>();

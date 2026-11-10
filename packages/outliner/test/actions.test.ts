@@ -42,7 +42,9 @@ test("each list main kept is now one column of the table", () => {
   expect(sorted(DECLARED.copy)).toEqual(sorted([...MAIN.copy, "outlines.list", "references.soft", "references.soft-scope", "media.copies", "media.read", ...MARKS.reads]));
   // An extension's call: main's reads, its extension reads and writes, EchoNet's mail, and the two asExtension let through by name.
   expect(sorted(DECLARED.extension)).toEqual(sorted([...MAIN.read, ...MAIN.extensionReads, ...MAIN.extensionWrites, "door.act", "references.soft", "references.soft-scope", ...MARKS.reads, ...MARKS.writes,
-    "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group"]));
+    "echonet.bulletin", "echonet.put", "echonet.take", "events.subscribe", "secrets.group",
+    // PIE-1711: yo reads a find's words into a query, as the facets tile's query line does.
+    "query.suggest"]));
 });
 
 test("blocks.read is a plain read: main's copy and extension lists both had it, the read-only list didn't", () => {

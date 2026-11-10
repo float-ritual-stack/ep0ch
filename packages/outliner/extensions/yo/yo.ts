@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { failureWords, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine } from "./yo-line";
+import { failureWords, findAnswer, findAsk, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine, type FoundNotes } from "./yo-line";
 import { actPrompt, argsOf, pathTo, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
@@ -203,6 +203,40 @@ function quoteAnswer(a: ActionRecord, asked: string, args?: Record<string, strin
   return [...quoted(a, args), buttonFor(a, asked, args), ...(note ? [note] : [])];
 }
 
+/**
+ * A find ask answered (PIE-1711): the words read into a query by the service (query.suggest, over this outline's facets),
+ * the notes it finds (blocks.query, the first ten), how each word was read, and buttons to open, edit and save it. A
+ * query that names a key nobody has is answered with the nearest keys, as the service says them.
+ */
+async function find(words: string) {
+  steps.push("a find by its words: query.suggest over this outline's facets");
+  type Words = { where: string; clauses: { clause: string; from: string[]; widens?: true; alternatives: string[] }[]; text: string[]; grammar?: true; pending?: true } | { unavailable: string };
+  let read: Words;
+  try { read = await outline<Words>({ action: "query.suggest", text: words }, { timeoutMs: 15_000 }); }
+  catch (error) { read = { unavailable: firstLine(error) }; }
+  const where = "unavailable" in read || read.pending ? null : read.where.trim() || null;
+  if (!where) {
+    const why = "unavailable" in read ? read.unavailable : "the words weren't read in time";
+    steps.push(`no query from the words: ${why}`);
+    return ok({ message: "couldn't read that into a query", reply: withSteps(findAnswer({ words, why, thread: inThread() })) });
+  }
+  let found: FoundNotes;
+  try {
+    const answer = await outline<{ blocks: { id: string; text: string; title?: string }[]; more?: boolean; hint?: string; facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { where, limit: 11 } });
+    // The note the ask is written in holds its words: never a note it found.
+    const rows = answer.blocks.filter(b => b.id !== input.note?.id);
+    found = { notes: rows.slice(0, 10).map(b => ({ id: b.id, title: b.text.split("\n", 1)[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").replace(/\s+#\S+/g, "").trim() || "(untitled)" })), more: !!answer.more || rows.length > 10, ...(answer.hint ? { hint: answer.hint } : {}) };
+  } catch (error) { found = { notes: [], more: false, refused: firstLine(error) }; }
+  if (!found.notes.length && !found.hint && !found.refused) {
+    // Nothing matched: the keys the outline has, nearest to the words, so the next ask can name one.
+    const facets = await outline<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { facets: true, facetKeys: 1000, facetValues: 5, facetSearch: words, limit: 1 } }).catch(() => ({ facets: [] }));
+    found.nearest = (facets.facets ?? []).slice(0, 4).map(f => `${f.key} (${f.values.slice(0, 3).map(v => v.value).join(", ")})`);
+  }
+  steps.push(`found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}: ${where}`);
+  const message = found.notes.length ? `found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}` : "no notes match";
+  return ok({ message, reply: withSteps(findAnswer({ words, where, read: "clauses" in read ? read.clauses : [], found, thread: inThread() })) });
+}
+
 /** yo's own page (PIE-1710): its README, read as an action's doc is; empty when it can't be read. */
 const ownPage = () => Bun.file(join(import.meta.dir, "README.md")).text().catch(() => "");
 
@@ -218,6 +252,10 @@ async function respond() {
     const lines = selfAnswer(self, { readme, answer: config.answer ?? defaults.answer.default, act: config.act ?? defaults.act.default, answerDefault: config.answer === undefined, ...(memoryAt.outline ? { memory: memoryAt.outline } : {}), thread: inThread() });
     return ok({ message: self === "greeting" ? "yo" : `yo, about itself: ${self === "use" ? "how to use it" : "how to set it up"}`, reply: self === "greeting" ? lines.join("\n") : withSteps(lines) });
   }
+  // A find (PIE-1711): code tells it by its words, and the outline answers it: query.suggest reads the words over its own
+  // facets, blocks.query finds the notes. No actions' docs, no model.
+  const finding = findAsk(asked);
+  if (finding !== null) return find(finding);
   const tile = input.properties?.["ask-tile-kind"]?.[0];
   const known = await memories();
   const actions = catalogRead = await catalog();

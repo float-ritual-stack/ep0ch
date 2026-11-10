@@ -3931,7 +3931,8 @@ export class OutlinerServer {
     if (may === "mail") return rest as OutlinerRequest;
     if (action !== "secrets.group" && action !== "mcp.access.status") this.crossOutlineAccess(action, grant);
     if (may !== "write") {
-      if (may === "read") return rest as OutlinerRequest;
+      // query.suggest keeps a record of what it read (the words' suggestion): the extension's, never the person's (PIE-1711).
+      if (may === "read") return (action === "query.suggest" ? { ...rest, mutation: actor } : rest) as OutlinerRequest;
       throw new Error(`${actor.actorId} can read, create, update, move, trash, comment and annotate over its connection; ${action} isn't one of them` +
         (action === "extensions.act" ? " (an extension doesn't set another one off)" : ""));
     }

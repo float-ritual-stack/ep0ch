@@ -196,6 +196,55 @@ export function asksHow(request: string): boolean {
 }
 
 /**
+ * Whether an ask is a find (PIE-1711), told by its words before any model: "find me all…", "list…", "show me the…",
+ * "which notes…", "all … that …". The words left are what to find, for query.suggest; null when it's a how-do-I ("how do
+ * I find backlinks", "find the key for zoom") or an action ("show the links", "lift the agent").
+ */
+export function findAsk(asked: string): string | null {
+  const text = asked.trim().replace(/[?.!\s]+$/, ""), low = text.toLowerCase();
+  if (!low || /\bhow\b/.test(low) || /\b(?:key|keys|shortcut|button|command|action)s? (?:for|to)\b/.test(low)) return null;
+  const every = "(?:(?:all|every|each)(?: (?:of )?the)?|the|my)\\s+";
+  const m = new RegExp(`^(?:please\\s+)?(?:(?:find|search(?: for)?|look(?: for| up)|list|pull up)(?: me)?\\s+(?:${every})?|(?:show|get|give)(?: me\\s+(?:${every})?|\\s+(?:all|every)(?: (?:of )?the)?\\s+)|(?:all|every)(?: (?:of )?the)?\\s+|(?:which|what)\\s+(?=(?:notes?|blocks?|items?|pages?)\\b))(.+)$`, "i").exec(text);
+  return m?.[1]?.trim() || null;
+}
+
+/** The notes a find found (PIE-1711), as the service answered: at most ten, whether there are more, its hint on a key nobody has. */
+export interface FoundNotes { notes: { id: string; title: string }[]; more: boolean; hint?: string; refused?: string; nearest?: string[] }
+
+/** The facets tile a find's buttons open, by name: pressed again, the same tile takes the next query. */
+export const FOUND_TILE = "found";
+
+/**
+ * A find's answer (PIE-1711): how many notes and the query that found them, each note as a link, how each word was read,
+ * then the buttons: open it in a facets tile, edit the query there, save it as a view. Nothing found says the nearest keys;
+ * words that couldn't be read into a query say why, with a button that types them on a facets tile's query line.
+ */
+export function findAnswer(o: { words: string; where?: string; why?: string; read?: readonly { clause: string; from: readonly string[]; widens?: true }[]; found?: FoundNotes; thread?: boolean }): string[] {
+  const quoteable = (q: string) => !q.includes("'") && !q.includes('"') && !q.includes("\n");
+  const button = (label: string, steps: string[]) => o.thread ? `[${label}](act: ${steps.at(-1)})` : `::button{label="${label}" act=[${steps.map(l => `"${l}"`).join(", ")}]}`;
+  const open = `tile.open kind=facets name=${FOUND_TILE}`;
+  if (!o.where) {
+    const lines = [`I couldn't read "${o.words}" into a query (${o.why ?? "no answer"}).`];
+    if (quoteable(o.words)) lines.push(button("▸ type it in facets", [open, `facets.edit text='${o.words}' tile=${FOUND_TILE}`]));
+    return lines;
+  }
+  const f = o.found ?? { notes: [], more: false }, n = f.notes.length;
+  const lines = [n ? `${n}${f.more ? "+" : ""} note${n === 1 ? "" : "s"}: \`${o.where}\`` : `no notes: \`${o.where}\``];
+  for (const note of f.notes) lines.push(`- ((${note.id}|${note.title.replace(/[|)]/g, " ").trim()}))`);
+  const read = (o.read ?? []).map(c => `${c.from.join(" ")} → ${c.clause}${c.widens ? " (the whole outline)" : ""}`);
+  if (read.length) lines.push(`read: ${read.join(" · ")}`);
+  if (f.refused) lines.push(`the outline refused it: ${f.refused}`);
+  if (f.hint) lines.push(f.hint);
+  if (!n && f.nearest?.length) lines.push(`keys here nearest the words: ${f.nearest.join(" · ")}`);
+  if (quoteable(o.where)) {
+    lines.push(button("▸ open in facets", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`]));
+    lines.push(button("▸ edit the query", [open, `facets.edit text='${o.where}' tile=${FOUND_TILE}`]));
+    if (n) lines.push(button("▸ save as a view", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`, `facets.save tile=${FOUND_TILE}`]));
+  }
+  return lines;
+}
+
+/**
  * yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note.
  * The button says which line it is (`at`, from 0): the same answer can be written above it word for word (PIE-1632).
  */
@@ -205,7 +254,8 @@ export function lastAnswer(lines: readonly string[]): { ask: string; button: { l
     let end = i + 1;
     while (end < lines.length && lines[end]!.startsWith(">")) end++;
     const ask = /^\s*(?:[-*+]\s+)?@yo\b[:,]?\s*(.*)$/.exec(lines[i - 1] ?? "")?.[1] ?? "";
-    for (let at = end - 1; at > i; at--) {
+    // Its first button is the answer (a find's opens it in facets; edit and save follow, PIE-1711).
+    for (let at = i + 1; at < end; at++) {
       const found = lines[at]!.startsWith("> >") ? null : buttonIn(lines[at]!);
       if (found) return { ask, button: { line: lines[at]!, at, ...found } };
     }
