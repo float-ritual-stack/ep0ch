@@ -18,7 +18,8 @@ test("a lone Escape reaches the popup at once, not after readline's escape wait"
   const keys: string[] = [];
   const detach = attachKeypressInput(input, { keypress: (_text, key) => keys.push(key.name ?? "") });
   input.write("\x1b");
-  await tick(150);
+  // StdinBuffer times a lone Escape in milliseconds; readline alone waits about 500.
+  await tick(250);
   expect(keys).toEqual(["escape"]);
   detach();
   input.destroy();
@@ -69,6 +70,7 @@ function harness(options: Partial<HerdrSessionOptions> = {}) {
   const stdin = Object.assign(new PassThrough(), { isTTY: false, setRawMode() {} }) as unknown as NodeJS.ReadStream;
   const stdout = Object.assign(new PassThrough(), { columns: 80, rows: 24 }) as unknown as NodeJS.WriteStream;
   const errors: unknown[] = [];
+  const exited = Promise.withResolvers<number>();
   const session = createHerdrSession({
     input: { kind: "keypress", handlers: { keypress() {} } },
     modes: { mouse: "click", paste: true },
@@ -76,26 +78,28 @@ function harness(options: Partial<HerdrSessionOptions> = {}) {
     ...options,
     io: {
       write: data => written.push(data), stdin, stdout,
-      exit: (code: number) => { exits.push(code); return undefined as never; },
+      exit: (code: number) => { exits.push(code); exited.resolve(code); return undefined as never; },
       onSignal: (signal, handler) => signals.set(signal, handler),
     },
   });
-  return { session, written, exits, signals, errors };
+  /** Resolves once everything queued before it has run. */
+  const drained = () => new Promise<void>(resolve => session.enqueue(resolve));
+  return { session, written, exits, signals, errors, exited: exited.promise, drained };
 }
 
 test("queued work runs in order, a failure goes to onError, and nothing queued runs once stopping", async () => {
   const ran: string[] = [];
-  const { session, errors, exits } = harness();
+  const { session, errors, exits, drained } = harness();
   session.start();
   session.enqueue(async () => { await tick(5); ran.push("a"); });
   session.enqueue(() => { throw new Error("boom"); });
   session.enqueue(() => { ran.push("b"); });
-  await tick(20);
+  await drained();
   expect(ran).toEqual(["a", "b"]);
   expect(errors.map(error => (error as Error).message)).toEqual(["boom"]);
   await session.stop(0);
   session.enqueue(() => { ran.push("late"); });
-  await tick(5);
+  await new Promise(resolve => setImmediate(resolve));
   expect(ran).toEqual(["a", "b"]);
   expect(exits).toEqual([0]);
 });
@@ -123,8 +127,7 @@ test("signals stop with 128 + n unless the client says otherwise", async () => {
   const plain = harness();
   plain.session.start();
   plain.signals.get("SIGTERM")!();
-  await tick(5);
-  expect(plain.exits).toEqual([143]);
+  expect(await plain.exited).toBe(143);
   const seen: string[] = [];
   const custom = harness({ onSignal: (signal, code) => seen.push(`${signal}:${code}`) });
   custom.session.start();
@@ -135,12 +138,12 @@ test("signals stop with 128 + n unless the client says otherwise", async () => {
 
 test("stopAfterQueue waits for queued work and its own last step, once", async () => {
   const order: string[] = [];
-  const { session, exits } = harness();
+  const { session, exits, exited } = harness();
   session.start();
   session.enqueue(async () => { await tick(10); order.push("writing"); });
   session.stopAfterQueue(130, () => { order.push("keep draft"); });
   session.stopAfterQueue(143, () => { order.push("again"); });
-  await tick(30);
+  await exited;
   expect(order).toEqual(["writing", "keep draft"]);
   expect(exits).toEqual([130]);
 });
