@@ -83,7 +83,7 @@ export const MOVE_HINT: Hint = { title: "Moving", lines: ["Choose the tile to mo
 export const RESIZE_HINT: Hint = { title: "Resizing", lines: ["Drag the border to give the tile room. Release to keep its size."], keys: [{ keys: "< > + -", does: "resize" }, { keys: "esc", does: "finish" }] };
 export const GATHER_HINT: Hint = { title: "Gathering", lines: ["Pick tiles to put together in one group."], keys: [{ keys: "shift+click", does: "pick a tile" }, { keys: "esc", does: "clear the selection" }] };
 
-export const CONFIRM_HINT: Hint = { title: "Confirm", lines: ["Open this note for editing? Any other key keeps reading."], keys: [{ keys: "enter", does: "open the edit" }, { keys: "esc", does: "cancel" }] };
+export const CONFIRM_HINT: Hint = { title: "Confirm", lines: ["Open this note for editing? ⏎ opens it; any other key keeps reading."], keys: [{ keys: "enter", does: "open the edit" }, { keys: "esc", does: "cancel" }] };
 
 export const MODE_HINTS = {
   move: { ...MOVE_HINT, id: "move", trigger: "Move, drag or tab a tile" },
