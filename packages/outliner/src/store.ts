@@ -2088,7 +2088,7 @@ export class OutlinerStore {
     })();
   }
 
-  // ── Extension outputs (src/extension-calls.ts) ──────────────────────────
+  // ── Extension outputs: a handler line's stored result (src/extension-calls.ts) ──
   // What an output or component handler line last returned, kept per block
   // and call (handler, argument, fetch options), so a reader shows it at once
   // and a restart keeps it. It is never block text: `keep` writes blocks.
@@ -2126,6 +2126,7 @@ export class OutlinerStore {
     return gone.length;
   }
 
+  // ── Askers, record homes and ticket pages (src/extension-records.ts places them) ──
   /** Every key an outline's blocks ask an extension for (a scheduled data handler fetches each again). */
   extensionAskedKeys(extensionId: string): string[] {
     return (this.database.query(`
@@ -2467,6 +2468,7 @@ export class OutlinerStore {
     return row ? extensionRecordRow(row) : null;
   }
 
+  // ── The write core: activity, a block's text, revisions ─────────────────
   /** Records who changed a block, in the transaction that changes it. */
   private recordActivity(
     id: string,
@@ -2586,6 +2588,7 @@ export class OutlinerStore {
     return { ...entry, text: row.text };
   }
 
+  // ── Roadmap items: text checks, memberships, who wrote what, property catalogs ───
   private validateRoadmapText(text: string): void {
     const properties = parsePropertyRecords(text).filter(property => property.scope === "block");
     const values = (key: string) => properties.filter(property => property.key === key).map(property => property.value);
@@ -3714,12 +3717,14 @@ export class OutlinerStore {
     })();
   }
 
+  /** Where `createNote` would put a note with this text now, writing nothing (`notes.create` with `dryRun`). */
+  placeNote(text: string, intent: NewNoteIntent): Placement { return this.placementFromCurrentRead(intent, text); }
+
   /**
    * A new note where the placement rule puts it (PIE-544, `notes.create`): under the note the person was in
    * (`intent.near`), else the top of the Inbox. The text may be empty (a note opened to be written); a first line of
    * only `[page::x]` is titled `x` (outline-core's page-title rule, applied by the server to every client write).
    */
-  /** Where `createNote` would put a note with this text now, writing nothing (`notes.create` with `dryRun`). */ placeNote(text: string, intent: NewNoteIntent): Placement { return this.placementFromCurrentRead(intent, text); }
   createNote(text: string, intent: NewNoteIntent, author: BlockAuthor = "user", provenance?: BlockProvenance): NewNoteReceipt {
     if (typeof text !== "string") throw new Error("Note text must be a string");
     return this.database.transaction((): NewNoteReceipt => {
@@ -4628,7 +4633,6 @@ export class OutlinerStore {
     }).deferred();
   }
 
-  /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
   /** Every live note, for deep search's pool (search-deep.ts narrows it). */
   searchPool(): Block[] {
     return this.database.transaction(() => [...this.loadGraph().byId.values()]).deferred();
@@ -4642,6 +4646,7 @@ export class OutlinerStore {
     }).deferred();
   }
 
+  /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
   searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show", limit?: number) {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;
@@ -4839,11 +4844,7 @@ export class OutlinerStore {
     return { ...page, blocks: this.hydrateVisibleRowsFromCurrentRead(page.blocks, query.filters ?? [], query.propertyScope ?? "block") };
   }
 
-  /**
-   * Every ranked match as a lightweight id/depth pair, in the same order as
-   * queryRankedBlocksFromCurrentRead. Saved-view reads rank and count these, then
-   * hydrate only the requested page.
-   */
+  /** One page of ranked rows made whole: each row's block with its properties, its depth and where it matched. */
   private hydrateVisibleRowsFromCurrentRead(
     rows: readonly VisibleBlockRow[],
     filters: readonly PropertyFilter[],
@@ -5642,12 +5643,7 @@ export class OutlinerStore {
     };
   }
 
-  /**
-   * The prefixes a ticket key may have to be one here: the allocator's, the reserved ids', the `[work-id::]` values
-   * notes carry (an imported or echoed item), the pages named like a key (`[page::PC-7]`) and the ticket pages' keys
-   * (`[jira::KEY-1]`). Any other `LETTERS-digits`
-   * (a synth's name, `FM-1`) is plain text.
-   */
+  /** The number the next Work ID with this prefix takes: one past the highest reserved under it. */
   private nextWorkIdNumberForPrefixFromCurrentRead(prefix: string): number {
     let maximum = 0;
     for (const reservation of this.canonicalWorkIdReservationsFromCurrentRead()) {
