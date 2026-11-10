@@ -503,7 +503,7 @@ function save(p: KeysPane, b: Binding, to: string, desk: DeskApi): Record<string
 }
 /** A saved rebind in the status bar's words: the move, then what still takes the key first and a terminal that never sends it. */
 const savedWords = (r: { from?: string | null; to: string; id: string; still?: string[]; sends?: string }) =>
-  `${r.from} → ${r.to}: ${r.id}${r.still?.length ? ` · ${r.still.join(", ")} gets it first` : ""}${r.sends ? ` · ${r.sends}` : ""}`;
+  `${r.from ?? "no key"} → ${r.to}: ${r.id}${r.still?.length ? ` · ${r.still.join(", ")} gets it first` : ""}${r.sends ? ` · ${r.sends}` : ""}`;
 
 /** The keys window as a tile kind: one list, opened by the `keys` screen (`?`) or ^W o. */
 export const KEYS_KIND: TileKind = {

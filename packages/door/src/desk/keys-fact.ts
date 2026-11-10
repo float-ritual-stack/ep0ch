@@ -76,12 +76,14 @@ export class DoorKeys<Lift = unknown> {
 
   /**
    * A tile recording a key (`Pane.recordsKey`: the keys window's rebind waits for one) gets the next key before any layer
-   * of the door that would run it, the glass's alt+u and alt+v on every screen (PIE-1688), through the screen's own key
-   * path: true when it took it. In the drawer the drawer's tiles have the keys, so this stays out; a click goes where it points.
+   * of the door that would run it, the glass's alt+u and alt+v on every screen (PIE-1688): handed to the tile itself, with
+   * its screen as the desk, so nothing the screen has open first (a composer, an open still arriving) takes it. True when
+   * it did. Esc never comes here (the ladder cancels the rebind); in the drawer its tiles have the keys; a click goes where it points.
    */
-  recordsInto(top: { focusedPane?(): Pane | undefined; key(k: Key, ctx: never): unknown } | undefined, inDrawer: boolean, k: Key, ctx: unknown): boolean {
-    if (inDrawer || k.kind === "mouse" || k.kind === "paste" || !top?.focusedPane?.()?.recordsKey?.()) return false;
-    top.key(k, ctx as never);
+  recordsInto(top: object | undefined, inDrawer: boolean, k: Key): boolean {
+    const pane = inDrawer || k.kind === "mouse" || k.kind === "paste" ? undefined : (top as { focusedPane?(): Pane | undefined } | undefined)?.focusedPane?.();
+    if (!pane?.recordsKey?.()) return false;
+    pane.key(k, top as never);
     return true;
   }
 

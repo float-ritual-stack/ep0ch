@@ -466,41 +466,56 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     if (!runningModules().some(([n]) => n === "glass")) useDoorModules(["glass"]);
     const glassMode = () => (runningModules().find(([n]) => n === "glass")![1].describe!() as { mode: string }).mode;
     const mode = glassMode();
-    await shell("keys.open", {});
-    await until(() => focusedKind() === "keys", "the window");
-    await act("keys.filter", { text: "draft.clear" });
-    const found: any = await act("keys.find", {});
-    await act("keys.select", { n: found.bindings.findIndex((b: any) => b.key === "ctrl+u") + 1 });
-    key(char("r"));
-    await until(() => keysWin().record?.id === "draft.clear", "waiting for the key");
-    // alt+u reaches the recording window, never the glass: its mode stays as it was.
-    key({ kind: "alt", ch: "u" });
-    await until(() => keysWin().record?.key === "alt+u", "alt+u recorded");
-    expect(glassMode()).toBe(mode);
-    const pane = () => (keysPane().render(160, 40, true, desk()).lines.map(visible) as string[]).join("\n");
-    expect(pane()).toContain("glass.toggle (glass) still gets alt+u first");
-    // A key even the window's own table binds (j, q) is the new key while it records.
-    key(char("q"));
-    await until(() => keysWin().record?.key === "q", "q recorded, the window still open");
-    key({ kind: "alt", ch: "u" });
-    await until(() => keysWin().record?.key === "alt+u", "alt+u again");
-    key({ kind: "enter" });
-    await until(() => file()["draft.clear"]?.includes("alt+u"), "saved");
-    expect(keysWin().said).toContain("glass.toggle gets alt+u first");
-    await act("keys.tab", { tab: "conflicts" });
-    expect(keysWin().rows).toBe(2);
-    expect(pane()).toMatch(/conflict +the door module layer \(glass\) reads alt\+u/);
-    // An agent's rebind answers the same: what keeps the key first.
-    await act("keys.reset", { id: "draft.clear" });
-    const r: any = await app.act({ action: "keys.rebind", args: { id: "draft.clear", key: "ctrl+u", to: "alt+u" }, tile: "keys", as: "agent:keys-test" });
-    expect(r.still).toContain("glass.toggle");
-    // A key a legacy terminal can't send is saved but said, never "free here".
-    const s: any = await app.act({ action: "keys.rebind", args: { id: "draft.clear", key: "alt+u", to: "alt+[" }, tile: "keys", as: "agent:keys-test" });
-    expect(s.sends).toContain("Kitty keyboard protocol");
-    await act("keys.reset", { id: "draft.clear" });
-    await act("keys.tab", { tab: "bindings" });
-    key(char("q"));
-    await until(() => focusedKind() !== "keys", "closed");
+    const realFlash = app.flash.bind(app), said: string[] = [];
+    (app as any).flash = (m: string, ...r: any[]) => { said.push(m); return realFlash(m, ...r); };
+    try {
+      await shell("keys.open", {});
+      await until(() => focusedKind() === "keys", "the window");
+      await act("keys.filter", { text: "draft.clear" });
+      const found: any = await act("keys.find", {});
+      await act("keys.select", { n: found.bindings.findIndex((b: any) => b.key === "ctrl+u") + 1 });
+      key(char("r"));
+      await until(() => keysWin().record?.id === "draft.clear", "waiting for the key");
+      // alt+u reaches the recording window, never the glass: its mode stays as it was.
+      key({ kind: "alt", ch: "u" });
+      await until(() => keysWin().record?.key === "alt+u", "alt+u recorded");
+      expect(glassMode()).toBe(mode);
+      const pane = () => (keysPane().render(160, 40, true, desk()).lines.map(visible) as string[]).join("\n");
+      expect(pane()).toContain("glass.toggle (glass) still gets alt+u first");
+      // A key even the window's own table binds (j, q) is the new key while it records.
+      key(char("q"));
+      await until(() => keysWin().record?.key === "q", "q recorded, the window still open");
+      key({ kind: "alt", ch: "u" });
+      await until(() => keysWin().record?.key === "alt+u", "alt+u again");
+      key({ kind: "enter" });
+      await until(() => file()["draft.clear"]?.includes("alt+u"), "saved");
+      expect(keysWin().said).toContain("glass.toggle gets alt+u first");
+      await act("keys.tab", { tab: "conflicts" });
+      expect(keysWin().rows).toBe(2);
+      expect(pane()).toMatch(/conflict +the door module layer \(glass\) reads alt\+u/);
+      // An agent's rebind answers the same: what keeps the key first.
+      await act("keys.reset", { id: "draft.clear" });
+      const r: any = await app.act({ action: "keys.rebind", args: { id: "draft.clear", key: "ctrl+u", to: "alt+u" }, tile: "keys", as: "agent:keys-test" });
+      expect(r.still).toContain("glass.toggle");
+      // A key a legacy terminal can't send is saved but said, never "free here".
+      const s: any = await app.act({ action: "keys.rebind", args: { id: "draft.clear", key: "alt+u", to: "alt+[" }, tile: "keys", as: "agent:keys-test" });
+      expect(s.sends).toContain("Kitty keyboard protocol");
+      // A binding that had no key says so, never "null" (CodeRabbit on #1410).
+      await app.act({ action: "keys.rebind", args: { id: "share.list", to: "alt+n" }, tile: "keys", as: "agent:keys-test" });
+      await until(() => said.some(m => m.includes("no key → alt+n: share.list")), `the save said (${said.join(" | ")})`);
+      expect(said.some(m => m.includes("null"))).toBe(false);
+    } finally {
+      // The keymap and the window as they were, whatever failed above.
+      (app as any).flash = realFlash;
+      writeFileSync(keymapPath(), "{}\n");
+      reloadKeymap();
+      if (keysPane()) {
+        await act("keys.cancel", {}).catch(() => {});
+        await act("keys.tab", { tab: "bindings" }).catch(() => {});
+        await act("keys.close", {}).catch(() => {});
+        await until(() => focusedKind() !== "keys", "closed");
+      }
+    }
   });
 
   test("an old key in a line field says where its action went on the status bar: ^W and esc in the rename prompt (PIE-1688)", async () => {
