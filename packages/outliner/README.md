@@ -1566,13 +1566,15 @@ changed by this PR. The sync command is run by Evan on his laptop.
 
 Write `[artifact::https://github.com/ep0ch-artifacts/my-repo]`,
 `[artifact::github.com/ep0ch-artifacts/my-repo]` or `[artifact::ep0ch-artifacts/my-repo]`
-on a note: on its header, or on a line of its own (a card). The seeded `deploy-artifact`
-rule (`[property-scope::all]`, so a line's own `[artifact::]` matches) runs the saved
-script after the note is quiet; the script calls `artifact_deploy({ note: this.id })`,
+on a note: on its header, or on a line of its own (a card). With the **artifact-deploy kit**
+installed in the outline (the power bar's install row, `ep0ch act extensions.install id=artifact-deploy`;
+it goes in the outline's own folder), its rule (`propertyScope: all`, so a line's own `[artifact::]` matches)
+runs its `deploy-artifact` script after the note is quiet; the script calls `artifact_deploy({ note: this.id })`,
 which deploys every repo the note names. It and `artifact_deploy({ repo: "ep0ch-artifacts/my-repo" })`
 call the same service action as `ep0ch artifact deploy my-repo --ws pie --machine float-2`.
-Removing the rule stops automatic deployment; the service seeds it once, and brings an
-earlier copy nobody edited up to date. Bare store artifact names keep their existing
+Uninstalling the kit stops automatic deployment in that outline alone. An outline from before the kit
+(PIE-1509) held a seeded rule note and script note: at its next start the host installs the kit there and
+moves the two notes to Trash, unless someone edited them. Bare store artifact names keep their existing
 meaning and do not deploy repos.
 
 The card follows the deployment (PIE-1060): `artifacts.show` answers a repo from the

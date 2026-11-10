@@ -39,7 +39,8 @@ publisher. Setup and import are in the README's Artifacts section.
 `artifact-deploy.ts` owns repo classification, external commands, deployment receipts,
 DNS and catalogue registration. `artifacts.deploy` is outline-bound so the CLI and
 `artifact_deploy` agent tool leave attributed notes in the selected outline. The
-seeded `deploy-artifact` script and rule use the existing extension rules engine,
+artifact-deploy kit (`extensions/artifact-deploy`, installed per outline) is a manifest
+rule running its own `deploy-artifact` script on the extension rules engine,
 not another property watcher. Local agent tools and scripts share `host-api.ts`.
 Receipts are machine-wide `.artifacts/deployments.json`; registered static repos
 also serve at `/name/` or by their `<name>.ep0ch.sh` Host header. Existing uploads
