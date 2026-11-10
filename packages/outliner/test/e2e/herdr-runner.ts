@@ -15,7 +15,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { scratchRoot } from "../../../../scripts/scratch-dir";
 import { dirname, join, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OutlinerClient } from "../../src/client";
@@ -629,7 +629,8 @@ function combinedError(primary: unknown, evidence: readonly unknown[], cleanup: 
 }
 
 export async function runHerdrScenario(scenarioInput: Scenario): Promise<ScenarioResult> {
-  const runRoot = await mkdtemp(join(tmpdir(), "p267-"));
+  // A short root (PIE-1654): agent-env's TMPDIR is long enough to wrap the run folder in a 40-column composed Tree.
+  const runRoot = await mkdtemp(join(scratchRoot(), "p267-"));
   const projectRoot = join(runRoot, "project");
   const artifactDirectory = join(runRoot, "artifacts");
   const configHome = join(runRoot, "xdg-config");

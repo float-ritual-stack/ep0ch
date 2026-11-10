@@ -58,7 +58,9 @@ const result=await runHerdrScenario({name:'capture-history',
  await s.setKeybindings({'tree.authored-links.toggle':['Alt+J']});
  await s.keys(panes.tree,'ctrl+r');await s.waitVisible(panes.tree,'Keymap and bars reloaded');
  await s.keys(panes.tree,'alt+j');await s.waitVisible(panes.tree,'Resources');
- await s.waitVisible(panes.tree,'Before this rewrite');
+ // Nothing writes [before-rewrite::] since the agent merge went (PIE-613, 5054365cd): the fixture's one authored
+ // history link is the original capture.
+ await s.waitVisible(panes.tree,'↗ Original capture');
  await s.checkpoint('authored-history-resources');
  await s.closeDetached(panes.detail);await s.closeDetached(panes.tree);
 }});console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;

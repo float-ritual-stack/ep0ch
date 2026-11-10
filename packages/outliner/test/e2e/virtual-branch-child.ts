@@ -4,6 +4,8 @@ import { runHerdrScenario } from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "virtual-branch-child",
+  // The breadcrumb strip is full chrome; compact (the default since PIE-385, 254fb52ae) has none.
+  uiConfig: { chrome: { tree: "full" } },
   async prepare() {},
   async run(s) {
     const terminal = await s.attachClient();

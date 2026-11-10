@@ -7,7 +7,7 @@ import { runHerdrScenario } from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "composed-surface", layout: "composed",
-  async prepare(root) { await writeFile(join(root, "reference.md"), "Reference source\n\nSELECTABLE-FILE-QUOTE\n"); },
+  async prepare(_project, _paths, root) { await writeFile(join(root, "reference.md"), "Reference source\n\nSELECTABLE-FILE-QUOTE\n"); },
   async run(session) {
     const terminal = await session.attachClient();
     const pane = session.panes.tree;

@@ -15,15 +15,18 @@ const result=await runHerdrScenario({name:'capture-completion',commandKeys:[{key
  // the prefix and the command still arrive in order on the same terminal.
  const open=async()=>{await closed();await terminal.write('\x02');await s.waitFor('PREFIX',terminal.visible,f=>f.includes('PREFIX')||f.includes('«'));await terminal.write('C');await screen('Quick capture');};
  const paste=(text:string)=>terminal.write(`\x1b[200~${text}\x1b[201~`);
- await open();await paste('CAPTURE COMPLETION\n\nPage [[alpha-capture');await screen('References 1/1');
+ await open();await paste('CAPTURE COMPLETION\n\nPage [[alpha-capture');await screen('Pages 1/1'); // each source heads its own list (PIE-1340)
  await terminal.write('\r');await screen('[[alpha-capture]]');
- await paste('\nBlock ((Block destination');await screen('References 1/1');
+ // (( is ranked over every note (PIE-1480), seeded docs included: the target leads, others follow.
+ await paste('\nBlock ((Block destination');await screen('References 1/');await screen('› Block destination for capture');
  const frame=await screen('Block destination for capture'),lines=frame.split('\n'),popupRow=lines.findIndex(l=>l.includes('Quick capture')),row=lines.findIndex((l,i)=>i>popupRow&&l.includes('› Block destination for capture'));
  const column=visibleWidth(lines[row]!.slice(0,lines[row]!.indexOf('Block destination for capture')))+2;
  await terminal.write(`\x1b[<0;${column+1};${row+1}M\x1b[<0;${column+1};${row+1}m`);
  await screen(`((${target.id}))`);await s.checkpoint('01-capture-keyboard-and-pointer');
  await terminal.write('\x1a');await s.waitFor('capture undo removes canonical reference',terminal.visible,t=>t.includes('Block ((Block destination')&&!t.includes(`((${target.id}))`));await terminal.write('\x19');await screen(`((${target.id}))`);
- await paste('\nKeep [[missing');await screen('No matching');await terminal.write('\x1b');await screen('Keep [[missing');
+ // An unknown page offers itself as a new one (PIE-1340); Escape dismisses only the list.
+ await paste('\nKeep [[missing');await screen('new page · missing');await terminal.write('\x1b');
+ await s.waitFor('completion list dismissed',terminal.visible,f=>f.includes('Keep [[missing')&&!f.includes('new page · missing'));
  assert.ok((await terminal.visible()).includes('Quick capture'),'Escape dismisses list, retains editor');
  await terminal.write('\x1b');await closed();
  const draft=await s.client.request<QuickCaptureDraft>({action:'capture.draft.get'});

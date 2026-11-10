@@ -101,9 +101,17 @@ const result = await runHerdrScenario({
     await session.waitVisible(session.panes.detail, "Reference paragraph 1:");
     await terminal.write("\x02"); await wait("PREFIX"); await terminal.write("j");
     await session.waitFor("read reference in Detail", () => session.focusedPane(), pane => pane === session.panes.detail);
-    await terminal.write("\x1b[6~");
-    const reading = await session.waitFor("reference reading scrolled", () => session.visible(session.panes.detail), text =>
-      text.includes("Reference paragraph") && !text.includes("Reference paragraph 1:"));
+    // Herdr reports the new focus before it routes the attached client's next key there: a PageDown written the
+    // moment the focus oracle answers can still reach the old pane (it lands when sent a beat later). Press again
+    // until Detail has scrolled; only Detail's own scroll is asserted.
+    const scrolled = (text: string) => text.includes("Reference paragraph") && !text.includes("Reference paragraph 1:");
+    let reading = "";
+    for (let attempt = 0; attempt < 3 && !scrolled(reading); attempt++) {
+      await terminal.write("\x1b[6~");
+      reading = await session.waitFor("reference reading scrolled", () => session.visible(session.panes.detail), scrolled, 3_000)
+        .catch(() => "");
+    }
+    if (!scrolled(reading)) reading = await session.waitFor("reference reading scrolled", () => session.visible(session.panes.detail), scrolled);
     await session.record("reference-reading-position", reading);
     await terminal.write("\x02");
     await wait("PREFIX");

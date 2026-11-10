@@ -8,7 +8,7 @@ import {runHerdrScenario} from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "selection-navigation",
-  async prepare(root) {await writeFile(join(root,"selection.md"),"# Selection Resource\n\nRESOURCE COPY PASSAGE\n");},
+  async prepare(_project, _paths, root) {await writeFile(join(root,"selection.md"),"# Selection Resource\n\nRESOURCE COPY PASSAGE\n");},
   async run(session) {
     const terminal = await session.attachClient();
     await terminal.resize(190, 55);
@@ -20,7 +20,7 @@ const result = await runHerdrScenario({
     const target = (block:Block):OutlinerNavigationTarget => ({kind:"block",blockId:block.id});
     const current = async () => (await session.registrations()).find(c=>c.clientId===reader.clientId)!;
     const replace = (target:OutlinerNavigationTarget) => session.client.request({action:"ui.command.send",command:{targetClientId:reader.clientId,targetRegion:"detail",command:"replace",target}});
-    const copy = async (label:string, anchorLabel="Current ·") => {
+    const copy = async (label:string, anchorLabel="● Current") => {
       await session.focus(detail);
       const point = (text:string) => {
         const rows=text.split("\n");
@@ -70,7 +70,8 @@ const result = await runHerdrScenario({
     await session.waitVisible(detail,"Ctrl+S save");
     await session.text(detail,"Preview quote comment draft");
     await session.waitVisible(detail,"Preview quote comment draft");
-    await session.waitFor("Preview comment protects promoted Current",current,c=>!!c.navigationProtection&&c.currentTarget?.kind==="block"&&c.currentTarget.blockId===a.id);
+    // The comment is written in Preview itself, with no promotion to Current (PIE-290, 05eca251c); the draft still protects.
+    await session.waitFor("Preview comment protects the reader",current,c=>!!c.navigationProtection&&c.previewTarget?.kind==="block"&&c.previewTarget.blockId===a.id);
     await assert.rejects(replace(target(b)),/protected/);
     await session.checkpoint("preview-copy-comment-handoff");
     await session.keys(detail,"escape");

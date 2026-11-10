@@ -9,6 +9,8 @@ import {
   type VirtualBranchConfig,
 } from "../src/virtual-branches";
 import type { BlockProperty, BlockSearchQuery, VisibleBlock, VisibleBlockCollection } from "../src/types";
+import { TreeComments } from "../src/tree-comments";
+import { isBlockTreeRow, type CommentGroupRow } from "../src/tree-rows";
 
 const timestamp = "2026-08-24T00:00:00.000Z";
 
@@ -939,4 +941,23 @@ test('attention opens only matching paths and manual collapse takes precedence',
   expect((await project(new Set(['occurrence:attention:ticket']))).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket']);
   attention.properties[1]!.value='resolved';
   expect((await project()).rows.map(r=>r.canonicalId)).toEqual(['attention','ticket']);
+});
+
+test('a comment the view asks to expand for opens its Comments group, and a collapse of that group sticks (PIE-1698)', async () => {
+  const view=visibleBlock('attention',[
+    {key:'type',value:'virtual-branch'}, {key:'query',value:'fixture=card'},
+    {key:'expanded',value:'false'}, {key:'child-depth',value:'2'}, {key:'expand-when',value:'type=annotation priority=high'},
+  ]);
+  const root=visibleBlock('ticket',[],{hasChildren:true});
+  const note=visibleBlock('note',[],{parentId:root.id,hasChildren:true});
+  const matched=visibleBlock('comment',[{key:'type',value:'annotation'},{key:'priority',value:'high'}],{parentId:note.id});
+  const physical=[view,root,note,matched];
+  const {rows}=await projectVirtualBranches([view],physical,async()=>complete([root]),[],{collapsedBlockIds:new Set(),collapsedOccurrenceRowIds:new Set(),multilineExpandedRowIds:new Set()});
+  const comments=new TreeComments();
+  const composed=comments.compose(rows);
+  const group=composed.find(row=>row.kind==='comment-group');
+  expect(group).toMatchObject({collapsed:false,threadCount:1});
+  expect(composed.map(row=>isBlockTreeRow(row)?row.canonicalId:row.kind)).toEqual(['attention','ticket','note','comment-group','comment']);
+  comments.toggle(group as CommentGroupRow);
+  expect(comments.compose(rows).find(row=>row.kind==='comment-group')).toMatchObject({collapsed:true});
 });

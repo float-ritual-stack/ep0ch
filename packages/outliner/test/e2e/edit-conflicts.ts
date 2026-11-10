@@ -10,7 +10,7 @@ async function cliUpdate(session: HerdrScenarioSession, id: string, expected?: n
     ...(expected === undefined ? [] : ["--expected", String(expected)]),
   ], {
     cwd: session.projectRoot,
-    env: { ...process.env, EP0CH_SOCKET: session.client.socketPath, EP0CH_WS: "scratch",
+    env: { ...process.env, EP0CH_SOCKET: session.client.socketPath, EP0CH_WS: session.client.outline!,
       OUTLINER_WORKSPACE_ROOT: session.projectRoot },
     stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 10_000,
   });

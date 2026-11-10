@@ -10,7 +10,7 @@ const renderedComment = "PIE281 captured comment";
 const fileComment = "PIE281 file comment";
 const result = await runHerdrScenario({
   name: "annotation-identity",
-  async prepare(root) {
+  async prepare(_project, _paths, root) {
     await writeFile(join(root, "evidence.txt"), "ORIGINAL-FILE-QUOTE\nOriginal second line");
     await writeFile(join(root, "metadata.bin"), "Available source\n\nHIDDEN-QUOTE");
   },
@@ -42,9 +42,10 @@ const result = await runHerdrScenario({
     await reveal(host.id);
     await session.waitVisible(detail, quote);
     const snapshot = await session.paneSnapshot(detail);
+    // The capture is the pane's own text (its embed drawn), not the host's source; compact chrome (PIE-385) draws no
+    // Properties row, so the pane text is checked by what the embed draws.
     assert.ok(snapshot.text.includes(quote));
-    assert.ok(snapshot.text.includes("Properties · 0 records"));
-    assert.ok(snapshot.text.includes("⌃Q close"));
+    assert.ok(snapshot.text.includes("Embedded block: Generated passage"));
     assert.ok(!host.text.includes(quote));
     const capture: RenderedSelectionCapture = {
       quote, capturedAt: new Date().toISOString(), hostBlockId: host.id,
@@ -108,7 +109,7 @@ const result = await runHerdrScenario({
     await session.client.request({ action: "move", blockId: fileSaved.block.id, expectedRevision: fileSaved.block.revision, parentId: fileHost.id, position: 0 });
     await reveal(fileSaved.block.id);
     await session.waitVisible(detail, "Stored resolution: resolved");
-    await writeFile(join(session.projectRoot, "evidence.txt"), "DIFFERENT-FILE-CONTENT\nChanged second line");
+    await writeFile(join(session.outlineRoot, "evidence.txt"), "DIFFERENT-FILE-CONTENT\nChanged second line");
     const beforeRefresh = await session.client.request<Block>({ action: "get", blockId: fileSaved.block.id });
     await session.client.request({
       action: "update", blockId: beforeRefresh.id, text: `${beforeRefresh.text}\nAnnotation refreshed`,

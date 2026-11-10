@@ -90,14 +90,18 @@ const result=await runHerdrScenario({
     const payload=await copied(()=>session.keys(tree,'c'),config);
     await session.checkpoint('narrow-complete-value');
     await terminal.write('\x1b[6~');
+    // Client grammar sits between Client protocol and Outlines folder (PIE-1228, 554da0fdd).
+    await session.keys(tree,'shift+tab');
+    await session.waitVisible(tree,'› Client grammar:');
     await session.keys(tree,'shift+tab');
     await session.waitVisible(tree,'› Client protocol:');
     const service=await session.client.request<OutlinerServiceStatus>({action:'ping'});
     await copied(()=>session.keys(tree,'c'),String(service.protocolVersion));
-    await focusField(tree,'Local database');
+    // The client's own database line is "Database" since outlines by name (PIE-530, d65c7af78).
+    await focusField(tree,'Database');
     await copied(()=>session.keys(tree,'c'),service.location!.database);
     await session.keys(tree,'escape');
-    await session.waitFor('returned to Tree',()=>session.visible(tree),frame=>!frame.includes('Workspace and connection')&&/[●○] Tree \[/u.test(frame));
+    await session.waitFor('returned to Tree',()=>session.visible(tree),frame=>!frame.includes('Workspace and connection')&&/[●○] Tree +\[/u.test(frame));
     assert.deepEqual(session.database.query('SELECT id,text,revision FROM blocks ORDER BY id').all(),baseline);
 
     // Feed the terminal clipboard payload into the real editor and verify exact persisted bytes.

@@ -34,7 +34,8 @@ const result=await runHerdrScenario({
     await session.waitVisible(tree,"PIE303 Refreshed result");
     await session.checkpoint("02-occurrence-focus-depth-and-refresh");
     await session.keys(tree,"alt+r");
-    await session.waitVisible(tree,"Revealed source PIE303 Nested query");
+    // Composed Tree's status shares a narrow column and is cut to fit: its start names the reveal.
+    await session.waitVisible(tree,process.argv.includes("--composed") ? "Revealed source PIE303" : "Revealed source PIE303 Nested query");
     await session.waitVisible(tree,"PIE303 Source folder");
     await session.checkpoint("02a-alt-r-reveals-physical-source");
     await session.keys(tree,"alt+left");

@@ -2,20 +2,22 @@ import assert from 'node:assert/strict';
 import type {Block} from '../../src/types';
 import {runHerdrScenario} from './herdr-runner';
 
-// A patch that loses a race is a proposal beside its note (PIE-725): Detail draws it as an embed after
-// the note's last line, the note's text and revision stay, a retry is deduped, and a dismissal takes it away.
+// A patch that loses a race is refused so its agent rereads and retries (PIE-1125, d7dfa9fc2); one sent as a
+// suggestion (propose: true) is a proposal beside its note (PIE-725): Detail draws it as an embed after the note's
+// last line, the note's text and revision stay, a resend is deduped, and a dismissal takes it away.
 const result=await runHerdrScenario({name:'proposals-beside',async prepare(){},async run(s){
  const terminal=await s.attachClient();await terminal.resize(200,70);
  const note=await s.client.request<Block>({action:'create',text:'SOWING GUIDE\nhost-marker-line\nSow the beans   in May.\nlast-line-of-guide'});
  const at=note.text.indexOf('beans   in May');
- const patch=(actorId:string,replacement:string)=>s.client.request<{outcome:string;proposalId?:string;deduped?:boolean;beside?:string}>({action:'draft.patch',blockId:note.id,revision:note.revision,
+ const patch=(actorId:string,replacement:string,propose?:true)=>s.client.request<{outcome:string;proposalId?:string;deduped?:boolean;beside?:string}>({action:'draft.patch',blockId:note.id,revision:note.revision,...(propose?{propose}:{}),
   mutation:{author:'agent',actorId},patches:[{observed:'beans   in May',replacement,range:{start:at,end:at+'beans   in May'.length},unit:'utf16'}]});
  assert.equal((await patch('fern','beans in late May')).outcome,'applied');
- const lost=await patch('moss','beans in May');
+ await assert.rejects(patch('moss','beans in May'),/changed since you read it/);
+ const lost=await patch('moss','beans in May',true);
  assert.equal(lost.outcome,'proposed');assert.equal(lost.beside,note.id);
  const won=await s.client.request<Block>({action:'get',blockId:note.id});
  assert.ok(!won.text.includes(lost.proposalId!));
- const again=await patch('moss','beans in May');
+ const again=await patch('moss','beans in May',true);
  assert.equal(again.proposalId,lost.proposalId);assert.equal(again.deduped,true);
  const detail=(await s.registrations()).find(c=>c.runtime?.paneId===s.panes.detail)!;
  const tree=(await s.registrations()).find(c=>c.runtime?.paneId===s.panes.tree)!;

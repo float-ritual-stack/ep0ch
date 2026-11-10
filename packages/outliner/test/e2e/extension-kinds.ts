@@ -6,11 +6,12 @@ import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { runHerdrScenario } from "./herdr-runner";
 
-let projectRoot = "";
+// The host reads an outline's extensions from the outline's own folder (its workspace root since #1402, PIE-1695).
+let outlineRoot = "";
 const result = await runHerdrScenario({
   name: "extension-kinds",
-  async prepare(root) {
-    projectRoot = root;
+  async prepare(_project, _paths, root) {
+    outlineRoot = root;
     await mkdir(join(root, "extensions"), { recursive: true });
     for (const name of ["horoscope", "fancy-horror", "moon", "tidy"]) {
       await cp(join(import.meta.dir, "../../extensions", name), join(root, "extensions", name), { recursive: true });
@@ -60,7 +61,7 @@ const result = await runHerdrScenario({
     await s.checkpoint("extension-kinds-refreshed");
 
     // The folder goes; the service drops the handler and Detail redraws the line as plain text.
-    await rm(join(projectRoot, "extensions", "horoscope"), { recursive: true, force: true });
+    await rm(join(outlineRoot, "extensions", "horoscope"), { recursive: true, force: true });
     await s.waitFor("horoscope gone from Detail", () => s.visible(s.panes.detail), (text) => !text.includes("Horoscope virgo · ran") && text.includes("Fancy Horror virgo · ran"));
     assert.equal((await s.client.request<any>({ action: "get", blockId: note.id })).text, note.text);
     await s.checkpoint("extension-kinds-removed");

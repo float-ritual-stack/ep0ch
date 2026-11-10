@@ -5,6 +5,8 @@ import {runHerdrScenario} from "./herdr-runner";
 
 const result=await runHerdrScenario({
   name:"tree-breadcrumbs",layout:process.argv.includes("--composed") ? "composed" : "separate",
+  // The breadcrumb strip is full chrome; compact (the default since PIE-385, 254fb52ae) has none.
+  uiConfig:{chrome:{tree:"full"}},
   async prepare(){},
   async run(s){
     const terminal=await s.attachClient();await terminal.resize(process.argv.includes("--composed") ? 320 : 130,process.argv.includes("--composed") ? 16 : 30);
@@ -18,6 +20,9 @@ const result=await runHerdrScenario({
     const top=await create("304 Deep root\n[fixture::deep]");
     let parent=top;
     for(let i=1;i<=2;i++) parent=await create(`304 Level ${i} readable title`,parent.id);
+    // Tree's local Preview (cb876c3da) takes half of this short pane; the strip and the rows need it back.
+    await s.keys(tree,"escape");
+    await s.waitFor("Tree's Preview closed",()=>s.visible(tree),frame=>!frame.includes("○ Preview"));
     await s.setKeybindings({"tree.root.focus":["Alt+F"],"tree.breadcrumb.left":["Alt+J"],"tree.breadcrumb.right":["Alt+K"]});
     await s.keys(tree,"ctrl+r");await s.waitVisible(tree,"Keymap and bars reloaded");
     await s.revealTree(tree,hub.id);

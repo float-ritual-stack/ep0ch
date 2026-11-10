@@ -18,7 +18,10 @@ const composed = process.argv.includes("--composed");
 const result = await runHerdrScenario({
   name: `navigation-flow${composed ? "-composed" : ""}`,
   layout: composed ? "composed" : "separate",
-  async prepare(root) {
+  // The persistent "Opens in:" header is full chrome; compact (the default since PIE-385, 254fb52ae) leaves it out.
+  uiConfig: {chrome: {tree: "full", detail: "full"}},
+  // A relative [file::…] is read from the outline's own folder (PIE-1695).
+  async prepare(_project, _paths, root) {
     await writeFile(join(root, "view-events.txt"), Array.from({length: 60}, (_, index) => `VIEW EVENT LINE ${index + 1}`).join("\n"));
   },
   async run(s) {

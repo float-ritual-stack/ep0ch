@@ -34,8 +34,10 @@ const result = await runHerdrScenario({name:'compact-chrome', async prepare(){},
     await terminal.write(`\x1b[<0;${column+2};${row+1}M\x1b[<0;${column+2};${row+1}m`);
   };
   await click('[View]');
-  await s.waitVisible(s.panes.detail,'Detail chrome');
+  // The View menu holds View and System actions (reader-chrome.ts), more than one screen: Find narrows it.
+  await s.waitFor('View menu open',()=>s.visible(s.panes.detail),f=>f.includes('Find:')&&f.includes('View ·'));
   await s.text(s.panes.detail,'Detail chrome');
+  await s.waitVisible(s.panes.detail,'View · Detail chrome');
   await s.keys(s.panes.detail,'enter');
   await s.waitFor('full Detail chrome',()=>s.visible(s.panes.detail),f=>f.includes('Opens in:')&&!f.includes('Find:'));
   await s.checkpoint('02-expanded-detail');
