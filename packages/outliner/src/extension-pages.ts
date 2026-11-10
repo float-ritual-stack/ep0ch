@@ -49,6 +49,8 @@ interface PagesState {
   pages: Record<string, { block: string; name: string }>;
   /** Extension id → the demo notes written for it, by their key in the demo. */
   demos: Record<string, { at: string; notes: Record<string, Seeded> }>;
+  /** Extension id → what the host did for it that the person should hear of (`tell`), written under its page once it has one. */
+  notices?: Record<string, string[]>;
 }
 
 /** The shell command that installs one of the repo's extensions: the one place it's spelled (the door and the hub page say it from here). */
@@ -294,7 +296,7 @@ export class ExtensionPages {
     try {
       const raw = this.store.readMetadata(STATE_KEY);
       const parsed = raw ? JSON.parse(raw) as Partial<PagesState> : {};
-      return { ...(parsed.hub ? { hub: parsed.hub } : {}), pages: parsed.pages ?? {}, demos: parsed.demos ?? {} };
+      return { ...(parsed.hub ? { hub: parsed.hub } : {}), pages: parsed.pages ?? {}, demos: parsed.demos ?? {}, ...(parsed.notices ? { notices: parsed.notices } : {}) };
     } catch {
       return { pages: {}, demos: {} };
     }
@@ -314,6 +316,17 @@ export class ExtensionPages {
   /** The hub, when there is one. */
   hub(): string | undefined {
     return this.live(this.read().hub)?.id;
+  }
+
+  /**
+   * A note the host leaves under extension `id`'s page, once (PIE-1705): what it did for the extension that the person
+   * should hear of where they look, beside the page that says what the extension is (an old outline's seeded notes
+   * adopted into a kit). Kept until the next sync writes the page, so one said before the page exists still lands.
+   */
+  tell(id: string, text: string): void {
+    const state = this.read();
+    (state.notices ??= {})[id] = [...(state.notices[id] ?? []), text];
+    this.write(state);
   }
 
   /** Each extension's page, by id. */
@@ -462,6 +475,9 @@ export class ExtensionPages {
           else if (page.text !== text) page = this.store.update(page.id, text, page.revision, PAGE_WRITER, "text", [], page.updatedAt);
           state.pages[entry.id] = { block: page.id, name: loaded?.name ?? entry.name ?? entry.id };
           if (demo.notes.length) this.seed(state, entry.id, page.id, demo, now);
+          // What the host told of it, first under its page, once.
+          for (const notice of state.notices?.[entry.id] ?? []) this.store.create(notice, page.id, "agent", PAGE_WRITER, { position: 0 });
+          if (state.notices?.[entry.id]) { delete state.notices[entry.id]; if (!Object.keys(state.notices).length) delete state.notices; }
         });
         // An extension gone: its page stays while something is under it (demo notes kept, or the person's), else it goes.
         const present = new Set(installed.map(({ entry }) => entry.id));
