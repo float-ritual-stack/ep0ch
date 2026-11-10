@@ -13,7 +13,7 @@ import { EditConflict, RECORDED_AS, recordedAnswer, type Actor } from "../socket
 import { askInBar, changedQuestionValue } from "../bar/ask";
 import { ActionRefused, def } from "./actions";
 import { PropertyPanel } from "./props-panel";
-import { SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import { resettable, SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { modeBinding, modeActionKeys } from "./modes";
 import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
 import { partyOf } from "../steps";
@@ -474,7 +474,7 @@ export const SETTINGS_DEFS = {
     async run({ list }, on: On, actor) {
       const subject = await read(on, list);
       if (!subject.ext) throw new ActionRefused("settings.reset is an extension's (its page's settings card) · x clears one field of a note's");
-      const set = subject.ext.settings.fields.filter(f => f.state === "set").map(f => f.name);
+      const set = resettable(subject.fields);
       if (!set.length) throw new ActionRefused(`${subject.schemas[0]!.title}'s settings are all their defaults already`);
       return extWrite(on, subject, set[0]!, { unset: set.join(",") }, actor, `every setting back to its default: ${set.join(", ")}`);
     },

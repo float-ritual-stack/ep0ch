@@ -34,6 +34,13 @@ export interface SettingField { n: number; prop: PropSchema; value: string | nul
   /** An extension's setting (PIE-1709): its state as the service says it (set, its default, unset, missing), and its try. */
   ext?: ExtensionCardField }
 
+/**
+ * What `[↺ all]` and `settings.reset` put back (PIE-1709): an extension's settings that are set, never a secret's
+ * reference or a whole config (reset keeps those). The one answer the card's chip and the action both ask.
+ */
+export const resettable = (fields: readonly SettingField[]): string[] =>
+  fields.filter(f => f.ext?.state === "set" && !f.ext.secret && !(f.prop.key === "config" && f.ext.whole)).map(f => f.prop.key);
+
 /** A value being typed in the card, in place (PIE-1709): an extension's setting, one line in the shared editor. */
 export interface CardEdit { key: string; input: LineField; session: DraftSession }
 
@@ -224,7 +231,7 @@ export class SettingsCard {
     this.rect = { row, col, cols: w, rows: h };
     const chip = `[${this.place} ▸]`, left = Math.max(0, w - width(chip));
     // An extension's card resets every setting at once (PIE-1709): `[↺ all]` beside where it sits.
-    const all = fields.some(f => f.ext?.state === "set") ? RESET_ALL : "";
+    const all = resettable(fields).length ? RESET_ALL : "";
     this.resetAll = all ? { x0: left - width(all) - 1, x1: left - 1 } : null;
     const lines = [pad("Settings", Math.max(0, left - (all ? width(all) + 1 : 0))) + (all ? fg(C.lcyan) + all + RESET + " " : "") + fg(C.lcyan) + chip + RESET, ...this.render(fields, w, h - 1, revision)];
     // A card that is its tile (the settings screen's, PIE-1709) fills it: the note's body isn't drawn under it.

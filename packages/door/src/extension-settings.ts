@@ -257,12 +257,12 @@ export function extensionCardSchema(e: ExtensionEntry, s: ExtensionSettings): Co
 }
 
 /** One field of an extension's card: its value as it reads (a command as one shell line), its state, and its try. */
-export interface ExtensionCardField { value: string | null; state: ExtensionSettingField["state"] | "missing" | "set"; tries?: string; secret?: true }
+export interface ExtensionCardField { value: string | null; state: ExtensionSettingField["state"] | "missing" | "set"; tries?: string; secret?: true; whole?: true }
 
 /** Each card field's value and state, in the schema's order (`extensionCardSchema`'s props). */
 export function extensionCardValues(e: ExtensionEntry, s: ExtensionSettings): Map<string, ExtensionCardField> {
   const out = new Map<string, ExtensionCardField>();
-  if (s.whole) out.set("config", { value: JSON.stringify(s.config), state: Object.keys(s.config).length ? "set" : "default" });
+  if (s.whole) out.set("config", { value: JSON.stringify(s.config), state: Object.keys(s.config).length ? "set" : "default", whole: true });
   for (const f of s.fields) {
     const tries = triesOf(e, f.name);
     out.set(f.name, { value: f.value !== undefined ? shownValue(f, f.value) : null, state: f.state, ...(tries ? { tries } : {}) });
