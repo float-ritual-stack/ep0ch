@@ -40,7 +40,9 @@ In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_fi
 `outline_patch`, `outline_proposal_apply`/`outline_proposal_dismiss`, `outline_create`, `outline_assign_id`,
 `outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, `outline_proposals`, `script_run`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
-`door_act`, `door_open`. Every tool that names a note takes it as `ref` (`id`, `reference`, `block`, `blockId`, `uri`, `note` are accepted; two that disagree are refused, so pass one), and a wrong call comes back with the tool's arguments and a call that works. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
+`door_act`, `door_open`. Over MCP (`ep0ch mcp`, the claude.ai connector) a write names its note as `ref` (in `outline`) or `uri`;
+`outline_create` takes `ref: "root"` for a new top-level note, and an applied create or patch answers with `revision`,
+the one the next `outline_patch` passes, so starting a note and refining it is two calls. Every tool that names a note takes it as `ref` (`id`, `reference`, `block`, `blockId`, `uri`, `note` are accepted; two that disagree are refused, so pass one), and a wrong call comes back with the tool's arguments and a call that works. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
 `ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod; `ep0ch show <id> --markdown` is
 the text with each live figure's rows under it as Markdown, as the door's `Y` copies a page. `ep0ch find --query

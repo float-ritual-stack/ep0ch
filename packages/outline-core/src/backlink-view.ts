@@ -38,6 +38,23 @@ export function backlinkReferenceLabel(group: BacklinkReferenceGroup): string {
   return `${label}${group.fragmentId ? ` ^${group.fragmentId}` : ""} ×${group.count}`;
 }
 
+/**
+ * A row's dim suffix, as Detail and the door draw it: stage, resolved, this note, `where` (the line that links here and
+ * its anchor, PIE-884), the breadcrumb, Trash, then each reference kind ×N.
+ */
+export function backlinkRowSuffix(source: BacklinkSource, where = ""): string {
+  const facets = source.facets;
+  return [
+    ...(facets?.stage ? [facets.stage.value] : []),
+    ...(facets?.comment?.resolved ? ["resolved"] : []),
+    ...(facets && facets.placement !== "other" ? [facets.placement === "self" ? "this note" : "inside this note"] : []),
+    ...(where ? [where] : []),
+    source.parentContext,
+    ...(source.deletedRootId ? ["Trash"] : []),
+    ...source.referenceGroups.map(backlinkReferenceLabel),
+  ].join(" · ");
+}
+
 export type BacklinkOccurrence =
   | { kind: "block" | "page" | "work-id"; fragmentId?: string; label: string; snippet: string; start: number; end: number }
   | { kind: "property"; propertyKey: string; label: string; snippet: string; start: number; end: number };

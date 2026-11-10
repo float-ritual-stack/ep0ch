@@ -236,7 +236,7 @@ function namedOutline(input: unknown): NamedOutline | { error: string; kind?: Re
  * naming another is refused); a ref is in `outline`'s, resolved there by the Claude mod's resolver (an id, ((id)),
  * [[page]] or Work ID), once the outline's access lets this caller read it. `refs: false`: a URI only (resources/read).
  */
-async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true, how?: { write?: boolean }): Promise<McpBoard & { id: string; uri: string } | { error: string; kind?: RefusalKind }> {
+async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true, how?: { write?: boolean; root?: boolean }): Promise<McpBoard & { id: string; uri: string } | { error: string; kind?: RefusalKind }> {
   if (typeof input !== "string" || !input.trim()) return { error: refs ? "Give ref (a block id, ((id)), [[page]] or Work ID) or uri (an ep0ch:// block URI)." : "Give uri: an ep0ch:// block URI." };
   const text = input.trim();
   const which = namedOutline(outlineInput);
@@ -258,6 +258,8 @@ async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInpu
   // Nothing is looked up in an outline this caller may not read, not even whether a page or Work ID exists.
   const status = await requireReadAccess(outlines, served);
   if ("error" in status) return status;
+  // `root` is the top level for a tool that makes a note under a parent, as applyWrite and the mod read it (PIE-1704).
+  if (how?.root && text === "root") return { ...served, id: "root", uri: `ep0ch://${served.board.address.outline}@${served.board.address.machine}` };
   let id: string;
   try { id = (await resolveBoardRef(served.board, text)).id; }
   catch (e) { return { error: `${(e as Error).message} (in ${served.board.address.outline}@${served.board.address.machine})`, kind: refusalKindOf(e) }; }
@@ -1233,16 +1235,17 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
     } catch (e) { return toolError((e as Error).message, e); }
   }
-  const target = await addressedBlock(outlines, refArg(args), args.outline, true, { write: true });
+  const target = await addressedBlock(outlines, refArg(args), args.outline, true, { write: true, root: tool === "outline_create" });
   if ("error" in target) return toolError(target.error, target.kind);
   const { board } = target;
+  const top = tool === "outline_create" && target.id === "root";
   const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level), "no-access");
   // The gate (outliner src/write-gate.ts) says what this write becomes; applyWrite asks it again where the write lands.
-  const decided = gate({ tool, level: status.level, where: gateWhere(outlines, target), top: tool === "outline_create" && target.id === "root" });
+  const decided = gate({ tool, level: status.level, where: gateWhere(outlines, target), top });
   if (decided.becomes === "refused") return toolError(decided.why!, "no-access");
   // A trashed note has no record in a read; outline_restore is about one, and outline_trash on one answers unchanged.
-  const found = (await board.records([target.id])).records.find(r => r.id === target.id);
+  const found = top ? { id: "root", text: "", revision: undefined } : (await board.records([target.id])).records.find(r => r.id === target.id);
   if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`, "unavailable");
   const record = found ?? (tool === "outline_restore" || (tool === "outline_trash" && !target.home) ? { id: target.id, text: "", revision: undefined } : undefined);
   if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`, "not-found");
@@ -1302,9 +1305,10 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       return queue(target.queuedFor, board.outlineInstanceId ?? null, why, { source: "live", asOf: target.served.asOf, ageMinutes: 0 }, liveId);
     }
     // Kept with the queued writes: a read that falls back to the mirror lays it over the note until the copy catches up.
+    // The revision of the note the write left at `uri` (a new block's, or the edited note's): the next patch's, with no read between (PIE-1704).
+    const d = done.detail as { edits?: { blockId: string; revision?: number }[]; revision?: number } | undefined;
+    const revision = d?.edits?.find(e => e.blockId === target.id)?.revision ?? (tool === "outline_create" ? d?.revision : undefined);
     if (target.queuedFor && outlines.netmail) {
-      const d = done.detail as { edits?: { blockId: string; revision?: number }[]; revision?: number } | undefined;
-      const revision = d?.edits?.find(e => e.blockId === target.id)?.revision ?? (tool === "outline_create" ? d?.revision : undefined);
       try {
         outlines.netmail.live({
           machine: target.queuedFor, outline: where.outline, uri: target.uri, blockId: target.id, tool, input, revision: shape.revision ?? null,
@@ -1317,7 +1321,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     const reading = writeReading(done.detail);
     // The drawing is said once, beside the warnings (writeReading), not again in detail.
     const detail = done.detail && typeof done.detail === "object" && ("view" in done.detail || "viewError" in done.detail) ? (({ view: _v, viewOf: _o, viewError: _e, ...rest }) => rest)(done.detail as Record<string, unknown>) : done.detail;
-    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), ...reading.fields, said: `${done.said}${reading.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail });
+    return toolText({ outcome: done.outcome, uri: done.uri, ...(done.outcome === "applied" && revision !== undefined ? { revision } : {}), by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), ...reading.fields, said: `${done.said}${reading.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message, e);

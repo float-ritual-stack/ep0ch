@@ -2983,27 +2983,12 @@ export class ResourceCatalog {
         }
         return this.describe(snapshot.resource.id, destinationHostRegistered);
       }
-      if (!response.ok) {
-        await cancelResponseBody(response);
-        throw new ResourceCatalogError(
-          "source-unavailable",
-          `Web provider returned HTTP ${response.status}`,
-        );
-      }
+      if (!response.ok) { await cancelResponseBody(response); throw new ResourceCatalogError("source-unavailable", `Web provider returned HTTP ${response.status}`); }
       const mediaType = responseMediaType(response);
       const route = webMediaRoute(mediaType);
       if (route !== "page") await cancelResponseBody(response);
-      if (route === "pdf") {
-        // A PDF from then on: the Resource reads through the PDF path a file uses, and asks for a PDF (PIE-1702).
-        this.database.transaction(() => {
-          this.assertWebRefreshCurrent(snapshot.resource, snapshot.generation);
-          this.database.query(`
-            UPDATE resources SET media_type = ?, version = version + 1, updated_at = ? WHERE id = ?
-          `).run(WEB_PDF_MEDIA_TYPE, checkedAt, snapshot.resource.id);
-          this.bumpSequence();
-        })();
-        return "pdf";
-      }
+      // A PDF from then on: it reads through the PDF path a file uses, and asks for a PDF (PIE-1702).
+      if (route === "pdf") { this.database.transaction(() => { this.assertWebRefreshCurrent(snapshot.resource, snapshot.generation); this.database.query("UPDATE resources SET media_type = ?, version = version + 1, updated_at = ? WHERE id = ?").run(WEB_PDF_MEDIA_TYPE, checkedAt, snapshot.resource.id); this.bumpSequence(); })(); return "pdf"; }
       if (route !== "page") throw new ResourceCatalogError("invalid-input", route.refused);
       const declaredLength = Number(response.headers.get("content-length"));
       if (Number.isFinite(declaredLength) && declaredLength > this.maximumWebBytes) {

@@ -1,21 +1,50 @@
-// Detail keeps its place through a long edit and a saved reply (PIE-1703): PgUp and PgDn page the editor by its drawn
-// height, and a reply saved under a comment stays in view with its thread open, without `]` to find it again.
-// PgUp/PgDn go through the attached terminal as a terminal sends them.
+// The sysop console without dead ends: a [web::…pdf] reads as a PDF in Detail (PIE-1702); Detail keeps its place
+// through a long edit and a saved reply (PIE-1703): PgUp and PgDn page the editor by its drawn height, and a reply
+// saved under a comment stays in view with its thread open, without `]` to find it again. PgUp/PgDn go through the
+// attached terminal as a terminal sends them; the PDF is served by a local HTTP server. Made-up notes throughout.
 import assert from "node:assert/strict";
-import type { AnnotationThread, Block } from "../../src/types";
+import { createServer } from "node:http";
+import type { AnnotationThread, Block, InternResourceReceipt } from "../../src/types";
+import { createPdfFixture } from "../pdf-fixture";
 import { runHerdrScenario } from "./herdr-runner";
 
 const PAGE_DOWN = "\x1b[6~", PAGE_UP = "\x1b[5~";
 const rows = Array.from({ length: 90 }, (_, index) => `Furrow ${String(index + 1).padStart(2, "0")} of the long bed`);
 
 const result = await runHerdrScenario({
-  name: "detail-reply-paging",
+  name: "detail-console-gaps",
   async prepare() {},
   async run(s) {
     const terminal = await s.attachClient();
     await terminal.resize(160, 40);
-    const note = await s.client.request<Block>({ action: "create", parentId: null, text: `Long bed notes\n\n${rows.join("\n")}` });
     const tree = s.panes.tree, detail = s.panes.detail;
+
+    // A [web::…pdf] reads its text in Detail, as a [file::…pdf] does.
+    const paper = createPdfFixture([{ width: 300, height: 400, lines: [{ text: "Compost turns in nine weeks", x: 36, y: 350 }] }]);
+    const server = createServer((_request, response) => {
+      response.setHeader("content-type", "application/pdf");
+      response.end(paper);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      const url = `http://127.0.0.1:${address.port}/compost.pdf`;
+      await s.client.request<Block>({ action: "create", parentId: null, text: `Compost paper [web::${url}]` });
+      const { resource } = await s.client.request<InternResourceReceipt>({ action: "resources.follow-authored", reference: { kind: "web", url } });
+      const treeClient = (await s.registrations()).find(c => c.role === "tree")!;
+      await s.client.request({ action: "navigation.dispatch", sourceClientId: treeClient.clientId, target: { kind: "resource", resourceId: resource.id }, intent: "open" });
+      await s.focus(detail);
+      await s.waitFor("Detail opened the web PDF", () => s.visible(detail), frame => frame.includes("compost.pdf") || frame.includes("Compost"));
+      await s.keys(detail, "r");
+      const read = await s.waitVisible(detail, "Compost turns in nine weeks");
+      assert.ok(!read.includes("unsupported media type"), "The PDF is read, not refused");
+      await s.checkpoint("00-web-pdf-read");
+    } finally {
+      server.close();
+    }
+
+    const note = await s.client.request<Block>({ action: "create", parentId: null, text: `Long bed notes\n\n${rows.join("\n")}` });
     await s.revealTree(tree, note.id);
     await s.keys(tree, "enter");
     await s.waitVisible(detail, "Furrow 01 of the long bed");
