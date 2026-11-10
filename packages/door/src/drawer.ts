@@ -1232,12 +1232,12 @@ export class AgentDrawer {
     if (!d) return [];
     // Leaving asked first (keepRefusal): one the drawer still refuses ends with the screen, and is said with why.
     const took: string[] = [], panes: Pane[] = [], ended: string[] = [];
-    for (const m of moved) {
+    for (const m of [...moved].sort(/* a name free here first: a clash renames only the tile that clashes (PIE-1679) */ (a, b) => Number(d.freeName(a.name) !== a.name) - Number(d.freeName(b.name) !== b.name))) {
       const why = d.bringRefusal(m, undefined, "tabs", { kind: "agent", id: "door" });
       if (why) { ended.push(`${m.name} (${why})`); continue; }
       took.push(d.bringIn(m, undefined, "tabs", { kind: "agent", id: "door" }).name as string); panes.push(m.pane);
     }
-    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer · alt+a shows ${took.length === 1 ? "it" : "them"}${ended.length ? ` · ended with the screen: ${ended.join(", ")}` : ""}`, 8000);
+    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer${moved.some(m => m.kept && panes.includes(m.pane)) ? " · an undo's leftovers in its kept dock" : ""} · alt+a shows ${took.length === 1 ? "it" : "them"}${ended.length ? ` · ended with the screen: ${ended.join(", ")}` : ""}`, 8000);
     else if (ended.length) this.host.flash(`ended with the screen: ${ended.join(", ")}`, 8000);
     if (took.length) this.host.redraw();
     return panes;

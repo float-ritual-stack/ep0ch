@@ -738,7 +738,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private autoName(kind: string): string { return autoName(this.layout, kind, [...this.otherNames(), ...[...this.specTiles].filter(([, id]) => this.panes.has(id)).map(([slot]) => slot)]); }
   private otherNames(): string[] {
     const host = this.ctx?.hostLayer;
-    return (host?.desks() ?? []).filter(d => host!.isDrawer(d.top()) !== host!.isDrawer(this.top())).flatMap(d => d.descend().flatMap(part => [...part.names.values()]));
+    return (host?.desks() ?? []).filter(d => !d.disposed /* going for good: its tiles keep their names here (PIE-1679) */ && host!.isDrawer(d.top()) !== host!.isDrawer(this.top())).flatMap(d => d.descend().flatMap(part => [...part.names.values()]));
   }
   private reconcileNames() {
     for (const id of this.all()) this.bindFollows(id, this.panes.get(id)!);
@@ -1944,7 +1944,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const host = this.ctx?.hostLayer, given = new Set(this.adopts ? [] : this.given.values());
     const keep = host ? this.carried(given) : [];
     if (keep.length) {
-      const kept = host!.keep(keep.map(([id, p]) => ({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false })));
+      const kept = host!.keep(keep.map(([id, p]) => ({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false, ...(docks(this.root).some(x => x.keeps && leaves(x.kid).includes(id)) ? { kept: true as const } : {}) })));
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
@@ -7595,16 +7595,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Where a tile moved here would land: beside `to` (the person's tile when left out), `where` (into the tabs of `to` here when this screen is the drawer). */
-  private landingFor(to: string | undefined, where: Where | undefined, floating?: Rect): { at: At<number>; base: string; where: Where } {
-    if (floating) return { at: { kind: "float", rect: floating }, base: "glass", where: "right" };
+  private landingFor(to: string | undefined, where: Where | undefined, floating?: Rect, kept?: boolean): { at: At<number>; base: string; where: Where } {
+    if (floating || (kept && this.all().length)) return floating ? { at: { kind: "float", rect: floating }, base: "glass", where: "right" } : { at: { kind: "kept" }, base: "kept", where: where ?? "tabs" };
     if (!this.all().length) return { at: { kind: "edge", dir: "right" }, base: "home", where: "right" };
     const base = this.tile(to), w = where ?? (this.ctx?.hostLayer?.isDrawer(this) ? "tabs" : "right");
     return { at: placeOf(w, base.id), base: base.name, where: w };
   }
   /** Why `moved` (a pane with no layout to leave: a new one, a screen's leftovers) can't come into this screen there, or null. */
-  bringRefusal(moved: { name: string; spec: TileSpec }, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): string | null {
+  bringRefusal(moved: { name: string; spec: TileSpec; kept?: true }, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): string | null {
     let l: ReturnType<Desk["landingFor"]>;
-    try { l = this.landingFor(to, where, floating); } catch (e) { return (e as Error).message; }
+    try { l = this.landingFor(to, where, floating, moved.kept); } catch (e) { return (e as Error).message; }
     return refusal(this.layout, { op: "open", tile: this.nextId, kind: moved.spec.kind, name: this.freeName(moved.name), at: l.at }, this.layoutCtx(actor));
   }
   /** `base`, else `base2` …: the name a tile arriving here takes, by the carry's one rule (`freeName`), the drawer's names counted. */
@@ -7614,7 +7614,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * goes): by the layout's open, under a free name. Tiles that leave a layout go by `carry`.
    */
   bringIn(moved: MovedTile, to: string | undefined, where: Where | undefined, actor: Actor, floating?: Rect): TileDone {
-    const l = this.landingFor(to, where, floating), kind = moved.spec.kind;
+    const l = this.landingFor(to, where, floating, moved.kept), kind = moved.spec.kind;
     const r = this.ask({ op: "open", tile: this.nextId, kind, name: this.freeName(moved.name), deliberate: moved.pane.deliberate ?? false, ...(floating ? { keys: false as const } : {}), at: l.at }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     return this.carryIn(moved, { ok: true, from: r, to: r, name: moved.name, travels: {}, dropped: [], keys: false }, l);
@@ -8179,7 +8179,7 @@ export interface TileLine {
   mode?: "follows" | "held" | "pinned";
 }
 
-export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[] }
+export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; kept?: true }   // kept: from its screen's dock that keeps work, so into the one there (PIE-1679)
 /** The tiles a carried tile was the opener of (`openedFrom`), by identity: an opener that comes back gets them back. */ const keysOwed = new WeakMap<Pane, { child: Pane; typing: boolean }[]>();
 /** How a tile is carried (`Desk.carry`): beside `to`, `where` it; or `floating` there (the glass, no keys); `heir` takes its place. */
 export interface CarryHow { to?: string; where?: Where; floating?: Rect; heir?: Pane }
