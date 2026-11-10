@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A choice left to Evan is a box he can tick (PIE-1657)
+
+- **The write review answers fix for a choice he can only read:** a `::graph-decision` whose `status:` is still open (proposed, open, pending…), or a `[needs::sysop…]` on a note with no open box. Its ready patch puts one `- [ ]` per option at the top and marks the note `[needs::sysop: …]`; ticked, the choice is answered.
+- **Agents are told where they write:** outline_create, outline_edit and outline_patch, the outline guide and the ep0ch-outline skill say a proposed decision isn't a question he can answer.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
 ### A note's comments read at any width, and a comment's title keeps the chips it quotes (PIE-1572, PIE-1596)
 
 - **The BBS reader has a `[+]` for a folded whole-note comment** (PIE-1572): after its header, wrapping to a row of its own in a narrow tile. Before, "as marks" and a comment put away as seen left no way to it by mouse there; the reader's title already had one.

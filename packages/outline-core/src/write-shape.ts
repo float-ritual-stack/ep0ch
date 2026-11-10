@@ -543,9 +543,13 @@ function choiceFinding(text: string, lines: readonly string[], title: number): S
       ...(patch ? { patch } : {}),
     };
   }
-  if (!needs || boxed.length) return undefined;
+  // Put to him: an open box anywhere, or one he ticked at the top (answered there, the chip isn't asked again).
+  const open = lines.some(l => /^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[ \]/.test(l));
+  let seen = 0;
+  const tickedTop = lines.some((l, i) => i > title && l.trim() && ++seen <= SHAPE_LIMITS.topLines && BOX_LINE.test(l) && answeredBox(l));
+  if (!needs || open || tickedTop) return undefined;
   const words = needs.value.trim().replace(/^sysop\b[\s:—–-]*/i, "").trim();
-  const patch = words ? boxesPatch(lines, title, [/[.?!]$/.test(words) ? words : `${words}?`]) : undefined;
+  const patch = words ? boxesPatch(lines, title, [words]) : undefined;
   return {
     rule: "choice", key: `choice:needs:${excerpt(words, 40)}`, line: needs.line + 1,
     say: `line ${needs.line + 1} marks the note \`[needs::sysop…]\` but gives Evan nothing to tick: put the decision at the top as an open checkbox, \`- [ ] …\`${patch ? " (the patch does, from the chip's words)" : ""}`,

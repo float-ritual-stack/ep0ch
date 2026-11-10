@@ -579,10 +579,16 @@ test("a [needs::sysop: …] with no open box answers fix with its words as a box
   const choice = writeShape(note).find(f => f.rule === "choice")!;
   expect(choice.say).toContain("- [ ]");
   const fixed = apply(note, choice.patch!);
-  expect(fixed.split("\n").slice(0, 4)).toEqual(["Shed roof [type::review] [needs::sysop: felt or tin for the shed roof]", "", "- [ ] felt or tin for the shed roof?", ""]);
+  expect(fixed.split("\n").slice(0, 4)).toEqual(["Shed roof [type::review] [needs::sysop: felt or tin for the shed roof]", "", "- [ ] felt or tin for the shed roof", ""]);
   expect(writeShape(fixed).map(f => f.rule)).not.toContain("choice");
   // A box anywhere answers it; a bare needs with no words still says what to do, with no patch to guess.
   expect(writeShape(`${note}\n\n- [ ] Felt, or tin?`).map(f => f.rule)).not.toContain("choice");
+  // A work item whose steps are all done still asks him: only an open box, or one ticked at the top, answers the chip.
+  const item = "PIE-77 — Mend the shed roof [type::roadmap-item] [needs::sysop: run the roof check once]\n\nThe felt tore in the storm.\n\nThe new roll came on Friday.\n\n## Steps\n\n- [x] Buy the felt\n- [x] Cut it to size";
+  expect(writeShape(item).map(f => f.rule)).toContain("choice");
+  expect(apply(item, writeShape(item).find(f => f.rule === "choice")!.patch!)).toContain("\n\n- [ ] run the roof check once\n");
+  const ticked = apply(item, writeShape(item).find(f => f.rule === "choice")!.patch!).replace("- [ ] run", "- [x] run");
+  expect(writeShape(ticked).map(f => f.rule)).not.toContain("choice");
   const bare = writeShape("Shed roof [needs::sysop]\n\nThe old felt tore.").find(f => f.rule === "choice")!;
   expect(bare.patch).toBeUndefined();
 });
