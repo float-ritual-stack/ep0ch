@@ -548,7 +548,8 @@ export function levelTarget(level: StyleLevel, place: StylePlace): string | null
 
 /** A list item's line: `- `, `* `, `+ `, `1. ` or `1) `, at any indent. */
 export const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
-const HEADING_LINE = /^ {0,3}#{1,6}\s/;
+/** An ATX heading's line (`# `…`###### `, up to three spaces in): the one test the door's readers ask too. */
+export const HEADING_LINE = /^ {0,3}#{1,6}\s/;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
 /** Whether a field is a list's (`list.gap`, `narrow.list.divider`): the only fields a list's own lines set. */

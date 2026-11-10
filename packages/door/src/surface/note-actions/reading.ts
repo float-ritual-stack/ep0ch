@@ -7,6 +7,7 @@ import type { Msg } from "../../board";
 import type { NoteSurface } from "../note";
 import { ActionRefused, def, type ActionDef } from "../actions";
 import { readerKeys } from "../reader-keys";
+import { HEADING_LINE } from "@ep0ch/outline-core/style-cascade";
 
 /** The fold point `text`, `line` or `n` names in the note the reader shows (the whole note, waited for). */
 export async function foldTarget(surface: NoteSurface, args: FoldArgs): Promise<FoldPoint> {
@@ -34,7 +35,7 @@ export function foldPointIn(surface: NoteSurface, m: Msg, { text, line, n }: Fol
     return p;
   }
   const want = text!.trim().replace(/^(#{1,6}|[-*]|\d+[.)])\s+/, "").replace(/\s+/g, " ").toLowerCase();
-  const heading = /^#{1,6}\s/.test(text!.trim()) ? text!.trim().match(/^#+/)![0].length : null;
+  const heading = HEADING_LINE.test(text!.trim()) ? text!.trim().match(/^#+/)![0].length : null;
   const pool = points.filter(p => heading === null || (p.kind === "heading" && p.level === heading));
   // A task's box ([ ], [x]) needn't be said.
   const reads = (p: FoldPoint) => [p.text.toLowerCase(), p.text.replace(/^\[.\]\s+/, "").toLowerCase()];

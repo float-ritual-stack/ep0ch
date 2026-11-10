@@ -54,7 +54,7 @@ import { elementEdit, ELEMENT_KEYS } from "./element-editor";
 import { savedReferenceWarning } from "../reference-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
-import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
+import { fencedLines, HEADING_LINE, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { onlyScrolled, overscrollRows, pageRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { headedTitle, subject, titleLine, type Msg } from "../board";
@@ -639,8 +639,8 @@ export class NoteSurface {
     let first = listStart(body, at);
     const code = fencedLines(body);
     if (first === null && !code.has(at) && !code.has(at + 1) && LIST_ITEM.test(body[at + 1] ?? "")) first = at + 1;
-    if (first === null && !code.has(at) && /^ {0,3}#{1,6}\s/.test(body[at] ?? "")) {
-      for (let i = at + 1; i < body.length && (code.has(i) || !/^ {0,3}#{1,6}\s/.test(body[i]!)); i++) if (!code.has(i) && LIST_ITEM.test(body[i]!) && !/^\s/.test(body[i]!)) { first = i; break; }
+    if (first === null && !code.has(at) && HEADING_LINE.test(body[at] ?? "")) {
+      for (let i = at + 1; i < body.length && (code.has(i) || !HEADING_LINE.test(body[i]!)); i++) if (!code.has(i) && LIST_ITEM.test(body[i]!) && !/^\s/.test(body[i]!)) { first = i; break; }
     }
     if (first === null) return null;
     const layers = listLayers(body, first, m.id, n => lines[n] ?? n).map(l => ({ ...l, fields: listFieldsTuned(this.src, m.id, l.line!, l.fields) }));
