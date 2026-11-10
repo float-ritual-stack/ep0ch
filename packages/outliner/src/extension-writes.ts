@@ -334,7 +334,7 @@ export class ExtensionWrites {
     }
     const attribution = this.store.changes.attribution({ action: `${receipt.action}.undo`, actor: by });
     const written = new Set<string>();
-    this.store.changes.run(attribution, () => this.store.atomically(() => {
+    this.store.changes.run(attribution, () => this.store.inTransaction(() => {
       for (const request of receipt.requests ?? []) {
         this.store.putAgentRequest(request);
         written.add(request.blockId);

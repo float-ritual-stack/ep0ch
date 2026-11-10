@@ -1800,6 +1800,12 @@ Herdr Detail split, else it says why it can't and gives the `((id))`.
 
 ```text
 src/store.ts                  SQLite block graph, property index, and symbolic-address registry
+src/tree-index-labels.ts      a tree index's per-note labels (preview, reference spans, digest), kept per outline
+src/roadmap-input.ts          what a new roadmap item may say (priority, stage, text, relationship ids)
+src/resource-catalog.ts       Resources: sources, interning, reads, refreshes, computed execution
+src/resource-rows.ts          the catalog's SQLite rows and the records they read as
+src/filesystem-source.ts      a filesystem Source's root binding, drift, rebind command and confinement
+src/http-response.ts          a fetched response's media type and body cancel (web, PDF, remote entities)
 src/page-addresses.ts         symbolic-address validation, normalization, and syntax scanning
 src/server.ts                 protocol and subscriptions
 src/client.ts                 request/watch client
@@ -1820,6 +1826,8 @@ src/resource-projection.ts    resource projections: stored details for provider 
 src/herdr-link-open.ts         Herdr link-handler action using shared goto/reveal
 src/herdr-comment-selection.ts native rendered-selection validation and exact-Detail dispatch
 src/detail-controller.ts      Detail behavior and effects
+src/detail-annotation-targets.ts  a selection made into an annotation target, and an anchor back to an editor point
+src/detail-resource-document.ts   the document Detail shows for a Resource
 src/detail-pi*.ts             Pi TUI preview/input/frame integration
 src/detail-editor-layout.ts   wrapped visual rows and selections
 src/text-buffer.ts            raw editor state

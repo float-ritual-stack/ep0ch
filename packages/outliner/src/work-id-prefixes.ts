@@ -5,6 +5,11 @@ import type { Database } from "bun:sqlite";
 
 const memo = new WeakMap<Database, { sequence: number; asked: string; prefixes: string[] }>();
 
+/**
+ * The prefixes a ticket key may have to be one here: the allocator's, the reserved ids', the `[work-id::]` values
+ * notes carry (an imported or echoed item), the pages named like a key (`[page::PC-7]`) and the ticket pages' keys
+ * (`[jira::KEY-1]`). Any other `LETTERS-digits` (a synth's name, `FM-1`) is plain text.
+ */
 export function workIdPrefixesInUse(database: Database, sequence: number, configured: string | null, observed: readonly string[], ticketPages: () => Iterable<string>): string[] {
   const asked = `${configured ?? ""}\0${observed.join("\0")}`;
   const held = memo.get(database);

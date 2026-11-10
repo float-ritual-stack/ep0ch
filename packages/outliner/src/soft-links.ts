@@ -163,7 +163,7 @@ export function prLandsOn(number: number, place: SoftLinkPlace, target: Block, s
 /** How many notes holding the words a read fetches at a time, and looks through in all before it says it stopped. */
 const SOFT_MENTION_PAGE = 500, SOFT_MENTION_LOOK = 5000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const likeEscaped = (words: string) => words.replace(/[\\%_]/g, char => `\\${char}`);
+export const likeEscaped = (words: string) => words.replace(/[\\%_]/g, char => `\\${char}`);
 
 export function storeSoftLinkSource(db: Database, block: (id: string) => Block | null, page: (address: string) => PageAddressResolution): SoftLinkSource {
   const blocks = (rows: unknown) => (rows as { id: string }[]).flatMap(row => block(row.id) ?? []);

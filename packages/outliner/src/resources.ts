@@ -514,6 +514,17 @@ export interface ResourceCapabilityDecision {
 export type ResourceCapabilityReport = Readonly<
   Record<ResourceCapability, ResourceCapabilityDecision>
 >;
+
+/** What stands in a capability's way: its first factor, in `RESOURCE_CAPABILITY_FACTORS` order, that blocks it or can't be judged. */
+export function blockingCapabilityFactor(
+  decision: ResourceCapabilityDecision | undefined,
+): Extract<CapabilityAssessment, { state: "blocked" | "unknown" }> | undefined {
+  for (const factor of RESOURCE_CAPABILITY_FACTORS) {
+    const assessment = decision?.factors[factor];
+    if (assessment?.state === "blocked" || assessment?.state === "unknown") return assessment;
+  }
+  return undefined;
+}
 export interface ResourceRepresentationAdapter {
   readonly id: string;
   readonly version: number;

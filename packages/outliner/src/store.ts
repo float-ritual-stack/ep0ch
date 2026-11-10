@@ -1,5 +1,5 @@
 import { heldBy } from "./loop-watch";
-import { noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
+import { compareBinary, noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
 import { workIdPrefixesInUse } from "./work-id-prefixes";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { createRequestedBlock } from "./create-request";
@@ -12,7 +12,7 @@ import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/prot
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import { resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
+import { likeEscaped, resolveSoftLink, softLinkScope, softMentionRead, storeSoftLinkSource, type SoftLinkAnswer, type SoftLinkPlace } from "./soft-links";
 import { embeddedPageAddress, pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
@@ -30,7 +30,8 @@ import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWr
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
 import type { ChecklistStatus } from "./types";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
-import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type PartAt, type RestoredBlock } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, isMcpAccessLevel, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type PartAt, type RestoredBlock } from "@ep0ch/outline-core/protocol";
+import { ROADMAP_WORK_STAGES } from "@ep0ch/outline-core/work-stage";
 import { Database } from "bun:sqlite";
 import { inLiveOrder, queryCandidates, structuralVersion } from "./graph-questions";
 import { createHash } from "node:crypto";
@@ -40,9 +41,8 @@ import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
 import { blockAnnotationRepresentation } from "./annotation-representations";
-import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
+import { DEFAULT_ENTITY_KEY_PATTERN, resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
-import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning, questionWorkIdHint } from "./question-answer";
 import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
@@ -87,16 +87,15 @@ import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryP
 import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
 import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
-import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
-import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
-import { blockDisplayTitle, blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
-import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockDisplayTitle, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
 import {
   ResourceCatalog,
   type ResourceCatalogOptions,
 } from "./resource-catalog";
 import {
+  canonicalWorkId,
   formatWorkId,
   isConfiguredWorkIdPlaceholder,
   normalizeWorkIdPrefix,
@@ -176,8 +175,6 @@ import type {
   RoadmapBranchMembership,
   RoadmapItemCreateInput,
   RoadmapItemCreateReceipt,
-  RoadmapItemPriority,
-  RoadmapWorkStage,
   SelectionContext,
   TreeIndexBlock,
   TreeIndexCollection,
@@ -291,7 +288,7 @@ export const REVISIONS_KEEP = 100;
 
 function normalizeMcpAccessLevel(value: string): McpAccessLevel {
   const normalized = value.trim().toLowerCase();
-  if ((MCP_ACCESS_LEVELS as readonly string[]).includes(normalized)) return normalized as McpAccessLevel;
+  if (isMcpAccessLevel(normalized)) return normalized;
   throw new Error(`MCP access level must be one of ${MCP_ACCESS_LEVELS.join(", ")}`);
 }
 
@@ -403,6 +400,14 @@ interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
   display?: "source" | "resolved";
 }
 
+/** A provenance id as written, trimmed; absent is null, blank is refused with its label. */
+function normalizeOptionalId(value: string | undefined, label: string): string | null {
+  if (value === undefined) return null;
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${label} cannot be empty`);
+  return normalized;
+}
+
 function normalizeCreatorProvenance(
   author: BlockAuthor,
   provenance: BlockProvenance | undefined,
@@ -415,12 +420,6 @@ function normalizeCreatorProvenance(
     throw new Error("Only agent-authored blocks may include an actor id; a person's carry a session or task only");
   }
 
-  const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
-    if (value === undefined) return null;
-    const normalized = value.trim();
-    if (!normalized) throw new Error(`${label} cannot be empty`);
-    return normalized;
-  };
   const actorId = normalizeOptionalId(provenance.actorId, "Provenance actorId");
   if (author === "agent" && actorId === null) throw new Error("Provenance actorId cannot be empty");
 
@@ -442,12 +441,6 @@ function normalizeMutationProvenance(
   if (!mutation || !["user", "agent", "system"].includes(mutation.author)) {
     throw new Error("Mutation provenance must identify user, agent, or system");
   }
-  const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
-    if (value === undefined) return null;
-    const normalized = value.trim();
-    if (!normalized) throw new Error(`${label} cannot be empty`);
-    return normalized;
-  };
   const actorId = normalizeOptionalId(mutation.actorId, "Mutation actorId");
   if (mutation.author === "agent" && actorId === null) {
     throw new Error("Agent mutation provenance requires actorId");
@@ -496,7 +489,16 @@ function extensionRecordRow(row: ExtensionRecordDbRow): ExtensionRecordRow {
 
 export { AGENT_REQUEST_STATUSES, type AgentRequestStatus } from "./schema";
 import type { AgentRequestStatus } from "./schema";
-import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import {
+  ROADMAP_CREATE_STAGES,
+  ROADMAP_PRIORITIES,
+  assertNoReservedRoadmapProperties,
+  normalizeRoadmapRelationshipId,
+  normalizeRoadmapRelationshipIds,
+  normalizeRoadmapText,
+  normalizeRoadmapValues,
+} from "./roadmap-input";
+import { boundedTreeLabel, compactTreeBlock, treeIndexMembers, treeIndexOf, type TreeLabels } from "./tree-index-labels";
 
 /** One `@name` request line and what its agent did (`agent_requests`). */
 export interface AgentRequestRow {
@@ -613,6 +615,14 @@ function normalizeCaptureRequestId(requestId: string): string {
   return normalized;
 }
 
+/** A capture's title line, where its properties go, and the rest from its line break on (`\n` or `\r\n`). */
+function splitFirstLine(text: string): { firstLine: string; remainingText: string } {
+  const newline = text.search(/\r?\n/);
+  return newline === -1
+    ? { firstLine: text, remainingText: "" }
+    : { firstLine: text.slice(0, newline), remainingText: text.slice(newline) };
+}
+
 function normalizeCaptureTitle(title: string): string {
   if (typeof title !== "string") throw new Error("Capture title must be a string");
   const normalized = title.trim();
@@ -626,93 +636,11 @@ function normalizeCaptureTitle(title: string): string {
   return normalized;
 }
 
-const ROADMAP_PRIORITIES: Record<RoadmapItemPriority, true> = {
-  high: true,
-  medium: true,
-  low: true,
-};
-const ROADMAP_CREATE_STAGES: Record<Exclude<RoadmapWorkStage, "done" | "superseded">, true> = {
-  unprioritized: true,
-  queued: true,
-  doing: true,
-  review: true,
-  validate: true,
-  later: true,
-};
-const RESERVED_ROADMAP_PROPERTY_KEYS: Record<string, true> = {
-  type: true,
-  status: true,
-  priority: true,
-  "work-stage": true,
-  "work-batch": true,
-  project: true,
-  arc: true,
-  track: true,
-  "depends-on": true,
-  "related-to": true,
-  "source-block": true,
-  "work-id": true,
-};
 
-const CANONICAL_BLOCK_ID_PATTERN = BLOCK_ID_PATTERN;
 
-function normalizeRoadmapText(value: unknown, label: string): string {
-  if (typeof value !== "string") throw new Error(`${label} must be a string`);
-  const normalized = value.trim();
-  if (!normalized) throw new Error(`${label} cannot be empty`);
-  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
-    throw new Error(`${label} must be a single printable line`);
-  }
-  return normalized;
-}
-
-function normalizeRoadmapValues(values: unknown, label: string): string[] {
-  if (!Array.isArray(values) || values.length === 0) {
-    throw new Error(`${label} must contain at least one value`);
-  }
-
-  return [...new Set(values.map((value) => normalizeRoadmapText(value, label)))];
-}
-
-function normalizeRoadmapRelationshipId(value: unknown, label: string): string {
-  const blockId = normalizeRoadmapText(value, label);
-  if (!CANONICAL_BLOCK_ID_PATTERN.test(blockId)) {
-    throw new Error(`${label} must contain canonical block UUIDs: ${blockId}`);
-  }
-  return blockId;
-}
-
-function normalizeRoadmapRelationshipIds(
-  values: unknown,
-  label: string,
-): string[] {
-  if (values === undefined) return [];
-  if (!Array.isArray(values)) throw new Error(`${label} must be an array`);
-  return [...new Set(values.map((value) => normalizeRoadmapRelationshipId(value, label)))];
-}
-
-function assertNoReservedRoadmapProperties(title: string, body: string): void {
-  const reservedProperty = parsePropertyRecords(`${title}\n${body}`).find(
-    (property) => RESERVED_ROADMAP_PROPERTY_KEYS[property.key] === true,
-  );
-  if (reservedProperty) {
-    throw new Error(
-      `Roadmap title and body cannot include reserved property: ${reservedProperty.key}`,
-    );
-  }
-}
-
-const treeLabelSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-function boundedTreeLabel(text: string): string {
-  if (text.length <= 512) return text;
-  const boundary = treeLabelSegmenter.segment(text).containing(511)!.index;
-  return `${text.slice(0, boundary)}…`;
-}
-
+/** A ticket key a ticket page is named by (`ABC-12`): the default entity key a resource directive reads. */
+const TICKET_KEY = new RegExp(DEFAULT_ENTITY_KEY_PATTERN);
 const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
-/** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
-const compareBinary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const emptyGraph = (): LoadedGraph => ({ byId: new Map(), byParent: new Map(), propertyRecordsByBlock: new Map(), lineTasksByBlock: new Map(), settledBlockRecords: new Map(), deletedDescendantCountByRoot: new Map() });
 /** A write that touched more blocks than this (an import, a reorder of a long list) has the graph read whole again. */
 const GRAPH_PATCH_LIMIT = 400;
@@ -727,153 +655,10 @@ async function inSlices<T>(items: readonly T[], each: (item: T) => void, pause: 
   }
 }
 
-/** The notes a tree index labels: every physical note, then any visible one not among them, each once. */
-function treeIndexMembers(snapshot: WorkspaceSnapshot): VisibleBlock[] {
-  const members = new Map(snapshot.physical.blocks.map(block => [block.id, block]));
-  for (const block of snapshot.visible.blocks) if (!members.has(block.id)) members.set(block.id, block);
-  return [...members.values()];
-}
-
-function treeIndexOf(snapshot: WorkspaceSnapshot, labels: ReadonlyMap<string, TreeIndexBlock>): TreeIndexSnapshot {
-  return {
-    blocks: [...labels.values()],
-    physicalBlockIds: snapshot.physical.blocks.map(block => block.id),
-    visible: {
-      rows: snapshot.visible.blocks.map(({ id, depth, propertyMatches }) => ({
-        id,
-        depth,
-        ...(propertyMatches ? { propertyMatches } : {}),
-      })),
-      completeness: snapshot.visible.completeness,
-    },
-    selectedBlockId: snapshot.selection.selected?.id ?? null,
-    virtualOccurrenceRanks: snapshot.virtualOccurrenceRanks,
-    sequence: snapshot.sequence,
-    ...(snapshot.workIdPrefix ? { workIdPrefix: snapshot.workIdPrefix } : {}),
-    ...(snapshot.ticketPrefixes ? { ticketPrefixes: snapshot.ticketPrefixes } : {}),
-  };
-}
 
 /** Internal saved-view evaluation counts every member; public queries stay within 1..1000. */
 const UNBOUNDED_VIEW_MATCHES = 1_000_000_000;
 
-type TreeLabel = Pick<TreeIndexBlock, "preview" | "previewReferences" | "textDigest">;
-/** Per-outline labels retain their source and dependencies, so reads check source text and targets before parsing bodies. */
-type TreeLabels = Map<string, { text: string; hasProperties: boolean; dependencies: Map<string, Block | null>; label: TreeLabel }>;
-
-function compactTreeBlock(
-  { text, displayText: _displayText, propertyMatches, ...withMatches }: VisibleBlock,
-  lookup: (blockId: string) => Block | null,
-  labels: TreeLabels,
-): TreeIndexBlock {
-  // A view that reads line chips (PIE-1277) keeps where each row matched: the door opens the row at that line.
-  const metadata = propertyMatches?.some(match => match.scope !== "block") ? { ...withMatches, propertyMatches } : withMatches;
-  const cached = labels.get(metadata.id);
-  const hasProperties = metadata.properties.length > 0;
-  if (cached && cached.text === text && cached.hasProperties === hasProperties && [...cached.dependencies].every(([id, before]) => {
-    const now = lookup(id);
-    return before?.text === now?.text && before?.effectiveDeletedRootId === now?.effectiveDeletedRootId;
-  })) return { ...metadata, ...cached.label };
-  const dependencies = new Map<string, Block | null>();
-  const resolved = resolveBlockReferencesWithStatus(text, id => {
-    const block = lookup(id);
-    dependencies.set(id, block);
-    return block;
-  });
-  const label = treeLabel(text, resolved, metadata);
-  labels.set(metadata.id, { text, hasProperties, dependencies, label });
-  return { ...metadata, ...label };
-}
-
-function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pick<VisibleBlock, "id" | "properties">): TreeLabel {
-  let offset = 0;
-  let spans = blockReferenceOccurrences(text).map((occurrence, index) => {
-    const reference = resolved.references[index]!;
-    const start = occurrence.start + offset;
-    const end = start + blockReferenceDisplayText(reference).length;
-    offset = end - occurrence.end;
-    return {
-      start,
-      end,
-      target: reference.status === "resolved" || reference.status === "deleted"
-        ? { blockId: reference.blockId, ...(reference.fragmentId ? { fragmentId: reference.fragmentId } : {}) }
-        : null,
-    };
-  });
-  let title = resolved.text;
-  const replaceRanges = (ranges: Array<{ start: number; end: number }>, replacement: string) => {
-    const parts: string[] = [];
-    let cursor = 0;
-    for (const range of [...ranges, { start: title.length, end: title.length }]) {
-      parts.push(title.slice(cursor, range.start));
-      if (range.end > range.start) parts.push(replacement);
-      cursor = range.end;
-    }
-    const mapPosition = (position: number): number => {
-      let delta = 0;
-      for (const range of ranges) {
-        if (position <= range.start) break;
-        if (position < range.end) return range.start + delta;
-        delta += replacement.length - (range.end - range.start);
-      }
-      return position + delta;
-    };
-    spans = spans.flatMap(span => {
-      const start = mapPosition(span.start);
-      const end = mapPosition(span.end);
-      if (start >= end) return [];
-      // Removing an inner label token preserves the reference. Cutting either
-      // delimiter preserves only nonactionable provenance for the visible text.
-      const clipped = ranges.some(range =>
-        (range.start <= span.start && span.start < range.end) ||
-        (range.start < span.end && span.end <= range.end));
-      return [{ start, end, target: clipped ? null : span.target }];
-    });
-    title = parts.join("");
-  };
-  // Matched literal-region marker lines are hidden in Detail, so the label skips
-  // them too. They are removed with the property tokens in one pass: a region
-  // stops protecting its text once a marker is gone.
-  const markerLines = literalMarkerLineRanges(title);
-  if (metadata.properties.length) {
-    replaceRanges([
-      ...titlePropertyRanges(title),
-      ...markerLines,
-    ].sort((left, right) => left.start - right.start), "");
-    let lineStart = 0;
-    for (const line of title.split("\n")) {
-      if (line.trim()) {
-        const start = lineStart + line.length - line.trimStart().length;
-        const end = lineStart + line.trimEnd().length;
-        replaceRanges([{ start: 0, end: start }, { start: end, end: title.length }], "");
-        break;
-      }
-      lineStart += line.length + 1;
-    }
-    if (!title.trim()) {
-      title = metadata.id;
-      spans = [];
-    }
-  } else {
-    if (markerLines.length) replaceRanges(markerLines, "");
-    replaceRanges(Array.from(title.matchAll(/\r?\n/g), match => ({
-      start: match.index, end: match.index + match[0].length,
-    })), " ↵ ");
-  }
-  const preview = boundedTreeLabel(title);
-  const visibleEnd = preview === title ? title.length : preview.length - 1;
-  const previewReferences = spans.filter(span => span.start < visibleEnd).map(({ start, end, target }) => Object.freeze({
-    start,
-    end: Math.min(end, visibleEnd),
-    target: end <= visibleEnd ? target : null,
-  }));
-  // Shared by every read that asks for this label: nobody changes it.
-  return Object.freeze({
-    preview,
-    previewReferences: Object.freeze(previewReferences) as TreeIndexBlock["previewReferences"],
-    textDigest: authoredTextDigest(text),
-  });
-}
 
 export class OutlinerStore {
   private readonly beforeImages = new AsyncLocalStorage<Map<string, Block>>();
@@ -987,10 +772,7 @@ export class OutlinerStore {
   }
 
   get sequence(): number {
-    const row = this.database.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as
-      | { value: string }
-      | null;
-    return Number(row?.value ?? 0);
+    return Number(this.readMetadata("sequence") ?? 0);
   }
 
   mcpAccessStatus(): McpAccessStatus {
@@ -1002,9 +784,7 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       const current = this.mcpAccessStatusFromCurrentRead();
       if (current.level === normalized) return current;
-      this.database.query(
-        "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      ).run(MCP_ACCESS_METADATA_KEY, normalized);
+      this.writeMetadata(MCP_ACCESS_METADATA_KEY, normalized);
       this.bumpSequence({ kind: "other" });
       return this.mcpAccessStatusFromCurrentRead();
     })();
@@ -1016,10 +796,10 @@ export class OutlinerStore {
   }
 
   private mcpAccessStatusFromCurrentRead(): McpAccessStatus {
-    const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
-    const level = normalizeMcpAccessLevel(row?.value ?? "none");
+    const value = this.readMetadata(MCP_ACCESS_METADATA_KEY);
+    const level = normalizeMcpAccessLevel(value ?? "none");
     const owner = this.outlineAbout()?.principal;
-    return { level, canRead: level !== "none", sequence: this.sequence, set: row !== null, ...(owner ? { owner } : {}) };
+    return { level, canRead: level !== "none", sequence: this.sequence, set: value !== undefined, ...(owner ? { owner } : {}) };
   }
 
   /** What this outline says of itself, when an agent made it over MCP. */
@@ -1040,8 +820,7 @@ export class OutlinerStore {
 
   /** Records who made this outline and why (once, at creation). */
   setOutlineAbout(about: OutlineAbout): void {
-    this.database.query("INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .run(OUTLINE_ABOUT_METADATA_KEY, JSON.stringify(about));
+    this.writeMetadata(OUTLINE_ABOUT_METADATA_KEY, JSON.stringify(about));
   }
 
   /**
@@ -1782,11 +1561,7 @@ export class OutlinerStore {
           ? [formatProperty({ key: "captured-from", value: capturedFromBlockId })]
           : []),
       ].join(" ");
-      const firstNewlineIndex = normalizedText.search(/\r?\n/);
-      const firstLine =
-        firstNewlineIndex === -1 ? normalizedText : normalizedText.slice(0, firstNewlineIndex);
-      const remainingText =
-        firstNewlineIndex === -1 ? "" : normalizedText.slice(firstNewlineIndex);
+      const { firstLine, remainingText } = splitFirstLine(normalizedText);
       const capturedText = `${firstLine} ${metadata}${remainingText}`;
       const block = preparedBlock ? this.update(preparedBlock.id, capturedText, preparedBlock.revision, {author, ...provenance}) : this.createAt(
         capturedText,
@@ -1819,13 +1594,7 @@ export class OutlinerStore {
       throw new Error(`Block is not one canonical capture: ${blockId}`);
     }
     const normalizedTitle = normalizeCaptureTitle(title);
-    const firstNewlineIndex = capture.text.search(/\r?\n/);
-    const firstLine = firstNewlineIndex === -1
-      ? capture.text
-      : capture.text.slice(0, firstNewlineIndex);
-    const remainingText = firstNewlineIndex === -1
-      ? ""
-      : capture.text.slice(firstNewlineIndex);
+    const { firstLine, remainingText } = splitFirstLine(capture.text);
     const metadataIndex = firstLine.indexOf("[type::capture]");
     if (metadataIndex < 0) {
       throw new Error(`Capture metadata is not on the title line: ${blockId}`);
@@ -1993,7 +1762,7 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       const block = this.requireActive(id);
       const rows = this.database.query(
-        "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id = ? ORDER BY ordinal",
+        `SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id = ? ORDER BY ordinal`,
       ).all(id) as PropertyRow[];
       return {
         blockId: id, revision: block.revision,
@@ -2170,7 +1939,7 @@ export class OutlinerStore {
       SELECT DISTINCT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
       WHERE property.scope = 'block' AND property.key = 'ticket' AND block.effective_deleted_root_id IS NULL
         AND upper(property.value) LIKE ? ESCAPE '\\'
-    `).all(`%${(parseWorkId(workId)?.prefix ?? workId).replace(/[\\%_]/g, "\\$&")}-%`) as Array<{ id: string }>;
+    `).all(`%${likeEscaped(parseWorkId(workId)?.prefix ?? workId)}-%`) as Array<{ id: string }>;
     for (const { id } of named) {
       const copy = this.require(id);
       if (ticketOf(copy.text) !== workId || this.extensionOwnerFromCurrentRead(id)) continue;
@@ -2232,11 +2001,6 @@ export class OutlinerStore {
       }
       return before.filter((key) => !asks.has(key));
     })();
-  }
-
-  /** Runs several writes as one: all of them commit, or none (an extension action's writes). */
-  atomically<T>(work: () => T): T {
-    return this.database.transaction(work)();
   }
 
   /** The extensions and keys a block asks for, every extension. */
@@ -2312,7 +2076,7 @@ export class OutlinerStore {
    * before agent requests existed are old lines, not requests its next save adds.
    */
   seedAgentRequestBaselines(keysOf: (text: string) => string[]): void {
-    if (this.database.query("SELECT value FROM metadata WHERE key = 'agent_request_baseline_seeded'").get()) return;
+    if (this.readMetadata("agent_request_baseline_seeded") !== undefined) return;
     this.database.transaction(() => {
       const blocks = this.database.query(`SELECT id, text FROM blocks WHERE instr(text, '@') > 0
         AND NOT EXISTS (SELECT 1 FROM agent_request_baseline WHERE agent_request_baseline.block_id = blocks.id)`).all() as Array<{ id: string; text: string }>;
@@ -2320,11 +2084,11 @@ export class OutlinerStore {
         const keys = keysOf(block.text);
         if (keys.length) this.setAgentRequestBaseline(block.id, keys);
       }
-      this.database.query("INSERT INTO metadata (key, value) VALUES ('agent_request_baseline_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+      this.writeMetadata("agent_request_baseline_seeded", "1");
     })();
   }
 
-  // ── Extension outputs (src/extension-calls.ts) ──────────────────────────
+  // ── Extension outputs: a handler line's stored result (src/extension-calls.ts) ──
   // What an output or component handler line last returned, kept per block
   // and call (handler, argument, fetch options), so a reader shows it at once
   // and a restart keeps it. It is never block text: `keep` writes blocks.
@@ -2362,6 +2126,7 @@ export class OutlinerStore {
     return gone.length;
   }
 
+  // ── Askers, record homes and ticket pages (src/extension-records.ts places them) ──
   /** Every key an outline's blocks ask an extension for (a scheduled data handler fetches each again). */
   extensionAskedKeys(extensionId: string): string[] {
     return (this.database.query(`
@@ -2550,11 +2315,16 @@ export class OutlinerStore {
     this.changes.run(this.changes.attribution({ action: `ext.${extensionId}.drop-${role}`, actor }), () => this.delete(blockId, actor));
   }
 
-  /** Every ticket key with a page, as `ticketPageFromCurrentRead` answers each one. */
-  private ticketPagesFromCurrentRead(): Map<string, string> {
-    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
+  /** The property keys a ticket page is named by: each resource directive's, and each extension that keeps records. */
+  private ticketPropertyKeysFromCurrentRead(): string[] {
+    return [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
         .map((row) => row.extension_id)])];
+  }
+
+  /** Every ticket key with a page, as `ticketPageFromCurrentRead` answers each one. */
+  private ticketPagesFromCurrentRead(): Map<string, string> {
+    const keys = this.ticketPropertyKeysFromCurrentRead();
     const pages = new Map<string, string>();
     // Start at extension records: SQLite otherwise walks every active block to find its owner row.
     const rows = [
@@ -2571,17 +2341,15 @@ export class OutlinerStore {
       `).all() as Array<{ key: string; id: string }>,
     ];
     for (const row of rows) {
-      if (/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(row.key) && !pages.has(row.key)) pages.set(row.key, row.id);
+      if (TICKET_KEY.test(row.key) && !pages.has(row.key)) pages.set(row.key, row.id);
     }
     return pages;
   }
 
   private ticketPageFromCurrentRead(key: string): Block | null {
     const normalized = key.trim().toUpperCase();
-    if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(normalized)) return null;
-    const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
-      ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
-        .map((row) => row.extension_id)])];
+    if (!TICKET_KEY.test(normalized)) return null;
+    const keys = this.ticketPropertyKeysFromCurrentRead();
     const page = this.database.query(`
       SELECT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
       WHERE property.scope = 'block' AND property.syntax = 'bracket' AND property.key IN (${keys.map(() => "?").join(", ")})
@@ -2700,6 +2468,7 @@ export class OutlinerStore {
     return row ? extensionRecordRow(row) : null;
   }
 
+  // ── The write core: activity, a block's text, revisions ─────────────────
   /** Records who changed a block, in the transaction that changes it. */
   private recordActivity(
     id: string,
@@ -2819,6 +2588,7 @@ export class OutlinerStore {
     return { ...entry, text: row.text };
   }
 
+  // ── Roadmap items: text checks, memberships, who wrote what, property catalogs ───
   private validateRoadmapText(text: string): void {
     const properties = parsePropertyRecords(text).filter(property => property.scope === "block");
     const values = (key: string) => properties.filter(property => property.key === key).map(property => property.value);
@@ -2827,7 +2597,7 @@ export class OutlinerStore {
       throw new Error("Roadmap items use work-stage as their lifecycle; remove the status property");
     }
     const stages = values("work-stage");
-    if (stages.length !== 1 || ![...Object.keys(ROADMAP_CREATE_STAGES), "done", "superseded"].includes(stages[0]!.toLowerCase())) {
+    if (stages.length !== 1 || !(ROADMAP_WORK_STAGES as readonly string[]).includes(stages[0]!.toLowerCase())) {
       throw new Error("Roadmap items require exactly one valid work-stage");
     }
     if (stages[0]!.toLowerCase() === "superseded" && values("superseded-by").length !== 1) {
@@ -2886,7 +2656,7 @@ export class OutlinerStore {
    * and a note someone else has edited since (its earlier revision still says who wrote it).
    */
   blocksWrittenBy(persona: string, since: string, limit = 20): Block[] {
-    const like = `${persona.replace(/[\\%_]/g, "\\$&")}/%`;
+    const like = `${likeEscaped(persona)}/%`;
     const rows = this.database.query(`
       SELECT id, MAX(at) AS at FROM (
         SELECT id, updated_at AS at FROM blocks WHERE updated_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
@@ -3006,7 +2776,7 @@ export class OutlinerStore {
     requestedScope: PropertyQueryScope = "block",
     keysOnly = false,
   ): PropertyCatalogItem[] {
-    if (!["block", "line", "inline", "all"].includes(requestedScope)) {
+    if (!(PROPERTY_QUERY_SCOPES as readonly string[]).includes(requestedScope)) {
       throw new Error(`Invalid property scope: ${requestedScope}`);
     }
     const limit = Math.max(1, Math.min(100, Math.floor(requestedLimit)));
@@ -3060,7 +2830,7 @@ export class OutlinerStore {
     const key = typeof input.key === "string" ? input.key.trim().toLowerCase() : "";
     if (!/^[a-z][a-z0-9_.-]*$/.test(key)) throw new Error("Inventory requires one property key");
     const propertyScope = input.propertyScope ?? "block";
-    if (!["block", "line", "inline", "all"].includes(propertyScope)) throw new Error("Invalid inventory property scope");
+    if (!(PROPERTY_QUERY_SCOPES as readonly string[]).includes(propertyScope)) throw new Error("Invalid inventory property scope");
     const offset = input.offset ?? 0;
     const limit = input.limit ?? 1000;
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Inventory offset must be a nonnegative integer");
@@ -3292,8 +3062,8 @@ export class OutlinerStore {
         `SELECT block_id, value FROM block_properties WHERE scope = 'block' AND key = 'work-id' AND block_id IN (${placeholders})`,
       ).all(...subtree) as Array<{ block_id: string; value: string }>;
       for (const row of reserved) {
-        const parsed = parseWorkId(row.value);
-        if (!parsed || parsed.workId !== row.value.trim()) continue;
+        const parsed = canonicalWorkId(row.value);
+        if (!parsed) continue;
         if (this.reservedWorkIdOwnerFromCurrentRead(parsed.workId) !== undefined) {
           continue;
         }
@@ -3947,12 +3717,14 @@ export class OutlinerStore {
     })();
   }
 
+  /** Where `createNote` would put a note with this text now, writing nothing (`notes.create` with `dryRun`). */
+  placeNote(text: string, intent: NewNoteIntent): Placement { return this.placementFromCurrentRead(intent, text); }
+
   /**
    * A new note where the placement rule puts it (PIE-544, `notes.create`): under the note the person was in
    * (`intent.near`), else the top of the Inbox. The text may be empty (a note opened to be written); a first line of
    * only `[page::x]` is titled `x` (outline-core's page-title rule, applied by the server to every client write).
    */
-  /** Where `createNote` would put a note with this text now, writing nothing (`notes.create` with `dryRun`). */ placeNote(text: string, intent: NewNoteIntent): Placement { return this.placementFromCurrentRead(intent, text); }
   createNote(text: string, intent: NewNoteIntent, author: BlockAuthor = "user", provenance?: BlockProvenance): NewNoteReceipt {
     if (typeof text !== "string") throw new Error("Note text must be a string");
     return this.database.transaction((): NewNoteReceipt => {
@@ -3968,7 +3740,7 @@ export class OutlinerStore {
    */
   newNoteRouter: ((text: string) => Placement | null) | undefined;
 
-  /** Several writes as one: all happen or none do (a stamp's note and its subtree, PIE-533 S4). */
+  /** Several writes as one: all happen or none do (a stamp's note and its subtree, PIE-533 S4; an extension action's writes). */
   inTransaction<T>(run: () => T): T {
     return this.database.transaction(run)();
   }
@@ -4708,7 +4480,7 @@ export class OutlinerStore {
       const median = (sorted[Math.floor((n + 1) / 2) - 1]! + sorted[Math.floor((n + 2) / 2) - 1]!) / 2;
       return { blocks: n, characters: sorted.reduce((a, b) => a + b, 0), median, p90: sorted[Math.ceil(0.9 * n) - 1]! };
     };
-    const keyed = (m: Map<string, number[]>) => [...m].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, sizes]) => ({ key, ...summary(sizes) }));
+    const keyed = (m: Map<string, number[]>) => [...m].sort(([a], [b]) => compareBinary(a, b)).map(([key, sizes]) => ({ key, ...summary(sizes) }));
     return { outline: summary(all), actors: keyed(byActor), branches: keyed(byBranch) };
   }
 
@@ -4861,7 +4633,6 @@ export class OutlinerStore {
     }).deferred();
   }
 
-  /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
   /** Every live note, for deep search's pool (search-deep.ts narrows it). */
   searchPool(): Block[] {
     return this.database.transaction(() => [...this.loadGraph().byId.values()]).deferred();
@@ -4875,6 +4646,7 @@ export class OutlinerStore {
     }).deferred();
   }
 
+  /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
   searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show", limit?: number) {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;
@@ -5072,11 +4844,7 @@ export class OutlinerStore {
     return { ...page, blocks: this.hydrateVisibleRowsFromCurrentRead(page.blocks, query.filters ?? [], query.propertyScope ?? "block") };
   }
 
-  /**
-   * Every ranked match as a lightweight id/depth pair, in the same order as
-   * queryRankedBlocksFromCurrentRead. Saved-view reads rank and count these, then
-   * hydrate only the requested page.
-   */
+  /** One page of ranked rows made whole: each row's block with its properties, its depth and where it matched. */
   private hydrateVisibleRowsFromCurrentRead(
     rows: readonly VisibleBlockRow[],
     filters: readonly PropertyFilter[],
@@ -5086,7 +4854,7 @@ export class OutlinerStore {
     const placeholders = rows.map(() => "?").join(", ");
     const propertyRows = this.database
       .query(
-        `SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id IN (${placeholders}) ORDER BY block_id, ordinal`,
+        `SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id IN (${placeholders}) ORDER BY block_id, ordinal`,
       )
       .all(...rows.map((row) => row.id)) as PropertyRow[];
     const recordsByBlock = new Map<string, PropertyRecord[]>();
@@ -5122,16 +4890,11 @@ export class OutlinerStore {
     });
   }
   private navigationCursorFromCurrentRead(): number {
-    const row = this.database.query(
-      "SELECT value FROM metadata WHERE key = 'navigation_cursor'",
-    ).get() as { value: string } | null;
-    return Number(row?.value ?? 0);
+    return Number(this.readMetadata("navigation_cursor") ?? 0);
   }
 
   private setNavigationCursorFromCurrentRead(entryId: number): void {
-    this.database.query(
-      "INSERT INTO metadata (key, value) VALUES ('navigation_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(String(entryId));
+    this.writeMetadata("navigation_cursor", String(entryId));
   }
 
   private setSelectionFromCurrentRead(blockId: string | null): SelectionContext {
@@ -5563,12 +5326,10 @@ export class OutlinerStore {
    */
   private rebuildPropertyIndexForParser(): boolean {
     return this.database.transaction(() => {
-      const versionRow = this.database
-        .query("SELECT value FROM metadata WHERE key = 'property_parser_version'")
-        .get() as { value: string } | null;
-      const storedVersion = versionRow ? Number(versionRow.value) : 0;
+      const stored = this.readMetadata("property_parser_version");
+      const storedVersion = stored !== undefined ? Number(stored) : 0;
       if (!Number.isInteger(storedVersion) || storedVersion < 0) {
-        throw new Error(`Invalid property parser version: ${versionRow?.value}`);
+        throw new Error(`Invalid property parser version: ${stored}`);
       }
       if (storedVersion > PROPERTY_PARSER_VERSION) {
         throw new Error(
@@ -5584,11 +5345,7 @@ export class OutlinerStore {
       for (const block of existingBlocks) {
         this.replacePropertyIndex(block.id, parsePropertyRecords(block.text));
       }
-      this.database
-        .query(
-          "INSERT INTO metadata (key, value) VALUES ('property_parser_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .run(String(PROPERTY_PARSER_VERSION));
+      this.writeMetadata("property_parser_version", String(PROPERTY_PARSER_VERSION));
       if (existingBlocks.length > 0) this.bumpSequenceWithoutHistory();
       return true;
     })();
@@ -5641,8 +5398,8 @@ export class OutlinerStore {
         "SELECT property.block_id, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL ORDER BY property.block_id",
       ).all() as Array<{ block_id: string; value: string }>;
       for (const row of rows) {
-        const parsed = parseWorkId(row.value);
-        if (!parsed || parsed.workId !== row.value.trim()) continue;
+        const parsed = canonicalWorkId(row.value);
+        if (!parsed) continue;
         if (this.reservedWorkIdOwnerFromCurrentRead(parsed.workId) === undefined) {
           this.database.query(
             "INSERT INTO reserved_work_ids (work_id, reserved_at, block_id) VALUES (?, ?, ?)",
@@ -5673,15 +5430,11 @@ export class OutlinerStore {
         "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE kind = 'work-id' ORDER BY normalized_address",
       ).all() as PageAddressRow[];
       for (const row of rows) {
-        const parsed = parseWorkId(row.display_address);
+        const parsed = canonicalWorkId(row.display_address);
         const owner = parsed
           ? this.reservedWorkIdOwnerFromCurrentRead(parsed.workId)
           : undefined;
-        if (
-          !parsed ||
-          parsed.workId !== row.display_address.trim() ||
-          owner !== row.block_id
-        ) {
+        if (!parsed || owner !== row.block_id) {
           this.database.query(
             "DELETE FROM page_addresses WHERE normalized_address = ?",
           ).run(row.normalized_address);
@@ -5890,12 +5643,7 @@ export class OutlinerStore {
     };
   }
 
-  /**
-   * The prefixes a ticket key may have to be one here: the allocator's, the reserved ids', the `[work-id::]` values
-   * notes carry (an imported or echoed item), the pages named like a key (`[page::PC-7]`) and the ticket pages' keys
-   * (`[jira::KEY-1]`). Any other `LETTERS-digits`
-   * (a synth's name, `FM-1`) is plain text.
-   */
+  /** The number the next Work ID with this prefix takes: one past the highest reserved under it. */
   private nextWorkIdNumberForPrefixFromCurrentRead(prefix: string): number {
     let maximum = 0;
     for (const reservation of this.canonicalWorkIdReservationsFromCurrentRead()) {
@@ -5916,9 +5664,7 @@ export class OutlinerStore {
         block &&
         block.properties.some((property) => {
           if (property.key !== "work-id") return false;
-          const parsed = parseWorkId(property.value);
-          return parsed?.workId === property.value.trim() &&
-            parsed.prefix === prefix;
+          return canonicalWorkId(property.value)?.prefix === prefix;
         }) &&
         this.canRegisterRestoredPageAddresses(block.id, block.properties)
       ) {
@@ -5931,8 +5677,8 @@ export class OutlinerStore {
     blockId: string,
     value: string,
   ): void {
-    const parsed = parseWorkId(value);
-    if (!parsed || parsed.workId !== value.trim()) {
+    const parsed = canonicalWorkId(value);
+    if (!parsed) {
       throw new Error(`Invalid canonical Work ID: ${value}`);
     }
     const allocator = this.workIdAllocatorFromCurrentRead();
@@ -6089,9 +5835,8 @@ export class OutlinerStore {
     if (!allocator) return [];
     return properties.flatMap((property) => {
       if (property.key !== "work-id") return [];
-      const parsed = parseWorkId(property.value);
+      const parsed = canonicalWorkId(property.value);
       return parsed &&
-          parsed.workId === property.value.trim() &&
           parsed.prefix === allocator.prefix
         ? [parsed.workId]
         : [];
@@ -6242,7 +5987,7 @@ export class OutlinerStore {
     else this.valueReferenceIds?.delete(blockId);
     this.database.query("DELETE FROM block_properties WHERE block_id = ?").run(blockId);
     const insert = this.database.query(
-      "INSERT INTO block_properties (block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO block_properties (${PROPERTY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const property of properties) {
       insert.run(
@@ -6283,10 +6028,9 @@ export class OutlinerStore {
     const allocator = this.workIdAllocatorFromCurrentRead();
     for (const property of blockProperties) {
       if (property.key !== "work-id") continue;
-      const parsed = parseWorkId(property.value);
+      const parsed = canonicalWorkId(property.value);
       if (
         parsed &&
-        parsed.workId === property.value.trim() &&
         (!allocator || allocator.prefix === parsed.prefix)
       ) {
         this.reserveWorkIdForBlockFromCurrentRead(blockId, parsed.workId);
@@ -6298,7 +6042,7 @@ export class OutlinerStore {
   /** One block's records as a question reads them (the graph's propertyRecordsByBlock, for one block): a ticked step's chips settled. */
   private questionRecordsFromCurrentRead(block: Block): PropertyRecord[] {
     const records = (this.database.query(
-      "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id = ? ORDER BY ordinal",
+      `SELECT ${PROPERTY_COLUMNS} FROM block_properties WHERE block_id = ? ORDER BY ordinal`,
     ).all(block.id) as PropertyRow[]).map(propertyRecordFromRow);
     const tasks = this.lineTasksOf(block.id, block.text, records);
     return records.filter(record => !stepClosed(tasks.get(record.ordinal) ?? "todo"));
