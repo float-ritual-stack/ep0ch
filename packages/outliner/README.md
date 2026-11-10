@@ -568,7 +568,9 @@ Click a resolved block row's disclosure triangle or press Right to inspect its o
   - `[web::https://example.com/guide]` addresses a web Resource. An HTML page
     is extracted to Markdown; a page served as `text/markdown` or `text/plain`
     is its own text; a page that names no media type is read by its first bytes
-    (an HTML signature such as `<html` or `<p` means HTML; a Markdown autolink is text); any other type is refused naming it.
+    (an HTML signature such as `<html` or `<p` means HTML; a Markdown autolink is text); a page served as
+    `application/pdf` reads through the PDF path a `[file::…pdf]` uses, its size limit included, and is asked for as
+    a PDF from then on (PIE-1702); any other type is refused naming it.
   - `[jira::PC-515]` addresses an issue through the single configured Jira
     Source for project `PC`. Activation resolves the provider's immutable issue
     identity before interning it.
@@ -2256,7 +2258,7 @@ bodies and replies. The annotation document also scrolls through its full eviden
 | `Ctrl+S` | Save a block or writable filesystem Resource, or add an annotation |
 | `Esc` | Cancel the complete edit session and return to Tree |
 
-Inline completion shares bounded lookup, insertion and contextual rows with Tree editing and Quick Capture, and asks the service's completion sources (`completion.rows`, PIE-1340): the rows the door lists for the same token, extensions' sources among them, ranked by outline-core's one matcher with the picks every client shares. Each row shows its kind at the right and its detail dim; the lit row's docs wrap beside the list or below it, with ancestry and the whole body loaded when selected. Detail's Shift+↑/↓ and PgUp/PgDn scroll only while the docs pane is visible; otherwise Shift+↑/↓ keeps extending the editor's selection. Popup hints follow the active keymap, including the insert key when Enter stays a new line. `[[name` that no page has offers a new page, which ⏎ takes only after ↓. Named pages/aliases/Work IDs remain distinct from canonical blocks/fragments. Empty, failed and truncated lookup states are visible; newer typing or dismissal invalidates older replies. Acceptance rechecks targets and symbolic addresses, replaces the complete active token, and preserves surrounding text. Local fragment creation and insertion form one undo step. No Jev call is made per keystroke.
+Inline completion shares bounded lookup, insertion and contextual rows with Tree editing and Quick Capture, and asks the service's completion sources (`completion.rows`, PIE-1340): the rows the door lists for the same token, extensions' sources among them, ranked by outline-core's one matcher with the picks every client shares. Each row shows its kind at the right and its detail dim; the lit row's docs wrap beside the list or below it, with ancestry and the whole body loaded when selected. Detail's Shift+↑/↓ and PgUp/PgDn scroll the docs pane while it is visible; otherwise Shift+↑/↓ keeps extending the editor's selection and PgUp/PgDn page the editor. Popup hints follow the active keymap, including the insert key when Enter stays a new line. `[[name` that no page has offers a new page, which ⏎ takes only after ↓. Named pages/aliases/Work IDs remain distinct from canonical blocks/fragments. Empty, failed and truncated lookup states are visible; newer typing or dismissal invalidates older replies. Acceptance rechecks targets and symbolic addresses, replaces the complete active token, and preserves surrounding text. Local fragment creation and insertion form one undo step. No Jev call is made per keystroke.
 
 Long physical lines wrap without changing raw text. Continuation rows remain associated with one physical line number, and keyboard or pointer selection maps back to exact authored source. Bracketed paste replaces the selection and remains one edit even when terminal payload chunks arrive separately. Keyboard cursor movement keeps the active edge visible.
 

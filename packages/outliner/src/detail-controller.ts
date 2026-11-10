@@ -2529,7 +2529,7 @@ export function createDetailController(
         // Saving this comment may have assigned an item ID. Reconcile against the
         // resulting source, never the pre-save reader snapshot.
         if (receipt.annotations.some(record => record.originalTarget.listItemId)) await loadCurrentTarget(true);
-        else await loadAnnotations();
+        else await loadAnnotations(loadGeneration, "current-turn"); // in this turn, so the next key ([ or ]) finds it
         const anchor = draft.target.anchor;
         const range = anchor.kind === "text-quote" &&
             anchor.start !== null &&

@@ -2016,7 +2016,7 @@ export class DetailPiPreviewLayout extends VStack {
       if(group?.placement==='inline')this.markdown.revealMatchingSource(annotationFrameMatcher(group.threads[0]!,true,this.state.target?.kind==='resource',group.target));
     }
     const reveal = this.state.annotationReveal; // a thread just written to (PIE-1703): in view once more, its end with it
-    if (reveal && reveal.sequence !== this.revealSeen && focusedAnnotationId === `annotation-thread:${reveal.threadId}`) [this.pendingAnnotationSelectionScroll, this.revealEnd] = [true, focusedAnnotationId];
+    if (reveal && reveal.sequence !== this.revealSeen && focusedAnnotationId === `annotation-thread:${reveal.threadId}`) { this.pendingAnnotationSelectionScroll = true; this.revealEnd = focusedAnnotationId; }
     this.revealSeen = reveal?.sequence;
     this.previousAnnotationFocusedId = focusedAnnotationId;
     this.previousAnnotationFocusedExpanded = focusedAnnotationExpanded;

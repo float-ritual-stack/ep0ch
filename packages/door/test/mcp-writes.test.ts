@@ -384,6 +384,15 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(made.json.outcome).toBe("applied");
     const child = (await textOf(here, "garden-notes", HERE, made.json.uri.split("/b/")[1]));
     expect(child).toMatchObject({ parent: ids.seeds, author: "agent", actor: "mcp:chat.example.test" });
+    // A note at the top and refined in two calls, as a claude.ai session does (PIE-1704): the create's revision is the patch's.
+    const top = await tool("outline_create", { ref: "root", outline: "garden-notes", text: "Pond survey\n\nFrogs counted: 3" });
+    expect(top.json.outcome).toBe("applied");
+    expect(Number.isInteger(top.json.revision)).toBe(true);
+    expect((await textOf(here, "garden-notes", HERE, top.json.uri.split("/b/")[1])).parent ?? null).toBeNull();
+    const refined = await tool("outline_patch", { uri: top.json.uri, revision: top.json.revision, patches: [{ observed: "Frogs counted: 3", replacement: "Frogs counted: 4" }] });
+    const pond = await textOf(here, "garden-notes", HERE, top.json.uri.split("/b/")[1]);
+    expect(pond.text).toBe("Pond survey\n\nFrogs counted: 4");
+    expect(refined.json).toMatchObject({ outcome: "applied", revision: pond.revision });
     const said = await tool("outline_comment", { uri, quote: "Scarlet runner beans", body: "Which variety exactly?" });
     expect(said.json).toMatchObject({ outcome: "applied", detail: { author: "agent", actorId: "mcp:chat.example.test" } });
     expect(logs.join("\n")).toMatch(new RegExp(`mcp write: mcp:chat\\.example\\.test \\(${PERSON}\\) client=\\S+ call=c-[0-9a-f]{10} \\(\\w+\\) outline_patch ${uri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: applied`));

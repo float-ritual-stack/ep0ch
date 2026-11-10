@@ -75,12 +75,9 @@ const result = await runHerdrScenario({
     const threads = () => s.client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: note.id }, includeResolved: true } });
     await s.waitFor("the comment is saved", threads, all => all.some(thread => thread.body === "Mulch the far end first"));
     await s.waitFor("the composer closed", () => s.visible(detail), frame => !frame.includes("Comment on whole note"));
-    // `]` once Detail has the thread (its save reloads them): a person's next key comes later than ours.
-    await s.waitFor("] selects the comment", async () => {
-      await s.keys(detail, "]");
-      await Bun.sleep(300);
-      return s.visible(detail);
-    }, frame => frame.includes("Comment 1 of 1"));
+    // At once, as a person presses it: the saved comment is there for `]`.
+    await s.keys(detail, "]");
+    await s.waitVisible(detail, "Comment 1 of 1");
     await s.keys(detail, "C");
     await s.waitVisible(detail, "Reply to");
     await s.text(detail, "Done on the third pass");
