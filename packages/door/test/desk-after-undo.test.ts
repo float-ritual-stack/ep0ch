@@ -540,8 +540,9 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         }
         const pids = [d.desk.pane("pty") as PtyPane, ...inGroup.map(n => tile.inner.pane(n) as PtyPane)].map(p => p.pid);
         // Left as a person leaves a changed layout: the second q within 3s goes without saving it.
-        d.app.pop();
-        if (d.app.screens().length === 2) d.app.pop();
+        // By keys (PIE-1697): q, and q again.
+        await d.press(char("q"));
+        if (d.app.screens().length === 2) await d.press(char("q"));
         expect(d.app.screens().length).toBe(1);
         d.paint();
         const dd = d.drawer(), tiles = () => dd.layoutGet().tiles as { name: string; container?: string }[];
@@ -558,6 +559,10 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         expect(inGroup).toEqual(["pty", "pty2"]);
         expect(terminals.map(t => t.name).sort()).toEqual(["pty", "pty2", "pty3"]);
         expect(d.said()).toContain("in its kept dock");
+        // PIE-1697: the leave says it once, naming every terminal that went, in the order the drawer's dock shows them.
+        const shown = leaves(docks((dd as any).root).find(x => x.keeps)!.kid).map(id => (dd as any).nameOf(id) as string);
+        const went = (d.app.describe().messages as { message: string }[]).map(m => m.message).filter(m => m.includes("went into your drawer"));
+        expect(went).toEqual([`${shown.join(", ")} went into your drawer · an undo's leftovers in its kept dock · alt+a shows them`]);
         expect(dd.outOfStep()).toEqual([]);
       } finally { d.quit(); }
     });

@@ -1237,10 +1237,26 @@ export class AgentDrawer {
       if (why) { ended.push(`${m.name} (${why})`); continue; }
       took.push(d.bringIn(m, undefined, "tabs", { kind: "agent", id: "door" }).name as string); panes.push(m.pane);
     }
-    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer${moved.some(m => m.kept && panes.includes(m.pane)) ? " · an undo's leftovers in its kept dock" : ""} · alt+a shows ${took.length === 1 ? "it" : "them"}${ended.length ? ` · ended with the screen: ${ended.join(", ")}` : ""}`, 8000);
-    else if (ended.length) this.host.flash(`ended with the screen: ${ended.join(", ")}`, 8000);
+    const said = this.keeping ?? { panes: [], kept: false, ended: [] };
+    said.panes.push(...panes); said.ended.push(...ended);
+    said.kept ||= moved.some(m => m.kept && panes.includes(m.pane));
+    if (!this.keeping) this.sayKept(said);
     if (took.length) this.host.redraw();
     return panes;
+  }
+  /** The keeps of one leave, said once it ends (keepTogether). */
+  private keeping: { panes: Pane[]; kept: boolean; ended: string[] } | null = null;
+  keepTogether(run: () => void): void {
+    if (this.keeping) return run();
+    const said = this.keeping = { panes: [], kept: false, ended: [] };
+    try { run(); } finally { this.keeping = null; this.sayKept(said); }
+  }
+  /** What went into the drawer, named as the drawer shows them (its layout's order, after any renaming), and what ended. */
+  private sayKept({ panes, kept, ended }: { panes: Pane[]; kept: boolean; ended: string[] }) {
+    const d = this.desk;
+    const took = d ? (d.layoutGet().tiles as { name: string }[]).filter(t => panes.includes(d.pane(t.name)!)).map(t => t.name) : [];
+    if (took.length) this.host.flash(`${took.join(", ")} went into your drawer${kept ? " · an undo's leftovers in its kept dock" : ""} · alt+a shows ${took.length === 1 ? "it" : "them"}${ended.length ? ` · ended with the screen: ${ended.join(", ")}` : ""}`, 8000);
+    else if (ended.length) this.host.flash(`ended with the screen: ${ended.join(", ")}`, 8000);
   }
 
   /** Where the drawer is drawn now (its strip while folded), or null when it is put away. */

@@ -141,6 +141,8 @@ export interface HostLayer {
   put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
   keep(moved: MovedTile[]): Pane[];
+  /** `run`'s keeps said as one (a screen left with its groups, PIE-1697): every tile they took, named in the drawer's order, once `run` ends. */
+  keepTogether?(run: () => void): void;
   /** Why tiles like these couldn't be kept in the drawer now, or null. */
   keepRefusal(moved: Pick<MovedTile, "name" | "spec" | "kept">[]): string | null;
   /** The tile the drawer shows now (not its own tab), or null. */
