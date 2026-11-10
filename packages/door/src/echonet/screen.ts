@@ -19,7 +19,7 @@ import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { listMove, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { AskAgainAt } from "../search-schedule";
-import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
+import { authorName, hostRequest, RECORDED_AS, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ActionRefused, actionSet, def, keyCaption } from "../surface/actions";
 import { hintKey, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
@@ -754,7 +754,7 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
   "echo.reply": def({
     summary: "reply to the message read: a comment on the copy (on its subject line), which the tosser carries back to the origin as netmail. The person writes it in the shared comment composer; an agent says body=, sent at once",
     keys: "r",
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: { body: { type: "string", optional: true, about: "the reply, sent at once (an agent's; the person's opens the composer)" } },
     examples: [
       { act: "echo.reply body=\"Happy to bring the tomato seedlings.\"", does: "sends a reply to the message read, carried back as netmail" },
@@ -773,7 +773,7 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
     words: "reply quoting the message",
     summary: "quote-reply: the composer opens on the passage quoted with > before each line (quote= the words; the person's selection, else the whole message), the reply written under it. An agent says quote= and body=, sent at once",
     keys: "q",
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored (default: the person's selection, else the message's body)" },
       body: { type: "string", optional: true, about: "the reply under the quote, sent at once (an agent's)" },
