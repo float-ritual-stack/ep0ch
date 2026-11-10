@@ -580,7 +580,7 @@ const MIXED = [
   "- The felt on the north slope tore in the storm on Tuesday, and the rain got in over the potting bench and two trays of seedlings.",
   "- The joists under the tear are dry and sound: only the felt and two battens need replacing, the rest of the roof held.",
   "- We decided to replace the whole north slope with corrugated sheets rather than patch the felt again this winter.",
-  "- Still open: whether the gutter on that side can stay, or has to move to take the new sheets' overhang?",
+  "- Still open: whether the gutter on that side can stay, or has to move to take the new sheets' overhang.",
 ].join("\n");
 
 /** A fake Jev that reads each line's kind by its words, and says every section asked about mixes them. */
@@ -635,3 +635,20 @@ test("an id written bare is quoted with its link, and the patch that links it cl
   const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: context.patch });
   expect((patched.json.review as Review).findings.filter(f => f.rule === "context")).toEqual([]);
 });
+
+test("a figure write comes back with the figure as the door draws it, and its live count answered (PIE-721, PIE-588)", async () => {
+  const { store, agent } = await setup();
+  for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
+  const figure = ["Bean beds", "", "::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }, { label: sown, query: \"type=bed sown=yes\" }]", "---", "::"].join("\n");
+  const started = Date.now();
+  const made = await agent("create", { parent: "root", text: figure });
+  const took = Date.now() - started;
+  expect(made.exitCode, made.stderr).toBe(0);
+  // A live count that matched nothing is a warning, so the answer is drawn: the figure's frame and its tiles.
+  expect(made.json.warnings.some((w: string) => w.includes("sown"))).toBe(true);
+  const drawn = made.json.view.join("\n");
+  expect(drawn).toContain("[ BEDS THIS WEEK ]");
+  expect(drawn).toMatch(/2 +0/);
+  expect(made.json.viewOf).toBe("the note, as the door draws it at 44 columns");
+  expect(took).toBeLessThan(15_000);
+}, 30_000);

@@ -437,8 +437,7 @@ which of the outline's components would show it. Many findings carry a `patch`: 
 would touch the same text come one per review. Each new
 finding is also a warning that starts "fix before you call this done"; a component Jev would draw a section with that
 code can't build comes as advice ("consider: …"), never a fix. You hear each finding once: one you were told on an
-earlier write is carried, so a note whose patches you applied ships. A write that holds a component, a warning or a
-fix answers with `view`, the part it changed as the door draws it at 44 columns (`viewOf` says which lines), in the
+earlier write is carried, so a note whose patches you applied ships. Every create, edit and patch answers with `view`, the part it changed as the door draws it at 44 columns (`viewOf` says which lines), in the
 Claude mod and on the claude.ai connector alike. Every answer ends with `next`, the check to make: read `view` (or the
 whole note with `ep0ch show <id>`, or `outline_read` with `view: true`) before you call the write done. What you
 were told and what you did next land on Jev's suggestions page. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to

@@ -8,7 +8,7 @@ import { READING_WIDTH } from './link-grammar.js'
  * - **The core tools up front** (`isDeferred: false`): the ones a session reads and writes notes with, and the component
  *   library, are in the prompt's tool list rather than behind tool search.
  * - **The note drawn back** after a write is the service's answer now (PIE-588): the agent tools' write answer carries
- *   `view`, the part it changed as the door draws it, whenever it holds a component, a warning or a fix; the mod passes
+ *   `view`, the part it changed as the door draws it, on every create, edit and patch; the mod passes
  *   it on as the claude.ai connector does. Only outline_read's `view: true` is drawn here (`ep0ch show`, PIE-1272).
  *
  * Pure: the argv, the block's name, the texts. hooks/register.ts runs them.
@@ -26,7 +26,7 @@ export { UP_FRONT_TOOLS as UPFRONT_TOOLS } from './link-grammar.js'
 const MOD_LINES = [
   'To make the outline do something new (a button, a rule, a script, an extension), use the ep0ch-extend skill (ep0ch --skill ep0ch-extend); ep0ch docs extensions is the reference.',
   '',
-  'In this session: outline_edit rewrites a note whole or appends to it; a write with a component, a warning or a fix to make comes back with `view`, the part it changed as the door draws it, beside its `components` and `warnings`: read it before saying it is done.',
+  'In this session: outline_edit rewrites a note whole or appends to it; every write comes back with `view`, the part it changed as the door draws it, beside its `components` and `warnings`: read it before saying it is done.',
 ]
 
 /** The guide as the block carries it, or null when `ep0ch library --guide` gave nothing usable (an older door, no outline). */

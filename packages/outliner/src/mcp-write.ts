@@ -13,11 +13,12 @@ export interface WriteBoard {
   info(): Promise<unknown>;
   comments(id: string): Promise<{ id: string; replies: { id: string }[] }[]>;
 }
-const clientOf = (board: WriteBoard, lent: Pick<ApplyOptions, "draw" | "hostedOutlines"> = {}) => ({
+const clientOf = (board: WriteBoard, lent: Pick<ApplyOptions, "draw" | "hostedOutlines" | "askOutline"> = {}) => ({
   request: <T>({ action, ...args }: { action: string } & Record<string, unknown>, timeoutMs?: number) => board.request<T>(action, args, timeoutMs),
   requireCompatibleService: () => board.info(),
   ...(lent.draw ? { draw: lent.draw } : {}),
   ...(lent.hostedOutlines ? { hostedOutlines: lent.hostedOutlines } : {}),
+  ...(lent.askOutline ? { askOutline: lent.askOutline } : {}),
 });
 const pick = (args: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]));
 /** When a patch was read at an older revision and applied on the newer one, say which (PIE-687). */
@@ -80,6 +81,8 @@ export interface ApplyOptions {
   draw?: (id: string, o: import("./agent-tools").NoteDrawing) => Promise<string[] | null>;
   /** The outlines the board's host serves, by name: where a bare Work ID of another outline is linked to (PIE-588). */
   hostedOutlines?: () => Promise<string[]>;
+  /** A read of another outline the board's host serves: whether a bare Work ID's item is there before it's linked. */
+  askOutline?: (outline: string, request: { action: string } & Record<string, unknown>) => Promise<unknown>;
 }
 
 /**

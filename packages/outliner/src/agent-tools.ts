@@ -91,6 +91,8 @@ export interface AgentToolsClient extends WorkToolsClient {
   draw?(id: string, o: NoteDrawing): Promise<string[] | null>;
   /** The outlines the host this client reaches serves, by name (`outlines.list`, a host's request that names no outline). */
   hostedOutlines?(): Promise<string[]>;
+  /** A read of another outline that host serves (one `hostedOutlines` named): where a bare Work ID is checked before it's linked there. */
+  askOutline?(outline: string, request: { action: string } & Record<string, unknown>): Promise<unknown>;
 }
 
 /** What a write's drawing asks for: the width, the source lines (from 1) it is about, and how many rows at most. */
@@ -814,7 +816,8 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
 
 /**
  * Where the ids a note names bare lead (write-review.ts `bareIds`, PIE-588): a Work ID whose prefix isn't one this outline
- * uses, by the outline this host serves under that prefix's name (the client's `hostedOutlines`) (`PIE-587` is pie's, linked `[[pie:PIE-587]]`); a block
+ * uses, by the outline this host serves under that prefix's name (the client's `hostedOutlines`), when that outline has it
+ * (`askOutline`) (`PIE-587` is pie's, linked `[[pie:PIE-587]]`); a block
  * id, by the note here it names, with its title. Asked only of a text that names one; undefined when there's none.
  */
 async function bareIdAnswers(client: AgentToolsClient, text: string): Promise<BareIdAnswers | undefined> {
@@ -832,7 +835,9 @@ async function bareIdAnswers(client: AgentToolsClient, text: string): Promise<Ba
     for (const token of work) {
       const prefix = token.slice(0, token.lastIndexOf("-"));
       const outline = here.has(prefix) ? undefined : byPrefix.get(prefix);
-      if (outline) answers.work[token] = outline;
+      // Linked only to an item that outline has: a patch never writes a link that leads nowhere.
+      const there = outline && client.askOutline ? await client.askOutline(outline, { action: "blocks.resolve", refs: [token] }).catch(() => null) as { resolved?: { id?: string }[] } | null : null;
+      if (outline && there?.resolved?.[0]?.id) answers.work[token] = outline;
     }
   }
   for (const token of new Set(ids.filter(id => id.kind === "block").map(id => id.token))) {
@@ -1050,8 +1055,8 @@ async function warned(client: AgentToolsClient, text: string, o: { near?: string
     o.had === undefined ? null : referenceWarningsFor(client, o.had, near, self).then(w => new Set(w)),
   ]);
   const all = [...(had ? warnings.filter(w => !had.has(w)) : warnings), ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
-  // The note as drawn, when there's something to look at in it (PIE-588): a component, a warning, or a fix to make.
-  const drawing = gate && near && (components.length || all.length || review?.verdict === "fix") ? await drawnWrite(client, near, text, gate.before, review, o.undrawn) : null;
+  // The part written, as the door draws it (PIE-588): every create, edit and patch of a note's words, a fix's result too.
+  const drawing = gate && near ? await drawnWrite(client, near, text, gate.before, review, o.undrawn) : null;
   const next = near ? review?.next ?? shapeNext(near) : undefined;
   return {
     ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review } : {}),
@@ -1086,9 +1091,10 @@ async function drawnWrite(client: AgentToolsClient, id: string, text: string, be
     let a = lines.length - 1, b = was.length - 1;
     while (a >= lo && b >= lo && lines[a] === was[b]) { a--; b--; }
     hi = Math.max(lo, a);
-    // From the heading of the section the change starts in, so the drawing says where it is.
-    const section = sectionsOf(text).find(s => s.line <= lo && lo <= s.end);
-    if (section) lo = section.line;
+    // From the heading of the section the change starts in to the end of the one it ends in, so the drawing says where it is.
+    const sections = sectionsOf(text), first = sections.find(s => s.line <= lo && lo <= s.end), last = sections.find(s => s.line <= hi && hi <= s.end);
+    if (first) lo = first.line;
+    if (last) hi = last.end;
   }
   for (const f of review?.findings ?? []) if (f.new && f.line) { lo = Math.min(lo, f.line - 1); hi = Math.max(hi, f.line - 1); }
   lo = Math.max(0, Math.min(lo, lines.length - 1)); hi = Math.max(lo, Math.min(hi, lines.length - 1));

@@ -229,7 +229,7 @@ function bareIdFindings(text: string, before: string | undefined, answers: BareI
     const why = ids.some(({ id }) => id.kind === "work") ? "a Work ID of another outline leads nowhere here" : "an id reads as nothing to a person";
     const patch = text.split(line).length === 2 ? [{ observed: line, replacement: fixed }] : undefined;
     return {
-      rule: "context", rubric: "context" as Rubric, key: `context:${ids.map(x => x.id.token).join(",")}`, line: i + 1, passage: clip(line, 200), new: !had.has(line), by: "code" as const,
+      rule: "context", rubric: "context" as Rubric, key: `context:${ids.map(x => x.id.token).join("+")}`, line: i + 1, passage: clip(line, 200), new: !had.has(line), by: "code" as const,
       say: `line ${i + 1} names ${ids.map(x => x.id.token).join(", ")} bare (${why}): link ${ids.length > 1 ? "them" : "it"}, ${named}${patch ? " (the patch does)" : ""}`,
       ...(patch ? { patch } : {}),
     };
@@ -446,11 +446,16 @@ function mixedPatch(text: string, s: Section, kinds: Record<Kind, number[]>): Sh
   if (!body.every(alone)) return undefined;
   const level = !headed(s) ? 2 : Math.min(6, (/^[ \t]*(#+)/.exec(lines[s.line]!)?.[1]!.length ?? 1) + 1);
   const mark = "#".repeat(level);
-  const group = (k: Kind) => kinds[k].map(i => lines[i]!);
+  // A line that asks Evan stays where it is, with the facts: the question finding moves it to the top, and an Open
+  // heading left with nothing under it is no fix (PIE-588).
+  const asking = kinds.open.filter(i => asksAt(lines, i));
+  const stays = [...kinds.fact, ...asking].sort((a, b) => a - b), open = kinds.open.filter(i => !asking.includes(i));
+  if (!kinds.decision.length && !open.length) return undefined;
+  const group = (at: readonly number[]) => at.map(i => lines[i]!);
   const parts = [
-    ...(kinds.fact.length ? [group("fact").join(item(lines[kinds.fact[0]!]!) ? "\n" : "\n\n")] : []),
-    ...(kinds.decision.length ? [`${mark} Decided\n${group("decision").join("\n")}`] : []),
-    ...(kinds.open.length ? [`${mark} Open\n${group("open").join("\n")}`] : []),
+    ...(stays.length ? [group(stays).join(item(lines[stays[0]!]!) ? "\n" : "\n\n")] : []),
+    ...(kinds.decision.length ? [`${mark} Decided\n${group(kinds.decision).join("\n")}`] : []),
+    ...(open.length ? [`${mark} Open\n${group(open).join("\n")}`] : []),
   ];
   const observed = lines.slice(body[0], body.at(-1)! + 1).join("\n");
   if (text.split(observed).length !== 2) return undefined;

@@ -263,7 +263,7 @@ callouts and rules without being reminded:
   (outline-core's `component-warnings.ts`: a figure's name or key with a typo, YAML that doesn't read, a value
   outside a property's; with the references that lead nowhere, as before), and its `review` (write-review.ts: each
   finding names its line and its fix, many with a ready `patch`), each worded "fix before you call this done: …", then a
-  `next` check. When the write holds a component, a warning or a fix to make, the answer carries `view`: the part it
+  `next` check. Every create, edit and patch answers with `view`: the part it
   changed as the door draws it at 44 columns (`viewOf` says which lines), drawn by the agent tools themselves (the CLI
   runs this checkout's `ep0ch show --lines`), so the claude.ai connector answers the same. The mod passes it on and
   draws nothing after a write; a drawing that can't be made says why in `viewError`.

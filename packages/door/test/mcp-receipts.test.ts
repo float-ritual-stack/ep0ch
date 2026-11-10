@@ -266,12 +266,16 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     const saved = { fit: process.env.OUTLINER_FIGURE_FIT, view: process.env.OUTLINER_WRITE_VIEW, key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
     Object.assign(process.env, { OUTLINER_FIGURE_FIT: "on", OUTLINER_WRITE_VIEW: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${jev.port}/v1/systemone` });
     try {
+      // The shed outline has SHED-012; nothing has SHED-099, so that one is left as written.
+      const shed = boardOn(here, "shed", HERE);
+      await shed.request("work-ids.configure", { prefix: "SHED" });
+      await shed.request("create", { parentId: null, text: "Mend the shed door [type::roadmap-item] [work-stage::queued] [work-id::SHED-012]", author: "user" });
       const text = [
         "Gate repair",
         "## Where it stands",
         "- The latch on the garden gate sheared off in the wind on Monday night, and the gate swung wide into the lane until morning.",
-        "- The hinges and the post are sound: only the latch and its keeper plate need replacing, and both are a standard size.",
-        "- We decided to fit a gravity latch this time, since the spring latch kept rusting shut every winter (see SHED-12).",
+        "- The hinges and the post are sound: only the latch and its keeper plate need replacing, and both are a standard size (not SHED-099).",
+        "- We decided to fit a gravity latch this time, since the spring latch kept rusting shut every winter (see SHED-012).",
         "- Still open: whether the gate needs a second latch at the bottom to stop it rattling in a strong wind?",
       ].join("\n");
       const made = await tool("outline_create", { outline: "garden-notes", ref: ids.a!, text });
@@ -281,27 +285,31 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
       expect(made.json.viewOf).toContain("44 columns");
       expect(made.json.detail.view).toBeUndefined();
       expect(made.json.said).toContain("in view");
-      const findings = made.json.detail.review.findings as { rule: string; say: string; patch?: { observed: string; replacement: string }[] }[];
+      type Finding = { rule: string; new: boolean; say: string; patch?: { observed: string; replacement: string }[] };
+      const findings = made.json.detail.review.findings as Finding[];
       const mixed = findings.find(f => f.rule === "mixed")!;
       expect(mixed.say).toContain("what's true on lines 3–4; what was decided on line 5; what's still open on line 6");
-      // The bare Work ID is quoted, with the outline it lives in.
-      const context = findings.find(f => f.rule === "context")!;
-      expect(context.say).toContain("names SHED-12 bare");
-      expect(context.patch![0]!.replacement).toContain("(see [[shed:SHED-12]])");
+      // The bare Work ID is quoted, with the outline that has it; the one no outline has isn't the review's to link.
+      const context = findings.filter(f => f.rule === "context");
+      expect(context).toHaveLength(1);
+      expect(context[0]!.say).toContain("names SHED-012 bare");
+      expect(context[0]!.patch![0]!.replacement).toContain("(see [[shed:SHED-012]])");
 
-      // Each fix applied as written: the link first, then the move (its patch comes with the next review).
+      // As `next` says: each new finding's patch applied as written, and again, until it ships.
       const id = made.json.uri.split("/").pop();
-      const read = await tool("outline_read", { outline: "garden-notes", ref: id });
-      const linked = await tool("outline_patch", { outline: "garden-notes", ref: id, revision: read.json.record.revision, patches: context.patch });
-      expect(linked.isError, linked.text).toBe(false);
-      const again = linked.json.detail.review.findings as typeof findings;
-      expect(again.filter(f => f.rule === "context")).toEqual([]);
-      const move = again.find(f => f.rule === "mixed")!;
-      const reread = await tool("outline_read", { outline: "garden-notes", ref: id });
-      const moved = await tool("outline_patch", { outline: "garden-notes", ref: id, revision: reread.json.record.revision, patches: move.patch });
-      expect(moved.isError, moved.text).toBe(false);
-      expect((moved.json.detail.review.findings as typeof findings).filter(f => f.rule === "mixed")).toEqual([]);
-      expect(moved.json.view.join("\n")).toContain("Decided");
+      let answer = made.json;
+      for (let round = 0; round < 4 && (answer.detail.review.findings as Finding[]).some(f => f.new && f.patch); round++) {
+        const read = await tool("outline_read", { outline: "garden-notes", ref: id });
+        answer = (await tool("outline_patch", { outline: "garden-notes", ref: id, revision: read.json.record.revision, patches: (answer.detail.review.findings as Finding[]).filter(f => f.new && f.patch).flatMap(f => f.patch!) })).json;
+        expect(answer.outcome).toBe("applied");
+      }
+      expect(answer.detail.review.verdict).toBe("ship");
+      const final = (await tool("outline_read", { outline: "garden-notes", ref: id })).json.record.body as string;
+      // The question went to the top, the decision under its heading, and no heading was left with nothing under it.
+      expect(final).toContain("- [ ] Still open: whether the gate needs a second latch");
+      expect(final).toContain("### Decided\n- We decided to fit a gravity latch this time, since the spring latch kept rusting shut every winter (see [[shed:SHED-012]]).");
+      expect(final).not.toContain("### Open");
+      expect(final).toContain("(not SHED-099)");
     } finally {
       Object.assign(process.env, { OUTLINER_FIGURE_FIT: saved.fit ?? "off", OUTLINER_WRITE_VIEW: saved.view ?? "off" });
       if (saved.key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = saved.key;

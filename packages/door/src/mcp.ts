@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { boardFor, canonicalLocalMachineName, drawNote, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { visible } from "./style";
 import { agentToolDefinition, READING_WIDTH } from "@ep0ch/outline-core/agent-tool-definitions";
-import { hostRequest, OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
+import { hostRequest, OUTLINE_NAME, previewTitle, SocketBoard, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { parseMachineryMode, readsRecentActivity, type MachineryMode } from "@ep0ch/outline-core/machinery";
@@ -1280,7 +1280,11 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     // The note a write changed comes back drawn by the door's own drawNote (PIE-588), as outline_read's view is.
     const draw = async (id: string, o: { width: number; lines?: [number, number]; rows: number }) => (await drawNote(board, id, o.width, undefined, o.lines))?.map(l => visible(l).trimEnd()).slice(0, o.rows) ?? null;
     const hostedOutlines = async () => (await hostRequest(board.path, "outlines.list")).outlines.map(o => o.name);
-    try { done = await applyWrite(board, { ...shape, input, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id), draw, hostedOutlines }); }
+    const askOutline = async (outline: string, { action, ...params }: { action: string } & Record<string, unknown>) => {
+      const there = new SocketBoard(board.path, 15_000, outline);
+      try { return await there.send(action, params); } finally { there.close(); }
+    };
+    try { done = await applyWrite(board, { ...shape, input, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id), draw, hostedOutlines, askOutline }); }
     catch (e) {
       // Nothing answered (the link dropped mid-write): whether it landed is unknown, so it is queued as that same write
       // (a comment by its request id, a new block found made, a patch by its revision) and lands once, never twice.
