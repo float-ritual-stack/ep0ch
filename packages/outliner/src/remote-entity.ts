@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
 import {
@@ -20,6 +19,8 @@ import {
   isExtensionProvider,
   providerLabel,
 } from "./resources";
+import { cancelResponseBody, responseMediaType } from "./http-response";
+import { sha256 } from "./web-markdown";
 
 const DEFAULT_MAXIMUM_RESPONSE_BYTES = 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
@@ -130,10 +131,6 @@ function namedValue(value: unknown, label: string): string | null {
   return nullableString(input.name, `${label} name`, 1_000);
 }
 
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 function markdownText(value: string): string {
   return value.replace(/([\\`*_[\]<>])/g, "\\$1");
 }
@@ -195,14 +192,6 @@ function externalHttpUrl(value: unknown, label: string): string {
   return url.href;
 }
 
-async function cancelResponse(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    return;
-  }
-}
-
 interface JsonResponse {
   readonly value: unknown;
   readonly text: string;
@@ -214,12 +203,12 @@ async function readJsonResponse(
   maximumBytes: number,
 ): Promise<JsonResponse> {
   if (!response.ok) {
-    await cancelResponse(response);
+    await cancelResponseBody(response);
     throw providerError(`${provider} provider returned HTTP ${response.status}`);
   }
-  const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  if (mediaType !== "application/json" && !mediaType?.endsWith("+json")) {
-    await cancelResponse(response);
+  const mediaType = responseMediaType(response);
+  if (mediaType !== "application/json" && !mediaType.endsWith("+json")) {
+    await cancelResponseBody(response);
     throw new ResourceCatalogError(
       "invalid-input",
       `${provider} provider returned unsupported media type: ${mediaType || "unknown"}`,
@@ -229,7 +218,7 @@ async function readJsonResponse(
   if (declaredHeader !== null) {
     const declaredLength = Number(declaredHeader);
     if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
-      await cancelResponse(response);
+      await cancelResponseBody(response);
       throw new ResourceCatalogError(
         "invalid-input",
         `${provider} response exceeds ${maximumBytes} bytes`,

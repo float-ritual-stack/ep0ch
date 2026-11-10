@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The outliner's three biggest files: what's pure moved beside them, copies folded onto their owners (PIE-1376)
+
+- **Nothing you use changes:** Tree, Detail, the host and the CLI answer exactly as before; Tree and Detail were driven side by side with main's and drew the same screens. This is for whoever opens the code next.
+- **`store.ts` (6,428 → 6,172 lines):** a tree index's labels moved to `tree-index-labels.ts`, a roadmap item's input checks to `roadmap-input.ts`. Its banners say what's under them, and every metadata read and write goes through `readMetadata`/`writeMetadata`.
+- **`resource-catalog.ts` (4,936 → 4,296):** the tables' rows and their records moved to `resource-rows.ts`, a filesystem Source's root and confinement to `filesystem-source.ts`, and a fetched response's media type and body cancel to `http-response.ts`, now shared with the remote-entity client.
+- **`detail-controller.ts` (4,664 → 4,074):** a selection made into an annotation target moved to `detail-annotation-targets.ts`, the document shown for a Resource to `detail-resource-document.ts`. The controller's closure is banded by region.
+- **Copies folded onto one owner each:** a canonical Work ID (outline-core `canonicalWorkId`), the backlink panel's open/closed rule (outline-core `backlinkGroupExpanded`, which the door had copied), a blocked capability factor (`blockingCapabilityFactor`), the content hash (`sha256`, now over text or bytes), the root-escape test (`escapesRoot`), the editor's moves (`applyTextBufferEditorCommand`), and lists the store wrote out again (work stages, property scopes, property columns).
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
+
 ### Rebind any key of a draft and it works, and shows, wherever you type (Nov 3 review cards 1 and 8)
 
 - **Every draft key is a row of a table:** esc (`edit.close`), tab and shift+tab (`draft.indent`, `draft.outdent`), the second key of the `ctrl+x ctrl+e` $EDITOR chord (`"edit.external": ["ctrl+x alt+e"]`), and a line field's ctrl+w (`draft.erase to=word-back`), ctrl+u (new `draft.clear`) and ctrl+x (`draft.cut`) are rows in `DRAFT_KEYS`, a chord table and `LINE_KEYS`. A rebind in `keybindings.json` or the keys window (`?`) works in a note's edit, a comment, the composer, an inspector field, the power bar and every line field; the old key does nothing, and a line field says where it went.

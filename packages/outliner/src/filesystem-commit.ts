@@ -1,19 +1,16 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   closeSync, constants, fchmodSync, fsyncSync, linkSync, lstatSync, mkdirSync,
   openSync, readFileSync, renameSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { ResourceCatalogError, type ResourceRevision } from "./resources";
+import { sha256 } from "./web-markdown";
 
 type FileRevision = Extract<ResourceRevision, { kind: "filesystem" }>;
 
-function hash(bytes: string | Buffer): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
 function pendingPath(path: string): string {
-  return join(dirname(path), `.outliner-save-${hash(basename(path)).slice(0, 24)}.pending`);
+  return join(dirname(path), `.outliner-save-${sha256(basename(path)).slice(0, 24)}.pending`);
 }
 
 function missing(error: unknown): boolean {
@@ -99,7 +96,7 @@ export function commitFilesystemText(
     writeDurable(join(directory, "draft"), text);
     writeDurable(staged, text, Number(lstatSync(path).mode & 0o777));
     writeDurable(join(directory, "save.json"), `${JSON.stringify({
-      target: basename(path), expectedRevision: expected, draftHash: hash(text),
+      target: basename(path), expectedRevision: expected, draftHash: sha256(text),
       createdAt: new Date().toISOString(),
     }, null, 2)}\n`);
     // Refuse filesystems without hard links before displacing anything.
@@ -122,7 +119,7 @@ export function commitFilesystemText(
     const unchanged = () => {
       const stat = lstatSync(original, { bigint: true });
       return stat.isFile() && stat.mtimeNs.toString() === expected.mtimeNs &&
-        stat.size.toString() === expected.size && hash(readFileSync(original)) === expected.contentHash;
+        stat.size.toString() === expected.size && sha256(readFileSync(original)) === expected.contentHash;
     };
     if (!unchanged()) throw new ResourceCatalogError("stale-revision", "Filesystem Resource changed during save");
     assertConfinement();
@@ -133,7 +130,7 @@ export function commitFilesystemText(
       throw error;
     }
     sync(dirname(path));
-    if (!unchanged() || hash(readFileSync(path)) !== hash(text)) {
+    if (!unchanged() || sha256(readFileSync(path)) !== sha256(text)) {
       throw new ResourceCatalogError("stale-revision", "Filesystem Resource changed during save");
     }
     unlinkSync(staged);

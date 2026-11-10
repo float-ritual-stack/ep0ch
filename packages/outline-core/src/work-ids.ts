@@ -54,9 +54,14 @@ export function parseWorkId(input: string): ParsedWorkId | null {
   return { workId: formatWorkId(prefix, number), prefix, number };
 }
 
-export function isCanonicalWorkId(input: string): boolean {
+/** `input` parsed when it is written as its canonical Work ID already (`PIE-007`, not `pie-7`); otherwise null. */
+export function canonicalWorkId(input: string): ParsedWorkId | null {
   const parsed = parseWorkId(input);
-  return parsed !== null && parsed.workId === input.trim();
+  return parsed !== null && parsed.workId === input.trim() ? parsed : null;
+}
+
+export function isCanonicalWorkId(input: string): boolean {
+  return canonicalWorkId(input) !== null;
 }
 
 /** External keys keep their provider's spelling; recognition grants no allocator ownership. */

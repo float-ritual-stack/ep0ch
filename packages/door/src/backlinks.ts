@@ -1,28 +1,17 @@
 import { drawEllipsized, width } from "./style";
 import {
-  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkReferenceLabel, backlinkGroupRows, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
+  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkGroupExpanded, backlinkReferenceLabel, backlinkGroupRows, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
   type BacklinkViewOptions, type BacklinkStageValue,
 } from "@ep0ch/outline-core/backlink-view";
 
-// Backlinks as Detail presents them (PIE-442): the computation (`backlinkView`, the sort, stage and kind cycles) is
-// outline-core's `backlink-view.ts`, the one copy Detail and the door share; this file is the door's presentation of
-// it: Detail's panel rules and text (`src/detail-controller.ts`, `src/detail-pi-preview.ts`), the door's rows and
-// what `peek` reports. The door never derives a facet: against a service without them the view is one flat list.
+// Backlinks as Detail presents them (PIE-442): the computation (`backlinkView`, the sort, stage and kind cycles) and
+// the panel rules (`backlinkNarrowingActive`, `backlinkGroupExpanded`) are outline-core's `backlink-view.ts`, the one
+// copy Detail and the door share; this file is the door's presentation of it: Detail's panel text
+// (`src/detail-pi-preview.ts`), the door's rows and what `peek` reports. The door never derives a facet: against a
+// service without them the view is one flat list.
 
 export * from "@ep0ch/outline-core/backlink-view";
 
-
-// ── Detail's panel rules (detail-controller.ts) ──────────────────────────────────────────────────────
-
-/** A text, kind or stage filter narrows the view; then every group is open (`backlinkNarrowingActive`). */
-export function backlinkNarrowingActive(options: Readonly<BacklinkViewOptions>): boolean {
-  return options.filter !== "" || options.kind !== null || options.stage !== "all";
-}
-
-/** Groups start collapsed; one the reader opened, or any while narrowing, is open (`detailBacklinkGroupExpanded`). */
-export function backlinkGroupExpanded(options: Readonly<BacklinkViewOptions>, expandedKinds: ReadonlySet<string>, kind: string): boolean {
-  return expandedKinds.has(kind) || backlinkNarrowingActive(options);
-}
 
 // ── Detail's panel text (detail-pi-preview.ts) ───────────────────────────────────────────────────────
 
