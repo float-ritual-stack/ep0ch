@@ -166,6 +166,7 @@ test("the groom reads the entries waiting in changelog/ as the top of [Unrelease
   writeFileSync(join(repo, "changelog/2026-03-01-fix-hoses.md"), "### Hoses coil themselves (GDN-9)\n\n- **A coiled hose** after each watering.\n");
   writeFileSync(join(repo, "changelog/2026-03-02-feat-rakes.md"), "### Rakes hang by size (GDN-8)\n\n- **Biggest first.**\n");
   writeFileSync(join(repo, "changelog/notes.txt"), "not an entry");
+  writeFileSync(join(repo, "changelog/README.md"), "# Waiting CHANGELOG entries\n");
   const sections = changelogSections(changelogText(repo)!);
   expect(sections.map(s => s.title).slice(0, 3)).toEqual(["Rakes hang by size (GDN-8)", "Hoses coil themselves (GDN-9)", "The garden board shows which beds were watered (GDN-7)"]);
   expect(namedIn("GDN-9", sections).map(s => s.title)).toEqual(["Hoses coil themselves (GDN-9)"]);

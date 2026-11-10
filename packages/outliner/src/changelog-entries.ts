@@ -9,11 +9,11 @@ import { join } from "node:path";
 /** The folder entries wait in, at the repository's root. */
 export const CHANGELOG_ENTRIES = "changelog";
 
-/** The entries not yet folded, newest first (their names start with the date), each one `###` section. */
+/** The entries not yet folded, newest first (their names start with the date), each one `###` section; the folder's README is none. */
 export function changelogEntries(repo: string): { file: string; text: string }[] {
   const dir = join(repo, CHANGELOG_ENTRIES);
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter(f => f.endsWith(".md")).sort().reverse()
+  return readdirSync(dir).filter(f => f.endsWith(".md") && f !== "README.md").sort().reverse()
     .map(f => ({ file: join(CHANGELOG_ENTRIES, f), text: readFileSync(join(dir, f), "utf8").trim() }));
 }
 

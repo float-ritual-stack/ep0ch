@@ -34,18 +34,20 @@ test("two branches each adding an entry merge clean, and the fold puts both in C
   for (const [branch, file, name] of [["tulips", "2026-03-01-feat-tulips.md", "Tulips open"], ["roses", "2026-03-02-fix-roses.md", "Roses climb"]]) {
     git(dir, "checkout", "-qb", branch!, "main");
     mkdirSync(join(dir, "changelog"), { recursive: true });
+    writeFileSync(join(dir, "changelog/README.md"), "# Waiting CHANGELOG entries\n");
     writeFileSync(join(dir, "changelog", file!), entry(name!));
     git(dir, "add", ".");
     git(dir, "commit", "-qm", branch!);
   }
   git(dir, "merge", "--no-edit", "tulips");
-  expect(readdirSync(join(dir, "changelog")).sort()).toEqual(["2026-03-01-feat-tulips.md", "2026-03-02-fix-roses.md"]);
+  expect(readdirSync(join(dir, "changelog")).sort()).toEqual(["2026-03-01-feat-tulips.md", "2026-03-02-fix-roses.md", "README.md"]);
 
   const folded = fold(dir);
   expect(folded.code).toBe(0);
   expect(folded.text).toContain("Folded 2 entries into CHANGELOG.md");
   // Each entry keeps its own Run line, the one a union merge of two entries in one file drops.
   expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).toBe(changelog(`${entry("Roses climb")}\n${entry("Tulips open")}\n`));
-  expect(readdirSync(join(dir, "changelog"))).toEqual([]);
+  // The folder's README stays, so the folder (and every doc pointing at it) outlives the fold.
+  expect(readdirSync(join(dir, "changelog"))).toEqual(["README.md"]);
   expect(fold(dir).text).toContain("No entries waiting in changelog/.");
 });
