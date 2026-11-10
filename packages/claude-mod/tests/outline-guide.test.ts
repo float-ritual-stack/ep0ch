@@ -1,12 +1,11 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
-import { drawArgv, drawnNoteOf, GUIDE_BLOCK, guideText, UPFRONT_TOOLS, withDrawing } from '../hooks/outline-guide'
-import { outputJsonOf } from '../hooks/tool-rows'
+import { GUIDE_BLOCK, guideText, UPFRONT_TOOLS } from '../hooks/outline-guide'
 
 tier('user')
 
 // PIE-721: what the session's outline can hold, in front of the model: the guide as a context block, the core tools up
-// front, and a written figure drawn back. A plugin test has no processes: `ep0ch` and the installed CLI are answered
+// front, and a write's own drawing passed on. A plugin test has no processes: `ep0ch` and the installed CLI are answered
 // here. Fictional notes only.
 
 const result = (exitCode: number, stdout: string, stderr = ''): ProcessRunResult =>
@@ -106,45 +105,16 @@ describe('the core tools up front', () => {
   })
 })
 
-describe('a written figure drawn back', () => {
-  test('a write whose note now holds a figure comes back with the note as it draws, its JSON still last', async ($, on) => {
-    const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['graph-stat'], warnings: ['the ::graph-stat on line 2 doesn\'t take titel: did you mean title?'] } })
+describe('a write answered drawn (PIE-588)', () => {
+  test('the agent tools\' answer carries the drawing; the mod passes it on as written and draws nothing itself', async ($, on) => {
+    const view = DRAWN.trimEnd().split('\n')
+    const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['graph-stat'], warnings: ['the ::graph-stat on line 2 doesn\'t take titel: did you mean title?'], view, viewOf: 'the note, as the door draws it at 44 columns' } })
     await $.session.start(START)
     await s.clock.settle()
     s.runs.length = 0
     const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '::graph-stat\n---\ntitel: the beds\n---\n::' })
-    const text = String(out.result)
-    expect(text).toStartWith('The note as it draws (ep0ch show, 44 columns):\n┌ the beds')
-    expect(outputJsonOf(text)).toMatchObject({ id: NOTE, components: ['graph-stat'] })
-    expect(s.runs.find(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')!.argv).toEqual(['ep0ch', 'show', NOTE, '--width', '44', '--rows', '40'])
-  })
-
-  test('a small write elsewhere in a note that holds a figure draws nothing', async ($, on) => {
-    const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['graph-stat'] } })
-    await $.session.start(START)
-    await s.clock.settle()
-    s.runs.length = 0
-    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: 'Water at nine.' })
-    expect(JSON.parse(String(out.result))).toMatchObject({ id: NOTE, components: ['graph-stat'] })
+    expect(JSON.parse(String(out.result))).toMatchObject({ id: NOTE, components: ['graph-stat'], view })
     expect(s.runs.some(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')).toBe(false)
-  })
-
-  test('a write with no figure is answered as before, and nothing is drawn', async ($, on) => {
-    const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['callout'] } })
-    await $.session.start(START)
-    await s.clock.settle()
-    s.runs.length = 0
-    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '> [!tip] water at nine' })
-    expect(JSON.parse(String(out.result))).toMatchObject({ id: NOTE, components: ['callout'] })
-    expect(s.runs.some(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')).toBe(false)
-  })
-
-  test('a drawing that fails leaves the write\'s answer as it was', async ($, on) => {
-    const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['graph-stat'] }, show: result(1, '', 'ep0ch: the host is down') })
-    await $.session.start(START)
-    await s.clock.settle()
-    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '::graph-stat\n---\n---\n::' })
-    expect(JSON.parse(String(out.result))).toMatchObject({ id: NOTE })
   })
 })
 
@@ -153,28 +123,5 @@ describe('the pure parts', () => {
     expect(guideText(`${GUIDE}\n`)).toStartWith(GUIDE)
     expect(guideText('usage: ep0ch library …')).toBeNull()
     expect(guideText('')).toBeNull()
-  })
-
-  test('drawnNoteOf: the written note when the write wrote a figure or was warned about one, by the result\'s own id', () => {
-    const figure = '::graph-tabs\n---\nquery: type=task\n---\n::'
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['graph-tabs'] }), { text: `Plan\n${figure}` })).toBe(NOTE)
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE }), { replaceSection: { heading: 'Plan', body: figure } })).toBe(NOTE)
-    expect(drawnNoteOf('outline_create', JSON.stringify({ id: NOTE, components: ['graph-check'] }), { text: figure })).toBe(NOTE)
-    expect(drawnNoteOf('outline_patch', JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE }] }), { patches: [{ observed: 'x', replacement: figure }] })).toBe(NOTE)
-    // Into the draft a person has open: `ep0ch show` would draw the saved note, not what was written.
-    expect(drawnNoteOf('outline_patch', JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'draft' }] }), { patches: [{ observed: 'x', replacement: figure }] })).toBeNull()
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, warnings: ["the ::graph-stat on line 2 doesn't draw: bad YAML"] }), { append: 'tidy' })).toBe(NOTE)
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['graph-stat'] }), { append: 'tidy' })).toBeNull()
-    expect(drawnNoteOf('outline_comment', JSON.stringify({ id: NOTE }), { text: figure })).toBeNull()
-    expect(drawnNoteOf('outline_edit', 'not json', { text: figure })).toBeNull()
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: 'PIE-12' }), { text: figure })).toBeNull()
-  })
-
-  test('withDrawing: the drawing first, the JSON last; nothing drawn leaves the result alone', () => {
-    const json = JSON.stringify({ id: NOTE, revision: 4 })
-    expect(withDrawing(json, DRAWN)).toBe(`The note as it draws (ep0ch show, 44 columns):\n${DRAWN.trimEnd()}\n\n${json}`)
-    expect(outputJsonOf(withDrawing(json, DRAWN))).toEqual({ id: NOTE, revision: 4 })
-    expect(withDrawing(json, '  \n')).toBe(json)
-    expect(drawArgv(NOTE)).toEqual(['ep0ch', 'show', NOTE, '--width', '44', '--rows', '40'])
   })
 })

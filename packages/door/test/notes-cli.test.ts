@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonicalLocalMachineName, everyNote, foundLine, treeLine, treeOf } from "../src/notes-cli";
+import { canonicalLocalMachineName, everyNote, foundLine, partOf, treeLine, treeOf } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { visible, width } from "../src/style";
 import { outliner, Scratch, until } from "./scratch";
@@ -16,6 +16,20 @@ const run = async (args: string[], env: Record<string, string> = {}, cwd?: strin
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { out, err, code };
 };
+
+describe("show --lines: the rows a part of the note draws, under its header (PIE-588)", () => {
+  // Rows as the reader drew them: a title and a byline, then each row's source line (a wrapped line draws two rows).
+  const rows = ["Shed roof", "loki · today", " ## Plan", " ∙ felt torn", "   on the north side", "", " ## Decided", " ∙ sheets"];
+  const source = [undefined, undefined, 1, 2, 2, undefined, 4, 5];
+  const lineOf = (r: number) => source[r];
+  test("the header, a ⋮ for rows left out above and below, and every row its lines drew", () => {
+    expect(partOf(rows, 2, lineOf, [3, 3])).toEqual(["Shed roof", "loki · today", "  ⋮", " ∙ felt torn", "   on the north side", "  ⋮"]);
+    expect(partOf(rows, 2, lineOf, [5, 6])).toEqual(["Shed roof", "loki · today", "  ⋮", " ## Decided", " ∙ sheets"]);
+  });
+  test("a part no row draws gives the whole drawing", () => {
+    expect(partOf(rows, 2, lineOf, [40, 41])).toEqual(rows);
+  });
+});
 
 describe("every note, for a picker that filters as it's typed", () => {
   test("newest first, each with its ancestors' titles as its path", () => {

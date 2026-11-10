@@ -16,11 +16,14 @@ import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
+import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
+import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { asksAt, FIX_BEFORE_DONE, mayAsk, pointsPatch, RUBRIC_OF, shapeNext, splitPoints, structuralLines, topBox, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
-import { askJev as askJevRequest, JEV_MODEL, jevKey, NOT_CONFIGURED, type JevAsked, type JevOptions, type JevReading } from "./jev";
+import { askJev as askJevRequest, JEV_MODEL, jevKey, NOT_CONFIGURED, type JevAnswer, type JevAsked, type JevOptions, type JevReading } from "./jev";
 import type { AskReading, QuestionFacet } from "@ep0ch/outline-core/protocol";
 import { clip } from "./clip";
 
@@ -35,6 +38,8 @@ export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS }
 export const REVIEW_SIZES = { kitRows: 3, kitProse: 400, dense: 300, denseUnit: 200, mixed: 400 };
 /** Sections a review asks Jev about, and how much of each it sends. */
 const MAX_SECTIONS = 8, MAX_SECTION = 1500, MAX_ASKS = 8;
+/** Lines of a section that may be mixed whose kind Jev is asked (fact, decision, open), per section and per review. */
+const MAX_KIND_LINES = 12, MAX_KINDS = 24;
 /** `readAsks`: how many requests of MAX_ASKS lines it has out at once. */
 const ASK_BATCHES = 4;
 
@@ -82,12 +87,16 @@ export type ReviewReading = JevReading;
 interface Section { id: string; heading: string; line: number; end: number; text: string }
 
 const HEADING = /^[ \t]{0,3}#{1,6}[ \t]+(.*)$/;
+/** The heading of what comes before a note's first heading. */
+const TOP = "(the top)";
+/** Whether a section starts with its heading (the top of a note has none: its first line is its first written line). */
+const headed = (s: Section) => s.heading !== TOP;
 
 /** The note's sections: what comes before its first heading, then each heading's lines, outside code and components. */
 export function sectionsOf(text: string): Section[] {
   const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line;
   const out: Section[] = [];
-  let open: Section = { id: "s0", heading: "(the top)", line: title + 1, end: title, text: "" };
+  let open: Section = { id: "s0", heading: TOP, line: title + 1, end: title, text: "" };
   const close = () => { open.text = lines.slice(open.line, open.end + 1).join("\n").trim(); if (open.text) out.push(open); };
   lines.forEach((line, i) => {
     if (i <= title) return;
@@ -124,15 +133,125 @@ export function kitIn(text: string, schemas: readonly ComponentSchema[]): Set<st
 }
 
 
+/**
+ * The lines of each section long enough to be mixed whose kind Jev is asked (fact, decision, open), by section id: its
+ * body's written lines (not its heading, a component's or a fence's, nor a line of properties alone), at most
+ * MAX_KIND_LINES a section and MAX_KINDS in all.
+ */
+export function kindLines(text: string, sections: readonly Section[]): Map<string, number[]> {
+  const lines = text.split("\n"), structure = noteStructure(lines), code = codeLines(text);
+  const out = new Map<string, number[]>();
+  let left = MAX_KINDS;
+  for (const s of sections) {
+    if (s.text.length <= REVIEW_SIZES.mixed || left <= 0) continue;
+    const body: number[] = [];
+    for (let i = headed(s) ? s.line + 1 : s.line; i <= s.end && body.length < Math.min(MAX_KIND_LINES, left); i++) {
+      const line = lines[i] ?? "";
+      if (!stripPropertyTokens(line).trim() || structure[i] !== -1 || code.has(i) || HEADING.test(line)) continue;
+      body.push(i);
+    }
+    if (body.length >= 2) { out.set(s.id, body); left -= body.length; }
+  }
+  return out;
+}
+
+/** The lines (0-based) of fenced and indented code. */
+function codeLines(text: string): Set<number> {
+  const { fences, indented } = codeBlocks(text.split("\n"));
+  return new Set([...fences.flatMap(f => Array.from({ length: f.end - f.start + 1 }, (_, k) => f.start + k)), ...indented]);
+}
+
+/** An id written bare in a note: a Work ID (`PIE-587`) or a block id's first 8 characters, outside links, code and properties. */
+export interface BareId { line: number; start: number; end: number; token: string; kind: "work" | "block" }
+
+const BARE_WORK_ID = /(?<![\p{L}\p{N}_\-:/.#])[A-Z][A-Z0-9]{0,15}-\d+(?![\p{L}\p{N}_-])/gu;
+/** A note's id cut to its first 8 characters: a whole uuid written bare is write-shape's `bare-id` rule, its one owner. */
+const BARE_BLOCK_ID = /(?<![\p{L}\p{N}_\-:/.#])[0-9a-f]{8}(?![\p{L}\p{N}_-])/gu;
+
+/**
+ * The ids `text` names bare, a line at a time: what a context finding quotes, each with its fix (PIE-588). Not one in a
+ * link (`((id))`, `[[page]]`, a Markdown link, an address), in code, in a property token or in a component's lines. A
+ * block id is 8 hex characters with a digit and a letter in them (a short word like `deadbeef` aside); a whole uuid is
+ * write-shape's to say (its `bare-id` rule), never said twice.
+ */
+export function bareIds(text: string): BareId[] {
+  const lines = text.split("\n"), structure = noteStructure(lines), out: BareId[] = [];
+  const starts: number[] = [];
+  for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
+  const covered = [...protectedCodeRanges(text), ...linkOccurrences(text).map(l => ({ start: l.start, end: l.end })), ...parsePropertyRecords(text).map(p => ({ start: p.start, end: p.end }))];
+  const free = (a: number, b: number) => !covered.some(r => a < r.end && r.start < b);
+  lines.forEach((line, i) => {
+    if (structure[i] !== -1) return;
+    for (const [pattern, kind] of [[BARE_WORK_ID, "work"], [BARE_BLOCK_ID, "block"]] as const) {
+      for (const m of line.matchAll(pattern)) {
+        const token = m[0], at = starts[i]! + m.index!;
+        if (kind === "block" && !(/\d/.test(token) && /[a-f]/.test(token))) continue;
+        // An unclosed `((id` or `[[page` is a reference written wrong: the reference warnings say so, with the fix.
+        if (/(?:\(\(|\[\[)$/.test(line.slice(0, m.index))) continue;
+        if (free(at, at + token.length)) out.push({ line: i, start: m.index!, end: m.index! + token.length, token, kind });
+      }
+    }
+  });
+  return out;
+}
+
+/**
+ * What the service said of the ids a note names bare (agent-tools resolves them): a Work ID another outline holds, by
+ * the outline it links to (`[[pie:PIE-587]]`), and a block id here, by its id and title (`((id|title))`). An id with
+ * neither isn't the review's to fix: it may name something outside the outlines.
+ */
+export interface BareIdAnswers { work: Record<string, string>; blocks: Record<string, { id: string; title: string }> }
+
+/** The link a bare id is written as, or none when nothing says where it leads. */
+function bareIdLink(id: BareId, answers: BareIdAnswers): string | undefined {
+  if (id.kind === "work") { const outline = answers.work[id.token]; return outline ? `[[${outline}:${id.token}]]` : undefined; }
+  const block = answers.blocks[id.token];
+  if (!block) return undefined;
+  const label = block.title.replace(/[|()[\]\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 48).trim();
+  return label ? `((${block.id}|${label}))` : `((${block.id}))`;
+}
+
+/**
+ * The context findings code can name (PIE-588): each line with an id written bare that leads somewhere, quoting the ids
+ * and giving the line with each one linked as its patch. One finding a line, so its patch never clashes with another's.
+ */
+function bareIdFindings(text: string, before: string | undefined, answers: BareIdAnswers | undefined): ReviewFinding[] {
+  if (!answers) return [];
+  const lines = text.split("\n"), had = new Set(before?.split("\n") ?? []);
+  const byLine = new Map<number, { id: BareId; link: string }[]>();
+  for (const id of bareIds(text)) {
+    const link = bareIdLink(id, answers);
+    if (link) byLine.set(id.line, [...(byLine.get(id.line) ?? []), { id, link }]);
+  }
+  return [...byLine].map(([i, ids]) => {
+    const line = lines[i]!;
+    let fixed = line;
+    for (const { id, link } of [...ids].sort((a, b) => b.id.start - a.id.start)) fixed = fixed.slice(0, id.start) + link + fixed.slice(id.end);
+    const named = ids.map(({ id, link }) => `${id.token} (as ${link})`).join(", ");
+    const why = ids.some(({ id }) => id.kind === "work") ? "a Work ID of another outline leads nowhere here" : "an id reads as nothing to a person";
+    const patch = text.split(line).length === 2 ? [{ observed: line, replacement: fixed }] : undefined;
+    return {
+      rule: "context", rubric: "context" as Rubric, key: `context:${ids.map(x => x.id.token).join("+")}`, line: i + 1, passage: clip(line, 200), new: !had.has(line), by: "code" as const,
+      say: `line ${i + 1} names ${ids.map(x => x.id.token).join(", ")} bare (${why}): link ${ids.length > 1 ? "them" : "it"}, ${named}${patch ? " (the patch does)" : ""}`,
+      ...(patch ? { patch } : {}),
+    };
+  });
+}
+
 /** One request: the state (title, opening, the changed sections, the candidate ask lines) and every question about it. */
 export function reviewRequest(text: string, sections: readonly Section[], asks: readonly number[], options: Record<string, string>, prompt: WriteReviewPrompt, o: { title: boolean; opening: boolean }) {
   const lines = text.split("\n");
   const fill = (q: string, path: string) => q.replace(/\{section\}|\{line\}/g, path);
   const questions: Record<string, unknown> = {};
+  const kinds = kindLines(text, sections);
   for (const s of sections) {
     const path = `sections.${s.id}.text`;
     if (Object.keys(options).length >= 2) questions[`kit::${s.id}`] = { type: "choice", instructions: fill(prompt.kit, path), criteria: options };
     for (const q of ["structured", "prose", "dense", "mixed", "context", "qa"] as const) questions[`${q}::${s.id}`] = { type: "noul", instructions: fill(prompt[q], path) };
+    // Each line of a section that may be mixed, asked on its own what it records: how a mixed finding names its lines.
+    for (const i of kinds.get(s.id) ?? []) {
+      questions[`kind::L${i}`] = { type: "choice", instructions: prompt.kind.replaceAll("{line}", `lines.L${i}`).replaceAll("{section}", path), criteria: { fact: prompt.kindFact, decision: prompt.kindDecision, open: prompt.kindOpen } };
+    }
   }
   for (const i of asks) for (const q of ["asks", "unclear"] as const) questions[`${q}::L${i}`] = { type: "noul", instructions: fill(prompt[q], `asks.L${i}`) };
   if (o.title) questions.title = { type: "noul", instructions: prompt.title };
@@ -146,6 +265,7 @@ export function reviewRequest(text: string, sections: readonly Section[], asks: 
       ...(o.opening ? { opening: opening.slice(0, 800) } : {}),
       ...(sections.length ? { sections: Object.fromEntries(sections.map(s => [s.id, { heading: s.heading, text: s.text.length > MAX_SECTION ? `${s.text.slice(0, MAX_SECTION)}\n…` : s.text }])) } : {}),
       ...(asks.length ? { asks: Object.fromEntries(asks.map(i => [`L${i}`, lines[i]!.trim()])) } : {}),
+      ...(kinds.size ? { lines: Object.fromEntries([...kinds.values()].flat().map(i => [`L${i}`, lines[i]!.trim()])) } : {}),
     },
     questions,
   };
@@ -286,6 +406,64 @@ export function jevScope(key: string): string {
   return `section:${parts.slice(1).join(":")}`;
 }
 
+const KINDS = ["fact", "decision", "open"] as const;
+type Kind = typeof KINDS[number];
+const KIND_WORDS: Record<Kind, string> = { fact: "what's true", decision: "what was decided", open: "what's still open" };
+/** A line's kind when Jev's pick of it is more likely than not; none when it couldn't tell. */
+const KIND_SURE = 0.5;
+
+/** Each kind's lines (0-based) in a section, as Jev named them line by line (`kind::L<i>`). */
+function lineKinds(a: Record<string, JevAnswer>, s: Section, lines: readonly string[]): Record<Kind, number[]> {
+  const out: Record<Kind, number[]> = { fact: [], decision: [], open: [] };
+  for (let i = s.line; i <= s.end && i < lines.length; i++) {
+    const answer = a[`kind::L${i}`];
+    const kind = answer?.choice as Kind | undefined;
+    if (!kind || !KINDS.includes(kind)) continue;
+    const p = answer!.probabilities?.[kind] ?? answer!.confidence;
+    if (unit(p) && p >= KIND_SURE) out[kind].push(i);
+  }
+  return out;
+}
+
+/** Lines as a person counts them (from 1): "line 4", "lines 4 and 6", "lines 4–6". */
+function linesSaid(at: readonly number[]): string {
+  const n = at.map(i => i + 1);
+  if (n.length === 1) return `line ${n[0]}`;
+  if (n.every((x, k) => k === 0 || x === n[k - 1]! + 1)) return `lines ${n[0]}–${n.at(-1)}`;
+  return `lines ${n.slice(0, -1).join(", ")} and ${n.at(-1)}`;
+}
+
+/**
+ * The section rewritten as the mixed finding tells: its facts where they are, then a heading for what was decided and
+ * one for what's still open, each line moved under its own. Only when every written line of the section was named and
+ * each stands alone (a list item at the margin with nothing under it, or a one-line paragraph), so nothing is split.
+ */
+function mixedPatch(text: string, s: Section, kinds: Record<Kind, number[]>): ShapePatch[] | undefined {
+  const lines = text.split("\n"), from = headed(s) ? s.line + 1 : s.line;
+  const body = Array.from({ length: s.end - from + 1 }, (_, k) => from + k).filter(i => (lines[i] ?? "").trim());
+  const named = new Set(KINDS.flatMap(k => kinds[k]));
+  if (!body.length || body.some(i => !named.has(i))) return undefined;
+  const item = (l: string) => /^(?:[-*+]|\d+[.)])[ \t]/.test(l);
+  const alone = (i: number) => !/^[ \t]/.test(lines[i]!) && (item(lines[i]!) || ((lines[i - 1] ?? "").trim() === "" || i === from) && ((lines[i + 1] ?? "").trim() === "" || i === s.end));
+  if (!body.every(alone)) return undefined;
+  const level = !headed(s) ? 2 : Math.min(6, (/^[ \t]*(#+)/.exec(lines[s.line]!)?.[1]!.length ?? 1) + 1);
+  const mark = "#".repeat(level);
+  // A line that asks Evan stays where it is, with the facts: the question finding moves it to the top, and an Open
+  // heading left with nothing under it is no fix (PIE-588).
+  const asking = kinds.open.filter(i => asksAt(lines, i));
+  const stays = [...kinds.fact, ...asking].sort((a, b) => a - b), open = kinds.open.filter(i => !asking.includes(i));
+  if (!kinds.decision.length && !open.length) return undefined;
+  const group = (at: readonly number[]) => at.map(i => lines[i]!);
+  const parts = [
+    ...(stays.length ? [group(stays).join(item(lines[stays[0]!]!) ? "\n" : "\n\n")] : []),
+    ...(kinds.decision.length ? [`${mark} Decided\n${group(kinds.decision).join("\n")}`] : []),
+    ...(open.length ? [`${mark} Open\n${group(open).join("\n")}`] : []),
+  ];
+  const observed = lines.slice(body[0], body.at(-1)! + 1).join("\n");
+  if (text.split(observed).length !== 2) return undefined;
+  return [{ observed, replacement: parts.join("\n\n") }];
+}
+
 /** Jev's findings from its answers: code's truth table over them, one finding per judgment that holds. */
 function jevFindings(text: string, sections: readonly Section[], asked: Asked, schemas: readonly ComponentSchema[], code: readonly { line?: number; rubric: Rubric }[], qaRule = QA_RULE): ReviewFinding[] {
   const a = asked.answers, out: ReviewFinding[] = [], t = REVIEW_THRESHOLDS;
@@ -293,7 +471,7 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
   const yes = (id: string) => unit(a[id]?.noul) && a[id]!.noul! >= t.yes;
   const codeIn = (s: Section, rubric: Rubric) => code.some(f => f.rubric === rubric && f.line !== undefined && f.line - 1 >= s.line && f.line - 1 <= s.end);
   for (const s of sections) {
-    const where = s.id === "s0" ? "the top of the note" : `the section "${clip(s.heading, 40)}"`;
+    const where = !headed(s) ? "the top of the note" : `the section "${clip(s.heading, 40)}"`;
     const base = { line: s.line + 1, passage: clip(s.text, 200), new: true, by: "jev" as const };
     const kit = a[`kit::${s.id}`], structured = a[`structured::${s.id}`]?.noul, prose = a[`prose::${s.id}`]?.noul;
     // Rows a figure could draw: list items, table rows, dated lines, a callout's body lines (as figure-fit counts them).
@@ -329,16 +507,32 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
       const patch = made?.every(p => text.split(p.observed).length === 2) ? made : undefined;
       out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part${patch ? " (the patch makes it one point a line)" : ""}`, ...(patch ? { patch } : {}) });
     }
-    if (yes(`mixed::${s.id}`) && roomy(REVIEW_SIZES.mixed)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
+    // Mixed only as far as its lines say so (PIE-588): Jev names each line's kind, and a section whose lines are all one
+    // kind isn't mixed, whatever Jev says of the whole. So the finding names its lines, and a split as told clears it.
+    if (yes(`mixed::${s.id}`) && roomy(REVIEW_SIZES.mixed)) {
+      const kinds = lineKinds(a, s, lines);
+      const held = KINDS.filter(k => kinds[k].length);
+      if (held.length >= 2) {
+        const patch = mixedPatch(text, s, kinds);
+        const named = held.map(k => `${KIND_WORDS[k]} on ${linesSaid(kinds[k])}`).join("; ");
+        out.push({
+          ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`,
+          say: `${where} mixes ${named}: give the decided and the open each a heading of their own under it${patch ? " (the patch moves each line under its heading)" : ""}, decisions in a ::graph-decision if they have alternatives`,
+          ...(patch ? { patch } : {}),
+        });
+      }
+    }
     if (yes(`qa::${s.id}`) && ADDRESSED.test(s.text) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
     if (yes(`context::${s.id}`) && !codeIn(s, "context")) {
       // The phrase it leans on, quoted where code finds one; else the section's opening, said as such.
       const cue = contextCue(s, lines);
+      // Without a phrase to quote it can't say where, so it is advice, never the gate (PIE-588: a finding that names no
+      // span can't be cleared by fixing it, and kept a note at fix through six patches).
       out.push({
-        ...base, ...(cue ? { line: cue.line + 1, passage: clip(cue.text, 200) } : {}), rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`,
+        ...base, ...(cue ? { line: cue.line + 1, passage: clip(cue.text, 200) } : { advice: true as const }), rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`,
         say: cue
           ? `line ${cue.line + 1} leans on today's context ("${cue.phrase}"): name the thing it means, or link it as ((id|label)), so it reads without this session`
-          : `${where} leans on today's context (a bare id, jargon, or a thing named as if known): name the thing, or link it as ((id|label)), so it reads without this session`,
+          : `${where} may lean on today's context (jargon, or a thing named as if known): if so, name the thing or link it as ((id|label)), so it reads without this session`,
       });
     }
   }
@@ -377,6 +571,8 @@ export interface ReviewInput {
   told?: ReadonlySet<string>;
   /** The clock a time written as past is read against (PIE-1417); now when left out. */
   now?: Date;
+  /** What the service said of the ids the note names bare (`bareIds`): each context finding code can name, with its link. */
+  ids?: BareIdAnswers;
 }
 
 /**
@@ -412,6 +608,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   });
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
+  code.push(...bareIdFindings(text, before, input.ids).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f));
   const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f);
   const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {

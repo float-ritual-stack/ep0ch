@@ -189,6 +189,29 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect(shown.out).toContain("Compost rota");
   }, 30_000);
 
+  test("find --query with bare Work IDs: each matches its item, OR of two gives both; one no item has says work-id= (PIE-1682)", async () => {
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    const made: string[] = [];
+    try {
+      for (const text of ["Fix the gate latch [type::roadmap-item] [work-stage::queued] [work-id::GDN-301]", "Paint the bench [type::roadmap-item] [work-stage::queued] [work-id::GDN-302]", "Prune the pear [type::roadmap-item] [work-stage::queued] [work-id::GDN-303]"]) {
+        made.push((await board.request("create", { parentId: null, text, author: "agent" })).id);
+      }
+      expect((await run(["find", "--query", "GDN-301 OR GDN-302", "--ids"], env)).out.trim().split("\n")).toEqual([`((${made[0]}))`, `((${made[1]}))`]);
+      expect((await run(["find", "--query", "GDN-303", "--ids"], env)).out.trim()).toBe(`((${made[2]}))`);
+      const none = await run(["find", "--query", "GDN-999"], env);
+      expect(plain(none.out + none.err)).toContain("work-id=GDN-999");
+      // A Work ID in small letters is still that item's: an empty answer for another reason never says no item has it.
+      const other = await run(["find", "--query", "work-id=gdn-301 type=absent"], env);
+      expect(plain(other.out + other.err)).not.toContain("no item has gdn-301");
+      // Written in small letters it reads as a key, and the hint that says no note has it names work-id= too.
+      const lower = await run(["find", "--query", "gdn-301"], env);
+      expect(plain(lower.out + lower.err)).toContain("work-id=GDN-301");
+    } finally {
+      for (const id of made) await board.trash(id).catch(() => {});
+      board.close();
+    }
+  }, 30_000);
+
   test("find --sort: a property's order, numbers as numbers, notes without it last; a bad sort says so", async () => {
     expect((await run(["find", "--query", "type=errand", "--sort", "rank", "--ids"], env)).out.trim().split("\n")).toEqual([`((${ids.compost}))`, `((${ids.order}))`]);
     expect((await run(["find", "--query", "type=errand", "--sort", "Rank", "--direction", "DESC", "--ids"], env)).out.trim().split("\n")).toEqual([`((${ids.compost}))`, `((${ids.order}))`]);
