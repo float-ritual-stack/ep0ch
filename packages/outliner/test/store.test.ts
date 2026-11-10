@@ -3170,10 +3170,11 @@ describe("one clock, one order, one filter (PIE-1691)", () => {
     const store = makeStore();
     const note = store.create("ÜNÏCODE seed packets");
     store.create("plain seed packets");
+    const cafe = store.create("Cafe\u0301 notes");
     const view = store.create("Ranked [type::view]");
-    const graphPath = store.queryBlocks({ text: "ünïcode" }).blocks.map((block) => block.id);
-    const rankedPath = store.queryBlocks({ text: "ünïcode", rankViewId: view.id }).blocks.map((block) => block.id);
-    expect(graphPath).toEqual([note.id]);
-    expect(rankedPath).toEqual([note.id]);
+    for (const [text, expected] of [["ünïcode", [note.id]], ["cafe", [cafe.id]]] as const) {
+      expect(store.queryBlocks({ text }).blocks.map((block) => block.id)).toEqual([...expected]);
+      expect(store.queryBlocks({ text, rankViewId: view.id }).blocks.map((block) => block.id)).toEqual([...expected]);
+    }
   });
 });
