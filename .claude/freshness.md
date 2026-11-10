@@ -21,11 +21,12 @@ through `systemctl --user`.
 - **Idle PRs:** an open PR with no push or comment for an hour and no agent working on it.
 - **Infrastructure hub** (pie `50fe932d-4314-4c1b-88c9-13e79a41ef83`): a service, timer, tunnel or Caddy site it
   names that isn't running (`systemctl --user list-units --all`), or one running that it doesn't name.
-- **CHANGELOG:** a user-visible PR merged since the last release section with no entry under `[Unreleased]`. A PR
-  whose `gh pr view <n> --json files` includes `CHANGELOG.md` has its entry; for the rest, read main's CHANGELOG
-  through `gh api` (the brief says how), never the checkout's.
-- **Docs and skills:** a README, AGENTS.md, CONTRIBUTING.md, skill or agent definition that names a file that no
-  longer exists (`git ls-files` to check the name).
+- **CHANGELOG:** a user-visible PR merged since the last release section with no entry under `[Unreleased]` in
+  main's CHANGELOG, read through `gh api` (the brief says how), never the checkout's. An entry names the PR's tickets
+  or its change; a PR that touched `CHANGELOG.md` (`gh pr view <n> --json files`) is only where to look first.
+- **Docs and skills:** a README, AGENTS.md, CONTRIBUTING.md, skill or agent definition that names a file main no
+  longer has: check the name on main (`gh api 'repos/{owner}/{repo}/contents/<path>?ref=main'` answers 404 for a
+  file that's gone), not `git ls-files`, which lists the checkout's.
 - **Memory:** a memory file (`~/.claude/projects/-home-evan-projects-ep0ch/memory/`) that names a file, flag, command
   or block that no longer exists.
 - **The laptop:** when `laptop` answers over ssh, its `PROTOCOL` behind main's. It is often away by design; away is
