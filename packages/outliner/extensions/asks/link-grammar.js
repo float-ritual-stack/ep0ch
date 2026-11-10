@@ -1656,6 +1656,7 @@ var BASE_HEADING_STYLE = style("", {});
 // packages/outline-core/src/annotation-marks.ts
 var ANNOTATION_EDITED_KEY = "annotation-edited";
 var ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
+var MARK_SHOWS = new Set(["file", "web", "img", "video", "artifact"]);
 
 // packages/outline-core/src/property-parse.ts
 var BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
@@ -2241,7 +2242,6 @@ var FIGURE_COMPONENT_SCHEMAS = FIGURES.map(figure);
 // packages/outline-core/src/write-shape.ts
 var HEADING2 = /^[ \t]{0,3}#{1,6}[ \t]/;
 var isHeadingLine = (line) => HEADING2.test(line);
-var COMMENT_SHOWS = new Set(["file", "web", "img", "video", "artifact"]);
 var SINGLE_QUOTED = String.raw`(?:[^'’\n]|(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}]))*`;
 var QUOTATION = new RegExp(String.raw`"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{N}])['‘]${SINGLE_QUOTED}\?${SINGLE_QUOTED}['’](?![\p{L}\p{N}])`, "gu");
 export {

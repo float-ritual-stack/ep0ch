@@ -63,7 +63,7 @@ import type { Ctx } from "../app";
 import { headedTitle, subject, titleLine, type Msg } from "../board";
 import { Again, editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
-import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { ownPropertyRecords, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
@@ -150,7 +150,7 @@ import type { LiveSite } from "../live";
 import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
-import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { cardBg, hasCard, kindOf, wholeNoteMarks, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
@@ -1574,7 +1574,10 @@ export class NoteSurface {
     const props = propsText ? `${fg(C.dark)} · ${propsText}` : "";
     if (own) {
       const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (propsText ? fg(C.dark) + ` · ${propsText}` : ""), w) + RESET] : [];
-      return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true };
+      // The host's header stands in for the title, so a folded whole-note thread's [+] follows its last row (PIE-1572:
+      // the BBS reader had none, and "as marks" left no way to it by mouse).
+      const ownRows = [...own], wholeMarks = wholeNoteMarks(ownRows, width(visible(ownRows.at(-1) ?? "").trimEnd()), 0, w, this.foldedWhole());
+      return { rows: [...ownRows, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: ownRows.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
     // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
@@ -1627,20 +1630,10 @@ export class NoteSurface {
     // The tile's title-only header keeps it to one line, cut with an ellipsis.
     const lines = width(title) <= w ? [title] : omit.oneLine ? [ellipsize(title, w)] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
-    const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
-    // A folded whole-note thread's [+] is after the title, never in the gutter (PIE-1255: a row of them there pushed
-    // the body over); the ones that don't fit go on a row of their own under it, so none is lost in a narrow tile.
-    // The title-only header (PIE-1248) is one row: the whole-note threads are the tile menu's comments row there.
-    if (!this.printed && !omit.title && !omit.oneLine) {
-      let col = width(lines.at(-1) ?? ""), row = titled.length - 1, n = 0;
-      const put = () => { if (n) titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "") + fg(C.yellow) + ` [+]`.repeat(n) + RESET, w); };
-      for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
-        if (col + 4 > w && (col > 0 || n > 0)) { put(); titled.push(""); lines.push(""); row++; col = 0; n = 0; }
-        wholeMarks.push({ thread: c.id, row: above + row, from: col + 1, to: Math.min(w, col + 4) });
-        col += 4; n++;
-      }
-      put();
-    }
+    // A folded whole-note thread's [+] is after the title. The title-only header (PIE-1248) is one row: the whole-note
+    // threads are the tile menu's comments row there.
+    const wholeMarks = !this.printed && !omit.title && !omit.oneLine ? wholeNoteMarks(titled, width(lines.at(-1) ?? ""), above, w, this.foldedWhole()) : [];
+    while (lines.length < titled.length) lines.push("");
     const titleControls: NonNullable<HeaderBlock["titleControls"]> = [];
     if (!this.printed && !this.raw && !omit.title && !omit.oneLine && isOutlineNote(m)) {
       for (const decoration of decorationsOf(m, src).filter(d => d.place === "title")) {
@@ -2212,6 +2205,9 @@ export class NoteSurface {
       const row = top + c.row - this.scroll, mark = marks.find(k => k.thread === c.thread);
       if (row < top || row >= top + room || !mark || (host?.externalGutter !== undefined && (mark.col ?? 0) + 3 > host.externalGutter)) continue;
       const col = 1 + (mark.col ?? 0);
+      // A gutter too narrow for it (a whole-note card's takes no column, PIE-1572) drew it cut to "…": the card's own
+      // [–] is its control there.
+      if (host?.externalGutter === undefined && col + 3 > this.gutterWidth()) continue;
       gutterRows.set(row, pad(gutterRows.get(row) ?? "", col) + fg(mark.open ? C.yellow : C.dark) + "[–]" + RESET);
       this.hits.push({ row, from: this.gutterStart + col, to: this.gutterStart + col + 3,
         thread: c.thread, elem: controlKey(c.thread, "toggle") });
@@ -2758,10 +2754,10 @@ export class NoteSurface {
     return { text: segs.map(s => s.plain).join(" · "), line, links };
   }
 
-  /** The panel's rows for `m`: the service's tokens once it has answered, the block properties until then. */
+  /** The panel's rows for `m`: its own records (a comment's never its words' chips, PIE-1596), the service's once answered. */
   rows(m: Msg, tokens: PropertyRecord[] | null = null): PropRow[] {
     const t = tokens ? { state: "ready", tokens } : tokensOf(m.text, this.src);
-    return propertyRows(m, t?.state === "ready" ? t.tokens : null, workIdPrefix(this.src) ?? null, softLinkIgnoreOf(this.src));
+    return propertyRows(m, t?.state === "ready" && t.tokens ? ownPropertyRecords(m.text, t.tokens) : null, workIdPrefix(this.src) ?? null, softLinkIgnoreOf(this.src));
   }
 
   /** Open (or switch to full) the property panel. */
@@ -5285,6 +5281,8 @@ export class NoteSurface {
   private cardThreads(m: Msg): Comment[] {
     return (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && this.threadShown(c.id));
   }
+  /** The whole-note threads folded to their [+] after the header (wholeNoteMarks). */
+  private foldedWhole(): Comment[] { return (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id)); }
   /** The thread the person just opened: the next frame brings its card into view. */
   private revealThread: string | null = null;
   private revealFrom: number | null = null;

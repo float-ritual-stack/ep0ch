@@ -97,6 +97,25 @@ export function placeCards<T extends { thread: string; row: number; rows: string
   });
 }
 
+/**
+ * Each folded whole-note thread's `[+]` (`threads`), after a header's last row (`used` cells of it are drawn), never in
+ * the gutter (PIE-1255: a row of them there pushed the body over); the ones that don't fit go on a row of their own under
+ * it, so none is lost in a narrow tile. `rows` gets them, and the rows they need; `first` is the header row `rows[0]` is
+ * on. The reader's title and a host's own header (the BBS reader's, PIE-1572) both end with them.
+ */
+export function wholeNoteMarks(rows: string[], used: number, first: number, w: number, threads: readonly { id: string }[]): { row: number; from: number; to: number; thread: string }[] {
+  const marks: { row: number; from: number; to: number; thread: string }[] = [];
+  let col = used, row = rows.length - 1, n = 0;
+  const put = () => { if (n) rows[row] = pad(rows[row]!.replace(/ *(?:\x1b\[0m)? *$/, "") + fg(C.yellow) + " [+]".repeat(n) + RESET, w); };
+  for (const c of threads) {
+    if (col + 4 > w && (col > 0 || n > 0)) { put(); rows.push(""); row++; col = 0; n = 0; }
+    marks.push({ thread: c.id, row: first + row, from: col + 1, to: Math.min(w, col + 4) });
+    col += 4; n++;
+  }
+  put();
+  return marks;
+}
+
 /** A passage action as the toolbar offers it: what it runs, its label, and the key after `a`. */
 export interface PassageChoice { action: string; label: string; key?: string }
 

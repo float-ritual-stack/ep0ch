@@ -12,6 +12,7 @@
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { boxStatus, STEP_BOX } from "./checklist-marks";
+import { MARK_SHOWS } from "./annotation-marks";
 import { figureRow } from "./figure-markdown";
 import { figureBlockLine, figureRowsProblem, figureSource, graphKind } from "./figure-props";
 import { headerLine } from "./header-line";
@@ -172,8 +173,6 @@ function paragraphs(text: string, comment: boolean): Paragraph[] {
   return out;
 }
 
-/** The tokens a comment's words use to show something rather than to set it. */
-const COMMENT_SHOWS: ReadonlySet<string> = new Set(["file", "web", "img", "video", "artifact"]);
 
 /** The measure of `text`, and every rule it breaks. `comment` text is measured for walls alone. */
 export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
@@ -228,7 +227,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
   // Resource (`[img::…]`, `[file::…]`) is what the comment shows, and stays as written.
   if (comment) {
     for (const chip of parsePropertyRecords(text)) {
-      if (chip.syntax !== "bracket" || COMMENT_SHOWS.has(chip.key) || isMediaLine(lines[chip.line] ?? "")) continue;
+      if (chip.syntax !== "bracket" || MARK_SHOWS.has(chip.key) || isMediaLine(lines[chip.line] ?? "")) continue;
       found.push({
         rule: "comment-chip", key: `comment-chip:${chip.raw}`, line: chip.line + 1,
         say: `\`${chip.raw}\` in a comment is words: it sets nothing on the comment or its note. In a code span it reads as quoted; to carry it, use \`properties\` on the comment or write it on a note's first line`,

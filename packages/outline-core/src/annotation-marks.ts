@@ -13,7 +13,7 @@
 // with a body is drawn as a span too, and as a card in the margin (`place: margin`). Pure: no I/O.
 
 import { markBodyLine, MARK_HEADING } from "./header-line";
-import { withoutPropertyTokens } from "./property-grammar";
+import { propertyTokensInLine, withoutPropertyTokens } from "./property-grammar";
 import { RULE_TONES, type RuleTone } from "./rules";
 
 /** The store's own key for when a comment or reply was edited after it was posted (an ISO time; PIE-763's `annotations.update`). */
@@ -82,19 +82,27 @@ export function annotationPropertyProblem(props: Readonly<Record<string, string 
 export { markBodyLine, MARK_HEADING };
 
 /**
+ * The tokens a mark's words use to show something (a picture, a file, a page on the web, an artifact) rather than to
+ * say it: a line of only these is what a comment shows, never its title, and the house rules leave them as written.
+ */
+export const MARK_SHOWS: ReadonlySet<string> = new Set(["file", "web", "img", "video", "artifact"]);
+
+/**
  * A mark's title (a highlight, comment, question or reply): its own words, never the generated heading, whose quote is
- * the anchored passage's raw Blockdown cut short (`Comment on “Then:** netmail…”`). The first line of its body with
- * its properties taken out; a mark with no body (a highlight) is its heading with the passage's emphasis marks
- * dropped. `line` is the line the title is on. Null when the text isn't a mark: a generated heading, then the
- * store's `[type::annotation]` or `[type::annotation-reply]` line.
+ * the anchored passage's raw Blockdown cut short (`Comment on “Then:** netmail…”`). The first line of its body, whole:
+ * a chip quoted there is words (PIE-1589, PIE-1596), so the title keeps it; a line that only shows something (MARK_SHOWS)
+ * is skipped. A mark with no body (a highlight) is its heading with the passage's emphasis marks dropped. `line` is the
+ * line the title is on. Null when the text isn't a mark: a generated heading, then the store's `[type::annotation]` or
+ * `[type::annotation-reply]` line.
  */
 export function markTitleLine(text: string): { line: number; text: string } | null {
   const body = markBodyLine(text);
   if (body === null) return null;
   const lines = text.split("\n");
   for (let i = body; i < lines.length; i++) {
-    const words = withoutPropertyTokens(lines[i]!).replace(/\s+/g, " ").trim();
-    if (words) return { line: i, text: words };
+    const line = lines[i]!, words = line.replace(/\s+/g, " ").trim();
+    const shows = !withoutPropertyTokens(line).trim() && propertyTokensInLine(line).every(t => MARK_SHOWS.has(t.key));
+    if (words && !shows) return { line: i, text: words };
   }
   return { line: 0, text: lines[0]!.replace(/\*\*|__|`+/g, "").replace(/\s+/g, " ").trim() };
 }

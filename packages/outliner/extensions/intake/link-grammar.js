@@ -1626,6 +1626,7 @@ var BASE_HEADING_STYLE = style("", {});
 // packages/outline-core/src/annotation-marks.ts
 var ANNOTATION_EDITED_KEY = "annotation-edited";
 var ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
+var MARK_SHOWS = new Set(["file", "web", "img", "video", "artifact"]);
 function markTitleLine(text) {
   const body = markBodyLine(text);
   if (body === null)
@@ -1633,8 +1634,9 @@ function markTitleLine(text) {
   const lines = text.split(`
 `);
   for (let i = body;i < lines.length; i++) {
-    const words = withoutPropertyTokens(lines[i]).replace(/\s+/g, " ").trim();
-    if (words)
+    const line = lines[i], words = line.replace(/\s+/g, " ").trim();
+    const shows = !withoutPropertyTokens(line).trim() && propertyTokensInLine(line).every((t) => MARK_SHOWS.has(t.key));
+    if (words && !shows)
       return { line: i, text: words };
   }
   return { line: 0, text: lines[0].replace(/\*\*|__|`+/g, "").replace(/\s+/g, " ").trim() };
