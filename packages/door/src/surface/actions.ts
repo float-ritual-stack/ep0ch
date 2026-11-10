@@ -662,17 +662,21 @@ const placeholder = (k: string, s: ArgSpec): string | number | boolean =>
  * arguments and a call that works. Values are coerced below, as `k=v` words are all text.
  */
 export function checkedActionArgs(action: string, spec: Record<string, ArgSpec>, raw: Record<string, unknown>): Record<string, unknown> {
-  const properties = Object.fromEntries(Object.entries(spec).map(([k, s]) => [k, { type: s.type, description: s.about }]));
-  const required = Object.entries(spec).filter(([, s]) => !s.optional).map(([k]) => k);
+  // The door's own words (ArgSpec.doorWord) pass through unchecked and unnamed: a refusal lists the part's arguments only.
+  const doorWords = Object.entries(spec).filter(([, s]) => s.doorWord).map(([k]) => k);
+  const own = doorWords.length ? Object.entries(spec).filter(([, s]) => !s.doorWord) : Object.entries(spec);
+  const properties = Object.fromEntries(own.map(([k, s]) => [k, { type: s.type, description: s.about }]));
+  const required = own.filter(([, s]) => !s.optional).map(([k]) => k);
   const aliases = "id" in spec && !("ref" in spec) ? { id: ["ref", ...REF_ALIASES.filter(name => name !== "id" && !(name in spec))] } : undefined;
   const checked = checkToolArgs({
     name: action, namesOnly: true, schema: { type: "object", properties, required },
     example: Object.fromEntries(required.map(k => [k, placeholder(k, spec[k]!)])),
     ...(aliases ? { aliases } : {}),
+    ...(doorWords.length ? { ignore: doorWords } : {}),
     callText: (name, args) => `ep0ch act ${name}${Object.entries(args).map(([k, v]) => ` ${k}=${v}`).join("")}`,
   }, raw);
   if (!checked.ok) throw new ActionRefused(checked.error);
-  return checked.args;
+  return doorWords.length ? { ...checked.args, ...Object.fromEntries(doorWords.filter(k => raw[k] !== undefined).map(k => [k, raw[k]])) } : checked.args;
 }
 
 /** The spec entry of an action that takes any `key=value` beyond its declared ones (a script's slots): its value lists them in `actions`. */

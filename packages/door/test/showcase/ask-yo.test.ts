@@ -207,6 +207,10 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect(Object.keys(info.args).filter(k => k.startsWith("door:"))).toEqual([]);
     expect(info.doorWords).toEqual(["door:via", "door:asked"]);
     await h.app.act({ action: "ext.yo.remember", args: { act: "tile.zoom", asked: "zoom-the-yard", args: "reach:full", "door:asked": true }, as: "test-agent" });
+    // A wrong argument is answered with the part's own arguments, never the door's words.
+    const refused = await h.app.act({ action: "ext.yo.remember", args: { nope: "1" }, as: "test-agent" }).then(() => "", (e: Error) => e.message);
+    expect(refused).toContain("asked (string)");
+    expect(refused).not.toContain("door:");
   }, 30_000);
 });
 

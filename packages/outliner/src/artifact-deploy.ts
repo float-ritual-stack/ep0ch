@@ -365,14 +365,14 @@ export async function adoptSeededArtifactRule(store: OutlinerStore, installed: (
 
 /**
  * What the person reads under the kit's page after an adoption (PIE-1705): the two notes it moved, linked where they are
- * (Trash), and how to have them back. What the kit does is the page above it, in the kit's own words.
+ * (Trash), and how to have them back. A record, true after the kit is removed too (its page stays while this is under
+ * it). What the kit does is the page above it, in the kit's own words.
  */
 export const adoptedNotice = (rule: string, script: string): string => [
-  "Your seeded deploy rule and script are this kit now",
+  "The kit took over the seeded deploy rule and script",
   "",
-  `- **In Trash:** ((${rule}|the deploy rule)) and ((${script}|the deploy script)), never edited, so the kit does their work.`,
-  "- **Deploying carries on:** a saved note naming an ep0ch-artifacts repo deploys as before.",
-  "- **Your own instead?** Restore both from Trash, then remove the kit here.",
+  `- **Moved to Trash:** ((${rule}|the deploy rule)) and ((${script}|the deploy script)), never edited, so the kit did their work from here on.`,
+  "- **Want them back?** Restore both from Trash, and remove the kit if it's still installed.",
 ].join("\n");
 
 /**

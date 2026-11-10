@@ -539,16 +539,19 @@ test("an outline with the old seeded notes lists the kit as installed, keeps dep
   // PIE-1705: where Evan looks, not stderr: a note under the kit's page links the two notes in Trash and says how to have them back.
   const told = () => {
     const page = server.extensionPages.pages()["artifact-deploy"];
-    return page ? store.children(page).find(b => b.text.startsWith("Your seeded deploy rule and script are this kit now")) : undefined;
+    return page ? store.children(page).find(b => b.text.startsWith("The kit took over the seeded deploy rule and script")) : undefined;
   };
   expect(await until(() => !!told())).toBe(true);
   expect(told()!.text).toContain(`((${seeded!.rule.id}|the deploy rule)) and ((${seeded!.script.id}|the deploy script))`);
   expect(told()!.text).toContain("Restore both from Trash");
+  const notice = told()!.id;
   const note = await client.request<{ id: string }>({ action: "create", text: "Lamp yard\n\n[artifact::ep0ch-artifacts/moth-garden]", author: "user" });
   await server.extensionRules.settle();
   expect(await until(() => deployed(store) === "abc123")).toBe(true);
   // Uninstalled here, a restart doesn't bring the notes or the kit back.
   await client.request({ action: "extensions.uninstall", extension: "artifact-deploy", demo: "keep" });
+  // Removed, the note stays a true record under the page it keeps.
+  expect(store.get(notice)!.effectiveDeletedRootId).toBeFalsy();
   await server.extensionRules.settle(); await server.close();
   const again = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines, ruleQuietMs: 20 });
   await again.start();
