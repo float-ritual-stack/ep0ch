@@ -56,7 +56,7 @@ export const BUTTON_TILES = new WeakMap<Draft, Map<string, string | null | undef
  * its id, or the refusal's words (the resolver's reason and what to type). Asked through `tile.info`, the one owner.
  */
 export async function tileNamed(host: SurfaceHost, sel: string, actor: Actor): Promise<{ id: string } | { why: string }> {
-  const d = (host.ctx as { dispatch?: import("../dispatch").Dispatcher }).dispatch;
+  const d = host.ctx.dispatch;
   if (!d) return { why: "this screen has no tiles" };
   try {
     const r = await d.act({ action: "tile.info", tile: sel }, actor) as { tile?: string };

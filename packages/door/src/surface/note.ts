@@ -2400,7 +2400,7 @@ export class NoteSurface {
    * when it doesn't).
    */
   private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
-    const d = (host?.ctx as { dispatch?: import("./dispatch").Dispatcher } | undefined)?.dispatch;
+    const d = host?.ctx?.dispatch;
     if (d) this.refusedPress = act => { try { return d.refusedNow(actRequestOf(lineWords(act)), USER); } catch { return null; } };
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
@@ -3336,7 +3336,7 @@ export class NoteSurface {
   buttonLookups(host: SurfaceHost, actor: Actor): ButtonLookups {
     // The door's actions, listed once for these lookups (an edit reads a line on every frame).
     let listed: ActionInfo[] | undefined;
-    const all = () => (listed ??= (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch?.list().actions ?? []);
+    const all = () => (listed ??= host.ctx.dispatch?.list().actions ?? []);
     return {
       args: action => { const info = all().find(a => a.name === action); return info ? Object.keys(info.args) : null; },
       actions: () => all().map(a => a.name),
@@ -4466,7 +4466,7 @@ export class NoteSurface {
    * attributed and undoable: ext.undo, layout.undo). An agent's is attributed and said, as any `act` is.
    */
   async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, repick = false, press: Press = { tile: messageContext.getStore()?.tile, note: p.block || undefined, actor }, alt = false): Promise<unknown> {
-    const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+    const d = host.ctx.dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     const run = async () => {
       const note = p.block ? await host.ctx.board.get(p.block) : null;
@@ -4558,7 +4558,7 @@ export class NoteSurface {
    */
   async askSlots(block: string, button: ButtonCall, keys: readonly string[], host: SurfaceHost, actor: Actor, run = false, alt = false): Promise<unknown> {
     const key = keys[0]!, line = button.line + 1;
-    const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+    const d = host.ctx.dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to ask with");
     const q = await this.slotQuestion(block, button, key, host, alt);
     if (actor.kind !== "user") {
@@ -6499,7 +6499,7 @@ export class NoteSurface {
       outlineChanged(r.written);
       // The layout the run changed goes back with its writes (PIE-957, one undo id for both): the answer says which parts were
       // undone and which were refused.
-      const dispatch = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+      const dispatch = host.ctx.dispatch;
       let layout: { undone: true; steps: number; screen: string; left?: string } | { refused: string } | null = null;
       if (dispatch) {
         try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number; screen: string; left?: string }; layout = { undone: true, steps: l.steps, screen: l.screen, ...(l.left ? { left: l.left } : {}) }; }
