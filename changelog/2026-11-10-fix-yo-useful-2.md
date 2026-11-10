@@ -6,5 +6,5 @@
 - **Nothing found names keys:** the values near your words, else the keys the outline has most; never a machinery count.
 - **▸ by kind on the default desk:** its links step opens or aims a tile that lists backlinks, never the desk's replies; a button's run says its own words ("▸ by kind done"), not the note's title.
 - **Rename from yo's answer while you type:** `[▸ rename]` asks for the title, holding the edit's; `[▸ rename text Seeds]` retitles the edit; a command yo can't press under your edit is said as yours to press.
-- **A click on an answer tile's button keeps the keys in your edit.** tile.open no longer says "in undefined".
+- **A yo button pressed while you type keeps the keys in your edit:** the click itself, and what it opens (▸ by kind's links tile opens beside the edit). tile.open no longer says "in undefined".
 - **Run:** `ep0ch install --apply` (host and door together).

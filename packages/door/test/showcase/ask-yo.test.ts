@@ -377,6 +377,10 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => rows().some(t => t.kind === "backlinks"), "the links opened", 15_000);
     const links = rows().find(t => t.kind === "backlinks")!.name;
     await until(() => (stage().pane(links) as unknown as { options: { kind: string | null } }).options.kind !== null, "grouped by kind", 15_000);
+    // The links open beside the edit, and the keys stay where the person is writing (loki on #1426).
+    expect(h.app.keysScreen()?.dispatch?.tile("focused")?.name).toBe("ask");
+    for (const c of " and on") h.ch(c);
+    await until(() => draft()?.text.includes(" and on") ?? false, "typing goes on in the edit", 4000);
     if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
     await until(() => !draft(), "the edit saved and closed", 8000);
     await h.app.dispatch.act({ action: "tile.close", tile: links }, USER);

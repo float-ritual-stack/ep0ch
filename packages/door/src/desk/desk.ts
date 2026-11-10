@@ -2470,10 +2470,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const note = m ?? reader?.msg ?? null;
     if (!note) throw new ActionRefused("nothing in that reader to find backlinks for");
     if (reader) { L.source = this.reference(reader) ?? L.source; boundSource.set(L, reader); }
-    this.revealPane(L, actor, true);
+    const stays = !!reader?.editing && actor.kind === "agent" && actor.for === "you"; this.revealPane(L, actor, !stays); // a button they pressed while typing: shown beside, keys in the edit
     const d = dockOf(this.root, lid);
     if (d && !d.open) this.apply({ op: "slide", tile: lid, open: true }, actor);
-    if (this.focus !== lid) { this.keysTo(lid, actor); this.entered.clear(); }
+    if (this.focus !== lid && !stays) { this.keysTo(lid, actor); this.entered.clear(); }
     this.redraw();
     await L.show(note, this);
     // Another note's links: a new selection, shown where it goes before this answers (PIE-1628; the keys alone show nothing).
@@ -2488,7 +2488,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * ^W o p do), both by the actor: the layout's rules apply, so a locked screen says so.
    */
   async openLinks(r: Pane, actor: Actor, person: boolean, ancestor?: Msg): Promise<Record<string, unknown>> {
-    const rid = this.idOf(r);
+    const rid = this.idOf(r), writing = r instanceof ReaderPane && r.editing && actor.kind === "agent" && actor.for === "you"; // a button they pressed while typing: the keys stay in the edit
     const m = ancestor ?? (r instanceof ReaderPane ? r.msg : null);
     if (rid === undefined || !m) throw new ActionRefused("that reader isn't on this screen");
     // The screen's list `b` aims (a kind with `aim`: the links tile), one on screen first.
@@ -2504,8 +2504,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const kind = tileKinds().find(k => k.aim);
       if (!kind) throw new ActionRefused("no kind of tile lists a note's links here");
       const at = this.nameOf(rid);
-      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor, ancestor ? { keys: false } : {});
-      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor, ancestor ? { keys: false } : {});
+      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor, ancestor || writing ? { keys: false } : {});
+      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor, ancestor || writing ? { keys: false } : {});
       const made = this.panes.get(this.idNamed(list.tile)!)!;
       L = kind.aim!(made);
       opened = true;
