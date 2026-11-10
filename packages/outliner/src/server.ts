@@ -3812,9 +3812,8 @@ export class OutlinerServer {
   /** What made a projection a page's Sources names: the extension's script (with its note and code), else the extension. */
   private transformOf(id: string): TransformOf {
     const ext = this.extensionRegistry.extension(id);
-    return ext?.script
-      ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code }
-      : { kind: "extension", label: ext?.name ?? id };
+    if (!ext?.script) return { kind: "extension", label: ext?.name ?? id };
+    return { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code };
   }
 
   private broadcast(event: OutlinerEvent): void {

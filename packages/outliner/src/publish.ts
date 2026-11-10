@@ -376,8 +376,7 @@ export function assignPaths(blocks: readonly ProjectedVisibleBlock[]): Array<{ b
   });
 }
 
-/** From a line's first sentinel (a block's address rides at a line's end) to its end. */
-const FROM_SENTINEL = new RegExp(`${PRIVATE_USE}.*$`, "s");
+const FROM_SENTINEL = new RegExp(`${PRIVATE_USE}.*$`, "s"); // a line's first sentinel (an address rides at its end) on
 
 const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;
 
