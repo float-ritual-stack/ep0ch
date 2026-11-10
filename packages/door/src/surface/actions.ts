@@ -60,6 +60,12 @@ export interface ArgSpec {
    * person is never asked it, so no form or completion offers it (PIE-1076).
    */
   context?: true;
+  /**
+   * The door's own word on a request (an extension action's `door:via`, `door:asked`): its presses pass it and `act`
+   * still takes it, but it isn't the part's argument, so what describes the action (`list`: `ep0ch actions`, its docs
+   * page, the bar's form) leaves it out and names it only in `doorWords` (PIE-1705).
+   */
+  doorWord?: true;
   /** A word written more than once reaches the action as a list (a script's slot, `props.page`); every other argument takes the last. */
   many?: true;
 }
@@ -285,7 +291,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[]; /** The door's own words it takes besides `args` (ArgSpec.doorWord), by name. */ doorWords?: readonly string[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -324,7 +330,10 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      // The door's own words are taken, never described as the part's (ArgSpec.doorWord).
+      const all = Object.entries((d.args ?? {}) as Record<string, ArgSpec>), doorWords = all.filter(([, a]) => a.doorWord).map(([k]) => k);
+      const args = doorWords.length ? Object.fromEntries(all.filter(([, a]) => !a.doorWord)) : d.args as Record<string, ArgSpec>;
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args, ...(doorWords.length ? { doorWords } : {}), scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 
@@ -653,17 +662,21 @@ const placeholder = (k: string, s: ArgSpec): string | number | boolean =>
  * arguments and a call that works. Values are coerced below, as `k=v` words are all text.
  */
 export function checkedActionArgs(action: string, spec: Record<string, ArgSpec>, raw: Record<string, unknown>): Record<string, unknown> {
-  const properties = Object.fromEntries(Object.entries(spec).map(([k, s]) => [k, { type: s.type, description: s.about }]));
-  const required = Object.entries(spec).filter(([, s]) => !s.optional).map(([k]) => k);
+  // The door's own words (ArgSpec.doorWord) pass through unchecked and unnamed: a refusal lists the part's arguments only.
+  const doorWords = Object.entries(spec).filter(([, s]) => s.doorWord).map(([k]) => k);
+  const own = doorWords.length ? Object.entries(spec).filter(([, s]) => !s.doorWord) : Object.entries(spec);
+  const properties = Object.fromEntries(own.map(([k, s]) => [k, { type: s.type, description: s.about }]));
+  const required = own.filter(([, s]) => !s.optional).map(([k]) => k);
   const aliases = "id" in spec && !("ref" in spec) ? { id: ["ref", ...REF_ALIASES.filter(name => name !== "id" && !(name in spec))] } : undefined;
   const checked = checkToolArgs({
     name: action, namesOnly: true, schema: { type: "object", properties, required },
     example: Object.fromEntries(required.map(k => [k, placeholder(k, spec[k]!)])),
     ...(aliases ? { aliases } : {}),
+    ...(doorWords.length ? { ignore: doorWords } : {}),
     callText: (name, args) => `ep0ch act ${name}${Object.entries(args).map(([k, v]) => ` ${k}=${v}`).join("")}`,
   }, raw);
   if (!checked.ok) throw new ActionRefused(checked.error);
-  return checked.args;
+  return doorWords.length ? { ...checked.args, ...Object.fromEntries(doorWords.filter(k => raw[k] !== undefined).map(k => [k, raw[k]])) } : checked.args;
 }
 
 /** The spec entry of an action that takes any `key=value` beyond its declared ones (a script's slots): its value lists them in `actions`. */

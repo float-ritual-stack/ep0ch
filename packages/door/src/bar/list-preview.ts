@@ -54,14 +54,22 @@ function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, prev
 }
 
 /**
+ * Where the bar's preview of its lit row goes in `h` rows of a frame `readerWidth` columns wide (`listPreview` without
+ * `fit`): beside the list from 90 columns, else under it from 6 rows, else nowhere. The bar's rows read it too: a lit
+ * row whose preview is up is cut at its end, since the preview reads it whole (PIE-1705).
+ */
+export const previewPlace = (h: number, readerWidth: number): "beside" | "below" | null =>
+  readerWidth >= PREVIEW_COLS ? "beside" : h >= 6 ? "below" : null;
+
+/**
  * The bar and inline completion share the list, hit rows and responsive preview placement. `fit` (the completion
  * popup's): the list is as wide as its rows and its docs placed by Helix's room rule (listWithDocs); without it, the
  * bar's: a 46% list with its preview beside at 90 columns.
  */
 export function listPreview<T, H>(picker: ListPicker<T, H>, w: number, h: number, preview?: PickerPreview, at = 0, readerWidth = w, anchor?: { col: number; width: number }, fit?: { list: number; under?: number }) {
   if (fit) return listWithDocs(picker, w, h, preview, at, fit, anchor);
-  const beside = !!preview && readerWidth >= PREVIEW_COLS;
-  const below = !!preview && !beside && h >= 6;
+  const place = preview ? previewPlace(h, readerWidth) : null;
+  const beside = place === "beside", below = place === "below";
   const listWidth = beside ? Math.floor(w * 0.46) : w;
   const inset = anchor ? Math.max(0, Math.min(anchor.col, listWidth - anchor.width)) : 0;
   const listHeight = below ? Math.ceil((h - 1) / 2) : h;

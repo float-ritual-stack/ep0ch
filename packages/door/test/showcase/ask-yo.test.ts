@@ -284,4 +284,18 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await untilAsync(async () => (await kept()).length > 0, "the memory written", 15_000);
     expect(await kept()).toEqual(["zoom shed: tile.zoom reach=full [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::zoom shed] [yo-line::tile.zoom reach=full]"]);
   }, 30_000);
+  // PIE-1705: what describes yo's remember (ep0ch actions, its docs, the bar's form) is its own arguments; the door's own
+  // words for a press (door:via, door:asked) are still taken, and named apart.
+  test("ep0ch actions lists ext.yo.remember with its own arguments, not the door's words", async () => {
+    const info = h.app.actions().actions.find(a => a.name === "ext.yo.remember")!;
+    expect(Object.keys(info.args)).toEqual(expect.arrayContaining(["act", "asked", "args"]));
+    expect(Object.keys(info.args).filter(k => k.startsWith("door:"))).toEqual([]);
+    expect(info.doorWords).toEqual(["door:via", "door:asked"]);
+    await h.app.act({ action: "ext.yo.remember", args: { act: "tile.zoom", asked: "zoom-the-yard", args: "reach:full", "door:asked": true }, as: "test-agent" });
+    // A wrong argument is answered with the part's own arguments, never the door's words.
+    const refused = await h.app.act({ action: "ext.yo.remember", args: { nope: "1" }, as: "test-agent" }).then(() => "", (e: Error) => e.message);
+    expect(refused).toContain("asked (string)");
+    expect(refused).not.toContain("door:");
+  }, 30_000);
 });
+

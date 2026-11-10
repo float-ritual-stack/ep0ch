@@ -341,7 +341,7 @@ export const ARTIFACT_KIT = "artifact-deploy";
  * to reading lines, PIE-1060). Either way the key goes, so this runs once: a rule trashed before is never brought back.
  * An install that fails leaves the notes and the key, and is tried again at the next start.
  */
-export async function adoptSeededArtifactRule(store: OutlinerStore, installed: () => boolean, install: () => Promise<unknown>): Promise<"adopted" | "kept" | "none"> {
+export async function adoptSeededArtifactRule(store: OutlinerStore, installed: () => boolean, install: () => Promise<unknown>, tell?: (text: string) => void): Promise<"adopted" | "kept" | "none"> {
   const seeded = store.readMetadata("artifacts.deploy-rule");
   if (!seeded) return "none";
   const done = <T>(said: T): T => { store.writeMetadata("artifacts.deploy-rule", ""); return said; };
@@ -359,19 +359,33 @@ export async function adoptSeededArtifactRule(store: OutlinerStore, installed: (
   if (!installed()) await install();
   store.delete(script.id, DEPLOY_ACTOR, { revision: script.revision });
   store.delete(rule.id, DEPLOY_ACTOR, { revision: rule.revision });
+  tell?.(adoptedNotice(rule.id, script.id));
   return done("adopted");
 }
 
 /**
- * The host's side of adoptSeededArtifactRule, at each outline's open: the kit goes in the outline's own folder, so
- * uninstalling it there leaves every other outline deploying. A refusal is said on stderr and never stops the open.
+ * What the person reads under the kit's page after an adoption (PIE-1705): the two notes it moved, linked where they are
+ * (Trash), and how to have them back. A record, true after the kit is removed too (its page stays while this is under
+ * it). What the kit does is the page above it, in the kit's own words.
  */
-export async function adoptArtifactKit(store: OutlinerStore, readOnly: boolean, outline = "outline"): Promise<void> {
+export const adoptedNotice = (rule: string, script: string): string => [
+  "The kit took over the seeded deploy rule and script",
+  "",
+  `- **Moved to Trash:** ((${rule}|the deploy rule)) and ((${script}|the deploy script)), never edited, so the kit did their work from here on.`,
+  "- **Want them back?** Restore both from Trash, and remove the kit if it's still installed.",
+].join("\n");
+
+/**
+ * The host's side of adoptSeededArtifactRule, at each outline's open: the kit goes in the outline's own folder, so
+ * uninstalling it there leaves every other outline deploying. `tell` leaves the person a note of it under the kit's page
+ * (ExtensionPages.tell); stderr says it too. A refusal is said on stderr and never stops the open.
+ */
+export async function adoptArtifactKit(store: OutlinerStore, readOnly: boolean, outline = "outline", tell?: (id: string, text: string) => void): Promise<void> {
   const root = store.workspaceRoot;
   if (readOnly || !root) return;
   try {
     const installed = () => extensionRoots(root).some((r) => existsSync(join(r.path, ARTIFACT_KIT, "extension.json")));
-    const said = await adoptSeededArtifactRule(store, installed, () => addExtension(ARTIFACT_KIT, { outlineFolder: root }));
+    const said = await adoptSeededArtifactRule(store, installed, () => addExtension(ARTIFACT_KIT, { outlineFolder: root }), tell && (text => tell(ARTIFACT_KIT, text)));
     if (said === "adopted") console.error(`${outline}: the seeded deploy rule and script are the ${ARTIFACT_KIT} kit now (in ${join(root, "extensions", ARTIFACT_KIT)}); the two notes are in Trash`);
   } catch (error) { console.error(`${outline}: ${ARTIFACT_KIT} kit: ${error instanceof Error ? error.message : String(error)}`); }
 }

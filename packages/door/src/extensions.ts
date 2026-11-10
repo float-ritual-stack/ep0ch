@@ -552,8 +552,8 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
       with: { type: "string", optional: true, context: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
       invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
-      [PRESSED_VIA]: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
-      [ASKED_IN_PLACE]: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
+      [PRESSED_VIA]: { type: "string", optional: true, context: true, doorWord: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      [ASKED_IN_PLACE]: { type: "boolean", optional: true, context: true, doorWord: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
       ...(e.script ? Object.fromEntries(Object.entries(declaredArgs(a)).map(([k, v]) => [k, { ...v, many: true as const }])) : declaredArgs(a)),
       // A script takes any other word as a slot, as a button passes it (`left=[[a]] fold=terminal`).
       ...(e.script ? { [FREE_ARGS]: { type: "string", optional: true, context: true, about: "any other key=value is a slot of the script (props.<key>); a key written twice is a list" } } : {}),

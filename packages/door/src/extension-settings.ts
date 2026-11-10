@@ -15,7 +15,8 @@ import type { ExtArgs, ExtOn, ExtensionEntry } from "./extensions";
 
 /** A field's value as the form and the row show it: a command as its words, anything else as it's written. */
 export function shownValue(f: ExtensionSettingField, v: unknown): string {
-  if (f.type === "command" && Array.isArray(v) && v.every(w => typeof w === "string")) return commandLine(v);
+  // No command at all (`[]`: yo with no model) reads as typed, so the form puts back none, never an empty line (unset).
+  if (f.type === "command" && Array.isArray(v) && v.every(w => typeof w === "string")) return v.length ? commandLine(v) : "[]";
   return typeof v === "string" ? v : JSON.stringify(v);
 }
 
@@ -24,7 +25,7 @@ const secretArg = (name: string) => `secret-${name}`;
 
 const TYPE_WORDS: Record<ExtensionSettingField["type"], string> = {
   string: "text", number: "a number", integer: "a whole number", boolean: "true or false",
-  command: "a command, its words as a shell takes them", json: "JSON",
+  command: "a command, its words as a shell takes them, or [] for none", json: "JSON",
 };
 
 /** The action's arguments: one per field the schema declares (or `config`, the whole of it), then one per secret. */
@@ -83,7 +84,7 @@ export function changeOf(s: ExtensionSettings, given: Record<string, unknown>): 
   for (const f of s.fields.filter(x => given[x.name] !== undefined && !unset.has(x.name))) {
     const v = given[f.name];
     if (v === "" && (f.type === "string" || f.type === "command")) { unset.add(f.name); continue; }
-    if (f.type === "command") set[f.name] = lineWords(String(v));
+    if (f.type === "command") set[f.name] = commandOf(f.name, String(v));
     else if (f.type === "json") {
       try { set[f.name] = JSON.parse(String(v)); } catch { throw new ActionRefused(`${f.name} is JSON, such as ${f.name}='${JSON.stringify(f.default ?? {})}'`); }
     } else if (f.type === "integer" && !Number.isInteger(v)) throw new ActionRefused(`${f.name} is a whole number, not ${String(v)}`);
@@ -94,6 +95,19 @@ export function changeOf(s: ExtensionSettings, given: Record<string, unknown>): 
   const secrets = s.secrets.filter(x => given[secretArg(x.name)] !== undefined);
   if (secrets.length) out.secrets = Object.fromEntries(secrets.map(x => [x.name, referenceOf(x.name, String(given[secretArg(x.name)]))]));
   return out;
+}
+
+/**
+ * A command field's value as typed: its words as a shell takes them, or a JSON list of words written whole (`[]` is none:
+ * yo with no model, PIE-1705). An empty line isn't none: it takes the field out, back to its default.
+ */
+function commandOf(name: string, typed: string): string[] {
+  const t = typed.trim();
+  if (!t.startsWith("[")) return lineWords(t);
+  let words: unknown;
+  try { words = JSON.parse(t); } catch { words = null; }
+  if (Array.isArray(words) && words.every(w => typeof w === "string")) return words;
+  throw new ActionRefused(`${name} is a command's words (${name}='claude -p'), or a JSON list of them: ${name}='[]' for none`);
 }
 
 /** The few words a row says of an extension's settings, what to do about them first: words, never a raw value (the preview has those). */
