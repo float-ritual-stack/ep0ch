@@ -104,7 +104,8 @@ describe.skipIf(!outliner || process.platform !== "linux")("who ran it (PIE-1651
       "card.move", "comment.send", "comment", "reply", "comment.note", "comment.edit", "passage.act", "welcome.move",
       "card.restore", "note.untrash", "note.create", "step.set", "resolve", "thread.seen", "thread.keep", "thread.tldr", "note.move.undo", "agent.ask", "quote",
       "status.bar.pin", "button.pin", "note.new", "page.create", "template.stamp", "component.new", "facets.save", "facets.pin", "facets.tag", "trail.save",
-      "screen.save", "screen.menu", "note.rename"];
+      "screen.save", "screen.menu", "note.rename", "ask.clear", "element.detach", "element.quote", "note.reply", "edit.insert", "echo.reply", "echo.quote",
+      "tune.save", "tune.undo", "tune.redo", "tune.resetlevel", "tune.revert", "tune.retired.remove", "tune.retired.move"];
     const listed = allActionSets().flatMap(s => s.list());
     for (const name of writes) expect({ name, field: listed.some(x => x.name === name && x.answer?.recordedAs?.type === "object") }).toEqual({ name, field: true });
   });

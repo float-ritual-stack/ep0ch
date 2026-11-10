@@ -10281,7 +10281,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.reply": def({
     summary: "write a reply beside this message; Save creates a child with replyTo and the message's thread, Esc closes without posting (twice after typing, and the reply is put aside: r brings it back)",
-    keys: readerKeys("note.reply", { keys: "click", does: "on the note menu's reply" }), touches: "nothing", replay: "ask",
+    keys: readerKeys("note.reply", { keys: "click", does: "on the note menu's reply" }), touches: "nothing", replay: "ask", answer: RECORDED_AS,
     menu: { label: "reply to this note", group: "note", key: "r" },
     args: { text: { type: "string", optional: true, about: "reply text; an agent supplies this and creates the note without opening an editor" } },
     examples: [
@@ -10297,7 +10297,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         s.dispose();
         if (!result.ok) throw new ActionRefused(result.why);
         surface.noteAgent(actor, "replied to this note");
-        return result.result;
+        return { ...(result.result as Record<string, unknown> | undefined), recordedAs: recordedAnswer(actor, "new") };
       }
       const quote = surface.selection ? await surface.quoteSelection(host, actor) : undefined;
       if (movedOn(host, surface, parent.id)) return { replying: null };
@@ -10315,7 +10315,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "edit.insert": def({
     summary: "insert text on its own line at the note cursor; a reader saves it, an open draft keeps it unsaved; either is one undo step",
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: { text: { type: "string", about: "the line to insert" } }, examples: [{ act: 'edit.insert text="Order the seed potatoes"', does: "puts that line into the note at the cursor, saved unless a draft is open" }],
     run: ({ text }, { surface, host }, actor) => insertNoteLine(text, surface, host, actor),
   }),

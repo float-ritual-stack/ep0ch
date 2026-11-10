@@ -1,4 +1,4 @@
-import { requesterOf } from "../socket";
+import { RECORDED_AS, recordedAnswer, requesterOf } from "../socket";
 import type { WaitingAsk } from "@ep0ch/outline-core/protocol";
 import type { WaitingAsks } from "../waiting-asks";
 import { markReveal } from "../reveal";
@@ -270,7 +270,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
   }),
   "ask.clear": def({
     summary: "clear a decision and leave a note saying cleared by you", keys: "x",
-    touches: "nothing", replay: "ask", person: "only the person clears their decision; answer the note as an agent",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS, person: "only the person clears their decision; answer the note as an agent",
     args: { n: { type: "number", optional: true, about: "row number from peek" } },
     examples: [{ act: "ask.clear n=1", does: "clears the first decision and comments cleared by you" }],
     async run(a, { pane, desk }, actor) {
@@ -280,7 +280,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
       const operations = props.tokens.filter(p => /^sysop(?:\s*:|$)/i.test(p.value)).map(p => ({ op: "remove" as const, ordinal: p.ordinal }));
       const m = await board.patchProperties(ask.block, ask.revision, operations, actor);
       await board.comment(crypto.randomUUID(), m.id, m.revision!, "cleared by you", null, actor);
-      return { id: m.id };
+      return { id: m.id, recordedAs: recordedAnswer(actor) };
     },
   }),
   "ask.proposal": def({
