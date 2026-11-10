@@ -52,6 +52,7 @@ import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
+import { renameInEdit } from "./rename-in-edit";
 import { recordedAnswer, USER, whoOf, type Actor, type OutlineEvent, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
@@ -4384,23 +4385,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * revision the service has now. Without text the person gets a prompt holding the title.
    */
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
-    const t = this.tile(sel), p = this.panes.get(t.id);
-    const shown = this.noteOf(t.id);
+    const t = this.tile(sel), p = this.panes.get(t.id), shown = this.noteOf(t.id);
     if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
-    const editing = p instanceof ReaderPane ? p.surface.draft : null;
-    // The person's own press while they edit it (yo's ▸ rename beside the line, PIE-1722): the title changes in their edit,
-    // one undo step, saved with the rest. Anyone else's would write under their draft: refused.
-    // A button the person pressed runs as a script for them (ask-agent.ts's rule): their press too.
-    const theirs = actor.kind === "user" || (actor.kind === "agent" && actor.for === "you" && actor.id.startsWith("script:"));
-    if (editing && !(theirs && text?.trim() && !text.includes("\n"))) throw new ActionRefused("this reader is editing the note: change its title in the edit");
-    if (editing) {
-      const title = text!.trim(), was = editing.text.split("\n"), next = retitle(editing.text, title).split("\n");
-      if (next.length !== was.length) throw new ActionRefused("this reader is editing the note: change its title in the edit");
-      const lines = Object.fromEntries(next.flatMap((l, i) => (l === was[i] ? [] : [[i, l]])));
-      editing.splice(editing.col, editing.col, "", lines, USER);
-      this.redraw();
-      return { ...this.tileAnswer(t.id), note: shown.id, title, inEdit: true, recordedAs: recordedAnswer(actor) };
-    }
+    const inEdit = p instanceof ReaderPane && p.surface.draft ? renameInEdit(p.surface.draft, text, actor) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
     const now = await this.ctx.board.get(shown.id);
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
     // What the prompt (or an agent) read: the same note, at the same revision, or nothing is written.

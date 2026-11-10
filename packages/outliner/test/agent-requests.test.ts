@@ -174,7 +174,8 @@ test("a live draft gets tidy's reason, including repeated asks (PIE-916)", async
   const door = await fakeDoor(client, "tidy-reasons", note);
   door.text = "Plan\n- apples\n@tidy remove cruft\n@tidy  remove cruft\n@tidy yo\n";
   await client.request({ action: "drafts.touch", holdId: door.holdId });
-  await until("both unique asks finished", () => store.agentRequests(note.id).length === 2 && store.agentRequests(note.id).every(r => r.answeredAt));
+  // The same words again on another line are an ask of their own (PIE-1722): three asks, each answered.
+  await until("every ask finished", () => store.agentRequests(note.id).length === 3 && store.agentRequests(note.id).every(r => r.answeredAt));
   const lines = ["@tidy remove cruft", "@tidy  remove cruft", "@tidy yo"];
   await until("every final progress delivered", () => lines.every(line => door.progress.some(p => p.line === line && p.warning?.includes("no model"))));
   for (const line of lines) {
