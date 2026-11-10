@@ -364,6 +364,33 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
         } finally { d.quit(); }
       });
     }
+    // PIE-1719 (not reproduced): a rebind waiting in a keys tile on the desk, in a group or not, is the desk's: the drawer's
+    // foot names it only while Esc from where the person is would cancel it, never while they are in the drawer.
+    for (const grouped of [false, true]) test(`a keys tile recording on the desk${grouped ? ", in a group" : ""}: the foot names the rebind only from the screen`, async () => {
+      const d = await upAndOut(44);
+      try {
+        await d.app.dispatch.act({ action: "keys.open" }, USER);
+        await until(() => [...d.desk.panes.values()].some((p: any) => p.kind === "keys"), "the keys tile");
+        if (grouped) await d.desk.dispatch.act({ action: "tile.group", tile: "keys" }, USER);
+        const keys = () => d.desk.descend().flatMap((x: any) => [...x.panes.values()]).find((p: any) => p.kind === "keys") as any;
+        const at = d.desk.descend().find((x: any) => [...x.panes.values()].includes(keys()));
+        await at.dispatch.act({ action: "keys.filter", args: { text: "draft.clear" }, tile: at.nameOfPane(keys()) }, USER);
+        await at.dispatch.act({ action: "keys.rebind", args: {}, tile: at.nameOfPane(keys()) }, USER);
+        expect(keys().recordsKey()).toBe(true);
+        d.paint();
+        // Into the drawer by a click (every key goes to the rebind while it waits, alt+a too).
+        await d.app.dispatch.press("host.enter");
+        await until(() => d.app.drawer.entered, "into the drawer");
+        d.paint();
+        expect(d.app.esc.next()).not.toBe("the rebind");
+        expect(foot(d)).not.toContain("the rebind");
+        await d.app.dispatch.press("host.leave", { quiet: true });
+        d.paint();
+        expect(d.app.drawer.shown && !d.app.drawer.entered).toBe(true);
+        expect(d.app.esc.next()).toBe("the rebind");
+        expect(foot(d)).toContain("esc the rebind");
+      } finally { d.quit(); }
+    });
     test("a strip's picker open: the foot says the strip, as Esc does (Codex on #1340)", async () => {
       const d = await upAndOut(120);
       try {
