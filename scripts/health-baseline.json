@@ -1,5 +1,5 @@
 {
-  "revision": "9d55b51cdfa6d59c1e4584d092113b8e59b44abc",
+  "revision": "e1ddaa9f1b868a8dd38a50b0bfa0938058557dd0",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -365,24 +365,41 @@
         "packages/door/src/surface/note.ts:99b3cbcd866d3810",
         "packages/door/src/surface/note.ts:b18528789fdcbcbb"
       ]
+    },
+    "unused-export": {
+      "count": 12,
+      "sites": [
+        "packages/door/src/app.ts:isExtensionChange",
+        "packages/door/src/extensions.ts:ExtensionScheduleEntry",
+        "packages/door/src/extensions.ts:noteAgents",
+        "packages/door/src/showcase/seed/media.ts:SHOWCASE_ARTIFACTS",
+        "packages/door/src/socket.ts:ViewOrder",
+        "packages/door/src/surface/editor.ts:draftState",
+        "packages/door/src/text.ts:subtitleSuffix",
+        "packages/outline-core/src/sources.ts:sourcesSummary",
+        "packages/outline-core/src/style-cascade.ts:STYLE_TONES",
+        "packages/outliner/src/publish-door.ts:PTYZZZ_COMMIT",
+        "packages/outliner/src/resource-extensions.ts:ExtensionProcessEnv",
+        "packages/outliner/src/wire.ts:WireClosed"
+      ]
     }
   },
   "files": {
     "packages/claude-mod/hooks/register.ts": 2898,
-    "packages/door/src/desk/desk.ts": 8472,
+    "packages/door/src/desk/desk.ts": 8471,
     "packages/door/src/desk/screen-layout.ts": 2324,
-    "packages/door/src/screens.ts": 2239,
-    "packages/door/src/showcase/showcase.ts": 2135,
-    "packages/door/src/surface/note.ts": 12782,
+    "packages/door/src/screens.ts": 2237,
+    "packages/door/src/showcase/showcase.ts": 2134,
+    "packages/door/src/surface/note.ts": 12775,
     "packages/outliner/pi-extension/index.ts": 3475,
-    "packages/outliner/src/annotation-repository.ts": 2195,
+    "packages/outliner/src/annotation-repository.ts": 2194,
     "packages/outliner/src/detail-controller.ts": 4664,
     "packages/outliner/src/detail-pi-preview.ts": 2410,
     "packages/outliner/src/detail-pi.ts": 2017,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4936,
     "packages/outliner/src/server.ts": 4428,
-    "packages/outliner/src/store.ts": 6449,
+    "packages/outliner/src/store.ts": 6428,
     "packages/outliner/src/tree-controller.ts": 3180,
     "packages/outliner/src/types.ts": 2910
   }

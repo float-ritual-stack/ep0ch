@@ -1,6 +1,6 @@
 import { drawEllipsized, width } from "./style";
 import {
-  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkReferenceLabel, backlinkView, backlinkGroupRows, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
+  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, backlinkReferenceLabel, backlinkGroupRows, stagesFrom, type BacklinkSource, type BacklinkView, type BacklinkViewGroup,
   type BacklinkViewOptions, type BacklinkStageValue,
 } from "@ep0ch/outline-core/backlink-view";
 

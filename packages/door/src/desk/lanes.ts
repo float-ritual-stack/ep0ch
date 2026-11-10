@@ -30,8 +30,8 @@ import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf, draftEscCloses } from "../surface/completer";
 import { copyOnSelect } from "../surface/selection";
 import { Modes } from "../surface/modes";
-import { ListPicker, pickRows, pickRow } from "../surface/picker";
-import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
+import { ListPicker, pickRows } from "../surface/picker";
+import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
 import { trashAtRevision, trashConfirm } from "../note-trash";
 import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query";
@@ -265,7 +265,6 @@ export class Lanes implements SourceModel {
    */
   escCloses(): string | null { return this.composer ? draftEscCloses(this.composer.session.draft, "the new card") : this.overlays.top() ? "the picker" : null; }
   key(k: Key): boolean {
-    const c = ch(k);
     // A card or note being written holds every key, like an edit.
     if (this.composer) {
       if (k.kind !== "mouse") { this.composerKey(k); return true; }

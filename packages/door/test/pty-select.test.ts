@@ -17,7 +17,6 @@ import { outliner, Scratch, until } from "./scratch";
 const USER = { kind: "user" } as const;
 const mouse = (action: "down" | "up" | "drag", x: number, y: number, mods?: number): Key => ({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) });
 const SHIFT = 4, ALT = 8;
-const b64 = (t: string) => Buffer.from(t).toString("base64");
 
 let dir = "";
 const saved: Record<string, string | undefined> = {};

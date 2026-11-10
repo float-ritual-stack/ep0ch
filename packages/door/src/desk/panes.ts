@@ -26,13 +26,12 @@ import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type ReaderHistory, type SessionKind, type SurfaceHost, type TagList, type TileHeader, type Trail, type TrailStop } from "../surface/note";
-import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
+import { artLines, C, dim, fg, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
-import { prop } from "../props";
 import { AskAgainAt, heardBy, SearchSchedule } from "../search-schedule";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */

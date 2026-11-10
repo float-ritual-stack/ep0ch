@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { agentLs, agentRestart, type FleetIO, formatSessions, restartArgs, type SessionRow } from "../src/agent-fleet";
+import { agentRestart, type FleetIO, formatSessions, restartArgs, type SessionRow } from "../src/agent-fleet";
 import { outliner, scratchDir } from "./scratch";
 
 const MAIN = resolve(import.meta.dir, "../src/main.ts");

@@ -26,7 +26,7 @@ import { shellEnv } from "./drop";
 import { USER, type Actor, type SocketBoard } from "./socket";
 import { stateSub } from "./state";
 import { ownTerminal, type Handover } from "./term";
-import type { SiteAnswer, SiteAnswerRequest } from "@ep0ch/outline-core/site";
+import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { Suspender } from "./surface/editor";
 
 type Env = Record<string, string | undefined>;

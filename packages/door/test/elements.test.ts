@@ -15,7 +15,6 @@ import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
-import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { ITEM_BG, RULER_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -26,8 +25,6 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000
 type Rect = { col: number; row: number; cols: number; rows: number };
 
 describe("without a service", () => {
-  const note = (text: string) => ({ id: "11111111-2222-4333-8444-555555555555", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [] });
-  const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
 
 
 });

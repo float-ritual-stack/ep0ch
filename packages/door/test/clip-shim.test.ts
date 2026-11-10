@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { PTY_ACTIONS } from "../src/desk/pty-actions";
 import { PtyPane, cttyPrefix } from "../src/desk/pty";
 import { COPY_MAX } from "../src/surface/selection";
-import { until } from "./scratch";
 
 describe.skipIf(!cttyPrefix())("terminal.clip in the door", () => {
   const tile = () => {

@@ -15,7 +15,6 @@ import { loseRuns } from "../runbook";
 // (EP0CH_STATE) has its own sessions and never reaches the person's.
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync, chmodSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { resolve } from "node:path";
 import type { App } from "../app";
 import { openDoor, connectTarget, guardDoor, type Door } from "../door";
 import { jsonLine, listening } from "../jsonl";

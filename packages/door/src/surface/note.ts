@@ -1,6 +1,6 @@
 import { tabStrip, stripControls } from "./chip-rows";
 import { panelMode } from "./panel-mode";
-import { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
+import { historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
 export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, TRAIL_CHIP, HISTORY, NAV_VERSION, navNote, type SavedPlace, type SavedNav, type Zoom } from "./navigation";
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
@@ -14,11 +14,11 @@ import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
 import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, NOTE_EDIT_KEYS, ATTACHED_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
-import { modeBinding, modeHint, modeActionKeys, type ModeKey, type ModeName } from "./modes";
+import { modeBinding, modeHint, modeActionKeys, type ModeName } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
 import { insertButton, insertNoteLine } from "./note-insert";
-import { buttonRows, buttonText, pressing, pressState } from "./button";
+import { buttonText, pressing } from "./button";
 import { figurePropertyPatch } from "@ep0ch/outline-core/figure-patch";
 import { figureActions, FIGURE_SIZE_KEYS } from "./figure-actions";
 import { FigureSizing, wideFigureAt } from "./figure-sizing";
@@ -27,20 +27,17 @@ import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
 import { errorDetails } from "../status-log";
 import { messageContext } from "../status-log";
-import { mentionsExtension as mentionsExtensionLine, mentionsStamp } from "../extensions";
 import { Canvas, LINE_BOX, stringFrame } from "../canvas";
 import { CONFIRM_HINT, hintStatus } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
-import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-boards";
+import { outlineBoards, readNote } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { HEADER_VALUES } from "@ep0ch/outline-core/component-schemas-blocks";
-import { headerLine } from "@ep0ch/outline-core/header-line";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
 import { ListView, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
 import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
-import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { outlineState } from "../state";
@@ -66,51 +63,49 @@ import type { Ctx } from "../app";
 import { headedTitle, subject, titleLine, type Msg } from "../board";
 import { Again, editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
-import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentAnchor, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
+import { linkOccurrences, referencedBlock, withoutFragmentAnchor, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
-import { childEnv, codeSpans, compareFoldPosition, foldPoints, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl, inertButton } from "../doc";
+import { codeSpans, compareFoldPosition, foldPoints, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, inertButton } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
+import { embedsLoading, embedState, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { withSchemaParams, drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
-import { blockTags } from "@ep0ch/outline-core/block-tags";
-import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, pageView, pageOf, presentLinks, softLinkIgnoreOf, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
+import { type CalloutRef, type ImageRef, pageView, pageOf, presentLinks, softLinkIgnoreOf, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, liveRowStep, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
-import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
+import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
-import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
+import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
 import { baseTextOf, copyNote, copyOf, diffNote, keptName, oldUnsentLine, settleQuietly, UNSENT_KINDS, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, fileName, HERO_ROWS, heroBox, heroBoxGrown, locatePicture, type Picture, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseImageLine, parseMediaLine, parsePictureFence, parseSize, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, fileName, HERO_ROWS, heroBox, heroBoxGrown, locatePicture, type Picture, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseImageLine, parseMediaLine, parsePictureFence, parseSize, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { blockRefText, embedOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { drawRevision, openingRow, revisionFacts, type RevisionAgainst, type RevisionView } from "./revision-compare";
@@ -118,11 +113,11 @@ import { revisionDiff } from "../desk/what-changed";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
-import { visible, headOf, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { visible, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, waitingText, wrap } from "../text";
 import { startShare, endsIn } from "../share-cli";
-import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
+import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { blockdownHooks, drawIn, embedOnly, linkSink, NO_READER, readableSource, sequenceStart, tagInto } from "./blockdown-context";
 export { embedOnly, readableSource } from "./blockdown-context";
@@ -134,10 +129,10 @@ import { holdsEdit, NOBODY } from "../whereabouts";
 import { editHint, editState, saidRows, editorClick, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedSide, type AttachedPlace, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
-import { Attachments, type AttachedState, type AttachmentDef, type AttachmentKind, type SplitFrame } from "./attachments";
+import { Attachments, type AttachedState, type AttachmentDef, type AttachmentKind } from "./attachments";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptsAt, scriptActions, installWords, threadAgents } from "../extensions";
+import { askingFirst, passageActions, runExtensionAction, scriptsAt, scriptActions, installWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES, type Press } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -149,7 +144,6 @@ import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
 import { parseTileAddress } from "../desk/tile-address";
 import { buttonIn, buttonLineLook, buttonMarks, describeButtonMarks, slotButton, type ButtonLookups } from "../button-check";
-import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
@@ -158,7 +152,7 @@ import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
 import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
-import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
+import { type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, dropActions, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "./component-new";
@@ -170,7 +164,7 @@ import { filterLine, LineField } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlocksEnv } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
-import { readState, writeState } from "../state";
+import { readState } from "../state";
 import { menuRow } from "../desk/tile-menu";
 import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
 import { createPage, followSoft, offerPage, PAGE_OFFER_MS, type PageOffer, type PageOfferReader, type SoftChoices } from "./soft-follow";
@@ -178,7 +172,7 @@ import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-pointer";
-import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, ZEBRA_BG, type Pos, type SelectRows } from "./selection";
+import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
@@ -4419,7 +4413,7 @@ export class NoteSurface {
   }
 
   /** A row whose action the reader picks at the key (ReaderPick): what's in front of it decides. */
-  private pickKey(row: ReaderKey, k: Key, host: SurfaceHost): boolean {
+  private pickKey(row: ReaderKey, _k: Key, host: SurfaceHost): boolean {
     switch (row.pick!) {
       case "page": void this.runKey("scroll", { by: this.pageBy((row.args?.by as number) < 0 ? -1 : 1) }, host); return true;
       case "fold-all": void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true;
@@ -4949,7 +4943,6 @@ export class NoteSurface {
     const vis = this.visibleFolds(m);
     const sel = vis.find(p => p.key === this.foldSel);
     if (sel) return sel;
-    const d = this.drawn;
     const top = this.foldsIn(m).lines.indexOf(this.readingRows() ? this.readingSourceLine() : this.position.view?.line ?? 0);
     const around = vis.filter(p => p.line <= top && top < Math.max(p.end, p.line + 1));
     return around.findLast(p => p.kind === "heading") ?? around.at(-1) ?? null;
@@ -9856,7 +9849,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "complete.step": def({
     ...COMPLETION_STEP,
-    run(args, { surface, host }, actor) {
+    run(args, { surface }, actor) {
       const d = surface.writingDraft;
       const c = d && completerOf(d);
       if (!c?.shown) throw new ActionRefused("type :: in an edit first");
@@ -10518,7 +10511,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "link.follow n=2 fresh=true", does: "opens the note's second link in a new reader" },
     ],
     async run({ n, fresh, ref }, on, actor) {
-      const { surface, host, standing } = on;
+      const { surface, host } = on;
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
       const asked = surface.askLeave("link.follow", { ...(ref !== undefined ? { ref } : {}), ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
@@ -10578,7 +10571,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "element.select by=1", does: "steps the [ ] position to the next element" },
       { act: "element.select n=2 row=5", does: "selects the fifth row of the note's second element, an inline list, and previews it" },
     ],
-    async run({ n, by, row }, { surface, host }, actor) {
+    async run({ n, by, row }, { surface, host }, _actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
       // Letting go of a collection's row (esc) ends the peek that followed it, as leaving a list did (PIE-849, PIE-1501).
       if (n === 0) { if (surface.listAtCursor()?.collection) host.retirePeeks?.(USER); surface.letGo(); host.redraw(); return { current: null }; }
@@ -10843,7 +10836,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "safe", way: "up would move what they're reading · an agent goes up in another reader (tile=), or opens the parent with open id=",
     menu: noteRow("up to the parent", "u", { busy: true }),
     args: {},
-    async run(_, { surface, host, standing }, actor) {
+    async run(_, { surface, host, standing }, _actor) {
       if (standing) surface.letGo();
       const m = await surface.goUp(host);
       if (!m) throw new ActionRefused("the note has no parent");
@@ -11598,7 +11591,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "props", does: "lists every property of the note; the person's panel opens above it" },
       { act: "props full=true", does: "lists every property of the note; the person's panel fills the reader" },
     ],
-    async run({ full }, { surface, host, standing }, actor) {
+    async run({ full }, { surface, host, standing }, _actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       // The panel holds the reader's keys: an agent reads the rows in its reply and leaves the panel be.
       if (standing) { surface.requireNote(); surface.openPanel(!!full); host.redraw(); }
@@ -11638,7 +11631,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "props.follow key=seed-list", does: "opens the note the seed-list property's value names" },
       { act: "props.follow n=3", does: "opens what the third property's value names, as props lists them" },
     ],
-    async run({ n, key }, { surface, host, standing }, actor) {
+    async run({ n, key }, { surface, host }, actor) {
       const { row } = await propRow(surface, n, key);
       if (!row.target) throw new ActionRefused(`${row.key} holds plain text (${row.value}); there is nothing to follow`);
       const m = await surface.followValue(row, host);
@@ -11745,7 +11738,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "fold.select by=1", does: "puts the ( ) selection on the next heading, list item or callout" },
       { act: "fold.select by=-1", does: "puts the ( ) selection on the previous one" },
     ],
-    run({ by }, { surface, host }, actor) {
+    run({ by }, { surface, host }, _actor) {
       const m = surface.requireNote();
       if (m.partial || !surface.stepFold(by < 0 ? -1 : 1)) throw new ActionRefused("this note has no headings, nested lists or callouts to fold");
       host.redraw();
@@ -11827,7 +11820,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "safe", person: "the keyboard selection is the person's; an agent selects with select text=… or line=…, drawn as its own",
     menu: noteRow("select text by keys", "v", { busy: true }),
     args: {},
-    run(_, { surface, host }, actor) {
+    run(_, { surface, host }, _actor) {
       surface.requireNote();
       if (!surface.selectByKeys()) throw new ActionRefused("nothing is drawn to select yet");
       host.redraw();
@@ -12625,7 +12618,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     examples: [
       { act: "unsent.diff kind=edit", does: "compares the kept edit with the note now, marking each change" },
     ],
-    async run({ kind }, { surface, host, standing }, actor) {
+    async run({ kind }, { surface, host, standing }, _actor) {
       const { of, u, now } = await unsentHere(surface, host, kind ?? "edit", true);
       const base = await baseTextOf(u, of, now!, host.ctx.board);
       const view = diffNote(now!, u, base);
@@ -12645,7 +12638,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "unsent.copy kind=comment", does: "shows the comment kept unsent on this note, as it was written" },
       { act: "unsent.copy", does: "shows the first text kept on this note (edit, comment, child, card or note-reply)" },
     ],
-    async run({ kind }, { surface, host, standing }, actor) {
+    async run({ kind }, { surface, host, standing }, _actor) {
       const k = kind ?? firstUnsent(surface) ?? "edit";
       const { of, u, now } = await unsentHere(surface, host, k, false);
       if (!standing) return { of, kind: k, text: u.text, copy: u.copy, at: u.at };

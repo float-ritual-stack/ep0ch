@@ -11,7 +11,7 @@
 // `show <id>…` draws each note as a reader draws it: the note surface (`NoteSurface.render`), at the width asked for,
 // in the person's theme, its live figures and `::links` answered by the outline (connectFigures, as the door's App
 // connects them), folded callouts unfolded (no key works in what it prints), a view note followed by its results as
-// the reader draws them (viewResults), never a second renderer. `--ansi` keeps its colours;
+// the reader draws them (NoteSurface's body, through renderCollection), never a second renderer. `--ansi` keeps its colours;
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
 // the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.

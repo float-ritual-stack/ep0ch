@@ -204,11 +204,6 @@ export class BacklinkPeekController {
     await this.loadSelected();
   }
 
-  clampScroll(renderedLineCount: number, viewportHeight: number): void {
-    const maximum = Math.max(0, renderedLineCount - Math.max(1, viewportHeight));
-    this.scrollOffset = Math.min(this.scrollOffset, maximum);
-  }
-
   private scrollBy(delta: number): void {
     this.scrollOffset = Math.max(0, this.scrollOffset + delta);
   }

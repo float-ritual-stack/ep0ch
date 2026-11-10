@@ -2,7 +2,7 @@
 // the CLI) reads with its new text in the tree, a note created shows up, and picking a row shows the note as it is now,
 // never the copy the tree read when it opened. Also after the outline host restarts under the door. Against a fresh
 // scratch outline (a new outline's notes are its top level), with fictional notes.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";

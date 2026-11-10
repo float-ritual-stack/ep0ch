@@ -7,8 +7,8 @@ import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema"
 import { osc52, SELECT_BG, rowsOf } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { networkInterfaces, tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { App } from "../../src/app";
 // After the app: tune.ts is in the tiles' import cycle, and entering it first leaves TUNE_ACTIONS uninitialized.
@@ -22,7 +22,7 @@ import { SessionTerm, serveAs } from "../../src/session/session-term";
 import { PROTOCOL } from "../../src/session/protocol";
 import { serveLink, connectLink, linkStates, openLinked } from "@ep0ch/outliner/link";
 import { external } from "../../src/open";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {

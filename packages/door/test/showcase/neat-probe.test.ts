@@ -300,7 +300,6 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     test(`placement: a named busy reader never redirects an agent into its neighbour (${placement})`, async () => {
       const s = await placed();
       try {
-        const other = placement === "screen" ? "other" : "nest/other";
         await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
         await s.owner.dispatch.act({ action: "draft.paste", tile: s.tile, args: { text: "Keep this draft" } }, USER);
         const opened = await s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: s.testing.id } }, USER) as { tile: string };

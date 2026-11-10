@@ -22,15 +22,12 @@
 // Every write is `author: agent`, its actor `mcp:[<persona>/]<principal>` (the principal auth proved: the OAuth client, a URL client id by its host, so claude.ai's
 // reads `mcp:claude.ai`, or `claude-code@float-2` on stdio; the persona a declared label within it: `mcp:loki/claude-code@float-2`) and its sessionId the OAuth subject and the call it came in (`<subject>#<call>`, PIE-685), so the outline's activity, the door's flash and the gateway's
 // log all say who wrote it.
-import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { mcpEnvFile, mcpSetting } from "@ep0ch/outliner/mcp-access-files";
 import { isMcpAccessLevel, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { effectiveLevel } from "@ep0ch/outliner/write-gate";
 export { gate, writesAt, noWritesWords } from "@ep0ch/outliner/write-gate";
-import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, CLIENT_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
+import { composeActor, composeSessionId, CALL_PATTERN, CLIENT_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool, type TargetWords } from "@ep0ch/outline-core/agent-tool-definitions";

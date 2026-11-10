@@ -5,7 +5,7 @@ import { hostInstall, installHost } from "./host";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Deploy notes go
 // through the host; no outline is created. Missing host units are installed; existing host units are left intact.
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
@@ -478,45 +478,6 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       }
       return;
     }
-    case "sweep": {
-      // Looked at first with the host serving (a read writes nothing): only a note that needs rewriting stops it.
-      const cli = join(f.repo.outliner, "src/cli.ts"), found = databases(f.host.folder).map(outlineSchema).filter(o => !o.empty);
-      const look = async (path: string, apply: boolean) => {
-        const r = await run([process.execPath, cli, "sweep", path, "--json", ...(apply ? ["--apply"] : [])], { cwd: f.repo.outliner, env, timeoutMs: 600_000 });
-        if (r.code !== 0) throw new Error(withoutProgress(r.err) || r.out || `exit ${r.code}`);
-        return JSON.parse(r.out) as { configs: { path: string }[]; undo?: string; notes: { id: string; changes: { form: string; before: string; after: string }[] }[] };
-      };
-      const todo: typeof found = [];
-      for (const o of found) {
-        // An outline the sweep can't read is left alone and said (nothing was written); it never holds the install back.
-        try { const plan = await look(o.path, false); if (plan.notes.length || plan.configs.length) todo.push(o); }
-        catch (e) { show(`    ! ${o.name}: not swept (${(e as Error).message.split("\n")[0]}); bun ${sh(cli)} sweep ${sh(o.path)} says why`); }
-      }
-      if (!todo.length) { say("nothing to rewrite"); return; }
-      const u = f.host.unit, uid = process.getuid?.() ?? 0;
-      const logs = u?.kind === "launchd" ? `launchctl print gui/${uid}/${u.name}` : `journalctl --user -u ${u?.name}`;
-      if (await hostLive(f.host.socket)) {
-        if (!u) throw new StepFailed(`${todo.map(o => o.name).join(", ")} need the sweep, and the host at ${f.host.socket} runs outside a unit, so install can't stop it`, `nothing was rewritten; stop that process, then rerun ep0ch install --apply`);
-        await must(hostUnitArgv(u, "stop", uid), `nothing was rewritten, and the host runs on; ${hostUnitCommand(u, "stop")} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
-        const gone = async () => (await unitState(u, undefined, env)).active !== true && !(await hostLive(f.host.socket));
-        if (!(await waitFor(gone, 30_000))) throw new StepFailed(`${u.kind} stopped ${u.name}, but the host still runs after 30s`, `nothing was rewritten; see ${logs}, then rerun ep0ch install --apply`);
-        say(`stopped the outline host (${u.kind} ${u.name}) to rewrite`);
-      }
-      for (const [i, o] of todo.entries()) {
-        task.count(i, todo.length, o.name);
-        task.flush();
-        try {
-          const done = await look(o.path, true);
-          const forms = new Map<string, number>();
-          for (const n of done.notes) for (const c of n.changes) forms.set(c.form, (forms.get(c.form) ?? 0) + 1);
-          say(`${o.name}: rewrote ${done.notes.length} note${done.notes.length === 1 ? "" : "s"} (${[...forms].map(([k, n]) => `${n} ${k}`).join(", ")}); every previous text is in its revisions`);
-          for (const config of done.configs) say(`rewrote settings in ${config.path}`);
-          if (done.undo) say(`undo (host stopped): bun ${sh(cli)} sweep ${sh(o.path)} --undo ${done.undo}`);
-          for (const n of done.notes) for (const c of n.changes) child(`    ${n.id.slice(0, 8)}: ${c.before} → ${c.after}`);
-        } catch (e) { throw new StepFailed(`the sweep of ${o.name} failed: ${(e as Error).message}`, `${o.name} is as it was (one transaction); the outline host is left stopped. Fix it, then ep0ch install --apply rewrites what's left and starts the host`); }
-      }
-      return;
-    }
     case "host": {
       if (!f.host.unit) {
         const install = hostInstall({ platform: f.platform, home: f.home, bun: f.bun.path, program: hostMainOf(f), outlines: f.host.folder, path: f.pathDirs.join(":"), taken: f.host.unitTaken });
@@ -762,7 +723,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     }
     // The host: asked again after the checkout updated (its code may speak a new protocol), and restarted because of it.
     // After a migration too: the schema step stopped it, and it's started.
-    if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema" || s.id === "sweep") && s.status === "do")) {
+    if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema") && s.status === "do")) {
       const code = await pluginCode(current.repo.outliner);
       // With the commit it started on: whether its own code moved decides the restart (PIE-1397).
       const host = await hostFacts(current.host.folder, current.platform, current.home, env, current.repo.root);

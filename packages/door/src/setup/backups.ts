@@ -10,7 +10,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { configDatabases as readConfig, instancesIn, isTemplate, litestreamArgv, litestreamUnits as readUnits, type LitestreamUnit as BaseUnit, replicaUrl, templateInstance } from "@ep0ch/outliner/litestream-units";
 import type { Platform, UnitState } from "./model";
 

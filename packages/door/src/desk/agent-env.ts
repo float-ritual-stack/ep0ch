@@ -14,8 +14,6 @@ import { basename, delimiter, join } from "node:path";
 
 /** The drawer agent's tile id (src/drawer.ts): what EP0CH_TILE_ID tells its program, in a tile. */
 export const DRAWER_TILE_ID = "drawer.agent";
-/** The host layer's agent tile's name: what `EP0CH_TILE` tells its program (`open from=claude`). */
-export const DRAWER_NAME = "claude";
 
 /** What every door agent gets: the door's control socket, its tile's name and id, the nest, and that it's in a door. */
 export const AGENT_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_NEST", "EP0CH_IN_DOOR"] as const;

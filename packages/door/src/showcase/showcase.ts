@@ -42,7 +42,6 @@ import { BOARD_ACTIONS } from "../desk/lanes";
 import { COLUMN_ACTIONS, RiverColumn } from "../river/column";
 import { ActivityPane, ReaderPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { BacklinksPane } from "../desk/backlinks-pane";
-import { FacetsPane } from "../desk/facets";
 import { TunePane } from "../desk/tune";
 import { MessageReader, StatusMessages, SHELL_ACTIONS } from "../screens";
 import { autoName, columnsOf, leaf, pair, serializeTree, splitOf, type LNode } from "../desk/screen-layout";
@@ -55,7 +54,7 @@ import { AgentsPane } from "../desk/agents-panel";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as joinPath, resolve } from "node:path";
-import { registerTileKind, serviceKind, ServiceTile, tileKind, tileKinds, UnavailableTile, type KindHost, type TileKind } from "../desk/tile-kinds";
+import { registerTileKind, serviceKind, ServiceTile, tileKind, UnavailableTile, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
@@ -902,7 +901,7 @@ export const SECTIONS: Section[] = [
   {
     key: "resource-comments", need: "comment on a Resource (a file, a fetched page): select text, C", part: "comments on a Resource's stored text (PIE-650): the reader showing a Resource takes C and m like a note; the thread is stored in the outline (annotations.batch resource-comment, threads through annotations.reconcile), quoting the selection from the file's own source and keeping the note whose link opened it as its reference context; the file is never written", files: "src/authored.ts (resourceNote, alignComments), src/socket.ts (commentOnResource, comments), src/desk/panes.ts (ReaderPane.refuses), src/draft-session.ts, outliner src/resource-comments.ts",
     aside: "left: the block whose [file::] link names the bed plan; right: the file as a Resource, one thread already on it (m lists it). Select a passage and press C (or click ⋯ comment), or act passage.select then comment.send · a file an agent rewrites keeps its threads: the service re-anchors a quote that is still there and shows the rest as they read when written · the thread also lists as a backlink of the left block",
-    stage(n, show) {
+    stage(_n, show) {
       const note = new ReaderPane(), res = new ReaderPane();
       const plan = RECENT_FILES()[0]!;
       return deskOf({ title: "showcase · resource comments", panes: [note, res], layout: ([a, b]) => row(0.4, a!, b!) }, show, [], d => {
@@ -978,7 +977,7 @@ export const SECTIONS: Section[] = [
       // What the service's list bound, drawn the way a service tile is: each extension, what it answers, its actions' keys.
       const list = serviceKind({
         kind: "showcase.extensions", about: "the extensions bound, listed",
-        render: async req => {
+        render: async _req => {
           const l = extensionList();
           const rows = !l ? [`${fg(C.yellow)}this service lists no extensions (it lacks extensions.list, or none are installed)${RESET}`]
             : [...l.extensions].sort((a, b) => Number(a.id.startsWith("script-")) - Number(b.id.startsWith("script-"))).flatMap(e => e.id.startsWith("script-")
@@ -1021,8 +1020,8 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "machinery", need: "leave out what tools write for their own bookkeeping (tosses, file touches, deliveries, backup runs, fetched notifications) so a list, and a chat's \"what changed lately\", shows what people wrote, says how many it left out, and finds them again when you want it",
-    part: "machinery (outline-core machinery.ts, PIE-867): a producer stamps its records [machine::<producer>]; one flag, machinery: hide|only|show, on blocks.query, tree.search, activity.recent, changes.since and a saved view's [machinery::] answers it in the service, and the door only passes it on. The main menu's newscan line reads \"73 · 12 by people\" (every change since logon, and the part that is not machinery); a click on it is the N key. The what-changed list and the status bar's +N machine hold it back until changes.machinery shows it. ep0ch machinery backfill stamps what was written before. The notifications hub stamps each notification [machine::notification] (PIE-1427), and outline_query's recent-activity read (the gateway's, and the mod's outline_find) answers machineryOmitted (\"212 notifications and bookkeeping notes left out\"), counted by the service's facets of machine over the same question with machinery only",
-    files: "outline-core/src/machinery.ts, outliner src/block-query.ts (queryPredicate), src/change-feed.ts (machineryClause, bookkeeping), src/store.ts (recentEditActivity, searchTree), src/virtual-branches.ts, src/machinery-backfill.ts, src/desk/what-changed.ts, src/screens.ts (MainMenu, changes.machinery)",
+    part: "machinery (outline-core machinery.ts, PIE-867): a producer stamps its records [machine::<producer>]; one flag, machinery: hide|only|show, on blocks.query, tree.search, activity.recent, changes.since and a saved view's [machinery::] answers it in the service, and the door only passes it on. The main menu's newscan line reads \"73 · 12 by people\" (every change since logon, and the part that is not machinery); a click on it is the N key. The what-changed list and the status bar's +N machine hold it back until changes.machinery shows it. The notifications hub stamps each notification [machine::notification] (PIE-1427), and outline_query's recent-activity read (the gateway's, and the mod's outline_find) answers machineryOmitted (\"212 notifications and bookkeeping notes left out\"), counted by the service's facets of machine over the same question with machinery only",
+    files: "outline-core/src/machinery.ts, outliner src/block-query.ts (queryPredicate), src/change-feed.ts (machineryClause, bookkeeping), src/store.ts (recentEditActivity, searchTree), src/virtual-branches.ts, src/desk/what-changed.ts, src/screens.ts (MainMenu, changes.machinery)",
     aside: "one question asked twice, of the same chores, tosses, backup runs and file touches: left, the people's view (machinery hidden, the default); right, the same query with [machinery::only]. The view notes carry nothing but their query; the stamps are on the tools' own notes",
     stage(n, show) {
       const people = new ReaderPane(), tools = new ReaderPane();
@@ -1139,7 +1138,7 @@ export const SECTIONS: Section[] = [
       // The session's terminals as they are, drawn the way a service tile is.
       const list = serviceKind({
         kind: "showcase.session", about: "the terminals attached to this session",
-        render: async req => {
+        render: async _req => {
           const s = servingSession();
           const rows = !s ? [`${fg(C.yellow)}this door runs in its own terminal (--no-daemon): quitting it ends it${RESET}`, `${fg(C.grey)}ep0ch (without --no-daemon) runs it as a session${RESET}`]
             : [`${fg(C.lcyan)}session ${process.pid}${RESET} ${fg(C.dark)}drawn at ${s.info.cols}×${s.info.rows}${RESET}`,

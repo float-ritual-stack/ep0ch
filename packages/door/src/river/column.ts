@@ -5,7 +5,6 @@ import { holdsEdit, NOBODY } from "../whereabouts";
 import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { errorDetails } from "../status-log";
-import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
 // flow container, the layout engine's (PIE-513: full → peek → spine around the wide column, opens into the next
 // column, back and forward by the trail, held columns). A column is a reader of the shared note surface whose view
@@ -18,8 +17,8 @@ import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { AskAgainAt } from "../search-schedule";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
-import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
-import { historyRow, pickTarget, type DrawnNote, type Hit, type Link } from "../surface/note";
+import { ActionRefused, actionSet, def } from "../surface/actions";
+import { historyRow, pickTarget, type DrawnNote, type Hit } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
@@ -30,7 +29,7 @@ import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, LINK_GROUPS_ARE_THE_PERSON
 import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago, rowLines, waiting, wrap } from "../text";
+import { ago, rowLines, waiting } from "../text";
 import { lastTop, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE, pageRows, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
@@ -515,7 +514,7 @@ export class RiverColumn extends ReaderPane {
       else desk.ctx.flash("that thread isn't among this column's replies · m lists the note's threads");
     };
     // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
-    h.links = async (actor, standing) => {
+    h.links = async (_actor, standing) => {
       if (!standing) throw new ActionRefused("showing or hiding a column's links changes what the person reads · peek reads them (noteLinks)");
       return this.toggleLinks(undefined, desk);
     };

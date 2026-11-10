@@ -5,7 +5,7 @@
 import { draftView } from "../src/draft-view";
 import { visible } from "../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Draft, DRAFT_ACTIONS, listLead, wrapRows } from "../src/edit";

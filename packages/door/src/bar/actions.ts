@@ -60,7 +60,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       { act: "bar.open scope=notes query=garden", does: "answers the notes that match garden, numbered for bar.pick; nothing opens" },
       { act: "bar.open query=zoom", does: "answers every source's rows for zoom: tiles, notes, actions, screens" },
     ],
-    async run({ query, scope, by, keep }, { on, standing }, actor: Actor) {
+    async run({ query, scope, by, keep }, { on, standing }, _actor: Actor) {
       const s = scopeArg(scope);
       if (!standing) { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
       const open = on.bar();

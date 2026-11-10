@@ -680,7 +680,7 @@ function fresh(pane: TunePane, desk: DeskApi): TuneTargetInfo {
  * variant goes first: what shows at this width is what's reset. Refused: a built-in, a box's or a heading style's (edited
  * where written), and one a shorthand or a tier gives (taking that away would take more, or it would come back).
  */
-async function takeAway(pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: StyleToken, src: StyleSource, actor: Actor): Promise<() => void> {
+async function takeAway(_pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: StyleToken, src: StyleSource, actor: Actor): Promise<() => void> {
   const tuning = tuningOf(desk.ctx.board), target = sourceTarget(src, t.look.place), field = fieldKey(tk, src.variant ?? null);
   if (!target) throw new ActionRefused(src.level === "base" ? `${tk} is the built-in already` : src.level === "block" ? `${tk} is the box's own (line ${(t.box?.line ?? 0) + 1}): edit the box` : `${tk} comes from ${src.label}: edit it there`);
   const mine = tuning.get(target, field), at = src.block;
@@ -984,7 +984,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.set row=measure value=72 tile=tune", does: "sets the text measure to 72 cells at the inspector's level, until saved" },
       { act: "tune.set row=list.zebra value=on level=global tile=tune", does: "turns zebra stripes on in every list, until saved" },
     ],
-    run({ row, value, level, width }, { pane, desk, standing }, actor) {
+    run({ row, value, level, width }, { pane, desk }, actor) {
       const hp = heroRowNamed(row);
       if (hp) return writeHeroRow(pane, desk, actor, hp, { to: value });
       const r = rowNamed(row);
@@ -1074,7 +1074,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.save tile=tune", does: "writes the tuned tile's nudges to the style notes they belong to" },
       { act: "tune.save level=page tile=tune", does: "writes the page-level nudges onto the note the tile shows" },
     ],
-    async run({ level }, { pane, desk, standing }, actor) {
+    async run({ level }, { pane, desk }, actor) {
       const lv = (level ?? pane.level) as TuneLevel;
       if (!TUNE_LEVELS.includes(lv)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
       const t = pane.info(desk);

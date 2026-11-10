@@ -18,8 +18,7 @@ import { leaf, splitOf, revive, serialize, type LNode } from "../src/desk/layout
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
-import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch } from "./scratch";
 
 /** A split in layout.get's tree whose kids are these tiles, by name. */
 const splitOfTiles = (n: any, names: string[]): any =>
@@ -47,7 +46,6 @@ test("the daily layout has no agent tile: the agent is the host layer's, beside 
 describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk, control: { path: string; close(): void };
-  let key: (k: Key) => void = () => {};
   const AS = "layout-agent-491";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
@@ -74,7 +72,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     await board.info();
     notes.shed = await board.request("create", { parentId: null, text: "Mend the shed roof\nBuy tacks and felt.", author: "agent" });
     writeFileSync(join(state(), "draft.md"), "# Plot draft\n");
-    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     control = await startControl({ app, mirror: new Mirror(200, 60), info: () => term.info }, join(state(), "ctl.sock"));
     app.push(new MainMenu());

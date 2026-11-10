@@ -61,7 +61,7 @@ describe("showcase: pictures", () => {
     // Alt- and middle-click reach it as any link: a fresh open, on the release the rest of the reader's clicks take.
     const opened: { title?: string; fresh?: boolean }[] = [];
     {
-      const fresh = { ...host, freshClick: true, navigate: (m: { text?: string }, how?: { fresh?: boolean }) => { opened.push({ fresh: how?.fresh }); } };
+      const fresh = { ...host, freshClick: true, navigate: (_m: { text?: string }, how?: { fresh?: boolean }) => { opened.push({ fresh: how?.fresh }); } };
       reader().surface.press(book.from, book.row, fresh as any);
       expect(opened).toEqual([]);
       reader().surface.release(book.from, book.row, fresh as any);

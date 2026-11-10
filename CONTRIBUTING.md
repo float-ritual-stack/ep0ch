@@ -21,7 +21,9 @@ the lockfile so it is applied.
 ## Code health
 
 `bun run check` runs `scripts/health-ratchet.ts` before the package checks. It holds the counts of raw `.length`
-width candidates and `padEnd` in the door, line-to-offset reductions, inline heading regexes and `host.ctx` casts.
+width candidates and `padEnd` in the door, line-to-offset reductions, inline heading regexes, `host.ctx` casts and
+unused exports (a top-level export of outline-core, the outliner, the door or the mod's hooks whose name no other code
+file holds, tests included: the compiler counts an exported name as used, so `noUnusedLocals` never sees it).
 Diagnostics name added sites and their shared owners. These are syntax patterns, not type inference: width candidates
 feed a width, column or room expression, or a padding repeat. The script documents the spellings and owner locations.
 Source TypeScript/JavaScript files have a 2,000-line cap; larger existing files may only shrink. Tests, fixtures,
@@ -292,8 +294,8 @@ it. The runtime never inspects an old shape and never migrates. To change it:
    (PIE-617) as `bun <script> <database>` on every outline at the previous version, with the host stopped, and
    reads `user_version` after, so the script: runs in one transaction, refuses a served file
    (`acquireWorkspaceOwnership`), exits non-zero leaving the file as it was when it can't, and wraps a change that
-   replaces the file (rather than writing in it) in `withLitestreamPaused`. `0004-block-revisions.ts` is the
-   model: it checks the shape before it stamps. `openSchema`'s refusal finds it by its number and prints the exact
+   replaces the file (rather than writing in it) in `withLitestreamPaused`. The last one, `0010-marks.ts`, is
+   the model (`git show bf5568e9b:packages/outliner/scripts/migrations/0010-marks.ts`). `openSchema`'s refusal finds it by its number and prints the exact
    commands for the machine (`schemaRefusal`).
 3. The PR says the merge needs `ep0ch install --apply` on each machine; its plan shows the outlines it migrates.
 4. Delete the script once the outlines that matter (pie on float-2, float-hub on the MacBook) are upgraded; git

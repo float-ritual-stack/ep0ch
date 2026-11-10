@@ -207,7 +207,7 @@ describe("live figures answer from the outline", () => {
     let stage = "waiting", watch = "", generation = 0;
     const block = (id: string, title: string, props: Record<string, string>) => ({ id, parentId: null, text: title, author: "agent", createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", properties: Object.entries(props).map(([key, value]) => ({ key, value })) });
     const fake: any = {
-      request: async (a: string, p: any) => {
+      request: async (_a: string, p: any) => {
         // One watched site.answer: the results and which of them `done:` holds for, in the figure's Site.
         watch = p.watch;
         const blocks = [block("a", "Nudge Sumit", { type: "outbox-item", outbox: stage, "waiting-on": "Sumit" })].filter(() => p.produce.props.query === "type=outbox-item");

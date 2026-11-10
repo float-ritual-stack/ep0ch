@@ -33,8 +33,6 @@ import { runAgainKey } from "./surface/reader-keys";
 
 /** The statuses the service sends (the wire contract's). */
 export type { ResourceProjectionStatus } from "@ep0ch/outliner/wire";
-/** What an extension's handler line ran to (the wire contract's): inline output's markdown, a rich component's `{ data, view }`. */
-export type ExtensionOutput = import("@ep0ch/outliner/wire").ExtensionProjectionOutput;
 /** Who asked an `@name` agent, as the service says it (`user`, `agent:<id>`, `system`), in the door's words. */
 export function askedBy(v: string): string {
   if (v === "user") return "you";
@@ -42,8 +40,6 @@ export function askedBy(v: string): string {
   if (v.startsWith("agent:")) return `an agent (${drawnInline(v.slice(6))})`;
   return drawnInline(v);
 }
-/** An `@name` request line's state (PIE-501): queued, running, applied, proposed, replied, nothing, failed, and, once its proposal is settled, applied or dismissed (PIE-510)… drawn as the service words it. */
-export interface AgentRequestState { name: string; status: string; message?: string; proposalId?: string; requestedBy?: string }
 
 /** One projection, as `resources.projection.read` sends it (the wire contract's). */
 export type ResourceProjection = import("@ep0ch/outliner/wire").ResourceProjection;

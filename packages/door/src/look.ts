@@ -14,8 +14,8 @@ import { COMPONENT_OPEN, componentAttrs, splitWords } from "@ep0ch/outline-core/
 // those cells), and a reader's margin and gap rows are its drawing (src/surface/selection.ts's margin and edge rows), so
 // a selection, a copy, `peek` and an export give the note's text.
 import {
-  fieldKey, levelOfSave, levelTarget, parseFieldKey, resolveStyle, retiredLookKeys, styleLayers, styleProperty, type Breakpoint, type FieldKey, type ResolvedStyle,
-  type SaveLevel, type StyleLayer, type StylePlace, type StyleSheet, type StyleToken,
+  levelOfSave, levelTarget, parseFieldKey, resolveStyle, retiredLookKeys, styleLayers, styleProperty, type FieldKey, type ResolvedStyle,
+  type SaveLevel, type StyleLayer, type StylePlace, type StyleSheet,
 } from "@ep0ch/outline-core/style-cascade";
 import { heroFromRetired } from "@ep0ch/outline-core/media-line";
 import { outlineList, type ListSource } from "./outline-lists";
@@ -383,8 +383,6 @@ export function listFieldsTuned(src: ListSource | null | undefined, note: string
 
 // ── nudging and saving ────────────────────────────────────────────────────────
 
-/** The field a nudge writes: the token's own, or its width variant (this width only). */
-export function nudgeField(token: StyleToken, variant: Breakpoint | null): FieldKey { return fieldKey(token, variant); }
 
 /** Where a save of `target` went, in words. */
 export interface Saved { target: TuneTarget; note: string; fields: string[]; created: boolean }

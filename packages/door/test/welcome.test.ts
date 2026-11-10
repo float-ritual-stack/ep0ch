@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Art, Cell } from "../src/ansi";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { densest, logoCells, orderWelcome, WELCOME_VIEW_TEXT, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
+import { densest, logoCells, orderWelcome, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
 import { BacklinksPane } from "../src/desk/backlinks-pane";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";

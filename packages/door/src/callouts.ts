@@ -3,7 +3,6 @@
 // the type picker lists. Kept per connection by src/outline-lists.ts, as the heading styles are.
 import { BUILTIN_CALLOUT_REGISTRY, calloutRegistry, type CalloutRegistry, type CalloutTone, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { outlineList } from "./outline-lists";
-import { C } from "./style";
 import { TONE_INDEX } from "./theme";
 
 /** What a connection can be asked (SocketBoard has it; a test double may not). */

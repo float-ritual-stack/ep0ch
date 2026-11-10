@@ -32,11 +32,6 @@ function fencedRangesOf(text: string, lines: SourceLine[]): SourceRange[] {
     .map(block => ({ start: lines[block.start]!.start, end: lines[block.end]!.end }));
 }
 
-/** The fenced code blocks of `text`, opening and closing lines (with their line breaks) included. */
-export function fencedRanges(text: string): SourceRange[] {
-  return fencedRangesOf(text, sourceLines(text));
-}
-
 /** Whether `offset` falls in one of `ranges`. */
 export function offsetInRanges(offset: number, ranges: readonly SourceRange[]): boolean {
   return ranges.some(range => offset >= range.start && offset < range.end);

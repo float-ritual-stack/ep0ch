@@ -8,7 +8,7 @@ import { Draft, DRAFT_KEYS } from "../edit";
 import { LineRow } from "../draft-view";
 import { keyName } from "./actions";
 import { movedInTable } from "./keymap";
-import { INPUT_CURSOR, paint, bg, C, fg, headOf, RESET, tailFrom, width } from "../style";
+import { INPUT_CURSOR, paint, bg, C, fg, RESET } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { USER } from "../socket";

@@ -320,11 +320,10 @@ function eventFromRow(row: ResolutionRow): AnnotationResolutionEvent {
 
 /**
  * Why a comment can't be opened when it has no target (PIE-933): said in the words of what a person sees. A comment
- * written through the service always has one (`adopt` gives one to any other write); one that predates that is
- * given its target by the repair script.
+ * written through the service always has one (`adopt` gives one to any other write).
  */
 export function missingTargetMessage(annotationId: string): string {
-  return `${annotationId} is marked as a comment or reply but has no target: it was written as plain text rather than through the comments service, so no note shows it and it can't be opened, answered or resolved. Any edit to it gives it one; or the sysop runs the repair: bun packages/outliner/scripts/repairs/2026-10-16-annotation-targets.ts <outline database> (with the outline host stopped and a backup taken).`;
+  return `${annotationId} is marked as a comment or reply but has no target: it was written as plain text rather than through the comments service, so no note shows it and it can't be opened, answered or resolved. Any edit to it gives it one.`;
 }
 
 export class AnnotationRepository {

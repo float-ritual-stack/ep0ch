@@ -21,9 +21,9 @@ import { completionTargetAtCursor, pageAddressCompletion } from "@ep0ch/outline-
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
-import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
+import { SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { Completer, enterKeeps, popupHint, completerFor, completerOf, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
+import { Completer, enterKeeps, popupHint, completerFor, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
 import { declaredKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -299,7 +299,6 @@ describe("callout types after > [! (PIE-538): the outline's one list, in the sam
 });
 
 describe("property keys and values from the component schemas (PIE-618): the same popup, no list of its own", () => {
-  const plot = { value: "plot", meaning: "this outline's: dots, 3 rows, left, plain", declared: "decl-plot" };
   const board = serviced({
     completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
     completeFiles: async () => [],
@@ -743,7 +742,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const e = await editing(await create('Escaped value [trellis::north]\n::fields{key="tre\\"llis"}'));
     e.d.col = '::fields{key="tre\\'.length;
     e.press(K("tab"));
-    const p = await e.settled();
+    await e.settled();
     e.press(K("tab"));
     await until(() => !e.pop(), "the escaped value replaced");
     expect(e.d.lines.at(-1)).toBe('::fields{key="trellis"}');
@@ -872,7 +871,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const e = await editing(await create("Card practice\n"));
     e.type("[status::ready] [owner::Ada]");
     e.press(K("esc")); e.press(K("enter")); e.type("::fie");
-    const p = await e.settled();
+    await e.settled();
     const card = () => { renderCompletion(e.pop()!, 140, 24); return e.pop()!.previewLines!.map(l => visible(l).trimEnd()).join("\n").replace(/\n(?=[a-z])/g, " "); };
     expect(card()).toContain("Every place a note writes a key");
     expect(card()).toContain("::fields{key=status}");

@@ -157,7 +157,6 @@ describe.skipIf(!outliner)("naming screens, against a scratch outline", () => {
 describe.skipIf(!outliner)("a made screen can't hold itself", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
-  const top = () => app.screens().at(-1) as Desk & Record<string, any>;
   const mountOf = (name: string) => `{"t":"leaf","kind":"screen","name":"${name}-mount","screen":"${name}"}`;
   /** A made screen `name` (in memory, as a screen note read) whose layout mounts `holds` beside a tree. */
   const made = (name: string, holds: string[]) => register({

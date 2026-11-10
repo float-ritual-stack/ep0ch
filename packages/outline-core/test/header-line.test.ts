@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  fieldChips, frontMatter, frontMatterLines, headerFields, headerLine, joinHeaderLine, bodyOffset, noteFile, readFrontMatter, readNoteFile, retitle, textFromHeader, titleWords, withoutHeaderDashes,
+  fieldChips, frontMatter, frontMatterLines, headerFields, headerLine, joinHeaderLine, bodyOffset, noteFile, readFrontMatter, readNoteFile, retitle, textFromHeader, titleWords,
 } from "../src/header-line";
 
 // Fictional notes.
@@ -20,7 +20,6 @@ describe("the header line", () => {
     expect(h.prose).toBe("Seed order");
     // The separators, for a title to leave out with the chips.
     expect(h.dashes.map(d => "Seed order - [type::errand] - [area::garden]".slice(d.start, d.end))).toEqual([" -", " -"]);
-    expect(withoutHeaderDashes("Shed [a::1] #t - [b::2]")).toBe("Shed [a::1]  [b::2]");
     expect(h.chips.map(c => c.key)).toEqual(["type", "area"]);
   });
 

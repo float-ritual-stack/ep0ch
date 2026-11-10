@@ -9,8 +9,8 @@
 //   - **to**: a tile — the tile it goes beside      a bold name is one that's needed
 //   - where: left, right, tabs · right — which side of it
 //   ::
-import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
-import { rowLines, wrap } from "../text";
+import { fg, pad, RESET, width as vwidth } from "../style";
+import { rowLines } from "../text";
 import { ACCENT, DIM, HI, INK, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 /** One row of a properties table. */

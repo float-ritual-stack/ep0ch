@@ -14,7 +14,7 @@ import { wheelRows } from "../../src/scroll";
 import { completionOf } from "../../src/surface/completer";
 import { SocketBoard } from "../../src/socket";
 import type { ReaderPane } from "../../src/desk/panes";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {

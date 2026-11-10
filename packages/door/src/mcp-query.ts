@@ -6,7 +6,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
-import { callRegistry, callShown } from "./mcp-calls";
+import { callShown } from "./mcp-calls";
 import { foldIds, type Changes, type FoldedRow } from "./mcp-orient";
 import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
 

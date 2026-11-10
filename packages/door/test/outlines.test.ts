@@ -2,14 +2,14 @@
 // EP0CH_WS, then the nearest .ep0ch; a folder that names none gets the home base (test/home.test.ts), never a guess;
 // `ep0ch outline|init|status` drive the host. Unit tests use a fake socket; the rest run against a scratch host.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { hostSocketOf, resolveTarget, slugOutlineName } from "../src/discover";
 import { attachTarget, deletionPlan, formatOutlines, nameTheOutline, parseOutlineArgs, writeDotEp0ch } from "../src/outlines";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { type HostedOutline, hostRequest, hostSend, SocketBoard, type OutlineEvent } from "../src/socket";
+import { type HostedOutline, hostSend, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
 import { everyOutline } from "../src/machine";
 

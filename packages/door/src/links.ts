@@ -23,10 +23,10 @@ import {
 } from "./authored";
 import {
   backlinkGroupHidden, backlinkRows, backlinkRowSuffix, backlinkStageSummary, orderStageValues, stageMatches, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, isOpenBacklinkStage,
-  type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
+  type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
-import { headedTitle, subject, type Msg } from "./board";
-import { ago, moreText, rowLines, waitingText, wrap } from "./text";
+import { headedTitle, type Msg } from "./board";
+import { ago, moreText, waitingText, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
 import { BACKLINK_QUERY_LIMIT, skippedWords } from "./backlinks";
@@ -35,7 +35,7 @@ import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
-import { C, drawEllipsized, fg, pad, RESET, selectedRow, width } from "./style";
+import { C, drawEllipsized, fg, RESET } from "./style";
 import type { ImagePrimitive } from "@ep0ch/outline-core/media-line";
 
 export { blockGroups, LINK_BLOCK_KINDS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkPreview } from "@ep0ch/outline-core/link-blocks";

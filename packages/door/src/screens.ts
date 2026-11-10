@@ -1,8 +1,7 @@
 import { drawCompletionFloat } from "./surface/completion-float";
 import { BACK_KEY, hotParts, listKeys, messageNavHint } from "./hint-parts";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys, Modes, type ModeKey } from "./surface/modes";
-import { effective } from "./surface/keymap";
+import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -48,13 +47,12 @@ import { installableScreen, madeScreen, resolveScreen, screenNameProblem, screen
 import { itemKey, menuRows, type MenuItem } from "./desk/menu-rows";
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
-import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { bbsDate, colourInline, printable, rowLines, rule, waitingText, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
 import { shellRunner } from "./drop";
-import { ActionRefused, actionSet, def, keyCaption, type ArgsOfSet } from "./surface/actions";
+import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { holdsEdit, SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
@@ -553,7 +551,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       { act: "agents.yolo on=true", does: "hands the door to agents, with YOLO on the status bar (the person's to turn on)" },
       { act: "agents.yolo on=false", does: "puts agents back under the person's guards" },
     ],
-    run({ on }, { ctx }, actor) {
+    run({ on }, { ctx }, _actor) {
       const want = on ?? !ctx.agentsYolo;
       ctx.agentsYolo = want;
       ctx.flash(want ? "YOLO: agents act with no person guard until you take it back (click YOLO, or agents.yolo on=false)" : "agents are back under the person guards", 8000);

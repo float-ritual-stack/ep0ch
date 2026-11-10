@@ -1,8 +1,7 @@
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { PROPERTY_KEY_SOURCE, propertyTokenMatches } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceEnvelopeRanges, pageLinkRanges } from "@ep0ch/outline-core/link-syntax";
-import type { BlockSizeCensus } from "@ep0ch/outline-core/protocol";
 import { readUsageRows } from "@ep0ch/outliner/mcp-access-files";
 import { boardFor } from "./notes-cli";
 import { stateDir } from "./state";

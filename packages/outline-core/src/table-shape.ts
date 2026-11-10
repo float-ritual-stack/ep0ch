@@ -86,12 +86,6 @@ export function tableColumns(rows: readonly string[]): number {
   return Math.max(0, ...rows.map(r => tableCells(r).length));
 }
 
-/** The cell `col` of `line` with its value replaced: only its span changes; a row short of `col` is left alone. */
-export function setCell(line: string, col: number, value: string): string {
-  const cell = tableCells(line)[col];
-  return cell ? line.slice(0, cell.start) + encodeCell(value) + line.slice(cell.end) : line;
-}
-
 const SEP_SEG = " --- ";
 const EMPTY_SEG = "  ";
 

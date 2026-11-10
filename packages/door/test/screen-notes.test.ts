@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { forgetScreenNotes, loadScreenNotes, readScreenNote, screenNote, screenNoteProblems, screenNoteText } from "../src/desk/screen-notes";
+import { forgetScreenNotes, loadScreenNotes, readScreenNote, screenNoteProblems, screenNoteText } from "../src/desk/screen-notes";
 import { builtinScreen, madeScreen, readSpec, screenNames } from "../src/desk/screen-spec";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";

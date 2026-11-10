@@ -9,7 +9,7 @@
 //   program still running with its scrollback, an unsaved draft and the layout; two clients consistent; an agent
 //   acting through the control socket; `end` asking while programs run, then ending.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -37,7 +37,6 @@ import { mouseBytes, PtyPane } from "../src/desk/pty";
 import { outliner, Scratch, ScratchHost, scratchRoot, until } from "./scratch";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
-const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 describe("the session protocol", () => {
   test("frames come out whole however the stream cuts them, raw text and JSON alike", () => {
@@ -646,7 +645,7 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
   // 5 min) and sent no keys for 129 s; the MacBook's kitty at 239×50 answered every one. A terminal that keeps losing
   // them is shown less: its video steps down by itself (kitty+crt, kitty, cells), said on screen, and alt+v steps it back up.
   test("a terminal that stops answering steps its video down by itself, said on screen; the next video.cycle steps it back up", async () => {
-    const { term, app, make, numbers } = counting();
+    const { term, app, make } = counting();
     term.ackStaleMs = 40;
     const said: string[] = [];
     term.onNotice(text => { said.push(text); app.flash(text); });   // as the daemon wires it

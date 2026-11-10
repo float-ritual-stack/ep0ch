@@ -273,9 +273,6 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
   },
 };
 
-/** The `::graph-*` kinds a page draws; any other shows its source, "not drawn here yet". */
-export const HTML_FIGURE_KINDS: readonly string[] = Object.keys(KINDS);
-
 /** A figure's body in HTML, or null when this kind isn't drawn on a page yet. */
 export function figureBodyHtml(kind: string, props: Props, href: RowHref, rows: FigureRows = {}): string | null {
   const draw = KINDS[kind];

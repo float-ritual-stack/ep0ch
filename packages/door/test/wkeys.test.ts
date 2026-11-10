@@ -13,7 +13,7 @@ import type { Msg } from "../src/board";
 import { openScreen } from "../src/desk/screen-specs";
 import { SocketBoard } from "../src/socket";
 import type { MenuRow } from "../src/surface/dispatch";
-import { paint, visible, width } from "../src/style";
+import { visible, width } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, showIn, until } from "./scratch";
 

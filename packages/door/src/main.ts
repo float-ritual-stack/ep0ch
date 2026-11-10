@@ -220,12 +220,6 @@ if (args[0] === "echo") {
   const run = Bun.spawn([process.execPath, cli, "echo", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
-// Machinery (PIE-867): `ep0ch machinery backfill`, the outliner's own command.
-if (args[0] === "machinery") {
-  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
-  const run = Bun.spawn([process.execPath, cli, "machinery", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
-  process.exit(await run.exited);
-}
 // Routing (PIE-1010): `ep0ch route [<note>|--all] [--dry-run]`, the outliner's own command (one implementation).
 if (args[0] === "route") {
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");

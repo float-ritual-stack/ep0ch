@@ -17,7 +17,7 @@ import type { LinkBlocksEnv } from "./links";
 import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
 import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
-import { headedTitle, subject } from "./board";
+import { headedTitle } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, type Source, prop } from "./props";
 import { LINK_OFF, LINK_ON, MISSING_MARK, drawShortId, type LinkTarget } from "./refs";
@@ -284,17 +284,6 @@ function heading(id: string, fragment: string | undefined, text: string, w: numb
   const shown = proposal ? drawEllipsized(text, room) : text;
   const to: LinkTarget = { block: id, ...(fragment ? { fragment } : {}), role: "embed", ...(proposal ? { proposal: { id } } : {}) };
   return shade(fg(colour) + (loud ? BOLD : "") + tagged(sink, to, shown) + (loud ? UNBOLD : "") + (proposal ? proposalControls(proposal, sink) : "") + RESET, w);
-}
-
-/**
- * A view note's own results, under its body in a reader (and so in `ep0ch show`), drawn as an embedded view is:
- * the service's projection of the note (`transclusions.read`, then `views.read`), so the service says whether it is
- * a view. Only a note typed a virtual branch is asked; null for any other, or one the service says isn't a view.
- */
-export function viewResults(m: Msg, w: number, _src: Source | null | undefined, sink?: LinkTarget[], list?: InlineListDraw): string[] | null {
-  if ((prop(m, "type") ?? "").toLowerCase() !== "virtual-branch") return null;
-  const rows = renderCollection({ props: { of: `((${m.id}))` } }, m.id, w, undefined, (to, text) => tagged(sink, to, text));
-  return list ? list(rows, w) : rows;
 }
 
 /**

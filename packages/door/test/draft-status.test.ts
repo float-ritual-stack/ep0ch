@@ -21,7 +21,7 @@ describe("the one status line", () => {
     const s = DraftSession.open(target, { text: "Beds\n\n| crop | bed |\n| --- | --- |\n| leek | 3 |", base: 2 });
     const d = s.draft, rich = elementEdit(d);
     d.place(d.lines.length - 1, 3); rich.open(USER);
-    const draw = (t: string, w: number) => { const lines = t.split("\n"); return { lines, source: lines.map((_, i) => i) }; };
+    const draw = (t: string, _w: number) => { const lines = t.split("\n"); return { lines, source: lines.map((_, i) => i) }; };
     const saving = s.submit(USER);
     expect(rich.render(40, 10, draw).map(visible).join("\n")).toContain("saving…");
     land({ ok: true });

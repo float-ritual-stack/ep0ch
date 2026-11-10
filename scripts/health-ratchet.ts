@@ -4,6 +4,9 @@
 // Width candidates are syntactic: .length feeding a width/column/room expression or a padding repeat. This isn't
 // type inference or a census of every possible spelling. Tests, declarations, generated bundles and vendors aren't
 // source for this check. A site's fingerprint ignores whitespace and line numbers so moving it doesn't make it new.
+// An unused export is a top-level export of the shared source (outline-core, the outliner, the door, the mod's hooks)
+// whose name no other code file holds as a word, tests, scripts and manifests included, and its own file only once: an
+// exported name always counts as used by the compiler's noUnusedLocals, so this is the check that sees it.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import ts from "typescript";
 
@@ -15,6 +18,7 @@ const owners = {
   "line-offset-reduce": "outline-core's sourceLines in packages/outline-core/src/code-ranges.ts:16 (line offsets; no lineAt/offsetOf exports exist)",
   "heading-regex": "outline-core's headerLine/titleWords in packages/outline-core/src/header-line.ts:54 and :128",
   "host-ctx-cast": "the typed SurfaceHost.ctx in packages/door/src/surface/note.ts:180; extend its Ctx contract instead of casting it",
+  "unused-export": "the declaration without `export`, or none: an export nothing imports (tests count) is dead code",
 };
 type Pattern = keyof typeof owners;
 type Site = { file: string; line: number; key: string };
@@ -37,6 +41,32 @@ function git(...args: string[]): string {
 
 function sourceFile(file: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(file) && !/\.d\.ts$|(?:^|\/)(?:tests?|fixtures|vendor|node_modules|dist|out)\/|\.(?:test|spec)\.[jt]sx?$|(?:^|\/)link-grammar\.js$/.test(file);
+}
+
+/** Files whose exports are an API for code outside the repo: the shadcn names a published artifact imports. */
+const PUBLIC_SURFACES = new Set(["packages/outliner/src/publish-artifact-ui.jsx"]);
+
+/** Code a name can be used from: any script, test or manifest (a generated grammar bundle carries copies of names, and the baseline names every site, so neither counts). */
+function codeFile(file: string): boolean {
+  return file !== baselinePath && /\.(?:[cm]?[jt]sx?|json)$/.test(file) && !/(?:^|\/)(?:node_modules|dist|out)\/|(?:^|\/)link-grammar\.js$|\.d\.ts$/.test(file);
+}
+
+/** The names a file's top level exports itself (`export const|function|class|type|interface|enum`, `export { a }`), with their lines. */
+function exportsOf(source: ts.SourceFile): { name: string; line: number }[] {
+  const out: { name: string; line: number }[] = [];
+  const add = (name: ts.Node) => out.push({ name: name.getText(source), line: source.getLineAndCharacterOfPosition(name.getStart(source)).line + 1 });
+  for (const statement of source.statements) {
+    const exported = ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (ts.isExportDeclaration(statement) && !statement.moduleSpecifier && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      for (const e of statement.exportClause.elements) add(e.name);
+    }
+    if (!exported || ts.getModifiers(statement)?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) continue;
+    if (ts.isVariableStatement(statement)) {
+      for (const d of statement.declarationList.declarations) if (ts.isIdentifier(d.name)) add(d.name);
+    } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) ||
+      ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) && statement.name) add(statement.name);
+  }
+  return out;
 }
 
 function lineCount(text: string): number {
@@ -65,15 +95,27 @@ function widthUse(length: ts.PropertyAccessExpression): boolean {
 function scan() {
   const files: Record<string, number> = {};
   const sites = Object.fromEntries(patterns.map(p => [p, []])) as Record<Pattern, Site[]>;
-  const paths = [...new Set(git("ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0"))].filter(sourceFile).sort();
+  const listed = [...new Set(git("ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0"))].filter(f => existsSync(f));
+  const paths = listed.filter(sourceFile).sort();
+  // Every word each code file holds, for the unused-export pattern: a name another file holds is taken as used there.
+  const words = new Map<string, Map<string, number>>();
+  for (const file of listed.filter(codeFile)) {
+    const counts = new Map<string, number>();
+    for (const word of readFileSync(file, "utf8").match(/[A-Za-z_$][\w$]*/g) ?? []) counts.set(word, (counts.get(word) ?? 0) + 1);
+    words.set(file, counts);
+  }
+  const usedElsewhere = (name: string, file: string) => (words.get(file)?.get(name) ?? 0) > 1 || [...words].some(([other, counts]) => other !== file && counts.has(name));
   for (const file of paths) {
     if (!existsSync(file)) continue; // Tracked deletions are still in ls-files until staged.
     const text = readFileSync(file, "utf8");
     files[file] = lineCount(text);
     const door = file.startsWith("packages/door/src/");
     const copies = /^packages\/(?:door\/src|outliner\/(?:src|extensions)|claude-mod\/hooks)\//.test(file);
-    if (!copies) continue;
+    const shared = copies || file.startsWith("packages/outline-core/src/");
+    if (!shared) continue;
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    if (!PUBLIC_SURFACES.has(file)) for (const e of exportsOf(source)) if (!usedElsewhere(e.name, file)) sites["unused-export"].push({ file, line: e.line, key: `${file}:${e.name}` });
+    if (!copies) continue;
     const add = (pattern: Pattern, node: ts.Node) => {
       const at = node.getStart(source);
       let statement = node;
@@ -103,6 +145,7 @@ function differences(current: ReturnType<typeof scan>, baseline: Baseline, lower
   const errors: string[] = [];
   for (const pattern of patterns) {
     const now = current.sites[pattern], was = baseline.patterns[pattern];
+    if (!was) { if (!lowering) errors.push(`${pattern}: no baseline yet; record it: bun scripts/health-ratchet.ts --write`); continue; }
     if (now.length > was.count) {
       errors.push(`${pattern}: ${now.length} > baseline ${was.count} (+${now.length - was.count}). Use ${owners[pattern]}.`);
       const known = new Map<string, number>();
@@ -162,7 +205,7 @@ function report(current: ReturnType<typeof scan>, baseline: Baseline, revision: 
     asOf: new Date().toISOString(), revision, comparedTo: previous?.revision ?? baseline.revision,
     over1000, over2000, over1000Delta: over1000 - Object.values(before).filter(n => n > 1_000).length,
     over2000Delta: over2000 - Object.values(before).filter(n => n > cap).length, files,
-    patterns: Object.fromEntries(patterns.map(p => [p, { count: current.sites[p].length, delta: current.sites[p].length - (previous?.patterns[p].count ?? baseline.patterns[p].count) }])) as Report["patterns"],
+    patterns: Object.fromEntries(patterns.map(p => [p, { count: current.sites[p].length, delta: current.sites[p].length - (previous?.patterns[p]?.count ?? baseline.patterns[p]?.count ?? 0) }])) as Report["patterns"],
     coChanges: [...pairs].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([pair, commits]) => ({ files: pair.split("\0"), commits })),
   };
 }

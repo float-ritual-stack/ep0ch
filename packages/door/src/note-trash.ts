@@ -5,7 +5,6 @@
 // a system note (Inbox, Trash, Bookmarks) or the workspace root, a note already in the Trash, a note someone has a draft open on.
 import { width, drawEllipsized } from "./style";
 import { confirmPicker, ListPicker } from "./surface/picker";
-import { ch, type Key } from "./term";
 import { subject, type Msg } from "./board";
 import { openDraftIds, openDraftOf } from "./draft-session";
 import { changedSinceRead, recorded, Refused, type Actor, type SocketBoard } from "./socket";

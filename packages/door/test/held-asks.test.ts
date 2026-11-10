@@ -9,7 +9,6 @@ import { App, waitingText } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
-import type { Key } from "../src/term";
 import { outliner, Scratch, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
@@ -22,8 +21,6 @@ test("the status bar counts held requests beside what the terminals say", () => 
 describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
-  let key: (k: Key) => void = () => {};
-  const D = () => desk as any;
   const ids: Record<string, string> = {};
 
   beforeAll(async () => {
@@ -39,7 +36,7 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
     await board.createBlock(null, "First\n*  tidy  this\n@tidy", { kind: "agent", id: "loki" });
     const held = await board.createBlock(null, "Reply to the swap thread\n*  messy  line\n@tidy", { kind: "agent", id: "loki" });
     ids.held = held.id;
-    const term = { info: { cols: 160, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 160, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     app.push(new MainMenu());

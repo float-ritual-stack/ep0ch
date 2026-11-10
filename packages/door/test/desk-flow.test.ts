@@ -5,7 +5,7 @@
 // it. Scratch services, fictional notes.
 import { saveScreenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";

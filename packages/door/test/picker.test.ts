@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { Canvas } from "../src/canvas";
 import { LineField } from "../src/surface/line";
 import { Modes } from "../src/surface/modes";
-import { ListPicker, pickRows, pickRow } from "../src/surface/picker";
+import { ListPicker, pickRows } from "../src/surface/picker";
 import { visible, width } from "../src/style";
 import type { Key } from "../src/term";
 
@@ -18,7 +18,7 @@ function picker(n: number, more: Partial<ConstructorParameters<typeof ListPicker
     name: "test", items: () => items, closers: "q",
     row: (it, _i, on, w) => [...pickRows(` ${it}`, on, w)],
     choose: it => said.push(`chose ${it}`), closed: () => said.push("closed"),
-    frame: a => ({ rect: { col: 2, row: 1, cols: 30, rows: 8 }, title: "pick" }),
+    frame: _a => ({ rect: { col: 2, row: 1, cols: 30, rows: 8 }, title: "pick" }),
     ...more,
   });
   return { p, said, draw: () => { const c = new Canvas(40, 12); p.draw(c, { col: 0, row: 0, cols: 40, rows: 12 }); return c.lines().map(visible); } };

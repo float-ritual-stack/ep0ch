@@ -11,8 +11,8 @@
 //   - ctrl+k: the command palette         ---
 //   ::                                    ::
 import { allActionSets, isKeyWord, type Keys } from "../surface/actions";
-import { BOLD, C, chip, ellipsize, fg, RESET, UNBOLD, width as vwidth } from "../style";
-import { rowLines, wrap } from "../text";
+import { BOLD, C, chip, fg, RESET, UNBOLD, width as vwidth } from "../style";
+import { rowLines } from "../text";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
 
 /** A key as written (`ctrl+k`, `g then d`, `( ) or f`) drawn as keycaps, its joining words dim. */

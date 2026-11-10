@@ -40,7 +40,6 @@ export type QueryAtom =
 export const MARKED_ANY = "any";
 
 /** A reader's atom names who reads: `me` (the person: the door, the web client and the CLI read as them) or an agent's actor id. */
-export type QueryReaderAtom = "unread" | "thread";
 export const ME_READER = "me";
 const READER = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
 

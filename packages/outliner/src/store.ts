@@ -1436,10 +1436,6 @@ export class OutlinerStore {
     return this.database.transaction(() => this.quotedSubjectsFromCurrentRead(subjects, mutation).quoted)();
   }
 
-  validateRoadmapItem(input:RoadmapItemCreateInput):void {
-    this.database.transaction(()=>{this.prepareRoadmapItem(input);}).deferred();
-  }
-
   private prepareRoadmapItem(input:RoadmapItemCreateInput) {
     if (!input || typeof input !== "object") {
       throw new Error("Roadmap item input must be an object");
@@ -2076,14 +2072,6 @@ export class OutlinerStore {
     return this.database.transaction(() => readTransclusions(id => this.embedTargetFromCurrentRead(id), targets, options)).deferred();
   }
 
-  /**
-   * The note an embed's target names (trashed ones too), or null: a block id, or a page embed's `[[page]]` (PIE-1247),
-   * the note that page address resolves to as `pages.resolve` answers it.
-   */
-  embedTarget(target: string): Block | null {
-    return this.database.transaction(() => this.embedTargetFromCurrentRead(target)).deferred();
-  }
-
   private embedTargetFromCurrentRead(target: string): Block | null {
     const page = embeddedPageAddress(target);
     if (page === null) return this.getFromCurrentRead(target);
@@ -2562,16 +2550,7 @@ export class OutlinerStore {
     this.changes.run(this.changes.attribution({ action: `ext.${extensionId}.drop-${role}`, actor }), () => this.delete(blockId, actor));
   }
 
-  /**
-   * The page a ticket key names (PIE-408's ticket keys): the active block whose
-   * own `[jira::KEY]` names it, else the block a record for it sits under. The
-   * earliest wins when several do.
-   */
-  ticketPage(key: string): Block | null {
-    return this.database.transaction(() => this.ticketPageFromCurrentRead(key)).deferred();
-  }
-
-  /** Every ticket key with a page, as `ticketPage` would answer each one. */
+  /** Every ticket key with a page, as `ticketPageFromCurrentRead` answers each one. */
   private ticketPagesFromCurrentRead(): Map<string, string> {
     const keys = [...new Set([...(this.resourceProviders ?? resourceDirectiveProviders()).map((provider) => provider.propertyKey),
       ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)

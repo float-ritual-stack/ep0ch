@@ -12,7 +12,7 @@ import { SHOWCASE_ASSETS, SEED, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import type { ReaderPane } from "../../src/desk/panes";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -29,7 +29,7 @@ import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gallery, reading", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { scratch, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 

@@ -10,7 +10,7 @@ import { boardFor, canonicalLocalMachineName, drawNote, everyNote, type BoardAdd
 import { visible } from "./style";
 import { agentToolDefinition, READING_WIDTH } from "@ep0ch/outline-core/agent-tool-definitions";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
-import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
+import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { parseMachineryMode, readsRecentActivity, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";

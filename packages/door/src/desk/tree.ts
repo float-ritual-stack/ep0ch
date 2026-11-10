@@ -31,7 +31,7 @@ import { Fold } from "../fold";
 import { EVERY_CHANGE, heardBy, RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { readView, type ViewRead } from "../views";
 import { listMove, RowView, type RowPress } from "../scroll";
-import { ch, isUp, isDown, type Key } from "../term";
+import { ch, type Key } from "../term";
 import { askInBar } from "../bar/ask";
 import { lastTrashed } from "../note-trash";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs, type MoveDone } from "../note-move";
@@ -684,7 +684,6 @@ export class TreePane implements Pane {
     // alt+↑ alt+↓ put the note up or down among its siblings (as in a reader, the board's lanes and the Welcome list); K and J do
     // too, for a terminal that doesn't send Option+arrows (a Mac's); I moves it in under the note above, O out after its parent.
     // alt+← alt+→ are never move keys: a reader reads them as back and forward. Tab is the tiles', Cmd the terminal's.
-    const c = ch(k);
     const move = modeBinding(TREE_MOVE_KEYS, k);
     if (move && row.kind === "block" && (!move.args?.undo || this.undoable(row.m.id, desk))) {
       this.run(desk, "tree.move", { n: this.sel + 1, ...move.args }); return true;
@@ -794,7 +793,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.fold tile=tree n=3 open=true", does: "opens row 3 of the outline tree, showing its children" },
       { act: "tree.fold tile=tree id=7d9a1f40 open=false", does: "folds the row for that note, hiding its children" },
     ],
-    run({ n, id, open }, { pane, desk, standing }, actor) {
+    run({ n, id, open }, { pane, desk, standing }, _actor) {
       const i = rowOf(pane, n, id);
       return pane.foldRow(i, open, desk, !standing);
     },
@@ -812,7 +811,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.depth tile=tree n=2 depth=1", does: "shows one level of children under each match of the view on row 2" },
       { act: "tree.depth tile=tree n=2 depth=authored", does: "goes back to the depth the view itself sets (its child-depth)" },
     ],
-    run({ n, id, depth }, { pane, desk, standing }, actor) {
+    run({ n, id, depth }, { pane, desk, standing }, _actor) {
       const d = depth === undefined || depth === "" ? undefined : depth === "authored" ? "authored" as const : Number(depth);
       if (typeof d === "number" && Number.isNaN(d)) throw new ActionRefused("depth is 0 to 8, or authored");
       return pane.setDepth(rowOf(pane, n, id), d, desk, !standing);
@@ -830,7 +829,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
     examples: [
       { act: "tree.links tile=tree n=4 show=true", does: "lists the links, resources and backlinks under row 4" },
     ],
-    run({ n, id, show }, { pane, desk, standing }, actor) {
+    run({ n, id, show }, { pane, desk, standing }, _actor) {
       const i = rowOf(pane, n, id);
       return { row: i + 1, shown: pane.toggleLinks(i, desk, show, !standing) };
     },
@@ -861,7 +860,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.move tile=tree id=7d9a1f40 step=up", does: "moves that note one place up among its siblings" },
       { act: "tree.move tile=tree n=5 to=inbox", does: "moves the note on row 5 under the inbox, first among its children" },
     ],
-    run({ n, id, undo, ...where }, { pane, desk, standing }, actor) {
+    run({ n, id, undo, ...where }, { pane, desk }, actor) {
       const i = n === undefined && id !== undefined ? pane.list().findIndex(r => rowBlock(r)?.startsWith(id)) : rowOf(pane, n, id);
       return pane.moveRow(i >= 0 ? i : id!, { ...where, ...(undo ? { undo } : {}) }, desk, actor);
     },

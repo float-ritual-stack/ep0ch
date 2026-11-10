@@ -15,7 +15,7 @@ import { missingPropertyHint } from "@ep0ch/outline-core/property-hint";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
-import { selectedRow, bg, C, drawEllipsized, fg, pad, RESET, width } from "../style";
+import { selectedRow, C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { rowLines, rule } from "../text";
 import { attachedPlaceOf, type AttachedPlace, type FloatRect } from "./attached";
 import { readState } from "../state";

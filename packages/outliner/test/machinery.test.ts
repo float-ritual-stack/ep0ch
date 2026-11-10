@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { backfill } from "../src/machinery-backfill";
 import { findBlocks } from "../src/agent-tools";
 import type { Block, ChangeFeedPage } from "../src/types";
 
@@ -123,64 +122,6 @@ test("by: and revision ask who wrote a note last and how often it was saved, so 
   expect(await asked("by:gardener/cli@barn")).toEqual([]);
   expect(barn.id).not.toBe(shed.id);
   await expect(asked("by:")).rejects.toThrow("names no writer");
-});
-
-test("the backfill stamps what tools wrote before they stamped, says so first, and leaves a stamped note alone", async () => {
-  const { client, make } = await setup();
-  const toss = await make("Toss 2026-03-02 09:30 UTC [type::toss] [node::kitchen@box-b]", "agent");
-  await make("Nodelist [type::nodelist] [machine::echonet]", "agent");
-  const touch = await make("src/a.ts [type::file-touch] [file::/w/src/a.ts]", "agent");
-  const view = await make("By project [type::virtual-branch] [query::type=file-touch] [file-project-view::garden]");
-  const person = await make("Mend the gate [type::chore]");
-  // The notifications hub's notes and boards from before it stamped (PIE-1427); a view over chores stays as it is.
-  const ping = await make("Seed order shipped [notify.key::mail:7] [notify.source::mail] [notify.state::unread]", "agent");
-  const lane = await make("Unread [type::virtual-branch] [query::notify.state=unread]");
-  const chores = await make("Chores [type::virtual-branch] [query::type=chore]");
-  const dry = await backfill(client as never, false);
-  expect(dry.find(r => r.producer === "echonet")?.stamped).toBe(1);
-  expect(dry.find(r => r.producer === "file-touch")?.stamped).toBe(1);
-  expect(dry.find(r => r.producer === "file-touch views")?.stamped).toBe(1);
-  const still = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=toss", machinery: "show" } as never })).blocks[0]!;
-  expect(still.properties.some(p => p.key === "machine")).toBe(false);
-  const after = async (id: string) => (await client.request<Block>({ action: "get", blockId: id } as never));
-  const dated = async () => Promise.all([toss, view, lane].map(async b => (await after(b.id)).updatedAt));
-  const datedBefore = await dated();
-  await Bun.sleep(5);
-  const done = await backfill(client as never, true);
-  expect(done.find(r => r.producer === "echonet")?.stamped).toBe(1);
-  // A stamp is not news (PIE-1457): each note keeps its updated date, so old boards don't flood Today.
-  expect(await dated()).toEqual(datedBefore);
-  expect((await after(toss.id)).properties.find(p => p.key === "machine")?.value).toBe("echonet");
-  expect((await after(touch.id)).properties.find(p => p.key === "machine")?.value).toBe("file-touch");
-  expect((await after(view.id)).properties.find(p => p.key === "machinery")?.value).toBe("show");
-  expect((await after(person.id)).properties.some(p => p.key === "machine")).toBe(false);
-  expect((await after(ping.id)).properties.find(p => p.key === "machine")?.value).toBe("notification");
-  expect((await after(lane.id)).properties.find(p => p.key === "machinery")?.value).toBe("show");
-  expect((await after(chores.id)).properties.some(p => p.key === "machinery")).toBe(false);
-  expect((await backfill(client as never, true)).every(r => r.stamped === 0)).toBe(true);
-  const hidden = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=toss OR type=file-touch OR type=chore", limit: 20 } as never })).blocks.map(b => b.id);
-  expect(hidden).toEqual([person.id]);
-});
-
-// PIE-1427, seen in use (Oct 29): the Extensions hub, every extension's page and the notifications hub's boards came
-// back as real work in a chat's recent-activity read, because they carried no [machine::].
-test("the notifications hub's pull page is stamped by the backfill, by who wrote it last; its demo boards stay the person's", async () => {
-  const { client, store } = await setup();
-  // Written as the service writes them (an extension's actor id is the service's alone).
-  const as = (actorId: string, text: string, parent: string | null = null) => store.create(text, parent, "agent", { actorId });
-  const pulled = as("ext:notify", "Notifications [page::notifications]");
-  as("ext:notify", "Heron survey merged [notify.key::github:7] [machine::notification]", pulled.id);
-  const board = as("ext:notify", "Notifications by source [page::notifications-source]");
-  const lane = as("ext:notify", "Jira [type::virtual-branch] [query::notify.source=jira] [machinery::show]", board.id);
-  const theirs = as("ext:notify", "Notifications, mine [page::notifications-mine]");
-  as("ext:notify", "Heron survey closed [notify.key::github:8] [machine::notification]", theirs.id);
-  await client.request({ action: "update", blockId: theirs.id, expectedRevision: theirs.revision, text: `${theirs.text}\n\nMine now.` } as never);
-  const done = await backfill(client as never, true);
-  expect(done.find(r => r.producer === "notify")?.stamped).toBe(1);
-  const machine = async (id: string) => (await client.request<Block>({ action: "get", blockId: id } as never)).properties.find(p => p.key === "machine")?.value;
-  expect(await Promise.all([pulled, board, lane, theirs].map(b => machine(b.id)))).toEqual(["notify", undefined, undefined, undefined]);
-  // Stamped, a page still opens by its address.
-  expect((await client.request<{ status: string; block?: Block }>({ action: "pages.resolve", address: "notifications" } as never)).block?.id).toBe(pulled.id);
 });
 
 test("an agent's recent-activity find leaves fetched notifications out and says how many (PIE-1427)", async () => {

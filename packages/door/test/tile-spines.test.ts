@@ -60,7 +60,6 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
 
   test("the tile menu folds a tile; clicking the spine opens a readable share", async () => {
     const side = names().find(n => D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "v")!;
-    const before = rect(side);
     await clickFold(side);
     expect(tile(side).collapsed).toBe(true);
     expect(rect(side).cols).toBe(3);

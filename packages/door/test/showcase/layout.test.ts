@@ -4,7 +4,6 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { App } from "../../src/app";
 import { Canvas } from "../../src/canvas";
 import { openScreen } from "../../src/desk/screen-specs";
@@ -17,11 +16,6 @@ import { hyperOn, useHyper } from "../../src/hyper";
 import { KeyDecoder, type Key } from "../../src/term";
 import { outliner, Scratch, until } from "../scratch";
 
-/** `until` for an answer that takes a request. */
-const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
-  const end = Date.now() + ms;
-  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
-};
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -32,7 +26,7 @@ import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyper, mounts and groups", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 

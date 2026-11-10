@@ -4,8 +4,7 @@ import { changesOf, proposed } from "./wire";
 // is typing in. The test line: the mark is the queue, you keep typing, the block keeps its id. The draft half
 // runs anywhere; the rest starts a scratch outliner service (never a real outline) with fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Draft } from "../src/edit";
 import { recordAs } from "../src/draft-session";

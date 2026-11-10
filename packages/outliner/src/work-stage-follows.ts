@@ -43,10 +43,6 @@ function setOne(text: string, key: string, value: string): string {
   return patchPropertyText(single, [operation]);
 }
 
-export function isRoadmapItemText(text: string): boolean {
-  return blockRecords(text).some((property) => property.key === "type" && property.value.toLowerCase() === "roadmap-item");
-}
-
 /** A roadmap item's work-stage, lower-cased, or null for any other block. */
 export function roadmapStageOf(text: string): string | null {
   const records = blockRecords(text);

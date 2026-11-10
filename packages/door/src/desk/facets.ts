@@ -9,7 +9,7 @@ import type { FacetNotes } from "../socket";
 // visits and extension rows use the same pure query grammar and counter through the source contract.
 import { weekday } from "@ep0ch/outline-core/figure-props";
 import { subject, type Msg } from "../board";
-import { USER, type Actor, type FacetAnswer } from "../socket";
+import { type Actor, type FacetAnswer } from "../socket";
 import { ActionRefused, actionSet, def, keysText, shownLine } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
@@ -21,8 +21,8 @@ import { askInBar } from "../bar/ask";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { findBoards } from "./query";
 import { SearchSchedule } from "../search-schedule";
-import { prop, propValues } from "../props";
-import { ListView, PERSON, actorKey, type ListViewRow } from "../surface/list-view";
+import { prop } from "../props";
+import { ListView, PERSON, actorKey } from "../surface/list-view";
 import type { ListHost } from "../surface/list-actions";
 import { ATTACHED_PLACES, AttachedTile, attachedPlaceOf, attachedRect, drawAttachedFloat, nextPlace, type AttachedPlace, type AttachedSide } from "../surface/attached";
 import type { AttachedOwner, Attachment } from "./attached-tile";
@@ -703,7 +703,6 @@ export class FacetsPane implements Pane, AttachedOwner {
 
   private line(r: Row, on: boolean, focused: boolean, w: number): string[] {
     const style = (text: string, colour: string) => rowLines(text, w).map(text => (on ? selectedRow(text.replace(/\x1b\[(?!777;|778m)[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET));
-    const room = Math.max(4, w - 3 - (USES + 1 + LAST));
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "day") return style(` + ${r.day} · the calendar's day`, fg(C.lgreen));
     if (r.kind === "views") return style(` ${r.open ? "▾" : "▸"} ☼ views  ${r.count}`, fg(C.yellow));
@@ -856,7 +855,6 @@ export class FacetsPane implements Pane, AttachedOwner {
 
 const bare = (t: string) => t.replace(/^#/, "");
 const board = (desk: DeskApi) => desk.ctx.board;
-type ValueRow = Extract<Row, { kind: "value" }>;
 /** Whether `path` has values below it in the answers (the facet need not be open): picking it then includes them too. */
 const pathy = (p: FacetsPane, key: string, path: string) => p.hasBelow(key, path);
 
@@ -914,7 +912,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.set key=tag value=garden tile=facets", does: "includes the #garden tag, so the notes left must carry it" },
       { act: "facets.set key=project value=seed-swap mode=exclude tile=facets", does: "leaves out the notes whose project is seed-swap" },
     ],
-    run({ key, value, n, mode }, { pane, desk, standing }, actor) {
+    run({ key, value, n, mode }, { pane, desk, standing }, _actor) {
       const p = pane as FacetsPane;
       if (mode !== undefined && !["include", "exclude", "off"].includes(mode)) throw new ActionRefused(`mode is include, exclude or off, not ${mode}`);
       // Which value, as of this action's arrival: a click's row number means the rows the person saw, not those after an earlier pick lands.
@@ -1072,7 +1070,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "drop every pick and the typed query: the tile lists all the outline's facets again",
     keys: "x", touches: "tile", while: "typing", replay: "safe", way: "an agent clears the person's selection by calling it",
     args: {},
-    run(_, { pane, desk, standing }, actor) {
+    run(_, { pane, desk, standing }, _actor) {
       const p = pane as FacetsPane;
       return p.serial(async () => {
         const before = { raw: p.raw, clauses: p.clauses, at: p.at };

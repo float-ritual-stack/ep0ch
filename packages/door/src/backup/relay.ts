@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { lastJson, ssh } from "../mcp-netmail";
 import { type BackupState, readBackupState, writeBackupState } from "./alert";
 import { type BackupConfig, MACHINE_NAME } from "./config";
-import { changeSeq, copyDatabase, ensureRepo, integrity, mirrorFolder, newer, replaceMirror, schemaVersion, takeLock } from "./jobs";
+import { changeSeq, ensureRepo, integrity, mirrorFolder, newer, replaceMirror, schemaVersion, takeLock } from "./jobs";
 import { backupFile, forget, OUTLINE_NAME } from "./restic";
 
 /** The hub's answer to a relayed copy. */

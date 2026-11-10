@@ -3,7 +3,7 @@ import { componentBlocks } from "../src/component-block";
 import { headingStylesFromBlocks } from "../src/heading-styles";
 import {
   withoutRetiredLookKeys,
-  BASE_STYLE, headingComponentLayer, listLayers, listOwners, listStart, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle, styleDeclarationLine,
+  BASE_STYLE, headingComponentLayer, listLayers, listOwners, listStart, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle,
   styleLayers, styleProperty, styleSheetsFromBlocks, styleValueText, type StyleLayer,
 } from "../src/style-cascade";
 
@@ -77,11 +77,6 @@ describe("declarations", () => {
     expect(parseStyleTarget("airy")).toEqual({ level: "named", name: "airy" });
     expect(parseStyleTarget("page")).toBeNull();
     expect(parseStyleTarget("tile:")).toBeNull();
-  });
-
-  test("a line declares one with its own tokens; a code span declares nothing", () => {
-    expect(styleDeclarationLine("Reading comfort [style-for::global] [style.measure::72]")).toMatchObject({ for: "global", fields: { measure: "72" } });
-    expect(styleDeclarationLine("`[style-for::global]` is how")).toBeNull();
   });
 
   test("pad and margin set both axes, one row to two columns (cells are twice as tall as wide)", () => {

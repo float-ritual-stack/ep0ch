@@ -19,7 +19,6 @@ export type {
   AuthoredResourceLink, AuthoredResourceReference, AuthoredResourceResolution,
 } from "@ep0ch/outliner/wire";
 import type { AuthoredLinkGroup, AuthoredLinksSnapshot, AuthoredOutlink, AuthoredResourceLink, AuthoredResourceReference } from "@ep0ch/outliner/wire";
-import type { Reads } from "./socket";
 
 /**
  * What `resources.describe` sends that the door reads: the Resource, its Source and what is stored. A reader's view of
@@ -43,7 +42,6 @@ export interface ResourceDescription {
   /** What the service allows for this Resource here: `refresh.status` is `unavailable` when it won't fetch it. */
   capabilities?: { refresh?: { status: string; reason?: string } };
 }
-export type ResourceDescriptionRead = Reads<ResourceDescription, import("@ep0ch/outliner/wire").ResourceDescription>;
 /** What an Outlink's or Resource's target block is (the service's `linkTargetFacets`): for Kind, Stage and Sort. */
 export type AuthoredTargetFacets = import("@ep0ch/outliner/wire").LinkTargetFacets;
 

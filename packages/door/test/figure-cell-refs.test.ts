@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { drawNote } from "../src/notes-cli";
 import { outlineChanged } from "../src/search-schedule";
 import { SocketBoard } from "../src/socket";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 

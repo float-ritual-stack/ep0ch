@@ -6,7 +6,7 @@
 // (one the service draws) opens, saves and comes back like a built-in. Scratch services, fictional notes, `sh` only.
 import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
@@ -35,7 +35,6 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
   const rect = (name: string) => { render(); return tile(name).rect as { col: number; row: number; cols: number; rows: number }; };
   const idOf = (name: string) => [...D().names].find(([, v]: any) => v === name)![0] as number;
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y });
-  const drag = (x0: number, y0: number, x1: number, y1: number) => { render(); mouse("down", x0, y0); mouse("drag", x0 + 1, y0); render(); mouse("drag", x1, y1); render(); mouse("up", x1, y1); render(); };
   /** The tree as a short string: docks as dock<edge>(…). */
   const s = (n: any): string => n.name ?? (n.tabs ? `tabs(${n.tabs.join(",")})` : n.dock ? `dock<${n.dock}>(${s(n.kid)})` : `${n.split}(${n.kids.map(s).join(",")})`);
   const shape = () => s(get().tree);

@@ -10,9 +10,9 @@ import { join } from "node:path";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { App } from "../src/app";
 import {
-  backlinkGroupRows, backlinkOptionsFrom, backlinkRows, backlinkRowSuffix, backlinkGroupHidden, backlinkStageSummary, backlinkStatusParts, backlinkView,
-  BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort,
-  nextBacklinkStageFilter, stagesFrom, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
+  backlinkOptionsFrom, backlinkRows, backlinkRowSuffix, backlinkGroupHidden, backlinkStageSummary, backlinkStatusParts, backlinkView,
+  DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, 
+  nextBacklinkStageFilter, stagesFrom, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkSourceFacets, type BacklinkViewOptions,
 } from "../src/backlinks";
 import { boardScreen } from "./board-view";
 import { Desk } from "../src/desk/desk";
@@ -68,21 +68,7 @@ function fixture(): BacklinkCollection {
 }
 const unfaceted = (): BacklinkCollection => { const c = fixture(); return { ...c, sources: c.sources.map(({ facets: _, ...s }) => s) }; };
 
-const summary = (v: BacklinkView) => ({
-  faceted: v.faceted, total: v.total, hiddenRelated: v.hiddenRelated, hiddenResolved: v.hiddenResolved, filtered: v.filtered,
-  groups: v.groups.map(g => ({ kind: g.kind, label: g.label, ids: g.sources.map(s => s.blockId), stageCounts: g.stageCounts, stageValues: g.stageValues, openCount: g.openCount })),
-  matching: v.matching.map(s => s.blockId), kinds: v.kinds, stages: v.stages,
-});
 
-function* grid(): Generator<BacklinkViewOptions> {
-  for (const [sortField, sortDirection] of BACKLINK_SORT_ORDER)
-    for (const stage of BACKLINK_STAGE_FILTERS)
-      for (const kind of [null, "outbox-item", "comment", "no-such-kind"])
-        for (const showRelated of [false, true])
-          for (const showResolved of [false, true])
-            for (const filter of ["", "ana", "tmt tins", "waiting", "work-id", "Outbox", "related", "zzz"])
-              yield { filter, sortField, sortDirection, stage, kind, showRelated, showResolved };
-}
 
 describe("stages as the notes write them (PIE-819)", () => {
   test("a group names each value it carries; a folded one says how many more; the Stage filter steps through the values present", () => {

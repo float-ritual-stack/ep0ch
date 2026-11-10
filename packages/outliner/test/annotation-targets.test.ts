@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerStore } from "../src/store";
-import { repairAnnotationTargets } from "../scripts/repairs/2026-10-16-annotation-targets";
 
 // PIE-933: a comment is a block and a target. Written any way but the comments service (an extension copying a
 // comment's text, an agent's plain write, an import), the block used to land with `[type::annotation]` and no target:
@@ -63,39 +62,5 @@ describe("a comment can't exist without its target", () => {
     const odd = store.create(comment().replace("annotation-status::open", "annotation-status::archived"), note.id);
     expect(store.annotations.untargeted().map((entry) => [entry.id, entry.why.includes("top of the outline") || entry.why.includes("archived")]))
       .toEqual([[top.id, true], [odd.id, true]]);
-  });
-});
-
-describe("the repair", () => {
-  /** A comment as the old write path left it: its block, no target row, and a reply copied under it. */
-  function strayThread() {
-    const { store, path } = makeStore();
-    const note = store.create("Requests");
-    const root = store.create(comment(), note.id, "agent", { actorId: "ext:echonet" });
-    const reply = store.create(
-      `Reply on “Mulch is thin”\n[type::annotation-reply] [annotation-source::agent] [annotation-status::open] [parent-annotation::00000000-0000-4000-8000-000000000001]\nWill do.`,
-      root.id, "agent", { actorId: "ext:echonet" });
-    store.database.query("DELETE FROM annotation_targets").run();
-    return { store, path, note, root, reply };
-  }
-
-  test("gives each stray comment its target, points its replies at it, and a second run changes nothing", () => {
-    const { store, path, note, root, reply } = strayThread();
-    expect(() => store.getAnnotation(root.id)).toThrow("has no target");
-    store.close();
-    stores.pop();
-    const first = repairAnnotationTargets(path);
-    expect(first).toEqual({ before: 1, after: 0, restored: [root.id], relinked: [reply.id], unreadable: [] });
-    expect(repairAnnotationTargets(path)).toEqual({ before: 0, after: 0, restored: [], relinked: [], unreadable: [] });
-    const reopened = new OutlinerStore(path);
-    stores.push({ store: reopened, directory: path.replace(/\/outliner\.sqlite$/, "") });
-    expect(reopened.getAnnotation(reply.id).parentAnnotationId).toBe(root.id);
-    expect(reopened.listAnnotationThreads({ subject: { kind: "block", blockId: note.id } })[0]!.replies.map((r) => r.block.id)).toEqual([reply.id]);
-  });
-
-  test("refuses a file a host is serving, and leaves it as it was", () => {
-    const { path } = strayThread();
-    // the store above still holds the file open: that is a served file
-    expect(() => repairAnnotationTargets(path)).toThrow();
   });
 });

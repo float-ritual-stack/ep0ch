@@ -14,7 +14,7 @@ import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../s
 import { LiveMachines } from "../src/mcp-live";
 import { OutlineMirror } from "../src/mcp-mirror";
 import { drainNetmail, Netmail, pullNetmail, queueCommand } from "../src/mcp-netmail";
-import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
+import { type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
 
@@ -24,7 +24,6 @@ const PERSON = "user_fictional_a";
 const CLIENT = "https://chat.example.test/oauth/client-metadata";
 const FAR = "laptop";
 const DOOR = resolve(import.meta.dir, "..");
-const HERE = canonicalLocalMachineName();
 
 describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when it answers, the mirror when it doesn't", () => {
   const here = new ScratchHost(), far = new ScratchHost();

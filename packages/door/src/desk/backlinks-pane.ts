@@ -43,8 +43,8 @@ import { ownPress, runOwn, type DeskApi, type Pane, type PaneView, type TileTrai
 import { HISTORY, historyKey } from "../surface/note";
 import { pressOn, type RowPress } from "../scroll";
 import { LISTVIEW_ACTIONS, type ListHost } from "../surface/list-actions";
-import { ListView, PERSON, type ListHandle, type ListViewRow } from "../surface/list-view";
-import { centred, ListPicker, pickRows, pickRow } from "../surface/picker";
+import { ListView, PERSON, type ListHandle } from "../surface/list-view";
+import { centred, ListPicker, pickRows } from "../surface/picker";
 
 /**
  * A tile spec's `linkGroups` (`children`, `outlinks,backlinks`) as the groups it names, in the model's order; null
@@ -799,7 +799,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks.groups tile=replies show=outlinks,backlinks", does: "lists only the outlinks and backlinks groups" },
       { act: "backlinks.groups tile=replies toggle=resources", does: "switches the resources group on or off" },
     ],
-    run({ show, toggle, choose }, { pane, desk, standing }, actor) {
+    run({ show, toggle, choose }, { pane, desk, standing }, _actor) {
       if ([show, toggle, choose].filter(x => x !== undefined && x !== false).length !== 1) throw new ActionRefused("backlinks.groups takes one of show, toggle or choose");
       if (choose) {
         if (!standing) throw new ActionRefused("the groups' list is the person's; an agent passes show= or toggle=");
@@ -836,7 +836,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks.view tile=replies filter=seed sort=updated-desc", does: "lists the links matching seed, newest first" },
       { act: "backlinks.view tile=replies step=stage", does: "steps the Stage control to its next value" },
     ],
-    run({ step, ...args }, { pane, desk, standing }, actor) {
+    run({ step, ...args }, { pane, desk, standing }, _actor) {
       if (step !== undefined) {
         if (!(["kind", "stage", "resolved", "related", "sort", "filter"] as string[]).includes(step)) throw new ActionRefused(`step is filter, kind, stage, resolved, related or sort, not ${step}`);
         if (step === "filter" && !standing) throw new ActionRefused("typing a filter is the person's; an agent passes filter=<text>");

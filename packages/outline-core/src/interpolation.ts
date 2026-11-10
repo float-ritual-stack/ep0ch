@@ -113,5 +113,3 @@ export function interpolateWith(text: string, site: Site, scope: PathScope = {},
 export const spanTail = (span: InterpolationSpan): PathTail | undefined =>
   span.filter || span.then ? { ...(span.filter ? { filter: span.filter } : {}), ...(span.then ? { then: span.then } : {}) } : undefined;
 
-/** `text` with every `{{` escaped, so what a producer writes into prose never starts resolving there. */
-export const escapeInterpolation = (text: string): string => text.replaceAll("{{", "\\{{");

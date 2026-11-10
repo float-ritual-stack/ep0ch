@@ -15,7 +15,7 @@ import { applyWrite, actorOf, mcpSetting, principalOf, type McpCaller, type Writ
 import { hostSocketOf } from "./discover";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { boardFor } from "./notes-cli";
-import { hostRequest, hostSend, OUTLINE_NAME } from "./socket";
+import { hostSend, OUTLINE_NAME } from "./socket";
 
 /** What the tools need of this machine's outline host. */
 export interface McpOutlineAdmin {

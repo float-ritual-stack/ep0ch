@@ -58,8 +58,6 @@ export const KNOWN_AGENTS: readonly [name: string, cmd: string, app?: string][] 
   ["kimi", "kimi"], ["grok", "grok"], ["hermes", "hermes"], ["cline", "cline"], ["kilo", "kilo"], ["letta", "letta"],
 ];
 const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "nu", "elvish"]);
-/** A shell's program name (`bash`, `-zsh` as a login shell names itself, `/bin/sh`). */
-export const isShellName = (name: string) => SHELLS.has(basename(name).replace(/^-/, ""));
 const tilde = (s: string, home: string) => s.trim().replace(/^~(?=$|\/)/, home);
 /** The tab's name for a program: the agent it runs, shell, or the program's own name. */
 export function programName(cmd: readonly string[]): string {

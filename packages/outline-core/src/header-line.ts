@@ -309,10 +309,3 @@ export function readNoteFile(file: string): { identity: NoteIdentity; chips: { k
   return { identity, chips, text: textFromHeader(chips, read.rest.replace(/\n$/, "")) };
 }
 
-/** A header line without its run's ` -` separators (the chips stay): for a client that strips the tokens itself. */
-export function withoutHeaderDashes(line: string): string {
-  let out = "", cursor = 0;
-  const header = headerLine(line);
-  for (const d of [...header.dashes, ...header.tags].sort((a, b) => a.start - b.start)) { out += line.slice(cursor, d.start); cursor = d.end; }
-  return out + line.slice(cursor);
-}

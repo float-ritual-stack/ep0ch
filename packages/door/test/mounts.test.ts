@@ -14,7 +14,6 @@ import { boardSpec } from "../src/desk/delivery";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
-import type { Key } from "../src/term";
 import type { Seeded } from "../src/showcase/seed";
 import { outliner, Scratch, until, untilAsync, SEEDED_SETUP_MS } from "./scratch";
 import { prop } from "../src/props";
@@ -37,7 +36,6 @@ describe("a part of a screen (partSpec)", () => {
 describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk, seeded: Seeded;
-  let key: (k: Key) => void = () => {};
   const AS = "mount-agent-651";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, tile, as: AS }) as Promise<any>;
@@ -52,7 +50,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     board = new SocketBoard(await scratch.start());
     await board.info();
     seeded = await scratch.seedShowcase();
-    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
     desk = new Desk();

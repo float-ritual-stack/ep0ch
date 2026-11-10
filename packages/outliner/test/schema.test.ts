@@ -1,20 +1,11 @@
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
-import { insertOutlineInstanceId, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from "../src/schema";
+import { readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from "../src/schema";
 import { OutlinerStore } from "../src/store";
-import { ownerLockOf } from "../src/workspace-ownership";
-import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
-import { SCHEMA_SQL_6, REFERENCE_INDEX_SQL_6 } from "../scripts/migrations/schema-6";
-import { migrateRevisionTasks as migrate7 } from "../scripts/migrations/0007-revision-tasks";
-import { migrateCreateRequests as migrate8 } from "../scripts/migrations/0008-create-requests";
-import { migrateMediaCopies as migrate9 } from "../scripts/migrations/0009-media-copies";
-import { migrateMarks as migrate10 } from "../scripts/migrations/0010-marks";
-import { migrateReferenceIndex as migrate6 } from "../scripts/migrations/0006-reference-index";
-import { migrate as migrate5, SCHEMA_SQL_4 } from "../scripts/migrations/0005-extension-providers";
 
 const directories: string[] = [];
 function directory(): string {
@@ -58,87 +49,11 @@ test("a new file gets the schema, stamp and outline instance id", () => {
   reopened.close();
 });
 
-test("schema 7 takes 0008, 0009 (media copies, PIE-1634) then 0010 (marks, PIE-1237); a served file stays untouched, and migrated create receipts survive reopening", async () => {
-  const path = join(directory(), "outliner.sqlite");
-  const old = new Database(path);
-  old.exec(SCHEMA_SQL_6);
-  insertOutlineInstanceId(old);
-  old.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, 0, 'Greenhouse log', 'user', '2026-10-01', '2026-10-01')").run("11111111-1111-4111-8111-111111111111");
-  old.exec("PRAGMA user_version = 6");
-  old.close();
-  migrate7(path);
-  const before = readFileSync(path);
-  expect(() => new OutlinerStore(path)).toThrow(/schema version 7.*only schema version 10/s);
-  const migrate = async () => {
-    const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0008-create-requests.ts"), path], { stdout: "pipe", stderr: "pipe" });
-    return { code: await child.exited, err: await new Response(child.stderr).text() };
-  };
-  const held = new Database(ownerLockOf(path).path);
-  held.exec("BEGIN IMMEDIATE");
-  try { expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("already owned") }); }
-  finally { held.close(); }
-  expect(readFileSync(path).equals(before)).toBe(true);
-  expect(await migrate()).toMatchObject({ code: 0 });
-  expect(userVersion(path)).toBe(8);
-  const at8 = readFileSync(path);
-  expect(() => new OutlinerStore(path)).toThrow(/schema version 8.*only schema version 10/s);
-  expect(readFileSync(path).equals(at8)).toBe(true);
-  migrate9(path);
-  expect(userVersion(path)).toBe(9);
-  const at9 = readFileSync(path);
-  expect(() => new OutlinerStore(path)).toThrow(/schema version 9.*only schema version 10.*0010-marks\.ts/s);
-  expect(readFileSync(path).equals(at9)).toBe(true);
-  migrate10(path);
-  expect(userVersion(path)).toBe(10);
-  let store = new OutlinerStore(path);
-  expect(store.require("11111111-1111-4111-8111-111111111111")).toMatchObject({ text: "Greenhouse log", createdAt: "2026-10-01", revision: 1 });
-  const first = store.create("Vent opened", null, "user", undefined, { requestId: "vent-1" });
-  store.close();
-  store = new OutlinerStore(path);
-  try {
-    expect(store.create("Vent opened", null, "user", undefined, { requestId: "vent-1" })).toMatchObject({ id: first.id, deduplicated: true });
-    expect(schemaDifferences(schemaShape(store.database), freshSchemaShape())).toEqual([]);
-  } finally { store.close(); }
-  const migrated = readFileSync(path);
-  expect(await migrate()).toMatchObject({ code: 1, err: expect.stringContaining("Expected schema 7, found 10") });
-  expect(readFileSync(path).equals(migrated)).toBe(true);
-  expect(() => migrate9(path)).toThrow("Expected schema 8, found 10");
-  expect(() => migrate10(path)).toThrow("Expected schema 9, found 10");
-});
-
-test.each([7, 8])("a failed 0008 migration leaves committed WAL bytes untouched at schema %i", async (version) => {
-  const path = join(directory(), "outliner.sqlite");
-  const store = new OutlinerStore(path);
-  const note = store.create("Before interruption");
-  store.close();
-  const writer = Bun.spawn(["bun", "-e", `
-    import { Database } from "bun:sqlite";
-    const db = new Database(process.argv[1]);
-    db.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0");
-    db.query("UPDATE blocks SET text = ? WHERE id = ?").run("Committed before interruption", process.argv[2]);
-    db.exec("PRAGMA user_version = " + process.argv[3]);
-    process.kill(process.pid, "SIGKILL");
-  `, path, note.id, String(version)], { env: { ...process.env }, stdout: "pipe", stderr: "pipe" });
-  await writer.exited;
-  expect(writer.signalCode).toBe("SIGKILL");
-  const before = readFileSync(path), wal = readFileSync(`${path}-wal`);
-  expect(wal.length).toBeGreaterThan(32);
-  const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/migrations/0008-create-requests.ts"), path], {
-    env: { ...process.env }, stdout: "pipe", stderr: "pipe",
-  });
-  const code = await child.exited, err = await new Response(child.stderr).text();
-  expect({ code, err }).toMatchObject({ code: 1, err: expect.stringContaining(version === 8 ? "Expected schema 7, found 8" : "already exists") });
-  expect({
-    database: readFileSync(path).equals(before),
-    wal: existsSync(`${path}-wal`) && readFileSync(`${path}-wal`).equals(wal),
-  }).toEqual({ database: true, wal: true });
-});
-
-test("a database from before schema versions is refused, untouched, with the command that upgrades it", () => {
+test("a database from before schema versions is refused, untouched, with the import route", () => {
   const path = join(directory(), "outliner.sqlite");
   unstamped(path);
   const before = readFileSync(path);
-  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`schema version 0 .*opens only schema version ${SCHEMA_VERSION}.*0001-stamp\\.ts`, "s"));
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`schema version 0 .*opens only schema version ${SCHEMA_VERSION}.*No script migrates schema 0.*\n  mv \\S+outliner\\.sqlite \\S+outliner\\.sqlite\\.schema-0\n.*\n  ep0ch outline import \\S+outliner\\.sqlite\\.schema-0 outliner$`, "s"));
   expect(readFileSync(path).equals(before)).toBe(true);
   expect(userVersion(path)).toBe(0);
 });
@@ -152,112 +67,26 @@ test("any other schema version is refused", () => {
   expect(() => new OutlinerStore(path)).toThrow(`is schema version ${SCHEMA_VERSION + 1}; this build opens only schema version ${SCHEMA_VERSION}`);
 });
 
-test("the stamp script stamps a database whose shape matches, column order and formatting aside", () => {
-  const path = join(directory(), "outliner.sqlite");
-  // As `ALTER TABLE … ADD COLUMN` left it: the draft's last three columns appended after the others.
-  unstamped(path, database => database.exec(`
-    DROP TABLE quick_capture_draft;
-    CREATE TABLE quick_capture_draft (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), request_id TEXT NOT NULL, text TEXT NOT NULL,
-      cursor_row INTEGER NOT NULL CHECK (cursor_row >= 0), cursor_column INTEGER NOT NULL CHECK (cursor_column >= 0),
-      captured_from_block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL, revision INTEGER NOT NULL CHECK (revision >= 1), updated_at TEXT NOT NULL);
-    ALTER TABLE quick_capture_draft ADD COLUMN submitted_text TEXT;
-    ALTER TABLE quick_capture_draft ADD COLUMN block_id TEXT;
-    ALTER TABLE quick_capture_draft ADD COLUMN block_revision INTEGER;
-    ALTER TABLE quick_capture_draft ADD COLUMN selection_anchor TEXT;
-  `));
-  const stamped = stamp(path);
-  expect(stamped.stamped).toBe(true);
-  expect(stamped.outlineInstanceId).toBeString();
-  expect(userVersion(path)).toBe(SCHEMA_VERSION);
-  expect(stamp(path)).toEqual({ stamped: false, outlineInstanceId: stamped.outlineInstanceId });
+test("a current database missing its instance id is refused with the import route, and the import opens", () => {
+  const folder = directory();
+  const path = join(folder, "allotment.sqlite");
   const store = new OutlinerStore(path);
-  expect(store.outlineInstanceId).toBe(outlineInstanceId(path));
-  expect(store.create("Opens after the stamp").text).toBe("Opens after the stamp");
+  store.create("Leeks by the wall");
   store.close();
-});
-
-/** A version-4 database holding one note and one Jira ticket's Source and Resource, as version 4 named them. */
-/** A made-up captured payload that names Jira as its fields would. */
-const CAPTURED = JSON.stringify({ key: "FIC-7", fields: { labels: [{ kind: "jira", provider: "jira" }], summary: "Fix the gate" } });
-
-function version4(path: string, change?: (database: Database) => void): { noteId: string; resourceId: string } {
-  const noteId = crypto.randomUUID();
   const database = new Database(path);
-  database.exec(SCHEMA_SQL_4);
-  insertOutlineInstanceId(database);
-  database.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, 0, 'Kept through the migration', 'user', '2026-10-01', '2026-10-01')").run(noteId);
-  const sourceId = "11111111-1111-4111-8111-111111111111", resourceId = "22222222-2222-4222-8222-222222222222", at = "2026-10-01T09:00:00.000Z";
-  database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, root_binding, version, created_at, updated_at) VALUES (?, 'Made-up tickets', 'jira', ?, ?, NULL, 1, ?, ?)")
-    .run(sourceId, JSON.stringify({ origin: "https://tickets.example.com", project: "FIC" }), JSON.stringify({ deniedCapabilities: [] }), at, at);
-  database.query("INSERT INTO resources (id, source_id, provider, address_json, canonical_key, media_type, address_version, version, created_at, updated_at) VALUES (?, ?, 'jira', ?, '10007', NULL, 1, 1, ?, ?)")
-    .run(resourceId, sourceId, JSON.stringify({ kind: "jira", entityId: "10007", key: "FIC-7" }), at, at);
-  // A captured issue whose own fields say "kind": "jira": someone else's data, kept exactly as it came.
-  database.query("INSERT INTO remote_entity_source_snapshots (id, resource_id, address_version, provider, entity_id, revision_json, payload_json, captured_at) VALUES ('snap-1', ?, 1, 'jira', '10007', ?, ?, ?)")
-    .run(resourceId, JSON.stringify({ kind: "jira", updated: at }), CAPTURED, at);
-  database.exec("PRAGMA user_version = 4");
-  change?.(database);
+  database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
   database.close();
-  return { noteId, resourceId };
-}
-
-test("a schema 6 database missing its instance id is refused with the exact repair command, and 0006 repairs it", () => {
-  const path = join(directory(), "outliner.sqlite");
-  const database = new Database(path);
-  database.exec(SCHEMA_SQL_6);
-  database.exec("PRAGMA user_version = 6");
-  database.close();
-  expect(() => outlineInstanceId(path)).toThrow(new RegExp(`has no valid outline instance id\\. Repair it with:\n\n  .+\n  bun \\S+/scripts/migrations/0006-reference-index\\.ts ${path}\n`));
-  // Not while a store (a service) has it open.
-  const held = new Database(ownerLockOf(path).path);
-  held.exec("BEGIN IMMEDIATE");
-  expect(() => migrate6(path)).toThrow("already owned");
-  held.close();
-  const repaired = migrate6(path);
-  expect(repaired).toMatchObject({ migrated: false, repaired: true });
-  expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
-  expect(migrate6(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
-  migrate7(path);
-  migrate8(path);
-  migrate9(path);
-  migrate10(path);
-  new OutlinerStore(path).close();
-});
-
-test("the version 5 migration moves Jira onto the extension providers as ext:jira, keeping every row; it refuses another shape or version", () => {
-  const path = join(directory(), "outliner.sqlite");
-  const { noteId, resourceId } = version4(path);
-  const id = outlineInstanceId(path);
-  expect(migrate5(path)).toEqual({ migrated: true, outlineInstanceId: id,
-    renamed: { "resource_sources.provider": 1, "resources.provider": 1, "remote_entity_source_snapshots.provider": 1, "resources.address_json": 1, "remote_entity_source_snapshots.revision_json": 1 } });
-  expect(userVersion(path)).toBe(5);
-  {
-    const after = new Database(path, { readonly: true });
-    const snapshot = after.query("SELECT revision_json AS revision, payload_json AS payload FROM remote_entity_source_snapshots WHERE id = 'snap-1'").get() as { revision: string; payload: string };
-    after.close();
-    expect(JSON.parse(snapshot.revision)).toEqual({ kind: "ext:jira", updated: "2026-10-01T09:00:00.000Z" });
-    expect(snapshot.payload).toBe(CAPTURED);
-  }
-  migrate6(path);
-  migrate7(path);
-  migrate8(path);
-  migrate9(path);
-  migrate10(path);
-  const store = new OutlinerStore(path);
-  expect(store.get(noteId)?.text).toBe("Kept through the migration");
-  expect(store.readMarks.mark("user", [noteId])).toBe(1);
-  expect(store.resources.require(resourceId)).toMatchObject({ provider: "ext:jira", address: { kind: "ext:jira", entityId: "10007", key: "FIC-7" } });
-  // The check takes any extension's provider now, and still refuses a name that isn't one.
-  store.database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, version, created_at, updated_at) VALUES ('s2', 'x', 'ext:kanboard', '{}', '{}', 1, 'a', 'a')").run();
-  expect(() => store.database.query("INSERT INTO resource_sources (id, name, provider, boundary_json, policy_json, version, created_at, updated_at) VALUES ('s3', 'x', 'kanboard', '{}', '{}', 1, 'a', 'a')").run()).toThrow("CHECK");
-  store.close();
-  const odd = join(directory(), "outliner.sqlite");
-  version4(odd, database => database.exec("CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);"));
-  const before = readFileSync(odd);
-  expect(() => migrate5(odd)).toThrow("does not match schema version 4");
-  expect(readFileSync(odd).equals(before)).toBe(true);
-  const older = join(directory(), "outliner.sqlite");
-  version4(older, database => database.exec("PRAGMA user_version = 3"));
-  expect(() => migrate5(older)).toThrow("is schema version 3, not 4");
+  let said = "";
+  try { outlineInstanceId(path); } catch (e) { said = (e as Error).message; }
+  expect(said).toContain(`${path} has no valid outline instance id. Import its notes into a new outline (it gets one):\n\n`);
+  expect(said).toContain(`\n  mv ${path} ${path}.old\n`);
+  expect(said).toContain(`\n  ep0ch outline import ${path}.old allotment`);
+  renameSync(path, `${path}.old`);
+  importOutline(`${path}.old`, path);
+  const reopened = new OutlinerStore(path);
+  expect(reopened.outlineInstanceId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(reopened.database.query("SELECT text FROM blocks WHERE text = 'Leeks by the wall'").all()).toHaveLength(1);
+  reopened.close();
 });
 
 test("a copied database file has a different outline instance id", () => {
@@ -357,30 +186,6 @@ test("an in-memory store has an instance id without a file", () => {
   second.close();
 });
 
-test("the stamp script refuses a database whose shape differs, naming each difference", () => {
-  const path = join(directory(), "outliner.sqlite");
-  unstamped(path, database => database.exec(`
-    ALTER TABLE blocks DROP COLUMN task_id;
-    CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);
-    DROP INDEX blocks_parent_position;
-  `));
-  let message = "";
-  try { stamp(path); } catch (error) { message = (error as Error).message; }
-  expect(message).toContain(`does not match schema version ${SCHEMA_VERSION}`);
-  expect(message).toContain("table blocks differs");
-  expect(message).toContain("table leftover_cache is not in the schema");
-  expect(message).toContain("index blocks_parent_position is missing");
-  expect(userVersion(path)).toBe(0);
-});
-
-test("a fresh database's shape is the schema's", () => {
-  const path = join(directory(), "outliner.sqlite");
-  new OutlinerStore(path).close();
-  const database = new Database(path, { readonly: true });
-  expect(schemaDifferences(schemaShape(database), freshSchemaShape())).toEqual([]);
-  database.close();
-});
-
 test("import makes a new outline with the blocks, properties, page addresses and work ids; it never writes over one", () => {
   const root = directory();
   const source = join(root, "old.sqlite");
@@ -445,7 +250,11 @@ test("two imports to one name: the one that finds it claimed is refused and touc
 });
 
 describe("the refusal says the exact commands for this machine (PIE-617)", () => {
-  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0010-marks.ts");
+  // A made-up step for the version before this one, in a migrations folder of the test's own.
+  const migrations = mkdtempSync(join(tmpdir(), "outliner-migrations-"));
+  afterAll(() => rmSync(migrations, { recursive: true, force: true }));
+  const SCRIPT = join(migrations, `${String(SCHEMA_VERSION).padStart(4, "0")}-seed-trays.ts`);
+  writeFileSync(SCRIPT, "");
   const at = (folder: string, name: string, version: number) => {
     const path = join(folder, `${name}.sqlite`);
     const database = new Database(path);
@@ -458,7 +267,7 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
     const folder = directory();
     const hub = at(folder, "float-hub", SCHEMA_VERSION - 1), log = at(folder, "sysops-log", SCHEMA_VERSION - 1);
     at(folder, "current", SCHEMA_VERSION);
-    expect(schemaRefusal(`The outline database ${hub}`, SCHEMA_VERSION - 1, hub, { platform: "darwin", home: "/Users/wren" })).toBe([
+    expect(schemaRefusal(`The outline database ${hub}`, SCHEMA_VERSION - 1, hub, { platform: "darwin", home: "/Users/wren", migrations })).toBe([
       `The outline database ${hub} is schema version ${SCHEMA_VERSION - 1}; this build opens only schema version ${SCHEMA_VERSION}.`,
       `Migrate it, and the 1 other outline here at schema ${SCHEMA_VERSION - 1}, with:`,
       "",
@@ -471,7 +280,7 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
       `  bun ${SCRIPT} ${log}`,
       "  launchctl bootstrap gui/$(id -u) /Users/wren/Library/LaunchAgents/io.ep0ch.outliner-host.plist",
     ].join("\n"));
-    const linux = schemaRefusal(`The outline database ${hub}`, SCHEMA_VERSION - 1, hub, { platform: "linux" });
+    const linux = schemaRefusal(`The outline database ${hub}`, SCHEMA_VERSION - 1, hub, { platform: "linux", migrations });
     expect(linux).toContain("\n  systemctl --user stop outliner-host.service\n");
     expect(linux).toEndWith("\n  systemctl --user start outliner-host.service");
     // Nothing to fill in: no placeholders, no prose about services, no colour.
@@ -481,7 +290,7 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
   test("no script for the step: the import route, with the real file and name", () => {
     const folder = directory();
     const old = at(folder, "seed-bank", 1);
-    expect(schemaRefusal(`The outline database ${old}`, 1, old, { platform: "linux" })).toBe([
+    expect(schemaRefusal(`The outline database ${old}`, 1, old, { platform: "linux", migrations })).toBe([
       `The outline database ${old} is schema version 1; this build opens only schema version ${SCHEMA_VERSION}.`,
       `No script migrates schema 1 to ${SCHEMA_VERSION}; import its notes into a new outline:`,
       "",
@@ -492,45 +301,25 @@ describe("the refusal says the exact commands for this machine (PIE-617)", () =>
     ].join("\n"));
   });
 
-  test("the store's refusal is that message; a path that needs quoting is quoted", () => {
+  test("the store's refusal is that message: with no script shipped, one step behind is the import route; a path that needs quoting is quoted", () => {
     const folder = join(directory(), "my outlines");
     mkdirSync(folder);
     const path = at(folder, "float-hub", SCHEMA_VERSION - 1);
     let said = "";
     try { new OutlinerStore(path).close(); } catch (e) { said = (e as Error).message; }
-    expect(said).toContain("\n  ep0ch install --apply\n");
-    expect(said).toContain(`\n  bun ${SCRIPT} '${path}'\n`);
+    expect(said).not.toContain("ep0ch install --apply");
+    expect(said).toContain(`\n  mv '${path}' '${path}.schema-${SCHEMA_VERSION - 1}'\n`);
+    expect(said).toContain(`\n  ep0ch outline import '${path}.schema-${SCHEMA_VERSION - 1}' float-hub`);
   });
 });
 
 
-test("schema 6 indexes existing references and keeps them current through edits and reopen", () => {
+test("the reference index keeps backlinks current through edits, an aborted edit, reopen, trash and restore", () => {
   const path = join(directory(), "outliner.sqlite");
-  const target = { id: crypto.randomUUID() };
-  const other = { id: crypto.randomUUID() };
-  const source = { id: crypto.randomUUID(), text: `Source ((${target.id})) [[Garden]]`, revision: 1 };
-  const previous = new Database(path);
-  previous.exec(SCHEMA_SQL_6.replace(REFERENCE_INDEX_SQL_6, ""));
-  insertOutlineInstanceId(previous);
-  previous.exec("PRAGMA user_version = 5");
-  const insert = previous.query("INSERT INTO blocks (id, position, text, author, created_at, updated_at) VALUES (?, ?, ?, 'user', '2026-10-01', '2026-10-01')");
-  insert.run(target.id, 0, "Destination [page::Garden]");
-  insert.run(other.id, 1, "Other destination");
-  insert.run(source.id, 2, source.text);
-  previous.close();
-  migrate6(path);
-  expect(userVersion(path)).toBe(6);
-  const migrated = new Database(path, { readonly: true });
-  const frozen = new Database(":memory:");
-  frozen.exec(SCHEMA_SQL_6);
-  expect(schemaDifferences(schemaShape(migrated), schemaShape(frozen))).toEqual([]);
-  migrated.close();
-  frozen.close();
-  migrate7(path);
-  migrate8(path);
-  migrate9(path);
-  migrate10(path);
   let store = new OutlinerStore(path);
+  const target = store.create("Destination [page::Garden]");
+  const other = store.create("Other destination");
+  const source = store.create(`Source ((${target.id})) [[Garden]]`);
   try {
     const links = (id: string) => store.queryBacklinks({ targetBlockId: id, limit: 10 });
     expect(links(target.id).sources).toMatchObject([{ blockId: source.id, occurrenceCount: 2 }]);

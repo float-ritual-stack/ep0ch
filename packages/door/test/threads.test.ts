@@ -17,7 +17,6 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { C, fg } from "../src/style";
 import { NOTE_ACTIONS, NoteSurface } from "../src/surface/note";
-import { THREAD_BG } from "../src/surface/selection";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";

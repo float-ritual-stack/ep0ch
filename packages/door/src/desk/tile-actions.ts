@@ -14,8 +14,8 @@ import { SPINES, ALT_RULES, OPEN_RULES, OPEN_RULE_WORDS, type AltRule } from "./
 import { TXN } from "../surface/txn";
 import { USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
-import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
-import { EDGE_WORD, isDir, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
+import { AGENT_WORDS, type AgentLevel } from "../surface/agent-level";
+import { EDGE_WORD, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import type { TileHeader } from "../surface/note";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
@@ -782,7 +782,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "block.unmark n=2", does: "dismisses mark number 2 from marks.list" },
       { act: "block.unmark id=3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650", does: "dismisses every mark on that note" },
     ],
-    async run({ n, id }, { d, reader }, actor) { return await d.unmark(n, id, actor); },
+    async run({ n, id }, { d }, actor) { return await d.unmark(n, id, actor); },
   }),
   "marks.list": def({
     summary: "every mark in the outline (the service's, PIE-1237): its number, block or file and line, reason (an attention mark) or none (a pocket mark), who made it, when, where, and this door's tiles showing it",

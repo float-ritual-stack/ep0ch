@@ -4,7 +4,6 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { openScreen } from "../../src/desk/screen-specs";
 import { Desk } from "../../src/desk/desk";
@@ -16,7 +15,7 @@ import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { USER, SocketBoard } from "../../src/socket";
 import { extensionNamed } from "../../src/extensions";
 import { lineCompleter } from "../../src/surface/completer";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -31,7 +30,7 @@ import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules and settings", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { scratch, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 

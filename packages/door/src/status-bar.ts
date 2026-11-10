@@ -4,7 +4,7 @@ import { closest } from "@ep0ch/outline-core/tool-args";
 import type { Msg } from "./board";
 import type { Actor, SocketBoard } from "./socket";
 import { ActionRefused, actionSet, def, type ActRequest } from "./surface/actions";
-import { bg, C, fg, visible, width } from "./style";
+import { bg, C, fg, visible } from "./style";
 import type { MenuRow } from "./surface/dispatch";
 import type { Reveal } from "./reveal";
 import { buttonText, pressState } from "./surface/button";

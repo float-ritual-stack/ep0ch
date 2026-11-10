@@ -2,8 +2,6 @@ import { requesterOf } from "./socket";
 import { setAnsweringAgents } from "./answering-agents";
 import { extensionFacetSource, registerFacetSource, unregisterFacetSource } from "./facet-sources";
 import { errorDetails, type MessageDetails } from "./status-log";
-import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
-import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // Extensions in the door (PIE-512): what the outline service's extension registry offers (`extensions.list`,
 // pi-herdr-outliner PIE-507, docs/extensions/README.md) bound into the door's shared parts, never drawn or run
 // here by a path of the door's own:
@@ -23,7 +21,7 @@ import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { TXN } from "./surface/txn";
 import { INVITES, type Press } from "./surface/invite";
-import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
+import { useResourceProviders } from "./resource-providers";
 import { hostname } from "node:os";
 import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource, ExtensionSettings } from "@ep0ch/outline-core/protocol";
 import { settingsAction } from "./extension-settings";
@@ -37,8 +35,7 @@ import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
 import { READER_OWN_KEYS } from "./surface/reader-keys";
 import { ActionRefused, ActionSet, actionSet, asActor, def, FREE_ARGS, shownLine, type ActionDef } from "./surface/actions";
 import { explainNotInstalled, nameAlso } from "./surface/dispatch";
-import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type ServiceHolds, type TileKind } from "./desk/tile-kinds";
-import type { Policy } from "./desk/screen-layout";
+import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import { forgetScreen, readSpec, registerScreen, screenHolder, screenNames, specData, useInstallableScreens, type ScreenSpec } from "./desk/screen-spec";
 import type { DeskApi, Pane } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";

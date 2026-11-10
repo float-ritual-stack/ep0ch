@@ -71,7 +71,6 @@ export class AccessMatrixPane implements Pane {
   private reading = false;
   private view = new RowView();
   private colTop = 0;
-  private width = 0;
   private desk: DeskApi | null = null;
   /** Where the clickable chips are, as drawn: tile row, columns, action. */
   private hits: { y: number; x0: number; x1: number; action: string; args: Record<string, unknown> }[] = [];
@@ -105,7 +104,7 @@ export class AccessMatrixPane implements Pane {
   }
 
   render(w: number, h: number, focused: boolean): PaneView {
-    this.width = w; this.hits = [];
+    this.hits = [];
     const m = this.matrix;
     if (!m) return { lines: [fg(C.grey) + (this.said || "reading who can reach what…") + RESET] };
     const lines: string[] = [dim(pad(` caps and calls from ${m.readFrom} · calls: last ${m.usage.days} days · the lower of the outline's grant and the caller's cap`, w))];
@@ -271,7 +270,7 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     examples: [
       { act: "access.apply", does: "applies the change the tile has planned (the person only)" },
     ],
-    async run(a, { pane, desk }, actor) {
+    async run(a, { pane, desk }, _actor) {
       const p = pane as AccessMatrixPane;
       let plan = p.staged;
       if (a.level !== undefined || !plan) {

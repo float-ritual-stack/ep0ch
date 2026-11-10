@@ -30,12 +30,6 @@ export type TileAddress =
 export const AGENT_ALIAS = "drawer.agent";
 /** The role of an agent tab (PIE-1331: every agent in the drawer is a terminal tab with it). */
 export const ROLE_AGENT = "agent";
-/** Whether `sel` names the agent tab used last (`drawer.agent`, `role:agent`, `role:agent@drawer`); another scope names none. */
-export const namesAgent = (sel: string | undefined): boolean => {
-  if (sel === undefined) return false;
-  const a = parseTileAddress(sel);
-  return a.kind === "role" && a.role === ROLE_AGENT && (a.scope === undefined || a.scope === "drawer");
-};
 /** A tile id's shortest prefix that names it (after `t-`), the rule block ids follow. */
 export const MIN_ID_PREFIX = 8;
 /** A tile's id as few characters as still name it (`t-1a2b3c4d`): the header of its menu and its card; the whole id is what copies and what a slot keeps. */

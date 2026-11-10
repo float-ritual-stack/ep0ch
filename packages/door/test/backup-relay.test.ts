@@ -4,7 +4,7 @@
 // in a temp folder only: no bucket, no real backup, no ~/outline-mirrors or ~/outlines. Skipped where restic isn't installed.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { alertMark, readAlert, readBackupState, writeBackupState } from "../src/backup/alert";
 import { backupConfig, type BackupConfig } from "../src/backup/config";

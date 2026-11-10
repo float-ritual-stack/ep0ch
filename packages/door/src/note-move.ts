@@ -1,6 +1,6 @@
 // Actions share the service's atomic move; the door keeps its receipt for local undo.
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
-import type { NoteRouteResult, NoteRouteRun } from "@ep0ch/outline-core/protocol";
+import type { NoteRouteResult } from "@ep0ch/outline-core/protocol";
 import { mutationFor, recordedActorId, type Actor, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { UndoHistory, partyOf } from "./steps";

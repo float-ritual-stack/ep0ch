@@ -33,7 +33,7 @@ describe("the doc renderer's list rows and soft wraps (no service)", () => {
   const values = (o: Record<string, unknown>) => ({ ...lookFor(null, {}, 80).values, ...o }) as any;
   const env = (look?: Record<string, unknown>) => ({ width: 40, cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: false, ...(look ? { look: { values: values(look), layers: [], width: 80 } } : {}) });
   /** The whole document selected and copied, as a reader's rows give it (its trims are the drawing; its wraps join). */
-  const copy = (d: ReturnType<typeof renderDoc>, w: number) => {
+  const copy = (d: ReturnType<typeof renderDoc>, _w: number) => {
     const rows = rowsOf(d.lines, () => 0, r => d.trims.get(r));
     return new Selection({ row: 0, col: 0 }, { row: d.lines.length - 1, col: 999 }).text({ ...rows, joins: r => d.wraps?.get(r + 1) });
   };

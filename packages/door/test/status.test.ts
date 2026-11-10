@@ -132,7 +132,6 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       try {
         await new Promise<void>(done => terminal.write(rowBytes(0, painted.at(-1)!, cols), done));
         const row = terminal.buffer.active.getLine(0)!;
-        const text = row.translateToString();
         const box = (app as any).statusBoxes.find((h: any) => h.item.id === "message");
         expect(box).toBeDefined();
         for (let x = 0; x < cols; x++) if (x < box.from || x >= box.to) expect((row.getCell(x) as any).extended.urlId).toBe(0);
