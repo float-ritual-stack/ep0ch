@@ -345,7 +345,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
-    if (/^Sort /.test(why)) return { error: `--sort ${s.sort}${s.direction ? ` --direction ${s.direction}` : ""}: ${why}` };
+    if (e instanceof Refused && (e.problem?.field === "sort" || e.problem?.field === "direction")) return { error: `--sort ${s.sort}${s.direction ? ` --direction ${s.direction}` : ""}: ${why}` };
     if (s.under && e instanceof Refused && e.kind === "not-found") return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
     return { error: `the outline can't read that query: ${why}\n  the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"` };
   };

@@ -33,3 +33,20 @@ export function refusalKindOf(error: unknown): RefusalKind {
 
 /** The refusal for a note that isn't there: one spelling for every place that says it. */
 export const blockNotFound = (id: string, where = ""): Refusal => new Refusal("not-found", `Block not found${where}: ${id}`);
+
+/**
+ * What a CLI prints for a refusal: its words on an `error: ` line (or `prefix`), and, when the error knows its kind, a
+ * `kind: <kind>` line after it. The line is the stable form: a script or the Claude mod reads `refusalKindOfStderr`,
+ * never the words, and a command that fails for any other reason prints the words alone.
+ */
+export function errorLines(error: unknown, prefix = "error: "): string {
+  const words = `${prefix}${error instanceof Error ? error.message : String(error)}`;
+  const kind = typeof error === "object" && error !== null ? (error as { kind?: unknown }).kind : undefined;
+  return isRefusalKind(kind) ? `${words}\nkind: ${kind}` : words;
+}
+
+/** The kind a CLI's stderr names in its `kind: <kind>` line (the last one), or undefined when it names none. */
+export function refusalKindOfStderr(stderr: string): RefusalKind | undefined {
+  const found = stderr.split("\n").map(line => /^kind: ([a-z-]+)$/.exec(line.trim())?.[1]).filter(Boolean).at(-1);
+  return isRefusalKind(found) ? found : undefined;
+}

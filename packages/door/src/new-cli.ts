@@ -48,7 +48,7 @@ export async function newCommand(argsIn: string[], io: Out = { out: console.log,
     const why = (e as Error).message;
     const where = [values.ws ? `--ws ${quote(values.ws)}` : "", values.machine ? `--machine ${quote(values.machine)}` : "", values.as ? `--as ${quote(values.as)}` : ""].filter(Boolean).join(" ");
     const fix = e instanceof Refused && e.kind === "not-found" ? `\n  in the Inbox instead: ep0ch new ${quote(text)}${where ? ` ${where}` : ""}` : "";
-    io.err(`ep0ch: ${why}${fix}`);
+    io.err(`ep0ch: ${why}${fix}${e instanceof Refused ? `\nkind: ${e.kind}` : ""}`);
     return 1;
   } finally { board.close(); }
 }

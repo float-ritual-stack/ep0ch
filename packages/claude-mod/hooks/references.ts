@@ -247,10 +247,19 @@ export function outlinerReferenceOf(uri: string): string {
 }
 
 /**
+ * The kind of refusal a failed ep0ch or Outliner command names: the `kind: <kind>` line the CLIs print after their
+ * `error:` line (outline-core refusal.ts, `errorLines`), or undefined when the failure names none. A script that decides
+ * what to do next reads this, never the words. (The mod loads only plugin-local modules, so it reads the line itself.)
+ */
+export function failureKindOf(stderr: string): string | undefined {
+  return stderr.split('\n').map(line => /^kind: ([a-z-]+)$/.exec(line.trim())?.[1]).findLast(Boolean)
+}
+
+/**
  * Whether a navigation failed only because its destination is mid-edit (or
  * holding a source selection): the Outliner protects it, and the person
  * finishes there; it is never overridden.
  */
-export function isProtectedDestination(reason: string): boolean {
-  return reason.startsWith('Destination is protected')
+export function isProtectedDestination(stderr: string): boolean {
+  return failureKindOf(stderr) === 'conflict'
 }

@@ -344,8 +344,8 @@ export async function controlClient(args: string[], answered?: { ran?: true }): 
     return cmd === "open" && wantsJson ? 0 : 1;
   }
   if (!r.ok) {
-    if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: r.error }));
-    else console.error(r.error);
+    if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: r.error, ...(r.kind ? { kind: r.kind } : {}) }));
+    else console.error(r.kind ? `${r.error}\nkind: ${r.kind}` : r.error);
     return cmd === "open" && wantsJson ? 0 : 1;
   }
   if (cmd === "trace") console.log(wantsJson ? JSON.stringify(r.result) : traceText(r.result).trimEnd());

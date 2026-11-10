@@ -1,6 +1,6 @@
 import { blockNotFound, type RefusalKind } from "@ep0ch/outline-core/refusal";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import { grammarWarning } from "@ep0ch/outline-core/protocol";
+import { grammarWarning, type OutlinerRequestProblem } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
@@ -84,7 +84,7 @@ export function hostSend(path: string, action: string, params: Record<string, un
     const timer = setTimeout(() => { s.destroy(); reject(new Error(`${action} timed out`)); }, timeoutMs);
     const lines = new JsonLines(r => {
       clearTimeout(timer); s.destroy();
-      r.ok ? resolve(r.result) : reject(new Refused(r.error ?? `${action} failed`, r.kind));
+      r.ok ? resolve(r.result) : reject(new Refused(r.error ?? `${action} failed`, r.kind, r.problem));
     });
     s.on("data", d => lines.feed(d));
     s.on("error", e => { clearTimeout(timer); reject(e); });
@@ -362,7 +362,7 @@ export class Offline extends Error {
  */
 export class Refused extends Error {
   /** Which kind of refusal, from the envelope's `kind` (outline-core refusal.ts): what a caller branches on, never the words. */
-  constructor(message: string, readonly kind: RefusalKind = "failed") { super(message); this.name = "Refused"; }
+  constructor(message: string, readonly kind: RefusalKind = "failed", readonly problem?: OutlinerRequestProblem) { super(message); this.name = "Refused"; }
 }
 
 /**
@@ -516,7 +516,7 @@ export class SocketBoard implements Board {
       this.waiting.delete(r.id); clearTimeout(w.timer);
       // Only an answer is the link back: an ssh forward's local end takes a connection with the far host asleep.
       if (r.ok) this.lostSaid = false;
-      r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed", r.kind));
+      r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed", r.kind, r.problem));
     });
     s.on("data", d => lines.feed(d));
     // Only this connection's requests fail with it: a close that comes after a new connection opened leaves its alone.

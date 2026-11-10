@@ -1887,7 +1887,7 @@ export class OutlinerServer {
     try { target = this.navigationView(chosen, true); }
     catch { throw new Refusal("unavailable", "Linked destination closed · choose a destination or open a new Detail split"); }
     if (preserveSource && chosen.clientId === source.clientId && region === chosen.region) throw new Error("Choose another destination to preserve this source");
-    if (target.navigationProtection) throw new Error(`Destination is protected: ${target.navigationProtection} · finish or cancel it there`);
+    if (target.navigationProtection) throw new Refusal("conflict", `Destination is protected: ${target.navigationProtection} · finish or cancel it there`);
     return {sourceClientId: source.clientId, targetClientId: chosen.clientId, targetRegion: chosen.region, intent: "open", resolution: destination ? "chosen" : "linked"};
   }
 
@@ -2996,7 +2996,7 @@ export class OutlinerServer {
           const targetsDetail = target.role === "detail" || region === "detail";
           if (targetsDetail && target.navigationProtection &&
             ("target" in request.command && request.command.target && request.command.command !== "preview")) {
-            throw new Error(`Destination is protected: ${target.navigationProtection}`);
+            throw new Refusal("conflict", `Destination is protected: ${target.navigationProtection}`);
           }
           if (target.role === "composed" && region === "tree" && !["focus", "reveal"].includes(request.command.command)) throw new Error("This command requires the Detail region");
           if ("target" in request.command && request.command.target !== undefined) {

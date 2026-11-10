@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 // Who can reach what (PIE-1034): which MCP caller can reach which outline, and how far, with each caller's recent use.
 //
 // Nothing here is a store. It reads the three places the answer already lives and combines them:
@@ -208,7 +209,7 @@ export interface Plan { caller: string; outline: string; machine: string; level:
 const machineFlag = (machine: string, local: string) => machine === local ? "" : ` --machine ${machine}`;
 
 /** What it takes for `caller` to have `want` in an outline: the caps entry, the outline's grant, or both; or why not. */
-export function planChange(m: AccessMatrix, who: { caller: string; outline: string; machine?: string; level: string }): Plan | { error: string } {
+export function planChange(m: AccessMatrix, who: { caller: string; outline: string; machine?: string; level: string }): Plan | { error: string; kind?: RefusalKind } {
   if (!isMcpAccessLevel(who.level)) return { error: `level is one of ${MCP_ACCESS_LEVELS.join(", ")} (got ${JSON.stringify(who.level)})` };
   const want = who.level as McpAccessLevel;
   const ci = m.callers.findIndex(c => sameName(c.name, who.caller));
@@ -341,7 +342,7 @@ export function hostSource(path: string, machine: string): GrantSource {
 }
 
 /** The host of this machine, or of `--machine <ssh-name>` (through its forward): a source, or why not. */
-export async function hostSourceFor(machine?: string): Promise<GrantSource | { error: string }> {
+export async function hostSourceFor(machine?: string): Promise<GrantSource | { error: string; kind?: RefusalKind }> {
   const target = resolveTarget(machine ? ["--machine", machine] : []);
   if ("error" in target) return target;
   if (target.machine) {

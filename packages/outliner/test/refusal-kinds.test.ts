@@ -1,12 +1,13 @@
 // Nov 3 review, card 13: every refusal the host sends carries its `kind` on the envelope (outline-core refusal.ts), so a
 // client never reads the words to decide what to do next. A table of host refusals -> kind through the real dispatcher,
 // and one proof that the kind is the error's own, not a reading of its message. Fictional notes, a scratch outline.
+import { sortProblem } from "@ep0ch/outline-core/figure-live";
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Refusal, REFUSAL_KINDS, refusalKindOf, type RefusalKind } from "@ep0ch/outline-core/refusal";
+import { errorLines, Refusal, REFUSAL_KINDS, refusalKindOf, refusalKindOfStderr, type RefusalKind } from "@ep0ch/outline-core/refusal";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -72,4 +73,23 @@ test("the client's error carries the envelope's kind, and hostBusy reads it", ()
   expect(new OutlinerRequestError("slow", undefined, "busy").kind).toBe("busy");
   expect(hostBusy(new OutlinerRequestError("any words", undefined, "busy"))).toBe(true);
   expect(hostBusy(new OutlinerRequestError("still counting: took too long", undefined, "failed"))).toBe(false);
+});
+
+test("a refused sort names its field on the problem, and a figure says its own line from that, not from the words", async () => {
+  const { server } = await setup();
+  const direction = await server.handleAsync(asked({ action: "blocks.query", query: { where: "type=bed", sort: "title sideways" } }));
+  expect(direction).toMatchObject({ ok: false, kind: "invalid", problem: { code: "query-invalid", field: "direction" } });
+  const sort = await server.handleAsync(asked({ action: "blocks.query", query: { where: "type=bed", sort: "a b c" } }));
+  expect(sort).toMatchObject({ ok: false, kind: "invalid", problem: { code: "query-invalid", field: "sort" } });
+  expect(sortProblem("any words at all", "title", "asc", "sort")).toBe("sort: title · any words at all");
+  expect(sortProblem("any words at all", "title", "asc", "direction")).toBe("direction: asc · any words at all");
+  expect(sortProblem("Sort by what, exactly", "title", "asc")).toBe("Sort by what, exactly");
+});
+
+test("a CLI's refusal prints its kind on a line of its own, and the line reads back whatever the words say", () => {
+  const said = errorLines(new Refusal("conflict", "some reworded sentence"));
+  expect(said).toBe("error: some reworded sentence\nkind: conflict");
+  expect(refusalKindOfStderr(`${said}\nBun v1.3.14 (Linux x64)`)).toBe("conflict");
+  expect(errorLines(new Error("plain"))).toBe("error: plain");
+  expect(refusalKindOfStderr("error: kind: conflict")).toBeUndefined();
 });

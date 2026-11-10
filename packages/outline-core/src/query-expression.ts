@@ -362,7 +362,8 @@ const DAY_MS = 86_400_000;
 
 export class BlockQueryError extends Error {
   readonly kind = "invalid" as const;
-  constructor(message: string) {
+  /** The request field that was wrong when the refusal is about one (`sort`, `direction`); rides on `problem.field`. */
+  constructor(message: string, readonly field?: string) {
     super(message);
     this.name = "BlockQueryError";
   }

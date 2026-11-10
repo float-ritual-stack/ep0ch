@@ -14,6 +14,9 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Every refusal carries a `kind`:** the outline host's failure envelope, the door's control socket (`ActionRefused`) and the MCP tool error say `stale-revision`, `moved`, `conflict`, `not-found`, `ambiguous`, `busy`, `no-access`, `invalid`, `unavailable` or `failed` (outline-core `refusal.ts`, the one closed list). A refusal nobody classified is `failed`.
 - **Retries and fixes follow the kind, not the message:** the door's stale-comment and stale-edit paths, a trash that lost a race, a note gone, the `near=` fix hint in `ep0ch new`, the checklist step that moved, the published page's "changed since this page drew it", the Detail's "not saved, changed since your edit began", and "the host is busy" now read `kind`. Rewording a message can't change what a client does.
+- **A refused sort names its field:** the rejected query's `problem` carries `field: "sort"` or `"direction"`, so a figure's own `sort:` / `direction:` line and `ep0ch find --sort` read it, not the message's first word.
+- **A refused command prints its kind:** the Outliner CLI and `ep0ch act|open|peek|new` write `kind: <kind>` on a line after `error:` (and `kind` in their `--json` error); the Claude mod reads that line for "the Detail beside you is mid-edit" instead of the sentence.
+- **Every MCP tool error has `structuredContent.kind`:** `invalid` for a request that is wrong, `no-access` for a level that refuses the write, `unavailable` for an outline on another machine, and the host's own kind for what it refused.
 - **Run:** `ep0ch install --apply`; this bumps PROTOCOL (the failure envelope gains `kind`), so every client refuses an old host until it restarts. The schema and GRAMMAR don't move.
 ### An extension says what it serves, how it installs and what it attaches; one cap on every agent write (Nov 3 review cards 16 and 6, PIE-1549, PIE-1544)
 

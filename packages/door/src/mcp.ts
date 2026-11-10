@@ -1,4 +1,4 @@
-import { refusalKindOf, type RefusalKind } from "@ep0ch/outline-core/refusal";
+import { isRefusalKind, refusalKindOf, type RefusalKind } from "@ep0ch/outline-core/refusal";
 // An MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it over stdio,
 // bound to the outline this process can already open; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
 // serves it over streamable HTTP behind OAuth, for this machine's outlines and read-only mirrors of other machines'
@@ -121,7 +121,7 @@ export interface McpOutlines {
    * outline of another machine read from its copy here even while that machine answers (a snapshot: its link is this
    * machine's web client's, PIE-1091); this machine's own outlines are read as ever.
    */
-  board(named?: NamedOutline, how?: { write?: boolean; copy?: boolean }): Promise<McpBoard | { error: string }>;
+  board(named?: NamedOutline, how?: { write?: boolean; copy?: boolean }): Promise<McpBoard | { error: string; kind?: RefusalKind }>;
   /** A request to another machine's host got no answer: it is served from its mirror until it answers again. */
   lost?(machine: string, outline: string, why: string): void;
   list(caller?: McpCaller): Promise<McpOutlineListing[]>;
@@ -184,7 +184,11 @@ export function boundOutlines(board: Board, admin?: McpOutlineAdmin, lifetime: P
 }
 
 const toolText = (value: unknown, compact = false): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, compact ? undefined : 2) }] });
-const toolError = (message: string, cause?: unknown): ToolResult => ({ isError: true, content: [{ type: "text", text: message }], ...(cause === undefined ? {} : { structuredContent: { kind: refusalKindOf(cause) } }) });
+/** A tool's refusal, with its kind: a kind named here (`invalid` unless said), or the thrown error's own (a host refusal keeps the kind it came with). */
+const toolError = (message: string, kind: RefusalKind | Error | unknown = "invalid"): ToolResult => ({
+  isError: true, content: [{ type: "text", text: message }],
+  structuredContent: { kind: isRefusalKind(kind) ? kind : refusalKindOf(kind) },
+});
 const objectFields = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 /** The block a tool names: its `uri`, or `ref`. (`id`, `reference` and the other aliases became `ref` in checkToolArgs, which callTool runs first; a call naming two different blocks never gets here.) */
 const refArg = (args: Record<string, unknown>) => stringField(args, "uri") ?? stringField(args, "ref");
@@ -192,7 +196,7 @@ const stringField = (value: Record<string, unknown>, key: string): string | unde
 
 /** A tool's `limit`: absent is the default; anything but a whole number from 1 to the maximum is refused, saying both. */
 interface LimitRule { fallback: number; max: number }
-const limitOf = (value: unknown, { fallback, max }: LimitRule): number | { error: string } => {
+const limitOf = (value: unknown, { fallback, max }: LimitRule): number | { error: string; kind?: RefusalKind } => {
   if (value === undefined) return fallback;
   if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max) return value;
   return { error: `limit is a whole number from 1 to ${max} (default ${fallback}); got ${JSON.stringify(value)}.` };
@@ -219,7 +223,7 @@ function blockUri(board: Board, blockId: string): string {
 }
 
 /** A tool's `outline`: `<name>` or `<name>@<machine>`. */
-function namedOutline(input: unknown): NamedOutline | { error: string } | undefined {
+function namedOutline(input: unknown): NamedOutline | { error: string; kind?: RefusalKind } | undefined {
   if (input === undefined) return undefined;
   if (typeof input !== "string" || !input.trim()) return { error: "outline is an outline's name (or <name>@<machine>)." };
   const [outline, machine, extra] = input.trim().split("@");
@@ -232,7 +236,7 @@ function namedOutline(input: unknown): NamedOutline | { error: string } | undefi
  * naming another is refused); a ref is in `outline`'s, resolved there by the Claude mod's resolver (an id, ((id)),
  * [[page]] or Work ID), once the outline's access lets this caller read it. `refs: false`: a URI only (resources/read).
  */
-async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true, how?: { write?: boolean }): Promise<McpBoard & { id: string; uri: string } | { error: string }> {
+async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true, how?: { write?: boolean }): Promise<McpBoard & { id: string; uri: string } | { error: string; kind?: RefusalKind }> {
   if (typeof input !== "string" || !input.trim()) return { error: refs ? "Give ref (a block id, ((id)), [[page]] or Work ID) or uri (an ep0ch:// block URI)." : "Give uri: an ep0ch:// block URI." };
   const text = input.trim();
   const which = namedOutline(outlineInput);
@@ -256,7 +260,7 @@ async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInpu
   if ("error" in status) return status;
   let id: string;
   try { id = (await resolveBoardRef(served.board, text)).id; }
-  catch (e) { return { error: `${(e as Error).message} (in ${served.board.address.outline}@${served.board.address.machine})` }; }
+  catch (e) { return { error: `${(e as Error).message} (in ${served.board.address.outline}@${served.board.address.machine})`, kind: refusalKindOf(e) }; }
   return { ...served, id, uri: blockUri(served.board, id) };
 }
 
@@ -276,7 +280,7 @@ const withLevel = (status: McpAccessStatus, caller: McpCaller | undefined, where
   return { ...status, level, canRead: status.canRead && level !== "none" };
 };
 
-async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
+async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string; kind?: RefusalKind }> {
   const status = withLevel(await target.board.request("mcp.access.status", {}), target.caller, target.board.address);
   if (!status.canRead) return { error: accessRefusal(outlines, target, status.level) };
   return status;
@@ -315,7 +319,7 @@ const envelope = (board: Board, uri: string, access: McpReachability, record: Bl
   record: mcpRecord(record),
 });
 
-async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string): Promise<{ access: McpReachability; record: BlockRecord } | { error: string }> {
+async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string): Promise<{ access: McpReachability; record: BlockRecord } | { error: string; kind?: RefusalKind }> {
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return status;
   const r = await target.board.records([id]);
@@ -329,7 +333,7 @@ async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string)
  * A Resource addressed by `ref` (resource:<id> or a [file::path] token, PIE-650): read, or commented on, live in the
  * outline it is registered in (a mirror is a copy of blocks, so a Resource is read at its home).
  */
-async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown>): Promise<McpBoard | { error: string }> {
+async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown>): Promise<McpBoard | { error: string; kind?: RefusalKind }> {
   const named = namedOutline(args.outline);
   if (named && "error" in named) return named;
   if (!named && !outlines.defaultOutline) return { error: `Name the outline: pass outline (an outline on ${outlines.machine}).` };
@@ -356,16 +360,16 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   const ref = refArg(args);
   if (ref && await isResourceRef(ref)) {
     const target = await resourceBoard(outlines, args);
-    if ("error" in target) return toolError(target.error);
+    if ("error" in target) return toolError(target.error, target.kind);
     try { return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, resource: await readResourceOn(target.board, ref) }); }
     catch (e) { return toolError((e as Error).message, e); }
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
-  if (seen && "error" in seen) return toolError(seen.error);
+  if (seen && "error" in seen) return toolError(seen.error, seen.kind);
   const read = await recordForMcp(outlines, target, target.id);
-  if ("error" in read) return toolError(read.error);
+  if ("error" in read) return toolError(read.error, read.kind);
   // Read your writes: this caller's own writes still queued for the mirror's home machine, laid over its text (PIE-648).
   // A write the home machine has applied stays until the mirror's copy has reached the revision it made.
   const queuedAt = target.home?.machine ?? target.queuedFor;
@@ -398,12 +402,12 @@ async function proposalsTool(outlines: McpOutlines, args: Record<string, unknown
   const refused = sharedToolRefusal("outline_proposals", args);
   if (refused) return toolError(refused);
   const named = namedOutline(args.outline);
-  if (named && "error" in named) return toolError(named.error);
+  if (named && "error" in named) return toolError(named.error, named.kind);
   if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
   const target = await outlines.board(named);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const status = await requireReadAccess(outlines, target);
-  if ("error" in status) return toolError(status.error);
+  if ("error" in status) return toolError(status.error, status.kind);
   const actor = typeof args.actor === "string" && args.actor.trim() ? undefined : caller ? actorOf(caller) : undefined;
   if (!actor && !(typeof args.actor === "string" && args.actor.trim())) return toolError("Give actor: whose proposals (an actor id, or a persona such as loki).");
   const { outline: _outline, persona: _persona, call: _call, ...input } = args;
@@ -421,13 +425,13 @@ const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
 
 async function suggestQuery(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
   const named = namedOutline(args.outline);
-  if (named && "error" in named) return toolError(named.error);
+  if (named && "error" in named) return toolError(named.error, named.kind);
   const target = await outlines.board(named);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const status = await requireReadAccess(outlines, target);
-  if ("error" in status) return toolError(status.error);
+  if ("error" in status) return toolError(status.error, status.kind);
   const level = levelFor(status, caller, undefined, target.board.address);
-  if (writesAt(level) !== "applied") return toolError(writeRefusal(outlines, target, level));
+  if (writesAt(level) !== "applied") return toolError(writeRefusal(outlines, target, level), "no-access");
   return toolText(await target.board.request("query.suggest", { text: stringField(args, "text")!, where: stringField(args, "where"), zone: stringField(args, "zone"), mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" } }));
 }
 
@@ -435,37 +439,37 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
   const query = stringField(args, "query")?.trim(), view = stringField(args, "view")?.trim();
   if (!query === !view) return toolError("Give query (the views' grammar: type=ticket NOT work-stage=done) or view (a saved view's block id), one of them.");
   const limit = limitOf(args.limit, QUERY_LIMIT_RULE);
-  if (typeof limit !== "number") return toolError(limit.error);
+  if (typeof limit !== "number") return toolError(limit.error, limit.kind);
   const offset = args.offset === undefined ? 0 : args.offset;
   if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0) return toolError(`offset is a whole number from 0 (a previous answer's nextOffset); got ${JSON.stringify(offset)}.`);
   const named = namedOutline(args.outline);
-  if (named && "error" in named) return toolError(named.error);
+  if (named && "error" in named) return toolError(named.error, named.kind);
   if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
   const target = await outlines.board(named);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const status = await requireReadAccess(outlines, target);
-  if ("error" in status) return toolError(status.error);
+  if ("error" in status) return toolError(status.error, status.kind);
   const { board, served } = target;
   const sort = args.sort === undefined ? undefined : parseSort(args.sort);
-  if (sort && "error" in sort) return toolError(sort.error);
+  if (sort && "error" in sort) return toolError(sort.error, sort.kind);
   if (sort && view) return toolError("sort orders a query (or under); a saved view has its own order (its [sort::]). Give query, or drop sort.");
   const fields = args.fields === undefined ? undefined : parseFields(args.fields);
-  if (fields && "error" in fields) return toolError(fields.error);
+  if (fields && "error" in fields) return toolError(fields.error, fields.kind);
   const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
-  if (seen && "error" in seen) return toolError(seen.error);
+  if (seen && "error" in seen) return toolError(seen.error, seen.kind);
   if (args.fold !== undefined && typeof args.fold !== "boolean") return toolError("fold is true or false: true folds proposals, comments and deliveries into the note they belong to, with a count.");
   let under: string | undefined;
   if (args.under !== undefined) {
     if (typeof args.under !== "string" || !args.under.trim()) return toolError("under is a note: its id, ((id)), [[page]] or Work ID (PIE-123), as ref is; the query then covers that note's subtree.");
     try { under = (await resolveBoardRef(board, args.under.trim())).id; }
-    catch (e) { return toolError(`under: ${(e as Error).message} (in ${board.address.outline}@${board.address.machine})`); }
+    catch (e) { return toolError(`under: ${(e as Error).message} (in ${board.address.outline}@${board.address.machine})`, e); }
   }
   const propertyScope = typeof args.propertyScope === "string" ? args.propertyScope.trim().toLowerCase() : args.propertyScope;
   if (propertyScope !== undefined && !(PROPERTY_QUERY_SCOPES as readonly unknown[]).includes(propertyScope)) return toolError(`propertyScope is ${PROPERTY_QUERY_SCOPES.join(", ")}; got ${JSON.stringify(args.propertyScope)}. all reads a [needs::…] on any line as well as the note's own header.`);
   if (args.includeOwn !== undefined && typeof args.includeOwn !== "boolean") return toolError("includeOwn is true or false: true keeps the rows only your own call changed (they are left out of a recent-activity read by default).");
   let machinery: MachineryMode | undefined;
   try { machinery = args.machinery === undefined ? undefined : parseMachineryMode(args.machinery); }
-  catch (e) { return toolError(`${(e as Error).message}. show brings back fetched notifications and bookkeeping notes; only with machine=notification asks for just the notifications.`); }
+  catch (e) { return toolError(`${(e as Error).message}. show brings back fetched notifications and bookkeeping notes; only with machine=notification asks for just the notifications.`, e); }
   if (machinery && machinery !== "hide" && view) return toolError("machinery goes with query; a saved view says its own with [machinery::show] or [machinery::only].");
   // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it,
   // and says how many fetched notifications and bookkeeping notes it left out (PIE-1427).
@@ -478,7 +482,7 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
     ...(typeof propertyScope === "string" ? { propertyScope } : {}),
     ...(machinery ? { machinery } : {}), ...(readsRecentActivity(query) ? { countMachinery: true } : {}),
   });
-  if ("error" in answer) return toolError(answer.error);
+  if ("error" in answer) return toolError(answer.error, answer.kind);
   const { rows, ...page } = answer;
   const matches: unknown[] = [];
   for (const [i, { record: r, changes, path, matched }] of rows.entries()) {
@@ -515,7 +519,7 @@ async function writeStatusTool(outlines: McpOutlines, args: Record<string, unkno
   const mine = actorOf(caller, undefined, undefined, args.persona as string | undefined);
   const receipt = queue?.receipt(id);
   // Not found and not yours read the same: another caller's writes are not for this one to list.
-  if (!queue || !receipt || parseSessionId(receipt.subject).subject !== caller.sub || receipt.actorId !== mine.actorId) return toolError(`No queued write ${JSON.stringify(id)} of yours (a queueId is what a queued write answered).`);
+  if (!queue || !receipt || parseSessionId(receipt.subject).subject !== caller.sub || receipt.actorId !== mine.actorId) return toolError(`No queued write ${JSON.stringify(id)} of yours (a queueId is what a queued write answered).`, "not-found");
   let proposal: ProposalSeen | undefined;
   if (receipt.state === "proposed" && receipt.proposalUri) {
     const served = await outlines.board({ outline: receipt.outline, machine: receipt.machine });
@@ -530,7 +534,7 @@ async function writeStatusTool(outlines: McpOutlines, args: Record<string, unkno
 }
 
 /** A time argument: an ISO date-time, or epoch milliseconds. */
-const timeArg = (v: unknown): number | undefined | { error: string } => {
+const timeArg = (v: unknown): number | undefined | { error: string; kind?: RefusalKind } => {
   if (v === undefined) return undefined;
   const t = typeof v === "number" ? v : typeof v === "string" ? Date.parse(v) : NaN;
   return Number.isFinite(t) ? t : { error: "since is an ISO date-time (2026-10-08T09:00:00Z) or epoch milliseconds." };
@@ -551,9 +555,9 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
   const status: "all" | "open" | "resolved" = asked;
   if (hasNote) {
     const target = await addressedBlock(outlines, refArg(args), args.outline);
-    if ("error" in target) return toolError(target.error);
+    if ("error" in target) return toolError(target.error, target.kind);
     const read = await recordForMcp(outlines, target, target.id);
-    if ("error" in read) return toolError(read.error);
+    if ("error" in read) return toolError(read.error, read.kind);
     const rows = threadRows(await target.board.comments(target.id));
     const untargeted = await target.board.untargeted(target.id, rows.map(r => r.thread)).catch(() => []);
     return toolText({
@@ -565,16 +569,16 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
     });
   }
   const which = namedOutline(args.outline);
-  if (which && "error" in which) return toolError(which.error);
+  if (which && "error" in which) return toolError(which.error, which.kind);
   if (!which && !outlines.defaultOutline) return toolError("Name the outline (pass outline), or a note (uri or ref) to read its threads.");
   const limit = limitOf(args.limit, INBOX_NOTES);
-  if (typeof limit !== "number") return toolError(limit.error);
+  if (typeof limit !== "number") return toolError(limit.error, limit.kind);
   const since = timeArg(args.since);
-  if (typeof since === "object") return toolError(since.error);
+  if (typeof since === "object") return toolError(since.error, since.kind);
   const target = await outlines.board(which);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const access = await requireReadAccess(outlines, target);
-  if ("error" in access) return toolError(access.error);
+  if ("error" in access) return toolError(access.error, access.kind);
   const { board } = target;
   const query = { status, ...(typeof args.lastFrom === "string" && args.lastFrom ? { lastFrom: args.lastFrom } : {}), ...(typeof args.mentions === "string" && args.mentions ? { mentions: args.mentions } : {}), ...(since !== undefined ? { since } : {}) };
   // The index narrows to the notes holding threads by status and time; each note's threads are then read and filtered
@@ -620,22 +624,22 @@ const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefin
 
 async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>, grep = false): Promise<ToolResult> {
   const seen = args.seen === undefined ? undefined : parseSeen(args.seen);
-  if (seen && "error" in seen) return toolError(seen.error);
+  if (seen && "error" in seen) return toolError(seen.error, seen.kind);
   const named = namedOutline(args.outline);
-  if (named && "error" in named) return toolError(named.error);
+  if (named && "error" in named) return toolError(named.error, named.kind);
   if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
   const target = await outlines.board(named);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const { board, served } = target;
   const status = await requireReadAccess(outlines, target);
-  if ("error" in status) return toolError(status.error);
+  if ("error" in status) return toolError(status.error, status.kind);
   if (grep) {
     const result = await board.request("blocks.grep", { pattern: String(args.pattern), flags: args.flags as string | undefined, limit: args.limit as number | undefined, offset: args.offset as number | undefined });
     return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, ...result });
   }
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = limitOf(args.limit, query ? FIND_LIMIT : LIST_LIMIT);
-  if (typeof limit !== "number") return toolError(limit.error);
+  if (typeof limit !== "number") return toolError(limit.error, limit.kind);
   // Agents' searches are ranked and say how sure they are unless they ask not to (PIE-1198).
   const askSemantic = args.semantic !== false;
   // `completeness` is about this answer: the limit asked for, and whether there are more than it shows (cut here, or
@@ -663,12 +667,12 @@ const groupCompleteness = (shown: number, total: number | null) => ({ complete: 
 
 async function linkData(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
   const limit = limitOf(args.limit, LINKS_LIMIT);
-  if (typeof limit !== "number") return toolError(limit.error);
+  if (typeof limit !== "number") return toolError(limit.error, limit.kind);
   const target = await addressedBlock(outlines, refArg(args), args.outline);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const board = target.board;
   const read = await recordForMcp(outlines, target, target.id);
-  if ("error" in read) return toolError(read.error);
+  if ("error" in read) return toolError(read.error, read.kind);
   const record = read.record;
   // The service keeps the note itself among its backlinks (the door's "this note" toggle); here it's noise, so one
   // more is asked for. The record's backlinks are the same relation, whole: their count is the total, so this answer
@@ -701,7 +705,7 @@ const COMPONENT_URI = /^ep0ch:\/\/([^@/?#]+)@([^/?#]+)\/components\/([a-z0-9][a-
 const componentUri = (board: Board, id: string) => `ep0ch://${board.address.outline}@${board.address.machine}/components/${id}`;
 
 /** The component schemas of a board, once the outline's access lets this caller read it: the same read as `ep0ch library`. */
-async function componentsOf(outlines: McpOutlines, target: McpBoard): Promise<ComponentSchema[] | { error: string }> {
+async function componentsOf(outlines: McpOutlines, target: McpBoard): Promise<ComponentSchema[] | { error: string; kind?: RefusalKind }> {
   const status = await requireReadAccess(outlines, target);
   if ("error" in status) return status;
   return (await target.board.request("components.schemas", {})).schemas;
@@ -711,12 +715,12 @@ async function componentsTool(outlines: McpOutlines, args: Record<string, unknow
   const names = args.components === undefined ? [] : Array.isArray(args.components) && args.components.every(c => typeof c === "string") ? args.components as string[] : null;
   if (!names) return toolError("components is a list of component ids (leave it out for all of them).");
   const which = namedOutline(args.outline);
-  if (which && "error" in which) return toolError(which.error);
+  if (which && "error" in which) return toolError(which.error, which.kind);
   if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
   const served = await outlines.board(which);
-  if ("error" in served) return toolError(served.error);
+  if ("error" in served) return toolError(served.error, served.kind);
   const all = await componentsOf(outlines, served);
-  if ("error" in all) return toolError(all.error);
+  if ("error" in all) return toolError(all.error, all.kind);
   const brief = briefFor(all, names);
   return "error" in brief ? toolError(brief.error) : toolText(brief.text);
 }
@@ -935,17 +939,17 @@ const shareToolDefinitions = (outline: Record<string, unknown>) => [
 /** reader_view and the share tools: the outline named (or the default), its access checked (reads, or writes for a share). */
 async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" | "outline_snapshot", args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
   const which = namedOutline(args.outline);
-  if (which && "error" in which) return toolError(which.error);
+  if (which && "error" in which) return toolError(which.error, which.kind);
   if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
   // A snapshot of another machine's outline is made from its copy here, so this machine's web client serves the link.
   const target = await outlines.board(which, { copy: name === "outline_snapshot" });
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const { board } = target;
   const status = withLevel(await board.request("mcp.access.status", {}), caller, board.address);
-  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
+  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level), "no-access");
   // A share is live and takes comments: it is the outline's own machine's. Listing and revoking an outline served from
   // its copy are the copy's own links, its snapshots' (PIE-1091).
-  if (target.home && name === "share_start") return toolError(awayShareRefusal(outlines, target, args));
+  if (target.home && name === "share_start") return toolError(awayShareRefusal(outlines, target, args), "unavailable");
   try {
     if (name === "outline_snapshot") {
       const snapshot = await board.request("outline.snapshot", {
@@ -965,7 +969,7 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
       const seen = await readerView(board);
       return toolText({ ...seen, ...copyFields(target), said: target.home ? `${readerLine(seen.view)}\n${copyLine(target, "This machine's web pages of")}` : readerLine(seen.view) });
     }
-    if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+    if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level), "no-access");
     if (name === "share_start") {
       const started = await startShare(board, {
         ...(typeof args.ref === "string" ? { ref: args.ref } : {}), ...(typeof args.only === "string" ? { only: args.only } : {}), ...(typeof args.artifact === "string" ? { artifact: args.artifact } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}),
@@ -1016,14 +1020,14 @@ const artifactToolDefinitions = (outline: Record<string, unknown>) => [
 ];
 async function artifactTool(outlines: McpOutlines, name: string, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
   const which = namedOutline(args.outline);
-  if (which && "error" in which) return toolError(which.error);
+  if (which && "error" in which) return toolError(which.error, which.kind);
   if (!which && !outlines.defaultOutline) return toolError("Pass outline to name the outline.");
   const target = await outlines.board(which);
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const { board } = target;
   const status = withLevel(await board.request("mcp.access.status", {}), caller, board.address);
-  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
-  if ((name === "artifact_put" || name === "artifact_upload_lease") && (!caller || !writesAt(status.level))) return toolError(writeRefusal(outlines, target, status.level));
+  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level), "no-access");
+  if ((name === "artifact_put" || name === "artifact_upload_lease") && (!caller || !writesAt(status.level))) return toolError(writeRefusal(outlines, target, status.level), "no-access");
   if (name === "artifact_upload_lease") return uploadLease(outlines, board, args, caller!);
   try {
     if (name === "artifact_list") return toolText(await board.request("artifacts.list"));
@@ -1121,7 +1125,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
  * aliases renamed, an unknown, missing or mistyped argument answered with the schema line and a call that works.
  * Undefined for a tool this server doesn't offer (callTool says so).
  */
-function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string } | undefined {
+function checkedMcpArgs(outlines: McpOutlines, name: string, argsValue: unknown, caller?: McpCaller): { args: Record<string, unknown> } | { error: string; kind?: RefusalKind } | undefined {
   const writes = !!caller;
   const definitions = toolList(outlines, writes, caller, true);
   const definition = definitions.find(d => d.name === name);
@@ -1142,7 +1146,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     if (refusal) return toolError(refusal);
   }
   const checked = checkedMcpArgs(outlines, params.name, params.arguments, caller);
-  if (checked && "error" in checked) return toolError(checked.error);
+  if (checked && "error" in checked) return toolError(checked.error, checked.kind);
   const args = checked?.args ?? objectFields(params.arguments) ?? {};
   // The call a request names (PIE-685) is its call; the connection's is what it had before. A write with none gets a call
   // of its own, which its answer returns (the gateway keeps nothing between requests that could tie it to a later one).
@@ -1152,11 +1156,11 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
   if (params.name === "script_run" && caller) {
     const target = await addressedBlock(outlines, refArg(args), args.outline);
-    if ("error" in target) return toolError(target.error);
-    if (target.home) return toolError("Run the script on the outline's home machine");
+    if ("error" in target) return toolError(target.error, target.kind);
+    if (target.home) return toolError("Run the script on the outline's home machine", "unavailable");
     const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
     const decided = gate({ tool: "script_run", level: status.level, where: gateWhere(outlines, target) });
-    if (decided.becomes === "refused") return toolError(decided.why!);
+    if (decided.becomes === "refused") return toolError(decided.why!, "no-access");
     try {
       const refused = sharedToolRefusal("script_run", args);
       if (refused) return toolError(refused);
@@ -1177,7 +1181,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   if (params.name === "outline_components") return componentsTool(outlines, args);
   if (params.name === "loki_lease" && caller && outlines.admin) {
     const refusal = await lokiAccessRefusal(outlines, caller);
-    if (refusal) return toolError(refusal);
+    if (refusal) return toolError(refusal, "no-access");
     try { return toolText(await outlines.admin.host("loki.lease.start", { ttl: args.ttl, by: actorOf(caller).actorId })); }
     catch (error) { return toolError((error as Error).message, error); }
   }
@@ -1193,7 +1197,7 @@ async function adminTool(outlines: McpOutlines, admin: McpOutlineAdmin, tool: "o
   const actor = actorOf(caller, admin.env, admin.machine);
   try {
     const done = tool === "outline_new" ? await outlineNew(admin, args, caller) : await outlineArchive(admin, args, caller);
-    if ("error" in done) { outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}): refused: ${done.error}`); return toolError(done.error); }
+    if ("error" in done) { outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}): refused: ${done.error}`); return toolError(done.error, done.kind); }
     outlines.log?.(`mcp ${tool}: ${actor.actorId} (${caller.sub}) ${String(args.name)}: ${String(done.ok.outcome)}`);
     // A server bound to boards (stdio) serves what it made or brought back, and lets go of what it put away.
     if (tool === "outline_new" || (tool === "outline_archive" && args.restore === true)) {
@@ -1215,33 +1219,33 @@ const writeRefusal = (outlines: McpOutlines, target: McpBoard, level: McpAccessL
  */
 async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
   const shape = writeInput(tool, args);
-  if ("error" in shape) return toolError(shape.error);
+  if ("error" in shape) return toolError(shape.error, shape.kind);
   const actor = actorOf(caller, undefined, undefined, args.persona as string | undefined);
   const resourceRef = tool === "outline_comment" ? refArg(args) : undefined;
   if (resourceRef && await isResourceRef(resourceRef)) {
     const target = await resourceBoard(outlines, args);
-    if ("error" in target) return toolError(target.error);
+    if ("error" in target) return toolError(target.error, target.kind);
     const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
-    if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
-    if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
+    if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level), "no-access");
+    if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`, "unavailable");
     try {
       const done = await commentOnResourceOn(target.board, resourceRef, shape.input, actor);
       return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
     } catch (e) { return toolError((e as Error).message, e); }
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline, true, { write: true });
-  if ("error" in target) return toolError(target.error);
+  if ("error" in target) return toolError(target.error, target.kind);
   const { board } = target;
   const status = withLevel(await target.board.request("mcp.access.status", {}), caller, target.board.address);
-  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
+  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level), "no-access");
   // The gate (outliner src/write-gate.ts) says what this write becomes; applyWrite asks it again where the write lands.
   const decided = gate({ tool, level: status.level, where: gateWhere(outlines, target), top: tool === "outline_create" && target.id === "root" });
-  if (decided.becomes === "refused") return toolError(decided.why!);
+  if (decided.becomes === "refused") return toolError(decided.why!, "no-access");
   // A trashed note has no record in a read; outline_restore is about one, and outline_trash on one answers unchanged.
   const found = (await board.records([target.id])).records.find(r => r.id === target.id);
-  if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`);
+  if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`, "unavailable");
   const record = found ?? (tool === "outline_restore" || (tool === "outline_trash" && !target.home) ? { id: target.id, text: "", revision: undefined } : undefined);
-  if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
+  if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`, "not-found");
   // How old the base a write was made against is: a mirror lags the laptop, so a revision read from it may be behind.
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(target.served.asOf)) / 60_000));
   const base = { source: target.served.source, asOf: target.served.asOf, ageMinutes: target.served.source === "mirror" ? ageMin : 0 };
@@ -1272,7 +1276,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       });
     };
     if (target.home) {
-      if (!outlines.netmail) return toolError(`${where.outline} lives on ${target.home.machine}, and this server has nowhere to queue writes for it.`);
+      if (!outlines.netmail) return toolError(`${where.outline} lives on ${target.home.machine}, and this server has nowhere to queue writes for it.`, "unavailable");
       return queue(target.home.machine, target.home.instanceId, target.served.liveTried?.why, base, liveId);
     }
     // Served live from a machine this server also queues for: writes made while it was away were drained before this
@@ -1319,7 +1323,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
     case "tools/list":
       return offersWrites(outlines, caller).then(async w => ({ tools: toolList(outlines, w, caller, !!caller && !!outlines.admin && !(await lokiAccessRefusal(outlines, caller))).map(withLoadHint) }));
     case "tools/call":
-      if (outlines.unavailable) return toolError(outlines.unavailable);
+      if (outlines.unavailable) return toolError(outlines.unavailable, "unavailable");
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":
       return componentResources(outlines).then(resources => ({ resources: [...resources, ...skillResources(gatewaySkills()), ...docResources()] }));
@@ -1462,7 +1466,7 @@ function clientNamed(line: string): string | undefined {
   return undefined;
 }
 
-function mcpArgs(argsIn: string[]): string[] | { error: string } {
+function mcpArgs(argsIn: string[]): string[] | { error: string; kind?: RefusalKind } {
   const args = argsIn.slice(1), out: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -1476,7 +1480,7 @@ function mcpArgs(argsIn: string[]): string[] | { error: string } {
   return out;
 }
 
-function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; machines: string[]; level?: McpAccessLevel; json: boolean; matrix: boolean; cap?: string } | { error: string } {
+function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; machines: string[]; level?: McpAccessLevel; json: boolean; matrix: boolean; cap?: string } | { error: string; kind?: RefusalKind } {
   const args = argsIn.slice(2), boardArgs: string[] = [], machines: string[] = [];
   let level: McpAccessLevel | undefined, json = false, matrix = false, cap: string | undefined;
   for (let i = 0; i < args.length; i++) {
