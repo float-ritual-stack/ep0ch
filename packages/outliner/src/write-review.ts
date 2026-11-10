@@ -121,7 +121,15 @@ export function writeScope(text: string, before?: string): WriteScope {
   const sections = sectionsOf(text);
   if (before === undefined) return { whole: true, sections, lines: [[0, text.split("\n").length - 1]] };
   // The runs it added or rewrote only: a line left standing where lines were deleted is the note's, not this write's.
-  return { whole: false, sections: sections.filter(s => !before.includes(s.text)), lines: changedLines(before, text, { added: true }) };
+  // A section is the note's while the note had as many copies of it before: a copy the write made is the write's.
+  const had = new Map<string, number>(), seen = new Map<string, number>();
+  for (const s of sectionsOf(before)) had.set(s.text, (had.get(s.text) ?? 0) + 1);
+  const changed = sections.filter(s => {
+    const n = had.get(s.text) ?? 0, k = (seen.get(s.text) ?? 0) + 1;
+    seen.set(s.text, k);
+    return n ? k > n : !before.includes(s.text);
+  });
+  return { whole: false, sections: changed, lines: changedLines(before, text, { added: true }) };
 }
 /** Line `i` (from 0) is one the write added or rewrote. */
 export const wroteLine = (scope: WriteScope, i: number) => scope.whole || scope.lines.some(([a, b]) => i >= a && i <= b);

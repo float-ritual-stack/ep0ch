@@ -548,8 +548,8 @@ test("a label over a statement is filed; a label over a request isn't, and a not
 
 test("a bold-led line that explains a feature is filed; one that asks Evan, asks a question or is an open box isn't (PIE-1715)", () => {
   const filed = (line: string) => structuralLines(["Notes", "", line]).has(2);
-  for (const line of ["- **A choice is boxes:** one `- [ ]` per option; you answer with approve or reject from the box.", "**Waiters:** you pick a query and it exits when a match appears; confirm with the log."]) expect([line, filed(line)]).toEqual([line, true]);
-  for (const line of ["- **Next:** Evan, approve the cedar or the larch", "- **Posts:** should they be cedar?", "- **Posts:** please pick the wood", "- [ ] **Cedar:** approve to order it", "- **Needs Evan:** approve the order", "- **Should the fence be cedar?**"]) expect([line, filed(line)]).toEqual([line, false]);
+  for (const line of ["- **A choice is boxes:** one `- [ ]` per option; you answer with approve or reject from the box.", "**Waiters:** you pick a query and it exits when a match appears."]) expect([line, filed(line)]).toEqual([line, true]);
+  for (const line of ["- **Next:** Evan, approve the cedar or the larch", "- **Posts:** should they be cedar?", "- **Posts:** please pick the wood", "- [ ] **Cedar:** approve to order it", "- **Needs Evan:** approve the order", "- **Should the fence be cedar?**", "**Decision:** Approve the deployment now.", "- **Posts:** cedar is in stock; pick one by Friday."]) expect([line, filed(line)]).toEqual([line, false]);
 });
 
 // PIE-1657: a choice left to Evan is a box he can tick, never a proposed decision he can only read.

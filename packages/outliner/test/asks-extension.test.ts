@@ -570,6 +570,23 @@ test("a note saved while the window is listed is listed once, and pushes no othe
   expect(said).toContain("5 notes read");
 });
 
+test("PIE-1715: deadlines never stop review asks, the host's or the outline's: every note is still read", async () => {
+  const t = await setup(Array.from({ length: 6 }, (_, i) => `Yard ${i}\n\nSome text.\n\n- Should the shed have ${i} doors?`), 60_000);
+  const board = boardOf(t), lines: string[] = [];
+  let acted = 0;
+  const slow = { ...board, send: async (action: string, params: Record<string, unknown>) => {
+    if (action !== "extensions.act") return board.send(action, params);
+    // The asks extension's own reach of the outline, past its deadline, then the host's, on the first notes.
+    if (++acted <= 2) throw new Error("no answer from the outline in 110000 ms");
+    if (acted <= 4) throw new Error("request timed out");
+    return board.send(action, params);
+  } };
+  await asksBackfill(slow, { since: "30d", write: false }, { out: s => { lines.push(s); }, err: s => { lines.push(s); } });
+  const said = lines.join("\n");
+  expect(said).toContain("6 notes read");
+  expect(said).not.toContain("stopped");
+});
+
 test("a chip's words fit however long the line is", () => {
   const marked = withMark(`- Should the shed ${"really ".repeat(200)}face south?`, "yes");
   const chip = /\[needs::([^\]]*)\]/.exec(marked)![1]!;
@@ -726,13 +743,13 @@ test("PIE-1708: a model that isn't logged in names the command that stores claud
 });
 
 test("PIE-1715: a model command that fails is said once, read whole, and the run stops instead of failing every note", async () => {
-  const answer = [process.execPath, "-e", "process.exit(3)", "--", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", "You answer with JSON only."];
+  const answer = [process.execPath, "-e", "process.exit(3)", "--", "--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", "You answer with JSON only.", "--note", "$HOME's"];
   const t = await setup(["Older yard\n\nSome text.\n\n- Should the hedge be low?", "Older shed\n\nSome text.\n\n- Should the shed face south?", "Older pond\n\nSome text.\n\n- Should the pond be netted?"], 100, { answer });
   const out: string[] = [];
   expect(await asksBackfill(boardOf(t), { since: "30d", write: false }, { out: s => { out.push(s); }, err: s => { out.push(s); } })).toBe(1);
   const said = out.join("\n");
-  // The command as it runs, every argument, the empty ones quoted: nothing reads as cut off.
-  expect(said).toContain(`--tools "" --setting-sources "" --strict-mcp-config --disable-slash-commands --system-prompt "You answer with JSON only."`);
+  // The command as it runs, every argument quoted as a shell reads it back exactly: nothing reads as cut off, nothing expands.
+  expect(said).toContain(`--tools '' --setting-sources '' --strict-mcp-config --disable-slash-commands --system-prompt 'You answer with JSON only.' --note '$HOME'\\''s'`);
   expect(said).toContain("exited 3");
   expect(said.match(/couldn't confirm/g)).toHaveLength(1);
   expect(said).toContain("failed the same way");

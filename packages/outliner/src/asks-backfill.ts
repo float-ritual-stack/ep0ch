@@ -6,6 +6,8 @@ const AT_ONCE = 4;
 const TURNED_DOWN = "turned down: ";
 /** How many notes one read of the window asks for: the most a query answers. */
 const PAGE = 1000;
+/** A failure that is a deadline passing: never the run's to stop on. */
+const DEADLINE = /\btimed out\b|\bno answer from .+ in \d+ m?s\b/i;
 
 export type Sender = { send(action: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>; address: { outline: string } };
 
@@ -54,8 +56,9 @@ export async function asksBackfill(board: Sender, o: { since: string; write: boo
       if (fresh.length) io.err(`${fresh.join(", ")}: ${why}`);
     }
     // The same failure twice is the run's, not a note's (PIE-1715: every note failed on one model command): stop, said once.
-    // A deadline isn't: a slow note or two in a month's run says nothing about the rest.
-    stopped = [...failures].some(([why, ids]) => ids.length > 1 && !/timed out/i.test(why));
+    // A deadline isn't, the host's ("request timed out") or the extension's reach of the outline ("no answer from … in
+    // 110000 ms"): a slow note or two in a month's run says nothing about the rest.
+    stopped = [...failures].some(([why, ids]) => ids.length > 1 && !DEADLINE.test(why));
   }
   if (struck.length) io.out(`Turned down by the model, not written:\n${struck.join("\n")}`);
   const rest = notes.length - read;

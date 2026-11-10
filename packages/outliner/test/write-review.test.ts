@@ -11,6 +11,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 import { asksFor } from "../src/jev-asks";
+import { writeScope } from "../src/write-review";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -669,6 +670,13 @@ test("two walls in two sections, one patched: the other is the note's, listed an
   const review = (await agent("patch", { ref: note.id, revision: note.revision, patches: walls[0]!.patch })).json.review as Review;
   expect(review.findings.filter(f => f.rule === "wall").map(f => f.new)).toEqual([false]);
   expect(review.verdict).toBe("ship");
+});
+
+test("a section a write copies is in its scope, the copy only: the one already there stays out (PIE-1715)", () => {
+  const before = "Shed\n\n## Tools\n\nThe spade is in the shed.";
+  const scope = writeScope(`${before}\n\n## Tools\n\nThe spade is in the shed.`, before);
+  expect(scope.sections.map(s => [s.heading, s.line])).toEqual([["Tools", 6]]);
+  expect(writeScope(before, before).sections).toEqual([]);
 });
 
 test("deleting the line above an old ask leaves the ask the note's, not the write's (PIE-1715)", async () => {

@@ -78,8 +78,8 @@ export function formatSkills(skills: readonly Skill[], width = 100): string {
 }
 
 /**
- * `ep0ch --skill [--all] [<name>]`: the list, or the path of one skill's SKILL.md (every match, one per line,
- * when two sources share a name). Unknown name: exit 1 with the names that contain it.
+ * `ep0ch --skill [--all] [<name> [--path]]`: the list, or one skill's SKILL.md printed whole (every match, a blank line
+ * between, when two sources share a name); `--path` prints each match's path instead, one per line. Unknown name: exit 1 with the names that contain it.
  */
 export function skillCommand(args: readonly string[], doorRoot = resolve(import.meta.dir, ".."), outliner = outlinerRoot()): { out: string; code: number } {
   const all = args.includes("--all");
