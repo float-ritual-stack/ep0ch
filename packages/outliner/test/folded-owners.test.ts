@@ -32,6 +32,9 @@ test("responseMediaType lowercases and drops parameters; a response without one 
   const bare = new Response(null);
   bare.headers.delete("content-type");
   expect(responseMediaType(bare)).toBe("");
+  // An empty type a server's default was added to (Bun.serve's), and two named: the last real one (PIE-1694).
+  expect(responseMediaType(new Response("x", { headers: { "content-type": ", text/plain;charset=utf-8" } }))).toBe("text/plain");
+  expect(responseMediaType(new Response("x", { headers: { "content-type": "text/html, text/markdown" } }))).toBe("text/markdown");
   await cancelResponseBody(new Response("unread"));
   await cancelResponseBody(new Response(null));
 });

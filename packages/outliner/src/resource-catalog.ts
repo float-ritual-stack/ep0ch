@@ -16,6 +16,11 @@ import { commitFilesystemText, recoverFilesystemSave } from "./filesystem-commit
 import {
   BasicWebMarkdownExtractor,
   sha256,
+  WEB_ACCEPT,
+  WEB_TEXT_ADAPTER,
+  unsupportedWebMediaType,
+  webBodyKind,
+  type WebBodyKind,
   type WebMarkdownExtractor,
 } from "./web-markdown";
 import { PdfJsTextExtractor, type PdfTextExtractor } from "./pdf-text";
@@ -89,6 +94,7 @@ import {
   type ResourceProviderCommandInput,
   type ResourceProviderCommandReceipt,
   type ExtensionProvider,
+  type ResourceRepresentationAdapter,
   providerLabel,
 } from "./resources";
 import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
@@ -156,6 +162,8 @@ interface WebObservation {
   readonly etag: string | null;
   readonly lastModified: string | null;
   readonly html: string;
+  /** HTML goes through the extractor; text (a Markdown or plain page) is its own representation. */
+  readonly kind: WebBodyKind;
   readonly fetchedAt: string;
 }
 
@@ -2884,7 +2892,7 @@ export class ResourceCatalog {
         : null;
       return { resource, source, generation, sourceSnapshot, representation };
     })();
-    const headers = new Headers({ Accept: "text/html,application/xhtml+xml" });
+    const headers = new Headers({ Accept: WEB_ACCEPT });
     if (snapshot.sourceSnapshot?.etag) {
       headers.set("If-None-Match", snapshot.sourceSnapshot.etag);
     }
@@ -2900,10 +2908,13 @@ export class ResourceCatalog {
         headers,
         signal,
       );
+      // A stored snapshot that was text keeps its text; only an HTML one is extracted again by a newer extractor.
+      const storedKind = snapshot.sourceSnapshot ? this.webSnapshotKind(snapshot.sourceSnapshot.id) : "html";
+      const storedAdapter = this.webAdapterFor(storedKind);
       const representationMatchesExtractor =
         snapshot.representation?.source_snapshot_id === snapshot.sourceSnapshot?.id &&
-        snapshot.representation?.adapter_id === this.webExtractor.adapter.id &&
-        snapshot.representation?.adapter_version === this.webExtractor.adapter.version &&
+        snapshot.representation?.adapter_id === storedAdapter.id &&
+        snapshot.representation?.adapter_version === storedAdapter.version &&
         snapshot.representation?.markdown !== null;
       const canUseNotModified =
         snapshot.sourceSnapshot !== null &&
@@ -2914,7 +2925,7 @@ export class ResourceCatalog {
         ({ response, url: canonicalUrl } = await this.fetchWeb(
           snapshot.source,
           snapshot.resource.address.url,
-          new Headers({ Accept: "text/html,application/xhtml+xml" }),
+          new Headers({ Accept: WEB_ACCEPT }),
           signal,
         ));
       }
@@ -2971,6 +2982,7 @@ export class ResourceCatalog {
               etag: snapshot.sourceSnapshot.etag,
               lastModified: snapshot.sourceSnapshot.last_modified,
               html: snapshot.sourceSnapshot.html,
+              kind: storedKind,
               fetchedAt: snapshot.sourceSnapshot.fetched_at,
             },
           );
@@ -2990,12 +3002,10 @@ export class ResourceCatalog {
         );
       }
       const mediaType = responseMediaType(response);
-      if (mediaType !== "text/html" && mediaType !== "application/xhtml+xml") {
+      const unsupported = unsupportedWebMediaType(mediaType);
+      if (unsupported) {
         await cancelResponseBody(response);
-        throw new ResourceCatalogError(
-          "invalid-input",
-          `Web provider returned unsupported media type: ${mediaType || "unknown"}`,
-        );
+        throw new ResourceCatalogError("invalid-input", unsupported);
       }
       const declaredLength = Number(response.headers.get("content-length"));
       if (Number.isFinite(declaredLength) && declaredLength > this.maximumWebBytes) {
@@ -3006,6 +3016,8 @@ export class ResourceCatalog {
         );
       }
       const html = await this.readWebBody(response);
+      const kind = webBodyKind(mediaType, html);
+      if (typeof kind !== "string") throw new ResourceCatalogError("invalid-input", kind.refused);
       const contentHash = sha256(html);
       const etag = webEtag(response);
       const lastModified = response.headers.get("last-modified")?.trim() || null;
@@ -3020,6 +3032,7 @@ export class ResourceCatalog {
           etag,
           lastModified,
           html,
+          kind,
           fetchedAt: checkedAt,
         },
       );
@@ -3050,10 +3063,10 @@ export class ResourceCatalog {
     checkedAt: string,
     observation: WebObservation,
   ): void {
-    const markdown = this.webExtractor.extract({
-      html: observation.html,
-      url: observation.canonicalUrl,
-    });
+    const adapter = this.webAdapterFor(observation.kind);
+    const markdown = observation.kind === "text"
+      ? observation.html
+      : this.webExtractor.extract({ html: observation.html, url: observation.canonicalUrl });
     if (!markdown) {
       throw new ResourceCatalogError(
         "invalid-input",
@@ -3129,8 +3142,8 @@ export class ResourceCatalog {
         LIMIT 1
       `).get(
         sourceSnapshot.id,
-        this.webExtractor.adapter.id,
-        this.webExtractor.adapter.version,
+        adapter.id,
+        adapter.version,
         representationHash,
       ) as WebRepresentationRow | null;
       if (!representation) {
@@ -3143,8 +3156,8 @@ export class ResourceCatalog {
         `).run(
           representationId,
           sourceSnapshot.id,
-          this.webExtractor.adapter.id,
-          this.webExtractor.adapter.version,
+          adapter.id,
+          adapter.version,
           representationHash,
           markdown,
           checkedAt,
@@ -3173,6 +3186,23 @@ export class ResourceCatalog {
       `).run(sourceSnapshot.id, representation.id, checkedAt, resource.id);
       this.bumpSequence();
     })();
+  }
+
+  /** The adapter that makes a snapshot of this kind's representation: the extractor for HTML, none for text. */
+  private webAdapterFor(kind: WebBodyKind): ResourceRepresentationAdapter {
+    return kind === "text" ? WEB_TEXT_ADAPTER : this.webExtractor.adapter;
+  }
+
+  private isCurrentWebAdapter(id: string, version: number): boolean {
+    return (id === WEB_TEXT_ADAPTER.id && version === WEB_TEXT_ADAPTER.version) ||
+      (id === this.webExtractor.adapter.id && version === this.webExtractor.adapter.version);
+  }
+
+  /** What a stored snapshot was: text when a representation of it was made as text (no column records it), else HTML. */
+  private webSnapshotKind(sourceSnapshotId: string): WebBodyKind {
+    return this.database.query(
+      "SELECT 1 FROM web_representations WHERE source_snapshot_id = ? AND adapter_id = ? LIMIT 1",
+    ).get(sourceSnapshotId, WEB_TEXT_ADAPTER.id) ? "text" : "html";
   }
 
   private assertWebRefreshCurrent(
@@ -3382,8 +3412,7 @@ export class ResourceCatalog {
               (
                 activeAdapterOnly &&
                 (
-                  candidate.adapter_id !== this.webExtractor.adapter.id ||
-                  candidate.adapter_version !== this.webExtractor.adapter.version
+                  !this.isCurrentWebAdapter(candidate.adapter_id, candidate.adapter_version)
                 )
               )
             ) continue;
