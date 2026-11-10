@@ -314,8 +314,10 @@ describe("the session owns the reload (a fake target)", () => {
       s.key(ctrl("r"), host);
       await settled(d);
       for (const c of "kale") s.key(char(c), host);
+      s.key({ kind: "enter" }, host);
+      // A line the person made after it is theirs: kept as typed.
       expect((await s.submit()).ok).toBe(true);
-      expect(writes).toEqual(["Crops\n\nNo table now.\nkale"]);
+      expect(writes).toEqual(["Crops\n\nNo table now.\nkale\n"]);
     });
 
     test("the edited table removed while another stays: the line says the table changed, not gone", async () => {

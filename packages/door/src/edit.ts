@@ -410,7 +410,7 @@ export class Draft {
     this.baseProps = propertyListOf(m);
     this.base = m.revision ?? this.base;
     this.original = m.text;
-    this.landingLine = false;
+    this.landingRow = null;
     this.lines = m.text.split("\n");
     // The typed text is a step back: ctrl+z after a reload brings it back.
     this.record(USER, "the reload");
@@ -425,17 +425,17 @@ export class Draft {
    * nothing to save, and a save only writes it with words on it.
    */
   landAtEnd() {
-    if (this.lines.at(-1)) { this.lines.push(""); this.seen = this.text; this.landingLine = true; }
+    if (this.lines.at(-1)) { this.lines.push(""); this.seen = this.text; this.landingRow = this.lines.length - 1; }
     this.place(this.lines.length - 1, 0);
   }
   /** `landAtEnd` added the last line: until something is typed on it, it isn't the person's text (PIE-1578). */
-  private landingLine = false;
+  private landingRow: number | null = null;
   /**
    * The text a save writes: all of it, less the line a reload's landing added while nothing is typed on it (PIE-1578),
    * so an edit elsewhere (a key, an agent's patch) never saves a trailing line nobody wrote.
    */
   get body(): string {
-    return this.landingLine && this.lines.length > 1 && this.lines.at(-1) === "" ? this.lines.slice(0, -1).join("\n") : this.text;
+    return this.landingRow !== null && this.landingRow === this.lines.length - 1 && this.landingRow > 0 && this.lines.at(-1) === "" ? this.lines.slice(0, -1).join("\n") : this.text;
   }
 
   /**
@@ -1232,7 +1232,7 @@ export class Draft {
    */
   wentOnFrom(text: string, at?: number) {
     // What a save wrote is the body: a landing line nothing was typed on stays pending past it (PIE-1578).
-    if (text !== this.body) { this.lines = text.split("\n"); this.landingLine = false; this.place(this.lines.length - 1, Infinity); this.undos = []; this.redos = []; }
+    if (text !== this.body) { this.lines = text.split("\n"); this.landingRow = null; this.place(this.lines.length - 1, Infinity); this.undos = []; this.redos = []; }
     else this.undos = this.undos.map((s, i, all) => ({ ...s, open: false, ...(i === all.length - 1 && at !== undefined ? { saved: at } : {}) }));
     this.original = text; this.seen = this.text;
     if (at !== undefined) this.base = at;
