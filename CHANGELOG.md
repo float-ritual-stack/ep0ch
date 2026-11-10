@@ -12,7 +12,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
 
-- **Nothing you see changes:** the door draws, answers keys and lists its actions exactly as before. This is for whoever opens the code next.
+- **Nothing you use changes:** the door draws, answers keys and lists its actions exactly as before; the one thing drawn differently is the kitchen sink's file pointers, which name the new modules. This is for whoever opens the code next.
 - **A reader's action lives with its prefix:** `NOTE_ACTIONS` is spread from one module per prefix family in `packages/door/src/surface/note-actions/` (editing, comments, elements, reading, sources, …), with what they share in `shared.ts`. A new action goes in its prefix's module.
 - **The link model and the panels are their own modules:** `surface/link-model.ts` (a note's links as the reader follows them) and `surface/note-panels.ts` (a step's or callout's choice, a thread's card).
 - **Copies folded onto their owners:** the heading test onto outline-core's `HEADING_LINE`, one line↔offset pair (`lineStart`, `lineAtOffset` in outline-core's `code-ranges.ts`), `inRect`, `width()` for the reader's own chips, one refusal table, one thread lookup and one comment send.
