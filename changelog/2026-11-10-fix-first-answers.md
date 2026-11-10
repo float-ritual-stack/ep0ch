@@ -11,4 +11,4 @@
 - **The count rule reads prose as prose:** "2,000 notes" is no "000 notes", a dotted key (`style.border=line`) is never a count, "notes" counts every note rather than `kind=note`, and "4 in review" reads only a state key (`work-stage`, `status`), never `kind=review`.
 - **A bold-led line that explains a feature isn't an ask:** `- **A choice is boxes:** … you answer with approve …` is filed in code, never marked `[maybe-needs::sysop]`.
 - **`ep0ch review asks` says a failing model command once, whole, and stops:** the asks extension refuses in its own words (no stack), the host keeps an extension's last 1,200 characters of stderr, and a failure every note shares stops the run instead of failing each one.
-- **Run:** `ep0ch install --apply` (door, outliner, outline-core and the bundled asks extension). PROTOCOL, GRAMMAR and the schema don't move.
+- **Run:** `ep0ch install --apply` (door, outliner, outline-core; an outline's own copy of asks: `ep0ch ext update asks --ws <name>` if install left it). PROTOCOL, GRAMMAR and the schema don't move.
