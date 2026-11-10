@@ -413,6 +413,8 @@ One table, `DRAFT_KEYS` (`src/edit.ts`), read by every place a person types thro
 
 Wrap keys are the table's too: `( [ { " ' \` * _ ~` over a selection the person made wrap it and leave it selected; over one the door filled in for typing over (a slot, an example value, a prefilled line) they replace it. In the power bar's line alt+←→ and alt+b alt+f stay its scope. ctrl+x stays the $EDITOR chord in a draft and cut in a line; ctrl+w stays ^W in a draft and the word before in a line.
 
+**Every key of a draft is a row of a table, so a rebind works and shows wherever a person types** (Nov 3 review card 1). `DRAFT_KEYS` holds esc (`edit.close`, the ladder), tab and shift+tab (`draft.indent`, `draft.outdent`) beside the rest; `DRAFT_CHORD_KEYS` (prefix `ctrl+x `) holds the second key of $EDITOR (`"edit.external": ["ctrl+x alt+e"]` moves it; the ctrl+x itself stays); `LINE_KEYS` holds what only a line field has, ctrl+w (`draft.erase to=word-back`), ctrl+u (`draft.clear`) and ctrl+x (`draft.cut`), read ahead of `DRAFT_KEYS` (`Draft.tables`). The comment keys table holds ctrl+o and ctrl+g (`comment.place`, `comment.grip`). `editHint` writes no key: each row comes from one of these tables with the keymap applied, as the keys window lists them, and an edit's mode (`ReaderMode.keys`) carries the draft's table plus the note edit's own. The facets tile's query line is a `LineField` with ⏎ as its own row and the draft's `edit.close` for esc.
+
 ### Reading and editing (the note surface)
 
 | Canonical | Meaning | Code | Tree/Detail |

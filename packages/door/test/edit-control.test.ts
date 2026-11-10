@@ -200,6 +200,129 @@ describe("the line field's erase, clear and cut keys are rows of the key table t
   });
 });
 
+describe("the hint row and the keys follow a rebind of esc, tab, shift+tab, the $EDITOR chord, ctrl+o, ctrl+g and the [ wrap (Nov 3 review card 1)", () => {
+  const was = process.env.EP0CH_KEYMAP;
+  let file = "";
+  beforeAll(() => { file = join(mkdtempSync(join(tmpdir(), "edit-keymap-hint-")), "keybindings.json"); process.env.EP0CH_KEYMAP = file; reloadKeymap(); });
+  afterAll(() => { if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was; reloadKeymap(); });
+  const rebind = (map: Record<string, string[]>) => { writeFileSync(file, JSON.stringify(map)); reloadKeymap(); };
+  const hint = (d: Draft, o: Parameters<typeof editHint>[1] = { save: "save" }) => editHint(d, o).replace(/\x1b\[[\d;]*m/g, "");
+
+  test("built in, the hint says the keys of the tables: esc, ctrl+x ctrl+e, tab, shift+tab, ctrl+o, ctrl+g and the [ wrap", () => {
+    const d = new Draft("test", 0, "beans");
+    d.place(0, 0); d.place(0, 5, true);
+    const h = hint(d, { save: "send", place: "floating", move: true });
+    for (const part of ["esc done", "^X ^E $EDITOR", "tab indent", "shift+tab out", "^O floating", "^G move"]) expect(h).toContain(part);
+    expect(h).toMatch(/\[ wraps/);
+  });
+
+  test("edit.close, draft.indent, draft.outdent and edit.external rebound show in the hint and run on the new key", () => {
+    rebind({ "edit.close": ["alt+q"], "draft.indent": ["alt+i"], "draft.outdent": ["alt+o"], "edit.external": ["ctrl+x alt+e"] });
+    try {
+      const d = new Draft("test", 0, "- beans");
+      const h = hint(d);
+      for (const part of ["alt+q done", "alt+i indent", "alt+o out", "^X alt+e $EDITOR"]) expect(h).toContain(part);
+      expect(h).not.toContain("esc done");
+      expect(h).not.toContain("shift+tab out");
+      expect(h).not.toContain("^X ^E");
+      // The keys run what the hint says.
+      expect(d.key(alt("q"))).toBe("close");
+      d.place(0, 7);
+      d.key(alt("i"));
+      expect(d.text).toBe("  - beans");
+      d.key(alt("o"));
+      expect(d.text).toBe("- beans");
+      // The old keys are nothing, not the old action.
+      d.key({ kind: "tab" });
+      expect(d.text).toBe("- beans");
+      expect(d.key({ kind: "esc" })).toBe("keep");
+      d.key(ctrl("x"));
+      expect(d.key(alt("e"))).toBe("editor");
+      d.key(ctrl("x"));
+      expect(d.key(ctrl("e"))).toBe("keep");
+    } finally { rebind({}); }
+  });
+
+  test("a changed draft's esc rebound: the first press arms, the second puts it aside", () => {
+    rebind({ "edit.close": ["alt+q"] });
+    try {
+      const d = new Draft("test", 0, "");
+      for (const k of typeKeys("kale")) d.key(k);
+      expect(d.key(alt("q"))).toBe("keep");
+      expect(d.key(alt("q"))).toBe("discard");
+    } finally { rebind({}); }
+  });
+
+  test("comment.place and comment.grip rebound show in the hint (the comment keys table), and the [ wrap shows its rebound key", () => {
+    rebind({ "comment.place": ["alt+o"], "comment.grip": ["alt+g"], "draft.wrap with=[": ["alt+8"] });
+    try {
+      const d = new Draft("test", 0, "beans");
+      d.place(0, 0); d.place(0, 5, true);
+      const h = hint(d, { save: "send", place: "floating", move: true });
+      expect(h).toContain("alt+o floating");
+      expect(h).toContain("alt+g move");
+      expect(h).toContain("alt+8 wraps");
+      expect(h).not.toContain("^G move");
+    } finally { rebind({}); }
+  });
+
+  test("the snippet and completion hint rows say the table's keys too", () => {
+    rebind({ "draft.indent": ["alt+i"] });
+    try {
+      const d = new Draft("test", 0, "");
+      d.startSnippet([{ start: 0, end: 0 }, { start: 0, end: 0 }] as never, 0);
+      expect(hint(d)).toContain("alt+i next");
+    } finally { rebind({}); }
+  });
+});
+
+describe("the facets tile's query line is the one line field with the draft's keys (Nov 3 review card 1)", () => {
+  const was = process.env.EP0CH_KEYMAP;
+  let file = "";
+  beforeAll(() => { file = join(mkdtempSync(join(tmpdir(), "edit-keymap-facets-")), "keybindings.json"); process.env.EP0CH_KEYMAP = file; reloadKeymap(); });
+  afterAll(() => { if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was; reloadKeymap(); });
+  const rebind = (map: Record<string, string[]>) => { writeFileSync(file, JSON.stringify(map)); reloadKeymap(); };
+  const desk = { redraw() {}, ctx: { copy() {} } } as never;
+  const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+
+  test("the hint names the table's keys; a rebind of edit.close shows and drops the query on the new key, esc doing nothing", async () => {
+    const { FacetsPane } = await import("../src/desk/facets");
+    const pane = new FacetsPane();
+    pane.editQuery(desk, "seed beans");
+    expect(plain(pane.hint())).toContain("esc undo");
+    expect(plain(pane.hint())).toContain("⏎ apply");
+    rebind({ "edit.close": ["alt+q"] });
+    try {
+      expect(plain(pane.hint())).toContain("alt+q undo");
+      expect(plain(pane.hint())).not.toContain("esc undo");
+      pane.key({ kind: "esc" }, desk);
+      expect(pane.draft).not.toBeNull();
+      pane.key(alt("q"), desk);
+      expect(pane.draft).toBeNull();
+    } finally { rebind({}); }
+  });
+
+  test("the typing keys are the line field's: a rebound erase-word and clear work on the query, undo takes them back", async () => {
+    const { FacetsPane } = await import("../src/desk/facets");
+    rebind({ "draft.erase to=word-back": ["alt+e"], "draft.clear": ["alt+k"] });
+    try {
+      const pane = new FacetsPane();
+      pane.editQuery(desk, "seed beans");
+      pane.key({ kind: "char", ch: "!" }, desk);
+      expect(pane.draft!.text).toBe("!");
+      pane.draft!.set("seed beans");
+      pane.key(ctrl("w"), desk);
+      expect(pane.draft!.text).toBe("seed beans");
+      pane.key(alt("e"), desk);
+      expect(pane.draft!.text).toBe("seed ");
+      pane.key(alt("k"), desk);
+      expect(pane.draft!.text).toBe("");
+      pane.key(ctrl("z"), desk);
+      expect(pane.draft!.text).toBe("seed ");
+    } finally { rebind({}); }
+  });
+});
+
 describe("an inspector field takes a paste as the edit control does (PIE-1542)", () => {
   test("a multi-line paste lands whole and nothing saves until the person saves", async () => {
     const h = await inspectorHost();

@@ -540,7 +540,7 @@ function wordKeys(w: string): string[] | null {
 
 /**
  * One key or a ^W chord as its one name (`^W x` → `ctrl+w x`, `⏎` → `enter`, `ctrl+W` → `ctrl+w`), as the keymap file
- * and a binding name it; null when it names no key, several (`j k`, `1-9`), or a chord after anything but ^W.
+ * and a binding name it; null when it names no key, several (`j k`, `1-9`), or a chord after anything but ^W (or a draft's ctrl+x).
  */
 export function chordName(text: string): string | null {
   // A hyper chord (src/hyper.ts) by its one name, `hyper+p`, or as hints show it, `✦p`.
@@ -549,7 +549,7 @@ export function chordName(text: string): string | null {
   const words = text.trim().split(/\s+/).filter(Boolean).map(wordKeys);
   if (!words.length || words.length > 2 || words.some(w => w?.length !== 1)) return null;
   const names = words.map(w => w![0]!);
-  return names.length === 2 && names[0] !== "ctrl+w" ? null : names.join(" ");
+  return names.length === 2 && names[0] !== "ctrl+w" && names[0] !== "ctrl+x" ? null : names.join(" ");
 }
 
 /** Whether a word names keys (`ctrl+k`, `^W`, `j`, `1-9`, `⏎/e`, `↑↓`): a key sheet draws it as keycaps. */

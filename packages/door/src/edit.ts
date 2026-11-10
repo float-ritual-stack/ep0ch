@@ -88,6 +88,9 @@ const go = (to: string, words: string, move: string[], select: string[]): ModeKe
  */
 export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a person types: a note's edit, a comment, the composer, an inspector field, the power bar, a line field", [
   { key: "ctrl+s", action: "edit.save", label: "save", says: "save or send what's written" },
+  { key: "esc", action: "edit.close", label: "done", says: "let go of a selection; then close what you're writing (on changed text a second press puts it aside as unsent, never dropped)" },
+  { key: "tab", action: "draft.indent", label: "indent", says: "indent the line, or the selected lines, one level (a list item goes under the item above)" },
+  { key: "shift+tab", action: "draft.outdent", label: "out", says: "outdent the line, or the selected lines, one level" },
   { key: "ctrl+z", action: "draft.undo", label: "undo", says: "take back the last change in what you're writing" },
   { key: "ctrl+y", action: "draft.redo", label: "redo", says: "put back the change you undid (ctrl+shift+z too)" },
   { key: "ctrl+t", action: "draft.pick", label: "insert", says: "insert a link or a component from a picker" },
@@ -136,6 +139,15 @@ export const LINE_KEYS: readonly ModeKey[] = keyTable("line", "a line field: the
   { key: "ctrl+u", action: "draft.clear", label: "clear", says: "clear the whole line" },
   { key: "ctrl+x", action: "draft.cut", label: "cut", says: "cut the selected text to the clipboard" },
 ]);
+/**
+ * What follows ctrl+x in a draft (bash's chord): the second key of $EDITOR. A chord table like the desk's ^W keys, so the
+ * keymap rebinds the second key (`"edit.external": ["ctrl+x alt+e"]`) and the hint says the chord that works.
+ */
+export const DRAFT_CHORD_KEYS: readonly ModeKey[] = keyTable("draft chord", "after ctrl+x in what you're writing", [
+  { key: "ctrl+e", action: "edit.external", label: "$EDITOR", says: "edit the text in $VISUAL or $EDITOR; it comes back when that exits" },
+], "ctrl+x ");
+/** The chord rows as a hint or the keys window names them, whole (`ctrl+x ctrl+e`), the keymap applied. */
+export const draftChordRows = (): ModeKey[] => effective(DRAFT_CHORD_KEYS, "ctrl+x ").map(r => ({ ...r, key: `ctrl+x ${r.key}` }));
 /** What a table key asks of the draft's host (its session runs the host's action); the rest are the draft's own actions. */
 type DraftActionName = Parameters<typeof DRAFT_ACTIONS.run>[0];
 const HOST_PART: Record<string, DraftAction> = { "edit.save": "save", "draft.pick": "pick", "edit.reload": "reload", "draft.image": "image", "edit.follow": "follow", "draft.copy": "copy" };
@@ -224,7 +236,8 @@ export class Draft {
   endSnippet() { this.settle(); this.snippet = null; this.snippetStep = undefined; this.anchor = null; }
   snippetKey(k: Key): boolean {
     if (!this.snippet || "pasted" in k) return false;
-    const action = k.kind === "tab" ? "snippet.next" : k.kind === "backtab" ? "snippet.previous" : k.kind === "esc" ? "snippet.end" : null;
+    const own = this.binding(k)?.action;
+    const action = own === "draft.indent" ? "snippet.next" : own === "draft.outdent" ? "snippet.previous" : own === "edit.close" ? "snippet.end" : null;
     if (!action) return false;
     void DRAFT_ACTIONS.run(action, {}, this, USER);
     return true;
@@ -585,11 +598,13 @@ export class Draft {
     if (bound?.action === "draft.copy") return "copy";
     // A cmd (super) key nothing binds never types; one the table binds (a rebind to cmd+z) runs below.
     if (k.kind === "super" && !bound) return "keep";
-    if (was === "chord" && this.confirmsArm(was, k)) return k.kind === "char" && k.ctrl ? "editor" : "attach";
+    if (was === "chord" && this.confirmsArm(was, k)) return this.chordBinding(k) ? "editor" : "attach";
+    // The esc ladder is a row of the table too (edit.close), so a rebind of it closes from the new key.
+    if (bound?.action === "edit.close") return this.escape(was);
     if (bound) return this.run(bound.action, k, was === "undo", bound);
     if (k.kind === "char" && k.ctrl) {
       // ctrl+x ctrl+e: $EDITOR (bash's chord). ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
-      if (k.ch === "x") { this.status.say(`ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); this.status.arm("chord"); return "keep"; }
+      if (k.ch === "x") { this.status.say(`ctrl+x · ${draftChordRows().map(r => r.key.slice(7)).join(" ")} opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`); this.status.arm("chord"); return "keep"; }
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
@@ -597,21 +612,6 @@ export class Draft {
       const moved = this.moved(k);
       if (moved) this.status.say(moved);
       return "keep";
-    }
-    if (k.kind === "esc") {
-      // The first esc lets go of a selection; nothing else.
-      if (this.anchor) { this.anchor = null; return "keep"; }
-      if (!this.written) return "close";
-      // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
-      if (this.stray() !== null) return "discard";
-      if (was !== "discard") {
-        this.status.say(this.restored === this.text
-          ? "esc again lets this kept draft go (a copy stays on disk) · ctrl+s saves" // says, not a hint row
-          : "unsaved · esc again keeps it here (nothing is lost) · ctrl+s saves"); // says, not a hint row
-        this.status.arm("discard");
-        return "keep";
-      }
-      return "discard";
     }
     // A field whose host says ⏎ saves (an inspector's value): a typed ⏎ saves; shift+⏎ and a pasted line break are text.
     if (k.kind === "enter" && this.enterSaves && !("pasted" in k && k.pasted) && !("shift" in k && k.shift)) return "save";
@@ -663,12 +663,11 @@ export class Draft {
         if (this.col < this.line.length) L[this.row] = this.line.slice(0, this.col) + this.line.slice(stepForward(this.line, this.col));
         else if (this.row < L.length - 1) { L[this.row] = this.line + L[this.row + 1]!; L.splice(this.row + 1, 1); }
         break;
-      // Tab and shift+tab indent and outdent the line (or every line the selection touches); a pasted tab is text.
+      // Tab and shift+tab (draft.indent, draft.outdent: rows of the table, run above) indent and outdent the line, or every
+      // line the selection touches; a pasted tab is text, and a tab the keymap took away is nothing.
       case "tab":
         if ("pasted" in k) this.insert("\t");
-        else void DRAFT_ACTIONS.run("draft.indent", {}, this, USER);
         break;
-      case "backtab": void DRAFT_ACTIONS.run("draft.outdent", {}, this, USER); break;
       case "char":
         // A marker typed by hand on an item Enter already started ("- " then "- ") takes the item's place.
         // Pasted text goes in as it came.
@@ -684,6 +683,35 @@ export class Draft {
     if (L.length !== len || L[r0] !== cur) this.wrote(USER);
     if (this.row !== r0) this.selectAsk();
     return "keep";
+  }
+
+  /** The close key (edit.close, esc built in): lets go of a selection, then closes; on changed text the second press puts it aside. */
+  private escape(was: DraftArm | null): DraftAction {
+    // The first press lets go of a selection; nothing else.
+    if (this.anchor) { this.anchor = null; return "keep"; }
+    if (!this.written) return "close";
+    // An edit opened by mistake (a stray `j` or `q` became text) closes on the first press: its session drops the strays.
+    if (this.stray() !== null) return "discard";
+    if (was !== "discard") {
+      const close = this.keyOf("edit.close");
+      this.status.say(this.restored === this.text
+        ? `${close} again lets this kept draft go (a copy stays on disk) · ${this.keyOf("edit.save")} saves` // says, not a hint row
+        : `unsaved · ${close} again keeps it here (nothing is lost) · ${this.keyOf("edit.save")} saves`); // says, not a hint row
+      this.status.arm("discard");
+      return "keep";
+    }
+    return "discard";
+  }
+  /** The key the table gives `action` now (the keymap applied), for what this draft says of its keys. */
+  private keyOf(action: string): string {
+    const r = effective(DRAFT_KEYS).find(x => x.action === action);
+    return r?.key ?? "(unbound)";
+  }
+
+  /** The row of the chord table the second key `k` presses after ctrl+x, or undefined. */
+  private chordBinding(k: Key): ModeKey | undefined {
+    const name = exactKeyName(k);
+    return name ? effective(DRAFT_CHORD_KEYS, "ctrl+x ").find(r => r.key === name) : undefined;
   }
 
   /**
@@ -1269,9 +1297,9 @@ export class Draft {
   }
   /** `k` is the second press of `what`. */
   private confirmsArm(what: DraftArm, k: Key): boolean {
-    if (what === "discard") return k.kind === "esc";
+    if (what === "discard") return this.binding(k)?.action === "edit.close";
     if (what === "undo") return this.binding(k)?.action === "draft.undo" && !("shift" in k && k.shift);
-    return k.kind === "char" && (k.ctrl ? k.ch === "e" : this.attachChord && k.ch === "a");
+    return !!this.chordBinding(k) || (this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a");
   }
   /** A key was pressed, whoever goes on to take it (a host's own key comes first): what it can't confirm is let go. */
   heard(k: Key) {
@@ -1418,7 +1446,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   }),
   "draft.indent": def({
-    summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: "tab",
+    summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: rowKeys("draft.indent"),
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     examples: [
@@ -1428,7 +1456,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
   }),
   "draft.outdent": def({
-    summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: "shift+tab",
+    summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: rowKeys("draft.outdent"),
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     examples: [
