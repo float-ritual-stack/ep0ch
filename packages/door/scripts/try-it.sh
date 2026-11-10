@@ -118,7 +118,7 @@ if [ "$showcase" = 1 ]; then
     (cd "$here" && bun scripts/showcase.ts seed "$sock" "$base/config" "$outliner") || { echo "not seeded; scripts/try-it.sh --showcase --reset starts over" >&2; exit 1; }
     touch "$base/seeded"
   fi
-  [ "$prepare" = 1 ] && exit 0
+  [ "$prepare" = 1 ] && { echo "prepared: the seeded showcase at $base (outline showcase in $base/outlines); scripts/try-it.sh --showcase opens it"; exit 0; }
   echo "door → the showcase at $base (made-up notes; edits stay until --reset)"
   echo "      control socket: EP0CH_CONTROL=$base/door/door.sock"
   set -- --no-daemon --ws showcase --showcase

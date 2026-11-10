@@ -26,6 +26,7 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 - **Take it back:** the `undo` on the done row. An action that changes no note and no layout has none, and a press that changed nothing (dropping what wasn't lifted) has nothing to undo: the row says which.
 - **The button's words** are the action's own: the `::button` its doc gives for those arguments (`agent.lift on=false` reads `▼ drop`), else its verb.
 - **See how it knew:** the steps fold under each answer: what it read and each model call, with its cost.
+- **Ask about yo:** `@yo how do I use you`, `@yo how do I set you up` or `@yo whats good` answers from this page and its settings, with no model, and a button to its settings.
 - **Banter:** `@yo mamama` gets one line in character, then quiet.
 - **Not yo's:** anything about your projects or the repository. It says so in a line.
 
@@ -52,7 +53,9 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
   - **From another machine:** `ep0ch act ext.yo.settings memory='{"outline":"yo","machine":"<ssh-name>"}'`.
   - **Before there is one:** yo answers anyway; its first step says `no memory yet` with the command that makes it.
   - **While it can't be reached:** yo answers without it and says so in its steps.
-- **The models:** each default is `claude` in safe mode, sending only the prompt; the settings row shows the whole command.
-  - **Where `claude` can't read its login** (a host under launchd): `with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN` once; with none, the answer's steps say that command.
+- **The models:** each default is `claude` in safe mode, sending only the prompt.
+  - **Change one:** ⚙ settings on this page opens the settings screen at yo: each command as one line you can read and edit in place.
+  - **Try one:** `t` (or `[try]`) beside it runs it once and says its answer, or why not in its own words ("Not logged in"). A failed answer offers the same button.
+  - **Where `claude` can't read its login** (a host under launchd): `with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN` once; with none, the answer's steps and its try say that command.
   - **No model:** `ep0ch act ext.yo.settings answer='[]' act='[]'`, or `[]` in its settings form; `unset=answer` puts Haiku back.
 - **`door.act`** is the primitive under the button: an agent's process asks the door to run one action line, as the agent, and gets its undo id ([Agents in the note](../../docs/extensions/README.md#agents-in-the-note)).

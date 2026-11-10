@@ -176,6 +176,7 @@ When interaction changes, drive the real door in a terminal pane, by keys and by
 # the pane, not a session that outlives it). `--print` shows them.
 E="../../scripts/agent-env me --"
 tmux new-session -d -s try -x 160 -y 48 "$E scripts/try-it.sh --showcase"   # its own host, outline `showcase`
+# headless, no pane: `$E bun src/main.ts --showcase --prepare` seeds it under $EP0CH_STATE/showcase and exits
 d=$(../../scripts/agent-env me --print | sed -n "s/^export EP0CH_STATE=//p")
 C=$d/showcase/door/door.sock                    # the showcase sets its own EP0CH_CONTROL; it prints it
 # any other outline: $E bun src/main.ts --ws garden   (its control socket is the agent-env's EP0CH_CONTROL)

@@ -13,7 +13,7 @@ import { EditConflict, RECORDED_AS, recordedAnswer, type Actor } from "../socket
 import { askInBar, changedQuestionValue } from "../bar/ask";
 import { ActionRefused, def } from "./actions";
 import { PropertyPanel } from "./props-panel";
-import { SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
+import { resettable, SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { modeBinding, modeActionKeys } from "./modes";
 import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
 import { partyOf } from "../steps";
@@ -23,19 +23,47 @@ import type { Key } from "../term";
 import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";
 import type { ListHandle } from "./list-view";
+import type { ExtensionSettings } from "@ep0ch/outline-core/protocol";
+import type { ExtensionEntry } from "../extensions";
+import { clearOf, configureExtension, extensionCardSchema, extensionCardValues, pageExtension, settingsNow } from "../extension-settings";
+import { LineField } from "./line";
+import { DraftSession, type DraftTarget } from "../draft-session";
+import { USER } from "../socket";
 
 export interface SettingsSubject { note: Msg; binding: Binding; schemas: ComponentSchema[]; fields: SettingField[]; list?: ListHandle; collection?: NonNullable<ListHandle["collection"]>["answer"]; props?: Record<string, unknown>;
-  /** An inline figure's fields live in its YAML (PIE-1513: a live ::graph-table's own keys); an inline view's and a note's in `note` properties. */
-  where: "note" | "yaml" }
-/** A settings write for ctrl+z (PIE-1513): the note's text before and after, so one key goes back whole, YAML line and all. */
-export interface SettingsUndo { block: string; before: string; after: string; key: string; by: string; context: string }
+  /**
+   * An inline figure's fields live in its YAML (PIE-1513: a live ::graph-table's own keys); an inline view's and a note's in
+   * `note` properties; an extension's page's (`[ext.page::<id>]`, PIE-1709) in that extension's config.json on the host.
+   */
+  where: "note" | "yaml" | "extension";
+  /** The extension whose settings these are, and what the service says of them now. */
+  ext?: { entry: ExtensionEntry; settings: ExtensionSettings } }
+/**
+ * A settings write for ctrl+z (PIE-1513): the note's text before and after, so one key goes back whole, YAML line and all.
+ * An extension's setting (`ext`, PIE-1709) keeps the field's value before and after as it reads (null: left out).
+ */
+export interface SettingsUndo { block: string; before: string; after: string; key: string; by: string; context: string; ext?: { id: string; before: string | null; after: string | null } }
 /** The settings writes made in readers (a view's or a live figure's key), newest last, for ctrl+z (`settings.undo`); each party undoes its own. */
 export const SETTINGS_UNDO = new UndoHistory<SettingsUndo>(SETTINGS_JOURNAL, { kind: "settings", via: "settings.undo", label: e => `the settings change to ${e.key}` });
 const LIST = { type: "string", optional: true, about: "the view: its list.blocks number or ^name; left out, the card's subject or the view under the cursor" } as const;
 const KEY = { type: "string", about: "the field's key (settings lists them)" } as const;
 const properties = (config: Record<string, unknown>) => Object.entries(config).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) }));
 
+/** An extension's page as a settings subject (PIE-1709): its card's fields are its configSchema's, its secrets' and its agents'. */
+function extensionSubject(note: Msg): SettingsSubject | null {
+  const entry = pageExtension(parsePropertyRecords(note.text).filter(p => p.scope === "block"));
+  const settings = entry && settingsNow(entry);
+  if (!entry || !settings) return null;
+  const schema = extensionCardSchema(entry, settings), values = extensionCardValues(entry, settings);
+  const fields = schema.props.map((prop, i): SettingField => {
+    const v = values.get(prop.key)!;
+    return { n: i + 1, prop, value: v.value, section: 0, ext: v };
+  });
+  return { note, binding: { block: note.id }, schemas: [schema], fields, where: "extension", ext: { entry, settings } };
+}
+
 export function settingsSubject(surface: NoteSurface, note: Msg, named?: string): SettingsSubject {
+  if (named === undefined) { const ext = extensionSubject(note); if (ext) return ext; }
   const card = surface.panel?.card;
   const listName = named ?? card?.list;
   const current = surface.listHost().current();
@@ -54,20 +82,35 @@ export function settingsSubject(surface: NoteSurface, note: Msg, named?: string)
   return { note, binding, schemas, fields: settingFields(schemas, props, where), list, collection, props: inline?.props, where };
 }
 
-export function openSettings(surface: NoteSurface, subject: SettingsSubject): SettingsCard {
+export function openSettings(surface: NoteSurface, subject: SettingsSubject, on?: { machine?: string | undefined; host: string }): SettingsCard {
   if (!subject.schemas.length) throw new ActionRefused("this note isn't configured by a component · i lists its properties; a view's ≡ settings opens its card");
   surface.panel ??= new PropertyPanel();
   surface.panel.full = false;
   const card = new SettingsCard(subject.schemas, subject.list?.key);
   if (surface.panel.card?.id !== card.id || surface.panel.card?.list !== card.list) { card.place = surface.attachments.keptPlace("settings") ?? card.place; surface.panel.card = card; }
+  // An extension's card says the machine its config.json is on (PIE-1709): the one the outline's host runs on.
+  surface.panel.card.ext = !!subject.ext;
+  if (subject.ext && on) surface.panel.card.on = on.machine ?? on.host;
   surface.attachedKeys("settings");
   return surface.panel.card;
 }
 
 export function settingsKey(surface: NoteSurface, key: Key, host: SurfaceHost): boolean {
+  const card0 = surface.panel!.card!, e = card0.editing;
+  if (e) {
+    // A setting typed in place (PIE-1709): the line's own keys, as every place a person types has them; ⏎ (or ctrl+s)
+    // saves through its session, esc keeps the old value. A write under way holds what's typed until it answers.
+    if (e.session.holding(key, held => { e.input.take(held); })) return true;
+    if (e.input.take(key)) { e.session.status.say(""); card0.note = ""; host.redraw(); return true; }
+    if (e.input.closesBy(key)) { e.session.dispose(); card0.editing = null; card0.note = ""; host.redraw(); return true; }
+    const bound = e.input.binding(key)?.action;
+    if (key.kind === "enter" || bound === "edit.save") void saveSetting(card0, host);
+    host.redraw();
+    return true;
+  }
   const binding = modeBinding(SETTINGS_KEYS, key), card = surface.panel!.card!;
   const field = surface.settingFields(surface.msg!, card.schemas)[card.sel];
-  if (binding) void surface.runKey(binding.action as keyof typeof SETTINGS_DEFS, { ...binding.args, ...(["settings.set", "settings.clear"].includes(binding.action) && field ? { key: field.prop.key } : {}) } as never, host);
+  if (binding) void surface.runKey(binding.action as keyof typeof SETTINGS_DEFS, { ...binding.args, ...(["settings.set", "settings.clear", "settings.try"].includes(binding.action) && field ? { key: field.prop.key } : {}) } as never, host);
   return true;
 }
 
@@ -95,6 +138,7 @@ async function read(on: On, list?: string): Promise<SettingsSubject> {
   if (surface.src) await componentsReady(surface.src);
   const subject = settingsSubject(surface, note, list);
   if (!subject.schemas.length) throw new ActionRefused("this note isn't configured by a component (settings says which notes are)");
+  if (subject.ext) return subject;
   if (subject.list?.collection) {
     subject.collection = await subject.list.collection.read(subject.props ?? { of: `((${note.id}))` });
     // A view's values are the collection's answered config (an `of=` merges a saved view's); a figure's stay its own YAML.
@@ -155,7 +199,83 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
   return { saved: true, warnings, cleared: value === null, key: field.prop.key, to: value, revision: saved.revision, recordedAs: recordedAnswer(actor) };
 }
 
-const describe = (subject: SettingsSubject) => ({ id: subject.note.id, revision: subject.note.revision, schema: subject.schemas[0]!.id, schemas: subject.schemas.map(s => ({ id: s.id, title: s.title })), title: subject.schemas.map(s => s.title).join(" + "),
+/** What a typed value is to the extension's field (PIE-1709): true or false, a number, or the words as typed. */
+function extGiven(subject: SettingsSubject, key: string, raw: string): Record<string, unknown> {
+  const f = subject.ext!.settings.fields.find(x => x.name === key), t = raw.trim();
+  if (f?.type === "boolean") { if (t !== "true" && t !== "false") throw new ActionRefused(`${key} is true or false, not ${JSON.stringify(t)}`); return { [key]: t === "true" }; }
+  if (f && (f.type === "number" || f.type === "integer") && t) {
+    const n = Number(t);
+    if (Number.isNaN(n)) throw new ActionRefused(`${key} is a number, not ${JSON.stringify(t)}`);
+    return { [key]: n };
+  }
+  return { [key]: raw };
+}
+
+/**
+ * An extension's setting written (PIE-1709): through the one write (`configureExtension`: the schema checks it, config.json
+ * on the host holds it), kept for ctrl+z, and said on the card and to an agent's watcher.
+ */
+async function extWrite(on: Pick<On, "surface" | "host">, subject: SettingsSubject, key: string, given: Record<string, unknown>, actor: Actor, words?: string) {
+  const { surface, host } = on, { entry } = subject.ext!;
+  const before = subject.fields.find(f => f.prop.key === key)?.value ?? null;
+  const r = await configureExtension(host.ctx, entry, settingsNow(entry) ?? subject.ext!.settings, given, actor);
+  const after = extensionCardValues(entry, r.settings).get(key)?.value ?? null;
+  SETTINGS_UNDO.push({ block: subject.note.id, before: "", after: "", key, by: partyOf(actor), context: surface.msg?.id ?? subject.note.id, ext: { id: entry.id, before, after } });
+  const said = `${words ?? (after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`)}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""}`;
+  if (surface.panel?.card) surface.panel.card.say(said, r.error ? "problem" : "news");
+  host.ctx.flash(said);
+  surface.noteAgent(actor, said);
+  host.redraw();
+  return { saved: true, key, to: after, file: r.settings.file, ...(r.error ? { error: r.error } : {}), recordedAs: recordedAnswer(actor) };
+}
+
+/** Open the line under `key` for typing in place (PIE-1709): its value now (else its default), in the shared editor, saved by its session. */
+function editInPlace(on: Pick<On, "surface" | "host">, subject: SettingsSubject, key: string): { editing: string } {
+  const card = on.surface.panel?.card;
+  if (!card) throw new ActionRefused(", opens settings first");
+  const field = subject.fields.find(f => f.prop.key === key)!, was = field.value ?? field.prop.default ?? "";
+  const input = new LineField(was, false, { complete: false });
+  input.enterSaves = true;
+  const name = subject.ext!.entry.name ?? subject.ext!.entry.id;
+  const target: DraftTarget = {
+    place: `setting:${subject.ext!.entry.id}:${key}`, back: `⏎ on ${key} brings it back`, label: `${subject.ext!.entry.id}-${key}`,
+    what: `${name}'s ${key}`, verb: "save", leaveWrites: false, returns: { what: "setting", does: "saves" },
+    async submit(s, by, { report }) {
+      const text = s.draft.text;
+      // As it was: nothing to write (its default stays its default, never written down as set).
+      if (text.trim() === was.trim()) return { ok: true, said: "unchanged" };
+      report.phase("saving");
+      try { const r = await extWrite(on, subject, key, extGiven(subject, key, text), by); return { ok: true, said: r.to === null ? `${key} back to its default` : `saved · ${key}` }; }
+      catch (e) { const why = e instanceof Error ? e.message : String(e); return { ok: false, why, said: why }; }
+    },
+  };
+  // The surface's draft session while it's open (draftSession): edit.save and edit.close reach it, as the agent rule does.
+  const session = DraftSession.open(target, { draft: input.draft, base: 0 }, { redraw: () => on.host.redraw(), said: text => on.host.ctx.flash(text),
+    closed: (_, s) => { if (card.editing?.session === s) card.editing = null; on.host.redraw(); } });
+  card.editing = { key, input, session };
+  card.note = "";
+  on.host.redraw();
+  return { editing: key };
+}
+
+/** ⏎ on the line being typed: saved through its session; a refusal stays on the card, the line keeps what was typed. */
+async function saveSetting(card: NonNullable<NonNullable<NoteSurface["panel"]>["card"]>, host: SurfaceHost) {
+  const e = card.editing;
+  if (!e || e.session.busy) return;
+  const r = await e.session.submit(host.actor ?? USER).finally(() => host.redraw());
+  if (!r.ok) { card.say(r.why ?? "not saved", "problem"); host.redraw(); return; }
+  if (card.editing === e) card.editing = null;
+  if (r.said === "unchanged") card.say(`${e.key} unchanged`);
+  host.redraw();
+}
+
+/** An extension's settings as an agent reads them (PIE-1709): each field's label, value, state, what it does and its try. */
+const describeExt = (subject: SettingsSubject) => ({
+  extension: subject.ext!.entry.id, file: subject.ext!.settings.file, state: subject.ext!.settings.state, ...(subject.ext!.settings.error ? { error: subject.ext!.settings.error } : {}),
+  fields: subject.fields.map(f => ({ key: f.prop.key, value: f.value, state: f.ext!.state, meaning: f.prop.meaning, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}),
+    ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : {}), ...(f.ext!.tries ? { tries: f.ext!.tries } : {}) })),
+});
+const describe = (subject: SettingsSubject) => subject.ext ? describeExt(subject) : ({ id: subject.note.id, revision: subject.note.revision, schema: subject.schemas[0]!.id, schemas: subject.schemas.map(s => ({ id: s.id, title: s.title })), title: subject.schemas.map(s => s.title).join(" + "),
   ...(subject.list ? { list: subject.list.key } : {}), fields: subject.fields.map(f => ({ key: f.prop.key, section: subject.schemas[f.section]!.id, type: f.prop.type, question: f.prop.question?.type, value: f.value, meaning: f.prop.meaning,
     ...(f.prop.default !== undefined ? { default: f.prop.default } : {}), ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : f.prop.samples ? { samples: f.prop.samples } : {}) })) });
 
@@ -220,7 +340,7 @@ export const SETTINGS_DEFS = {
     async run({ list }, on: On) {
       if (on.surface.panel?.field) throw new ActionRefused("a property value is being typed here · enter saves it, esc cancels, then , opens settings");
       const subject = await read(on, list);
-      if (on.standing) { openSettings(on.surface, subject); on.host.enterMode?.(); }
+      if (on.standing) { openSettings(on.surface, subject, on.host.ctx); on.host.enterMode?.(); }
       on.host.redraw();
       return describe(subject);
     },
@@ -232,6 +352,14 @@ export const SETTINGS_DEFS = {
     examples: [{ act: "settings.set key=sort value=due", does: "writes sort: due into the view's own source" }, { act: "settings.set key=layout", does: "asks the person for a layout in the power bar" }],
     async run({ list, key, value }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
+      if (subject.ext) {
+        // An extension's setting (PIE-1709): written to its config.json; the person's ⏎ types it in place, or picks a choice.
+        if (value !== undefined) return extWrite(on, subject, field.prop.key, extGiven(subject, field.prop.key, value), actor);
+        if (actor.kind !== "user") throw new ActionRefused(`say value=…: ${field.prop.key} · ${field.prop.meaning}`);
+        if (!field.prop.values) return editInPlace(on, subject, field.prop.key);
+        const q = settingQuestion(field, sources(subject, on.host));
+        return askInBar(on.host.ctx as never, `${subject.schemas[0]!.title} · ${field.prop.key}`, [q], {}, actor, answers => extWrite(on, subject, field.prop.key, extGiven(subject, field.prop.key, answers[field.prop.key] ?? ""), actor));
+      }
       const set = async (answer: string, checked?: string[]) => {
         const to = settingValue(field, answer), why = to ? settingProblem(field, to) : null;
         if (why) throw new ActionRefused(why);
@@ -284,6 +412,20 @@ export const SETTINGS_DEFS = {
     async run(_, { surface, host }: On, actor) {
       const e = surface.msg ? SETTINGS_UNDO.last(partyOf(actor), surface.msg.id) : null;
       if (!e) { const why = "no settings change to undo in this note"; host.ctx.flash(why); throw new ActionRefused(why); }
+      if (e.ext) {
+        // An extension's setting (PIE-1709): put back as it was, unless it changed again since.
+        const subject = surface.msg ? settingsSubject(surface, surface.msg) : null;
+        const field = subject?.fields.find(f => f.prop.key === e.key);
+        if (!subject?.ext || !field || field.value !== e.ext.after) { SETTINGS_UNDO.drop(e); const why = `couldn't undo: ${e.key} changed again since`; host.ctx.flash(why); throw new ActionRefused(why); }
+        SETTINGS_UNDO.drop(e);
+        const back = e.ext.before === null ? clearOf(e.key) : extGiven(subject, e.key, e.ext.before);
+        const r = await configureExtension(host.ctx, subject.ext.entry, subject.ext.settings, back, actor);
+        const said = undoneSaid(e);
+        host.ctx.flash(said); surface.noteAgent(actor, said);
+        if (surface.panel?.card) surface.panel.card.note = said;
+        host.redraw();
+        return { key: e.key, to: e.ext.before, file: r.settings.file, recordedAs: recordedAnswer(actor) };
+      }
       const board = host.ctx.board, now = await board.get(e.block);
       if (!now || now.text !== e.after || now.revision === undefined) { SETTINGS_UNDO.drop(e); const why = `couldn't undo: ${e.key} changed again since`; host.ctx.flash(why); throw new ActionRefused(why); }
       let saved: Msg;
@@ -299,12 +441,51 @@ export const SETTINGS_DEFS = {
       return { block: now.id, key: e.key, revision: saved.revision ?? null, recordedAs: recordedAnswer(actor) };
     },
   }),
+  "settings.try": def({
+    summary: "try an extension's setting: run the extension's own try for it (yo's answer model on a short ask) and say what came back, or why not in the command's own words. The extension declares which settings it can try (an action that takes setting=)",
+    keys: "t or a click on [try] in the settings card", touches: "nothing", replay: "ask", args: { list: LIST, key: KEY },
+    examples: [{ act: "settings.try key=answer", does: "runs yo's answer model once and says its answer, or why not" }],
+    async run({ list, key }, on: On, actor) {
+      const subject = await read(on, list), field = fieldOf(subject, key);
+      const tries = field.ext?.tries;
+      if (!tries) throw new ActionRefused(`${subject.schemas[0]!.title} has no try for ${field.prop.key}${subject.fields.some(f => f.ext?.tries) ? ` · it tries ${subject.fields.filter(f => f.ext?.tries).map(f => f.prop.key).join(", ")}` : ""}`);
+      const card = on.surface.panel?.card;
+      if (card) { card.trying = field.prop.key; card.note = ""; }
+      on.host.redraw();
+      try {
+        const r = await on.host.ctx.dispatch!.act({ action: tries, args: { setting: field.prop.key } }, actor) as { message?: string; ok?: boolean } | undefined;
+        const said = r?.message ?? "tried: nothing said";
+        if (card) card.say(said, said.startsWith("✗") ? "problem" : "news");
+        return { tried: field.prop.key, said, ok: !said.startsWith("✗") };
+      } catch (e) {
+        const why = e instanceof Error ? e.message : String(e);
+        if (card) card.say(`✗ ${why}`, "problem");
+        throw new ActionRefused(why);
+      } finally {
+        if (card) card.trying = null;
+        on.host.redraw();
+      }
+    },
+  }),
+  "settings.reset": def({
+    summary: "put every one of an extension's settings back to its default at once (its config.json keeps its secrets' references); ctrl+z puts back the last one changed",
+    keys: "X or a click on [↺ all] in an extension's settings card", touches: "nothing", replay: "ask", args: { list: LIST }, answer: RECORDED_AS,
+    examples: [{ act: "settings.reset tile=card", does: "takes yo's answer, act, memory and its deadline back to their defaults" }],
+    async run({ list }, on: On, actor) {
+      const subject = await read(on, list);
+      if (!subject.ext) throw new ActionRefused("settings.reset is an extension's (its page's settings card) · x clears one field of a note's");
+      const set = resettable(subject.fields);
+      if (!set.length) throw new ActionRefused(`${subject.schemas[0]!.title}'s settings are all their defaults already`);
+      return extWrite(on, subject, set[0]!, { unset: set.join(",") }, actor, `every setting back to its default: ${set.join(", ")}`);
+    },
+  }),
   "settings.clear": def({
     summary: "clear a settings field from its source, so the schema's default holds", keys: "x or delete on a field",
     touches: "draft", draft: "write", replay: "ask", args: { list: LIST, key: KEY }, answer: RECORDED_AS,
     examples: [{ act: "settings.clear key=sort", does: "removes sort from the source, so the schema's default holds" }],
     async run({ list, key }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);
+      if (subject.ext) return extWrite(on, subject, field.prop.key, clearOf(field.prop.key), actor);
       const owner = !subject.binding.component && subject.schemas.find(s => s.source.note?.name === key || s.source.note?.requires?.includes(key));
       if (owner) throw new ActionRefused(`${key} is what makes this note a ${owner.title.toLowerCase().replace(/s$/, "")}: clearing it would undo that · e edits the note`);
       return write(on, subject, field, null, actor);

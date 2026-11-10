@@ -151,6 +151,18 @@ test("a number before a value the outline holds is a count for a live figure; ot
   expect(writeShape(note)).toEqual([]);
 });
 
+test("prose is read as prose: a count is a number then a value used as that key's noun, or a state after a small word (PIE-1715)", () => {
+  const facets = [
+    { key: "style.border", value: "line", count: 6 }, { key: "kind", value: "note", count: 25 }, { key: "kind", value: "review", count: 3 },
+    { key: "stage", value: "queued", count: 4 }, { key: "type", value: "roadmap-item", count: 9 }, { key: "status", value: "done", count: 7 },
+  ];
+  const prose = "Shed\n\nThe table is 20 lines long, 2,000 notes in all, and only 3 notes carry one; 4 in review.";
+  expect(writeShape(prose, { facets })).toEqual([]);
+  const counts = writeShape("Shed\n\n3 queued, 14 roadmap items, 2 reviews and 5 still done.", { facets });
+  expect(counts.map(f => f.rule)).toEqual(["count"]);
+  expect(counts[0]!.say).toContain(`"3 queued" is stage=queued, "14 roadmap items" is type=roadmap-item, "2 reviews" is kind=review, "5 still done" is status=done`);
+});
+
 test("a bare id is told to be a reference; one in a reference, a property or code is fine", () => {
   const id = "8a1c2b3d-1111-4222-8333-444455556666";
   const [found] = writeShape(`Links\n\nSee ${id} for the plan.`);
@@ -532,6 +544,12 @@ test("a label over a statement is filed; a label over a request isn't, and a not
   const filed = (line: string) => structuralLines(["Notes", "", line]).has(2);
   for (const line of ["Decision:", "- **Decision:**", "Decision: a header picture is set one way", "- **Decision:** a header picture is set one way", "Check: comment.close takes its keys from the tile", "Note to self: please confirm the fence posts", "Note to self: does the fence need posts?"]) expect([line, filed(line)]).toEqual([line, true]);
   for (const line of ["Decision: Evan, please choose cedar or larch", "Check: Evan, please confirm the shed dimensions", "- **Decision:** should the fence be cedar?", "Check: does the shed need a window?"]) expect([line, filed(line)]).toEqual([line, false]);
+});
+
+test("a bold-led line that explains a feature is filed; one that asks Evan, asks a question or is an open box isn't (PIE-1715)", () => {
+  const filed = (line: string) => structuralLines(["Notes", "", line]).has(2);
+  for (const line of ["- **A choice is boxes:** one `- [ ]` per option; you answer with approve or reject from the box.", "**Waiters:** you pick a query and it exits when a match appears."]) expect([line, filed(line)]).toEqual([line, true]);
+  for (const line of ["- **Next:** Evan, approve the cedar or the larch", "- **Posts:** should they be cedar?", "- **Posts:** please pick the wood", "- [ ] **Cedar:** approve to order it", "- **Needs Evan:** approve the order", "- **Should the fence be cedar?**", "**Decision:** Approve the deployment now.", "- **Posts:** cedar is in stock; pick one by Friday."]) expect([line, filed(line)]).toEqual([line, false]);
 });
 
 // PIE-1657: a choice left to Evan is a box he can tick, never a proposed decision he can only read.

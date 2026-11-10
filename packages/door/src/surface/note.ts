@@ -765,7 +765,7 @@ export class NoteSurface {
   /** The person is typing a filter into an inline list: p, e and the rest are letters then, not the screen's keys (a pane's `typing`). */
   get typingFilter(): boolean { return !!this.listIn && !!this.listViews.get(this.listIn)?.typing; }
   /** The one-line field with the keys (a list's filter, a property's value): ctrl+w erases its word, not the window chord (PIE-1290). */
-  get lineField(): LineField | null { return (this.listIn ? this.listViews.get(this.listIn)?.typing : null) ?? this.panel?.field?.input ?? null; }
+  get lineField(): LineField | null { return (this.listIn ? this.listViews.get(this.listIn)?.typing : null) ?? this.panel?.field?.input ?? this.panel?.card?.editing?.input ?? null; }
   /** The key of the list the person went into (`list.enter`), or null. */
   get listIn(): string | null { return (this.modes.get("list") as ListMode | null)?.list ?? null; }
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
@@ -894,7 +894,7 @@ export class NoteSurface {
   get replyParent(): Msg | null { return (this.modes.get("draft") as DraftMode | null)?.reply ?? null; }
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** The draft session the reader holds: its edit's, else its comment's text (the draft rule asks it, PIE-514). */
-  draftSession(): DraftSession | null { return this.drafting ?? this.session?.writing ?? this.listEditor.field?.session ?? this.panel?.field?.session ?? null; }
+  draftSession(): DraftSession | null { return this.drafting ?? this.session?.writing ?? this.listEditor.field?.session ?? this.panel?.field?.session ?? this.panel?.card?.editing?.session ?? null; }
   /**
    * The person is in this reader's edit, comment or panel: it holds the keys, and it isn't an agent's own that the
    * person hasn't typed in (an agent's comment holds a reader's keys from the start; it's the person's once they type).
@@ -1263,7 +1263,7 @@ export class NoteSurface {
     this.innerFrame = host?.innerFrame;
     const view = host ? withFigureBoard(host.ctx.board, () => host.redraw(), () => this.renderOn(w, h, host)) : this.renderOn(w, h);
     if (!this.previewPoint() || this.listPreview.rect || this.editing) this.keepCurrent(host);
-    const field = this.panel?.field?.input ?? this.writingDraft;
+    const field = this.panel?.field?.input ?? this.panel?.card?.editing?.input ?? this.writingDraft;
     return this.withPlacementMenu(field ? { ...view, completion: completerOf(field) ?? undefined } : view, w, h, "reader");
   }
 
@@ -1271,7 +1271,7 @@ export class NoteSurface {
     this.boxRect = null;
     this.listPreview.rect = null;
     this.attachments.begin();
-    if (this.panel?.card && this.msg && !this.settingsSchemaOf(this.msg)) this.closePanel();
+    if (this.panel?.card && !this.panel.card.fills && this.msg && !this.settingsSchemaOf(this.msg)) this.closePanel();
     this.attachments.sync(host);
     if (this.replyLinks) return this.attachments.beside(w, h, (cols, rows, row, col) => {
       const mode = this.replyLinks!;
@@ -1840,7 +1840,7 @@ export class NoteSurface {
     );
     if (this.panel?.card) {
       const card = this.panel.card;
-      if (card.place === "inline") head.push(...this.renderSettings(w, Math.max(4, Math.floor((h - head.length) * .6)), head.length, 0).lines);
+      if (card.place === "inline") head.push(...this.renderSettings(w, Math.max(4, card.fills ? h - head.length : Math.floor((h - head.length) * .6)), head.length, 0).lines);
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
@@ -2817,7 +2817,7 @@ export class NoteSurface {
     const P = this.panel!, m = this.msg;
     // Scrolling always works (PIE-411): PgDn, PgUp and Space (unless it's being typed) page the note,
     // or the property list when it fills the reader and the note isn't drawn.
-    const page = k.kind === "pgdn" || (ch(k) === " " && !P.field) ? 1 : k.kind === "pgup" ? -1 : 0;
+    const page = k.kind === "pgdn" || (ch(k) === " " && !P.field && !P.card?.editing) ? 1 : k.kind === "pgup" ? -1 : 0;
     if (page) {
       if (P.full && m && !m.partial) { const n = this.rows(m).length; if (n) P.sel = Math.max(0, Math.min(n - 1, P.sel + this.pageBy(page))); P.note = ""; }
       else this.scroll = scrolled(this.scroll, this.pageBy(page), this.maxScroll);

@@ -302,3 +302,63 @@ test("PIE-1632: after four answers with the same button, do it presses the newes
   expect(lines[fourth - 1]).toBe("@yo can you lift the barrow?");
   expect(lines.slice(fourth).join("\n")).toMatch(/\n> keys: ✦b · \^W Z\n> ✓ yo pressed ▲ lift · [^\n]+\n> > \[!note\]-/);
 }, 60_000);
+
+// PIE-1709: the settings card's try is yo's own action: it runs a model setting once and says its answer, or why not in the
+// command's own words (a `claude` with no login says them on stdout, in its JSON envelope, and exits 1).
+test("try runs a model setting once: its answer, or why not in its own words; an answer that failed says them too", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-yo-try-")));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const refused = join(root, "refused.ts");
+  writeFileSync(refused, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Model not found: big-one" })); process.exit(1);`);
+  const loggedOut = join(root, "logged-out.ts");
+  writeFileSync(loggedOut, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" })); process.exit(1);`);
+  const tried = (setting: string) => t.client.request<{ message: string }>({ action: "extensions.act", extension: "yo", extensionAction: "try", args: { setting } } as never);
+  // The made-up answer model answers: said with its time.
+  expect((await tried("answer")).message).toMatch(/^✓ the answer model answered in \d+\.\d s/);
+  // No act model: said, nothing run.
+  await t.client.request({ action: "extensions.configure", extension: "yo", set: { act: [] } } as never);
+  expect((await tried("act")).message).toBe("the act model: none set · yo offers the button and presses nothing itself");
+  // The answer model refusing: its own words, not "exited 1".
+  await t.client.request({ action: "extensions.configure", extension: "yo", set: { answer: [process.execPath, refused] } } as never);
+  expect((await tried("answer")).message).toBe("✗ the answer model: Model not found: big-one (exited 1)");
+  const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).toContain("closest match by its words (the answer model: Model not found: big-one (exited 1))");
+  expect(text).toContain(`::button{label="⚙ yo's settings" act="ext.yo.settings"}`);
+  // Not logged in (PIE-1708's words): the try says the command that stores the login.
+  await t.client.request({ action: "extensions.configure", extension: "yo", set: { answer: [process.execPath, loggedOut] } } as never);
+  expect((await tried("answer")).message).toBe("✗ the answer model: claude isn't logged in where the outline host runs; store its login: with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN");
+}, 60_000);
+
+// PIE-1710: yo knows itself. Asked about itself it answers from its own README and settings, with no model and never the
+// closest action by its words; a greeting gets what it's for and two asks to try; a slip ("sue yo") reads through.
+test("asked about itself, yo answers from its own page and settings, with no model; a greeting gets what it's for", async () => {
+  const { selfAsk } = await import("../extensions/yo/yo-line");
+  expect(["how do I use yo", "how do i sue yo", "how do use yo", "what do you do"].map(selfAsk)).toEqual(["use", "use", "use", "use"]);
+  expect(["how do I set you up", "which model do you use", "how do i configure yo", "what model are you on", "where are your settings"].map(selfAsk)).toEqual(["setup", "setup", "setup", "setup", "setup"]);
+  expect(["whats good", "hi", "what can you do", "hey!"].map(selfAsk)).toEqual(["greeting", "greeting", "greeting", "greeting"]);
+  // About the door, not yo, though "you" is in them: the actions' business, and the empty ask about a tile is the tile's.
+  const door = ["how do I lift the agent", "can you lift the agent?", "could you lift the agent for me", "mamama", "how do you split a tile", "can you set the trail to 7 days",
+    "how do you install an extension", "how do you get the trail", "can you zoom", "how do you use the power bar", "can you change the model of the trail", ""];
+  expect(door.map(selfAsk)).toEqual(door.map(() => null));
+
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const ask = async (words: string) => {
+    const note = await t.client.request<{ id: string }>({ action: "create", text: `Shed list\n\n@yo ${words}`, author: "user" } as never);
+    return until(`the answer to ${words}`, () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  };
+  const use = await ask("how do i sue yo");
+  expect(use).toContain("Ask `@yo` how to do an ep0ch thing");
+  expect(use).toContain("- `@yo how do I lift the agent again`");
+  expect(use).toContain(`::button{label="⚙ yo's settings" act="ext.yo.settings"}`);
+  expect(use).toContain("read yo's own page: its README and its settings");
+  expect(use).not.toContain("barrow.lift");
+  const set = await ask("how do I set you up");
+  expect(set).toContain("My answer model: bun");
+  expect(set).toContain("My memory: this outline");
+  const hi = await ask("whats good");
+  expect(hi).toContain("yo. Ask `@yo` how to do an ep0ch thing");
+  expect(hi).not.toContain("steps");
+  expect(t.models()).toEqual([]);
+}, 60_000);

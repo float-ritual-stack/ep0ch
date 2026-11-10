@@ -767,7 +767,7 @@ export class OutlinerServer {
     if (entry.state === "failed") loaded = await readExtensionFolder(entry.directory, entry.origin, { checkConfig: false }).catch(() => loaded);
     if (!loaded || loaded.directory !== entry.directory) return undefined;
     return settingsOf({
-      manifest: loaded.manifest, directory: entry.directory, config: loaded.config, credentials: loaded.credentials,
+      manifest: loaded.manifest, directory: entry.directory, config: loaded.config, credentials: loaded.credentials, ...(loaded.agentDeadlines ? { agentDeadlines: loaded.agentDeadlines } : {}),
       ...(entry.state === "failed" && entry.error ? { loadError: entry.error } : {}),
       ...(lastRun && !lastRun.ok ? { lastFailure: { at: lastRun.at, ...(lastRun.error ? { error: lastRun.error } : {}) } } : {}),
     });
@@ -795,7 +795,7 @@ export class OutlinerServer {
     await this.syncExtensionPages(true);
     const now = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed" && !candidate.script) ?? entry;
     const settings = await this.extensionSettingsOf(now, this.extensionRuntime.lastRun(id));
-    if (!settings) throw new Error(`${id} declares no settings (its extension.json has no configSchema or secrets)`);
+    if (!settings) throw new Error(`${id} declares no settings (its extension.json has no configSchema, secrets or agents)`);
     return { id, settings, state: now.state, ...(now.error ? { error: now.error } : {}) };
   }
 

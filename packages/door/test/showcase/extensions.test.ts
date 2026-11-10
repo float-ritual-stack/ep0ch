@@ -4,7 +4,8 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { openScreen } from "../../src/desk/screen-specs";
 import { Desk } from "../../src/desk/desk";
 import { ReaderPane } from "../../src/desk/panes";
@@ -730,7 +731,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 
-  test("extension settings (PIE-1343): tidy's settings row says its defaults; ext.tidy.settings writes config.json and the row says set; ⏎ on the settings row opens the form filled in; intake installed, a value its schema refuses is refused, set, and uninstalled with its config", async () => {
+  test("extension settings (PIE-1343, PIE-1709): tidy's settings row says its defaults; ext.tidy.settings writes config.json and the row says set; ⏎ on the settings row opens the settings screen at it, a command typed in place as one line; yo's try says its model's own words; intake installed, a value its schema refuses is refused, set, and uninstalled with its config", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "ext-settings" }, as: "test-agent" })).toMatchObject({ key: "ext-settings" });
     await until(() => screen().includes("Agents can't set each other off"), "tidy's page", 10_000)
@@ -747,15 +748,42 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(JSON.parse(readFileSync(file, "utf8")).config.answer).toEqual(["claude", "-p", "--model", "sonnet"]);
     await until(() => extensionNamed("tidy")?.settings?.state === "set", "the door read tidy's settings again", 5000);
     expect((await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!.detail).toBe("set");
-    // The person's ⏎ on the settings row opens the action form, its field filled with what's set.
-    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`).join("\n") : ""; };
+    // PIE-1709: the person's ⏎ on the settings row opens the settings screen at tidy: the list beside its card, each
+    // setting's value, state and words; ⏎ types the command in place as one shell line, saved as the array.
+    const top = () => app.screens().at(-1) as any;
+    const drawn = () => (top().render(app).lines as string[]).map(l => l.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
     await app.dispatch.press("bar.open", { scope: "&", query: "settings tidy" });
     await until(() => app.bar?.items[0]?.row.key === "settings:tidy", "the settings row, lit first", 5000)
       .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(app.bar?.items.map(i => i.row.key))}`); });
     press({ kind: "enter" });
-    await until(() => asked().includes("answer") && asked().includes("--model sonnet"), "tidy's settings form, filled in", 8000)
-      .catch(e => { throw new Error(`${e.message}\n${asked()}`); });
-    for (let i = 0; i < 3 && app.bar && !app.bar.ended(); i++) press({ kind: "esc" });
+    await until(() => top().name === "settings" && drawn().includes("settings · Tidy") && drawn().includes("agent.tidy.deadline"), "the settings screen at tidy", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${drawn?.()}`); });
+    expect(drawn()).toContain("claude -p --model sonnet");
+    expect(drawn()).toContain("set · ");
+    expect(drawn()).toContain("its default · How long @tidy may take to answer");
+    // In it at once (no ⏎ to enter): ⏎ edits answer in place; its words are a shell line, saved as the array.
+    press({ kind: "enter" });
+    await until(() => drawn().includes("editing answer"), "answer being typed", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    press({ kind: "char", ch: "u", ctrl: true });
+    for (const c of `claude -p --system-prompt "Tidy, briefly."`) ch(c);
+    press({ kind: "enter" });
+    await until(() => JSON.parse(readFileSync(file, "utf8")).config.answer?.at(-1) === "Tidy, briefly.", "the line saved as words", 8000);
+    expect(JSON.parse(readFileSync(file, "utf8")).config.answer).toEqual(["claude", "-p", "--system-prompt", "Tidy, briefly."]);
+    await until(() => drawn().includes(`saved · answer: claude -p --system-prompt "Tidy, briefly."`), "said on the card", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    // A deadline the schema can't take is said under the card; the line keeps what was typed.
+    press({ kind: "char", ch: "j" });
+    press({ kind: "enter" });
+    await until(() => drawn().includes("editing agent.tidy.deadline"), "the deadline being typed", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    press({ kind: "char", ch: "u", ctrl: true });
+    for (const c of "a while") ch(c);
+    press({ kind: "enter" });
+    await until(() => drawn().includes("agent.tidy.deadline is a duration"), "the refusal said", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    expect(drawn()).toContain("a while");
+    press({ kind: "esc" });
+    // Tidy has no try of its own; asked anyway, it says which it has (none).
+    await expect(app.act({ action: "settings.try", tile: "card", args: { key: "answer" }, as: "test-agent" })).rejects.toThrow("Tidy has no try for answer");
+    await app.dispatch.press("screen.back", {});
+    await until(() => top().name !== "settings", "back from the settings screen");
     // PIE-1705: [] is no command (no model), stored as none and read back as [], so the form puts back none, not the default.
     await app.act({ action: "ext.tidy.settings", args: { answer: "[]" }, as: "test-agent" });
     expect(JSON.parse(readFileSync(file, "utf8")).config.answer).toEqual([]);
@@ -763,6 +791,24 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await expect(app.act({ action: "ext.tidy.settings", args: { answer: "[claude" }, as: "test-agent" })).rejects.toThrow("answer='[]' for none");
     await app.act({ action: "ext.tidy.settings", args: { answer: "" }, as: "test-agent" });
     expect(JSON.parse(readFileSync(file, "utf8")).config).toEqual({});
+    // yo's own try (PIE-1709), from ext.yo.settings as the person's press: the card at yo; t on answer runs its model once
+    // and says why not in the model's own words, not "exited 1".
+    const notLoggedIn = join(scratch.root, "not-logged-in.ts");
+    writeFileSync(notLoggedIn, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Model not found: big-one" })); process.exit(1);`);
+    // As the ⚙ settings button on its page presses it: with the note it's on, which is the host's, never a setting.
+    await app.dispatch.press("ext.yo.settings", { block: extensionNamed("yo") ? "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" : "" });
+    await until(() => top().name === "settings" && drawn().includes("settings · Yo") && drawn().includes("[try]"), "the settings screen at yo", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    ch("t");
+    await until(() => drawn().includes("the answer model: none set"), "a try with no model", 15_000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    await app.act({ action: "settings.set", tile: "card", args: { key: "answer", value: `${process.execPath} ${notLoggedIn}` }, as: "test-agent" });
+    ch("t");
+    await until(() => drawn().includes("✗ the answer model: Model not found: big-one (exited 1)"), "the model's own words", 15_000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    // Its undo puts the command back as it was (no model, for the ask-yo section): each party undoes its own.
+    await app.act({ action: "settings.undo", tile: "card", as: "test-agent" });
+    await until(() => JSON.stringify(JSON.parse(readFileSync(extensionNamed("yo")!.settings!.file, "utf8")).config.answer) === "[]", "yo's answer back to none", 8000);
+    await app.dispatch.press("screen.back", {});
+    await until(() => top().name !== "settings", "back from the settings screen");
     // Installed by act, used once, uninstalled: its settings go with its folder.
     await app.act({ action: "extensions.install", args: { id: "intake" }, as: "test-agent" });
     await until(() => !!extensionNamed("intake")?.settings, "intake's settings bound", 5000);
