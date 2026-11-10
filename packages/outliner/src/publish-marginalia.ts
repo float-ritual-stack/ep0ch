@@ -11,6 +11,7 @@
 import { annotationKind, annotationTone, markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { AnnotationThread } from "./types";
+import { MARKERS_THROUGH_MARGINALIA, SENTINEL_BLOCKS, SENTINEL_MARKERS } from "./publish-sentinels";
 import { escapeHtml } from "./html-escape";
 
 /** One annotation as a published page draws it. */
@@ -38,10 +39,12 @@ export function onItsPage(thread: Pick<AnnotationThread, "lifecycle" | "body" | 
 }
 
 /** At most this many marks on one page: each takes one private-use sentinel character. */
-export const MAX_PUBLISHED_MARKS = 255;
+export const MAX_PUBLISHED_MARKS = SENTINEL_BLOCKS.marginalia.capacity;
 
-const OPEN = "", CLOSE = "", INDEX_BASE = 0xE100;
-const SENTINEL = /[][-]/g;
+const { markOpen: OPEN, markClose: CLOSE } = SENTINEL_MARKERS, MARKS = SENTINEL_BLOCKS.marginalia;
+const SENTINEL = new RegExp(`[${OPEN}${CLOSE}]${MARKS.char}`, "g");
+/** Words: anything but spaces and the marks' own sentinels. */
+const WORDS = new RegExp(`[^\\s${MARKERS_THROUGH_MARGINALIA}]`);
 
 function count(text: string, exact: string, before: number): number {
   let n = 0;
@@ -112,7 +115,7 @@ export function placeMarkSentinels(published: string, marks: readonly PublishedA
   });
   let out = published;
   for (const cut of cuts.sort((a, b) => b.at - a.at)) {
-    const id = String.fromCharCode(INDEX_BASE + cut.index);
+    const id = MARKS.encode(cut.index);
     out = `${out.slice(0, cut.at)}${OPEN}${id}${out.slice(cut.at, cut.end)}${CLOSE}${id}${out.slice(cut.end)}`;
   }
   return out;
@@ -144,7 +147,7 @@ function textRuns(html: string, from: number, to: number): Array<[number, number
   while (at < to) {
     const tag = html.indexOf("<", at);
     const end = tag < 0 || tag > to ? to : tag;
-    if (/[^\s\uE000-\uE1FF]/.test(html.slice(at, end))) runs.push([at, end]);
+    if (WORDS.test(html.slice(at, end))) runs.push([at, end]);
     if (end === to) break;
     const close = html.indexOf(">", end);
     if (close < 0) break;
@@ -162,7 +165,7 @@ const BLOCK_END = /<\/(?:p|h[1-6]|li|blockquote|td|th|pre)>|<(?:ul|ol)>/g;
 export function drawMarginalia(html: string, marks: readonly PublishedAnnotation[], ids = false): string {
   const opens = new Map<number, number>(), closes = new Map<number, number>();
   for (const match of html.matchAll(SENTINEL)) {
-    (match[0][0] === OPEN ? opens : closes).set(match[0].charCodeAt(1) - INDEX_BASE, match.index!);
+    (match[0][0] === OPEN ? opens : closes).set(MARKS.decode(match[0].slice(1)), match.index!);
   }
   type Edit = { at: number; remove: number; insert: string; order: number };
   const edits: Edit[] = [];

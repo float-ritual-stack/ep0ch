@@ -8,12 +8,13 @@
 // so offsets other parts place by (decorations, components) still land; `drawSteps` puts the control in its place.
 import { checklistItems } from "./checklist-items";
 import { statusWord, stepClosed, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+import { SENTINEL_BLOCKS, SENTINEL_MARKERS } from "./publish-sentinels";
 import { escapeHtml } from "./html-escape";
 
-const MARK = "", BASE = 0xE400;
-const SENTINEL = /([-])([-])/g;
+const MARK = SENTINEL_MARKERS.step, STEPS = SENTINEL_BLOCKS.steps;
+const SENTINEL = new RegExp(`${MARK}(${STEPS.char})(${STEPS.char})`, "g");
 /** At most this many steps on one page: two private-use characters each. */
-export const MAX_PUBLISHED_STEPS = 256 * 256;
+export const MAX_PUBLISHED_STEPS = STEPS.capacity;
 
 /**
  * A step as a page drew it: the note it's in, the revision read, and how `checklist.update` addresses it. `live` (PIE-864):
@@ -26,7 +27,7 @@ export interface PublishedStep {
 }
 
 /** Step `index`'s sentinel, three characters: what a box is replaced by until drawSteps draws it. */
-const stepSentinel = (index: number) => `${MARK}${String.fromCharCode(BASE + (index >> 8))}${String.fromCharCode(BASE + (index & 0xFF))}`;
+const stepSentinel = (index: number) => `${MARK}${STEPS.encode(index)}`;
 
 /**
  * A figure's row as a step on the page (PIE-864: a `::graph-check` row, written or live): numbered after the page's
@@ -71,7 +72,7 @@ export function drawSteps(html: string, steps: readonly PublishedStep[], writabl
   // Each step once, and only in text (never inside a tag's attribute): anything else is left as it was.
   const drawn = new Set<number>();
   return html.replace(SENTINEL, (whole: string, high: string, low: string, at: number) => {
-    const index = ((high.charCodeAt(0) - BASE) << 8) + low.charCodeAt(0) - BASE;
+    const index = STEPS.decode(high + low);
     const step = steps[index];
     if (!step || drawn.has(index) || html.lastIndexOf("<", at) > html.lastIndexOf(">", at)) return whole;
     drawn.add(index);

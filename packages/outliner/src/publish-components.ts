@@ -7,11 +7,12 @@ import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
 import { buttonHtml } from "./component-primitives";
 import type { DrawnComponent } from "./publish-live";
 import type { ResourceProjection } from "./resource-projection";
+import { SENTINEL_BLOCKS, SENTINEL_MARKERS } from "./publish-sentinels";
 
 /** At most this many components on one page: each takes one private-use sentinel character. */
-export const MAX_PUBLISHED_COMPONENTS = 255;
-const MARK = "", BASE = 0xE200;
-const SENTINEL = /(?:<p>)?([-])(?:<\/p>)?/g;
+export const MAX_PUBLISHED_COMPONENTS = SENTINEL_BLOCKS.components.capacity;
+const MARK = SENTINEL_MARKERS.component, COMPONENTS = SENTINEL_BLOCKS.components;
+const SENTINEL = new RegExp(`(?:<p>)?${MARK}(${COMPONENTS.char})${MARK}(?:</p>)?`, "g");
 
 /** Dark, quiet, and in the page's own type: a row is a grid that stacks below its children's `minWidth`. */
 export const COMPONENT_STYLE = `
@@ -56,13 +57,13 @@ export function drawNoteButtons(notes: readonly { id: string; text: string }[], 
   }
 }
 
-export const componentSentinel = (index: number) => `${MARK}${String.fromCharCode(BASE + index)}${MARK}`;
+export const componentSentinel = (index: number) => `${MARK}${COMPONENTS.encode(index)}${MARK}`;
 /** Whether `text` is one component's sentinel and nothing else. */
 export const isComponentSentinel = (text: string) => text.length === 3 && text[0] === MARK && text[2] === MARK;
 
 /** The rendered page with each component's HTML in its sentinel's place. */
 export function drawComponents(html: string, components: readonly string[]): string {
-  return components.length ? html.replace(SENTINEL, (_, at: string) => components[at.charCodeAt(0) - BASE] ?? "") : html;
+  return components.length ? html.replace(SENTINEL, (_, at: string) => components[COMPONENTS.decode(at)] ?? "") : html;
 }
 
 /** A line's source as Markdown code, with a fence of backticks longer than any it holds. */
