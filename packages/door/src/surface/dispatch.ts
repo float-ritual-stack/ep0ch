@@ -374,16 +374,6 @@ export function explainNotInstalled(words: (name: string) => string | null) { no
 let alsoNamed: () => string[] = () => [];
 export function nameAlso(names: () => string[]) { alsoNamed = names; }
 
-/**
- * Whether an action works on a tile (the one `tile=` names, else the focused one), so where its request comes from decides
- * the tile: a tile set's, or a screen set's that is no landing (tile= there is where something lands) and changes no more
- * than a tile's shape (not the screen). The keys' screen hands it on to the tile they are in (Dispatcher.owner), and a press
- * places it in its reader (Dispatcher.requestIn, PIE-1699).
- */
-function actsOnTile(reg: Registration, def: ActionDef<unknown, unknown> | undefined): boolean {
-  return reg.takes !== "none" && !!def && def.touches !== "screen" && !def.landing;
-}
-
 export class Dispatcher {
   private nextConfirmation = 0;
   private saidConfirmation = 0;
@@ -592,9 +582,9 @@ export class Dispatcher {
 
   /**
    * An authored press defaults tile actions to its own reader. A press made in a reader places a screen set's action that
-   * works on a tile there too (`actsOnTile`: tile.agent, tile.title, tile.zoom), as if that reader were focused, so a press
-   * from the answer tile acts in the reader the ask was typed in, never the answer tile the keys or the click are in
-   * (PIE-1699); a landing, a screen-wide change and a host action keep their scope. The one owner of
+   * says it works where it is pressed (`inPlace`: tile.agent, tile.title, tile.zoom) there too, so a press from the answer
+   * tile acts in the reader the ask was typed in, never the answer tile the keys or the click are in (PIE-1699); every
+   * other screen and host action keeps its own default. The one owner of
    * where a press acts (PIE-1517): given the press (src/surface/invite.ts `Press`), its reader; made in none (`button.press
    * note=`, a status-bar button), a reader showing its note, here or on the screen this host hands tile actions to. Where
    * none does, the person's own press acts at their focus; anyone else's is refused with "open it first", never landing
@@ -602,8 +592,8 @@ export class Dispatcher {
    */
   requestIn(req: ActRequest, at: string | Press | undefined): ActRequest {
     let tile = typeof at === "object" ? at.tile : at;
-    // Made in a reader: that reader stands in for the focus, for a screen set's tile action too (PIE-1699).
-    const made = tile !== undefined;
+    // Made in a reader (not a door.act from another kind of tile): that reader, for a screen set's inPlace action too (PIE-1699).
+    const made = tile !== undefined && this.resolve(tile)?.tile.kind === "reader";
     if (tile === undefined && typeof at === "object" && at.note && (this.showing(at.note) || !this.standing(at.actor, "tile"))) tile = at.note;
     if (req.tile !== undefined || tile === undefined) return req;
     const there = { ...req, tile };
@@ -616,10 +606,10 @@ export class Dispatcher {
     return this.tile(note) ?? (address ? this.resolve(address)?.dispatch.tile(note) ?? null : null);
   }
 
-  /** Whether the request's tile decides where it runs: a tile set's action, or (`screen`: a press made in a reader) a screen set's that acts on a tile. */
+  /** Whether the request's tile decides where it runs: a tile set's action, or (`screen`: a press made in a reader) a screen set's `inPlace` one. */
   private tileAction(req: ActRequest, screen = false): boolean {
     const r = this.owner(req);
-    return !!r && ("set" in r ? r.takes === "tile" || screen && actsOnTile(r, r.set.def(req.action)) : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req, screen));
+    return !!r && ("set" in r ? r.takes === "tile" || screen && r.takes === "screen" && !!r.set.def(req.action)?.inPlace : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req, screen));
   }
 
   /** The set that owns a request's action: the first registered that claims it. */
@@ -632,7 +622,7 @@ export class Dispatcher {
     if (defaultTarget && defaultTarget.dispatch.host.pointerScope !== this.host.pointerScope) {
       const reg = this.regs.find(r => "set" in r && r.set.has(req.action));
       const def = reg && "set" in reg ? reg.set.def(req.action) : undefined;
-      if (reg && "set" in reg && actsOnTile(reg, def)) return { delegate: () => defaultTarget.dispatch, listed: false };
+      if (reg && "set" in reg && reg.takes !== "none" && def && def.touches !== "screen" && !def.landing) return { delegate: () => defaultTarget.dispatch, listed: false };
     }
     const addressed = this.addressed(req);
     if (addressed) return addressed;

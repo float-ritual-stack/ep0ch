@@ -146,6 +146,12 @@ export interface ActionDef<A, H> {
   /** tile= names where something lands, rather than what this action works on. */
   landing?: true;
   /**
+   * It works on the tile it is pressed in, as `^W g` or a click on its chip there would: with no tile=, a press made in a
+   * reader (a button there, or in the answer tile beside it) names that reader, not the focused tile (Dispatcher.requestIn,
+   * PIE-1699). Only an action whose no-tile default is the focused tile says so; one with another default keeps it.
+   */
+  inPlace?: true;
+  /**
    * What it touches with these arguments, when they decide it (board.hub with id= shows a board; without, it answers),
    * and `tile`: the tile the request named (tile=), when it named one (the desk's open: a reader named is moved).
    */
