@@ -4417,9 +4417,7 @@ export class OutlinerStore {
       const valuesOf = (block: Block, key: string) => records(block).filter(record => record.key === key || key === "tag" && record.key === "tags").flatMap(record => splitPropertyValue(record.value));
       if (query.group) answer.groups = questionGroups(blocks, rows, query.group, valuesOf);
       if (query.facets) answer.facets = questionFacets(blocks, query.facets, valuesOf, block => records(block).map(record => record.key), query.facetValues, query.facetKeys, query.facetSearch);
-      // A Work ID no item has, said when the answer is empty (PIE-1682): every item's work-id is read only then.
-      const workIds = rows.length ? undefined : questionWorkIdHint(query, id => [...graph.propertyRecordsByBlock].some(([blockId, records]) => !graph.byId.get(blockId)?.effectiveDeletedRootId && records.some(r => r.key === "work-id" && r.value === id)));
-      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope)), workIds].filter(Boolean).join(" · ");
+      const hint = [questionHint(query, this.knownPropertyKeys(graph)), questionValueWarning(query, key => this.loosenedValuesOf(graph, query, key, scope)), rows.length ? undefined : questionWorkIdHint(query, graph.propertyRecordsByBlock, id => !graph.byId.get(id)?.effectiveDeletedRootId)].filter(Boolean).join(" · ");
       if (hint && !options.select) answer.hint = hint;
     }
     return answer;

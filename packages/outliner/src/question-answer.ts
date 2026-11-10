@@ -32,12 +32,14 @@ export function questionHint(query: NormalizedBlockSearchQuery, known: ReadonlyS
 }
 
 /**
- * For a question that answered nothing: each Work ID it asked for by its item (`work-id=PIE-587`, or bare) that no item
- * has (`has`), named with the clause it was read as (PIE-1682), so an empty answer never reads as "no such key".
+ * For a question that answered nothing: each Work ID it asked for by its item (`work-id=PIE-587`, or bare) that no
+ * active block's `records` hold, named with the clause it was read as (PIE-1682), so an empty answer never reads as "no such key".
  */
-export function questionWorkIdHint(query: NormalizedBlockSearchQuery, has: (workId: string) => boolean): string | undefined {
+export function questionWorkIdHint(query: NormalizedBlockSearchQuery, records: ReadonlyMap<string, readonly { key: string; value: string }[]>, active: (blockId: string) => boolean): string | undefined {
   const asked = [...(query.filters ?? []).flatMap(f => f.key === WORK_ID_KEY && f.value !== undefined ? [f.value] : []), ...expressionWorkIds(query.predicate)];
-  return missingWorkIdHint([...new Set(asked)].filter(id => !has(id)));
+  if (!asked.length) return undefined;
+  const held = new Set([...records].flatMap(([id, rs]) => active(id) ? rs.filter(r => r.key === WORK_ID_KEY).map(r => r.value) : []));
+  return missingWorkIdHint([...new Set(asked)].filter(id => !held.has(id)));
 }
 
 /** The comparisons a question makes as dates or numbers: `due <= +3d`, `rating > 3`, `due=today` (under NOT too). */

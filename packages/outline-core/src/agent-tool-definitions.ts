@@ -78,8 +78,9 @@ const WRITE_RULES =
   "and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
   "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " +
   "in prose; one point per bullet; headings over a note past a screen. The answer reviews what you wrote: `review.verdict` is ship or " +
-  "fix, each finding says where and the smallest fix, many with a ready `patch` to pass to outline_patch as written; every `warnings` " +
-  "entry that starts \"fix before you call this done\" is yours to fix, and `next` says how to look at the note as drawn before you say done.";
+  "fix, each finding names its lines and the smallest fix, many with a ready `patch` to pass to outline_patch as written; every `warnings` " +
+  "entry that starts \"fix before you call this done\" is yours to fix. A write with a component, a warning or a fix also answers with " +
+  "`view`: the part it changed as the door draws it, to read before you say done (`next` says how).";
 
 /** The same for a margin comment: no title, nothing to mark, the same wall rule and the same answer. */
 const COMMENT_RULES =

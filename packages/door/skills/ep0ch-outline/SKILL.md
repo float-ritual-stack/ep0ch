@@ -427,7 +427,9 @@ that doesn't read, a reference that leads nowhere): the text is saved as written
 comes back in `figures` with the rows it returned, and one that returned 0 is a warning too: check the query with
 `outline_find` (`hasKey` names a property). Every create, edit and patch is reviewed (PIE-1388): the answer's `review` has a `verdict`, `ship` or `fix`, and
 `findings`, each filed under Evan's rubric (dense, format, buried, unclear, mixed, context, argues, qa-for-evan) with
-where it is and the smallest fix. Code measures a title over about 70 characters, a paragraph past three sentences, a
+the lines it names and the smallest fix (PIE-588: a `context` finding quotes the id written bare and gives its link, a
+Work ID of another outline as `[[pie:PIE-587]]`, a note's id as `((id|title))`; a `mixed` finding names which lines are
+what's true, what was decided and what's still open, and its patch moves each under a heading of its own). Code measures a title over about 70 characters, a paragraph past three sentences, a
 bullet stacking several points, a note past a screen with no headings, a count typed in prose that a query keeps true,
 a bare id, a question for Evan below the top; Jev reads every section the write changed (prose too) for the rest, and
 which of the outline's components would show it. Many findings carry a `patch`: pass it to `outline_patch` as written
@@ -435,10 +437,11 @@ which of the outline's components would show it. Many findings carry a `patch`: 
 would touch the same text come one per review. Each new
 finding is also a warning that starts "fix before you call this done"; a component Jev would draw a section with that
 code can't build comes as advice ("consider: …"), never a fix. You hear each finding once: one you were told on an
-earlier write is carried, so a note whose patches you applied ships. Every answer ends with `next`, the check to
-make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back with `view: true`) before you call the write done. What you
-were told and what you did next land on Jev's suggestions page. In
-the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
+earlier write is carried, so a note whose patches you applied ships. A write that holds a component, a warning or a
+fix answers with `view`, the part it changed as the door draws it at 44 columns (`viewOf` says which lines), in the
+Claude mod and on the claude.ai connector alike. Every answer ends with `next`, the check to make: read `view` (or the
+whole note with `ep0ch show <id>`, or `outline_read` with `view: true`) before you call the write done. What you
+were told and what you did next land on Jev's suggestions page. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 
 A worked outbox draft (fictional). The note is made first, then `outline_assign_id` stamps `[work-id::…]` on its first line (no `[page::…]`: the id is the page address). The properties are on the first line; the message is the one quote, so its ⧉

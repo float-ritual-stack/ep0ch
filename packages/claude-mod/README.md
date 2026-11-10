@@ -259,15 +259,14 @@ callouts and rules without being reminded:
 - **The core tools up front:** `outline_read`, `outline_find`, `outline_edit`, `outline_create`, `outline_patch` and
   `outline_components` register with `isDeferred: false`, in the prompt's tool list instead of behind tool search.
   Their descriptions say what a note can hold and what the answer reports.
-- **A written figure drawn back:** a write's answer lists the `components` the note now holds and its `warnings`
+- **A write answered drawn (PIE-588):** a write's answer lists the `components` the note now holds and its `warnings`
   (outline-core's `component-warnings.ts`: a figure's name or key with a typo, YAML that doesn't read, a value
-  outside a property's; with the references that lead nowhere, as before), and the house rules measured on what was
-  written (outline-core's `write-shape.ts`, PIE-1270: a title over about 70 characters, a paragraph past three
-  sentences, prose with no figure, a nested callout, a question for Evan below the top with no `[needs::sysop]`), each
-  worded "fix before you call this done: …", then a `next` check. The same rules sit in the write tools' descriptions
-  (`agent-tool-definitions.ts`), so they are in the prompt beside every call. When the note holds a `::graph-*`, the
-  answer starts with the note as it draws (`ep0ch show <id> --width 80 --rows 40`), its JSON still last for the tool
-  rows. A drawing that fails leaves the answer as it was.
+  outside a property's; with the references that lead nowhere, as before), and its `review` (write-review.ts: each
+  finding names its line and its fix, many with a ready `patch`), each worded "fix before you call this done: …", then a
+  `next` check. When the write holds a component, a warning or a fix to make, the answer carries `view`: the part it
+  changed as the door draws it at 44 columns (`viewOf` says which lines), drawn by the agent tools themselves (the CLI
+  runs this checkout's `ep0ch show --lines`), so the claude.ai connector answers the same. The mod passes it on and
+  draws nothing after a write; a drawing that can't be made says why in `viewError`.
 
 ### What this Claude is doing, to its terminal (PIE-614)
 
