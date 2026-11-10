@@ -26,6 +26,7 @@ import {
   visibleBacklinkSources,
   detailFileLineAnchor,
   detailReadStatus,
+  detailVisibleEditorHeight,
   type DetailCommentDraft,
   type DetailControllerOptions,
   type DetailEffects,
@@ -38,7 +39,7 @@ import { OutlinerActionKeymap } from "../src/outliner-actions";
 import { detailBacklinkRegions, renderBacklinksDocument } from "../src/detail-pi-preview";
 import { detailAnnotationGroups, resolveAnnotationReferences } from "../src/detail-annotations";
 import { detailPropertyInspectorRegions } from "../src/property-inspector";
-import { renderDetailLines } from "../src/detail-renderer";
+import { renderDetailFooter, renderDetailHeader, renderDetailLines } from "../src/detail-renderer";
 import type { ReferencedFile } from "../src/files";
 import type { OutlinerLinkTarget } from "../src/outliner-links";
 import { patchPropertyText } from "../src/properties";
@@ -4832,8 +4833,9 @@ describe("detail controller completion, navigation, and focus", () => {
     await harness.controller.dispatch({ type: "file.navigate", direction: "end" }, shortViewport);
 
     expect(harness.controller.state.fileCursor).toBe(7);
-    expect(harness.controller.state.fileOffset).toBe(5);
-    expect(detailFileLineAnchor(harness.controller.state)).toBe(3);
+    // A 9-row frame draws 4 file rows (PIE-1689): a page down moves 4, and the cursor sits on the last row drawn.
+    expect(harness.controller.state.fileOffset).toBe(4);
+    expect(detailFileLineAnchor(harness.controller.state)).toBe(4);
 
     await harness.controller.dispatch({ type: "viewport.changed" }, { width: 40, height: 6 });
     expect(harness.controller.state.fileOffset).toBe(7);
@@ -6360,5 +6362,71 @@ describe("nothing of a left mode answers in the next", () => {
     await controller.dispatch({ type: "buffer.save" }, viewport);
     expect(replies).toEqual([]);
     expect(harness.calls.creates.map(input => input.input.body)).toEqual(["A new comment"]);
+  });
+});
+
+describe("a save keeps what came meanwhile, and one page size (PIE-1689)", () => {
+  const anchor = { kind: "text-quote" as const, start: 6, end: 12, exact: "Phrase", prefix: "", suffix: "" };
+
+  test.each(["reply", "edit"] as const)("a refresh that arrives while a comment's %s is typed lands after the save", async (kind) => {
+    const harness = createHarness(makeBlock({ text: "Title\nPhrase\nLast line" }), null, async text => ({ text, references: [] }));
+    let thread: AnnotationThread;
+    harness.effects.reconcileAnnotations = async input => {
+      thread ??= { ...annotationRecord({ representation: input.newRepresentation, anchor }, { body: "Water at dusk" }), replies: [] };
+      return { threads: [thread], changed: true };
+    };
+    harness.effects.getAnnotation = async () => thread;
+    harness.effects.replyAnnotation = async input => {
+      const reply = { ...annotationRecord(thread.originalTarget, { block: makeBlock({ id: "reply-1" }), body: input.input.body }), parentAnnotationId: thread.block.id };
+      thread = { ...thread, replies: [reply] };
+      return { annotations: [reply], deduplicated: false };
+    };
+    harness.effects.updateAnnotation = async input => (thread = { ...thread, body: input.body, block: { ...thread.block, revision: thread.block.revision + 1 } });
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "annotation.thread.move", delta: 1 }, viewport);
+    await harness.controller.dispatch({ type: kind === "reply" ? "annotation.thread.reply" : "annotation.thread.edit" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: " and mulch" }, viewport);
+    harness.setSelection({ selected: makeBlock({ text: "Title\nPhrase\nLast line, revised", revision: 2 }), ancestors: [], children: [] });
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    expect(harness.controller.state.refreshPending).toBe(true);
+
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.controller.state.mode.kind).toBe("preview");
+    expect(harness.controller.state.refreshPending).toBe(false);
+    expect(harness.controller.state.context.selected?.text).toBe("Title\nPhrase\nLast line, revised");
+  });
+
+  test("saving closes the completion list", async () => {
+    const harness = createHarness(makeBlock({ text: "See [[rel" }));
+    harness.setPageQueryResults([{
+      addresses: [{ address: "release-notes", normalizedAddress: "release-notes", blockId: "release-id", kind: "page", title: "Release Notes" }],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+    expect(harness.controller.state.completion).not.toBeNull();
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.controller.state.mode.kind).toBe("preview");
+    expect(harness.controller.state.completion).toBeNull();
+  });
+
+  test.each([["with", [{ key: "subtitle", value: "spring beds" }]], ["without", []]] as const)("page up and down move what the frame draws, in the note, the file and the editor, %s a subtitle", async (_, subtitle) => {
+    const lines = Array.from({ length: 40 }, (_, index) => `row ${index + 1}`);
+    const block = makeBlock({ text: `Seed plan [file::src/example.ts]\n${lines.join("\n")}`,
+      properties: [...subtitle, { key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview({ lines }));
+    const tall = { width: 60, height: 16 };
+    await harness.controller.initialize();
+    const state = harness.controller.state;
+    const drawn = () => tall.height - renderDetailHeader(state, tall.width).length - renderDetailFooter(state, tall.width).length;
+    expect(state.mode.kind).toBe("file");
+    await harness.controller.dispatch({ type: "file.navigate", direction: "pagedown" }, tall);
+    expect(state.fileCursor).toBe(drawn());
+    await harness.controller.dispatch({ type: "view.block" }, tall);
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "pagedown" }, tall);
+    expect(state.previewOffset).toBe(drawn());
+    await harness.controller.dispatch({ type: "edit.begin" }, tall);
+    expect(detailVisibleEditorHeight(state, tall)).toBe(drawn());
   });
 });
