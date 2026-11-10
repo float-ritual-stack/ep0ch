@@ -4,12 +4,16 @@ The freshness sweep (the `ep0ch-repo` mod in `.claude/skills/ep0ch-repo`) hands 
 every three deploys or merges in the deployer's sessions. The agent checks each item and reports; the main thread
 makes the updates. Edit this file like any rule: a line here is a check the next sweep makes.
 
+The checkout the sweep starts in can be behind main: a file in the repository is read as main has it (`gh api`, the
+brief says how), never from the working tree.
+
 Where to look: pie through `ep0ch show --ws pie <ref>` and `ep0ch find --ws pie --query "<query>" --json` (or the
 outline read tools), GitHub through `gh pr list` and `gh pr view`, the repository through `git log`, the machine
 through `systemctl --user`.
 
 - **Build log:** a PR merged today (`gh pr list --state merged --search "merged:>=<today>"`) with no line in today's
-  build log (`type=build-log`, the newest).
+  build log (`type=build-log`, the newest); a "Builder out" line whose PR has merged. A "Verifier out" line is stale
+  only once the tickets it names are closed: verifiers start after a merge, by design.
 - **Tickets behind their PRs:** a ticket whose PR merged but is still `doing` or `review`; a `done` ticket with no
   proof child.
 - **Requests:** a shipped ticket whose request copy (in pie's "ep0ch requests" subscription) has no patch note reply.
@@ -17,7 +21,9 @@ through `systemctl --user`.
 - **Idle PRs:** an open PR with no push or comment for an hour and no agent working on it.
 - **Infrastructure hub** (pie `50fe932d-4314-4c1b-88c9-13e79a41ef83`): a service, timer, tunnel or Caddy site it
   names that isn't running (`systemctl --user list-units --all`), or one running that it doesn't name.
-- **CHANGELOG:** a user-visible PR merged since the last release section with no entry under `[Unreleased]`.
+- **CHANGELOG:** a user-visible PR merged since the last release section with no entry under `[Unreleased]`. A PR
+  whose `gh pr view <n> --json files` includes `CHANGELOG.md` has its entry; for the rest, read main's CHANGELOG
+  through `gh api` (the brief says how), never the checkout's.
 - **Docs and skills:** a README, AGENTS.md, CONTRIBUTING.md, skill or agent definition that names a file that no
   longer exists (`git ls-files` to check the name).
 - **Memory:** a memory file (`~/.claude/projects/-home-evan-projects-ep0ch/memory/`) that names a file, flag, command
