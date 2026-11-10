@@ -92,6 +92,29 @@ describe.skipIf(!outliner)("the keys section", () => {
     }
   });
 
+  // The showcase isn't a Desk: the tile under the person's keys is found through where they are (App.person().address),
+  // never the top screen's own focused pane, so a tile in a group or the drawer gets its key the same way.
+  test("the person presses r, then alt+u, in the showcase's keys tile: the window records alt+u and the glass never gets it (PIE-1688)", async () => {
+    const { glass } = await import("../../ext/glass/glass");
+    await h.app.act({ action: "section", args: { name: "keys" }, as: "keys-demo" });
+    await until(() => !!h.S().stages.get(h.S().sel), "the keys section");
+    h.S().pick(h.S().sel, true);
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    const keys = d.pane("keys") as any;
+    await d.dispatch.act({ action: "keys.filter", args: { text: "draft.clear" }, tile: "keys" }, { kind: "user" });
+    const mode = glass().mode;
+    try {
+      h.press({ kind: "char", ch: "r" });
+      await until(() => !!keys.record, "the rebind waits for its key");
+      h.press({ kind: "alt", ch: "u" });
+      await until(() => keys.record?.key === "alt+u", "the window records alt+u");
+      expect(glass().mode).toBe(mode);
+    } finally {
+      h.press({ kind: "esc" });
+      await d.dispatch.act({ action: "keys.filter", args: { text: "" }, tile: "keys" }, AGENT);
+    }
+  });
+
   test("on the House board, ? opens the keys window where the board can take it; esc gives the keys back to the lanes", async () => {
     const board = openScreen("board", { hub: h.seeded.notes.hub.id, persist: false }) as Desk;
     h.app.push(board as never);
