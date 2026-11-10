@@ -27,6 +27,7 @@ import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-
 import { callSplice, COMPONENTS_PAGE, makeComponent } from "../component-new";
 import { insertButton, insertNoteLine } from "../note-insert";
 import { keepUnsent, takeStrays, unsent } from "../../draft-session";
+import { ASKED_IN_PLACE } from "../../extensions";
 
 export const EDIT_DEFS = {
   "rich.toggle": def({
@@ -519,7 +520,7 @@ export const EDIT_SAVE_DEFS = {
       // What the host binds, from here: this note (an agent's run reaches it as the person's does), and that its
       // arguments were asked in place, so what's left out takes its default instead of a form over the note.
       const blockId = d.blockId;
-      req.args = { ...(info.args.block?.context && req.args?.block === undefined && blockId ? { block: blockId } : {}), ...(info.args.asked?.context ? { asked: true } : {}), ...req.args };
+      req.args = { ...(info.args.block?.context && req.args?.block === undefined && blockId ? { block: blockId } : {}), ...(info.args[ASKED_IN_PLACE]?.context ? { [ASKED_IN_PLACE]: true } : {}), ...req.args };
       // The / line goes before the save: what's saved is the note as written, never the command.
       // Checked before anything moves (a value it doesn't take, a note it can't act on): the line stays to correct.
       const refused = dispatch.refusedNow(req, actor);

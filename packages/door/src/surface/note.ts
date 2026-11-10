@@ -78,7 +78,7 @@ import { withSchemaParams, drawSources, itemsOf, newPanel, sourceAt, type PanelD
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
 import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
-import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
+import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction, PRESSED_VIA } from "../extensions";
 import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
 import { type CalloutRef, type ImageRef, presentLinks, softLinkIgnoreOf, commentNotes, commentSubject, resourceTokensOf, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
@@ -131,7 +131,7 @@ import { sourceSpanOf } from "./source-map";
 import { passageActions, scriptsAt, scriptActions, installWords, threadAgents } from "../extensions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES, type Press } from "./invite";
-import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
+import { buttonCallAt, buttonCallsOf, buttonPressed, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { SettingField } from "./settings-card";
 import { settingsSubject, settingsKey, SETTINGS_DEFS } from "./settings";
@@ -4469,7 +4469,7 @@ export class NoteSurface {
     const run = async () => {
       const note = p.block ? await host.ctx.board.get(p.block) : null;
       // `alt`: the press runs the button's alt= (PIE-1316): its own line and its own open slots.
-      const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null, own = alt ? button?.alt : button?.act;
+      const button = note ? buttonPressed(note.text, p) : null, own = alt ? button?.alt : button?.act; // where it is now (PIE-1693)
       if (own && button!.slots.some(s => p.act.includes(`{${s.key}}`))) p = { ...p, act: own }; // a slot filled since the frame this press came from (PIE-1570)
       // A button that reads differently than it was written runs nothing (it never acts on the focused tile instead); one with an
       // empty slot asks for it, and alt+click on a button with slots (and no alt= of its own) asks again (PIE-1298).
@@ -4482,7 +4482,7 @@ export class NoteSurface {
         if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = INVITES.pressed(press);
         const r = await host.ctx.board.request("scripts.sequence", {
-          blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
+          blockId: note!.id, line: button.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
         });
         if (invitation && r.undo) INVITES.bind(invitation, r.undo);
         if (r.undo) EXT_UNDO.push({ undo: r.undo, label: button.label, by: partyOf(actor), context: note!.id });
@@ -4514,7 +4514,7 @@ export class NoteSurface {
       // its button (via), so the run's note records it and the run reads its slots whole (`page=a page=b`).
       if (scriptActions().some(s => s.action.name === action) && (args.invitation ??= INVITES.pressed(press))) {
         const home = p.block || this.msg?.id;
-        if (home) args.via ??= `${home}:${p.line}`;
+        if (home) args[PRESSED_VIA] ??= `${home}:${button?.line ?? p.line}`;
       }
       const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, press), actor);
       host.redraw();

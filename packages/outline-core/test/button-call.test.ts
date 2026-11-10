@@ -1,6 +1,6 @@
 // `::button` (PIE-957): both spellings compile to one action line; fences hold none.
 import { expect, test } from "bun:test";
-import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot } from "../src/button-call";
+import { buttonCallAt, buttonCallsOf, buttonPressed, slotArgs, withButtonSlot } from "../src/button-call";
 import { syntaxWarnings } from "../src/syntax-warnings";
 import { BUILTIN_COMPONENT_SCHEMAS } from "../src/component-schema";
 
@@ -250,4 +250,21 @@ test("of= with its words inside it (and an unclosed quote) runs nothing and says
   expect(syntaxWarnings(typed).map(w => w.message).join(" ")).toContain("runs nothing: of= names the script");
   // The right line, a repeated slot kept in order.
   expect(buttonCallAt(['::button{label="neat" of=neat page=[[a]] page=[[b]]}'], 0)).toMatchObject({ act: 'neat page="[[a]]" page="[[b]]"' });
+});
+
+// PIE-1693: a press drawn before an edit moved its button (a line typed above it, an answer written above it) finds the
+// button where it is now; a sequence whose button is gone is refused, never run as one action line.
+test("a press finds its button moved by an edit above it, and a gone sequence is refused", () => {
+  const button = '> ::button{label="▼ drop" act=["agent.lift on=false", "status.log"]}';
+  const drawn = `Shelf\n\n> [!note]+ answered\n${button}`, now = `Shelf\nwritten above\n\n> [!note]+ answered\n${button}`;
+  const press = { line: 3, label: "▼ drop", act: buttonCallAt(drawn.split("\n"), 3)!.act!, steps: buttonCallAt(drawn.split("\n"), 3)!.steps };
+  expect(buttonPressed(drawn, press)).toMatchObject({ line: 3, sequence: true, prefix: "> " });
+  expect(buttonPressed(now, press)).toMatchObject({ line: 4, sequence: true });
+  expect(() => buttonPressed("Shelf\n\nnothing here", press)).toThrow("▼ drop isn't in the note as it is now");
+  // Two that fit: which one is meant isn't known, so the sequence isn't run.
+  expect(() => buttonPressed(`${now}\n\n${button}`, press)).toThrow("isn't in the note as it is now");
+  // A press with one step and no button (a link's or a view's) is the caller's to run as its line.
+  expect(buttonPressed("Shelf", { line: 0, act: "status.log" })).toBeNull();
+  // A press with no label isn't a note's button (a chip's, drawn at line 0): a button written on that line isn't it.
+  expect(buttonPressed('::button{label="Go" act="status.log"}\nShelf', { line: 0, act: "theme.cycle" })).toBeNull();
 });
