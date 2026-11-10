@@ -5,6 +5,7 @@ import type { PropertyPanel, PropRow } from "./props-panel";
 import type { Key } from "../term";
 import { completerOf } from "./completer";
 import { scrolled } from "../scroll";
+import { escVia } from "../esc-rule";
 
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: unknown; rows: unknown[] } | null };
 
@@ -14,6 +15,8 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
   const mode: PanelMode = {
       name: "panel", of: P, panel: P, holdsKeys: true, noun: "the property value",
       word: "property panel",
+      // A value being typed closes on its line's own key (esc, or where the person moved it: PIE-1688), and the way out says it.
+      escCloses: () => (P.field ? escVia(P.field.input.closeKey(), "the property value") : null),
       // A list row's revision says nothing about the value's token: only a whole read is news, the value's session's (PIE-1658).
       changed: (revision, partial) => { if (!partial) P.field?.session.changedTo(revision); },
       editing: () => !!P.field, covers: () => P.full,

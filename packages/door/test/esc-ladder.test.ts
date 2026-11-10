@@ -167,6 +167,28 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
     } finally { d.quit(); }
   });
 
+  test("edit.close moved to alt+q: a property value being typed names alt+q as its way out, keeps a stray Esc and cancels on alt+q (PIE-1688)", async () => {
+    process.env.EP0CH_EDIT_ARM = "off";
+    setKeys("edit.close", ["alt+q"]); reloadKeymap();
+    const d = await door();
+    try {
+      const seeds = (await board.request("create", { parentId: null, text: "Seed rota [season::spring]\nSow the peas.", author: "agent" }) as { id: string }).id;
+      await d.desk.dispatch.act({ action: "open", args: { id: seeds }, tile: "reader" }, USER);
+      await until(() => d.reader()?.surface.msg?.id === seeds, "the seed rota is read");
+      const said = () => escSays(d.app.esc.next() ?? "");
+      const field = () => (d.reader().surface as any).panel?.field;
+      await d.feed("i");
+      await until(() => !!(d.reader().surface as any).panel, "the property panel");
+      await d.feed("e");
+      await until(() => !!field(), "the value is being typed");
+      expect(said()).toBe("alt+q: the property value");
+      await d.feed(ESC);
+      expect(field()).toBeTruthy();
+      await d.feed("\x1bq");
+      await until(() => !field(), "alt+q cancels the value");
+    } finally { d.quit(); }
+  });
+
   test("an edit's mode has a key table for the keys window: the draft's rows, the $EDITOR chord and the note edit's own keys (Nov 3 review card 1)", async () => {
     process.env.EP0CH_EDIT_ARM = "off";
     const d = await door();
