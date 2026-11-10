@@ -507,8 +507,11 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     term.invalidate(); paint();
     const waiting = term.speed()[0]!.unacked;
     const typedBefore = keys.length;
+    // A screen being typed in gets it whole, as the terminal sent it (src/paste-path.ts: never typed out as keys).
+    (app as any).stack.at(-1).holdsKeys = () => true;
     term.input(ca, "\x1b[200~pasted "); term.input(ca, answer); term.input(ca, "text\x1b[201~");
-    expect(keys.slice(typedBefore).map((k: any) => k.ch ?? `<${k.kind}>`).join("")).toBe("pasted text");
+    delete (app as any).stack.at(-1).holdsKeys;
+    expect(keys.slice(typedBefore)).toEqual([{ kind: "paste", text: "pasted text" }]);
     expect(term.speed()[0]!.unacked).toBe(waiting - 1);
     // Nor into a program typed to in a terminal tile (raw input): it would see ESC [ 0 n.
     const typed: string[] = [];

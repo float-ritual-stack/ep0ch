@@ -84,8 +84,8 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       const after = (await board.get(before.id))!;
       expect({ what, revision: after.revision, trashed: !!(after as any).effectiveDeletedRootId }).toEqual({ what, revision: before.revision, trashed: false });
     };
-    /** Only the power bar's own actions ran (it opened, offering the paste). */
-    const onlyBar = (names: string[]) => expect(names.filter(n => !n.startsWith("bar."))).toEqual([]);
+    /** Only the power bar's own actions ran (it opened, offering the paste, and its screens source listed them). */
+    const onlyBar = (names: string[]) => expect(names.filter(n => !n.startsWith("bar.") && n !== "screen.list")).toEqual([]);
     const onBeans = async () => {
       showIn(desk, beans);
       await until(() => !!reader(), "the beans in a reader");
@@ -102,21 +102,27 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       d.onlyBar(await d.ran(bracketed(TEXT)));
       await d.untouched("a paste in a reader", before);
       expect(d.tiles()).toEqual(tiles);
-      await until(() => !!d.peek().bar, "the power bar offers the paste", 3000);
-      expect(d.peek().bar.query).toBe(LINE);
+      await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
     } finally { d.quit(); }
   }, 20_000);
 
-  test("a paste split across reads (its end marker in a later read) is still one paste, offered whole", async () => {
+  test("a paste cut by the reads (inside its markers, with a pause) is still one paste, offered whole", async () => {
     const d = await door();
     try {
       await d.onBeans();
       const before = (await board.get(beans.id))!;
       const all = bracketed(TEXT);
-      d.onlyBar(await d.ran(all.slice(0, 9), all.slice(9, 30), all.slice(30, -3), all.slice(-3)));
+      // Cut inside the start marker with a pause longer than a lone Esc waits, then inside the text and the end marker.
+      const names: string[] = [];
+      const stop = traceActions(r => names.push(r.name));
+      try {
+        await d.feed(all.slice(0, 4));
+        await sleep(120);
+        names.push(...await d.ran(all.slice(4, 30), all.slice(30, -3), all.slice(-3)));
+      } finally { stop(); }
+      d.onlyBar(names);
       await d.untouched("a split paste", before);
-      await until(() => !!d.peek().bar, "the power bar offers the paste", 3000);
-      expect(d.peek().bar.query).toBe(LINE);
+      await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
     } finally { d.quit(); }
   }, 20_000);
 
@@ -141,7 +147,8 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       const names = await d.ran(`C${bracketed(TEXT)}`);
       expect(names.filter(n => /trash|close|collapse/.test(n))).toEqual([]);
       await d.untouched("a paste while a comment opens", before);
-      await until(() => !!d.reader()?.surface.draft?.text.includes(TEXT), "the paste in the comment", 5000);
+      const comment = () => (d.reader()?.surface.session?.writing?.draft.text ?? "") as string;
+      await until(() => comment().includes(TEXT), "the paste in the comment", 5000);
       expect(d.peek().bar).toBeUndefined();
     } finally { d.quit(); }
   }, 20_000);
@@ -157,8 +164,7 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       d.onlyBar(await d.ran(bracketed(TEXT)));
       await d.untouched("a paste while armed", before);
       expect(!!d.A.armed()).toBe(false);
-      await until(() => !!d.peek().bar, "the power bar offers the paste", 3000);
-      expect(d.peek().bar.query).toBe(LINE);
+      await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
     } finally { d.quit(); }
   }, 20_000);
 
@@ -173,8 +179,7 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       d.onlyBar(await d.ran(bracketed(TEXT)));
       await d.untouched("a paste on a board", before);
       expect(d.tiles()).toEqual(tiles);
-      await until(() => !!d.peek().bar, "the power bar offers the paste", 3000);
-      expect(d.peek().bar.query).toBe(LINE);
+      await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
     } finally { d.quit(); }
   }, 30_000);
 
@@ -192,8 +197,7 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       d.onlyBar(await d.ran(bracketed(TEXT)));
       await d.untouched("a paste in the drawer", before);
       expect(d.tiles(dd)).toEqual(tiles);
-      await until(() => !!d.peek().bar, "the power bar offers the paste", 3000);
-      expect(d.peek().bar.query).toBe(LINE);
+      await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
     } finally { d.quit(); }
   }, 20_000);
 
@@ -203,20 +207,33 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
       await d.onBeans();
       const before = (await board.get(beans.id))!, tiles = d.tiles();
       const names = await d.ran("\x17", bracketed(TEXT));
-      expect(names.filter(n => !n.startsWith("bar."))).toEqual([]);
+      d.onlyBar(names);
       await d.untouched("a paste after ^W", before);
       expect(d.tiles()).toEqual(tiles);
     } finally { d.quit(); }
   }, 20_000);
 
-  test("pasted on a screen with no power bar (the main menu): no item opens", async () => {
+  test("pasted after ^W in an edit: the chord lets go, the edit stays open and the paste is its text", async () => {
+    const d = await door();
+    try {
+      await d.onBeans();
+      await d.feed("e");
+      await until(() => !!d.reader()?.surface.draft, "the edit opened", 5000);
+      d.onlyBar(await d.ran("\x17", bracketed(TEXT)));
+      expect(d.reader()!.surface.draft!.text).toContain(TEXT);
+      expect(!!d.reader()!.surface.editing).toBe(true);
+      await d.feed("\x1b");
+    } finally { d.quit(); }
+  }, 20_000);
+
+  test("pasted on the main menu: no item opens, and the text is offered", async () => {
     const d = await door(new MainMenu() as any);
     try {
       const top = d.A.stack.at(-1);
       // G logs off, and every letter is an item's.
-      const names = await d.ran(bracketed("Go fetch the hose\nnow"));
-      expect(names).toEqual([]);
+      d.onlyBar(await d.ran(bracketed("Go fetch the hose\nnow")));
       expect(d.A.stack.at(-1)).toBe(top);
+      await until(() => d.peek().bar?.query === "Go fetch the hose now", "the power bar offers the paste", 3000);
     } finally { d.quit(); }
   }, 20_000);
 
