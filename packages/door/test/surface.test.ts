@@ -19,7 +19,7 @@ import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
 import { ACTOR_ID, EditConflict, SocketBoard, type Actor } from "../src/socket";
 import { visible, width } from "../src/style";
-import { ActionRefused, ActionSet, asActor, lineWords, parseActArgs, traceActions, type ActionRun } from "../src/surface/actions";
+import { ActionRefused, ActionSet, asActor, lineWords, parseActArgs } from "../src/surface/actions";
 import { editHint } from "../src/surface/editor";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";

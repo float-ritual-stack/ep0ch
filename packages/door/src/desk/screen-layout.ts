@@ -26,7 +26,7 @@ import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfC
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockBody, chooseDock, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, spineEdge, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
-  MIN_COLS, POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
+  POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
 import { keysBackTo, landTravels, type KeysWent, type OpenedFrom, type Travels } from "./carry-rules";

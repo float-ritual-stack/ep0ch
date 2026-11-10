@@ -6,7 +6,7 @@ import { ageSince } from "@ep0ch/outline-core/age";
 import { boardFor, type Out } from "./notes-cli";
 import { resolveBoardRef } from "./mcp-writes";
 import { recorded, USER, type Actor, type SocketBoard } from "./socket";
-import type { ReaderEvent, ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
+import type { ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
 
 export const SHARE_USAGE = `  ep0ch share start [<ref>] [--only <ref>] [--artifact <name>] [--ttl 1h] [--no-comments] [--via edge|cloudflare]
                     [--allow-mail <email>]… [--as <agent id>] [--json]

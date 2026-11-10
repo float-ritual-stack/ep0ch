@@ -2,7 +2,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { Canvas, type Rect } from "../canvas";
 import { menuHeading, menuRow } from "../desk/tile-menu";
 import { RowView } from "../scroll";
-import { BOLD, UNBOLD, bg, C, fg, pad, RESET } from "../style";
+import { BOLD, UNBOLD, C, fg, pad, RESET } from "../style";
 import { wrap } from "../text";
 import type { ActRequest } from "./actions";
 
@@ -27,7 +27,7 @@ export class HintCard {
   constructor(readonly hint: Hint, readonly tile: string, readonly anchor: number, readonly by?: string) {}
   get id() { return this.hint.id ?? "hint.show"; }
 
-  draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, tone: number = C.cyan, values?: StyleValues): Rect {
+  draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, _tone: number = C.cyan, values?: StyleValues): Rect {
     const cols = Math.max(4, Math.min(64, area.cols, Math.max(38, anchor.cols - 2)));
     const w = cols - 4;
     const lines = (brief ? this.hint.lines.slice(0, 1) : this.hint.lines).flatMap(l => wrap(l.replace(/^([^:]+:)/, BOLD + "$1" + UNBOLD), w));

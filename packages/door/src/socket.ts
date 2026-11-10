@@ -1,5 +1,4 @@
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { grammarWarning } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -11,22 +10,19 @@ import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
 import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
-import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
 import { isMarkLifecycle, isTldr, markCurrent, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { actorName } from "@ep0ch/outline-core/attribution";
-import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
-import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
-import type { PartAt, PropertyMatch, TwinAnswer } from "@ep0ch/outline-core/protocol";
+import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import type { CompletionPickedRequest, CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
-import type { Decoration, ResourceProjectionRead } from "./projection";
-import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
-import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { type BlockRevisionEntry, type HeldAsk, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import type { ResourceProjectionRead } from "./projection";
+import type { ExtensionBarResult } from "./extensions";
+import { resourceNote, resourceStored, RESOURCE_NOTE, type AuthoredTargetFacets, type AuthoredResourceReference, type ResourceDescription } from "./authored";
+import { type BlockRevisionEntry, type HeldAsk, type BlockRevisions, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, type PageRename, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 import { Watched } from "./watched";
@@ -173,8 +169,6 @@ export type Change = Extract<WireAnswer<"changes.since">, { kind: "changes" }>["
 /** The spans of a `draft.patch` as the service passes them on (@ep0ch/outline-core/draft-patch-compare). */
 export type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import type { CalloutType } from "@ep0ch/outline-core/callouts";
-import type { Passage } from "@ep0ch/outline-core/passage";
 
 /**
  * What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. A patch
@@ -277,10 +271,10 @@ export interface PageResolution { outline?: string; machine?: string; address: s
 export type { HeldAsk, NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import type { PropsSpec, SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
+import type { SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
 import type { TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 
-import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
+import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 /**
  * Where an MCP answer came from: `live` (the outline's own host, read now) or `mirror` (a read-only copy on the
  * gateway's machine of an outline whose home is another machine). `asOf`: when it was read, or the newest change the
@@ -1252,10 +1246,6 @@ export class SocketBoard implements Board {
     return { conflict: worded || (now?.revision !== undefined && now.revision !== expected), now };
   }
 
-  /** The properties the service would store for `text` (PIE-401 `properties.preview`), without saving. */
-  async previewProperties(text: string): Promise<Record<string, string>> {
-    return Object.fromEntries((await this.previewPropertyList(text)).map(p => [p.key, p.value]));
-  }
 
   /**
    * The block's own property tokens for `key`, as the service numbers them (`ordinal` is what
@@ -1612,7 +1602,6 @@ export class SocketBoard implements Board {
     // The service sends each note once (`blocks`) and its steps once (`checklists`, without their text);
     // each projection names its note and the lines it shows. Put them back together per projection.
     type Wire = Omit<TransclusionNode, "block" | "embeds" | "checklist"> & { shownLines?: { start: number; end: number }; embeds?: Wire[] };
-    type WireStep = Omit<ChecklistStep, "text">;
     const r = await this.request("transclusions.read", { targets, ...(hostBlockId ? { hostBlockId } : {}) });
     const blocks = new Map(Object.entries(r.blocks ?? {}).map(([id, b]) => [id, toMsg(b)]));
     const node = (n: Wire): TransclusionNode => {

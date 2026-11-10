@@ -140,7 +140,7 @@ export class Overflow {
       return part;
     }).join("");
   }
-  draw(lines: string[], cols: number, now: number): { lines: string[]; overlay?: { col: number; row: number; cols: number; rows: number } } {
+  draw(lines: string[], _cols: number, now: number): { lines: string[]; overlay?: { col: number; row: number; cols: number; rows: number } } {
     this.cuts = [];
     const clean = lines.map((line, y) => this.readRow(line, y));
     return this.render(clean, now);

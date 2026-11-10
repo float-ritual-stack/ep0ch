@@ -3,7 +3,7 @@ import { ActionRefused, actionScript, actionSlots } from "../src/action-line";
 import { componentAttrs, lineWords, splitWords } from "../src/component-block";
 import { blockRecord } from "../src/block-record";
 import { scanPropertyLiteralRanges } from "../src/code-ranges";
-import { escapeInterpolation, interpolate, interpolateWith, interpolationSpans } from "../src/interpolation";
+import { interpolate, interpolateWith, interpolationSpans } from "../src/interpolation";
 import { parsePropertyRecords } from "../src/property-parse";
 import type { Site } from "../src/site";
 
@@ -31,7 +31,6 @@ describe("the one placeholder grammar", () => {
     expect(interpolateWith(src, site)).toBe("ok evan `{{this.owner}}` {{this.owner}}\n```\n{{this.owner}}\n```\n<!-- literal -->\n{{this.owner}}\n<!-- /literal -->");
     // A producer that owns its fences as templates reads inside them.
     expect(interpolationSpans("```\n{{this.owner}}\n```", { fences: "template" }).length).toBe(1);
-    expect(interpolate(escapeInterpolation("a {{b}}"), () => ["x"])).toBe("a {{b}}");
   });
 
   test("a ${{ expression }} (GitHub Actions, a shell) is not ours and stays as written", () => {

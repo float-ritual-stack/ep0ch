@@ -12,7 +12,7 @@
 //
 // Each source is a bar sized by its total, its flows under it, the line's weight by the flow's share of the
 // source (═ half or more, ─ a fifth or more, ┄ less); the targets' totals close the figure. The same at any width.
-import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
+import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { ACCENT, DIM, HI, INK, records, type Props } from "./palette";
 import { rowLines, wrap } from "../text";
 

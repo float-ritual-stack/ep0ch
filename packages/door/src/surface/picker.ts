@@ -11,7 +11,7 @@ import { rowLines } from "../text";
 import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
 import { pageRows, RowView, wheelRows } from "../scroll";
-import { bg, C, fg, pad, RESET, floatSelectedRow } from "../style";
+import { C, fg, pad, RESET, floatSelectedRow } from "../style";
 import { type Key } from "../term";
 import { LineField } from "./line";
 import { modeBinding, modeHint, type Mode, type ModeKey } from "./modes";

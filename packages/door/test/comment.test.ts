@@ -3,10 +3,8 @@ import { quoteOf } from "./wire";
 // start a throwaway outliner service (never a real outline) and skip without one.
 import { Scratch, outliner as scratchOutliner } from "./scratch";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import type { Subprocess } from "bun";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { App } from "../src/app";
 import { CommentSession, Outgoing, Passage } from "../src/comment";
 import { Desk } from "../src/desk/desk";
@@ -15,7 +13,6 @@ import { renderDoc } from "../src/doc";
 import { MainMenu } from "../src/screens";
 import { ACTOR_ID, Refused, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { HERDR_VARS } from "../src/desk/pty";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });

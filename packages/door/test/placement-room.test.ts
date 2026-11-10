@@ -11,18 +11,15 @@ import { OPEN_READS } from "../src/desk/screen-layout";
 import { register } from "../src/desk/screen-notes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
-import type { Key } from "../src/term";
 import { visible as plain } from "../src/style";
 import { outliner, Scratch, until } from "./scratch";
 
-const char = (ch: string): Key => ({ kind: "char", ch });
 const leaf = (kind: string, name: string, more: Record<string, unknown> = {}) => ({ t: "leaf", kind, name, ...more });
 
 describe.skipIf(!outliner)("opens into the desk's readers keep every column readable", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
-  let key: (k: Key) => void = () => {};
-  const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+  const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
   const D = () => desk as any;
   const mine = (action: string, args: Record<string, unknown> = {}, tile?: string) => D().dispatch.act({ action, args, tile }, { kind: "user" });
   const get = () => D().layoutGet() as { tiles: any[] };

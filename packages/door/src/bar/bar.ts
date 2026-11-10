@@ -24,7 +24,7 @@ import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
 import { LineField } from "../surface/line";
-import { completerOf, completionOf, lineCompleter } from "../surface/completer";
+import { completerOf, lineCompleter } from "../surface/completer";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";

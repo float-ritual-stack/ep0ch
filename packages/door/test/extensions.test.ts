@@ -19,7 +19,6 @@ import { primitiveLines } from "../src/components";
 import { Desk } from "../src/desk/desk";
 import { factsOf, kindForKey, tileKind } from "../src/desk/tile-kinds";
 import { bindExtensions, EXT_ACTIONS, extensionList, loadExtensions, mentionsExtension } from "../src/extensions";
-import { missingKind } from "../src/desk/tile-kinds";
 import { declaredKeys, hintKeys, traceActions } from "../src/surface/actions";
 import { writeFileSync } from "node:fs";
 import { askedBy, extensionRegion, forgetProjectionAnswers, projectionLayout, type ResourceProjection } from "../src/projection";

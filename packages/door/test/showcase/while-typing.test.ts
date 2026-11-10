@@ -4,7 +4,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Desk } from "../../src/desk/desk";
 import type { ReaderPane } from "../../src/desk/panes";
-import { USER } from "../../src/socket";
 import { holdsEdit } from "../../src/whereabouts";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";

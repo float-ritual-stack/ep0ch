@@ -23,7 +23,6 @@ type Props = Record<string, any>;
  * `done:` and `now:` queries hold for (as the service says).
  */
 interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; total?: number; /** The title read in the figure's Site (PIE-1362). */ title?: string; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { ids: string[]; truncated: boolean; error?: string }[]; /** Titles of the notes a table's cells name by id (PIE-1388). */ titles?: Record<string, string> }
-type Answer = Omit<Entry, "state" | "error">;
 
 let board: SocketBoard | null = null;
 let onChange: () => void = () => {};

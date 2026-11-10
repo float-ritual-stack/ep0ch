@@ -17,7 +17,7 @@ import type { ZoomReach } from "./desk/screen-layout";
 import { readPlace } from "./session/place";
 import { outlineState, stateDir } from "./state";
 import { LineField } from "./surface/line";
-import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
+import { centred, ListPicker, pickRows } from "./surface/picker";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Desk, savedLayoutNames, type MovedTile } from "./desk/desk";
@@ -32,7 +32,7 @@ import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
 import { ACCESS_MATRIX_KIND_NAME, sourceOf } from "./desk/access-matrix";
 import { gatherMatrix } from "./mcp-access-matrix";
 import { AGENTS_KIND_NAME } from "./desk/agents-panel";
-import { agentIn, agentOf, asSession, configsOf, cwdOf, pickSession, sessionCommand, sessionFacts, shownWords, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
+import { agentIn, agentOf, asSession, configsOf, cwdOf, pickSession, sessionCommand, sessionFacts, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
@@ -43,7 +43,7 @@ import { isBarKey } from "./shell-keys";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, layersAbove, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
-import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
+import { ActionRefused, actionSet, def, preset, agentLabel, type Again } from "./surface/actions";
 import { layoutStanding, standsAsPerson, stepRule, type Dispatcher, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, HOST_TILES, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
@@ -1282,7 +1282,7 @@ export class AgentDrawer {
   /** Render the host desk once, with the drawer's tree in its dock and glass floats in the full terminal. */
   private hostFrame: Frame = { lines: [] };
   glassFrame() { return { ...this.hostFrame, rects: this.d?.drawnAbove().floats.flatMap(f => [f.rect, ...f.shadow]) ?? [], menus: this.shown || this.glassHasKeys() ? this.d?.drawnAbove().menus ?? [] : [] }; }
-  render(cols: number, rows: number, screen: string): { rect: Rect; lines: string[]; placements: Placement[] } {
+  render(cols: number, rows: number, _screen: string): { rect: Rect; lines: string[]; placements: Placement[] } {
     const r = this.place(cols, rows), d = this.shown || this.restoresGlass ? this.desk : this.d;
     this.rect = this.shown ? r : null;
     const canvas = new Canvas(cols, r.rows), ctx = this.host.ctx?.();

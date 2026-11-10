@@ -4,15 +4,13 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { App } from "../../src/app";
 import { traceActions, declaredKeys } from "../../src/surface/actions";
 import { seedDay, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
-import { drawNote } from "../../src/notes-cli";
 import { makeTile } from "../../src/desk/tiles";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -24,11 +22,10 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
-import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, threads, questions and dates", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
@@ -180,7 +177,6 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => shows("detail") === seeded.notes.shed.id && rows().length > 0, "the shed held, its own ::links drawn", 8000);
     const row = rows()[0]!, n = pickable().findIndex(r => r.id === row.key) + 1;
     await tree().loaded;
-    const treeWas = tree().selected()?.id ?? null;
     // A pick (a click, j k inside it) selects the row, and the preview of the detail's selection follows; nothing else moves.
     await person("list.pick", { n });
     await until(() => shows("preview") === row.id, "the preview following the row", 5000);

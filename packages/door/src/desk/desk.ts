@@ -14,10 +14,10 @@ import { ZOOM_WHEEL } from "./wkeys";
 import { droppedForInput, keptDropped } from "./lift-drops";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
-import { errorDetails, messageContext } from "../status-log";
+import { errorDetails } from "../status-log";
 import { probe } from "../surface/probe";
 import { HomeSurface } from "../surface/home";
-import { COMPLETION_ROWS, type Completer } from "../surface/completer";
+import { type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { cornerSlots, PressMap, type Press } from "./press-map";
@@ -52,7 +52,7 @@ import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
-import { authorName, whoOf, USER, type Actor, type OutlineEvent, requesterOf } from "../socket";
+import { USER, type Actor, type OutlineEvent, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { specTileIds, StepRecord, type DeskSteps, type LayoutEntry } from "./step-record";
@@ -1663,7 +1663,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private specOf(id: number): TileSpec {
     const p = this.beneath.listOf(this.panes.get(id)) ?? this.panes.get(id)!;
-    const link = wireTarget(this.layout, id);
     const k = kindOf(p), kept = this.unregistered.get(id);
     const slot = [...this.specTiles].find(([, tile]) => tile === id)?.[0];
     const wires = [...this.layout.wires.filter(w => w.from === id && this.panes.has(w.to)).map(w => ({ verb: w.verb, to: this.tileId(w.to), ...(w.rule ? { rule: w.rule } : {}) })), ...(this.extSpec(id).wires ?? [])];
@@ -2122,7 +2121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * The tile's panel (^W P) and its header say it.
    */
   opensOf(id: number): Wire & { short: string } {
-    const p = this.panes.get(id), name = this.nameOf(id);
+    const name = this.nameOf(id);
     const change = { label: "change: link it to another tile", short: "change", run: () => this.askLink(id) };
     const unlink = { label: "unlink: its opens go by the screen's rule", run: () => this.run("tile.link", {}, name) };
     const to = this.placeFrom(id).route;
@@ -2838,7 +2837,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** The picker's card (PIE-1298): what is being chosen and how, or, once a tile is chosen, whether to keep that tile or the role it fills. */
-  private pickingHint(desk: Desk, from: number, tile: string, pick: LinkPick): Hint {
+  private pickingHint(desk: Desk, _from: number, tile: string, pick: LinkPick): Hint {
     const then = { then: pick.then, prompt: pick.prompt };
     if (pick.chosen) {
       const { id, role, name } = pick.chosen;
@@ -5764,7 +5763,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Tile `id`'s spec as the group of `inside` holds it: a link to a tile that stays is by path out of the group (`../tree`). */
-  private specIn(id: number, inside: ReadonlySet<number>): TileSpec {
+  private specIn(id: number, _inside: ReadonlySet<number>): TileSpec {
     return this.specOf(id);
   }
 
@@ -5979,13 +5978,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!c) return undefined;
     const at = this.lastIn.get(c.id ?? h), ids = leaves(c).filter(id => this.panes.has(id));
     return at !== undefined && ids.includes(at) ? at : ids[0];
-  }
-  /** Whether the keys are home now (in the home tile, or anywhere in the home container). */
-  private atHome(): boolean {
-    const h = this.spec.home;
-    if (h === undefined) return true;
-    const c = node(this.root, h);
-    return c ? leaves(c).includes(this.focus) : this.idNamed(h) === this.focus;
   }
   /** The tile last given the keys in each columns container (by its id): its place for Tab and home. */
   private lastIn = new Map<string, number>();
@@ -6287,7 +6279,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   // ── terminal tiles: what the terminal kind's actions (PTY_ACTIONS) change on the desk ──
 
-  typeTerminal(name: string, p: PtyPane, text: string, actor: Actor): TileDone {
+  typeTerminal(name: string, p: PtyPane, text: string, _actor: Actor): TileDone {
     if (!p.running) throw new ActionRefused(`${name}'s program isn't running · tile.restart runs it again`);
     p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
     return { ...this.tileAnswer(this.tile(name).id), chars: text.length };
@@ -6742,7 +6734,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { focus: this.viewState().focus, tiles: this.all().map(id => ({ ...this.tileAnswer(id), ...this.viewOf(id) })) };
   }
 
-  scrollTo(sel: string | undefined, at: { line?: number; text?: string; block?: string }, actor: Actor): TileDone {
+  scrollTo(sel: string | undefined, at: { line?: number; text?: string; block?: string }, _actor: Actor): TileDone {
     const t = this.tile(sel);
     const p = this.panes.get(t.id);
     if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t.name} is a ${p?.kind} tile: view.scrollTo scrolls a reader (an nvim tile's view is the person's own; block.mark line=… points at a line)`);

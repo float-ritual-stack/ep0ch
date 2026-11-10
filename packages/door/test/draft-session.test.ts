@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { unsentEntries } from "../src/unsent";
-import { keepUnsent, blockTarget, propertyChange, propertyListOf, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
+import { keepUnsent, blockTarget, propertyChange, propertyListOf, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
 import { Draft, DRAFT_DAYS, DRAFT_KEEP } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";

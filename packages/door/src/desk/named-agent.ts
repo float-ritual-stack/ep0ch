@@ -145,7 +145,7 @@ export function lookNamed(a: NamedAgent, terms: readonly HcListTerm[], got: HcGo
 const tilde = (s: string, home: string) => s.trim().replace(/^~(?=$|\/)/, home);
 
 /** `.ep0ch/agents.toml` text into rows. `outline` is that folder's `.ep0ch` name (`ws`). A bad row names the file and the fix. */
-export function parseAgentsToml(text: string, file: string, outline: string, home = homedir()): NamedAgent[] {
+export function parseAgentsToml(text: string, file: string, outline: string, _home = homedir()): NamedAgent[] {
   let parsed: { agent?: unknown };
   try { parsed = Bun.TOML.parse(text) as { agent?: unknown }; }
   catch (e) { throw new Error(`${file} is not TOML (${(e as Error).message}). Rows are [[agent]] with persona, folder, and optional machine and program.`); }

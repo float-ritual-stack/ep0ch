@@ -5,7 +5,7 @@
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureBlockLine } from "@ep0ch/outline-core/figure-props";
 import { RESULTS_BUDGET, RESULTS_CAP, type ResultsContext } from "@ep0ch/outline-core/figure-results";
-import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
+import { useCallsOf } from "@ep0ch/outline-core/template-use";
 import { figureResults, figureSource, graphKind, withFigureBoard, type FigureSource } from "./graphs";
 import { liveSettled } from "./live";
 import type { SocketBoard } from "./socket";

@@ -12,8 +12,8 @@ import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId, drawShortId } from "../refs";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { selectedRow, drawEllipsized, bg, C, fg, pad, RESET, width } from "../style";
-import { ch, isUp, isDown, type Key } from "../term";
+import { selectedRow, drawEllipsized, C, fg, pad, RESET, width } from "../style";
+import { isUp, isDown, type Key } from "../term";
 import { rowLines, rule } from "../text";
 import { RowView } from "../scroll";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
@@ -130,7 +130,6 @@ export class PropertyPanel {
   /** Keys while the panel is open. Most become intents the surface runs (the same code as the actions). */
   key(k: Key, rows: number): PanelIntent {
     const f = this.field;
-    const c = ch(k);
     if (f) {
       if (f.saving) return null;
       // An open completion popup takes ⏎, esc and the arrows first (the line's own keys, PIE-626); what it leaves is the panel's.

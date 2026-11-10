@@ -33,7 +33,7 @@ export function kindSections({ deskOf, row }: { deskOf: typeof MakeDesk; row: ty
         // The registry listed by a tile drawn the way an extension's is: its render answers rows, the door draws them.
         const list = serviceKind({
           kind: "showcase.kinds", about: "the registry, listed",
-          render: async req => ({
+          render: async _req => ({
             title: "tile kinds",
             lines: tileKinds().flatMap(k => [`${fg(C.lcyan)}${k.kind}${RESET}${k.keys?.length ? ` ${fg(C.dark)}^W o ${k.keys.map(x => x.key).join(" ")}${RESET}` : ""}`, `  ${fg(C.grey)}${k.about}${RESET}`]),
           }),

@@ -65,7 +65,7 @@ export const PROBE_KEYS: Key[] = [
  * itself whenever a probe's look fell across a boundary (the hub picker's rows did, now and then).
  * Escape sequences are left whole (their `…;8m` isn't an age).
  */
-const ageless = (l: string) => l.replace(FULL_MARKERS, "").replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
+const ageless = (l: string) => l.replace(FULL_MARKERS, "").replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (_m, esc) => esc ?? "#age");
 
 interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar's rows as drawn over the screen, when it's open ("" when it isn't). */ bar?: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string; /** A program (a terminal tile's, the drawer's agent) has the keys with nothing of the door's open over it (person()'s `program`). */ inProgram?: boolean }
 interface Finding { screen: string; keys: string; problem: string }

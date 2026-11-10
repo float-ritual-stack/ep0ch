@@ -3,7 +3,7 @@
 // (`incidents` in alert.ts decides what is stale; this decides how it reads), so `ep0ch backup status`, the run's own
 // progress lines and the doctor's backup line say the same thing, and tests describe a history instead of living it.
 // `--json` keeps everything and `--verbose` keeps the raw reasons: nothing here deletes them, it only stops leading with them.
-import { plainFailure, plainReason, repoHost, SILENT } from "./plain";
+import { plainFailure, plainReason, SILENT } from "./plain";
 import { type Alert, alertMark, type BackupState, hhmm, type OutlineState } from "./alert";
 
 export type Level = "ok" | "warn" | "bad";
@@ -89,7 +89,6 @@ export function verdict(s: BackupState, a: Alert | null, now: number, c: Verdict
   return { level, headline, problems, fix: problems[0]?.fix ?? null };
 }
 
-export interface StatusOptions { verbose?: boolean; colour?: boolean }
 
 /** Palette slots (style.ts C): lgreen, yellow, lred, dark; the theme maps them, so dark themes stay dark. */
 export const PALETTE = { ok: 10, warn: 14, bad: 12, dim: 8 } as const;

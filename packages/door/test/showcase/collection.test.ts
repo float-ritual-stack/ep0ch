@@ -30,8 +30,8 @@ describe("showcase: a collection record (PIE-1281)", () => {
   /** The collection whose row the [ ] position is on (no mode, PIE-1501). */
   const onRow = () => { const link = stage().pane("garden").surface.selectedElement()?.link; return !!link?.listRow?.row && lists().some(l => l.key === link.listRow.key); };
   test.each([120, 44])("round two feed reads the note and the collection's keys work from its row, with no mode, at %s columns", async cols => {
-    const first = await h.board.createBlock(null, `Check the parcel [collection::feed-${cols}] [to::Mira] [stage::waiting]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before it travels [heading::tab]\n\n- #garden\n\nPack the seeds.`);
-    const second = await h.board.createBlock(null, `Read the field report [collection::feed-${cols}] [stage::ready]\n\nThe beds are watered.`);
+    await h.board.createBlock(null, `Check the parcel [collection::feed-${cols}] [to::Mira] [stage::waiting]\n\n> [!success]\n> **Ready** for {{this.to}}.\n\n## Before it travels [heading::tab]\n\n- #garden\n\nPack the seeds.`);
+    await h.board.createBlock(null, `Read the field report [collection::feed-${cols}] [stage::ready]\n\nThe beds are watered.`);
     const note = await show(`Needs a gardener [type::virtual-branch] [query::collection=feed-${cols}] [layout::feed, table, board] [body::20] [sort::title asc] [group::stage]`, cols);
     await until(() => h.screen().includes("Ready") && h.screen().includes("Mira."), "the feed resolves the card's own values", 1500);
     const text = h.screen();

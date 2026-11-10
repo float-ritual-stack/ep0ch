@@ -364,7 +364,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
   }, 20_000);
 
   test("agents: an agent's link never opens over the person's open panel; open <id> is refused there too", async () => {
-    const r = await open();
+    await open();
     key(char("i"));
     const depth = stack();
     await app.act({ action: "link.follow", args: { n: 1 }, as: AS }).catch(() => {});

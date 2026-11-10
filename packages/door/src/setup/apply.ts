@@ -5,7 +5,7 @@ import { hostInstall, installHost } from "./host";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Deploy notes go
 // through the host; no outline is created. Missing host units are installed; existing host units are left intact.
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";

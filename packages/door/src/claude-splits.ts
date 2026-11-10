@@ -11,7 +11,7 @@ import { agentStop, readSessions, type FleetIO, type SessionRow } from "./agent-
 import { ago as agoOf } from "./text";
 import { ActionRefused, actionSet, def } from "./surface/actions";
 import { centred, confirmPicker, ListPicker, pickRow, pickRows } from "./surface/picker";
-import { C, fg } from "./style";
+import { C } from "./style";
 import type { Actor } from "./socket";
 
 type Env = Record<string, string | undefined>;

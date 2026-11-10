@@ -12,7 +12,7 @@
 //   1. a consistent copy, never the live file
 //   2. encrypted, to the storage box
 //   ::
-import { ellipsize, fg, RESET } from "../style";
+import { fg, RESET } from "../style";
 import { rowLines } from "../text";
 import { ACCENT, DIM, HI, INK, type Props } from "./palette";
 

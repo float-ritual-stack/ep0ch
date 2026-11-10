@@ -14,7 +14,6 @@ import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
-const USER = { kind: "user" } as const;
 const TIMELINE = "::graph-timeline\n---\ntitle: Resize log\nquery: type=gesture-landing\ndate: landed\nheight: 4\n---\n::";
 
 describe.skipIf(!outliner)("a press in a reader is one gesture (PIE-1615)", () => {

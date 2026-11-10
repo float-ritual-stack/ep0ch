@@ -11,7 +11,7 @@
 //   - daddy: *goes to make tea*
 //   ::
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { rowLines, wrap } from "../text";
+import { rowLines } from "../text";
 import { ACCENT, DIM, HI, INK, rowLinks, type Props, type RowLink } from "./palette";
 
 export function drawChat(p: Props, w: number, link?: RowLink): string[] {

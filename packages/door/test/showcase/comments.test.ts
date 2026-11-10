@@ -15,14 +15,8 @@ import { LABELS_BEFORE, MARGIN_LINES, SEED, type Seeded } from "../../src/showca
 import { SECTIONS, SESSION_QUOTE, Showcase } from "../../src/showcase/showcase";
 import { reopen } from "../../src/session/restore";
 import { SocketBoard, USER, mutationFor } from "../../src/socket";
-import { C } from "../../src/style";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
-/** `until` for an answer that takes a request. */
-const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
-  const end = Date.now() + ms;
-  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
-};
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -32,7 +26,7 @@ import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, kept edits, deep links, undo", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 

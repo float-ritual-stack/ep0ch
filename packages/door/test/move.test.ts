@@ -4,17 +4,13 @@
 // (never a real outline), and skip without one.
 import { Scratch, outliner as scratchOutliner } from "./scratch";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import type { Subprocess } from "bun";
+import { join } from "node:path";
 import type { Msg } from "../src/board";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { readView } from "../src/views";
-import { HERDR_VARS } from "../src/desk/pty";
 import * as BV from "./board-view";
 
 const until = async (ok: () => boolean, what: string, ms = 5000) => {

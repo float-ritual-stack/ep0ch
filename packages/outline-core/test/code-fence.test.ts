@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { closesCodeFence, codeFenceLines, codeFenceOpen } from "../src/code-fence";
-import { fencedRanges, protectedCodeRanges, scanPropertyLiteralRanges } from "../src/code-ranges";
+import { protectedCodeRanges, scanPropertyLiteralRanges } from "../src/code-ranges";
 import { LIST_FENCE_LINES, LIST_FENCE_NOTE, LONG_FENCE_LINES, LONG_FENCE_NOTE, TILDE_FENCE_LINES, TILDE_FENCE_NOTE } from "./fixtures/code-notes";
 
 test("a fence opens on three or more backticks or tildes, indented at most three columns", () => {
@@ -49,7 +49,6 @@ test("an unclosed fence in a list item protects only the item: a property after 
 
 test("the literal and protected ranges cover a tilde fence as code", () => {
   const fenceStart = TILDE_FENCE_NOTE.indexOf("~~~text"), fenceEnd = TILDE_FENCE_NOTE.lastIndexOf("~~~") + 4;
-  expect(fencedRanges(TILDE_FENCE_NOTE)).toEqual([{ start: fenceStart, end: fenceEnd }]);
   expect(scanPropertyLiteralRanges(TILDE_FENCE_NOTE)).toEqual([{ start: fenceStart, end: fenceEnd }]);
   const inside = TILDE_FENCE_NOTE.indexOf("[crate::7]");
   expect(protectedCodeRanges(TILDE_FENCE_NOTE).some(r => r.start <= inside && inside < r.end)).toBe(true);

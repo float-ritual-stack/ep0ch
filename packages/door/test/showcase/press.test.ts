@@ -16,7 +16,6 @@ import { startControl } from "../../src/control";
 import { Mirror } from "../../src/mirror";
 import { Conferences, StatusMessages } from "../../src/screens";
 import { openScreen } from "../../src/desk/screen-specs";
-import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
 import { prop } from "../../src/props";
 import { USER } from "../../src/socket";

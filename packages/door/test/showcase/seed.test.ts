@@ -7,22 +7,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Desk } from "../../src/desk/desk";
 import { GRAPH_KINDS } from "../../src/graphs";
 import { Help } from "../../src/screens";
 import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../../src/showcase/seed";
-import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../../src/showcase/showcase";
+import { SECTIONS, SHOWCASE_ACTIONS } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { drawNote } from "../../src/notes-cli";
-import { C } from "../../src/style";
-import { outliner, Scratch, until, SEEDED_SETUP_MS } from "../scratch";
+import { outliner, Scratch, SEEDED_SETUP_MS } from "../scratch";
 import { prop } from "../../src/props";
 
-/** `until` for an answer that takes a request. */
-const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
-  const end = Date.now() + ms;
-  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
-};
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { applyLocated, locateSpanForced, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import { DraftSession, hasStrays, takeStrays, unsent, type DraftTarget } from "../src/draft-session";
 import { STRAY_MAX, STRAY_MS, strayKeys, strayWords } from "../src/stray";
-import { diffNote, diffRows, OLD_UNSENT_DAYS, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict } from "../src/unsent";
+import { diffNote, OLD_UNSENT_DAYS, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict } from "../src/unsent";
 import { compareDraft, dayOf, startedWords, takeBackSpans, verdictWords } from "../src/unsent-compare";
 import { Draft } from "../src/edit";
 import { keepUnsent, shelve } from "../src/draft-session";

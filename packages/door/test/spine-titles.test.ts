@@ -9,7 +9,7 @@ import type { Desk } from "../src/desk/desk";
 import { uncovered } from "../src/kitty";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
-import { SocketBoard, USER } from "../src/socket";
+import { SocketBoard } from "../src/socket";
 import { spineImage } from "../src/spine";
 import { outliner, Scratch, until } from "./scratch";
 import { view } from "./river-view";

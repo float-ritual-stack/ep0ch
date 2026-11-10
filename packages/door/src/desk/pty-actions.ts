@@ -129,7 +129,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     keys: [{ keys: "drag", does: "the release of a drag in a terminal tile" }, { keys: "shift-drag alt-drag", does: "the same when its program has the mouse" }],
     touches: "nothing", replay: "safe", person: "the selection in a terminal tile is the person's, and so is their clipboard",
     args: {},
-    run(_, { pane, tile }, actor) {
+    run(_, { pane, tile }, _actor) {
       if (!pane.hasSelection) throw new ActionRefused(`nothing is selected in ${tile} · drag across its text`);
       const text = pane.copySelection();
       if (!text) throw new ActionRefused("only blanks are selected");

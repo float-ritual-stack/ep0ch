@@ -4,7 +4,6 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { App } from "../../src/app";
 import { outlineChanged } from "../../src/search-schedule";
 import { type Seeded } from "../../src/showcase/seed";
-import { Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -12,8 +11,8 @@ import { useShowcaseScreen } from "./harness";
 describe.skipIf(!outliner)("the showcase screen: notes that read themselves (PIE-533 S2)", () => {
   const h = useShowcaseScreen();
   const { screen, press, ch } = h;
-  let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
-  beforeAll(() => { ({ board, app, sc, seeded } = h); });
+  let board!: SocketBoard, app!: App, seeded!: Seeded;
+  beforeAll(() => { ({ board, app, seeded } = h); });
   const act = (action: string, args: Record<string, unknown> = {}) => app.act({ action, args, tile: "vent rail", as: "test-agent" }) as Promise<any>;
 
   test("the fixture reads as its values; a typo is dimmed with its did-you-mean; an agent opens a value's line and selects its words, and the passage is the token", async () => {

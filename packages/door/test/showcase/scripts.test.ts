@@ -15,8 +15,7 @@ import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { DRAFT_LEASE_MS, SocketBoard, USER } from "../../src/socket";
 import { extensionList, scriptBindings } from "../../src/extensions";
 import type { ReaderPane } from "../../src/desk/panes";
-import { type Key } from "../../src/term";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -28,11 +27,10 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
-import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { scratch, press, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
   // Each test starts at the index, as a green one leaves it. One that fails inside a section's draft would otherwise
@@ -513,7 +511,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     press({ kind: "paste", text: "\n\nStill writing this note." });
     expect(draft.text).toContain("Still writing this note.");
     const { idle: _idle, ...person } = app.person();
-    const source = await board.request("create", {author: "user", text:
+    await board.request("create", {author: "user", text:
       `Open the shed [script::open-the-shed] [results::keep] [effects::write]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
     await board.request("extensions.list", {reload: true});
     await until(() => !!extensionList()?.extensions.find(e => e.name === "open-the-shed"), "open script bound");

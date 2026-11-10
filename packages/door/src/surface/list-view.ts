@@ -319,8 +319,6 @@ export class ListView<S = unknown> {
     if (!row || (to < 0 || to >= rows.length) && at >= 0 && rows[at] === row) return null;
     return row;
   }
-  /** Forget `who`'s pick (their own, not the rows). */
-  unpick(who: string) { this.picks.delete(who); }
 
   /** The agents with a pick or a filter here, for the line that says so and for `list.blocks`. */
   others(): { who: string; row: ListViewRow<S> | null; filter: string }[] {

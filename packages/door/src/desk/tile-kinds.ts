@@ -20,7 +20,6 @@ import { LISTVIEW_ACTIONS, type ListHost, type ListTile } from "../surface/list-
 import { LIST_KEYS } from "../surface/list-keys";
 import { modeHint, type ModeKey } from "../surface/modes";
 import { ListView, listRowsOf, PERSON, type ListHandle, type ListViewRow } from "../surface/list-view";
-import { C, fg, RESET } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { wrap } from "../text";
 import type { Policy, TileFacts } from "./screen-layout";

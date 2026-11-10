@@ -6,7 +6,7 @@ import { savedReferenceWarning, type ReferenceBoard } from "./reference-warnings
 import { pageRows, RowView, wheelRows } from "./scroll";
 import type { Msg } from "./board";
 import type { Draft } from "./edit";
-import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark, type ReloadRead } from "./draft-session";
+import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type ReloadRead } from "./draft-session";
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace } from "./surface/composer";
 import { modeHint, type ModeKey } from "./surface/modes";
@@ -639,7 +639,7 @@ export class CommentSession {
   }
 
   /** The passage picker and the thread list, drawn in place of the note (the composer is drawn in it: composerFrame). */
-  render(w: number, h: number, title: string, preview?: EditFrame["preview"]): string[] {
+  render(w: number, h: number, title: string, _preview?: EditFrame["preview"]): string[] {
     const status = (s: string, colour: number) => fg(colour) + pad(s, w) + RESET;
     const state = this.busy ? status(this.busy, C.grey)
       : this.error ? status(`! ${this.error}`, C.lred)

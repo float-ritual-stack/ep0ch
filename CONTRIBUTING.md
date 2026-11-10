@@ -21,7 +21,9 @@ the lockfile so it is applied.
 ## Code health
 
 `bun run check` runs `scripts/health-ratchet.ts` before the package checks. It holds the counts of raw `.length`
-width candidates and `padEnd` in the door, line-to-offset reductions, inline heading regexes and `host.ctx` casts.
+width candidates and `padEnd` in the door, line-to-offset reductions, inline heading regexes, `host.ctx` casts and
+unused exports (a top-level export of outline-core, the outliner, the door or the mod's hooks whose name no other code
+file holds, tests included: the compiler counts an exported name as used, so `noUnusedLocals` never sees it).
 Diagnostics name added sites and their shared owners. These are syntax patterns, not type inference: width candidates
 feed a width, column or room expression, or a padding repeat. The script documents the spellings and owner locations.
 Source TypeScript/JavaScript files have a 2,000-line cap; larger existing files may only shrink. Tests, fixtures,

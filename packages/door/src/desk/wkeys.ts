@@ -5,7 +5,6 @@
 // menu, the power bar and the hint can't name different things. A key bound anywhere else in the desk is a bug the
 // tests find (test/wkeys.test.ts): add it here, with the action it runs.
 import type { ActionDef } from "../surface/actions";
-import { keyCaption } from "../surface/actions";
 import { effective, keyTable } from "../surface/keymap";
 import type { PanelGroup } from "./key-panel";
 
@@ -178,8 +177,6 @@ export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined
   });
 }
 
-/** What the tile menu and the popup show as the keycap of a row. */
-export const wKeycap = (chord: string): string => keyCaption(chord);
 
 /** The ^W panel's groups (PIE-1304): every key, under its group, as the table orders them, with the words joined from its action. */
 export function wPanel(rows: readonly WRow[]): PanelGroup[] {

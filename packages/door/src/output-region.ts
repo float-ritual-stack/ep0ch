@@ -11,7 +11,7 @@
 // callouts of src/doc.ts) and drawn by the reader (src/surface/note.ts): the mark, its click and its `[ ]` stop.
 import type { AfterRows, Doc } from "./doc";
 import type { LinkTarget } from "./refs";
-import { C, dim, fg, RESET, visible, width } from "./style";
+import { dim, visible, width } from "./style";
 
 /** The glyph of the one dim mark a generated region carries in the reader's gutter. */
 export const REGION_MARK = "≡";

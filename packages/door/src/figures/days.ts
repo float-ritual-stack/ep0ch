@@ -14,7 +14,7 @@
 //   last: 30), or source: backups                                              live: query + date: <property>
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { dayBound } from "@ep0ch/outline-core/date-buckets";
-import { rowLines, wrap } from "../text";
+import { rowLines } from "../text";
 import { DAY, dayOf, dayState, isoOf, localDay, MONTH_ABBREVIATIONS, MONTH_NAMES, monthOf, today, uptimeDays, WEEKDAY_NAMES, weekday, weekStart, worse, type DayState } from "@ep0ch/outline-core/figure-props";
 export { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays, weekStart, worse, type DayState };
 import { ACCENT, DIM, HI, INK, rowLink, rowLinks, type Props, type RowLink, SHADES } from "./palette";

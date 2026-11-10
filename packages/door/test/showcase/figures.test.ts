@@ -11,14 +11,13 @@ import { osc52 } from "../../src/surface/selection";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { readContentSize } from "@ep0ch/outline-core/media-line";
 import { NoteSurface, type SurfaceHost } from "../../src/surface/note";
-import { join } from "node:path";
 import { App } from "../../src/app";
 import { liveBoard } from "../../src/live";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { drawNote } from "../../src/notes-cli";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -30,7 +29,6 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
-import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdown kinds", () => {
   const h = useShowcaseScreen();

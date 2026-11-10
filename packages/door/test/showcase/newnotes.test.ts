@@ -4,18 +4,12 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
-/** `until` for an answer that takes a request. */
-const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
-  const end = Date.now() + ms;
-  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
-};
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -25,7 +19,7 @@ import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: new notes", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { press, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
@@ -148,7 +142,6 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     await saved(fourth.id, "Leek trench");
     // Docked by mouse: the first float's title dragged onto the reader's header joins its tabs.
     const first = floats()[0]!;
-    const rows = () => sc.render(app).lines.map(plain);
     sc.render(app);
     const origin = S().stageRect, target = stage().describe().panes.find((p: any) => p.name === "reader").rect;
     const titleRow = origin.row + first.rect.row, fx = origin.col + first.rect.col + 7;

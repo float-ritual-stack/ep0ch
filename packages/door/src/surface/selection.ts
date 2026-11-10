@@ -17,7 +17,7 @@ import { pageRows } from "../scroll";
 import { ActionRefused } from "./actions";
 import { modeHint } from "./modes";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ellipsize, bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
+import { bgRgb, glyphWidth, itemStyle, RESET, surfaceBg, tint } from "../style";
 import { theme, themed } from "../theme";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 

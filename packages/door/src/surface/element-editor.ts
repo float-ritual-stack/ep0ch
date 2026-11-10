@@ -227,7 +227,7 @@ export class ElementEdit {
     this.draft.landAtEnd();
     return e ? "changed" : "gone";
   }
-  open(by: Actor) {
+  open(_by: Actor) {
     const d = this.draft;
     if (d.busy) throw new Error("the save is still landing");
     this.on = true;

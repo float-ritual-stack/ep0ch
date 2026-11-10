@@ -17,7 +17,7 @@ import { localPtys, usePtyBackend, type PtyBackend } from "../../src/desk/pty-ba
 import { SocketBoard } from "../../src/socket";
 import { subject } from "../../src/board";
 import type { ReaderPane } from "../../src/desk/panes";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -35,7 +35,7 @@ import { prop } from "../../src/props";
 
 describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer, status, sessions, power bar, policy", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
+  const { scratch, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 

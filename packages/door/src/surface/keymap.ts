@@ -74,8 +74,6 @@ export function reloadKeymap(): { entries: number; problem: string | null } { ca
 export const keymapEntries = (): readonly KeymapEntry[] => current().entries;
 /** What's wrong with the file, or null. */
 export const keymapProblem = (): string | null => current().problem;
-/** The keys the file gives the binding `id`, or undefined when it says nothing of it (the built-in keys hold). */
-export const keysFor = (id: string): readonly string[] | undefined => current().entries.find(e => e.id === id)?.keys;
 /** The entries for one action, whatever arguments they bind it with. */
 export const entriesOf = (action: string): KeymapEntry[] => current().entries.filter(e => e.action === action);
 /** The entry a key presses (one key or a ^W chord), or undefined. The last entry naming it wins, as a hand-edited file reads. */

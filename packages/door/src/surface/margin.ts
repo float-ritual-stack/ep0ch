@@ -19,8 +19,7 @@ import type { RuleTone } from "@ep0ch/outline-core/rules";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { type Comment } from "../socket";
-import { C, ellipsize, fg, pad, RESET, surfaceBg } from "../style";
-import { printable } from "../text";
+import { C, fg, pad, RESET, surfaceBg } from "../style";
 
 /** How the margin shows its cards: one row each, whole, or not at all (the spans stay). The person's reading state. */
 export type MarginMode = "trim" | "full" | "off";
@@ -40,8 +39,6 @@ export const nextMargin = (mode: MarginMode): MarginMode => MARGIN_MODES[(MARGIN
 
 /** A rule tone as the look's surface it's drawn on: the callouts' families. */
 const SURFACE_OF: Readonly<Record<RuleTone, CalloutTone>> = { default: "blue", good: "green", warn: "amber", bad: "coral", accent: "violet", dim: "neutral" };
-/** The ink a tone's mark and card edge are drawn in. */
-const INK_OF: Readonly<Record<RuleTone, number>> = { default: C.lcyan, good: C.lgreen, warn: C.yellow, bad: C.lred, accent: C.lmagenta, dim: C.grey };
 
 /** The background an annotation's words are drawn on: its tone's surface, capped dark. */
 export function spanBg(props: Comment["props"]): string {
@@ -65,8 +62,6 @@ export function toneBg(tone: string | undefined): string {
   return surfaceBg(SURFACE_OF[t], Math.round(SURFACE_STEPS * 0.6));
 }
 
-/** The ink of an annotation's tone: its card's edge and kind word. */
-export const toneInk = (props: Comment["props"]) => INK_OF[annotationTone(props ?? {})];
 
 /** What an annotation is, in a word: `highlight`, `question`, `define`, `comment`… */
 export const kindOf = (c: Comment) => annotationKind(c.props ?? {}, c.body);

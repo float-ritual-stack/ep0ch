@@ -16,7 +16,7 @@ import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
 import { dayOf, keptNot, onDay } from "./unsent-compare";
 import { DraftStatus, type DraftPhase } from "./draft-status";
-import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
+import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type AnnotationProps, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, keyName, type DraftUse } from "./surface/actions";
 import type { ElementEdit } from "./surface/element-editor";

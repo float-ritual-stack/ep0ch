@@ -123,7 +123,6 @@ history
   });
 });
 
-function c0() { return "s3:https://objects.hetzner.example/ep0ch/restic/float-hub"; }
 
 describe("the run says the same thing", () => {
   test("raw errors become plain reasons", () => {

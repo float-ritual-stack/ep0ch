@@ -25,7 +25,7 @@ import { ActionRefused, actionSet, def, keyCaption } from "../surface/actions";
 import { hintKey, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { FOCUS_PART } from "../desk/desk";
 import type { HeaderInfo, OpenHow, SessionKind, SurfaceHost } from "../surface/note";
-import { ch, isDown, isUp, type Key } from "../term";
+import { ch, type Key } from "../term";
 import { ago, bbsDate, waiting, waitingText } from "../text";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
@@ -168,7 +168,7 @@ export class EchoAreas implements Pane {
     try { names = (await hostRequest(ctx.board.path, "outlines.list", {}, 4000)).outlines.map(o => o.name); } catch { return out; }
     const wanted = names.filter(n => n !== own).slice(0, MAX_OUTLINES - 1);
     // An outline the host no longer serves (archived, deleted) lets its board go.
-    for (const [name, b] of this.boards) if (!wanted.includes(name)) { this.unwatches.get(name)?.(); this.unwatches.delete(name); this.boards.delete(name); }
+    for (const [name] of this.boards) if (!wanted.includes(name)) { this.unwatches.get(name)?.(); this.unwatches.delete(name); this.boards.delete(name); }
     for (const name of wanted) {
       let b = this.boards.get(name);
       if (!b) {
@@ -843,7 +843,6 @@ export function echoKinds(): TileKind[] {
             // Not one of the area's messages: read on the door's own outline, where `open` found it.
             const no = r.keepsOff(m) ?? (r.holdsKeys ? holdsEdit("the reader") : null);
             if (no) return no;
-            const was = { area: r.area, list: r.list, index: r.index };
             r.area = null; r.list = []; r.index = -1;
             r.show(m, desk);
           }

@@ -1398,7 +1398,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       { act: "draft.place line=4 col=1", does: "puts the cursor at the start of line 4" },
       { act: "draft.place line=9 extend=true", does: "selects from the cursor to the end of line 9" },
     ],
-    run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
+    run({ line, col, extend }, d, _actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   }),
   "draft.go": def({
     summary: "move the draft's cursor: to the line's start or end, the text's beginning or end, or a word back or forward; extend=true selects from where it was. Word motions step over to the next line at a line's edge",
@@ -1481,7 +1481,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       { act: "draft.scroll by=10", does: "scrolls the draft's view down ten rows, the cursor staying put" },
       { act: "draft.scroll by=-5 preview=true", does: "scrolls the preview up five rows" },
     ],
-    run({ by, preview, page }, d, actor) {
+    run({ by, preview, page }, d, _actor) {
       const v = draftView(d);
       if (!preview) { v.scrollBy(page ? Math.sign(by) * v.pageRows() : by); return { following: d.follow }; }
       const p = v.frame?.preview;
@@ -1540,7 +1540,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy", says: "copy the selected text of the draft" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],
     touches: "draft", draft: "type", replay: "safe",
     args: {},
-    run(_, d, actor) {
+    run(_, d, _actor) {
       const text = d.selectedText();
       if (!text) throw new ActionRefused("nothing is selected in the draft · drag across the text, then cmd+c");
       return { text, chars: [...text].length };

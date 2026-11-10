@@ -15,8 +15,6 @@ import { outliner, Scratch, until } from "./scratch";
 
 const USER = { kind: "user" } as const;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-/** A left click at a cell, as a terminal reports it (SGR, one-based). */
-const click = (x: number, y: number) => `\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`;
 
 describe.skipIf(!outliner)("one wording for the typing tile (PIE-1428)", () => {
   const scratch = new Scratch();

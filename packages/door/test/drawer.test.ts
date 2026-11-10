@@ -12,7 +12,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { builtin, makeTile } from "../src/desk/tiles";
 import { PtyPane } from "../src/desk/pty";
-import { DRAWER_TILE_ID, MAX_SHARE, MIN_SHARE, nextStep } from "../src/drawer";
+import { MAX_SHARE, MIN_SHARE, nextStep } from "../src/drawer";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { where as whereIs } from "../src/where";

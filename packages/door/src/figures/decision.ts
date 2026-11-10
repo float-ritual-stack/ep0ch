@@ -14,7 +14,6 @@
 //   We chose what we already run.
 //   ::
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { wrap } from "../text";
 import { decisionState, type DecisionState } from "@ep0ch/outline-core/figure-props";
 export { decisionState, type DecisionState };
 import { ACCENT, DIM, HI, INK, inlineRows, rowLinks, tier, type Props, type RowInline, type RowLink, type RowExpansion } from "./palette";

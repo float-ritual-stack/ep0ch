@@ -4,12 +4,12 @@ import { quoteOf } from "./wire";
 // PIE-515: the River is a screen spec on the desk; its columns are `river.column` tiles in a flow, named as any tile
 // (`library`, `column2`…), and widen, drawer, close, back and forward are the engine's tile actions.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
-import { BANNER_MS, COLUMN_ACTIONS, type RiverColumn } from "../src/river/column";
+import { BANNER_MS, COLUMN_ACTIONS } from "../src/river/column";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
@@ -471,7 +471,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await act("tile.close", {}, opened.name);
     // Picking a note by id there is moving their cursor too (round 3, H1): refused, their selection as it was.
     const lib0 = column(1), before = lib0.sel;
-    const other = lib0.flat().find((r: { m: { id: string } }, i: number) => i !== before)!.m.id;
+    const other = lib0.flat().find((_r: { m: { id: string } }, i: number) => i !== before)!.m.id;
     await expect(act("column.select", { id: other }, lib())).rejects.toThrow(/has the person's keys; an agent doesn't move their cursor there/);
     expect(lib0.sel).toBe(before);
     // tag: a #queued column (the stage named, since the Library's selection is the person's), beside the Library; the person stays on it.

@@ -12,8 +12,6 @@ export interface TxnScope { txn?: string; motion?: string }
 /** The transaction the running action belongs to, if it named one. */
 export const TXN = new AsyncLocalStorage<TxnScope>();
 
-/** The names no action may use for its own arguments. */
-export const RESERVED_ARGS = ["txn", "motion"] as const;
 
 const TXN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const MOTION = /^[a-z][a-z-]{0,23}$/;

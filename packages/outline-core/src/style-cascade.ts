@@ -461,13 +461,6 @@ export function styleSheetsFromBlocks(blocks: readonly StyleDeclaringBlock[]): {
   return { sheets, problems };
 }
 
-/** A line that declares a style (it carries `[style-for::…]`): its sheet as the service reads it, or null. */
-export function styleDeclarationLine(line: string): StyleSheet | null {
-  const tokens = liveTokensInLine(line);
-  if (!tokens.some(t => t.key.toLowerCase() === "style-for")) return null;
-  return styleSheetsFromBlocks([{ id: "", line: 0, properties: tokens }]).sheets[0] ?? null;
-}
-
 // ── a box's attributes ────────────────────────────────────────────────────────
 
 /**

@@ -278,7 +278,6 @@ export class QueryPane implements Pane {
     // Not drawn lately (a lane scrolled off the board, a tile folded to its spine): read when it is drawn again, or at
     // most every HIDDEN_REFRESH_MS meanwhile, so an agent's `act` on it still sees the outline nearly as it is.
     this.desk = desk;
-    const now = Date.now();
     // Not in the desk's frame lately (a lane off the board, a tab behind another, a session nobody watches): it reads
     // behind, and the desk is asked to draw, so a tile that is on the screen of an idle door reads at once when its frame
     // comes. One never read yet, and any on a desk that has never drawn (a test's, an agent's headless one), reads now.

@@ -1,6 +1,5 @@
 import { isMachineName, isOutlineName } from "./outline-location";
 
-export const EP0CH_URI_SCHEME = "ep0ch";
 /** A block id's shape, for a pattern built around it: a UUID (v1 to v8), as the outline mints them (PIE-1375). */
 export const BLOCK_ID_SOURCE = String.raw`[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`;
 export const BLOCK_ID_PATTERN = new RegExp(`^${BLOCK_ID_SOURCE}$`, "i");

@@ -12,7 +12,6 @@ import { Logon, MainMenu } from "../src/screens";
 import { skillCommand, skillsIn } from "../src/skills";
 import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens, type ScreenRequest } from "../src/start";
-import { boardScreen } from "./board-view";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 

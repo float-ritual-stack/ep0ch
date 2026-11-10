@@ -1,6 +1,6 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { copyName, newsWords, removeCommand, updateCommand, versionWords } from "@ep0ch/outliner/extension-update";
 import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";

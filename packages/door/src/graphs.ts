@@ -17,7 +17,7 @@ import { watchedOn } from "./watched";
 import { readContentSize, type ContentSize } from "@ep0ch/outline-core/media-line";
 import { dateWords, readDate } from "@ep0ch/outline-core/dates";
 import { FIGURES } from "./figures/index";
-import { ACCENT, DIM, HI, INK, inlineRows, presentRow, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink, type RowExpansion } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, inlineRows, presentRow, rowLinks, tier, type Props, type RowInline, type RowLink, type RowExpansion } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
 import { setLinksSource, linksSource } from "./links";
 import type { SocketBoard } from "./socket";
@@ -322,7 +322,6 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const rule = fg(DIM) + rep("·", Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
     // Each cell shares the row limit; every physical line belongs to the same note.
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy"), most = ui?.lines ?? 2;
-    const tc = tcol;
     /** A row's lines; `linkOf(k)`, when given, is the note cell k links (each cell its own element), else the row is one. */
     const drawRow = (r: string[], limit: number, linkOf?: (k: number) => unknown, at?: (to: unknown) => number | undefined) => {
       const cells = r.map((c, k) => rowLines(c, cw[k]!, limit, { hang: 0 }));

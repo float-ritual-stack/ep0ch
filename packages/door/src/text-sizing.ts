@@ -4,7 +4,7 @@
 // read), and a sized placement is painted over those two rows after the rows go out, and again whenever either row
 // was rewritten (a rewrite of a cell takes the whole sized character with it).
 import type { Rgba } from "./vga";
-import { headOf, tailFrom, visible, width } from "./style";
+import { headOf, tailFrom, visible } from "./style";
 import type { Placement } from "./kitty";
 import { nestLayers, parseLayer } from "./nest";
 

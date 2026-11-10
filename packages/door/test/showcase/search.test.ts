@@ -9,16 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
-import { SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { SECTIONS } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { jevOff } from "../../src/surface/completer";
-import { outliner, Scratch, until } from "../scratch";
+import { outliner, until } from "../scratch";
 
-/** `until` for an answer that takes a request. */
-const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
-  const end = Date.now() + ms;
-  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }
-};
 
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -27,9 +22,9 @@ import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: search", () => {
   const h = useShowcaseScreen();
-  const { scratch, written, press, ch, screen, S } = h;
-  let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
-  beforeAll(() => { ({ board, app, sc, seeded } = h); });
+  const { scratch, press, screen, S } = h;
+  let board!: SocketBoard, app!: App, seeded!: Seeded;
+  beforeAll(() => { ({ board, app, seeded } = h); });
 
 
   test("a subtitle finds the short title and prints beneath it", async () => {

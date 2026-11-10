@@ -649,10 +649,6 @@ export class OutlinerActionKeymap {
   }
 
 
-  canonicalInput(actionId: string): { str: string; key: TerminalKey } | null {
-    const chord = this.action(actionId).defaultChords[0] ?? this.bindings(actionId)[0];
-    return chord ? triggerForChord(chord) : null;
-  }
   boundInput(actionId: string): { str: string; key: TerminalKey } | null {
     const chord = this.bindings(actionId)[0];
     return chord ? triggerForChord(chord) : null;

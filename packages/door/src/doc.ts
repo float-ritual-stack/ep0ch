@@ -11,7 +11,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { ARTIFACT_KIND_LABELS, brightness, drawnSizeText, fileName, heroBox, imageBox, media, noteMediaLines, parseMediaLine, pictureFenceSpec, sizeText, type Focus, type Media, type MediaSpec } from "./media";
+import { ARTIFACT_KIND_LABELS, brightness, drawnSizeText, fileName, heroBox, imageBox, media, noteMediaLines, pictureFenceSpec, sizeText, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
 import { ADORN, LINK_END, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, waitingText, wrap, printable } from "./text";

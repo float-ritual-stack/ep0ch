@@ -5,7 +5,6 @@
 // and a readers row taken apart (its policy changed so the preview could move) refuses a detail with the
 // reason instead of throwing. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { boardScreen } from "./board-view";

@@ -460,7 +460,6 @@ export function movedSince(moves: readonly { commit: string; at: number }[], sta
   return was === null ? { runs: null } : { runs: was, behind: moves[0]!.commit !== was };
 }
 
-type Ping = { protocolVersion?: number };
 
 /** The outline to ping read-only on the host: an open one (a ping to a closed one would open it); null when none is open. */
 export function openOutlineToPing(outlines: readonly HostedOutline[]): string | null {

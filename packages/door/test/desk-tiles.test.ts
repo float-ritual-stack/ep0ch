@@ -7,7 +7,7 @@
 import { openScreen } from "../src/desk/screen-specs";
 import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { visible } from "../src/style";
