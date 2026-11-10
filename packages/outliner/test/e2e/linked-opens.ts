@@ -7,7 +7,7 @@ import { runHerdrScenario } from "./herdr-runner";
 const composed = process.argv.includes("--composed");
 const result = await runHerdrScenario({
   name: composed ? "linked-opens-composed" : "linked-opens", layout: composed ? "composed" : "separate",
-  async prepare(root) { await writeFile(join(root, "linked-resource.md"), "LINKED RESOURCE PINNED BYTES\n"); await writeFile(join(root, "cancelled-resource.md"), "RESOURCE CHOOSER BYTES\n"); },
+  async prepare(_project, _paths, root) { await writeFile(join(root, "linked-resource.md"), "LINKED RESOURCE PINNED BYTES\n"); await writeFile(join(root, "cancelled-resource.md"), "RESOURCE CHOOSER BYTES\n"); },
   async run(session) {
     const terminal = await session.attachClient();
     await terminal.resize(240, 64);
@@ -36,7 +36,8 @@ const result = await runHerdrScenario({
     for (const [source, pane] of [[b, second.tree], [c, third.tree]] as const) await linkTree(source, pane);
     await session.client.request({action: "ui.command.send", command: {targetClientId: x.clientId, targetRegion: "detail", command: "focus"}});
     await session.keys(session.panes.detail, "alt+l");
-    await session.waitFor("Detail link destinations", () => session.visible(session.panes.detail), text => text.includes("Unlink destination"));
+    // Detail starts unlinked, and the chooser offers "Unlink destination" only once one is linked (24e2d5935).
+    await session.waitFor("Detail link destinations", () => session.visible(session.panes.detail), text => text.includes("Detail has no linked destination"));
     await session.text(session.panes.detail, y.runtime!.paneId!); await session.keys(session.panes.detail, "enter");
     await session.waitFor("Detail link set", () => session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: x.clientId, region: "detail"}}), state => state.destination?.clientId === y.clientId);
     // Passive Tree selection updates Preview while Y retains its Current document.
@@ -61,7 +62,7 @@ const result = await runHerdrScenario({
     // One-off Tree menu leaves B's permanent X link unchanged.
     await session.revealTree(second.tree, docs[0]!.id);
     await session.keys(second.tree, "?"); await session.text(second.tree, "Open once"); await session.keys(second.tree, "enter");
-    await session.waitFor("one-off destinations", () => session.visible(second.tree), frame => frame.includes("/ detail") && frame.includes("Find:")); await session.text(second.tree, y.runtime!.paneId!); await session.keys(second.tree, "enter");
+    await session.waitFor("one-off destinations", () => session.visible(second.tree), frame => frame.includes("Enter to open once") && frame.includes("Find:")); await session.text(second.tree, y.runtime!.paneId!); await session.keys(second.tree, "enter");
     await session.waitFor("one-off Y", () => current(y.clientId), target => target?.kind === "block" && target.blockId === docs[0]!.id);
     assert.equal((await session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: b.clientId, region: "tree"}})).destination?.clientId, x.clientId);
     const {resource} = await session.client.request<InternResourceReceipt>({action: "resources.intern-filesystem", input: {path: "linked-resource.md"}});
@@ -94,24 +95,18 @@ const result = await runHerdrScenario({
     const resourceHost = await session.client.request<Block>({action: "create", text: "Cancellable Resource choice [file::cancelled-resource.md]"});
     await session.client.request({action: "ui.command.send", command: {targetClientId: x.clientId, targetRegion: "detail", command: "replace", target: {kind: "block", blockId: resourceHost.id}}});
     await session.waitVisible(session.panes.detail, "Cancellable Resource choice");
-    const countResources = () => session.database.query("SELECT count(*) AS count FROM resources").get();
-    const beforeChoice = countResources();
-    await session.keys(session.panes.detail, "o"); await session.waitVisible(session.panes.detail, "Choose destination");
-    await session.keys(session.panes.detail, "c");
-    await session.waitFor("one-off Detail menu", () => session.visible(session.panes.detail), text => text.includes("Find:") && text.includes("Detail"));
-    await session.keys(session.panes.detail, "escape");
-    await session.waitFor("cancelled choice closed", () => session.visible(session.panes.detail), text => !text.includes("Choose destination") && !text.includes("Find:"));
-    assert.deepEqual(countResources(), beforeChoice);
+    // An authored [file::] opens beside, in Preview, and Current keeps the note (PIE-323, f99b7a3d8; the one Detail
+    // host since PIE-833, ad3b002bc): no destination chooser, and the explicit link is left alone.
+    await session.keys(session.panes.detail, "o");
+    await session.waitVisible(session.panes.detail, "File opened in Preview");
+    await session.waitVisible(session.panes.detail, "RESOURCE CHOOSER BYTES");
+    const resourcePreviewed = await session.waitFor("file previewed beside", session.registrations,
+      values => values.find(v => v.clientId === x.clientId)?.previewTarget?.kind === "resource");
+    const previewed = resourcePreviewed.find(v => v.clientId === x.clientId)!.previewTarget;
+    if (previewed?.kind === "resource") assert.equal(previewed.referenceContext?.sourceText, resourceHost.text);
     assert.deepEqual(await current(x.clientId), {kind: "block", blockId: resourceHost.id});
-    await session.keys(session.panes.detail, "o"); await session.waitVisible(session.panes.detail, "Choose destination"); await session.keys(session.panes.detail, "c");
-    await session.waitFor("one-off Detail menu reopened", () => session.visible(session.panes.detail), text => text.includes("Find:") && text.includes("Detail"));
-    await session.text(session.panes.detail, third.detail); await session.keys(session.panes.detail, "enter");
-    await session.waitVisible(third.detail, "RESOURCE CHOOSER BYTES");
-    const resourceOpened = await current(at(third.detail, "detail").clientId);
-    assert.equal(resourceOpened?.kind, "resource");
-    if (resourceOpened?.kind === "resource") assert.equal(resourceOpened.referenceContext?.sourceText, resourceHost.text);
     assert.equal((await session.client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: x.clientId, region: "detail"}})).destination?.clientId, y.clientId);
-    await session.checkpoint("05-resource-choice-cancel-and-one-off");
+    await session.checkpoint("05-resource-previewed-beside");
     await session.client.request({action: "navigation.link.set", source: {clientId: b.clientId, region: "tree"}, destination: {clientId: y.clientId, region: "detail"}});
     await session.moveDetachedToNewTab(second.detail);
     await terminal.resize(180, 48);

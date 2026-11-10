@@ -35,7 +35,7 @@ and note your findings go under. You change nothing in the repository.
 
 Write one note with `ep0ch new --ws <outline> --near <id> --as <your name> "<text>"`, under the parent the brief
 names (default: the brief's ticket). Conclusion first: the answer in two or three sentences, then the findings one
-per line with their citations, then open questions. Keep it under about 60 lines; link out rather than paste code.
+per line with their citations, then open questions. Write it to be read on a phone: link out rather than paste code.
 
 ## Report
 

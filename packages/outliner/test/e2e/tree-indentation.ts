@@ -6,8 +6,9 @@ import {runHerdrScenario} from "./herdr-runner";
 const composed = process.argv.includes("--composed");
 const result = await runHerdrScenario({
   name: "tree-indentation", layout: composed ? "composed" : "separate",
-  // The indentation badge is a pinned Tree bar button.
-  uiConfig: {bar: {tree: ["tree.menu.note", "tree.menu.view", "tree.indentation.toggle"]}},
+  // The indentation badge is a pinned Tree bar button. Composed Tree is a narrow column whose bar keeps only the
+  // pins that fit (the chrome budget, PIE-525, a0af73f53), so there the badge is pinned alone.
+  uiConfig: {bar: {tree: composed ? ["tree.indentation.toggle"] : ["tree.menu.note", "tree.menu.view", "tree.indentation.toggle"]}},
   async prepare() {},
   async run(s) {
     const terminal = await s.attachClient();
@@ -18,15 +19,18 @@ const result = await runHerdrScenario({
     for (let i = 1; i <= 6; i++) selected = await s.client.request<Block>({action: "create", parentId: selected.id, text: `Indent level ${i}`});
     await s.client.request({action: "create", text: "Other shallow row"});
     await s.revealTree(tree, selected.id);
-    const titleLine = (frame: string, title: string) => frame.split("\n").find(line => /[•▾▸‹]/u.test(line) && line.includes(title));
+    // The Tree row: its glyph right before the title. Composed, the same line also holds Current and Preview, whose
+    // own text can name the selected note beside a seeded row's ‹.
+    const titleLine = (frame: string, title: string) => frame.split("\n").find(line => line.includes(`• ${title}`) || line.includes(`▾ ${title}`) || line.includes(`▸ ${title}`) || line.includes(`‹ ${title}`));
     await s.waitFor("deep child in viewport", () => s.visible(tree), frame => !!titleLine(frame, "Indent level 6"));
     const before = await s.visible(tree);
     const originalColumn = titleLine(before, "Indent level 6")!.indexOf("Indent level 6");
     assert.ok(titleLine(before, "Indent root"), "shallow ancestor remains visible");
     await s.keys(tree, "alt+i");
-    const following = await s.waitVisible(tree, "[Indent: selection]");
+    // The badge can be drawn a frame before the rows take the new indentation: wait for both.
+    const following = await s.waitFor("Tree follows the selection's indentation", () => s.visible(tree), frame =>
+      frame.includes("[Indent: selection]") && !!titleLine(frame, "Indent root")?.includes("‹"));
     assert.ok(titleLine(following, "Indent level 6")!.indexOf("Indent level 6") < originalColumn);
-    assert.ok(titleLine(following, "Indent root")!.includes("‹"));
     await s.checkpoint("01-selection-follows-with-shallow-rows-visible");
     // Native click on the badge must toggle this same Tree without changing its root.
     await s.focus(tree);

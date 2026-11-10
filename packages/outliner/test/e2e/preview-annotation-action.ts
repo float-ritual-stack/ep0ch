@@ -9,7 +9,7 @@ import {runHerdrScenario} from "./herdr-runner";
 const sourceText = "# Preview annotation source\n\nEXACT PREVIEW PASSAGE\n";
 const result = await runHerdrScenario({
   name: "preview-annotation-action",
-  async prepare(root) {await writeFile(join(root, "source.md"), sourceText);},
+  async prepare(_project, _paths, root) {await writeFile(join(root, "source.md"), sourceText);},
   async run(s) {
     const terminal = await s.attachClient(); await terminal.resize(340, 62);
     const clients = await s.registrations();
@@ -18,7 +18,7 @@ const result = await runHerdrScenario({
     const retained = await s.client.request<Block>({action: "create", text: "RETAINED UNRELATED DOCUMENT"});
     await s.revealTree(s.panes.tree, retained.id); await s.keys(s.panes.tree, "enter");
     await s.waitFor("retained Current", current, c => c.currentTarget?.kind === "block" && c.currentTarget.blockId === retained.id);
-    const {resource} = await s.client.request<InternResourceReceipt>({action: "resources.intern-filesystem", input: {path: join(s.projectRoot, "source.md")}});
+    const {resource} = await s.client.request<InternResourceReceipt>({action: "resources.intern-filesystem", input: {path: join(s.outlineRoot, "source.md")}});
     const description = await s.client.request<ResourceDescription>({action: "resources.describe", destinationClientId: detail.clientId, target: {kind: "resource", resourceId: resource.id}});
     const file = description.filesystem!;
     assert.equal(file.revision.revision.kind, "filesystem");
@@ -36,9 +36,9 @@ const result = await runHerdrScenario({
     await s.waitFor("Preview comment marker rendered", () => s.visible(s.panes.detail), frame => frame.includes("+ EXACT PREVIEW PASSAGE"));
     await s.keys(s.panes.detail, "]");
     await s.waitVisible(s.panes.detail, "PREVIEW THREAD BODY");
-    const frame = await s.waitFor("native Preview reply control", () => terminal.visible(), frame => frame.includes("Reply · Seen"));
+    const frame = await s.waitFor("native Preview reply control", () => terminal.visible(), frame => frame.includes("Reply · Edit · Seen")); // Edit sits between them since PIE-763 (a61fadb81)
     const lines = frame.split("\n");
-    const row = lines.findIndex(line => line.includes("Reply · Seen"));
+    const row = lines.findIndex(line => line.includes("Reply · Edit · Seen"));
     const column = visibleWidth(lines[row]!.slice(0, lines[row]!.indexOf("Reply")));
     await s.record("preview-native-reply-click", {row, column, frame, annotationId, target});
     await terminal.write(`\x1b[<0;${column + 1};${row + 1}M`); await terminal.write(`\x1b[<0;${column + 1};${row + 1}m`);

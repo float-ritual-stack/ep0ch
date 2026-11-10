@@ -82,6 +82,11 @@ const result = await runHerdrScenario({
     await wait("PREFIX");
     await terminal.write("h");
     await session.waitFor("back to the ordinary shell", () => session.focusedPane(), pane => pane === shell);
+    // As below: server focus can precede the attached client's routing, and text written at once still reached
+    // Capture. Wait for the rendered cursor to leave Capture's column for the shell's.
+    const editorColumn = (await wait("GLOBAL SIDEBAR NOTE")).split("\n")
+      .find(row => row.includes("GLOBAL SIDEBAR NOTE"))!.indexOf("GLOBAL SIDEBAR NOTE");
+    await session.waitFor("shell focus is rendered", () => terminal.cursor(), cursor => cursor.column < editorColumn - 4);
     await terminal.write("printf 'BROWSING_%s\\n' CONTINUES\r");
     await session.waitVisible(shell, "BROWSING_CONTINUES");
     await terminal.write("\x02");

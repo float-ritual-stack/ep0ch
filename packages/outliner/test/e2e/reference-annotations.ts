@@ -9,7 +9,7 @@ const composed = process.argv.includes("--composed");
 const result = await runHerdrScenario({
   name: composed ? "reference-annotations-composed" : "reference-annotations",
   layout: composed ? "composed" : "separate",
-  async prepare(root) {
+  async prepare(_project, _paths, root) {
     await writeFile(join(root, "same.md"), "Shared file passage\nSecond file line");
   },
   async run(s) {
@@ -27,12 +27,10 @@ const result = await runHerdrScenario({
       }
     };
     const cancelComment = async () => {
-      await terminal.write("\u001b");
-      if (composed) {
-        await s.waitFor("comment cancelled and Tree focused", async () => ({
-          client: await current(), frame: await s.visible(detail),
-        }), result => result.client.focusedRegion === "tree" && !result.frame.includes("Comment on this reference"));
-      } else await s.waitVisible(detail, "Comment cancelled");
+      await s.keys(detail, "escape");
+      // Esc cancels the comment and leaves focus where it was, composed or not.
+      await s.waitFor("comment cancelled", () => s.visible(detail),
+        frame => frame.includes("Comment cancelled") && !frame.includes("Comment on this reference"));
     };
     const text = "Occurrence annotation fixture\n\nFirst use [file::same.md].\nSecond use [file::same.md].";
     const host = await s.client.request<Block>({ action: "create", parentId: null, text });
@@ -43,9 +41,8 @@ const result = await runHerdrScenario({
     const revealSource = async () => {
       await s.revealTree(tree, host.id);
       await s.keys(tree, "enter");
-      // Reopening the same Current target still focuses Detail asynchronously.
-      await s.waitFor("source opened and focused", current, c => c.currentTarget?.kind === "block" &&
-        c.currentTarget.blockId === host.id && (!composed || c.focusedRegion === "detail"));
+      // ⏎ keeps Tree focus (PIE-364); focusView moves it to Detail.
+      await s.waitFor("source opened", current, c => c.currentTarget?.kind === "block" && c.currentTarget.blockId === host.id);
       await focusView("detail");
       const frame = await s.waitVisible(detail, "Occurrence annotation fixture");
       if (frame.includes("▾ Properties")) {
@@ -54,20 +51,29 @@ const result = await runHerdrScenario({
       }
       await s.waitVisible(detail, "First use");
     };
+    // A note just reopened reads its references a moment later; o before that says so, and a person presses it again.
+    const chooseReference = async () => {
+      await s.keys(detail, "o");
+      await s.waitFor("reference chooser", async () => {
+        const frame = await s.visible(detail);
+        if (frame.includes("References are not ready")) await s.keys(detail, "o");
+        return frame;
+      }, frame => frame.includes("Choose a reference"));
+    };
     const saveComment = async (body: string) => {
       await s.waitVisible(detail, "Ctrl+S save");
-      await s.text(detail, body); await terminal.write("\u0013");
+      await s.text(detail, body); await s.keys(detail, "ctrl+s");
       const rows = await s.waitFor("comment persisted", hostThreads, ts => ts.some(t => t.body === body));
       return rows.find(t => t.body === body)!;
     };
     await revealSource();
-    await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
+    await chooseReference();
     await s.keys(detail, "c");
     const first = await saveComment("Comment about the first use");
     assert.equal(first.originalTarget.referenceContext?.anchor.start, text.indexOf("[file::"));
     await s.checkpoint("01-first-occurrence-comment");
     await revealSource();
-    await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
+    await chooseReference();
     await s.keys(detail, "tab", "c");
     const second = await saveComment("Comment about the second use");
     assert.equal(second.originalTarget.referenceContext?.anchor.start, text.lastIndexOf("[file::"));
@@ -77,10 +83,11 @@ const result = await runHerdrScenario({
     await s.checkpoint("02-independent-occurrence-comments");
 
     await revealSource();
-    await s.keys(detail, "o"); await s.waitVisible(detail, "Choose a reference");
-    await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "Choose destination");
-    await s.keys(detail, "R"); await s.waitVisible(detail, "Shared file passage");
-    const target = (await current()).currentTarget;
+    await chooseReference();
+    // An authored [file::] opens beside, in Preview, keeping the note Current (PIE-323, f99b7a3d8; PIE-833, ad3b002bc).
+    await s.keys(detail, "tab", "o"); await s.waitVisible(detail, "File opened in Preview");
+    await s.waitVisible(detail, "Shared file passage");
+    const target = (await current()).previewTarget;
     assert.ok(target?.kind === "resource" && target.referenceContext);
     assert.equal(target.referenceContext.anchor.start, text.lastIndexOf("[file::"));
     await s.keys(detail, "v"); await s.waitVisible(detail, "extend the rendered selection");
@@ -90,6 +97,9 @@ const result = await runHerdrScenario({
     assert.equal(passage.originalTarget.referenceContext?.anchor.start, second.originalTarget.referenceContext?.anchor.start);
     assert.ok(passage.originalTarget.representation.sourceSnapshot.kind === "resource" && passage.originalTarget.representation.sourceSnapshot.revision);
     await s.checkpoint("03-resource-passage-keeps-both-anchors");
+    // Close the file's Preview: the rest reads the file in Current.
+    await s.keys(detail, "escape");
+    await s.waitFor("file Preview closed", () => s.visible(detail), frame => !frame.includes("Preview · same.md"));
 
     // Set up the explicit file-global view; the annotation itself uses real input.
     await s.client.request({ action: "ui.command.send", command: {
@@ -100,7 +110,7 @@ const result = await runHerdrScenario({
     await s.waitVisible(detail, "Shared file passage");
     await s.keys(detail, "v"); await s.waitVisible(detail, "extend the rendered selection");
     await s.keys(detail, ...Array(19).fill("shift+right")); await s.keys(detail, "c");
-    await s.waitVisible(detail, "Ctrl+S save"); await s.text(detail, "File-global comment"); await terminal.write("\u0013");
+    await s.waitVisible(detail, "Ctrl+S save"); await s.text(detail, "File-global comment"); await s.keys(detail, "ctrl+s");
     const resourceThreads = await s.waitFor("file-global comment persisted", () => s.client.request<AnnotationThread[]>({
       action: "annotations.list", query: { subject: { kind: "resource", resourceId: target.resourceId }, includeResolved: true },
     }), ts => ts.some(t => t.body === "File-global comment"));
@@ -121,7 +131,8 @@ const result = await runHerdrScenario({
     await openOccurrence(first.originalTarget.referenceContext!);
     await focusView("detail");
     const pointerFrame = await s.waitFor("attached Resource frame", () => terminal.visible(),
-      frame => frame.includes("Shared file passage") && frame.includes("line 3"));
+      // The occurrence's "reference · … · line N" row is full chrome only (PIE-385); openOccurrence checked the context.
+      frame => frame.includes("Shared file passage"));
     const lines = pointerFrame.split("\n");
     const quote = "Shared file passage";
     const row = lines.findIndex(line => line.includes(quote));
@@ -135,26 +146,21 @@ const result = await runHerdrScenario({
     await s.waitVisible(detail, "Comment on this reference");
     await cancelComment();
     await focusView("detail");
-    await assert.rejects(openOccurrence(second.originalTarget.referenceContext!), /Destination is protected: active source selection/);
-    const retainedTarget = (await current()).currentTarget;
-    assert.ok(retainedTarget?.kind === "resource" && retainedTarget.referenceContext);
-    assert.equal(retainedTarget.referenceContext.anchor.start, first.originalTarget.referenceContext!.anchor.start);
+    // A pointer selection is an ordinary copy selection: it no longer holds Detail's navigation (PIE-384, 020e874da).
+    await s.waitFor("copy selection does not protect", current, c => !c.navigationProtection);
+    await openOccurrence(second.originalTarget.referenceContext!);
+    const switchedTarget = (await current()).currentTarget;
+    assert.ok(switchedTarget?.kind === "resource" && switchedTarget.referenceContext);
+    assert.equal(switchedTarget.referenceContext.anchor.start, second.originalTarget.referenceContext!.anchor.start);
     assert.equal((await hostThreads()).length, 3);
-    await s.checkpoint("04b-pointer-selection-cannot-switch-occurrence");
-    await s.keys(detail, "c");
-    await s.waitVisible(detail, "Comment on this reference");
-    await cancelComment();
-    // A native click clears the retained source selection before deliberate navigation.
-    await terminal.write(`\u001b[<0;${column + 1};${row + 1}M`);
-    await terminal.write(`\u001b[<0;${column + 1};${row + 1}m`);
-    await s.waitFor("native source selection cleared", current, c => !c.navigationProtection);
+    await s.checkpoint("04b-copy-selection-does-not-hold-navigation");
     await s.record("pointer-occurrence-evidence", { row, column, quote,
       selectedContext: first.originalTarget.referenceContext, rejectedContext: second.originalTarget.referenceContext });
 
     await revealSource(); await s.keys(detail, "e"); await s.waitVisible(detail, "⌃S save");
-    await terminal.write("\u001ba");
+    await s.keys(detail, "alt+a");
     await s.text(detail, "Occurrence annotation fixture\n\nFirst use [file::same.md].\nFirst use [file::same.md].");
-    await terminal.write("\u0013");
+    await s.keys(detail, "ctrl+s");
     const changed = await s.waitFor("ambiguous and missing uses retained", hostThreads,
       ts => ts.length === 3 && ts.every(t => t.currentResolution.status !== "resolved"));
     assert.ok(changed.some(t => t.currentResolution.status === "ambiguous"));

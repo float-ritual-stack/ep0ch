@@ -13,9 +13,13 @@ const summarize = (samples: number[]) => {
   return { samples, p50: sorted[Math.floor(sorted.length / 2)]!, p95: sorted[Math.ceil(sorted.length * .95) - 1]! };
 };
 const rowIdentity = ({ block: _block, ...row }: TreeRow<ProjectionBlock>) => row;
+/** A frame's Tree rows: each line's part left of a Preview docked beside it, the ones that start with a row glyph. */
+const treeRows = (frame: string) => frame.split("\n").map(line => line.split("│")[0]!).filter(line => /^\s*[•◇▾▸]/.test(line));
 
 const result = await runHerdrScenario({
   name: `tree-scale-${count}`,
+  // The block counts are full chrome; compact (the default since PIE-385, 254fb52ae) has none.
+  uiConfig: { chrome: { tree: "full" } },
   async prepare() {},
   async run(s) {
     await s.record("budget", {
@@ -23,7 +27,12 @@ const result = await runHerdrScenario({
       mutationToFrameP95Ms: 1000,
       scope: "Same-host direct service and forwarded client; two active browsing contexts. No SSH/bandwidth claim.",
     });
-    // Fixture writes use the service while both original views hold local input.
+    // Fixture writes use the service while both original views hold local input. Detail edits the note it shows, so
+    // Tree opens its first row there first: whether Detail picks up Tree's first selection by itself is a startup race.
+    await s.keys(s.panes.tree, "enter");
+    await s.waitFor("Detail shows Tree's first row", () => s.visible(s.panes.detail),
+      frame => frame.includes("● Current") && !frame.includes("Select a block or resource"));
+    await s.focus(s.panes.tree);
     await s.keys(s.panes.tree, "a");
     await s.waitVisible(s.panes.tree, "↵ save");
     await s.keys(s.panes.detail, "e");
@@ -89,7 +98,10 @@ const result = await runHerdrScenario({
     await s.waitVisible(remote.tree, `${count} physical blocks`);
     const coldRequests = [...s.forwardedTreeRequests()];
     assert.ok(coldRequests.some(request => request.action === "tree.index"));
-    assert.ok(!coldRequests.some(request => request.action === "get" || request.action === "workspace.snapshot"));
+    assert.ok(!coldRequests.some(request => request.action === "workspace.snapshot"));
+    // The index draws Tree; Tree's local Preview (cb876c3da) reads only the one note it shows, never block by block.
+    const reads = coldRequests.filter(request => request.action === "get");
+    assert.ok(reads.length <= 1, `cold Tree sent ${reads.length} block reads`);
     await s.record("cold-forwarded-tree", { firstObservedFrameMs: remote.firstTreeFrameMs, requests: coldRequests });
     await s.checkpoint("01-complete-index");
 
@@ -99,6 +111,10 @@ const result = await runHerdrScenario({
     const context = () => s.client.request<BrowsingContextState>({ action: "browsing-context.get", contextId: tree.contextId! });
     const selected = (id: string) => s.waitFor("Tree canonical selection", context,
       state => state.target?.kind === "block" && state.target.blockId === id);
+    // Tree's local Preview (cb876c3da) docks below in this narrow pane, leaving too few rows for both occurrences of
+    // a source; Detail beside it shows the source, so the Preview closes and every row is the Tree's.
+    await s.keys(remote.tree, "escape");
+    await s.waitFor("Tree's Preview closed", () => s.visible(remote.tree), frame => !frame.includes("○ Preview"));
     await s.revealTree(remote.tree, board.id);
     await s.keys(remote.tree, "down");
     await selected(sources[0]!.id);
@@ -111,8 +127,9 @@ const result = await runHerdrScenario({
       editable = await s.client.request<Block>({ action: "update", blockId: editable.id, expectedRevision: editable.revision,
         text: `Scale source 00 UPDATED-${i} [probe::scale]\nEXACT SOURCE 0`,
         mutation: { author: "agent", actorId: "pie-235-fixture" } });
+      // Tree's rows only: the breadcrumbs, "Opens in" and the local Preview name the selection too.
       await s.waitFor("physical and projected source show the same new text", () => s.visible(remote.tree),
-        frame => frame.split(`Scale source 00 UPDATED-${i}`).length - 1 === 2);
+        frame => treeRows(frame).filter(row => row.includes(`Scale source 00 UPDATED-${i}`)).length === 2);
       await s.waitVisible(remote.detail, `Scale source 00 UPDATED-${i}`);
       mutations.push(performance.now() - started);
       await s.client.request({ action: "move", blockId: editable.id, expectedRevision: editable.revision, parentId: root.id, position: i % 2 });

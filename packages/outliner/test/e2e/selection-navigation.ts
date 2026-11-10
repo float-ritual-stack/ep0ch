@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
-import {readFile, rename, writeFile} from "node:fs/promises";
-import {dirname, join, resolve, sep} from "node:path";
+import {readFile, writeFile} from "node:fs/promises";
+import {join} from "node:path";
 import {visibleWidth} from "@earendil-works/pi-tui";
 import type {Block, InternResourceReceipt, OutlinerNavigationTarget, ResourceDescription} from "../../src/types";
-import {forwardService} from "./service-forwarder";
 import {runHerdrScenario} from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "selection-navigation",
-  async prepare(root) {await writeFile(join(root,"selection.md"),"# Selection Resource\n\nRESOURCE COPY PASSAGE\n");},
+  async prepare(_project, _paths, root) {await writeFile(join(root,"selection.md"),"# Selection Resource\n\nRESOURCE COPY PASSAGE\n");},
   async run(session) {
     const terminal = await session.attachClient();
     await terminal.resize(190, 55);
@@ -20,7 +19,7 @@ const result = await runHerdrScenario({
     const target = (block:Block):OutlinerNavigationTarget => ({kind:"block",blockId:block.id});
     const current = async () => (await session.registrations()).find(c=>c.clientId===reader.clientId)!;
     const replace = (target:OutlinerNavigationTarget) => session.client.request({action:"ui.command.send",command:{targetClientId:reader.clientId,targetRegion:"detail",command:"replace",target}});
-    const copy = async (label:string, anchorLabel="Current ·") => {
+    const copy = async (label:string, anchorLabel="● Current") => {
       await session.focus(detail);
       const point = (text:string) => {
         const rows=text.split("\n");
@@ -70,12 +69,17 @@ const result = await runHerdrScenario({
     await session.waitVisible(detail,"Ctrl+S save");
     await session.text(detail,"Preview quote comment draft");
     await session.waitVisible(detail,"Preview quote comment draft");
-    await session.waitFor("Preview comment protects promoted Current",current,c=>!!c.navigationProtection&&c.currentTarget?.kind==="block"&&c.currentTarget.blockId===a.id);
-    await assert.rejects(replace(target(b)),/protected/);
+    // The comment is written in Preview itself, with no promotion to Current (PIE-290, 05eca251c): Current stays free,
+    // and the Preview's own draft turns away an open aimed at it, keeping the words being typed.
+    await session.client.request({action:"ui.command.send",command:{targetClientId:reader.clientId,command:"preview",target:target(b)}});
+    await session.waitVisible(detail,"Open rejected");
+    await replace(target(b));
+    await session.waitFor("Current replaced beside the Preview draft",current,c=>c.currentTarget?.kind==="block"&&c.currentTarget.blockId===b.id);
+    await session.waitVisible(detail,"Preview quote comment draft");
+    assert.ok(!(await current()).navigationProtection);
     await session.checkpoint("preview-copy-comment-handoff");
     await session.keys(detail,"escape");
-    await session.waitFor("Preview comment cancelled",current,c=>!c.navigationProtection);
-    await replace(target(b));
+    await session.waitFor("Preview comment cancelled",()=>session.visible(detail),frame=>!frame.includes("Preview quote comment draft"));
     await session.waitVisible(detail,"DESTINATION CONTENT");
     await session.client.request({action:"ui.command.send",command:{targetClientId:reader.clientId,command:"preview",target:target(a)}});
     await session.waitVisible(detail,"COPY THIS PASSAGE");
@@ -85,44 +89,32 @@ const result = await runHerdrScenario({
     assert.ok(!(await current()).navigationProtection);
     await session.checkpoint("preview-copy-does-not-protect-current");
     await session.keys(detail,"f7","escape");
+    await session.waitFor("Preview closed",()=>session.visible(detail),frame=>!frame.includes("Preview · "));
 
-    // Hold the real Herdr snapshot reply, not a synthetic selection or controller flag.
-    const {status}=JSON.parse(await readFile(join(session.artifactDirectory,"herdr-readiness.json"),"utf8"));
-    const socket=String(status.socket);
-    assert.ok(resolve(socket).startsWith(resolve(dirname(session.projectRoot))+sep));
-    const upstream=socket+".selection-upstream";
-    await rename(socket,upstream);
-    const proxy=await forwardService(socket,upstream).catch(async error=>{await rename(upstream,socket);throw error;});
-    try {
-      await replace(target(a));
-      await session.waitVisible(detail,"COPY THIS PASSAGE");
-      const held=proxy.holdNext({method:"pane.read",contains:'"lines":10000'});
-      await copy("COPY THIS PASSAGE");
-      await session.waitFor("capture reply held",()=>held.state,v=>v==="held");
-      await replace(target(b));
-      await session.waitVisible(detail,"DESTINATION CONTENT");
-      held.release();
-      const delivered=await session.waitFor("snapshot delivered",()=>proxy.measurements(),v=>v.some(r=>r.held));
-      assert.ok(delivered.find(r=>r.held)!.elapsedMs<1900,"Reply must arrive before the capture timeout, not be discarded by timeout");
-      await session.record("delayed-capture",delivered.filter(r=>r.held));
-      await replace(target(a));
-      await session.waitVisible(detail,"COPY THIS PASSAGE");
-      await session.keys(detail,"c");
-      await session.waitVisible(detail,"Drag across text before commenting");
-      await copy("COPY THIS PASSAGE");
-      await session.keys(detail,"c");
-      await session.waitVisible(detail,"Ctrl+S save");
-      await session.text(detail,"Fresh selected-passage comment");
-      await session.waitFor("comment protected",current,c=>!!c.navigationProtection);
-      await assert.rejects(replace(target(b)),/protected/);
-      await session.waitVisible(detail,"Fresh selected-passage comment");
-      await session.keys(detail,"escape");
-      await session.waitFor("cancel releases draft protection",current,c=>!c.navigationProtection);
-      await session.checkpoint("late-capture-retired-comment-protected");
-    } finally {
-      await proxy.close();
-      await rename(upstream,socket);
-    }
+    // A drag is captured from Detail's own rendered frame (PIE-350, ac0817a46): no Herdr pane read to hold or lose.
+    // A selection retired by navigation can't be commented on; a fresh one can, and its draft protects.
+    await replace(target(a));
+    await session.waitVisible(detail,"COPY THIS PASSAGE");
+    await copy("COPY THIS PASSAGE");
+    await replace(target(b));
+    await session.waitVisible(detail,"DESTINATION CONTENT");
+    await replace(target(a));
+    await session.waitVisible(detail,"COPY THIS PASSAGE");
+    // With no live selection, `c` comments on the whole note (PIE-290, 05eca251c): the retired drag is not reused.
+    await session.keys(detail,"c");
+    await session.waitVisible(detail,"Comment on whole note");
+    await session.keys(detail,"escape");
+    await session.waitFor("whole-note comment cancelled",()=>session.visible(detail),frame=>!frame.includes("Comment on whole note"));
+    await copy("COPY THIS PASSAGE");
+    await session.keys(detail,"c");
+    await session.waitVisible(detail,"Comment on selection");
+    await session.text(detail,"Fresh selected-passage comment");
+    await session.waitFor("comment protected",current,c=>!!c.navigationProtection);
+    await assert.rejects(replace(target(b)),/protected/);
+    await session.waitVisible(detail,"Fresh selected-passage comment");
+    await session.keys(detail,"escape");
+    await session.waitFor("cancel releases draft protection",current,c=>!c.navigationProtection);
+    await session.checkpoint("late-capture-retired-comment-protected");
     assert.equal((await session.client.request<Block>({action:"get",blockId:a.id})).revision,a.revision);
     await session.record("coverage",{input:"Attached-terminal pointer drag and Herdr keys",clipboard:"Exact emitted OSC52 payload observed; physical OS clipboard paste not claimed",resource:resource.id,ordinarySelectionProtects:false});
   },

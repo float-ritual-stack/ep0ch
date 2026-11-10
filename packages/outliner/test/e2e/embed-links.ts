@@ -35,7 +35,9 @@ const result=await runHerdrScenario({name:'embed-links',async prepare(){},async 
  // Place the label through the Detail pane's own frame, anchored on a line only Detail shows.
  const click=async(label:string)=>{
   const {native,pane}=await s.waitFor(`attached ${label}`,async()=>({native:await terminal.visible(),pane:await s.visible(s.panes.detail)}),
-   ({native,pane})=>!!locate(native,'host-marker-line')&&!!locate(pane,label)&&!!locate(pane,'host-marker-line'));
+   // Both frames drawn alike: the attached screen can lag the pane by a frame, and a click there lands on old rows.
+   ({native,pane})=>{const a=locate(native,'host-marker-line'),l=locate(native,label),pa=locate(pane,'host-marker-line'),pl=locate(pane,label);
+    return !!a&&!!l&&!!pa&&!!pl&&l.row-a.row===pl.row-pa.row&&l.column-a.column===pl.column-pa.column;});
   const anchor=locate(native,'host-marker-line')!,paneAnchor=locate(pane,'host-marker-line')!,target=locate(pane,label)!;
   const row=anchor.row+target.row-paneAnchor.row,column=anchor.column+target.column-paneAnchor.column+1;
   await s.record(`click-${label}`,{row,column});

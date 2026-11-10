@@ -5,7 +5,7 @@ import {visibleWidth} from '@earendil-works/pi-tui';
 import type {Block} from '../../src/types';
 import {runHerdrScenario} from './herdr-runner';
 const composed=process.argv.includes('--composed');
-const result=await runHerdrScenario({name:composed?'local-markdown-composed':'local-markdown',layout:composed?'composed':'separate',async prepare(root){
+const result=await runHerdrScenario({name:composed?'local-markdown-composed':'local-markdown',layout:composed?'composed':'separate',async prepare(_project, _paths, root){
  await writeFile(join(root,'project.md'),'# PROJECT FILE\n\n> [!summary] File context\n> Read alongside the daily note.\n\n[[FILE LINK TARGET]]\n');
 },async run(s){
  const terminal=await s.attachClient();await terminal.resize(220,65);
@@ -19,9 +19,9 @@ const result=await runHerdrScenario({name:composed?'local-markdown-composed':'lo
   const frame=await s.waitFor('native '+label,terminal.visible,t=>t.includes(label)),lines=frame.split('\n');
   // Choose the Detail occurrence to the right of a same-named Tree row.
   // Compact chrome (PIE-385) puts the title in the frame; the header reads "● Current".
-  const currentRow=lines.findIndex(line=>/[●○] Current( ·| \[)/u.test(line));
+  const currentRow=lines.findIndex(line=>/[●○] Current\b/u.test(line));
   assert.ok(currentRow>=0);
-  const currentCol=visibleWidth(lines[currentRow]!.slice(0,lines[currentRow]!.search(/[●○] Current( ·| \[)/u)))-2;
+  const currentCol=visibleWidth(lines[currentRow]!.slice(0,lines[currentRow]!.search(/[●○] Current\b/u)))-2;
   const match=lines.flatMap((line,row)=>line.includes(label)?[{row,col:visibleWidth(line.slice(0,line.lastIndexOf(label)))+2}]:[])
    .filter(point=>composed?point.col>=currentCol:point.row>=currentRow)
    .sort((a,b)=>b.col-a.col||b.row-a.row)[0]!;

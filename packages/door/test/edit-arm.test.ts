@@ -74,7 +74,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     const runs = traced(() => key(char("e")));
     expect(runs.map(r => r.name)).toEqual(["edit.arm"]);
     expect(app.armed()?.of).toBe(rd.surface);
-    expect(message()).toBe("Confirm: Open this note for editing? Any other key keeps reading.");
+    expect(message()).toBe("Confirm: Open this note for editing? ⏎ or the same key again opens it; any other key keeps reading.");   // names the key that opens it (PIE-1707)
     expect(desk.hintGet().cards).toEqual([]);
     expect(rows().join("\n")).toContain("✎ edit? ");
     expect(app.person().busy).toBe(true);

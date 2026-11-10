@@ -4,6 +4,7 @@
 #
 #   /tmp/claude-<uid>/…         a Claude session's scratchpad and tmp folders
 #   /tmp/ep0ch-agent-<uid>/…    an agent-env temp folder (EP0CH_AGENT_TMP moves it)
+#   /tmp/ep0ch-<uid>/…          scripts/scratch-dir.ts's short root: test hosts, a failed Herdr run's folder (p267-…)
 #   ~/.agent-env/…              an agent-env folder (EP0CH_AGENT_ROOT moves it); `scripts/agent-env <name> --clean` is the whole-agent form
 #   ~/wt/<name>                 a git worktree: removed with `git worktree remove --force`, so git forgets it too
 #
@@ -13,9 +14,9 @@
 # folder that isn't a worktree, a link pointing out of the roots. A path that is already gone is fine.
 set -euo pipefail
 
-[ $# -ge 1 ] || { sed -n '12,12p;2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+[ $# -ge 1 ] || { sed -n '11,11p;2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 uid=$(id -u)
-scratch_roots=("/tmp/claude-$uid" "${EP0CH_AGENT_TMP:-/tmp}/ep0ch-agent-$uid" "${EP0CH_AGENT_ROOT:-$HOME/.agent-env}")
+scratch_roots=("/tmp/claude-$uid" "${EP0CH_AGENT_TMP:-/tmp}/ep0ch-agent-$uid" "/tmp/ep0ch-$uid" "${EP0CH_AGENT_ROOT:-$HOME/.agent-env}")
 wt_root=${EP0CH_WORKTREES:-$HOME/wt}
 status=0
 

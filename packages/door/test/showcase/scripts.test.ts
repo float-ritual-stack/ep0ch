@@ -298,6 +298,11 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recorded-"))!;
     await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
     await until(() => (app as any).message.includes("done · ctrl+z"), "the multiline comment replayed");
+    // PIE-1717: the replayed `comment` sends its comment, which closes its box, so nothing is left open to close (and
+    // comment.close says so since PIE-1701). The macro ran whole: the comment is there twice, recorded and replayed.
+    await expect(app.dispatch.act({ action: "comment.close", tile: "notes" }, USER)).rejects.toThrow("no comment is open");
+    const listed = await app.dispatch.act({ action: "threads", tile: "notes" }, USER) as { threads: { body: string }[] };
+    expect(listed.threads.filter(t => t.body === body)).toHaveLength(2);
     await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);
     screen();
   }, 30_000);

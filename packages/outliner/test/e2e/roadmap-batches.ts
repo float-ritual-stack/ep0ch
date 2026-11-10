@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { OutlinerClient } from "../../src/client";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -14,6 +16,9 @@ const result = await runHerdrScenario({
       const command = Bun.spawnSync(["git", ...args], { cwd: projectRoot });
       assert.equal(command.exitCode, 0, command.stderr.toString());
     }
+    // The harness names the outline with a `.ep0ch` in this folder after prepare (PIE-530); kept out of git, as a
+    // person's checkout ignores it, so the delivery branch switch sees a clean tree.
+    await appendFile(join(projectRoot, ".git", "info", "exclude"), ".ep0ch\n");
   },
   async run(session) {
     const create = (text: string, parentId: string | null = null) => session.client.request<Block>({ action: "create", text, parentId });
@@ -56,7 +61,8 @@ const result = await runHerdrScenario({
       const process = Bun.spawn(["bun", fileURLToPath(new URL("./roadmap-agent-session.ts", import.meta.url)),
         mode, session.artifactDirectory, batch.id, items[0]!.id, items[1]!.id, ...(sessionFile ? [sessionFile] : [])], {
         cwd: session.projectRoot, env: { ...Bun.env, HERDR_ENV: "0", EP0CH_SOCKET: session.client.socketPath, 
-          EP0CH_WS: "scratch", OUTLINER_WORKSPACE_ROOT: session.projectRoot }, stdout: "pipe", stderr: "pipe",
+          // The run's outline is named, not "scratch" (PIE-530, 7e863f550).
+          EP0CH_WS: session.client.outline!, OUTLINER_WORKSPACE_ROOT: session.projectRoot }, stdout: "pipe", stderr: "pipe",
       });
       const [stdout, stderr, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
       await session.record(`pi-session-${mode}`, { stdout, stderr, code });
@@ -93,7 +99,7 @@ const result = await runHerdrScenario({
     await session.revealTree(session.panes.tree, doneView.id);
     await session.waitVisible(session.panes.tree, "accepted delivery [V:1");
     assert.equal((await session.client.request<VisibleBlockCollection>({ action: "blocks.query", query: { filters: [{ key: "project", value: "batch-fixture" }, { key: "work-stage", value: "done" }], limit: 10 } })).blocks[0]!.id, items[1]!.id);
-    const fresh = new OutlinerClient(session.client.socketPath);
+    const fresh = new OutlinerClient(session.client.socketPath, undefined, session.client.outline);
     await verifyMembers(fresh);
     const remote = await session.openRemoteBrowsingContext();
     await session.revealTree(remote.tree, board.id);

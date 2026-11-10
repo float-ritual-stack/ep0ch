@@ -32,6 +32,11 @@ const result = await runHerdrScenario({
         (frame) => !frame.includes(body));
     };
 
+    // Tree's local Preview (cb876c3da) draws the selected note's body in the Tree pane too; closed, every body
+    // drawn there is an inline expansion.
+    await session.keys(treePane, "escape");
+    await session.waitFor("Tree's Preview closed", () => session.visible(treePane), (frame) => !frame.includes("○ Preview"));
+
     // Inline reading must work while the independent Detail stays on another target.
     await session.revealTree(treePane, outer.id);
     await session.keys(treePane, "enter");

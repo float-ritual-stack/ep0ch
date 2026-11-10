@@ -3969,3 +3969,29 @@ test("a resource projection's link is a focusable resource region, and its age i
   expect(detail.projectedSelectedText).not.toContain("ago");
  }finally{setCapabilities(caps);}
 });
+
+test("a layout pass between the frame and the drag keeps the drag's copy (PIE-1698)",()=>{
+  const raw="# Capture\n\nA plain needle here";
+  const detail=state(raw,raw);
+  const layout=new DetailPiPreviewLayout(detail,plainMarkdownTheme,true,undefined,{chrome:()=>"compact"});
+  const {terminal,input}=terminalFixture();
+  layout.scrollView.setScrollbar('hidden');
+  layout.syncState(terminal.columns);
+  const screen=renderLayoutFrame(layout,terminal.columns,terminal.rows,()=>{}).lines.map(stripTerminalSequences);
+  const row=screen.findIndex(line=>line.includes("needle"));
+  const column=visibleWidth(screen[row]!.slice(0,screen[row]!.indexOf("needle")));
+  let captured:DocumentSelection|null=null;
+  const tui=new TuiAltScreen(terminal,false,undefined,{mouse:true,async copySelection(_text,_lines,event){
+    captured=layout.captureSelection(event);return true;
+  }});
+  tui.setLayoutRoot(layout);
+  try {
+    tui.start();tui.renderNow();
+    // Detail's synchronizeLayout measures the body when a click picks a reader, before the next frame is drawn.
+    input(`\x1b[<0;${column+1};${row+1}M`);
+    layout.ensureFocusVisible(terminal.columns,terminal.rows);
+    input(`\x1b[<32;${column+6};${row+1}M`);
+    input(`\x1b[<0;${column+6};${row+1}m`);
+    expect((captured as DocumentSelection|null)?.text).toBe("needle");
+  } finally {tui.stop();}
+});

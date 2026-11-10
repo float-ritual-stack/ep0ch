@@ -12,10 +12,11 @@ import {
   rename,
   readFile,
   realpath,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { scratchRoot } from "../../../../scripts/scratch-dir";
 import { dirname, join, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OutlinerClient } from "../../src/client";
@@ -117,7 +118,8 @@ type Scenario = {
 };
 
 type ScenarioResult =
-  | { status: "passed"; artifactDirectory: string }
+  /** A passed run's folder is removed (`artifactDirectory: null`) unless EP0CH_E2E_KEEP=1; a failed run's is kept. */
+  | { status: "passed"; artifactDirectory: string | null }
   | { status: "failed"; artifactDirectory: string; error: string };
 
 type JsonRecord = Record<string, unknown>;
@@ -629,7 +631,8 @@ function combinedError(primary: unknown, evidence: readonly unknown[], cleanup: 
 }
 
 export async function runHerdrScenario(scenarioInput: Scenario): Promise<ScenarioResult> {
-  const runRoot = await mkdtemp(join(tmpdir(), "p267-"));
+  // A short root (PIE-1654): agent-env's TMPDIR is long enough to wrap the run folder in a 40-column composed Tree.
+  const runRoot = await mkdtemp(join(scratchRoot(), "p267-"));
   const projectRoot = join(runRoot, "project");
   const artifactDirectory = join(runRoot, "artifacts");
   const configHome = join(runRoot, "xdg-config");
@@ -1891,7 +1894,10 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     failure = combinedError(primaryError, evidenceErrors, cleanupErrors);
   }
 
-  return failure
-    ? { status: "failed", artifactDirectory, error: failure }
-    : { status: "passed", artifactDirectory };
+  if (failure) return { status: "failed", artifactDirectory, error: failure };
+  // A passed run leaves nothing behind; a failed one keeps its evidence under the scratch root, where
+  // scripts/scratch-clean removes it (PIE-1698).
+  if (process.env.EP0CH_E2E_KEEP === "1") return { status: "passed", artifactDirectory };
+  await rm(runRoot, { recursive: true, force: true });
+  return { status: "passed", artifactDirectory: null };
 }

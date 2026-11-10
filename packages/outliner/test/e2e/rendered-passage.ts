@@ -10,7 +10,7 @@ import {runHerdrScenario} from './herdr-runner';
 
 const result = await runHerdrScenario({
   name: 'rendered-passage',
-  async prepare(root) {
+  async prepare(_project, _paths, root) {
     await writeFile(join(root,'resource-passage.md'),'# Resource passage\n\nStable **quote** &amp; tail\n');
   },
   async run(s) {

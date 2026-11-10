@@ -114,15 +114,16 @@ const result = await runHerdrScenario({
       let seen = await s.waitFor("refresh status", () => s.visible(detail), shows, 5000).then(() => true, () => false);
       if (!seen) {
         await s.waitFor("Detail reloaded after refresh", () => s.visible(detail), (f) => !f.includes("Loading target"), 20000);
-        await s.keys(detail, ...Array(80).fill("up"));
+        await s.keys(detail, ...Array(20).fill("ctrl+u"));
       }
       const scanned: string[] = [];
-      for (let step = 0; step < 400 && !seen; step++) {
+      for (let step = 0; step < 60 && !seen; step++) {
         const frame = await s.visible(detail);
         scanned.push(frame);
         if (shows(frame)) seen = true;
         else if (frame.includes("Loading target")) await Bun.sleep(100);
-        else await s.keys(detail, "down");
+        // A page at a time (⌃D), each drawn before the next: Down can move to a region a screen away and skip the lines between.
+        else { await s.keys(detail, "ctrl+d"); await s.waitFor("next page drawn", () => s.visible(detail), next => next !== frame, 3000).catch(() => {}); }
       }
       if (!seen) await s.record("unseen-failure-scan", { message, frames: scanned });
       assert.ok(seen, `Detail shows the refresh failure: ${message}`);

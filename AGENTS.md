@@ -199,7 +199,7 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   never your own session (your outline tools would follow it to the scratch folder). Name the scratch outline with
   `--ws`, and end a session you tested yourself. Under agent-env a `.ep0ch`'s `machine` and an inherited
   `EP0CH_MACHINE` are ignored (said on stderr), so a command run from this repo never reaches float-2's live host;
-  only an explicit `--machine <ssh-name>` does (PIE-912). `bun scripts/snap.ts` scenarios that write need `EP0CH_SOCKET` at a
+  only an explicit `--machine <ssh-name>` does (PIE-912). `bun packages/door/scripts/snap.ts` scenarios that write need `EP0CH_SOCKET` at a
   scratch host and `EP0CH_SNAP_WRITES=1`.
 - **Never attach to or type into a Herdr pane you didn't make** (the real-pane recipe is in ep0ch-core).
 - **A test naming a machine** (`--machine`, `EP0CH_MACHINE`, a `.ep0ch`'s `machine`) runs with `EP0CH_OUTLINES` under
@@ -230,7 +230,7 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   `mktemp -d`, and re-read a body before `gh pr create/edit --body-file`. Clean scratch up with
   `scripts/scratch-clean <dir>…` (or `scripts/agent-env <name> --clean`), never `rm -rf`: Claude Code's dangerous-command
   check can stop an `rm -rf` for a permission prompt even under bypass, and a builder's prompt waits in the deployer's
-  session. `scratch-clean` removes only folders under `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/`, `~/.agent-env/`
+  session. `scratch-clean` removes only folders under `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/`, `/tmp/ep0ch-<uid>/`, `~/.agent-env/`
   and worktrees in `~/wt/` (through `git worktree remove`), and refuses the rest with why.
   **Never write `bash -c '…'` or `sh -c '…'` at all** (nor an `rm` inside a tmux, ssh or `agent-env --` string): Claude
   Code stops a shell -c script it can't check for a permission prompt even under bypass, nothing can allow it, and the
