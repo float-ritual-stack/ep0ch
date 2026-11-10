@@ -4,7 +4,9 @@
 // target adapters run against a scratch outliner service (never a real outline). Fictional notes throughout.
 import { draftEscCloses } from "../src/surface/completer";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { reloadKeymap } from "../src/surface/keymap";
 import { join } from "node:path";
 import { unsentEntries } from "../src/unsent";
 import { keepUnsent, blockTarget, propertyChange, propertyListOf, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
@@ -185,6 +187,20 @@ describe("the lifecycle, on a fake target", () => {
     expect(draftEscCloses(b.draft, "the edit")).toBe("the edit, dropped");
     b.close(true);
     expect(unsent("edit:note-sloe")).toBeFalsy();
+  });
+
+  test("a draft brought back names the keys the person bound: alt+q twice drops it, not esc (Nov 3 review card 1)", () => {
+    const was = process.env.EP0CH_KEYMAP;
+    process.env.EP0CH_KEYMAP = join(mkdtempSync(join(tmpdir(), "draft-keymap-")), "keybindings.json");
+    writeFileSync(process.env.EP0CH_KEYMAP, JSON.stringify({ "edit.close": ["alt+q"], "edit.save": ["alt+s"] })); reloadKeymap();
+    try {
+      const t = (): DraftTarget => fake({ place: "edit:note-rowan", blockId: "note-rowan" }).t;
+      const a = DraftSession.open(t(), { text: "Rowan jelly", base: 2 });
+      keys(a, [" -- set too hard"]); a.close(true);
+      const b = DraftSession.open(t(), { text: "Rowan jelly", base: 2 });
+      expect(b.draft.note).toContain("· alt+s saves · alt+q twice drops it");
+      b.close(true);
+    } finally { if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was; reloadKeymap(); }
   });
 
   test("an edit put aside on an older revision stays put aside (and on the reader's line) when the note has moved on", () => {

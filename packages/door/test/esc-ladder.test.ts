@@ -134,6 +134,24 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
     } finally { d.quit(); }
   });
 
+  test("an edit's mode has a key table for the keys window: the draft's rows, the $EDITOR chord and the note edit's own keys (Nov 3 review card 1)", async () => {
+    process.env.EP0CH_EDIT_ARM = "off";
+    const d = await door();
+    try {
+      await d.feed("e");
+      await until(() => !!d.reader().surface.draft, "the edit opens");
+      const S: any = d.reader().surface;
+      const keys: { key: string; action: string }[] = S.modes.top().keys;
+      expect(S.modes.top().name).toBe("draft");
+      const has = (action: string, key: string) => keys.some(r => r.action === action && r.key === key);
+      expect(has("edit.save", "ctrl+s")).toBe(true);
+      expect(has("edit.close", "esc")).toBe(true);
+      expect(has("draft.indent", "tab")).toBe(true);
+      expect(has("edit.external", "ctrl+x ctrl+e")).toBe(true);
+      expect(has("edit.actions", "ctrl+k")).toBe(true);
+    } finally { d.quit(); }
+  });
+
   test("the comment closed under its leave ask: nothing of it lingers, the next key goes to the reader (PIE-1617)", async () => {
     const d = await door();
     try {

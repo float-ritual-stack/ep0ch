@@ -7,7 +7,8 @@ import { PositionRows } from "../reader-position";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { DRAFT_ACTIONS, DRAFT_KEYS, keepCopy, patchLabel, type Draft } from "../edit";
+import { DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, keepCopy, patchLabel, type Draft } from "../edit";
+import { COMMENT_KEYS } from "./attached-keys";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
@@ -16,7 +17,7 @@ import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { fitPaths, rowLines, rule, words } from "../text";
 import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key } from "../term";
-import { agentLabel, declaredKeys, keyCaption } from "./actions";
+import { agentLabel } from "./actions";
 import { modeHint, type ModeKey } from "./modes";
 import { popupHint, completerOf, completionOf } from "./completer";
 import { wordIn } from "./selection";
@@ -301,25 +302,26 @@ const draftKeys = (rows: readonly ModeKey[]): string => modeHint(rows, () => und
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
 export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
   const pop = completionOf(d);
-  if (pop) return `${popupHint(pop)} · ${draftKeys([{ key: "ctrl+s", action: "edit.save", label: o.save }])}`;
+  // Every row below is a row of a table (DRAFT_KEYS, the chord table, the comment keys), never a key written here: the hint
+  // applies the keymap (modeHint's `effective`), so a rebind shows and an unbound key drops. The ways out come first (a
+  // narrow hint row cuts the end), then the list keys and the preview.
+  const from = (table: readonly ModeKey[], action: string, label: string, args?: Record<string, unknown>): ModeKey[] => {
+    const r = table.find(x => x.action === action && (!args || Object.entries(args).every(([k, v]) => x.args?.[k] === v)));
+    return r ? [{ key: r.key, action, ...(r.args ? { args: r.args } : {}), label }] : [];
+  };
+  const bound = (action: string, label: string, args?: Record<string, unknown>) => from(DRAFT_KEYS, action, label, args);
+  if (pop) return `${popupHint(pop)} · ${draftKeys(bound("edit.save", o.save))}`;
   if (d.snippet) return `slot ${d.snippet.index + 1}/${d.snippet.slots.length} · ` +
-    (["snippet.next", "snippet.previous", "snippet.end", "draft.undo"] as const).map(name => {
-      const action = DRAFT_ACTIONS.def(name)!;
-      return `${keyCaption([...declaredKeys(action.keys)][0]!)} ${name.split(".")[1]}`;
-    }).join(" · ");
-  // The ways out first (a narrow hint row cuts the end), then the list keys and the preview. A key the table holds is
-  // its built-in one here; the hint applies the keymap (modeHint's `effective`), so a rebind shows and an unbound one drops.
+    draftKeys([...bound("draft.indent", "next"), ...bound("draft.outdent", "previous"), ...bound("edit.close", "end"), ...bound("draft.undo", "undo")]);
   const last = d.undos.at(-1);
-  const row = (key: string, action: string, label: string): ModeKey[] => [{ key, action, label }];
-  const bound = (action: string, label: string): ModeKey[] => { const r = DRAFT_KEYS.find(x => x.action === action); return r ? row(r.key, action, label) : []; };
   return draftKeys([
-    ...bound("edit.save", o.save), ...row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
+    ...bound("edit.save", o.save), ...bound("edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
     ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
     ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
-    ...(o.place ? row("ctrl+o", "comment.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
-    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), { key: "[", action: "draft.wrap", args: { with: "[" }, label: "wraps" }] : []),
-    ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? bound("edit.reload", o.reload) : []),
-    ...bound("draft.pick", "insert"), ...row("tab", "draft.indent", "indent"), ...row("shift+tab", "draft.outdent", "out"), ...bound("draft.preview", "preview"),
+    ...(o.place ? from(COMMENT_KEYS, "comment.place", o.place) : []), ...(o.move ? from(COMMENT_KEYS, "comment.grip", "move") : []),
+    ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), ...bound("draft.wrap", "wraps", { with: "[" })] : []),
+    ...draftChordRows().map(r => ({ ...r, label: "$EDITOR" })), ...(o.reload ? bound("edit.reload", o.reload) : []),
+    ...bound("draft.pick", "insert"), ...bound("draft.indent", "indent"), ...bound("draft.outdent", "out"), ...bound("draft.preview", "preview"),
   ]);
 }
 
@@ -427,25 +429,16 @@ export function recoverEdits(alive: (pid: number) => boolean): string[] {
   return kept;
 }
 
-/** A query uses the same draft, with line breaks flattened at the input edge. */
+/**
+ * A query's typing, with line breaks flattened at the input edge: a paste (whole, its breaks as spaces), the selection
+ * taken away by backspace or delete, plain typing. Every other key (erase a word, clear, cut) is a row of the key table
+ * (`LINE_KEYS`, `DRAFT_KEYS`), which the line field and the power bar run as the draft's actions.
+ */
 export function editorLineKey(d: Draft, k: Key, copy: (text: string) => void): boolean {
   if (["enter", "esc", "tab", "backtab", "up", "down", "pgup", "pgdn", "mouse"].includes(k.kind)) return false;
-  if (k.kind === "alt-backspace") k = { kind: "char", ch: "w", ctrl: true };
-  if (k.kind === "char" && k.ctrl) {
-    if (k.ch === "u") { d.splice(0, d.text.length, ""); return true; }
-    if (k.ch === "w") {
-      d.erase("word-back"); return true;
-    }
-    if (k.ch === "x") {
-      const text = d.selectedText();
-      if (text) { copy(text); const selected = d.selection()!; d.splice(selected[0].col, selected[1].col, ""); }
-      return true;
-    }
-  }
+  // The selection goes in one undo step of its own (typing runs on into one step; the splice closes it first).
   const selected = d.selection();
-  if (selected && (k.kind === "backspace" || k.kind === "delete")) {
-    d.splice(selected[0].col, selected[1].col, ""); return true;
-  }
+  if (selected && (k.kind === "backspace" || k.kind === "delete")) { d.splice(selected[0].col, selected[1].col, ""); return true; }
   const input = k.kind === "paste" ? { ...k, text: k.text.replace(/[\r\n]+$/, "").replace(/\r\n?|\n|\t/g, " ") } : k;
   if (d.key(input) === "copy") { const text = d.selectedText(); if (text) copy(text); }
   return true;

@@ -1,4 +1,4 @@
-import { renderDoc } from "../doc";
+import { drawPage } from "./blockdown-draw";
 import { width } from "../style";
 import { buttonRows } from "./button";
 import type { Key } from "../term";
@@ -25,10 +25,7 @@ export class HomeSurface {
       ...(agents ? ['- n: new agent'] : ['- ctrl+n: new note']),
       '- ctrl+k: power bar', '- alt+s: shell', '- ( ) then f: fold', '- esc: close', '- q: back', '::',
     ].join('\n');
-    const doc = renderDoc(body, {
-      width: cols, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: true,
-      button: call => buttonRows(call.label, call.look),
-    });
+    const doc = drawPage(body, cols, { cellH: 16, button: call => buttonRows(call.label, call.look) });
     this.controls = buttons.flatMap(([label, action]) => {
       const row = doc.lines.findIndex(l => l.includes(`[${label}]`));
       if (row < 0) return [];
@@ -44,10 +41,7 @@ export class HomeSurface {
       ...card.buttons.map(([label, act]) => `::button{label="${label.replaceAll('"', "'")}" act="${act}"}`), "", ...(card.lines ?? []),
       ...(card.keys?.length ? ["", "::graph-keys", "---", "title: Keys", "---", ...card.keys.map(k => `- ${k}`), "::"] : []),
     ].join("\n");
-    const doc = renderDoc(body, {
-      width: cols, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: true,
-      button: call => buttonRows(call.label, call.look),
-    });
+    const doc = drawPage(body, cols, { cellH: 16, button: call => buttonRows(call.label, call.look) });
     this.controls = card.buttons.flatMap(([label, action]) => {
       const row = doc.lines.findIndex(l => l.includes(`[${label}]`));
       if (row < 0) return [];

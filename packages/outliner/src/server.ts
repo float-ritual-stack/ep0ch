@@ -14,7 +14,8 @@ import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machi
 import { scriptSources, scriptsAt } from "./script-sources";
 import { queueRelease, ScriptRuns } from "./script-runs";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
-import { PERSON_READER, queryRequestProblem } from "./block-query";
+import { PERSON_READER } from "./block-query";
+import { BUSY_RETRY_MS, refusal, retriesBusy } from "./request-envelope";
 import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
@@ -113,7 +114,7 @@ import { actionOf, forget, heldBy, inFlightRequest, landed, thisTurn, timeReques
 import { QueryWatches, type WatchConnection } from "./query-watches";
 import { machineryBlind, watchesHear } from "./watch-machinery";
 import { answerMarks } from "./marks";
-import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
+import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
 import { boundFolderOf, resolveOutlinesFolder } from "./paths";
 import {
@@ -1956,15 +1957,11 @@ export class OutlinerServer {
       try {
         return await this.handleAsyncOnce(request, subscribedClient, connection);
       } catch (error) {
-        // A request may contain several commits; replay only when none of its content landed. An action whose row says
-        // `once` (it acts outside the store, a provider command or a deploy) is never replayed.
-        if (isSqliteBusy(error) && attempt === 0 && this.store.sequence === sequence && !replayOnce(request.action)) {
-          await Bun.sleep(50);
+        if (retriesBusy(request, error, attempt, { before: sequence, now: this.store.sequence })) {
+          await Bun.sleep(BUSY_RETRY_MS);
           continue;
         }
-        // Every refusal's envelope, for every branch: its words, and a query's problem when it has one.
-        const problem = queryRequestProblem(error);
-        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(problem ? { problem } : {}), sequence: this.store.sequence };
+        return refusal(request.id, error, this.store.sequence);
       }
     }
   }
@@ -2011,7 +2008,7 @@ export class OutlinerServer {
       const now = this.store.require(request.blockId);
       const response: OutlinerResponse = section.text === block.text && now.revision === block.revision && block.revision === request.expectedRevision
         ? { id: request.id, ok: true, result: now, sequence: this.store.sequence }
-        : this.handle({ ...update, text: section.text }, subscribedClient);
+        : this.handleOnce({ ...update, text: section.text }, subscribedClient);
       if (response.ok) response.result = { ...(response.result as Block), section: { heading: section.heading, previous: section.previous } };
       return response;
     }
@@ -2104,11 +2101,11 @@ export class OutlinerServer {
     if(request.action==="resources.describe"){
       // This built-in only reads an immutable Inbox before-image. It cannot
       // execute arbitrary producers, tools, or external requests on preview.
-      const checked=this.handle(request,subscribedClient);
+      const checked=this.handleOnce(request,subscribedClient);
       if(!checked.ok||!this.store.resources.isCaptureHistory(request.target.resourceId))return checked;
       const description=this.store.resources.describe(request.target.resourceId,true,request.target.revision);
       if(request.target.revision===undefined&&!description.computed&&!description.source.policy.deniedCapabilities.includes("read"))await this.store.resources.executeComputedResource(request.target.resourceId,true);
-      return this.handle(request,subscribedClient);
+      return this.handleOnce(request,subscribedClient);
     }
     if (request.action === "tree.index") {
       // The whole outline's labels, made a slice per turn: a first read after a start never holds the loop.
@@ -2220,7 +2217,7 @@ export class OutlinerServer {
       if (!answer.twins.length) await tallyTwins(own, answer);
       const beside = fileAnyway ? answer.twins : [];
       const filed = beside.length ? { ...input, relatedTo: [...new Set([...(input.relatedTo ?? []), ...answer.candidates.filter(c => beside.includes(c.workId)).map(c => c.id)])], body: `${input.body?.trim() ? `${input.body.trim()}\n\n` : ""}Filed beside ${beside.map(w => `[[${w}]]`).join(", ")}: open work that looked like the same, filed anyway.` } : input;
-      const response = this.handle({ ...request, input: filed }, subscribedClient);
+      const response = this.handleOnce({ ...request, input: filed }, subscribedClient);
       if (response.ok && beside.length) await recordTwin(own, answer, { title: input.title, outcome: "filed-anyway", item: (response.result as RoadmapItemCreateReceipt).workId, ...(actorId ? { actorId } : {}) });
       return response;
     }
@@ -2415,7 +2412,7 @@ export class OutlinerServer {
       request.action !== "resources.follow-authored" &&
       request.action !== "computed.execute"
     ) {
-      return this.handle(request, subscribedClient);
+      return this.handleOnce(request, subscribedClient);
     }
     if (request.action === "resources.projection.refresh") {
       const normalized = normalizeResourceProjectionRequest(request);
@@ -2545,7 +2542,24 @@ export class OutlinerServer {
     return this.answered(request, result);
   }
 
+  /** A sync request's answer: the same one busy retry and envelope as `handleAsync`'s (the wait is a blocking sleep). */
   handle(
+    request: OutlinerRequest,
+    subscribedClient?: OutlinerClientRegistration,
+  ): OutlinerResponse {
+    const sequence = this.store.sequence;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return this.handleOnce(request, subscribedClient);
+      } catch (error) {
+        if (!retriesBusy(request, error, attempt, { before: sequence, now: this.store.sequence })) return refusal(request.id, error, this.store.sequence);
+        Bun.sleepSync(BUSY_RETRY_MS);
+      }
+    }
+  }
+
+  /** One try of a sync request: its answer or its refusal's envelope; a busy database is thrown for the caller's retry. */
+  private handleOnce(
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,
   ): OutlinerResponse {
@@ -3527,14 +3541,7 @@ export class OutlinerServer {
       return { id: request.id, ok: true, result, sequence: this.store.sequence };
     } catch (error) {
       if (isSqliteBusy(error)) throw error;
-      const problem = queryRequestProblem(error);
-      return {
-        id: request.id,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        ...(problem ? { problem } : {}),
-        sequence: this.store.sequence,
-      };
+      return refusal(request.id, error, this.store.sequence);
     }
   }
 
@@ -4171,14 +4178,7 @@ export class OutlinerServer {
       }
       if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
-      const problem = queryRequestProblem(error);
-      response = {
-        id: request?.id ?? "invalid",
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        ...(problem ? { problem } : {}),
-        sequence: attribution ? this.store.sequence : previousSequence,
-      };
+      response = refusal(request?.id ?? "invalid", error, attribution ? this.store.sequence : previousSequence);
       // Before dispatch there can be no commits, and a failed sequence read must not touch the store again.
       if (!attribution) {
         socket.write(`${JSON.stringify(response)}\n`);
