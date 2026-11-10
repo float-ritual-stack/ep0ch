@@ -77,7 +77,7 @@ import {
   SourceSpannedMarkdown,
   type SourceSpannedMarkdownRowRender,
 } from "./source-spanned-markdown";
-import { backlinkReferenceLabel } from "@ep0ch/outline-core/backlink-view";
+import { backlinkRowSuffix } from "@ep0ch/outline-core/backlink-view";
 import {
   type AnnotationThread,
   type BacklinkSource,
@@ -420,6 +420,7 @@ export function renderDetailReadPreview(
   revealSourceLine?: number,
   revealAnnotationId?: string,
 ): {lines:string[]; frame:DocumentFrame; sourceLineRow:(line:number)=>number; threadRows:Map<string,number>} {
+  markdownTheme = {...markdownTheme, linkUrl: () => ""}; // links draw as their labels, as in Detail's preview (PIE-1703)
   const observed = input.provenance?.text === input.resolvedText
     ? input.provenance : generatedDocument(input.resolvedText, 'preview without observed source');
   const source = input.preserveMetadata ? observed : propertyInspectorAuthoredDocument(observed);
@@ -728,18 +729,6 @@ function fitBacklinkRow(title: string, suffix: string, columns: number): { title
   };
 }
 
-function backlinkRowSuffix(source: BacklinkSource): string {
-  const facets = source.facets;
-  return [
-    ...(facets?.stage ? [facets.stage.value] : []),
-    ...(facets?.comment?.resolved ? ["resolved"] : []),
-    ...(facets && facets.placement !== "other" ? [facets.placement === "self" ? "this note" : "inside this note"] : []),
-    source.parentContext,
-    ...(source.deletedRootId ? ["Trash"] : []),
-    ...source.referenceGroups.map(backlinkReferenceLabel),
-  ].join(" · ");
-}
-
 function backlinkStatusLine(state: Readonly<DetailState>): string {
   const backlinks = state.backlinks;
   const view = detailBacklinkView(backlinks);
@@ -899,6 +888,7 @@ interface AnnotationPreviewArrangement {
   markdownRowAt(row: number): number | null;
   markerRows: ReadonlyMap<string, number>;
   panelRows: ReadonlyMap<string, number>;
+  panelEnds: ReadonlyMap<string, number>; // the row after each panel, by panelRows' ids
 }
 
 const ANNOTATION_GUTTER_WIDTH = 2;
@@ -1007,6 +997,7 @@ class DetailAnnotationPreview implements Component {
         markdownRowAt: (row) => row >= 0 && row < lines.length ? row : null,
         markerRows: new Map(),
         panelRows: new Map(),
+        panelEnds: new Map(),
       };
     }
 
@@ -1081,10 +1072,12 @@ class DetailAnnotationPreview implements Component {
     const markdownToOutput: number[] = [];
     const markerRows = new Map<string, number>();
     const panelRows = new Map<string, number>();
+    const panelEnds = new Map<string, number>();
     for (let row = 0; row <= markdownLines.length; row += 1) {
       for (const panel of insertions.get(row) ?? []) {
         if (!panel.regionId.startsWith("annotation-card:")) {
           panelRows.set(panel.regionId, lines.length);
+          panelEnds.set(panel.regionId, lines.length + panel.lines.length);
           if (!panelRows.has(panel.groupId)) panelRows.set(panel.groupId, lines.length);
         }
         for (const panelLine of panel.lines) {
@@ -1157,6 +1150,7 @@ class DetailAnnotationPreview implements Component {
           this.commentLinking(trackLinks));
         lines.push(...panel);
         markdownRows.push(...panel.map(() => null));
+        panelEnds.set(`annotation-thread:${thread.block.id}`, lines.length);
       }
     }
     return {
@@ -1170,6 +1164,7 @@ class DetailAnnotationPreview implements Component {
       markdownRowAt: (row) => markdownRows[row] ?? null,
       markerRows,
       panelRows,
+      panelEnds,
     };
   }
 
@@ -1409,6 +1404,7 @@ export class DetailPiPreviewLayout extends VStack {
   private pendingPropertySelectionScroll = false;
   private previousAnnotationFocusedId: string | null = null;
   private pendingAnnotationSelectionScroll = false;
+  private revealEnd: string | null = null; private revealSeen: number | undefined;
   private pendingFragmentScroll = false;
   private fragmentScrollTop: number | null = null;
   private fragmentRenderScheduled = false;
@@ -1429,24 +1425,22 @@ export class DetailPiPreviewLayout extends VStack {
     private readonly requestRender?: () => void,
     private readonly options: DetailPiPreviewOptions = {},
   ) {
+    // A link draws as its label everywhere here, comments included: outside Herdr Pi printed its address (PIE-1703).
+    const labelsOnly: MarkdownTheme = {...markdownTheme, linkUrl: () => ""};
     const markdown = new SourceSpannedMarkdown(
-      {...markdownTheme, linkUrl:()=>""},
+      labelsOnly,
       applyEmbedBackground,
       state.previewRegions,
       linksEnabled,
       options.calloutTheme,
       true,
     );
-    const annotationPreview = new DetailAnnotationPreview(state, markdown, markdownTheme, linksEnabled);
-    const inspectorMarkdown = new Markdown("", 0, 0, {
-      ...markdownTheme,
-      linkUrl: () => "",
-    });
+    const annotationPreview = new DetailAnnotationPreview(state, markdown, labelsOnly, linksEnabled);
+    const inspectorMarkdown = new Markdown("", 0, 0, labelsOnly);
     const backlinkMarkdown = new DetailBacklinksMarkdown(state, new Markdown("", 0, 0, {
-      ...markdownTheme,
+      ...labelsOnly,
       strikethrough: highlightActiveBacklink,
       italic: dimBacklinkDetail,
-      linkUrl: () => "",
     }));
     const body = new DetailPreviewBody(
       state,
@@ -2021,6 +2015,9 @@ export class DetailPiPreviewLayout extends VStack {
       const group = annotationGroups.find(group => group.regionId === focusedAnnotationId || group.threads.some(thread => `annotation-thread:${thread.block.id}` === focusedAnnotationId));
       if(group?.placement==='inline')this.markdown.revealMatchingSource(annotationFrameMatcher(group.threads[0]!,true,this.state.target?.kind==='resource',group.target));
     }
+    const reveal = this.state.annotationReveal; // a thread just written to (PIE-1703): in view once more, its end with it
+    if (reveal && reveal.sequence !== this.revealSeen && focusedAnnotationId === `annotation-thread:${reveal.threadId}`) { this.pendingAnnotationSelectionScroll = true; this.revealEnd = focusedAnnotationId; }
+    this.revealSeen = reveal?.sequence;
     this.previousAnnotationFocusedId = focusedAnnotationId;
     this.previousAnnotationFocusedExpanded = focusedAnnotationExpanded;
     const focusedBacklinkGroup = this.state.previewRegions.focusedRegionId?.startsWith("backlink-group:")
@@ -2289,6 +2286,7 @@ export class DetailPiPreviewLayout extends VStack {
     ) return false;
     this.pendingAnnotationSelectionScroll = false;
     const regionId = this.previousAnnotationFocusedId;
+    const revealing = this.revealEnd === regionId; this.revealEnd = null;
     if (!regionId) return false;
     const contentWidth = this.scrollView.getContentWidth(width);
     const annotated = this.annotationPreview.renderArrangement(contentWidth);
@@ -2317,9 +2315,9 @@ export class DetailPiPreviewLayout extends VStack {
     const selectedRow = arrangement.mapAuthoredRow(targetRow);
     const previousScrollTop = this.scrollView.scrollTop;
     if (panelRow !== undefined) {
-      this.scrollView.scrollTo(
-        Math.max(0, selectedRow - Math.max(1, Math.floor(this.scrollView.viewportHeight / 3))),
-      );
+      const top = Math.max(0, selectedRow - Math.max(1, Math.floor(this.scrollView.viewportHeight / 3)));
+      const end = revealing ? annotated.panelEnds.get(regionId) : undefined; // the words just written, when the panel runs past the bottom
+      this.scrollView.scrollTo(end === undefined ? top : Math.max(top, arrangement.mapAuthoredRow(end) - this.scrollView.viewportHeight));
     } else if (selectedRow < previousScrollTop) {
       this.scrollView.scrollTo(selectedRow);
     } else if (selectedRow >= previousScrollTop + this.scrollView.viewportHeight) {

@@ -190,6 +190,34 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     }
   }, 60_000);
 
+  test("over stdio a create at the top answers with the revision the next patch uses: two calls (PIE-1704)", async () => {
+    await board.request("mcp.access.configure", { level: "full" });
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const out: string[] = [];
+      expect(await mcpCommand(["mcp"], { input: linesOf([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })]), write: line => out.push(line), err: line => { throw new Error(line); } })).toBe(0);
+      const parsed = responseOf(out[0]!); expect(parsed.error, JSON.stringify(parsed.error)).toBeUndefined(); const reply = tool(parsed.result);
+      expect(reply.isError, reply.content[0]!.text).not.toBe(true);
+      return JSON.parse(reply.content[0]!.text);
+    };
+    const listing: string[] = [];
+    expect(await mcpCommand(["mcp"], { input: linesOf([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })]), write: line => listing.push(line), err: line => { throw new Error(line); } })).toBe(0);
+    const create = (fields(responseOf(listing[0]!).result).tools as { name: string; inputSchema: { properties: { ref: { description: string } } } }[]).find(t => t.name === "outline_create")!;
+    expect(create.inputSchema.properties.ref.description).toContain("root");
+    try {
+      const made = await call("outline_create", { ref: "root", text: "Pond survey\n\nFrogs counted: 3" });
+      expect(made.outcome, JSON.stringify(made).slice(0, 1500)).toBe("applied");
+      const id = String(made.uri).split("/").at(-1)!;
+      expect((await board.get(id))?.parentId ?? null).toBeNull();
+      expect(made.revision).toBe((await board.get(id))!.revision);
+      const patched = await call("outline_patch", { uri: made.uri, revision: made.revision, patches: [{ observed: "Frogs counted: 3", replacement: "Frogs counted: 4" }] });
+      expect(patched.outcome).toBe("applied");
+      expect((await board.get(id))!.text).toBe("Pond survey\n\nFrogs counted: 4");
+      expect(patched.revision).toBe((await board.get(id))!.revision);
+    } finally {
+      await board.request("mcp.access.configure", { level: "none" });
+    }
+  });
+
   test("artifact upload accepts a folder over CLI and MCP writes obey the access level", async () => {
     const folder = join(scratch.root, "built-site");
     mkdirSync(join(folder, "assets"), { recursive: true });
@@ -472,7 +500,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       await setAccess("full");
       const full = await stdio([hello, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "outline_create", arguments: { uri: target.uri, text: "Written over stdio" } } }, patch(5, await revisionOf(), "Ready for local tools", "Ready for stdio writes")]);
       const made = called(full.find(r => r.id === 4)).json;
-      expect(made.outcome).toBe("applied");
+      expect(made.outcome, JSON.stringify(made).slice(0, 1500)).toBe("applied");
       expect(called(full.find(r => r.id === 5)).json).toMatchObject({ outcome: "applied", machine });
       expect((await board.records([target.id])).records[0]!.text).toContain("Ready for stdio writes");
       const child = (await board.records([made.uri.split("/b/")[1]])).records[0]!;

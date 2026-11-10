@@ -1,6 +1,6 @@
 import {concatDocuments, generatedDocument, sliceDocument, type MappedDocument} from './document-provenance';
 import {marked, type Token} from "marked";
-import {linkOutlinerMarkdown, parseOutlinerLinkUri} from "./outliner-links";
+import {linkOutlinerMarkdown, parseOutlinerLinkUri, type OutlinerLinkTarget} from "./outliner-links";
 import type { DetailState } from "./detail-controller";
 import type { PreviewRegion } from "./detail-preview-regions";
 import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
@@ -418,4 +418,30 @@ export function detailPropertyInspectorRegions(
     }
   }
   return regions;
+}
+
+/** Where a property value leads, as a link Detail opens (moved beside the targets it reads). */
+export function propertyInspectorTargetLink(
+  target: PropertyInspectorTarget,
+  options: { preserveSource?: boolean; intent?: "reveal" } = {},
+): OutlinerLinkTarget {
+  if (target.kind === "link") {
+    const parsed = parseOutlinerLinkUri(target.uri);
+    return {...parsed, ...options, preserveSource: parsed.preserveSource === true || options.preserveSource === true};
+  }
+  if (target.kind === "resource-reference") {
+    throw new Error("Resource property navigation requires its source occurrence");
+  }
+  if (target.kind === "block") {
+    return {
+      kind: "block",
+      value: target.blockId,
+      ...(target.fragmentId ? { fragmentId: target.fragmentId } : {}),
+      ...options,
+    };
+  }
+  if (target.kind === "work-id") {
+    return { kind: "work", value: target.workId, ...options };
+  }
+  return { kind: "page", value: target.address, ...options };
 }

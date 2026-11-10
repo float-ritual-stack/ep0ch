@@ -49,8 +49,11 @@ const HTML_MEDIA_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 const HTML_SIGNATURE = /^\uFEFF?\s*(?:<!doctype html|<(?:html|head|script|iframe|h1|div|font|table|a|style|title|b|body|br|p)|<!--)[\s>]/i;
 const TEXT_MEDIA_TYPES = new Set(["text/markdown", "text/x-markdown", "text/plain"]);
 
+/** A web page served as this is a PDF: it reads through the PDF path a `[file::…pdf]` uses (PIE-1702). */
+export const WEB_PDF_MEDIA_TYPE = "application/pdf";
+
 /** The media types a web Resource asks for and reads, in the Accept header's order. */
-export const WEB_ACCEPT = "text/html,application/xhtml+xml,text/markdown,text/plain;q=0.9";
+export const WEB_ACCEPT = "text/html,application/xhtml+xml,text/markdown,text/plain;q=0.9,application/pdf;q=0.8";
 
 /**
  * The kind of a page by its media type (lowercased, no parameters; "" when it named none), or why it can't be read.
@@ -60,8 +63,8 @@ export const WEB_ACCEPT = "text/html,application/xhtml+xml,text/markdown,text/pl
 export function webBodyKind(mediaType: string, body: string): WebBodyKind | { readonly refused: string } {
   if (HTML_MEDIA_TYPES.has(mediaType)) return "html";
   if (TEXT_MEDIA_TYPES.has(mediaType)) return "text";
-  const unsupported = unsupportedWebMediaType(mediaType);
-  if (unsupported) return { refused: unsupported };
+  const route = webMediaRoute(mediaType);
+  if (route !== "page") return { refused: route === "pdf" ? "Web provider returned a PDF where a page was read" : route.refused };
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0008\u000e-\u001a\u001c-\u001f]/.test(body.slice(0, 4096))) {
     return { refused: "Web provider returned no media type, and the page isn't text" };
@@ -70,12 +73,16 @@ export function webBodyKind(mediaType: string, body: string): WebBodyKind | { re
 }
 
 /**
- * Why a page of this media type isn't read, said before its body is fetched; null for one that is read, and for none
- * named (its body decides, in `webBodyKind`).
+ * The one router for what a fetched web page is, said before its body is read: a PDF (the PDF path reads it), a page
+ * (HTML or text, `webBodyKind` says which), or why it isn't read. A page that names no media type is a page: its body
+ * decides.
  */
-export function unsupportedWebMediaType(mediaType: string): string | null {
-  if (!mediaType || HTML_MEDIA_TYPES.has(mediaType) || TEXT_MEDIA_TYPES.has(mediaType)) return null;
-  return `Web provider returned unsupported media type: ${mediaType} (it reads text/html, text/markdown and text/plain)`;
+export function webMediaRoute(mediaType: string): "pdf" | "page" | { readonly refused: string } {
+  if (mediaType === WEB_PDF_MEDIA_TYPE) return "pdf";
+  if (!mediaType || HTML_MEDIA_TYPES.has(mediaType) || TEXT_MEDIA_TYPES.has(mediaType)) return "page";
+  return {
+    refused: `Web provider returned unsupported media type: ${mediaType} (it reads text/html, text/markdown, text/plain and application/pdf)`,
+  };
 }
 
 function decodeHtmlEntities(value: string): string {
