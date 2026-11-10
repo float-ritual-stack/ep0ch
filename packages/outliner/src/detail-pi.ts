@@ -1013,7 +1013,7 @@ const session = createHerdrSession({
 });
 
 let actionMenuHandle: OverlayHandle | null = null;
-let actionMenuInvoke: ((id: string) => void) | null = null;
+let actionMenuInvoke: ((id: string) => void) | null = null, actionMenuInput: ((data: string) => void) | null = null; // keys queued before the menu opened are its own (PIE-1698)
 /** Set while a menu of Detail actions is open: pins or unpins one of its items on the Detail bar. */
 let actionMenuPin: ((id: string) => void) | null = null;
 let paneOwnsRightClick = rightClickOwnership === "outliner";
@@ -1101,7 +1101,7 @@ function closeActionMenu(cancel = true): void {
   actionMenuCancelled = undefined;
   actionMenuHandle?.hide();
   actionMenuHandle = null;
-  actionMenuInvoke = null;
+  actionMenuInvoke = null; actionMenuInput = null;
   actionMenuPin = null;
   syncRightClickOwnership();
   if (cancel) cancelled?.();
@@ -1271,7 +1271,7 @@ function showActionMenu(
     if (cancelled) void invoke(actionId);
     else serviceEventScheduler.scheduleWork(() => invoke(actionId));
   };
-  actionMenuInvoke = menu.onSelect;
+  actionMenuInvoke = menu.onSelect; actionMenuInput = data => { menu.handleInput(data); tui.requestRender(); };
   menu.onCancel = () => {
     closeActionMenu();
     tui.requestRender();
@@ -1902,7 +1902,7 @@ synchronizeLayout();
 
 const detailInputListener = createPiDetailInputListener(
   data => {
-    if (!session.stopping) { serviceEventScheduler.scheduleWork(() => handleInput(data)); scheduleInputFlush(); }
+    if (!session.stopping) { serviceEventScheduler.scheduleWork(() => actionMenuInput ? actionMenuInput(data) : handleInput(data)); scheduleInputFlush(); }
   },
   data => shouldPassDetailInputToTui(data),
 );

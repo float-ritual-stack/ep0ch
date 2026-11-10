@@ -27,9 +27,13 @@ const result = await runHerdrScenario({name:'document-folding', async prepare(){
     representation:{id:`block:${source.id}:${hash}`,subject:{kind:'block',blockId:source.id},sourceSnapshot:{kind:'block',blockId:source.id,updatedAt:source.updatedAt,contentHash:hash},adapter:{id:'outliner.block-text',version:1},mediaType:'text/markdown',contentHash:hash,capturedAt:source.updatedAt},
     anchor:createTextQuoteAnchor(source.text,start,start+'Nested destination'.length),
   }}});
+  // A comment inside a checklist step gives that step its id (PIE-367, 3861350f8): folding afterwards must write nothing.
+  source = await s.client.request<Block>({action:'get',blockId:source.id});
   const open = async(fragmentId?:string)=>s.client.request({action:'navigation.dispatch',sourceClientId:tree.clientId,sourceRegion:'tree',intent:'open',target:{kind:'block',blockId:source.id,...fragmentId?{fragmentId}:{}},destination:{clientId:detail.clientId,region:'detail'}});
   await open();await s.focus(s.panes.detail);
   await s.waitVisible(s.panes.detail,'Nested destination');
+  // The note's own rows, above its comment groups: an open thread quotes its passage even while a fold hides it (PIE-751).
+  const body=async()=>(await s.visible(s.panes.detail)).split(/\n[−+] (?:Unpositioned|Note) comments/u)[0]!;
   const point = async(label:string,pane=s.panes.detail,anchor='● Current')=>{
     const relative=(frame:string)=>{
       const rows=frame.split('\n'), anchorRow=rows.findIndex(line=>line.includes(anchor)), labelRow=rows.findIndex((line,index)=>index>anchorRow&&line.includes(label));
@@ -74,13 +78,13 @@ const result = await runHerdrScenario({name:'document-folding', async prepare(){
   await s.keys(s.panes.detail,'enter');
   await s.waitFor('compact after comment',()=>s.visible(s.panes.detail),f=>!f.includes('Opens in:'));
   await click('▾ Parent item');
-  await s.waitFor('nested list hidden',()=>s.visible(s.panes.detail),f=>f.includes('Parent item')&&!f.includes('Nested destination'));
+  await s.waitFor('nested list hidden',body,f=>f.includes('Parent item')&&!f.includes('Nested destination'));
   await click('First section');
   await s.waitFor('section hidden',()=>s.visible(s.panes.detail),f=>f.includes('First section')&&!f.includes('Parent item'));
   await s.checkpoint('02-folded-section');
   // Pointer activation focuses its disclosure; Enter uses the registry action.
   await s.keys(s.panes.detail,'enter');
-  await s.waitFor('nested choice retained',()=>s.visible(s.panes.detail),f=>f.includes('Parent item')&&!f.includes('Nested destination'));
+  await s.waitFor('nested choice retained',body,f=>f.includes('Parent item')&&!f.includes('Nested destination'));
   await terminal.resize(100,55);
   await s.waitVisible(s.panes.detail,'Parent item');
   await s.checkpoint('03-narrow-nested-choice');
@@ -88,13 +92,13 @@ const result = await runHerdrScenario({name:'document-folding', async prepare(){
   await s.waitFor('unrelated section folded',()=>s.visible(s.panes.detail),f=>!f.includes('Other content'));
   await s.keys(s.panes.detail,']');
   await s.waitVisible(s.panes.detail,'REVIEW NESTED ITEM');
-  await s.waitVisible(s.panes.detail,'Nested destination');
+  await s.waitFor('comment passage unfolded',body,f=>f.includes('Nested destination'));
   assert.ok(!(await s.visible(s.panes.detail)).includes('Other content'));
   await s.checkpoint('03b-comment-revealed');
   await click('First section');
-  await s.waitFor('first section folded again',()=>s.visible(s.panes.detail),f=>!f.includes('Nested destination'));
+  await s.waitFor('first section folded again',body,f=>!f.includes('Nested destination'));
   await open('step');
-  await s.waitVisible(s.panes.detail,'Nested destination');
+  await s.waitFor('fragment unfolded',body,f=>f.includes('Nested destination'));
   assert.equal((await s.client.request<Block>({action:'get',blockId:source.id})).revision,source.revision);
   assert.equal((await s.client.request<Block>({action:'get',blockId:source.id})).text,source.text);
   await s.checkpoint('04-fragment-revealed');

@@ -34,8 +34,9 @@ const result=await runHerdrScenario({name:'checklist-comments',async prepare(){}
   const itemId=created[0]!.originalTarget.listItemId!;
   assert.equal(created[0]!.originalTarget.anchor.kind,'text-quote');
   const saved=await read();assert.equal(saved.text,note.text.replace('Prepare release',`Prepare release ^${itemId}`));
-  await s.keys(s.panes.detail,']');await s.waitVisible(s.panes.detail,'CHECKLIST COMMENT EVIDENCE');
-  await s.waitVisible(s.panes.detail,'Checklist passage');await s.checkpoint('01-comment-on-step');
+  // `]` reads the threads Detail has loaded: wait for the saved comment's margin card (PIE-751) before selecting it.
+  await s.waitVisible(s.panes.detail,'┆ Comment · CHECKLIST COMMENT EVIDENCE');
+  await s.keys(s.panes.detail,']');await s.waitVisible(s.panes.detail,'Checklist passage');await s.checkpoint('01-comment-on-step');
   await s.client.request({action:'update',blockId:note.id,expectedRevision:saved.revision,mutation:{author:'agent',actorId:'checklist-journey'},
     text:`# CHECKLIST COMMENTS\n\n1. [ ] Prepare release\n7. [x] Assemble the package ^${itemId}`});
   await s.waitFor('item identity after reword',comments,threads=>threads[0]?.resolvedTarget?.anchor.kind==='list-item');

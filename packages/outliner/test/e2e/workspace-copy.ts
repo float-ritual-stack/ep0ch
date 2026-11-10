@@ -85,7 +85,8 @@ const result=await runHerdrScenario({
       await copied(()=>terminal.write(`\x1b[<0;${start!.column+1};${start!.row+1}M\x1b[<32;${start!.column+90};${start!.row+1}M\x1b[<0;${start!.column+90};${start!.row+1}m`),prefix);
     }
 
-    await resize(composed?220:110,50);
+    // Narrow enough that the Outlines folder value wraps: the run folder is under the short scratch root (PIE-1654).
+    await resize(composed?220:84,50);
     await session.waitFor('narrow config rendered',()=>session.visible(tree),frame=>frame.includes('› Outlines folder:')&&!frame.includes(config));
     const payload=await copied(()=>session.keys(tree,'c'),config);
     await session.checkpoint('narrow-complete-value');
