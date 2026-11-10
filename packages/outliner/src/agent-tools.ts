@@ -1112,7 +1112,7 @@ function joined(ranges: readonly (readonly [number, number])[], near: number): [
  * What a write's drawing shows (PIE-588): each part the write changed (all of a new note), with the section it's in
  * from its heading when that's near (a far heading drawn as a line of its own above it) to its end when that's near,
  * and each new finding's line near one. Parts near each other are one. The first DRAW_PARTS are drawn (`parts`,
- * source lines from 1); the rest are `left`. Null: the whole note.
+ * source lines from 1); the rest are `left`. Null: the whole note (a new note, or a write that changed none of it or all).
  */
 function drawnParts(text: string, before: string | undefined, review: Pick<WriteReview, "findings"> | null): { parts: [number, number][]; left: [number, number][] } | null {
   if (before === undefined) return null;
@@ -1132,7 +1132,8 @@ function drawnParts(text: string, before: string | undefined, review: Pick<Write
     if (end && end.end - hi <= DRAW_CONTEXT_LINES) hi = end.end;
     return { lo, hi, heading };
   });
-  if (regions.length === 1 && regions[0]!.lo === 0 && regions[0]!.hi === last) return null;
+  // Nothing changed (a write of the same text), or all of it did: the whole note.
+  if (!regions.length || (regions.length === 1 && regions[0]!.lo === 0 && regions[0]!.hi === last)) return null;
   const ranges = (rs: typeof regions) => joined(rs.flatMap(r => [...(r.heading === undefined ? [] : [[r.heading, r.heading] as [number, number]]), [r.lo, r.hi] as [number, number]]), 0).map(([a, b]) => [a + 1, b + 1] as [number, number]);
   return { parts: ranges(regions.slice(0, DRAW_PARTS)), left: ranges(regions.slice(DRAW_PARTS)) };
 }

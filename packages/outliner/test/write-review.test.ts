@@ -703,6 +703,26 @@ test("a patch in two sections far apart draws each change under its own heading,
   expect(patched.json.viewOf).toStartWith("lines 2–4, 33, 61–63 of 63");
 }, 30_000);
 
+test("a patch inside a figure's source far from another change draws the figure and the other change (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  for (const t of ["North bed [type::bed]", "South bed [type::bed]"]) store.create(t);
+  const rows = Array.from({ length: 40 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
+  const figure = ["::graph-stat", "---", "title: beds this week", "items: [{ label: beds, query: \"type=bed\" }]", "---", "::"];
+  const made = await agent("create", { parent: "root", text: ["Bed log", ...rows, "", ...figure].join("\n") });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [
+    { observed: "- Row 2: weeded and watered.", replacement: "- Row 2: the rhubarb bolted." },
+    { observed: "title: beds this week", replacement: "title: beans this week" },
+  ] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  expect(patched.json.viewError).toBeUndefined();
+  const drawn = (patched.json.view as string[]).join("\n");
+  expect(drawn).toMatch(/rhubarb\s+bolted/);
+  expect(drawn).toContain("[ BEANS THIS WEEK ]");
+  expect(drawn).not.toContain("Row 20:");
+}, 30_000);
+
 test("a patch in more places than the drawing holds names the ones it left out (PIE-588)", async () => {
   const { store, agent } = await setup();
   const rows = Array.from({ length: 90 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
