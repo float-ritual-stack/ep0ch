@@ -469,8 +469,8 @@ test("PIE-1711: a find ask answers with the notes, the query that found them, ho
   expect(found).not.toContain("Bean trellis");
   // The query, as the service wrote it, and how the words were read.
   expect(found).toMatch(/> 2 notes: `[^`]*type=hub-item[^`]*NOT[^`]*status=sent[^`]*`/);
-  expect(found).toMatch(/> read: hub( items?)? → type=hub-item · not sent → NOT \(?status=sent\)?/);
-  expect(found).toMatch(/::button\{label="▸ open in facets" act=\["tile\.open kind=facets name=found", "facets\.query text='[^']+' tile=found"\]\}/);
+  expect(found).toMatch(/> read: hub( items?)? → `type=hub-item` · not sent → `NOT \(?status=sent\)?`/);
+  expect(found).toMatch(/::button\{label="▸ open in facets" act=\['tile\.open kind=facets name=found', 'facets\.query text=[^']+ tile=found'\]\}/);
   expect(found).toContain('label="▸ edit the query"');
   expect(found).toContain('label="▸ save as a view"');
   expect(found).toContain("> > - a find by its words: query.suggest over this outline's facets");
@@ -517,12 +517,56 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: said } }));`);
 test("in a thread, a find's links carry the whole query, as the comment's links read it", async () => {
   const { findAnswer } = await import("../extensions/yo/yo-line");
   const { linkOccurrences } = await import("@ep0ch/outline-core/link-syntax");
+  const { actRequestOf, lineWords } = await import("@ep0ch/outline-core/action-line");
   const acts = (lines: string[]) => lines.flatMap(l => linkOccurrences(l).flatMap(o => o.kind === "markdown" ? [o.url.replace(/^act:\s*/, "")] : []));
   const found = { notes: [{ id: "n1", title: "Seed swap flyer" }], more: false };
   const plain = findAnswer({ words: "hub items not sent", where: "(type=hub-item NOT status=sent)", found, thread: true });
-  expect(acts(plain)).toEqual(["facets.query text='type=hub-item NOT status=sent' tile=found", "facets.edit text='type=hub-item NOT status=sent' tile=found", "facets.save name='Hub items not sent' tile=found"]);
+  expect(acts(plain)).toEqual(["facets.query text=type=hub-item\\ NOT\\ status=sent tile=found", "facets.edit text=type=hub-item\\ NOT\\ status=sent tile=found", "facets.save name=Hub\\ items\\ not\\ sent tile=found"]);
+  expect(acts(plain).map(a => actRequestOf(lineWords(a)).args?.text ?? actRequestOf(lineWords(a)).args?.name)).toEqual(["type=hub-item NOT status=sent", "type=hub-item NOT status=sent", "Hub items not sent"]);
   // Parentheses inside it: no link would carry it, so none is drawn, and the query is still said.
   const grouped = findAnswer({ words: "plans or chirps", where: "(type=plan OR type=chirp) status=draft", found, thread: true });
   expect(acts(grouped)).toEqual([]);
   expect(grouped[0]).toContain("`(type=plan OR type=chirp) status=draft`");
 });
+
+// PIE-1711, the verifier's walk: a find's answer never changes the asking note's properties or links, its buttons carry
+// any query whole (quotes, #tags, parentheses), and nothing found names the keys here, never a machinery count.
+test("PIE-1711: a find's answer adds no tag or link to the note, its buttons carry the query whole, and a miss names keys", async () => {
+  const jev = lexicalJev();
+  const was = { key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
+  Object.assign(process.env, { TYPESAFE_API_KEY: "made-up", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${jev.port}` });
+  cleanups.push(() => { jev.stop(true); for (const [k, v] of Object.entries({ TYPESAFE_API_KEY: was.key, OUTLINER_JEV_ENDPOINT: was.endpoint })) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const { parsePropertyRecords } = await import("@ep0ch/outline-core/property-parse");
+  const { linkOccurrences } = await import("@ep0ch/outline-core/link-syntax");
+  const { buttonCallsOf } = await import("@ep0ch/outline-core/button-call");
+  const { actRequestOf, lineWords } = await import("@ep0ch/outline-core/action-line");
+  const make = (text: string) => t.client.request<{ id: string }>({ action: "create", text, author: "user" } as never);
+  const pond = await make("Pond cleanup plan [type::plan] [tag::garden]\nClear the reeds.");
+  await make("Shed paint plan [type::plan] [tag::shed]");
+  const ask = async (words: string) => {
+    const note = await make(`Shed list\n\n@yo ${words}`);
+    const text = await until(`the answer to ${words}`, () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+    return { text, id: note.id };
+  };
+  for (const words of ["list the plans tagged garden", "find me the plans about reeds"]) {
+    const { text } = await ask(words);
+    expect(text).toContain(`((${pond.id}|Pond cleanup plan))`);
+    // Saved, the note's own properties are only what it had: none.
+    expect(parsePropertyRecords(text).map(p => `${p.key}=${p.value}`)).toEqual([]);
+    // do it reads the same steps back, the query whole.
+    const first = buttonIn(text.split("\n").find(l => l.includes("▸ open in facets"))!);
+    expect(first?.steps?.[1] && actRequestOf(lineWords(first.steps[1])).args?.text).toBe(/> 1 note: `([^`]+)`/.exec(text)![1]!);
+    // Its only link is the note it found.
+    expect(linkOccurrences(text).filter(o => o.kind !== "markdown").map(o => text.slice(o.start, o.end))).toEqual([`((${pond.id}|Pond cleanup plan))`]);
+    // Three buttons, each carrying the query the answer says, whole.
+    const where = /> 1 note: `([^`]+)`/.exec(text)![1]!;
+    const calls = buttonCallsOf(text);
+    expect(calls.map(c => c.label)).toEqual(["▸ open in facets", "▸ edit the query", "▸ save as a view"]);
+    for (const c of calls) expect(actRequestOf(lineWords(c.steps[1]!.source)).args?.text).toBe(where);
+  }
+  const miss = (await ask("find me all the widget items")).text;
+  expect(miss).toMatch(/> no notes: `[^`]*widget[^`]*`/);
+  expect(miss).toMatch(/> keys here: type \(/);
+  expect(miss).not.toContain("machinery");
+}, 60_000);

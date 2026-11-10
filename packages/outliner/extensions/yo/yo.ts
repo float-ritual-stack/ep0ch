@@ -5,7 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { failureWords, findAnswer, findAsk, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine, type FoundNotes } from "./yo-line";
+import { failureWords, findAnswer, findAsk, oneSlip, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine, type FoundNotes } from "./yo-line";
 import { actPrompt, argsOf, pathTo, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
@@ -225,17 +225,25 @@ async function find(words: string) {
     const answer = await outline<{ blocks: { id: string; text: string; title?: string }[]; more?: boolean; hint?: string; facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { where, limit: 11 } });
     // The note the ask is written in holds its words: never a note it found.
     const rows = answer.blocks.filter(b => b.id !== input.note?.id);
-    found = { notes: rows.slice(0, 10).map(b => ({ id: b.id, title: b.text.split("\n", 1)[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").replace(/\s+#\S+/g, "").trim() || "(untitled)" })), more: !!answer.more || rows.length > 10, ...(answer.hint ? { hint: answer.hint } : {}) };
+    found = { notes: rows.slice(0, 10).map(b => ({ id: b.id, title: b.text.split("\n", 1)[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").replace(/\s+#\S+/g, "").trim() || "(untitled)" })), more: !!answer.more || rows.length > 10, ...(keyHint(answer.hint) ? { hint: keyHint(answer.hint)! } : {}) };
   } catch (error) { found = { notes: [], more: false, refused: firstLine(error) }; }
   if (!found.notes.length && !found.hint && !found.refused) {
     // Nothing matched: the keys the outline has, nearest to the words, so the next ask can name one.
     const facets = await outline<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { facets: true, facetKeys: 1000, facetValues: 5, facetSearch: words, limit: 1 } }).catch(() => ({ facets: [] }));
-    found.nearest = (facets.facets ?? []).slice(0, 4).map(f => `${f.key} (${f.values.slice(0, 3).map(v => v.value).join(", ")})`);
+    // None near the words: the keys the outline has most, so the next ask can name one.
+    // Near means a value that shares a word's start or is a slip from it ("widgets" for widget), never any key at all.
+    const close = (v: string) => wordsOf(words).some(w => { const x = v.toLowerCase(); return x.startsWith(w.slice(0, 4)) || w.startsWith(x.slice(0, 4)) || oneSlip(x, w); });
+    const near = (facets.facets ?? []).map(f => ({ ...f, values: f.values.filter(v => close(v.value)) })).filter(f => f.values.length), top = near.length ? near : (await outline<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { facets: true, facetKeys: 4, facetValues: 3, limit: 1 } }).catch(() => ({ facets: [] }))).facets ?? [];
+    found.nearest = top.slice(0, 4).map(f => `${f.key} (${f.values.slice(0, 3).map(v => v.value.replace(/[#[\]()`]/g, "")).join(", ")})`);
+    if (near.length) found.nearestToWords = true;
   }
-  steps.push(`found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}: ${where}`);
+  steps.push(`found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}: \`${where.replace(/`/g, "'")}\``);
   const message = found.notes.length ? `found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}` : "no notes match";
   return ok({ message, reply: withSteps(findAnswer({ words, where, read: "clauses" in read ? read.clauses : [], found, thread: inThread() })) });
 }
+
+/** The service's hint, without what it says of machinery notes left out: a find is about the person's notes (PIE-1711). */
+const keyHint = (hint: string | undefined) => hint?.replace(/(?:^| · )\d+\+? machinery notes? hidden · machinery=show/, "").trim() || undefined;
 
 /** yo's own page (PIE-1710): its README, read as an action's doc is; empty when it can't be read. */
 const ownPage = () => Bun.file(join(import.meta.dir, "README.md")).text().catch(() => "");
