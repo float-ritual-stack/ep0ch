@@ -29,6 +29,7 @@ import { placeFigureStep, type PublishedStep } from "./publish-steps";
 import { DEFAULT_PROPERTY_SUMMARY_KEYS, parsePropertySummaryKeys, propertySummarySegments } from "./property-summary";
 import type { BacklinkCollection, BlockProperty, ProjectedBlockCollection, SavedViewReadResult, VisibleBlock } from "./types";
 import { pictureCopies } from "./publish-pictures";
+import { escapeHtml } from "./html-escape";
 
 /** What the components on one page ask of the publisher: the service, and what this page may show and link. */
 export interface LiveHost {
@@ -107,7 +108,7 @@ async function drawCollection(host: LiveHost, note: string, spec: ViewSpec): Pro
   if (answer.kind !== "view") return "";
   const html = renderComponent({ data: null, view: answer.view }, "html").body.replace(/<span data-collection-open="([^"]+)">([\s\S]*?)<\/span>/g, (_, id: string, label: string) => {
     const href = host.href(id);
-    return href ? `<a href="${href.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">${label}</a>` : label;
+    return href ? `<a href="${escapeHtml(href)}">${label}</a>` : label;
   });
   const count = answer.view.rows.length;
   return figureFrame("view", answer.title, await drawCovers(host, answer.view.rows, html), `live · ${count} result${count === 1 ? "" : "s"}${answer.truncated ? " · more matches" : ""}`, spec.error ?? answer.error ?? answer.hint);

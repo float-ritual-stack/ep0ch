@@ -11,6 +11,7 @@
 import { annotationKind, annotationTone, markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { AnnotationThread } from "./types";
+import { escapeHtml } from "./html-escape";
 
 /** One annotation as a published page draws it. */
 export interface PublishedAnnotation {
@@ -115,10 +116,6 @@ export function placeMarkSentinels(published: string, marks: readonly PublishedA
     out = `${out.slice(0, cut.at)}${OPEN}${id}${out.slice(cut.at, cut.end)}${CLOSE}${id}${out.slice(cut.end)}`;
   }
   return out;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 /** Whether `at` is in text, not inside a tag (rendered text escapes `<` and `>`, so they only open and close tags). */

@@ -17,6 +17,7 @@ import type { OutlinerClient } from "./client";
 import { validatePrimitive, viewImages } from "./component-primitives";
 import type { ResourceProjectionReadResult } from "./resource-projection";
 import type { BlockReadCollection } from "./types";
+import { escapeHtml } from "./html-escape";
 
 /**
  * Where line `line` of note `blockId` serves its image, below the page's base; with `image`, the `image`th image
@@ -46,9 +47,6 @@ export async function componentImageAt(client: Pick<OutlinerClient, "request">, 
     return undefined;
   }
 }
-
-const escapeHtml = (text: string) =>
-  text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 
 /**
  * Why a page doesn't show a picture, for the signed-in owner only (PIE-1633): what's wrong and the line that fixes it,

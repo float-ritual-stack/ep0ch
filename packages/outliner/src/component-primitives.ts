@@ -9,6 +9,7 @@ import { safeExtensionHtml } from "./extension-html";
 import { figureBodyHtml } from "./publish-figures";
 import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, listCellText, openedRef, type ListCell, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
 import { BLOCK_ID_LIKE_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { escapeHtml } from "./html-escape";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -755,8 +756,7 @@ export function componentMarkdown(view: Primitive, draw: MarkdownDraw = {}): str
 
 const markdown = (view: Primitive) => componentMarkdown(view);
 
-const html = (value: string | number) => String(value).replace(/[&<>"']/g, (character) =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+const html = (value: string | number) => escapeHtml(String(value));
 /** A button (PIE-1287) as the door draws it, tone, glyph, frame and fill, and inert: a page never runs what it would. */
 export const buttonHtml = (label: string, look: ButtonLookWords = {}) =>
   `<span class="ep-button tone-${look.tone ?? "quiet"}${look.frame && look.frame !== "none" ? ` frame-${look.frame}` : ""}${look.fill ? " fill" : ""}" role="button" aria-disabled="true">${look.glyph ? `<span aria-hidden="true">${html(look.glyph)}</span> ` : ""}${html(label)}</span>`;

@@ -9,6 +9,7 @@ import { proposalLine } from "./draft-patch";
 import { getProperty } from "./properties";
 import { timeHtml } from "./publish-time";
 import type { Block } from "./types";
+import { escapeHtml } from "./html-escape";
 
 /** A folder page lists at most this many children. */
 export const MAX_LISTED_CHILDREN = 500;
@@ -69,8 +70,4 @@ function changeRow(block: Block, rows: InsideRows): string {
   if (rows.locked(block)) return rows.row(block);
   const said = (derivedOf(block) === "proposal" ? proposalLine(block.text, block.properties) : null) ?? (rows.title(block) || "untitled");
   return `<li data-block="${escapeHtml(block.id)}"><a href="${escapeHtml(rows.href(block))}"><span class="t">${escapeHtml(said)}</span></a><span class="m">${timeHtml(block.updatedAt)}</span></li>`;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }

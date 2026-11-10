@@ -7,8 +7,9 @@ import { dateTimeHtml } from "./publish-time";
 // scripts: a tabs figure's tabs are radio buttons a tap switches.
 import { cellsOf, dayOf, isoOf, monthOf, MONTH_ABBREVIATIONS, MONTH_NAMES, ordered, records, today, WEEKDAY_NAMES, weekday, weekStart, type Props } from "@ep0ch/outline-core/figure-props";
 import { decisionState } from "@ep0ch/outline-core/figure-props";
+import { escapeHtml } from "./html-escape";
 
-const esc = (text: unknown) => String(text ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+const esc = (text: unknown) => escapeHtml(String(text ?? ""));
 const num = (v: unknown) => (typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, "")) || 0);
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? ""));
 const pct = (frac: number) => `${Math.max(0, Math.min(100, Math.round(frac * 1000) / 10))}%`;

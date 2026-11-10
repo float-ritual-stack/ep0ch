@@ -12,6 +12,7 @@ import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
 import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, DROP_FILE_KINDS, type ArrivalKind, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip, packTar, stripRoot, unzip } from "./artifact-archive";
 import { handOver, pageTitle } from "./artifact-handover";
+import { escapeHtml } from "./html-escape";
 
 /** What the store says when it has neither a copy's bytes nor a bucket to read them from: the asker sends them. */
 export const COPY_NEEDS_BYTES = "send its bytes with the ask";
@@ -161,7 +162,7 @@ export class ArtifactStore {
       const build = await this.compiler.compile(source, extension as ".jsx" | ".tsx");
       if (!build.ok && rejectErrors) throw new Error(`Artifact could not compile: ${build.problems.join("\n")}`);
       // Direct puts preserve source even when it cannot compile.
-      html = build.ok ? reactArtifactPage(name, build.script) : `<!doctype html><title>Artifact needs fixing</title><pre>${build.problems.join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`;
+      html = build.ok ? reactArtifactPage(name, build.script) : `<!doctype html><title>Artifact needs fixing</title><pre>${escapeHtml(build.problems.join("\n"))}</pre>`;
     }
     if (!file && readFileSync(join(folder, files[0]!), "utf8") !== source) return;
     if (!existsSync(join(folder, "index.html")) || readFileSync(join(folder, "index.html"), "utf8") !== html) {

@@ -85,6 +85,7 @@ import type {
   ResolvedBlockReferences,
 } from "./types";
 import { BLOCK_ID_LIKE_PATTERN, BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { escapeHtml } from "./html-escape";
 
 /**
  * Outline as server: an HTTP publisher for blocks carrying `[publish::…]`, and on
@@ -372,10 +373,6 @@ export function assignPaths(blocks: readonly ProjectedVisibleBlock[]): Array<{ b
     holders.set(alternate, block.id);
     return { block, slug: alternate, collision: { requested: slug, heldBy: holder } };
   });
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;

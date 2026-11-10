@@ -4,8 +4,7 @@ import { findDrawnPassage } from "./publish-passage";
 import { createBlockComment } from "./block-comments";
 import type { PageHost } from "./publish-page";
 import type { Block, PageAddressFollowResult } from "./types";
-
-const escapeHtml = Bun.escapeHTML;
+import { escapeHtml } from "./html-escape";
 
 interface Scope { id: string; expiresAt: number; ended: boolean; today: string; block?: string; writes: number[] }
 interface Lease { scope: Scope; source: string }

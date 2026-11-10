@@ -1,3 +1,4 @@
+import { escapeHtml } from "./html-escape";
 /**
  * An extension's own HTML (a component's `targets.html`) kept to the page's markup: the tags a reading page uses,
  * `class`, and safe links, nothing else. Scripts, styles, frames, forms, event handlers, `style` and `id` attributes
@@ -21,8 +22,6 @@ const NUMBER = /^-?\d+(?:\.\d+)?$/;
 const TOKEN = /<!--[\s\S]*?(?:-->|$)|<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>|[<>"']|&(?!(?:#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,31});)/gi;
 const ATTRIBUTE = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 
-const escape = (value: string) => value.replace(/[&<>"']/g, (character) =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 /** An attribute's value as written, its entities read (so `&#106;avascript:` is seen for what it is). */
 const decoded = (value: string) => value
   .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16) % 0x110000))
@@ -39,9 +38,9 @@ function attributes(tag: string, raw: string): string {
     if (name === "class") {
       const classes = value.split(/\s+/).filter((word) => /^[A-Za-z][\w-]{0,63}$/.test(word));
       if (classes.length) kept.push(`class="${classes.join(" ")}"`);
-    } else if (name === "href" && tag === "a" && SAFE_HREF.test(decoded(value))) kept.push(`href="${escape(value)}"`);
-    else if (name === "src" && tag === "img" && SAFE_SRC.test(decoded(value))) kept.push(`src="${escape(value)}"`);
-    else if ((name === "alt" || name === "title") && value) kept.push(`${name}="${escape(value)}"`);
+    } else if (name === "href" && tag === "a" && SAFE_HREF.test(decoded(value))) kept.push(`href="${escapeHtml(value)}"`);
+    else if (name === "src" && tag === "img" && SAFE_SRC.test(decoded(value))) kept.push(`src="${escapeHtml(value)}"`);
+    else if ((name === "alt" || name === "title") && value) kept.push(`${name}="${escapeHtml(value)}"`);
     else if ((name === "colspan" || name === "rowspan") && /^\d{1,3}$/.test(value)) kept.push(`${name}="${value}"`);
     else if (tag === "meter" && (name === "value" || name === "min" || name === "max") && NUMBER.test(value)) kept.push(`${name}="${value}"`);
     else if (tag === "details" && name === "open") kept.push("open");
@@ -61,7 +60,7 @@ export function safeExtensionHtml(source: string): string {
     const [whole, slash, rawName, rawAttributes] = match;
     if (!rawName) {
       // A comment goes; a stray `<`, `>`, quote or `&` is text.
-      if (!dropping && !whole.startsWith("<!--")) out += escape(whole);
+      if (!dropping && !whole.startsWith("<!--")) out += escapeHtml(whole);
       continue;
     }
     const tag = rawName.toLowerCase();

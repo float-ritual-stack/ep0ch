@@ -22,6 +22,7 @@ import type { GotoSearchCollection, PageAddressMatch, PropertyCatalogItem } from
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 import { sameOrigin } from "./publish-page";
 import type { OutlinerRequester } from "./client-target";
+import { escapeHtml } from "./html-escape";
 
 export async function querySearchCompletion(client: OutlinerRequester, request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -176,10 +177,6 @@ export async function searchNotes(host: SearchHost, query: string, near?: string
     href: host.href(match.block.id),
   }));
   return { query: wanted, hits, truncated: found.completeness.kind === "truncated", terms };
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 /** `text` as HTML with each of `terms` (already lower case) in bold. */

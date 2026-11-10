@@ -8,6 +8,7 @@
 // so offsets other parts place by (decorations, components) still land; `drawSteps` puts the control in its place.
 import { checklistItems } from "./checklist-items";
 import { statusWord, stepClosed, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
+import { escapeHtml } from "./html-escape";
 
 const MARK = "", BASE = 0xE400;
 const SENTINEL = /([-])([-])/g;
@@ -64,8 +65,6 @@ export function placeStepSentinels(text: string, block: { id: string; revision: 
   return out;
 }
 
-const attr = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
 /** The page's HTML with each step's sentinel as its box: a button on a page that may write (`writable`), else a glyph. */
 export function drawSteps(html: string, steps: readonly PublishedStep[], writable: boolean): string {
   if (!steps.length) return html;
@@ -79,11 +78,11 @@ export function drawSteps(html: string, steps: readonly PublishedStep[], writabl
     const said = `${statusWord(step.status)}${stepClosed(step.status) ? "" : " (open)"}`;
     const glyph = STEP_GLYPHS[step.status];
     // The glyph is drawn by the style (`data-glyph`), so it's never part of words selected across the step.
-    if (!writable) return `<span class="step s-${step.status}" role="img" aria-label="${attr(said)}" data-glyph="${glyph}"></span>`;
-    return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${attr(`${said}: change`)}"`
-      + ` data-step-block="${attr(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
-      + `${step.itemId ? ` data-step-id="${attr(step.itemId)}"` : ""} data-step-evidence="${attr(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"`
-      + `${step.live ? ` data-step-note="${attr(step.live.note)}" data-step-figure="${step.live.figure}"` : ""}></button>`;
+    if (!writable) return `<span class="step s-${step.status}" role="img" aria-label="${escapeHtml(said)}" data-glyph="${glyph}"></span>`;
+    return `<button type="button" class="step s-${step.status}" aria-haspopup="menu" aria-label="${escapeHtml(`${said}: change`)}"`
+      + ` data-step-block="${escapeHtml(step.block)}" data-step-revision="${step.revision}" data-step-start="${step.start}"`
+      + `${step.itemId ? ` data-step-id="${escapeHtml(step.itemId)}"` : ""} data-step-evidence="${escapeHtml(step.evidence)}" data-step-status="${step.status}" data-glyph="${glyph}"`
+      + `${step.live ? ` data-step-note="${escapeHtml(step.live.note)}" data-step-figure="${step.live.figure}"` : ""}></button>`;
   });
 }
 
