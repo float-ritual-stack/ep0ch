@@ -1,3 +1,12 @@
+// The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
+// board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
+// rendering, links, the edit control (a Draft, with Ctrl+E handing it to $EDITOR), passage selection
+// and comment threads, the property warning, "changed elsewhere", and keeping unsaved text safe.
+//
+// A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
+// a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
+// agent driving the door through its control socket goes through the same code as the keys.
+
 import { tabStrip, stripControls } from "./chip-rows";
 import { panelMode } from "./panel-mode";
 import { historyRow, historyAction, trailRows, trailLine, type TrailDir, type TrailStop, type Trail, type TrailRow, HISTORY, NAV_VERSION, savedPlace, placeOf, readNav, type Place, type Zoom, type FigureChoice, type SavedNav } from "./navigation";
@@ -45,14 +54,6 @@ import { sourceDownload } from "@ep0ch/outline-core/sources";
 import { ReaderPosition, PositionRows } from "../reader-position";
 import { NoteForm, FORM_KEYS, FORM_CHOICE_KEYS } from "./note-form";
 import { elementEdit, ELEMENT_KEYS, type ElementOperation } from "./element-editor";
-// The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
-// board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
-// rendering, links, the edit control (a Draft, with Ctrl+E handing it to $EDITOR), passage selection
-// and comment threads, the property warning, "changed elsewhere", and keeping unsaved text safe.
-//
-// A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
-// a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
-// agent driving the door through its control socket goes through the same code as the keys.
 import { savedReferenceWarning } from "../reference-warnings";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
@@ -174,14 +175,10 @@ import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-poi
 import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
- * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed
- * (⏎ or a click; the board's preview opens it in a detail, as ⏎ on a card does); `fresh`, in a new reader
- * (alt+⏎: a new detail, a new desk reader, a new river column); `agent`, an agent's, which never takes the
- * person's focus. Neither link nor fresh: `u`, and whatever else opens.
- */
-/**
- * How a note was opened: a followed link (`link`), into a new reader (`fresh`), and by whom (`by`, PIE-514: the actor
- * itself, carried to where it lands, so an agent's open is an agent's there too: it never takes the person's keys).
+ * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed (⏎ or a
+ * click; the board's preview opens it in a detail, as ⏎ on a card does); `fresh`, in a new reader (alt+⏎: a new
+ * detail, a new desk reader, a new river column); neither: `u`, and whatever else opens. `by` (PIE-514): the actor
+ * itself, carried to where it lands, so an agent's open is an agent's there too: it never takes the person's keys.
  */
 export interface OpenHow { where?: import("@ep0ch/outline-core/list-row").ListOpenWhere; link?: boolean; fresh?: boolean; by?: Actor; standing?: boolean }
 /**
@@ -191,7 +188,6 @@ export interface OpenHow { where?: import("@ep0ch/outline-core/list-row").ListOp
 export interface Outside { outside: "browser" | "viewer"; url: string; launched: boolean }
 /** A reader opened a query (a #tag or an activity day): its list and matching notes. */
 export interface TagList { tag?: string; query: string; tile?: string; notes: { id: string; title: string }[] }
-
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
@@ -350,15 +346,6 @@ export interface ReaderHistory {
   beneath?: true;   // its stops lie beneath the reader's own (PIE-1516: the list it opened in place over), listed and walked after them
 }
 
-
-
-/**
- * A fragment link just followed (PIE-425), kept on the note object that follow handed its host: whichever
- * reader the host shows that object in (in place, a detail, a new column) reveals the fragment, once. It's
- * scoped to that navigation: another show of the same note (a refresh, another follow) is a different object.
- * `by`: whose follow it was; an agent's never scrolls or marks the reader the person has focused.
- */
-
 /** What a host's header can say that only the surface knows: where the note sits, its comments and properties. */
 export interface HeaderInfo {
   /** The note's ancestors, "…" while they're read, "top level" for a root. */
@@ -390,7 +377,6 @@ export const TILE_HEADERS = {
 } as const;
 export type TileHeader = keyof typeof TILE_HEADERS;
 export const isTileHeader = (v: unknown): v is TileHeader => typeof v === "string" && v in TILE_HEADERS;
-
 
 /**
  * The reader's header rows left out, one answer for every reader (PIE-1248): the tile's own setting when it has one
@@ -476,20 +462,14 @@ const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) =
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
+ * `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue).
+ * `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source.
+ * `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420).
+ * `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453.
+ * `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index.
  */
-/** `value`: a summary-line value's property key; it follows as the panel's `o` does (followValue). */
-/** `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source. */
-/** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
-/** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
-/** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
 export type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: TrailDir } | { pick: number } | { image: string } | { passage: string } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
 
-/**
- * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
- * video), a fold point (a heading or a list item with lines under it), a row that stands for a note (a live
- * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
- * and a comment mark (in the margin).
- */
 /** A body's hooks with the proposals beside the note drawn after their lines, after whatever else follows those lines. */
 function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number) => string[])[]>): Partial<DocEnv> {
   if (!beside.size) return hooks;
@@ -499,6 +479,12 @@ function withBeside(hooks: Partial<DocEnv>, beside: Map<number, ((width: number)
 
 /** The elements that are one row inside a container (a figure's row, a step): the reader item-focuses them (PIE-969). */
 const ITEM_KINDS = new Set<ElementKind>(["row", "task"]);
+/**
+ * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
+ * video), a fold point (a heading or a list item with lines under it), a row that stands for a note (a live
+ * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
+ * and a comment mark (in the margin).
+ */
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
 /**
  * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
@@ -526,7 +512,6 @@ interface Element {
 }
 /** What ⏎ does on a kept-draft line's control. */
 const UNSENT_VERB: Record<UnsentOp, string> = { diff: "show what your edit changed against the note now", copy: "open its copy", dismiss: "let it go (its copy stays on disk)", add: "add the lines the note doesn't have into an edit", keep: "keep it as a note under this one", show: "show the old edits" };
-/** The copy control of a code block, a quote or a callout (PIE-638). */
 /** The zoom control's glyph (PIE-780): a part fills the tile. */
 const ZOOM_GLYPH = "⤢";
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
@@ -553,12 +538,6 @@ function extKeys(x: NonNullable<LinkTarget["ext"]>, hostKeys: string): string {
 }
 /** Links, rows and embeds open a note, so alt+⏎ can open it in a new reader. */
 const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind === "embed";
-
-/**
- * An agent's (or the person's) focus mark in this reader (the door side of PIE-423): a block, and in it
- * maybe a passage, drawn with the reading ruler's tint and the one who set it named in the header. Kept as
- * what was named, and found again on each render, so a rewrap or a refresh keeps it on its text.
- */
 /** What `block.tint` marks: a block, note lines or a passage (PIE-423's focus mark). */
 const TINT_ARGS = {
   block: { type: "string", optional: true, about: "a block id (or its first 8+ characters): this note, or one it embeds or links" },
@@ -610,22 +589,15 @@ const printableBlock = (s: string) => printable(s, "", { lines: true });
 /** A link drawn: its text, tagged with its place in `drawn` (what [ ], ⏎ and a click find it by). */
 const tagged = tagInto;
 
-
-/** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
-
 export { leaveSaid, propertyChange, type LeaveResult };
 
 /**
- * A step's status choice, open under its box (PIE-472): the step's element key, the choice the keys are on,
- * and what the last choice said. The person's alone (an agent sets a status by `task.status`).
- */
-/**
  * The choice open under an element: a step's status (PIE-472) or a callout's type (PIE-538). The element (its key),
- * the choices as a list picker, what the last choice said.
+ * the choices as a list picker, what the last choice said. The person's alone (an agent sets a status by `task.status`).
  */
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
-/** The reader's four modes (src/surface/modes.ts), each with what it's about. */
+// The reader's modes (src/surface/modes.ts), each with what it's about.
 /** A note at a revision, beside how it is now (PIE-1433): the compare's view, its header's controls and where it was drawn. */
 type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; want?: number; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
 /** Where a press that brought the keys back found the cursor (PIE-812). */
@@ -650,7 +622,6 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
 type PanelMode = ReturnType<typeof panelMode>;
 type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number; col?: number; row?: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
-
 
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "comment.edit", "resolve", "thread.seen", "thread.keep", "thread.tldr"]);
@@ -792,9 +763,13 @@ export class NoteSurface {
   private zoomTurn = 0;
   /** The last zoomed source (`zoomed`), by what it was cut from: asked several times a frame. */
   private zoomedMemo: { r: object; z: Zoom; out: object } | null = null;
-  /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
   /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
   private revealed: object | null = null;
+  /**
+   * A focus mark an agent (or the person, through `act`) set here (the door side of PIE-423), never the person's `[ ]`
+   * position: a block, and in it maybe a passage, drawn with the reading ruler's tint and the one who set it named in the
+   * header. Kept as what was named, and found again on each render, so a rewrap or a refresh keeps it on its text.
+   */
   focusMark: { by: Actor; spec: FocusSpec; label: string; at: number; fragment?: boolean; line?: boolean; says?: string } | null = null;
   revealMark = false;
   /**
@@ -870,8 +845,7 @@ export class NoteSurface {
   readonly listPreview = { place: (attachedPlaceOf(readState<{ place?: string }>("list-preview-place.json")?.place) ?? "split") as AttachedPlace, float: null as FloatRect | null, frame: null as FloatRect | null, rect: null as FloatRect | null, top: 0, max: 0 };
   private drawnFolds: FoldPoint[] = [];
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
-  /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
-  /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
+  /** The last reading render: where the body starts, how far it's scrolled, its rows' sources and fold heads, and `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
   drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number]; mcols: number } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
@@ -1179,6 +1153,51 @@ export class NoteSurface {
     return hintOf([{ ...k, label: this.zoom ? k.label : "zoom" }]);
   }
 
+  // ── what the sections below keep (each field beside its own words) ───────────
+  private rereading = false;
+  private rereadAgain = false;
+  private readonly fieldsDrawing: FieldsDrawing = new Map();
+  /** Why a press of action line `act` would be refused now (the dispatcher of the host this surface last drew for), or null. */
+  private refusedPress: (act: string) => string | null = () => null;
+  private imageRowsMost = Infinity; // The most rows the last layout let an image take.
+  private previewDraft?: { block: string; text: string; ready: boolean; timer: ReturnType<typeof setTimeout>; board?: SocketBoard; unlisten?: () => void };
+  /** The compare's last ask: only its answer is drawn, and none once the compare is closed. */
+  private revisionAsk: object | null = null;
+  /**
+   * A new note the person is about to write (`note.new`, PIE-544): its edit saves at once (it has no properties to
+   * lose), and closing it still empty puts it in the trash. Kept until its edit ends.
+   */
+  private readonly newNotes = new Set<string>();
+  private commentsAgain: AskAgain<void> | null = null; private commentsHost: SurfaceHost | null = null;   // the host the last event came through (a tile's is made per call)
+  /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
+  private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
+  /** Their rows in the reader's content rows (header included), for `openRegionKey`. */
+  private regionSpans: { key: string; from: number; to: number }[] = [];
+  private commentSelection: { selection: Selection; text: string; from: number } | null = null;
+  private openedWhileOff = new Set<string>();
+  /** The thread the person just opened: the next frame brings its card into view. */
+  private revealThread: string | null = null;
+  private revealFrom: number | null = null;
+  private notePictures = new NotePictures();
+  /** Where the header's links are, by row. */
+  private heroHits: { row: number; from: number; to: number; link: Link }[] = [];
+  /**
+   * Line changes (an image's, a callout's, their undo) run one after another, so a key pressed again before the last
+   * save landed builds on it, and an undo finds the change before it.
+   */
+  private lineTurn: Promise<unknown> = Promise.resolve();
+  private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
+  private menuOffset = { col: 0, row: 0 };
+  private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
+  readonly sourceHistory = new UndoHistory<LineUndo>();
+  /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
+  private oldUnsentShown = new Set<string>();
+  /** The text an edit kept without its own starting text began from, read from the note's history, by edit (null: not kept; absent: being read). */
+  private unsentBases = new Map<string, string | null>();
+  private unsentBaseKey = (id: string, u: Unsent) => `${id}@${u.base}@${u.at}`;
+  /** What was settled quietly on the note shown (an edit the note already had), said once in a dim line. */
+  private settled: { id: string; copy: string; day: string } | null = null;
+
   // ── which note ─────────────────────────────────────────────────────────────
 
   /**
@@ -1197,9 +1216,6 @@ export class NoteSurface {
     if (c && (c.kind === "delete" || c.kind === "restore" || c.kind === "purge")) return true;
     return e.blockId === m.id && !(c?.revision !== undefined && m.revision === c.revision && !m.partial);
   }
-
-  private rereading = false;
-  private rereadAgain = false;
 
   /**
    * Read the note shown again and take it in (`refresh`: the scroll, the selection and an open draft stay;
@@ -2225,8 +2241,6 @@ export class NoteSurface {
     return room > 0 ? { lines, placements, gutter, headerBand, wide, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements, headerBand };
   }
 
-  private readonly fieldsDrawing: FieldsDrawing = new Map();
-
   /**
    * The note laid out at this width: its rows, links, elements and comment marks, everything but where it's
    * scrolled to. A frame in which only scrolling happened (onlyScrolled: the wheel and nothing else since the
@@ -2449,10 +2463,6 @@ export class NoteSurface {
    * What the note's body is drawn with, at `width`: images laid out when the host draws Kitty graphics (and why not
    * when it doesn't).
    */
-  /** Why a press of action line `act` would be refused now (the dispatcher of the host this surface last drew for), or null. */
-  private refusedPress: (act: string) => string | null = () => null;
-
-  private imageRowsMost = Infinity; // The most rows the last layout let an image take.
   private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     const d = (host?.ctx as { dispatch?: import("./dispatch").Dispatcher } | undefined)?.dispatch;
     if (d) this.refusedPress = act => { try { return d.refusedNow(actRequestOf(lineWords(act)), USER); } catch { return null; } };
@@ -2568,13 +2578,6 @@ export class NoteSurface {
     };
   }
 
-  /**
-   * Text written about the note (a comment's body, a reply, the composer's preview, an edit's ctrl+p preview: PIE-852)
-   * drawn as the reader draws the note (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
-   * presentLinks. Its links aren't elements: what's followable is the note's own.
-   */
-  private previewDraft?: { block: string; text: string; ready: boolean; timer: ReturnType<typeof setTimeout>; board?: SocketBoard; unlisten?: () => void };
-
   private endPreviewDraft() {
     clearTimeout(this.previewDraft?.timer);
     this.previewDraft?.unlisten?.();
@@ -2590,6 +2593,11 @@ export class NoteSurface {
     return { ...doc, pending: !!src && embedsLoading(src.board) };
   }
 
+  /**
+   * Text written about the note (a comment's body, a reply, the composer's preview, an edit's ctrl+p preview: PIE-852)
+   * drawn as the reader draws the note (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
+   * presentLinks. Its links aren't elements: what's followable is the note's own.
+   */
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
   snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
@@ -2907,6 +2915,7 @@ export class NoteSurface {
     return true;
   }
 
+  // ── the edit's drawing and its preview (ctrl+p) ──────────────────────────────
   /**
    * What each handler line last drew (an extension's output or a script's view), kept under its line while the note is
    * edited, read-only (PIE-981): `Draft.kept` for the raw edit and the rich one. The note as it was read says which line
@@ -3050,6 +3059,7 @@ export class NoteSurface {
     return s;
   }
 
+  // ── a note's replies list and the revision compare (PIE-1433) ────────────────
   private replyRowAt(x: number, y: number): LinkRow | undefined {
     const mode = this.replyLinks;
     if (!mode) return;
@@ -3070,8 +3080,6 @@ export class NoteSurface {
     host.redraw();
     return { keys: on ? "revision" : "reader" };
   }
-  /** The compare's last ask: only its answer is drawn, and none once the compare is closed. */
-  private revisionAsk: object | null = null;
 
   /**
    * Open (or move) the revision compare (PIE-1433): revision `revision` of this note (left out: the one before the
@@ -3196,6 +3204,7 @@ export class NoteSurface {
     };
   }
 
+  // ── editing, continued: replies, new notes, buttons, saving and leaving ──────
   async quoteSelection(host: SurfaceHost, actor: Actor, quote?: string): Promise<string> {
     const m = this.requireNote(), passage = this.passageFor(actor, quote).note;
     const line = m.text.slice(0, passage.start).split("\n").length - 1;
@@ -3296,11 +3305,6 @@ export class NoteSurface {
     if (id && this.newNotes.delete(id) && how === "closed" && !s.draft.text.trim() && host) void this.dropEmptyNote(id, s.draft.base, host);
   }
 
-  /**
-   * A new note the person is about to write (`note.new`, PIE-544): its edit saves at once (it has no properties to
-   * lose), and closing it still empty puts it in the trash. Kept until its edit ends.
-   */
-  private readonly newNotes = new Set<string>();
   /** Open the edit on `m`, a note `note.new` just made, as the person's e does; true when the edit is open on it. */
   async editNew(m: Msg, host: SurfaceHost, still?: () => boolean): Promise<boolean> {
     if (this.msg?.id !== m.id) return false;
@@ -3531,7 +3535,6 @@ export class NoteSurface {
     const again = this.commentsAgain ??= new AskAgain<void>({ read: () => this.loadComments(this.commentsHost!), show() {}, notes: commentNotes(this) });
     if (e) again.heard(e); else again.soon();
   }
-  private commentsAgain: AskAgain<void> | null = null; private commentsHost: SurfaceHost | null = null;   // the host the last event came through (a tile's is made per call)
 
   private commentEnv(host: SurfaceHost, actor: Actor = host.actor ?? USER): CommentEnv {
     return {
@@ -3912,6 +3915,7 @@ export class NoteSurface {
     return NOTE_ACTIONS.run("element.open", { n: at.n, ...(at.row !== undefined ? { row: at.row } : {}), ...(where === "new" ? { fresh: true } : {}) }, { surface: this, host, standing }, actor);
   }
 
+  // ── more modes: the open choice, leaving an unsent comment, moving the composer (PIE-785) ────
   /** A step's status choice (PIE-472), open under its box: its keys until a choice or esc; a click elsewhere closes it. */
   private pickerMode(p: Picker): PickerMode {
     return {
@@ -4092,6 +4096,7 @@ export class NoteSurface {
     void this.runKey(this.attachments.def(g.target).actions.move as keyof NoteActionArgs, to as never, host, true);
   }
 
+  // ── the comment or edit being written: its keys, clicks, tile and pointer (PIE-846) ────
   /**
    * A click beside the composer's box on something that goes elsewhere (a link, a row, an embed, a comment mark, back or
    * forward): that element's action as the person, which asks first while the comment is unsent (askLeave, PIE-785).
@@ -4318,6 +4323,7 @@ export class NoteSurface {
     return !!h && "link" in h && (h.link.role === "task" || h.link.role === "callout");
   }
 
+  // ── hit tests: what's under a cell ───────────────────────────────────────────
   /**
    * A right-click at the surface's cell `x`, `y` on a button: element.select makes it the `[ ]` position and nothing runs,
    * so the tile menu that opens there is about it (its "pin to status bar", PIE-1415). Null anywhere else.
@@ -4500,6 +4506,7 @@ export class NoteSurface {
     ]);
   }
 
+  // ── extension lines and buttons: running what a line or a press names (PIE-512) ────
   /**
    * An extension line's action as the person (a key, a click, ⏎ on its head or a control): the line's own action
    * (EXT_ACTIONS), or `R` (run it again, ask the agent again) through projection.refresh.
@@ -4684,6 +4691,7 @@ export class NoteSurface {
     return parseTileAddress(value).kind === "name" ? found.id : value;
   }
 
+  // ── refreshing a resource's projection (PIE-445) ─────────────────────────────
   /**
    * The block `R` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
    * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `R`
@@ -4737,6 +4745,7 @@ export class NoteSurface {
     }
   }
 
+  // ── scrolling ────────────────────────────────────────────────────────────────
   /**
    * The wheel, whatever the surface is doing: the note scrolls (under an inline property panel too), a
    * full panel moves its selection, a draft or a comment being written scrolls its view (the cursor stays),
@@ -4949,7 +4958,7 @@ export class NoteSurface {
     return { points: points.length, folded: points.filter(p => this.effectiveFolded(p)).map(foldLabel), selected: sel ? foldLabel(sel) : null };
   }
 
-  /** The note line (from 0, the subject line) reader row `y` of the last render shows, or null off the note's body. */
+  // ── the view and the reading position ────────────────────────────────────────
   /**
    * What the reader has in view (PIE-413's view.get and view.subscribe): the note lines in its body rows, first
    * and last (1 is the subject), and the body's scroll: `atEnd` once its last row shows, `past` the blank rows
@@ -5076,6 +5085,7 @@ export class NoteSurface {
     loneCollection(world)?.land(by > 0 ? "first" : "last");
   }
 
+  /** The note line (from 0, the subject line) reader row `y` of the last render shows, or null off the note's body. */
   sourceLineAt(y: number): number | null {
     const d = this.drawn;
     if (!d) return null;
@@ -5095,10 +5105,6 @@ export class NoteSurface {
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
   letGo() { this.cur = null; this.pendingLink = null; this.pendingRow = null; }
-  /** The generated regions the last layout drew (src/output-region.ts): what `[ ]` stops on at each one's gutter mark. */
-  private regionInfo = new Map<string, { label: string; target: LinkTarget }>();
-  /** Their rows in the reader's content rows (header included), for `openRegionKey`. */
-  private regionSpans: { key: string; from: number; to: number }[] = [];
   /**
    * The region whose row behind its mark is shown: the one the `[ ]` position is in (its mark, a control in that row, a link
    * in its words). Hovering would do it too, but the door asks the terminal for button tracking, not motion.
@@ -5244,8 +5250,6 @@ export class NoteSurface {
     }
   }
 
-  private commentSelection: { selection: Selection; text: string; from: number } | null = null;
-
   private keepCommentSelection() {
     const selection = this.selection, rows = this.selRows(true);
     const source = selection && this.sourceOf(selection, true);
@@ -5269,8 +5273,6 @@ export class NoteSurface {
     }
   }
 
-  private openedWhileOff = new Set<string>();
-
   /** The margin's side column at reader width `w`: 0 when the cards fold under their passages (or there are none). */
   private marginCols(m: Msg, w: number): number {
     // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
@@ -5282,9 +5284,6 @@ export class NoteSurface {
   }
   /** The whole-note threads folded to their [+] after the header (wholeNoteMarks). */
   private foldedWhole(): Comment[] { return (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id)); }
-  /** The thread the person just opened: the next frame brings its card into view. */
-  private revealThread: string | null = null;
-  private revealFrom: number | null = null;
   /** The person opened a card: it comes into view on the next frame (an agent's open leaves their view where it is). */
   revealCard(thread: string) { if (this.threadShown(thread)) { this.revealThread = thread; this.revealFrom = this.scroll; } }
 
@@ -5354,6 +5353,7 @@ export class NoteSurface {
       cards: panels.map((p, i) => ({ at: starts[shown(i)]!, rows: p.lines.length, bg: p.bg })), ...placed(out, starts, n) };
   }
 
+  // ── values, ::use controls, comment marks, the element index and the focus mark ────
   /** The note's `{{ }}` as the service read them, for the property panel (the draft's, while one is open). */
   private valueRows(m: Msg, src: Source | null): ValueRow[] {
     if (!isOutlineNote(m)) return [];
@@ -5580,7 +5580,6 @@ export class NoteSurface {
     return { marked: label, rows: rows[1] - rows[0] };
   }
 
-  /** The elements as `peek` and the `elements` action list them. */
   // ── live figures: a tabs figure's tab, a table's density (src/graphs.ts); this reader's, never the note's ──
 
   /** The figures the last layout drew: each one's number, kind, title, density, and a tabs figure's tabs and counts. */
@@ -5652,6 +5651,7 @@ export class NoteSurface {
     return null;
   }
 
+  // ── images and the header image (PIE-532) ────────────────────────────────────
   /**
    * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
    * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
@@ -5661,14 +5661,14 @@ export class NoteSurface {
     return !!list && (!!list.view.typing || !!listBinding(k, !!list.change, list.view.pickable().length)) || !!collectionBinding(this, k) || this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H");
   }
 
+  /** Whether `k` is an image's key here now (imageKey): a host that owns H too (the river) asks this. */
+  imageKeyOf(k: Key): boolean { return !!this.imageKey(k); }
+
   /**
    * The image action key `k` runs while an image is the current element (PIE-532): + - its size (a header's height),
    * ← → where it sits, H the note's header on or off. Null for any other key. The host asks first for all but H
    * (claims): in a float, H stays the float's (float.place), and the caption's [▀] makes it the header.
    */
-  /** Whether `k` is an image's key here now (imageKey): a host that owns H too (the river) asks this. */
-  imageKeyOf(k: Key): boolean { return !!this.imageKey(k); }
-
   private imageKey(k: Key): { name: "image.size" | "image.align" | "image.hero" | "image.fit"; args: Record<string, unknown> } | null {
     if (this.modes.top()) return null;
     const e = this.inView();
@@ -5700,7 +5700,6 @@ export class NoteSurface {
 
   /** Note `m`'s pictures (picture.ts), its script's drawings among them once the service has answered. */
   private picturesOf(m: Msg): Picture[] { return this.notePictures.of(m.text, isOutlineNote(m) ? projectionsOf(m, this.src) : [], !isOutlineNote(m) || projectionsLoaded(m, this.src)); }
-  private notePictures = new NotePictures();
 
   /** The pictures the reader draws of note `m`, in reading order: not one under a fold. */
   imagesIn(m: Msg): (ImageRef & { spec: MediaSpec })[] {
@@ -5735,8 +5734,6 @@ export class NoteSurface {
   }
   /** Note `m`'s header, the one place that decides it (picture.ts): a script's drawing as the file it was made into. Null while that isn't made yet, or when it has none. */
   heroRef(m: Msg) { return headerRef(m, this.picturesOf(m)); }
-  /** Where the header's links are, by row. */
-  private heroHits: { row: number; from: number; to: number; link: Link }[] = [];
   /** The note's header image as the tune shows it (PIE-1361): its line, its file, its look as written, its rows drawn; null when it has none. */
   heroInfo(m: Msg): { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null } | null {
     const ref = this.heroRef(m);
@@ -5769,11 +5766,6 @@ export class NoteSurface {
     return { block: ref.block, line: (own?.line ?? ref.line) + 1, changed: true, image: own?.after ?? ref.source, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
-  /**
-   * Line changes (an image's, a callout's, their undo) run one after another, so a key pressed again before the last
-   * save landed builds on it, and an undo finds the change before it.
-   */
-  private lineTurn: Promise<unknown> = Promise.resolve();
   inTurn<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.lineTurn.catch(() => {}).then(fn);
     this.lineTurn = next;
@@ -5793,13 +5785,14 @@ export class NoteSurface {
     return stepOf(ref, by, this.drawnImages().get(ref.line), this.msg ? this.picturesOf(this.msg) : [], { cellW, cellH, maxImageRows: digest && !d ? digest.maxImageRows : this.imageRowsMost, body, header: { rows: this.hero?.full ?? null, most: this.hero?.max ?? Infinity } });
   }
 
-  /** A click (or ⏎ through `open`) on a figure's control: the action its key runs. */
+  // ── figure controls, buttons' hints and the element list ─────────────────────
   /** An agent's (or anyone's) `element.open` on a figure's control: figure.tab or figure.density as `actor`. */
   runFigureControl(c: FigureControl, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const f = this.figuresDrawn.find(x => x.key === c.figure);
     if (!f) throw new ActionRefused("that figure isn't drawn now (figures lists what is)");
     return this.act(c.row !== undefined ? "figure.row" : c.tab !== undefined ? "figure.tab" : c.size ? "figure.size" : "figure.density", c.row !== undefined ? { figure: String(f.n), row: c.row } : c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, host, actor);
   }
+  /** A click (or ⏎ through `open`) on a figure's control: the action its key runs. */
   pressFigure(c: FigureControl, host: SurfaceHost) {
     const f = this.figuresDrawn.find(x => x.key === c.figure);
     if (!f) return;
@@ -5824,6 +5817,7 @@ export class NoteSurface {
     return hits.length === 1 ? m.text.split("\n").slice(hits[0]!.line, hits[0]!.endLine + 1).join("\n") : null;
   }
 
+  /** The elements as `peek` and the `elements` action list them. */
   describeElements() {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
@@ -5982,6 +5976,7 @@ export class NoteSurface {
     return heading !== undefined ? { at: heading, next: false } : { at: this.readingSourceLine(), next: true };
   }
 
+  // ── the current element, clicks, and following a link ────────────────────────
   /** Refused unless the last render drew the note (the elements come from it). */
   requireDrawn() {
     if (!this.drawn && !this.digesting) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, or it's a river column's digest; link.select steps a river column's links)");
@@ -6141,15 +6136,15 @@ export class NoteSurface {
     return this.pressLink(h.link, h.elem ? this.elems.find(e => e.key === h.elem) : undefined, was, h.value, fresh, host);
   }
 
+  /** The link of the header's picture at this cell of the tile. */
+  private heroLinkAt(x: number, y: number) { return this.heroHits.find(r => r.row === y && x >= r.from && x < r.to); }
+
   /**
    * A press on a link the surface drew, wherever its host drew it (a reader's own rows, a river column's digest, PIE-1392):
    * its element (`e`, else the one the target index holds for it) gets the one activation (`activate`), as ⏎ on it would;
    * a list row selects first and opens on the second press. `was` is the `[ ]` position before the press, `value` a
    * summary-line value's key, `fresh` an alt-, ctrl- or middle-click.
    */
-  /** The link of the header's picture at this cell of the tile. */
-  private heroLinkAt(x: number, y: number) { return this.heroHits.find(r => r.row === y && x >= r.from && x < r.to); }
-
   private pressLink(link: Link, e: Element | undefined, was: string | null, value: string | undefined, fresh: boolean, host: SurfaceHost): boolean {
     // An image's caption control (PIE-532), a click target only: the image becomes the `[ ]` position, and the control's action runs.
     if (link.role === "image" && link.image) { this.pressImage(link.image, host); return true; }
@@ -6333,12 +6328,16 @@ export class NoteSurface {
 
   /** What soft-follow.ts works on: this reader, said narrowly. */
   private get pageOffers(): PageOfferReader { const s = this; return { get msg() { return s.msg; }, get notice() { return s.notice; }, set notice(v) { s.notice = v; }, pageOffer: s.pageOffer, runKey: (action, args, host) => s.runKey(action as "page.create", args, host), follow: (id, host, how) => s.followTarget({ block: id }, host, how) as Promise<Msg | null>, shown: (m, host, how) => s.track(() => host.navigate(m, how)) }; }
-  private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
 
   createPage(address: string, host: SurfaceHost, actor: Actor, standing: boolean, under?: string) { return createPage(this.pageOffers, address, host, actor, standing, under); }
 
-
-  /** Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader. */
+  /**
+   * Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader.
+   * A fragment link just followed (PIE-425), kept on the note object that follow handed its host: whichever
+   * reader the host shows that object in (in place, a detail, a new column) reveals the fragment, once. It's
+   * scoped to that navigation: another show of the same note (a refresh, another follow) is a different object.
+   * `by`: whose follow it was; an agent's never scrolls or marks the reader the person has focused.
+   */
   takeReveal(m: Msg, host: SurfaceHost) {
     const r = revealOn.get(m);
     if (!r) return;
@@ -6360,7 +6359,7 @@ export class NoteSurface {
     return p;
   }
 
-  // ── checklist steps (PIE-472) ──────────────────────────────────────────────
+  // ── the choice under an element: a step's status, a callout's type (PIE-472, PIE-538) ────
 
   /**
    * The current element is still drawn (or let go). A step that just got its id is named by it from now on;
@@ -6477,6 +6476,7 @@ export class NoteSurface {
     host.redraw();
   }
 
+  // ── callouts (PIE-538) ───────────────────────────────────────────────────────
   /** The element of a callout's icon drawn now, or null (folded away). */
   calloutElement(c: CalloutRef): Element | null {
     return this.elems.find(e => e.kind === "callout" && e.callout && e.callout.block === c.block && e.callout.line === c.line) ?? null;
@@ -6549,7 +6549,7 @@ export class NoteSurface {
     return { block: ref.block, line: ref.line + 1, changed: true, header: next, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
-  /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
+  // ── extension undo, quote marks, dropping and materializing ──────────────────
   /** Undo (ctrl+z, `ext.undo`): the last extension action `actor` ran on this note, its write group whole (PIE-784). */
   async undoExtension(host: SurfaceHost, actor: Actor, run?: string) {
     const m = this.requireNote();
@@ -6724,6 +6724,8 @@ export class NoteSurface {
     return r;
   }
 
+  // ── rewriting whole lines, and their undo ────────────────────────────────────
+  /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
   async undoCallout(host: SurfaceHost, actor: Actor) {
     const r = await this.inTurn(() => this.undoLines(this.calloutHistory, "callout", host, actor));
     return { block: r.block, line: r.edits[0]!.line + 1, header: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
@@ -6788,6 +6790,7 @@ export class NoteSurface {
     return { block: m.id, edits: e.edits, revision: saved.revision ?? null };
   }
 
+  // ── checklist steps (PIE-472) and ::use ──────────────────────────────────────
   /**
    * One step change through `checklist.update`, recorded as `actor`'s (the person, or the agent by its id): a
    * status, or only the step's stable id (Copy step link, Make addressable). It's checked against the step as
@@ -6877,6 +6880,7 @@ export class NoteSurface {
     return askInBar(host.ctx as never, `${answer.template?.title ?? "::use"} needs`, need.map(x => propQuestion(x.name, answer.spec[x.name]!)), given, actor, write);
   }
 
+  // ── attached parts: Sources' grip, floats, hints and keys ────────────────────
   async gripSources(host: SurfaceHost) {
     const sm = this.sourcesMode;
     if (!sm) throw new ActionRefused("S opens the Sources inspector");
@@ -6923,8 +6927,7 @@ export class NoteSurface {
     if (this.panel?.card) this.modes.focus(this.modes.get("panel")!, target === "settings");
   }
 
-  private menuOffset = { col: 0, row: 0 };
-  private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
+  // ── the placement menu ───────────────────────────────────────────────────────
   private get placementMenu() { return this.modes.get("placement") as (ReaderMode<SurfaceHost> & { list: ListPicker<AttachedPlace, SurfaceHost>; target: AttachmentKind }) | null; }
 
   openPlacementMenu(target: AttachmentKind, host: SurfaceHost) {
@@ -7008,7 +7011,6 @@ export class NoteSurface {
 
   /** The Sources inspector, when it is open on this reader. */
   get sourcesMode(): SourcesMode | null { return (this.modes.get("sources") as SourcesMode | null) ?? null; }
-  readonly sourceHistory = new UndoHistory<LineUndo>();
 
   /** Whether the note has anything generated: what the header's `[sources]` chip is for. */
   private hasSources(m: Msg): boolean {
@@ -7414,6 +7416,7 @@ export class NoteSurface {
     return mode;
   }
 
+  // ── ::use undo, field anchors and live rows ──────────────────────────────────
   async undoUse(host: SurfaceHost, actor: Actor) {
     const r = await this.inTurn(() => this.undoLines(this.useHistory, "::use", host, actor));
     return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
@@ -7489,6 +7492,7 @@ export class NoteSurface {
     return { before, changed: true, revision: saved.revision ?? null };
   }
 
+  // ── checklist steps, continued: writing a status, its undo and naming a step ────
   /**
    * `checklist.update` for a step as drawn. A step without an id is addressed by where it starts in the
    * revision it was read at; if the note has moved on since (an embed redrawn a moment late), the step is
@@ -7544,10 +7548,10 @@ export class NoteSurface {
       return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: recordedAnswer(actor) };
     }
     // A row without an id stays at its recorded position only through our own box writes.
-    let step: ChecklistStep = { ...(e.itemId ? { itemId: e.itemId } : {}), identity: e.itemId ? "unique" : "unassigned", status: e.to, evidence: e.evidence, span: { start: e.at?.start ?? 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
+    const step: ChecklistStep = { ...(e.itemId ? { itemId: e.itemId } : {}), identity: e.itemId ? "unique" : "unassigned", status: e.to, evidence: e.evidence, span: { start: e.at?.start ?? 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
     let r: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["changeStep"]>>;
     try {
-      let revision = e.at?.revision ?? 0;
+      const revision = e.at?.revision ?? 0;
       r = await host.ctx.board.changeStep(e.block, step, revision, { kind: "status", status: e.status }, actor);
     } catch (err) {
       if (err instanceof Refused) this.stepHistory.drop(e);
@@ -7580,7 +7584,6 @@ export class NoteSurface {
     });
   }
 
-  /** The step `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<block>^t-8a6d7f`; `block` narrows it) names among those drawn. */
   /**
    * The step a person's key or click means when it names none: the one whose status choice is open, else the
    * step that is the current element in view. Null for an agent's, or when a step is named (stepNamed then).
@@ -7593,6 +7596,7 @@ export class NoteSurface {
     throw new ActionRefused("say which step: n= or id= (tasks lists them), or put [ ] on a step");
   }
 
+  /** The step `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<block>^t-8a6d7f`; `block` narrows it) names among those drawn. */
   stepNamed({ n, id, block }: { n?: number; id?: string; block?: string }): Element {
     this.requireDrawn();
     const all = this.elems.filter(e => e.kind === "task" && e.task);
@@ -7644,6 +7648,7 @@ export class NoteSurface {
     return { doc: out, picks: { at, lines: lines.length, rows: rows.map(r => at + r) } };
   }
 
+  // ── revealing a fragment or a line (PIE-425) ─────────────────────────────────
   /**
    * A followed `((id^fragment))` (PIE-425): the service says where the fragment is (`fragments.read`); what
    * folds hide it unfolds, and it's scrolled to the top and marked in the reading ruler's tint until esc or
@@ -8006,6 +8011,7 @@ export class NoteSurface {
   renderedTop() { return this.drawn?.top ?? 0; }
 
   clearSelections() { this.selection = null; this.agentSelection = null; this.pointer.end(); }
+  // ── the mouse: press, drag and release ───────────────────────────────────────
   /** The press held here is over, with nothing fired: its release never came (the pointer moved with no button). */
   endPress() { this.pointer.end(); }
 
@@ -8249,6 +8255,7 @@ export class NoteSurface {
     return r.moved || r.n > 1;
   }
 
+  // ── selecting text, continued: its control, the margin's spans and copying ────
   /** The selection's line in the header: how much is selected, and the copy control. */
   private selectionControl(w: number) {
     const d = this.drawn!;
@@ -8426,14 +8433,14 @@ export class NoteSurface {
     return true;
   }
 
+  /** The fence a selection with no words in it is over (PIE-1583). */
+  private pictureSourceOf(s: Selection) { return this.drawn && this.msg ? pictureSourceOf(s, this.drawn, this.msg.text) : null; }
+
   /**
    * The note's own text behind a selection: exactly the selected words when they read the same in the
    * source (no link or formatting inside), else the whole source lines it covers. Offsets are into the
    * note's text, as the comment passage picker takes them. Null when only the header's details are selected.
    */
-  /** The fence a selection with no words in it is over (PIE-1583). */
-  private pictureSourceOf(s: Selection) { return this.drawn && this.msg ? pictureSourceOf(s, this.drawn, this.msg.text) : null; }
-
   sourceOf(s: Selection, noteOnly = false): { text: string; exact: boolean; from: number; to: number; lines: [number, number] } | null {
     const d = this.drawn, m = this.msg, rows = this.selRows(noteOnly);
     if (!d || !m || !rows) return null;
@@ -8610,7 +8617,7 @@ export class NoteSurface {
     return own;
   }
 
-  // ── actions ────────────────────────────────────────────────────────────────
+  // ── act, run and describe: how the action table reaches the reader ───────────
 
   /**
    * Run a named action as `actor`, on this reader alone (its own dispatcher, `alone`): a caller with a screen around
@@ -8708,6 +8715,7 @@ export class NoteSurface {
     return now;
   }
 
+  // ── proposals and what's kept unsent beside the note ─────────────────────────
   /** The open proposal (PIE-501) whose embed or `[apply]` `[dismiss]` control is the current element while it's in view, if one is. */
   currentProposal(): string | undefined {
     return this.inView()?.link?.proposal?.id;
@@ -8726,16 +8734,8 @@ export class NoteSurface {
     return ids.length === 1 ? { id: ids[0]! } : ids.length ? { several: ids, first: shown.find(e => e.row > at) ?? shown[0]! } : null;
   }
 
-  /** The keys a proposal's element offers, for the hint: `X` alone when it can't be applied (it was drawn with no `[apply]`). */
-  /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
-  private oldUnsentShown = new Set<string>();
   /** Unfold the old edits on note `of` (`unsent.show`). */
   showOldUnsent(of: string) { this.oldUnsentShown.add(of); }
-  /** The text an edit kept without its own starting text began from, read from the note's history, by edit (null: not kept; absent: being read). */
-  private unsentBases = new Map<string, string | null>();
-  private unsentBaseKey = (id: string, u: Unsent) => `${id}@${u.base}@${u.at}`;
-  /** What was settled quietly on the note shown (an edit the note already had), said once in a dim line. */
-  private settled: { id: string; copy: string; day: string } | null = null;
 
   /** An edit kept on the note shown: settle it quietly when the note already has all of it, else read its starting text if it needs the history. */
   private settleUnsent(m: Msg, host: SurfaceHost) {
@@ -8799,6 +8799,7 @@ export class NoteSurface {
     return this.elems.flatMap(e => e.link?.proposal?.id === id && e.link.proposal.op ? [e.link.proposal.op] : []);
   }
 
+  /** The keys a proposal's element offers, for the hint: `X` alone when it can't be applied (it was drawn with no `[apply]`). */
   private proposalKeys(id: string): string {
     // Each operation's key and word are its row of the reader's table (READER_KEYS: proposal.apply, …).
     return this.proposalOperations(id).map(op => { const r = READER_KEYS.find(r => r.action === `proposal.${op}`)!; return `${r.key} ${r.label} · `; }).join("");
@@ -8809,6 +8810,7 @@ export class NoteSurface {
     return this.runKey(`proposal.${op}`, id ? { id } : {}, host).then(r => r ?? null);
   }
 
+  // ── what the action table reads and asks ─────────────────────────────────────
   requireNote(): Msg {
     if (!this.msg) throw new ActionRefused("this reader shows no note; open one first");
     return this.msg;
@@ -8901,7 +8903,6 @@ const taskBase = (t: StepRef) => `task:${t.block}|${t.step.itemId ? `^${t.step.i
 const calloutBase = (c: CalloutRef) => { const b = calloutBlocks([c.header])[0]; return `callout:${c.block}|${b?.depth ?? 0}|${b?.title ?? c.header.trim()}`; };
 /** A callout's title as written, else its type's. */
 const calloutTitle = (c: CalloutRef) => calloutBlocks([c.header])[0]?.title || c.type;
-/** A callout type change, for undo: the header line before and after, and who made it while reading which note. */
 /** The fewest rows a pane has for the reader to draw a header image above its note. */
 const HERO_MIN_PANE = 16;
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
@@ -8910,8 +8911,7 @@ const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn �
 const SOURCE_STALE: Stale = { flash: "that line changed since the sources were read · nothing was changed · read them again (r)", refused: "that line changed since the sources were read; nothing was changed", again: "read the sources again (r) and retry" };
 const USE_STALE: Stale = { flash: "that ::use line changed since it was drawn · nothing was changed · press again", refused: "that ::use line changed since it was drawn; nothing was changed (use.fill reads it again)", again: "press again" };
 const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
-/** One line of a note rewritten: its index, its text as it was read, and what it became. */
-/** `picture`: who the line is, so an undo finds it wherever it has moved to. */
+/** One line of a note rewritten: its index, its text as it was read, and what it became. `picture`: who the line is, so an undo finds it wherever it has moved to. */
 interface LineEdit { line: number; before: string; after: string; picture?: string }
 /** A change of whole lines (a callout's header, an image's layout) for undo. */
 interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string }
@@ -8967,11 +8967,6 @@ function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[];
 /** A thread control's element key: stable across renders while its thread stays expanded. */
 const controlKey = (thread: string, c: ThreadControl, value?: string) => `ctl:${thread}:${c}${value ? `:${value}` : ""}`;
 
-/**
- * A comment thread drawn under its passage (PIE-420), `W` cells wide: who and when, open or resolved, the
- * comment and its replies, and the Select, Reply and Resolve (or Reopen) controls, the current one lit.
- * Controls' rows and columns are the panel's own (no margin).
- */
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
 const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
   d.views.raw.preview ? (d.views.raw.frame?.preview?.placements ?? []).flatMap(p => inWindow(p, from, to - from, from) ?? []) : [];
@@ -8984,6 +8979,11 @@ const SOURCES_CHIP = "[sources]";
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
+/**
+ * A comment thread drawn under its passage (PIE-420), `W` cells wide: who and when, open or resolved, the
+ * comment and its replies, and the Select, Reply and Resolve (or Reopen) controls, the current one lit.
+ * Controls' rows and columns are the panel's own (no margin).
+ */
 function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; bg: string; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
   // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
   const images: DocImage[] = [];
@@ -9072,8 +9072,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
  * `doc` with rows put in: each insert's `lines` before body row `at` (in order, for the same `at`), drawn
  * from no note line (source -1), so selection, focus and fold lookups pass over them. Links, images,
  * media rows and fold heads move down with the rows under them. `starts[i]`: where insert i landed.
+ * `inserts`' `images` (on their own rows) go with them: a thread's panel, a comment's box.
  */
-/** `doc` with `inserts`' rows put in at their rows (a thread's panel, a comment's box); an insert's `images` (on its own rows) go with it. */
 function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[]; images?: readonly DocImage[]; links?: readonly LinkRange[] }[]): { doc: Doc; starts: number[] } {
   const order = inserts.map((p, i) => ({ ...p, i })).sort((a, b) => a.at - b.at || a.i - b.i);
   const starts: number[] = [], lines: string[] = [], source: number[] = [], moved: number[] = [];
@@ -9138,7 +9138,6 @@ const describeRow = (r: PropRow, src: Source | null, text: string) => ({
   n: r.n, key: r.key, value: r.value, scope: r.scope, ...(r.placement ? { placement: r.placement } : {}),
   ordinal: r.ordinal, ...(r.target ? { target: r.target, reads: printable(valueView(r, src, text)) } : {}),
 });
-
 
 /** A draft action (src/edit.ts, DRAFT_ACTIONS) run on the reader's edit or comment being written. */
 function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<DraftActionArgs[K], On> {
@@ -9233,13 +9232,9 @@ function openConstructs(text: string): ReturnType<typeof syntaxWarnings> {
 
 export interface On { surface: NoteSurface; host: SurfaceHost; standing: boolean }
 
-/**
- * A note action's row in its reader's menu (tile.menu, PIE-492): under "Note", hidden while the reader shows no note,
- * and dimmed (`busy`) while an edit or a comment holds it.
- */
-/** An unsent action's argument: which put-aside draft on the note. */
 /** back and forward's `steps`: how many stops on the trail at once. */
 const STEPS_ARG = { type: "number" as const, optional: true as const, about: "how many stops at once (default 1): trail lists them" };
+/** An unsent action's argument: which put-aside draft on the note. */
 const UNSENT_ARGS = { kind: { type: "string" as const, optional: true, about: "edit (default), comment, child (a note under this one), card or note-reply (a reply to this one): what's put aside on the note" } };
 /** The note what's put aside belongs to: the note shown, or the one a diff or copy view is about. */
 const unsentOf = (surface: NoteSurface) => { const m = surface.requireNote(); return unsentView(m.id)?.of ?? m.id; };
@@ -9285,6 +9280,10 @@ async function tileNamed(host: SurfaceHost, sel: string, actor: Actor): Promise<
   } catch (e) { if (e instanceof ActionRefused) return { why: e.message }; throw e; }
 }
 
+/**
+ * A note action's row in its reader's menu (tile.menu, PIE-492): under "Note", hidden while the reader shows no note,
+ * and dimmed (`busy`) while an edit or a comment holds it.
+ */
 const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({
   label, group: "Note", key,
   now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: "this reader is editing or commenting; close that first" } : o.now?.(on) ?? null),
