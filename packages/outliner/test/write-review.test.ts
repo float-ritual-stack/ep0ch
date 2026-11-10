@@ -621,6 +621,44 @@ test("a mixed section answers with the note as drawn and a finding naming its fa
   expect(patched.json.view.join("\n")).toContain("Decided");
 });
 
+test("a patch in one section is judged there alone: judged names only it, and a mixed section it didn't touch says nothing (PIE-1715)", async () => {
+  const { store, agent, asked } = await setup(kindsByWords);
+  const other = [
+    "## The greenhouse",
+    "- The glass on the south side cracked in the frost on Monday night, and the tomato seedlings by it were lost to the cold.",
+    "- The frame itself is sound and the door still closes: only three panes and their putty need replacing this month.",
+    "- We decided to use polycarbonate for the three panes rather than glass, so the next frost can't crack them again.",
+    "- Still open: whether to move the seedling bench away from the south side until the new panes are in.",
+  ].join("\n");
+  const made = await agent("create", { parent: "root", text: `${MIXED}\n\n${other}` });
+  expect(made.exitCode, made.stderr).toBe(0);
+  expect((made.json.review as Review).findings.filter(f => f.rule === "mixed")).toHaveLength(2);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "only three panes and their putty", replacement: "only three panes and their old putty" }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const review = patched.json.review as Review & { judged?: string[] };
+  expect(review.judged).toEqual(["section:The greenhouse"]);
+  // Jev was asked about the patched section only, and the untouched one carries no mixed finding, new or old.
+  expect(Object.keys((asked.at(-1)!.state.sections ?? {}) as object)).toHaveLength(1);
+  const mixed = review.findings.filter(f => f.rule === "mixed");
+  expect(mixed.map(f => f.say)).toEqual([expect.stringContaining('the section "The greenhouse"')]);
+});
+
+test("a patch in one section leaves the old findings in another carried: the review speaks of the section it changed (PIE-1715)", async () => {
+  const { agent, store } = await setup();
+  const wall = Array.from({ length: 8 }, (_, i) => `The bean row ${i + 1} was weeded on Sunday and the beds along the fence were mulched with straw before the rain.`).join(" ");
+  const made = await agent("create", { parent: "root", text: `Allotment log\n\n## Beans\n\n${wall}\n\n## Tools\n\nThe spade is in the shed.` });
+  expect((made.json.review as Review).findings.filter(f => f.rule === "wall" && f.patch)).toHaveLength(1);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "The spade is in the shed.", replacement: "The spade and the fork are in the shed." }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const review = patched.json.review as Review;
+  // The wall in Beans is the note's, carried: still listed, never this write's to fix, so the patch ships.
+  expect(review.findings.filter(f => f.rule === "wall").map(f => f.new)).toEqual([false]);
+  expect(review.verdict).toBe("ship");
+  expect((patched.json.warnings ?? []).join("\n")).not.toContain("wall");
+});
+
 test("an id written bare is quoted with its link, and the patch that links it clears the finding (PIE-588)", async () => {
   const { store, agent } = await setup();
   // A note whose id's first 8 characters have a digit and a letter: an all-digit or all-letter prefix reads as a word.

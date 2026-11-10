@@ -26,6 +26,7 @@ import { chipValue } from "./records";
 import { askJev as askJevRequest, JEV_MODEL, jevKey, NOT_CONFIGURED, type JevAnswer, type JevAsked, type JevOptions, type JevReading } from "./jev";
 import type { AskReading, QuestionFacet } from "@ep0ch/outline-core/protocol";
 import { clip } from "./clip";
+import { diffArrays } from "diff";
 
 /** A Noul at or over this reads as yes; under `NO` as no (the skill's starting thresholds). */
 export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS };
@@ -107,6 +108,39 @@ export function sectionsOf(text: string): Section[] {
   });
   close();
   return out.map((s, k) => ({ ...s, id: `s${k}` }));
+}
+
+/**
+ * What a write changed, the one answer to what its review judges (PIE-1715): every section whose text the note didn't
+ * have before (all of them for a new note) and every run of lines it added or rewrote. Jev is asked about these
+ * sections and lines only, `judged` names them, and a finding code makes outside them is the note's, carried, never
+ * this write's to fix: a patch in one section is told about that section.
+ */
+export interface WriteScope { whole: boolean; sections: Section[]; lines: [number, number][] }
+export function writeScope(text: string, before?: string): WriteScope {
+  const sections = sectionsOf(text);
+  if (before === undefined) return { whole: true, sections, lines: [[0, text.split("\n").length - 1]] };
+  return { whole: false, sections: sections.filter(s => !before.includes(s.text)), lines: changedLines(before, text) };
+}
+/** Line `i` (from 0) is one the write added or rewrote. */
+export const wroteLine = (scope: WriteScope, i: number) => scope.whole || scope.lines.some(([a, b]) => i >= a && i <= b);
+/** Line `i` (from 0) is in what the write changed: a line it wrote, or a section it changed. */
+export const inScope = (scope: WriteScope, i: number) => wroteLine(scope, i) || scope.sections.some(s => i >= s.line && i <= s.end);
+
+/**
+ * The lines (from 0) a write changed in `text` from `before`: each run of lines it added or rewrote, and where it
+ * removed some, the line now in their place.
+ */
+export function changedLines(before: string, text: string): [number, number][] {
+  const now = text.split("\n"), out: [number, number][] = [];
+  let at = 0;
+  for (const c of diffArrays(before.split("\n"), now)) {
+    const n = c.count ?? c.value.length;
+    if (c.added) { out.push([at, at + n - 1]); at += n; }
+    else if (c.removed) { const l = Math.max(0, Math.min(at, now.length - 1)); out.push([l, l]); }
+    else at += n;
+  }
+  return out;
 }
 
 /** The lines below the top that may ask Evan something: a question mark or a decision word in its own words (proseOf: not a quotation, a code span or an address), outside fences and components; never a line that can't be asking (`structuralLines`). */
@@ -215,9 +249,9 @@ function bareIdLink(id: BareId, answers: BareIdAnswers): string | undefined {
  * The context findings code can name (PIE-588): each line with an id written bare that leads somewhere, quoting the ids
  * and giving the line with each one linked as its patch. One finding a line, so its patch never clashes with another's.
  */
-function bareIdFindings(text: string, before: string | undefined, answers: BareIdAnswers | undefined): ReviewFinding[] {
+function bareIdFindings(text: string, scope: WriteScope, answers: BareIdAnswers | undefined): ReviewFinding[] {
   if (!answers) return [];
-  const lines = text.split("\n"), had = new Set(before?.split("\n") ?? []);
+  const lines = text.split("\n");
   const byLine = new Map<number, { id: BareId; link: string }[]>();
   for (const id of bareIds(text)) {
     const link = bareIdLink(id, answers);
@@ -231,7 +265,7 @@ function bareIdFindings(text: string, before: string | undefined, answers: BareI
     const why = ids.some(({ id }) => id.kind === "work") ? "a Work ID of another outline leads nowhere here" : "an id reads as nothing to a person";
     const patch = text.split(line).length === 2 ? [{ observed: line, replacement: fixed }] : undefined;
     return {
-      rule: "context", rubric: "context" as Rubric, key: `context:${ids.map(x => x.id.token).join("+")}`, line: i + 1, passage: clip(line, 200), new: !had.has(line), by: "code" as const,
+      rule: "context", rubric: "context" as Rubric, key: `context:${ids.map(x => x.id.token).join("+")}`, line: i + 1, passage: clip(line, 200), new: wroteLine(scope, i), by: "code" as const,
       say: `line ${i + 1} names ${ids.map(x => x.id.token).join(", ")} bare (${why}): link ${ids.length > 1 ? "them" : "it"}, ${named}${patch ? " (the patch does)" : ""}`,
       ...(patch ? { patch } : {}),
     };
@@ -582,9 +616,11 @@ export interface ReviewInput {
 export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Promise<{ review: WriteReview; reading?: ReviewReading }> {
   const { text, before } = input;
   const lines = text.split("\n");
-  const changed = before === undefined ? sectionsOf(text) : sectionsOf(text).filter(s => !before.includes(s.text));
+  // What this write changed decides everything the review judges (PIE-1715): Jev's sections and lines, `judged`, and
+  // which of code's findings are this write's.
+  const scope = writeScope(text, before), changed = scope.sections;
   const titleNow = headerLine(text).prose.trim(), titleWas = before === undefined ? undefined : headerLine(before).prose.trim();
-  const asks = askCandidates(text).filter(i => before === undefined || !before.split("\n").includes(lines[i]!)).slice(0, MAX_ASKS);
+  const asks = askCandidates(text).filter(i => wroteLine(scope, i)).slice(0, MAX_ASKS);
   const ask = { title: titleNow !== titleWas && splitPoints(titleNow).length > 1, opening: before === undefined || changed.some(s => s.id === "s0") };
   let asked: Asked | { unavailable: string } | null = null;
   const sections = changed.filter(s => s.text.split("\n").filter(l => l.trim()).length >= 1).slice(0, MAX_SECTIONS);
@@ -592,11 +628,11 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const answers = asked && "answers" in asked ? asked.answers : undefined;
   // Jev's word on each line it was asked about, read by the threshold; write-shape's asksAt decides what it means.
   const jevSays = (i: number) => { const n = answers?.[`asks::L${i}`]?.noul; return !unit(n) ? undefined : n >= REVIEW_THRESHOLDS.yes ? "yes" as const : n <= REVIEW_THRESHOLDS.no ? "no" as const : undefined; };
-  const judged = answers ? {
+  const heard = answers ? {
     asks: new Set(lines.flatMap((_, i) => asksAt(lines, i, jevSays(i)) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
-  const shape = { facets: await input.facets, now: input.now ?? new Date(), ...judged };
+  const shape = { facets: await input.facets, now: input.now ?? new Date(), ...heard };
   const had = new Map<string, number>();
   for (const f of before === undefined ? [] : writeShape(before, shape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
@@ -604,11 +640,13 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
     if (n) had.set(f.key, n - 1);
     // A ready patch the writer was told and hasn't applied is still theirs to apply: the verdict says fix while the list
     // holds it (PIE-1388: two walls, one patched, answered ship with both listed). Told without a patch, it's carried.
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text), 200), new: (!n && !toldOf(input.told, f.key)) || owed(input.told, f.key, !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    // One on a line outside what this write changed is the note's, carried whatever it was told (PIE-1715).
+    const mine = !f.line || inScope(scope, f.line - 1);
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text), 200), new: mine && ((!n && !toldOf(input.told, f.key)) || owed(input.told, f.key, !!f.patch)), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
-  code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
-  code.push(...bareIdFindings(text, before, input.ids).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f));
+  code.push(...qaFindings(text, scope, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
+  code.push(...bareIdFindings(text, scope, input.ids).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f));
   const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f);
   const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {
@@ -645,10 +683,10 @@ const ADDRESSED = /\b(?:evan|you|your|yourself|please|let me know|tell me|show m
 const ASKS_QA = /\b(?:can you|could you|please|would you|evan[,:]?)\s+(?:try|test|verify|check|confirm)\b|\bneeds? evan to\s+(?:try|test|verify|check|confirm)\b/i;
 
 /** Lines that ask Evan to try or check something himself, found by their words (Jev judges the rest per section). */
-function qaFindings(text: string, before: string | undefined, qaRule: string): ReviewFinding[] {
-  const lines = text.split("\n"), structure = noteStructure(lines), had = new Set(before?.split("\n") ?? []);
+function qaFindings(text: string, scope: WriteScope, qaRule: string): ReviewFinding[] {
+  const lines = text.split("\n"), structure = noteStructure(lines);
   return lines.flatMap((line, i) => structure[i] === -1 && ASKS_QA.test(line) ? [{
-    rule: "qa-for-evan", rubric: "qa-for-evan" as Rubric, key: `qa:${clip(line, 40)}`, line: i + 1, passage: clip(line, 200), new: !had.has(line), by: "code" as const,
+    rule: "qa-for-evan", rubric: "qa-for-evan" as Rubric, key: `qa:${clip(line, 40)}`, line: i + 1, passage: clip(line, 200), new: wroteLine(scope, i), by: "code" as const,
     say: `line ${i + 1} asks Evan to try or check something: ${qaRule}`,
   }] : []);
 }
