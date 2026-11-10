@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+k in an edit answers at once, and the tests pass in any folder (PIE-1532, PIE-1654)
+
+- **ctrl+k in a note's edit no longer freezes the door:** listing the actions that apply here (ctrl+k, or `/` first on a line) made every row's page by listing all of the door's actions again, about 700 times, and held the door for 2 to 3.5 s each time. Each row now carries its own listing: the list opens in a moment and every row keeps its page.
+- **The machine tests pass under agent-env:** `herdr-open-remote`, `machine-forward` and EchoNet's dial-in test made their folders under TMPDIR, where an agent's long temp folder put the forward's control socket past the length a socket's path may have. They take a short scratch folder now, from the one helper the door's tests use (`scripts/scratch-dir.ts`), and `herdr-open-remote` passes from the repository's root too.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
+
 ### Nothing typed or pasted is lost or left hanging (PIE-1674, PIE-1675, PIE-1673)
 
 - **A comment that fails to open hands your text back:** what you typed or pasted after `C` while the note was read is kept when the open fails, as an edit's already was. The tile's hint leads with `tile menu: recover typed text`, before the reason, so a long reason (an outline that isn't answering) no longer cuts it off; it copies the text or opens a comment (not an edit) with it in. `edit.recover op=open` reopens whatever kind was opening.

@@ -2,14 +2,14 @@
 // attic), the repo's extensions/echonet copied into its user folder, areas and subscriptions between them, and tosses
 // driven by hand; and a second machine through the fake ssh. Every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { tossHealth } from "../src/echo-health";
 import { OutlineHost } from "../src/outline-host";
 import type { Block } from "../src/types";
+import { scratchDir } from "./scratch-outline";
 
 const socket = (outlines: string) => outlineLayout(outlines).socket;
 
@@ -80,7 +80,8 @@ function speaker(socket: string) {
 }
 
 async function setup(names = ["shack", "cafe", "attic"]) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "echonet-ext-")));
+  // A short folder whatever TMPDIR is: the machines' forwards put their control sockets under it (PIE-1654).
+  const root = realpathSync(scratchDir("echonet-ext-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   const userExtensions = join(root, "user-extensions");
@@ -291,7 +292,7 @@ test("a toss that moved nothing writes no log; its nodelist's last toss and its 
 }, 60_000);
 
 test("echo status: when each outline's tosser last ran, from its bulletin, and a warning with the command when it's late", () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "echo-health-")));
+  const root = realpathSync(scratchDir("echo-health-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   for (const name of ["pie", "gurgle", "attic"]) {
     mkdirSync(join(root, name, "extensions", "echonet"), { recursive: true });

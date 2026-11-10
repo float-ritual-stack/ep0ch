@@ -25,7 +25,10 @@ when you touch a file under `packages/outliner/`; other tools read it before cha
 - **Scripts have one reference page,** `docs/scripts.md`. Change `host-api.ts`, `script-runtime.ts`, `script-runs.ts`, the agent
   tool list or the view primitives and `test/scripts-docs.test.ts` tells you what to update: `bun scripts/scripts-doc.ts`
   rewrites the generated tables and every `path:line` pointer from its symbol (a moved line never fails the test; a symbol that is gone does, and it names it).
-- **Tests** start the outliner's in-process servers or `test/scratch-outline.ts`, never a real outline.
+- **Tests** start the outliner's in-process servers or `test/scratch-outline.ts`, never a real outline. A test that
+  makes a socket under its folder (a host, a machine's forward) takes it from `scratchDir` (`test/scratch-outline.ts`,
+  shared with the door's tests from `scripts/scratch-dir.ts`), never `tmpdir()`: agent-env's TMPDIR is too long for a
+  socket's path (PIE-1654).
 - **The schema** is the CREATE statements in `src/schema.ts` for the current version only; a change follows the
   root `AGENTS.md`, "Schema and protocol: one version" (a one-off script in `scripts/migrations/`).
   `ep0ch install --apply` stops the host, migrates every outline at N-1, starts the host, and refuses to update when
