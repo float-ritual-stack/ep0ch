@@ -75,8 +75,8 @@ const result = await runHerdrScenario({
       assert.ok(coldRequests.some(request => request.action === "tree.index"));
       assert.ok(!coldRequests.some(request => request.action === "workspace.snapshot"));
       // The index draws Tree; Tree's local Preview (cb876c3da) reads only the one note it shows, never block by block.
-      const reads = new Set(coldRequests.filter(request => request.action === "get").map(request => request.blockId));
-      assert.ok(reads.size <= 1, `cold Tree read ${reads.size} blocks one by one`);
+      const reads = coldRequests.filter(request => request.action === "get");
+      assert.ok(reads.length <= 1, `cold Tree sent ${reads.length} block reads`);
     }
     await session.record("cold-tree", { firstObservedFrameMs: remote.firstTreeFrameMs, requests: coldRequests });
     await session.checkpoint("01-cold-complete-index");

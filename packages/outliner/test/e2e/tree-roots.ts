@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Block } from "../../src/types";
+import type { Block, BrowsingContextState } from "../../src/types";
 import {runHerdrScenario} from "./herdr-runner";
 
 const result=await runHerdrScenario({
@@ -36,6 +36,10 @@ const result=await runHerdrScenario({
     await session.keys(tree,"alt+r");
     // Composed Tree's status shares a narrow column and is cut to fit: its start names the reveal.
     await session.waitVisible(tree,process.argv.includes("--composed") ? "Revealed source PIE303" : "Revealed source PIE303 Nested query");
+    // The cut status can't name which source, so Tree's browsing context says it: the nested query's own block.
+    const treeContext=(await session.registrations()).find(c=>c.runtime?.paneId===tree)!.contextId!;
+    await session.waitFor("Tree selects the nested query's source",()=>session.client.request<BrowsingContextState>({action:"browsing-context.get",contextId:treeContext}),
+      context=>context.target?.kind==="block"&&context.target.blockId===q.id);
     await session.waitVisible(tree,"PIE303 Source folder");
     await session.checkpoint("02a-alt-r-reveals-physical-source");
     await session.keys(tree,"alt+left");
