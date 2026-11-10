@@ -545,7 +545,10 @@ Click a resolved block row's disclosure triangle or press Right to inspect its o
   An unresolved Work ID is never created implicitly.
 - **Resources** recognizes human-authored provider references:
   - `[file::docs/plan.md]` addresses a file on the Outliner service's host.
-    Relative paths use the service workspace; `~/` uses the service user's home.
+    Relative paths are the outline's own folder's (`<outlines>/<name>/`, whichever
+    folder a client started in); `~/` uses the service user's home. A file above
+    that folder (`../notes.md`) is read, and its Source names the folder it is
+    really in, "(outside this outline's folder)".
     Tree and both Detail renderers read and complete these paths through the
     service, including in remote mode. Line ranges and rendering stay in the
     client. Passive previews and completion do not create Sources or Resources;
@@ -562,7 +565,10 @@ Click a resolved block row's disclosure triangle or press Right to inspect its o
     in it is being saved fails the save.
   - `[file::evan@evans-box/path/to/file]` addresses an SSH application
     Resource. The Source and Resource are created only when the row is opened.
-  - `[web::https://example.com/guide]` addresses a web Resource.
+  - `[web::https://example.com/guide]` addresses a web Resource. An HTML page
+    is extracted to Markdown; a page served as `text/markdown` or `text/plain`
+    is its own text; a page that names no media type is read by its first bytes
+    (an HTML signature such as `<html` or `<p` means HTML; a Markdown autolink is text); any other type is refused naming it.
   - `[jira::PC-515]` addresses an issue through the single configured Jira
     Source for project `PC`. Activation resolves the provider's immutable issue
     identity before interning it.

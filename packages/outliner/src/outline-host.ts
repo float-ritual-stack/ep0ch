@@ -790,6 +790,8 @@ export class OutlineHost {
     if (!entry) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}. Nothing was created (a read never makes one). Which machines have it: \`ep0ch outline list --all\`; to make it here on purpose: \`ep0ch outline create ${name}\``);
     if (!entry.isFile()) throw new Error(`${database} is not a file; an outline is a database file in ${this.outlinesFolder}, never a link`);
     const stateDirectory = this.layout.folder(name);
+    // The one root an outline's relative files resolve against (`[file::notes.md]`, intern-filesystem's `notes.md`): its
+    // own folder, whichever folder a client was started in.
     const workspaceRoot = stateDirectory;
     mkdirSync(stateDirectory, { recursive: true });
     // The outline's own folder names it, so a program working there (an agent, a publisher) reaches this outline.

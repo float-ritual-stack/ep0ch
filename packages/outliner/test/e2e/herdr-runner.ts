@@ -37,7 +37,13 @@ const STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 75;
 
 export interface HerdrScenarioSession {
+  /** The folder the clients are started in: its `.ep0ch` names the outline. */
   readonly projectRoot: string;
+  /**
+   * The outline's own folder, `<outlines>/project/`: where the host reads a relative `[file::…]` and a relative
+   * `resources.intern-filesystem` path, so a scenario's files go here (PIE-1695). The host's root, by the same layout.
+   */
+  readonly outlineRoot: string;
   readonly artifactDirectory: string;
   readonly panes: { launcher: string; service: string; tree: string; detail: string };
   readonly database: Database;
@@ -105,7 +111,8 @@ type Scenario = {
   allowJev?: boolean;
   /** Relative to the isolated fixture; never edits a checkout's active prompt files. */
   promptDirectory?: string;
-  prepare(projectRoot: string, paths: OutlinerPaths): Promise<void>;
+  /** `outlineRoot` is the session's: the folder a relative file path is read from. */
+  prepare(projectRoot: string, paths: OutlinerPaths, outlineRoot: string): Promise<void>;
   run(session: HerdrScenarioSession): Promise<void>;
 };
 
@@ -633,6 +640,8 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
   const outlinerState = join(runRoot, "outlines");
   /** The run's outline: `project` in its own outlines folder, named by the project's `.ep0ch`; its host's socket. */
   const OUTLINE_NAME = "project";
+  // The host resolves an outline's relative files against its own folder (outline-host's `workspaceRoot`).
+  const outlineRoot = outlineLayout(outlinerState).folder(OUTLINE_NAME);
   const projectPaths = (): OutlinerPaths => {
     const layout = outlineLayout(outlinerState);
     return { socket: layout.socket, database: layout.database(OUTLINE_NAME), stateDir: layout.folder(OUTLINE_NAME), workspaceRoot: projectRoot };
@@ -865,6 +874,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     const client = new OutlinerClient(projectPaths().socket, undefined, OUTLINE_NAME);
     return {
       projectRoot,
+      outlineRoot,
       artifactDirectory,
       panes: ownedPanes,
       database: readonlyDatabase,
@@ -1390,7 +1400,8 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     const preparedPaths = projectPaths();
     // A scenario may seed its outline through a server of its own on the host's socket, before the host runs.
     await mkdir(outlineLayout(outlinerState).hostDir, { recursive: true, mode: 0o700 });
-    await scenario.prepare(projectRoot, preparedPaths);
+    await mkdir(outlineRoot, { recursive: true });
+    await scenario.prepare(projectRoot, preparedPaths, outlineRoot);
     // The project names its outline; opening creates it when the scenario made none.
     writeDotEp0ch(projectRoot, OUTLINE_NAME);
 

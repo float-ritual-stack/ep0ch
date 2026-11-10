@@ -5123,6 +5123,30 @@ describe("detail backlink loading and navigation", () => {
     expect(harness.controller.state.status).toBe("Revealed Source two");
   });
 
+  test("⏎ peeks the backlink drawn ▶ ACTIVE when nothing else has focus (PIE-1695)", async () => {
+    const hub = makeBlock({ id: "hub-block", text: "Hub" });
+    const harness = createHarness(hub);
+    const source = (blockId: string, title: string, updatedAt: string) => ({
+      blockId, title, parentContext: "Top level", createdAt: "2026-01-01T00:00:00.000Z", updatedAt,
+      occurrenceCount: 1, referenceGroups: [{ kind: "block" as const, count: 1 }], occurrences: [], occurrencesTruncated: false,
+    });
+    harness.setBacklinkResults([{
+      targetBlockId: hub.id,
+      sources: [source("seed-one", "Seed tray one", "2026-01-04T00:00:00.000Z"), source("seed-two", "Seed tray two", "2026-01-02T00:00:00.000Z")],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.filter.begin" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.filter.input", text: "two" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.filter.commit" }, viewport);
+    harness.controller.setPreviewRegions(detailBacklinkRegions(harness.controller.state));
+    await harness.controller.dispatch({ type: "preview.activate" }, viewport);
+
+    expect(harness.calls.backlinkPeeks.map((peek) => peek.selectedSourceBlockId)).toEqual(["seed-two"]);
+    expect(harness.controller.state.status).toBe("Peeking Seed tray two");
+  });
+
   test("restores the exact inline backlink row after a popup selection command", async () => {
     const hub = makeBlock({ id: "hub-block", text: "Hub" });
     const harness = createHarness(hub);

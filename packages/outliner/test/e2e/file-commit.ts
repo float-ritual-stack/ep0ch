@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {
-  closeSync, fsyncSync, ftruncateSync, openSync, readFileSync, readdirSync,
+  chmodSync, closeSync, fsyncSync, ftruncateSync, openSync, readFileSync, readdirSync,
   statSync, writeFileSync, writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -9,12 +9,14 @@ import { runHerdrScenario } from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "file-commit",
-  async prepare(root) {
-    writeFileSync(join(root, "save.txt"), "ORIGINAL", { mode: 0o640 });
+  async prepare(_project, _paths, outlineRoot) {
+    writeFileSync(join(outlineRoot, "save.txt"), "ORIGINAL");
+    // Set outright: agent-env's umask (077) would make a `mode` on the write 0600, and the save must keep 0640.
+    chmodSync(join(outlineRoot, "save.txt"), 0o640);
   },
   async run(session) {
     const terminal = await session.attachClient();
-    const path = join(session.projectRoot, "save.txt");
+    const path = join(session.outlineRoot, "save.txt");
     const { resource } = await session.client.request<InternResourceReceipt>({
       action: "resources.intern-filesystem", input: { path: "save.txt", mediaType: "text/plain" },
     });
@@ -43,10 +45,10 @@ const result = await runHerdrScenario({
         frame.includes("ORIGINAL SAVED") && frame.includes("e edit") && !frame.includes("⌃S save"));
       assert.equal(readFileSync(path, "utf8"), "ORIGINAL SAVED");
       assert.equal(statSync(path).mode & 0o777, 0o640);
-      const directories = readdirSync(session.projectRoot).filter(name =>
-        name.startsWith(".outliner-save-") && statSync(join(session.projectRoot, name)).isDirectory());
+      const directories = readdirSync(session.outlineRoot).filter(name =>
+        name.startsWith(".outliner-save-") && statSync(join(session.outlineRoot, name)).isDirectory());
       assert.equal(directories.length, 1);
-      const recovery = join(session.projectRoot, directories[0]!);
+      const recovery = join(session.outlineRoot, directories[0]!);
       assert.equal(readFileSync(join(recovery, "original"), "utf8"), "ORIGINAL");
       assert.equal(readFileSync(join(recovery, "draft"), "utf8"), "ORIGINAL SAVED");
       ftruncateSync(oldDescriptor, 0);

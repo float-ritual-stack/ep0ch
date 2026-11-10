@@ -5,10 +5,11 @@
 // rest against a throwaway outliner (never a real outline), with fictional notes and a made-up ticket.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { App } from "../src/app";
 import {
-  isOutlineNote, outlinkWords, resourceNote, resourceWords, SHOWN_LIMIT,
+  isOutlineNote, openResource, outlinkWords, resourceNote, resourceWords, SHOWN_LIMIT,
   type AuthoredOutlink, type AuthoredResourceLink, type ResourceDescription,
 } from "../src/authored";
 import type { Msg } from "../src/board";
@@ -382,6 +383,19 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     let left = -1;
     for (let t = Date.now(); Date.now() - t < 5000 && left !== 0; await Bun.sleep(50)) left = await detailsNow();
     expect(left).toBe(0);
+  }, 60_000);
+
+  test("a [web::…] page served as Markdown opens as its own text (PIE-1694)", async () => {
+    const page = "# Seed swap\n\nBring  labelled <kbd>jars</kbd> &amp; spare trays.\n";
+    const server = createServer((_request, response) => { response.setHeader("content-type", "text/markdown; charset=utf-8"); response.end(page); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("no port");
+      const { note } = await openResource(board, { reference: { kind: "web", url: `http://127.0.0.1:${address.port}/swap.md` } });
+      expect(note.text).toContain("Bring  labelled <kbd>jars</kbd> &amp; spare trays.");
+      expect(note.text).not.toContain("unsupported media type");
+    } finally { server.close(); }
   }, 60_000);
 
   test("a registered file that goes missing says it can't be read, not that nothing is stored", async () => {
