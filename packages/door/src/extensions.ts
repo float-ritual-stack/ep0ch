@@ -29,7 +29,8 @@ import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import type { Actor, SocketBoard, WireAnswer } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
-import { partyOf, UndoHistory } from "./steps";
+import { partyOf } from "./steps";
+import { NOTE_JOURNAL, UndoHistory } from "./undo-journal";
 import { closest } from "./cli-words";
 import { slotPairs, slotWords } from "@ep0ch/outline-core/action-line";
 import { READER_OWN_KEYS } from "./surface/reader-keys";
@@ -99,7 +100,7 @@ export const EXT_ACTIONS = new ActionSet<Record<string, ExtArgs>, ExtOn>("extens
  * The extension actions' write groups that landed as one step (PIE-784), newest last: each kept for whoever asked and
  * the note it acted on, so that note's reader undoes it on ctrl+z (`ext.undo`) like its own changes, each party its own.
  */
-export const EXT_UNDO = new UndoHistory<{ undo: string; label: string; by: string; context: string }>();
+export const EXT_UNDO = new UndoHistory<{ undo: string; label: string; by: string; context: string }>(NOTE_JOURNAL, { kind: "ext", via: "ext.undo", label: e => e.label.toLowerCase() });
 
 // ── the list, as last read ───────────────────────────────────────────────────
 

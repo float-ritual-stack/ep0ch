@@ -18,6 +18,7 @@ import { outlineChanged as outlineChangedForTest } from "../src/search-schedule"
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import { connectFigures } from "../src/graphs";
+import { NOTE_JOURNAL } from "../src/undo-journal";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -144,10 +145,10 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     expect(await textOf(n.garden.id)).toContain("2. [ ] Sow the beans ^t-d4e5f6");
     s.key({ kind: "char", ch: "z", ctrl: true }, host);
     await until(() => flashes.at(-1)?.startsWith("undid") ?? false, "the undo");
-    expect(flashes.at(-1)).toBe('undid: "Sow the beans" to do → done');
+    expect(flashes.at(-1)).toBe('undid "Sow the beans" to do (made by you): to do → done');
     expect(await textOf(n.garden.id)).toContain("2. [x] Sow the beans ^t-d4e5f6");
     s.key({ kind: "char", ch: "z", ctrl: true }, host);
-    await until(() => flashes.at(-1)?.startsWith("undid: \"Sow the beans\" done → to do") ?? false, "the second undo");
+    await until(() => flashes.at(-1)?.startsWith("undid \"Sow the beans\" done (made by you)") ?? false, "the second undo");
     s.key({ kind: "char", ch: "z", ctrl: true }, host);
     await until(() => flashes.at(-1) === "no step change to undo in this note", "nothing left to undo");
   }, 30_000);
@@ -241,8 +242,10 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     // The service recorded it as the agent's.
     const activity = await board.activity(20);
     expect(activity.find(a => a.block.id === n.garden.id && a.actor === AGENT)).toBeTruthy();
-    // Its undo is its own; the person has nothing of theirs to undo here.
-    await expect(s.act("task.undo", {}, host, { kind: "user" })).rejects.toThrow("no step change to undo in this note");
+    // Its undo is its own: the note's journal holds it under the agent, and the person's side of the journal never offers it
+    // (the person's own earlier changes to this note are still theirs to undo, from any reader of it).
+    expect(NOTE_JOURNAL.list(`agent:${AGENT}`, n.plan.id).map(e => e.label)).toEqual(['"Buy canes" problem']);
+    expect(NOTE_JOURNAL.last("you", n.plan.id)?.by ?? "you").toBe("you");
     expect(await s.act("task.undo", {}, host, agent)).toMatchObject({ status: "waiting", recordedAs: { author: "agent", actorId: AGENT } });
     // Names that don't resolve are refused with the list; an agent can't open the person's status choice.
     await expect(s.act("task.status", { id: "t-nothere", to: "done" }, host, agent)).rejects.toThrow("no step ^t-nothere is drawn");

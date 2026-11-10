@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+z takes back a note's newest change, whatever kind it was (Nov 3 review card 15)
+
+- **One journal per note:** a step's status, a callout, a picture's layout, a `::use` fill, a source line, an extension's write and a note move are entries in one journal (`undo-journal.ts`) that carry their note, kind, what takes them back, who made them and a label; ctrl+z reads the note's newest instead of choosing among eight stacks by a global sequence. Settings keep a journal of their own scope through the same type.
+- **Every undo says what and who:** `undid "Sow the beans" done (made by you): done → to do`; an agent's reads `(made by agent:<id>)`, and the person's ctrl+z never takes it.
+- **Per note, not per reader:** a second reader of the same note undoes the first's changes too.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
+
 ### A link, chip or picture opens the same in the reader and in a river column (PIE-1543, PIE-1556)
 
 - **One builder for the link and picture targets:** the reader's scroll window and a river column's whole-note digest build them through `bodyTargets` (`surface/note-targets.ts`) instead of two copies. A picture's caption and cells are now targets in a river column, as in the reader.

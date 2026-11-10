@@ -85,7 +85,7 @@ import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, reade
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, sameParty, tidy } from "../edit";
@@ -134,7 +134,7 @@ import { INVITES, type Press } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { SettingField } from "./settings-card";
-import { settingsSubject, settingsKey, SETTINGS_DEFS, SETTINGS_UNDO } from "./settings";
+import { settingsSubject, settingsKey, SETTINGS_DEFS } from "./settings";
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
@@ -145,7 +145,8 @@ import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
 import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
-import { MOVE_UNDO } from "../note-move";
+import { CALLOUT_HISTORY, IMAGE_HISTORY, newestUndo, SOURCE_HISTORY, STEP_HISTORY, USE_HISTORY, type LineEdit, type LineUndo } from "./note-undo";
+import { undoneSaid, type UndoHistory } from "../undo-journal";
 import { hasCard, kindOf, wholeNoteMarks, MARGIN_MODE_WORDS, MARGIN_RESERVE, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { dropActions, imagePathAt } from "../paste-image";
@@ -951,13 +952,13 @@ export class NoteSurface {
   /** The note drawn as written, without the rules' decorations (PIE-600): `R`, decor.raw. The reader's own state. */
   raw = false;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
-  readonly stepHistory = new UndoHistory();
+  readonly stepHistory = STEP_HISTORY;
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
-  readonly calloutHistory = new UndoHistory<LineUndo>();
+  readonly calloutHistory = CALLOUT_HISTORY;
   /** Image layout changes (PIE-532) made here, for image.undo. */
-  readonly imageHistory = new UndoHistory<LineUndo>();
+  readonly imageHistory = IMAGE_HISTORY;
   /** The props a `::use` line was given here (PIE-533 S4, use.fill), for use.undo. */
-  readonly useHistory = new UndoHistory<LineUndo>();
+  readonly useHistory = USE_HISTORY;
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -1128,7 +1129,7 @@ export class NoteSurface {
   private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
   private menuOffset = { col: 0, row: 0 };
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
-  readonly sourceHistory = new UndoHistory<LineUndo>();
+  readonly sourceHistory = SOURCE_HISTORY;
   /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
   private oldUnsentShown = new Set<string>();
   /** The text an edit kept without its own starting text began from, read from the note's history, by edit (null: not kept; absent: being read). */
@@ -4356,8 +4357,8 @@ export class NoteSurface {
     const at = this.msg?.id ?? "";
     // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
     if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-    const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)], ["settings.undo", SETTINGS_UNDO.last("you", at)]] as const)
-      .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo" | "settings.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+    // The newest change of this note's journal, whatever its kind (undo-journal.ts); settings' scope is read beside it.
+    const newest = newestUndo("you", at), last = { name: (newest?.via ?? "task.undo") as "task.undo", seq: newest?.seq ?? -1 };
     // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
     // didn't happen to this note, so the desk's ctrl+z (layout.undo, or a trash newer than it) gets the key only when the
     // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
@@ -6500,7 +6501,7 @@ export class NoteSurface {
         try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number; screen: string; left?: string }; layout = { undone: true, steps: l.steps, screen: l.screen, ...(l.left ? { left: l.left } : {}) }; }
         catch (err) { const why = err instanceof Error ? err.message : String(err); if (!/no layout change in transaction/.test(why)) layout = { refused: why }; }
       }
-      say.flash(`undid ${e.label.toLowerCase()}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? ` · layout restored to ${layout.screen}${layout.left ? ` · remaining: ${layout.left}` : ""}` : ""}`);
+      say.flash(`${"seq" in e ? undoneSaid(e as never) : `undid ${e.label.toLowerCase()}`}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? ` · layout restored to ${layout.screen}${layout.left ? ` · remaining: ${layout.left}` : ""}` : ""}`);
       host.redraw();
       return { undone: e.undo, action: r.action, written: r.written, ...(layout ? { layout } : {}) };
     } catch (err) {
@@ -6716,7 +6717,7 @@ export class NoteSurface {
     history.drop(e);
     outlineChanged([m.id]);
     if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
-    const said = `undid the ${what} change: ${printable(e.edits[0]!.before.trim())}`;
+    const said = undoneSaid(e);
     host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
     return { block: m.id, edits: e.edits, revision: saved.revision ?? null };
   }
@@ -7474,7 +7475,7 @@ export class NoteSurface {
         throw new ActionRefused(why);
       }
       this.stepHistory.drop(e);
-      const said = `undid: "${e.title}" ${live.key}::${live.after} → ${live.before ?? "unset"}`;
+      const said = undoneSaid(e);
       host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
       return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: recordedAnswer(actor) };
     }
@@ -7498,7 +7499,7 @@ export class NoteSurface {
     embedStepChanged(host.ctx.board, r.block, step, r.item);
     outlineChanged([e.block]);
     if (this.msg?.id === e.block && !this.msg.partial) this.refresh({ ...r.block, childIds: this.msg.childIds });
-    const said = `undid: "${e.title}" ${statusWord(e.to)} → ${statusWord(e.status)}`;
+    const said = `${undoneSaid(e)}: ${statusWord(e.to)} → ${statusWord(e.status)}`;
     // An agent's host says who it is (asActor); the person's says it plainly.
     host.ctx.flash(said);
     this.noteAgent(actor, said);
@@ -8613,7 +8614,7 @@ export class NoteSurface {
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       history: this.describeHistory(),
       ...(this.zoom ? { zoom: { kind: this.zoom.kind, label: this.zoom.label, lines: [this.zoom.start + 1, this.zoom.end + 1], ...(this.zoom.anchor ? { anchor: this.zoom.anchor } : {}) } } : {}),
-      steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
+      steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.msg ? this.stepHistory.size(this.msg.id) : 0, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
       // What the rules draw on the note (PIE-600), and whether the person has it raw (R).
       decorations: this.msg && isOutlineNote(this.msg) ? { raw: this.raw, drawn: decorationsOf(this.msg, this.src).map(d => ({ rule: d.name, place: d.place, status: d.status, on: d.hit.at, line: d.hit.line })) } : null,
       agent: this.agent,
@@ -8828,10 +8829,6 @@ const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn �
 const SOURCE_STALE: Stale = { flash: "that line changed since the sources were read · nothing was changed · read them again (r)", refused: "that line changed since the sources were read; nothing was changed", again: "read the sources again (r) and retry" };
 const USE_STALE: Stale = { flash: "that ::use line changed since it was drawn · nothing was changed · press again", refused: "that ::use line changed since it was drawn; nothing was changed (use.fill reads it again)", again: "press again" };
 const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
-/** One line of a note rewritten: its index, its text as it was read, and what it became. `picture`: who the line is, so an undo finds it wherever it has moved to. */
-interface LineEdit { line: number; before: string; after: string; picture?: string }
-/** A change of whole lines (a callout's header, an image's layout) for undo. */
-interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string }
 
 
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */

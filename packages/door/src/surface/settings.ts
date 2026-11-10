@@ -16,7 +16,8 @@ import { PropertyPanel } from "./props-panel";
 import { SettingsCard, settingFields, settingOptions, settingProblem, settingQuestion, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { modeBinding, modeActionKeys } from "./modes";
 import { ATTACHED_KEYS, SETTINGS_KEYS } from "./attached-keys";
-import { partyOf, UndoHistory } from "../steps";
+import { partyOf } from "../steps";
+import { SETTINGS_JOURNAL, undoneSaid, UndoHistory } from "../undo-journal";
 import { outlineChanged } from "../search-schedule";
 import type { Key } from "../term";
 import { boundComponent, setBinding, type Binding } from "./binding";
@@ -29,7 +30,7 @@ export interface SettingsSubject { note: Msg; binding: Binding; schemas: Compone
 /** A settings write for ctrl+z (PIE-1513): the note's text before and after, so one key goes back whole, YAML line and all. */
 export interface SettingsUndo { block: string; before: string; after: string; key: string; by: string; context: string }
 /** The settings writes made in readers (a view's or a live figure's key), newest last, for ctrl+z (`settings.undo`); each party undoes its own. */
-export const SETTINGS_UNDO = new UndoHistory<SettingsUndo>();
+export const SETTINGS_UNDO = new UndoHistory<SettingsUndo>(SETTINGS_JOURNAL, { kind: "settings", via: "settings.undo", label: e => `the settings change to ${e.key}` });
 const LIST = { type: "string", optional: true, about: "the view: its list.blocks number or ^name; left out, the card's subject or the view under the cursor" } as const;
 const KEY = { type: "string", about: "the field's key (settings lists them)" } as const;
 const properties = (config: Record<string, unknown>) => Object.entries(config).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) }));
@@ -291,7 +292,7 @@ export const SETTINGS_DEFS = {
       SETTINGS_UNDO.drop(e);
       outlineChanged([now.id]);
       if (surface.msg?.id === now.id) surface.refresh({ ...saved, childIds: surface.msg.childIds });
-      const said = `undid the settings change: ${e.key}`;
+      const said = undoneSaid(e);
       host.ctx.flash(said); surface.noteAgent(actor, said);
       if (surface.panel?.card) surface.panel.card.note = said;
       host.redraw();
