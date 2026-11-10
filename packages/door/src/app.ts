@@ -31,7 +31,7 @@ import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./di
 import { AGENT_ACTOR_ID, Offline, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { asTyped, layerEntry } from "./surface/keymap";
-import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
+import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref"; import { addressOf } from "./open";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
 import { doorMarks } from "./desk/marks";
@@ -1544,8 +1544,8 @@ export class App implements Ctx {
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !raw && (!held || top?.newNoteWhileTyping?.()) && !drawerless) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !raw) {
-      // A paste of nothing at all (the clipboard held only a picture, PIE-592) is ctrl+v, which a draft takes as draft.image.
-      if (k.text === "") { this.key({ kind: "char", ch: "v", ctrl: true }); return; }
+      // A paste of nothing (only a picture, PIE-592) is ctrl+v, a draft's draft.image; a note's address where nothing types opens the bar on its row (PIE-1401), never its `d` as keys.
+      if (k.text === "") { this.key({ kind: "char", ch: "v", ctrl: true }); return; } else if (!held && !drawerless && addressOf(k.text)) { void this.dispatch.press("bar.open", { query: k.text.trim() }); return; }
       for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }

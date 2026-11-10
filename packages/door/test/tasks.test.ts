@@ -248,10 +248,32 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     await expect(s.act("task.status", { id: "t-nothere", to: "done" }, host, agent)).rejects.toThrow("no step ^t-nothere is drawn");
     await expect(s.act("task.status", { n: 1, to: "maybe" }, host, agent)).rejects.toThrow("to is done, todo, waiting, problem, approved or rejected");
     await expect(s.act("task.menu", { n: 1 }, host, agent)).rejects.toThrow("the status choice is the person's");
-    // Copy step link: the person's goes to their clipboard; the link names the step's note and id.
+    // Copy step link: the person's goes to their clipboard; the link names the step's note, its id and its words, the
+    // reference note.copy-ref kind=line gives on that line (PIE-1390: one owner).
     const link = await s.act("task.link", { id: "t-d4e5f6" }, host, { kind: "user" }) as any;
-    expect(link.link).toBe(`((${n.garden.id}^t-d4e5f6))`);
+    expect(link.link).toBe(`((${n.garden.id}^t-d4e5f6|Sow the beans))`);
     expect(copied.at(-1)).toBe(link.link);
+    expect(flashes.at(-1)).toBe(`copied a reference to the line: ${link.link}`);
+    const garden = (await board.get(n.garden.id))!, line = garden.text.split("\n").findIndex(l => l.includes("^t-d4e5f6")) + 1;
+    const g = reader();
+    g.s.show(garden, g.host);
+    expect((await g.s.copyNoteRef("line", g.host, agent, undefined, line)).text).toBe(link.link);
+  }, 30_000);
+
+  // PIE-1390: a step in a callout or under another step copies a link to itself (its own t- id), never to the part around it.
+  test("copy link on a step in a callout and on a nested step names the step's own id, and writes nothing more", async () => {
+    const jobs = await create("Shed jobs\n> [!todo] This week\n> - [ ] Sweep the floor\n- [ ] Oil the hinges\n  - [ ] Find the oil can");
+    const { s, host, draw } = reader();
+    s.show(await board.get(jobs.id), host);
+    await settle(draw, t => t.includes("Find the oil can"), "the note");
+    await until(() => { draw(); return (s.describe().steps?.drawn ?? 0) === 3; }, "the note's steps");
+    for (const [n, words] of [[1, "Sweep the floor"], [3, "Find the oil can"]] as const) {
+      const r = await s.act("task.link", { n }, host, { kind: "user" }) as any;
+      const m = (await board.get(jobs.id))!, line = m.text.split("\n").find(l => l.includes(words))!;
+      const id = /\^(t-[0-9a-z]+)\s*$/.exec(line)?.[1];
+      expect({ words, id: !!id, link: r.link }).toEqual({ words, id: true, link: `((${jobs.id}^${id}|${words}))` });
+      expect(m.revision).toBe(r.revision);
+    }
   }, 30_000);
 
   test("an agent's change to the step the person is on keeps their [ ] there; space, space toggles it back and forth (S1)", async () => {

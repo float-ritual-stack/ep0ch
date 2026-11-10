@@ -36,6 +36,8 @@ function visibility(span: string, values: readonly DrawnValue[] = []): { shown: 
       const bar = labelBar(raw.slice(2, -2));
       if (bar >= 0) hide(l.start + 2, l.start + bar + 3);
       else for (const m of raw.slice(2, -2).matchAll(/\[\[|\]\]/g)) hide(l.start + 2 + m.index!, l.start + 4 + m.index!);
+    } else if (l.kind === "url") {
+      // A bare address (PIE-1401) is drawn as written: nothing hidden.
     } else {
       // `((id|label))`: the label; `((id))` draws its target's title, which isn't in the source at all.
       const bar = raw.indexOf("|");

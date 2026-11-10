@@ -1048,11 +1048,10 @@ export interface NoteAddress {
   uri?: string;
   /** Where the publisher serves it, when it is published (and not `[publish::never]`). */
   published?: NotePublication;
-  /**
-   * Its tailnet page by its id (`<url>/p/<id>`), published or not (PIE-782: the tailnet serves every note but a locked
-   * one), when the publisher said where it is opened. An artifact line's page is below it (`/artifact/<line>`, PIE-793).
-   */
-  page?: string;
+  /** Its tailnet page by id (`<url>/p/<id>`), published or not, unless locked (PIE-782), when the publisher said where it is opened. */
+  page?: string; // An artifact line's page is below it (`/artifact/<line>`, PIE-793).
+  /** Its web link (PIE-1316, what `note.copy-ref kind=link` copies), with a named outline: `noteWebLink`'s `<base>/o/<outline>/p/<Work ID or id>`. */
+  link?: string;
 }
 
 /** Where a running publisher is opened, as it tells the service when it connects (`notes.address` builds links from it). */

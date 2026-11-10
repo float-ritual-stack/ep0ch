@@ -69,7 +69,12 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     const anchored = await app.act({ action: "fields.anchor", tile: "reader", args: { key: "connectTo", n: 6 }, ...agent }) as any;
     expect(anchored.created).toBe(true);
     expect(typeof anchored.noteLine).toBe("number");
-    expect(anchored.link).toBe(`((${rail.id}^${anchored.anchor}))`);
+    // The reference note.copy-ref gives for that line (PIE-1390: one owner mints and copies a line's anchor), its words its label.
+    expect(anchored.link).toMatch(new RegExp(`^\\(\\(${rail.id}\\^${anchored.anchor}\\|.+\\)\\)$`));
+    // Once the reader has the anchored text (a copy of a note read before a save since is refused, to be tried again).
+    const saved = (await board.get(rail.id))!.revision;
+    await until(() => reader().msg?.revision === saved, "the reader on the anchored text");
+    expect(((await app.act({ action: "note.copy-ref", tile: "reader", args: { kind: "line", line: anchored.noteLine }, ...agent })) as any).text).toBe(anchored.link);
     const after = (await board.get(rail.id))!;
     // The second row's own line (not the first's), found by what it says.
     const anchoredLine = after.text.split("\n").find(l => l.includes(`^${anchored.anchor}`))!;

@@ -8,6 +8,7 @@ import { PEEK } from "./seed/peek";
 import { shellLineDemo } from "./seed/sh-lines";
 import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
 import { PICK_A_TILE } from "./seed/pick-a-tile";
+import { KEY_ROTA, pasteALink } from "./seed/paste-a-link";
 import { NOTE_COMPONENT, NOTE_COMPONENT_SCRIPT } from "./seed/note-component";
 // The showcase outline (PIE-439): a fictional household's notes that exercise every shared door part.
 // Written through the service API (create, work-ids.configure, roadmap.items.create, properties.patch,
@@ -254,6 +255,10 @@ if (request.input.request === "describe the beds") {
   // Under the sequences, so the root's list (the panes section's tree) keeps its length.
   notes.buttons = await make(notes.buttonSequences.id, BUTTON_LOOKS);
   notes.pickATile = await make(notes.root.id, PICK_A_TILE);
+  // PIE-1401: the rota's web link and ep0ch:// address, as the service gives them (note.copy-ref copies the same), pasted bare.
+  notes.keyRota = await make(notes.root.id, KEY_ROTA);
+  const rota = await board.request("notes.address", { blockId: notes.keyRota.id });
+  notes.pasteALink = await make(notes.root.id, pasteALink(notes.keyRota.id, rota.link!, rota.uri!));
   notes.scriptsInPlace = await make(notes.root.id, [
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans] [publish::public:scripts-in-place]`,
     "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",

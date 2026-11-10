@@ -408,7 +408,8 @@ Every note clears this floor:
 - Text meant to leave the outline is one copyable block (a quote or fence), so its ⧉ copies exactly that.
 - What the reader needs first comes first: one line saying what this is and what's left.
 - Context that matters less is folded (`[!note]-`), not deleted.
-- Link, don't direct: `((id|label))`.
+- Link, don't direct: `((id|label))`. A note's web link (`https://my.ep0ch.sh/pub/p/<id or PIE-n>`) or `ep0ch://`
+  address written bare is a link too: it opens the note in the door and on its published page.
 - A short title line (under about 70 characters), a paragraph of at most three sentences, a section of one component
   plus at most three short lines. A question for Evan goes first as one `- [ ]` line, with `[needs::sysop: …]` on the
   note; a choice is one `- [ ]` per option, since a `status: proposed` graph-decision is one he can only read, not tick. The write answer measures these (below).

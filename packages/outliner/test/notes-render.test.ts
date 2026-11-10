@@ -7,6 +7,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
+import { webBase } from "../src/artifact-grants";
 import { canonicalLocalMachineName } from "../src/machine-name";
 import { Publisher, publisherUrl } from "../src/publish";
 import { OutlinerServer } from "../src/server";
@@ -47,9 +48,13 @@ test("notes.address: the outline and this machine, a note's ep0ch:// URI, and it
   const shed = await create("Shed notes [publish::shed]\n\nThe door sticks in the rain.");
   const pond = await create("Pond notes [publish::public:pond]\n\nThe heron came back.");
   const draft = await create("Draft\n\nNot published.");
+  // Its web link (PIE-1316) with no publisher connected: the web client's, at /pub/o/<outline>.
+  const web = webBase() ?? "https://my.ep0ch.sh/pub";
   expect(await client.request<NoteAddress>({ action: "notes.address", blockId: draft.id })).toEqual({
-    outline: "garden", machine, blockId: draft.id, uri: `ep0ch://garden@${machine}/b/${draft.id}`,
+    outline: "garden", machine, blockId: draft.id, uri: `ep0ch://garden@${machine}/b/${draft.id}`, link: `${web}/o/garden/p/${draft.id}`,
   });
+  const ticket = await create("Fix the gate latch [work-id::GATE-7]");
+  expect((await client.request<NoteAddress>({ action: "notes.address", blockId: ticket.id })).link).toBe(`${web}/o/garden/p/GATE-7`);
   // Published, with no publisher connected: its slug, but no host to give a URL on.
   expect((await client.request<NoteAddress>({ action: "notes.address", blockId: shed.id })).published).toEqual({ slug: "shed", public: false });
   await publisher();
@@ -62,6 +67,9 @@ test("notes.address: the outline and this machine, a note's ep0ch:// URI, and it
   });
   // Every note but a locked one is a page on the tailnet by its id (PIE-782), published or not: an artifact's opens below it.
   expect((await client.request<NoteAddress>({ action: "notes.address", blockId: draft.id })).page).toBe(`https://pub.example.invalid/pub/p/${draft.id}`);
+  // Its web link once the publisher says where it is opened: there, naming its outline, by its Work ID when it has one.
+  expect((await client.request<NoteAddress>({ action: "notes.address", blockId: draft.id })).link).toBe(`https://pub.example.invalid/pub/o/garden/p/${draft.id}`);
+  expect((await client.request<NoteAddress>({ action: "notes.address", blockId: ticket.id })).link).toBe("https://pub.example.invalid/pub/o/garden/p/GATE-7");
   const locked = await create("Private [publish::never]");
   expect((await client.request<NoteAddress>({ action: "notes.address", blockId: locked.id })).page).toBeUndefined();
   await expect(client.request({ action: "notes.address", blockId: "00000000-0000-4000-8000-000000000000" })).rejects.toThrow();
@@ -79,6 +87,15 @@ test("notes.render: the publisher's rendering of a note and the notes under it, 
   await publisher();
   const linked = await client.request<RenderedNote>({ action: "notes.render", blockId: note.id, format: "markdown" });
   expect(linked.text).toContain("see [Shed notes](https://pub.example.invalid/pub/p/shed) and Nowhere.");
+  // A note's address pasted bare (PIE-1401): its ep0ch:// address links to its page as a reference does; a web link stays
+  // as written (the page's Markdown links it).
+  const machine = canonicalLocalMachineName();
+  const pasted = await create(`Pasted links\n\nThe shed: ep0ch://garden@${machine}/b/${shed.id}#door, and https://pub.example.invalid/pub/p/${shed.id}.\nElsewhere: ep0ch://orchard@${machine}/b/0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b`);
+  const bare = (await client.request<RenderedNote>({ action: "notes.render", blockId: pasted.id, format: "markdown" })).text;
+  expect(bare).toContain(`The shed: [Shed notes](https://pub.example.invalid/pub/p/shed#door), and https://pub.example.invalid/pub/p/${shed.id}.`);
+  expect((await client.request<RenderedNote>({ action: "notes.render", blockId: pasted.id, format: "html" })).text).toContain(`<a href="https://pub.example.invalid/pub/p/${shed.id}">`);
+  // One this page can't link (another outline's note) stays as written.
+  expect(bare).toContain(`Elsewhere: ep0ch://orchard@${machine}/b/0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b`);
   const html = await client.request<RenderedNote>({ action: "notes.render", blockId: note.id, format: "html" });
   expect(html.text).not.toMatch(/[\uE000-\uF8FF]/);
   expect(html.text).toContain("<h1>Pond notes</h1>");

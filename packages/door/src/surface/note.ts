@@ -87,7 +87,7 @@ import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, reade
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
@@ -105,8 +105,7 @@ import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, RECORDED_AS, recordedAnswer, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { blockRefText } from "@ep0ch/outline-core/link-syntax";
-import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
+import { BUTTON_GROUP, copyLineRef, deliverNoteRef, lineRef, noteCopyText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { drawRevision, openingRow, revisionFacts, type RevisionAgainst, type RevisionView } from "./revision-compare";
 import { revisionDiff } from "../desk/what-changed";
@@ -583,7 +582,7 @@ const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map(linkOf);
 const linkOf = (l: LinkOccurrence): Link => {
   if (l.kind === "block") return { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
   if (l.kind === "page") return { page: l.displayAddress, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
-  return { url: l.url, label: l.text };
+  return { url: l.url, label: l.kind === "markdown" ? l.text : l.url };
 };
 /**
  * A link a draft's preview draws as `edit.follow`'s `ref=` (PIE-592): `((id^fragment))`, `[[page]]`, a URL or `#tag`;
@@ -4528,16 +4527,19 @@ export class NoteSurface {
    * as `this`); the words are its arguments. The person's press runs at once (their click is the consent; what it does is
    * attributed and undoable: ext.undo, layout.undo). An agent's is attributed and said, as any `act` is.
    */
-  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, repick = false, press: Press = { tile: messageContext.getStore()?.tile, note: p.block || undefined, actor }): Promise<unknown> {
+  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, repick = false, press: Press = { tile: messageContext.getStore()?.tile, note: p.block || undefined, actor }, alt = false): Promise<unknown> {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     const run = async () => {
       const note = p.block ? await host.ctx.board.get(p.block) : null;
-      const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null; if (button?.act && button.slots.some(s => p.act.includes(`{${s.key}}`))) p = { ...p, act: button.act }; // a slot filled since the frame this press came from (PIE-1570)
+      // `alt`: the press runs the button's alt= (PIE-1316): its own line and its own open slots.
+      const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null, own = alt ? button?.alt : button?.act;
+      if (own && button!.slots.some(s => p.act.includes(`{${s.key}}`))) p = { ...p, act: own }; // a slot filled since the frame this press came from (PIE-1570)
       // A button that reads differently than it was written runs nothing (it never acts on the focused tile instead); one with an
       // empty slot asks for it, and alt+click on a button with slots (and no alt= of its own) asks again (PIE-1298).
       if (button?.problem && button.act === null) throw new ActionRefused(`the ::button on line ${button.line + 1} runs nothing: ${button.problem}`);
-      if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor, !repick);
+      const open = alt ? button?.altEmpty ?? [] : button?.empty ?? [];
+      if (button && note && (open.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : open, host, actor, !repick, alt);
       if (button?.sequence && p.act === button.act) {
         // Its first step refused now (no tile it names, PIE-1418): said before anything runs, in the presser's words.
         const first = sequenceStart(button), no = first ? d.refusedNow(d.requestIn(actRequestOf(lineWords(first)), press), actor) : null;
@@ -4616,7 +4618,7 @@ export class NoteSurface {
    * An agent is never asked: it is told the line to run, and the picker stays the person's. With `run` (a press, not a
    * re-pick), the last answer presses the button: the person pressed it to run it (PIE-1392).
    */
-  async askSlots(block: string, button: ButtonCall, keys: readonly string[], host: SurfaceHost, actor: Actor, run = false): Promise<unknown> {
+  async askSlots(block: string, button: ButtonCall, keys: readonly string[], host: SurfaceHost, actor: Actor, run = false, alt = false): Promise<unknown> {
     const key = keys[0]!, line = button.line + 1;
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to ask with");
@@ -4626,7 +4628,7 @@ export class NoteSurface {
     }
     const tile = messageContext.getStore()?.tile;
     // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
-    const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}`;
+    const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}${run && alt ? " alt=true" : ""}`;
     const then = `button.slot note=${block} line=${line} label=${JSON.stringify(button.label)} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
     const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
     if (q?.kind === "tile") {
@@ -4634,7 +4636,7 @@ export class NoteSurface {
       return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
     }
     return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
-      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
+      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true, ...(alt ? { alt: true } : {}) } : {}) }, ...(tile ? { tile } : {}) }, actor));
   }
 
   /**
@@ -4643,13 +4645,13 @@ export class NoteSurface {
    * the place it fills (`drawer.agent`, `role:<role>`, `<slot>@<screen>`), never the number a layout gives it (`t7`, `3`, `#3`). With no value
    * the person is asked again (a re-pick); with `ask`, the next empty slot is asked after it.
    */
-  async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string; run?: boolean }, host: SurfaceHost, actor: Actor): Promise<unknown> {
+  async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string; run?: boolean; alt?: boolean }, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const m = await host.ctx.board.get(a.note ?? this.requireNote().id); // the service's text, never this reader's copy, which catches up (PIE-1518)
     if (!m) throw new ActionRefused(`no note ${a.note}: button.slot note=<id> takes the note the button is written in`);
     if (this.msg?.id === m.id && !this.msg.partial && this.msg.revision !== m.revision) { this.refresh({ ...m, childIds: this.msg.childIds }); host.redraw(); }
     const named = slotButton(buttonCallsOf(m.text), a); if ("refused" in named) throw new ActionRefused(named.refused);
     const { button, key } = named;
-    if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor, !!a.run);
+    if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor, !!a.run, !!a.alt);
     const given = await this.slotValue(m.id, button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
     if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line can't hold a newline, { or } in a value`);
@@ -4664,9 +4666,11 @@ export class NoteSurface {
       const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
       const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? again?.empty ?? [] : [];
       const fail = (e: unknown) => host.ctx.flash(e instanceof Error ? e.message : String(e));
-      if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run).catch(fail);
-      // The last answer of a press runs it, as the press meant (PIE-1392); a slot still empty is asked by that press.
-      else if (again && a.run && again.act !== null && !again.empty.includes(key)) void this.runPress({ act: again.act, block: m.id, line, label: again.label }, host, actor).catch(fail);
+      if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run, !!a.alt).catch(fail);
+      // The last answer of a press runs it, as the press meant (PIE-1392), its alt= for an alt press; a slot still empty is asked by that press.
+      else if (again && a.run && again.act !== null && (a.alt ? again.alt : again.act) && !(a.alt ? again.altEmpty ?? [] : again.empty).includes(key)) {
+        void this.runPress({ act: (a.alt ? again.alt : again.act)!, block: m.id, line, label: again.label }, host, actor, false, undefined, !!a.alt).catch(fail);
+      }
     }
     return out;
   }
@@ -5956,23 +5960,12 @@ export class NoteSurface {
   async copyNoteRef(kind: NoteRefKind, host: SurfaceHost, actor: Actor, own: string | undefined, line?: number): Promise<{ id: string; kind: string; text: string; clipboard: boolean; line?: number; anchor?: string; created?: boolean }> {
     const m = await this.whole();
     const where = { outline: m.address?.outline ?? own, foreign: !!m.address?.outline && m.address.outline !== own };
-    if (kind !== "line") return deliverNoteRef(host.ctx, actor, m.id, kind, noteRefText(kind, m, where), said => this.noteAgent(actor, said));
-    const { at, next } = this.refLine(m, actor, line), board = host.ctx.board;
+    const said = (msg: string) => this.noteAgent(actor, msg);
+    if (kind !== "line") return deliverNoteRef(host.ctx, actor, m.id, kind, await noteCopyText(host.ctx.board, kind, m, where), said);
+    const { at, next } = this.refLine(m, actor, line);
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to anchor a line at");
-    // The part of the note holding the line (a heading, a paragraph, a list item, a quote, a component), as the service
-    // reads it: its anchor goes where that part's goes, and its label is the part's own.
-    const found = await board.request("fragments.at", { blockId: m.id, line: at, ...(next ? { next: true } : {}) }), part = found.part;
-    // The line was chosen in the text this reader read: a note saved since may hold another part there.
-    if (found.revision !== m.revision) throw new ActionRefused("the note changed since it was read; it is read again, copy once more");
-    if (!part) throw new ActionRefused(`line ${at + 1} is in no part of the note that takes an anchor (a heading, a paragraph, a list item, a quote, a component)`);
-    let anchored: { fragmentId: string; created: boolean };
-    try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.request("fragments.ensure", { blockId: m.id, lineIndex: part.lineIndex, expectedRevision: m.revision, mutation: mutationFor(actor) }); }
-    catch (e) {
-      const said = e instanceof Error ? e.message : String(e);
-      throw new ActionRefused(/changed since/.test(said) ? "not anchored: the note changed since it was read; it is read again, copy once more" : `not anchored: ${said}`);
-    }
-    const text = noteRefText("line", m, where, { anchor: anchored.fragmentId, text: part.label });
-    return { ...deliverNoteRef(host.ctx, actor, m.id, "line", text, said => this.noteAgent(actor, said)), line: at + 1, anchor: anchored.fragmentId, created: anchored.created };
+    // The part of the note holding the line, as the service reads it, anchored and copied by the one owner (PIE-1390).
+    return copyLineRef(host.ctx, actor, { blockId: m.id, line: at, next, revision: m.revision, title: subject(m), ...(where.foreign && where.outline ? { outline: where.outline } : {}) }, said);
   }
 
   /**
@@ -6293,7 +6286,11 @@ export class NoteSurface {
       const to = destinationOf(l.url);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
       if ("web" in to) return this.openOutside("browser", to.web, host);
-      return this.followTarget(to.target, host, how);
+      // A note of this outline (its web link names it, an ep0ch:// address always does, PIE-1401) opens as this outline's own.
+      const { outline, machine, ...here } = to.target;
+      const info = outline ? await host.ctx.board.info().catch(() => null) : null;
+      const own = !!info && outline === info.outline && (!machine || machine === info.machine);
+      return this.followTarget(own ? here : to.target, host, how);
     }
     // A `{{ }}` (PIE-533 S2): where its value is written, lit; else what it is (computed, or why it has no value).
     if (l.value && (!l.block || (l.at === undefined && l.block === this.msg?.id))) {
@@ -6826,19 +6823,20 @@ export class NoteSurface {
     const was = taskBase(ref), now = taskBase({ ...ref, step: r.item });
     if (was !== now) this.stepRenamed = { was, now };
     const where = ref.via ? ` · in ${fullPlainText(ref.via)}` : "";
-    let said: string, link: string | undefined;
+    let said: string | undefined, link: string | undefined;
     if (choice === "copy-link" || choice === "address") {
-      link = stepLink(ref.block, r.item.itemId!);
-      if (choice === "copy-link" && actor.kind === "user") host.ctx.copy?.(link);
-      said = choice === "copy-link" && actor.kind === "user" ? `copied ${link} · "${title}"` : `made "${title}" addressable: ${link}`;
+      // The step's line, by the one owner of a line's reference (PIE-1390): the id the step was just given is its anchor, so
+      // this reads it (nothing more is written) and gives what note.copy-ref kind=line gives on that line.
+      const at = { blockId: ref.block, line: r.block.text.slice(0, r.item.span.start).split("\n").length - 1, revision: r.block.revision ?? 0, title, label: title };
+      if (choice === "copy-link") link = (await copyLineRef(host.ctx, actor, at, msg => this.noteAgent(actor, msg))).text;
+      else { link = (await lineRef(host.ctx.board, actor, at)).text; said = `made "${title}" addressable: ${link}`; }
     } else {
       if (r.changed) this.stepHistory.advance(ref.block, (r.block.revision ?? 0) - 1, r.block.revision ?? 0);
       if (r.changed && before !== choice) this.stepHistory.push({ block: ref.block, ...(r.item.itemId ? { itemId: r.item.itemId } : { at: { start: r.item.span.start, revision: r.block.revision ?? 0 } }), evidence: r.item.evidence, status: before, to: choice, title, by: partyOf(actor), context: this.msg?.id ?? ref.block });
       said = r.changed ? `set "${title}" ${statusWord(before)} → ${statusWord(choice)}${where}` : `"${title}" is already ${statusWord(choice)}`;
     }
-    // An agent's host says who it is (asActor); the person's says it plainly.
-    host.ctx.flash(said);
-    this.noteAgent(actor, said);
+    // An agent's host says who it is (asActor); the person's says it plainly. A copy said itself (deliverCopy).
+    if (said !== undefined) { host.ctx.flash(said); this.noteAgent(actor, said); }
     host.redraw();
     return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: recordedAnswer(actor) };
   }
@@ -7442,22 +7440,13 @@ export class NoteSurface {
     }
     const row = drawnFields.rows[n - 1];
     if (!row) throw new ActionRefused(`::fields{key=${drawnFields.key}} has rows 1 to ${drawnFields.rows.length}`);
-    let anchored: { fragmentId: string; created: boolean };
-    try { anchored = await host.ctx.board.request("fragments.ensure", { blockId: drawnFields.from, lineIndex: row.line, expectedRevision: drawnFields.revision, mutation: mutationFor(actor) }); }
-    catch (e) {
-      const said = e instanceof Error ? e.message : String(e);
-      // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
-      const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ¶ once more" : `not anchored: ${said}`;
-      host.ctx.flash(why, undefined, errorDetails(e));
-      throw new ActionRefused(why);
-    }
-    const link = blockRefText(drawnFields.from, "", { fragment: anchored.fragmentId });
-    if (actor.kind === "user") host.ctx.copy?.(link);
-    const said = `${anchored.created ? "anchored" : "already anchored"} line ${row.line + 1}: ${link}${actor.kind === "user" ? " · copied" : ""}`;
-    host.ctx.flash(said);
-    this.noteAgent(actor, said);
+    // The row's line, anchored and copied by the one owner (PIE-1390): the reference note.copy-ref gives for that line. The
+    // list was drawn from the text it read; a note saved since is read again (watched), and the row anchors once it is.
+    let r: Awaited<ReturnType<typeof copyLineRef>>;
+    try { r = await copyLineRef(host.ctx, actor, { blockId: drawnFields.from, line: row.line, revision: drawnFields.revision }, said => this.noteAgent(actor, said)); }
+    catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); throw e; }
     host.redraw();
-    return { block: drawnFields.from, noteLine: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: recordedAnswer(actor) };
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: r.anchor, created: r.created, link: r.text, clipboard: r.clipboard, recordedAs: recordedAnswer(actor) };
   }
 
   /**
@@ -10647,7 +10636,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;
-        const r = await surface.runPress({ act, block: m.id, line: hit.line, label: hit.label }, host, actor, !!alt && !hit.alt, { ...(surface.msg?.id === m.id ? { tile: messageContext.getStore()?.tile } : {}), note: m.id, actor });
+        const r = await surface.runPress({ act, block: m.id, line: hit.line, label: hit.label }, host, actor, !!alt && !hit.alt, { ...(surface.msg?.id === m.id ? { tile: messageContext.getStore()?.tile } : {}), note: m.id, actor }, !!alt && !!hit.alt);
         surface.noteAgent(actor, `pressed ${hit.label} (${act})`);
         return { note: m.id, kind: "control", act, ...(r && typeof r === "object" ? r : {}) };
       }
@@ -10666,7 +10655,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
       const i = hits[0]!, e = surface.element(i), p = e.link!.press!;
       const act = alt && p.alt ? p.alt : p.act;
-      const r = await surface.runPress({ ...p, act }, host, actor, !!alt && !p.alt);
+      const r = await surface.runPress({ ...p, act }, host, actor, !!alt && !p.alt, undefined, !!alt && !!p.alt);
       surface.noteAgent(actor, `pressed ${e.label} (${act})`);
       return { element: i, kind: e.kind, act, ...(r && typeof r === "object" ? r : {}) };
     },
@@ -10684,6 +10673,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
       next: { type: "string", optional: true, about: "after this, ask for these slots of the same button, in order (key,key: a re-pick of filled ones)" },
       run: { type: "boolean", optional: true, about: "after the last slot is answered, press the button (the person's press that asked for them)" },
+      alt: { type: "boolean", optional: true, about: "with run=: the press was the alt press, so its alt= runs" },
     },
     examples: [
       { act: 'button.slot label="pop it" key=target value=drawer.agent', does: "writes target=drawer.agent on the pop it button, so its next press lifts the drawer's agent" },

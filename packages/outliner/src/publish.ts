@@ -54,7 +54,7 @@ import { calloutExtension, CALLOUT_STYLE, publishedCalloutRegistry } from "./pub
 import { BUILTIN_CALLOUT_REGISTRY, type CalloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { drawMarginalia, MARGINALIA_STYLE, MAX_PUBLISHED_MARKS, placeMarkSentinels, plainBody, publishedAnnotations, type PublishedAnnotation } from "./publish-marginalia";
-import { drawAnchors, lineAddresses, placeAnchor, replacementAddresses } from "./publish-anchors";
+import { addressedBlocks, drawAnchors, linkedAddresses, lineAddresses, placeAnchor, replacementAddresses } from "./publish-anchors";
 import { drawSteps, placeStepSentinels, STEP_MENU_STYLE, STEP_STYLE, type PublishedStep } from "./publish-steps";
 import { ReaderLeases } from "./publish-reader-lease";
 import { READER_COMPOSE_STYLE } from "./publish-reader-style";
@@ -1953,7 +1953,7 @@ export class Publisher {
     const known = new Set(index.entries.map((entry) => entry.blockId));
     const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
     const ids = [...new Set([
-      ...[...texts, ...embedded].flatMap((text) => referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId))),
+      ...[...texts, ...embedded].flatMap((text) => [...referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId)), ...addressedBlocks(text)]),
       ...pages.values(),
     ])].filter((id) => !known.has(id)).slice(0, MAX_BLOCK_READ_IDS);
     if (!ids.length) return index;
@@ -2406,7 +2406,7 @@ export class Publisher {
     const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
     index = await this.withShortReferences(index, [...texts, ...embedded]);
     const targets = new Set([
-      ...[...texts, ...embedded].flatMap((text) => referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId))),
+      ...[...texts, ...embedded].flatMap((text) => [...referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId)), ...addressedBlocks(text)]),
       ...pages.values(),
     ].filter((id) => published.has(id)));
     if (!targets.size) return index;
@@ -2972,7 +2972,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const start = pageEmbedStarts.has(reference.start - 1) ? reference.start - 1 : reference.start;
     body = body.slice(0, start) + replacement + body.slice(reference.end);
   }
-  body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));
+  body = linkedAddresses(body, index.labelsOnly ? new Map() : byId, link, inCode).replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));
   // An embedded view is drawn as its lane, not quoted.
   body = body.replace(EMBED_SENTINEL, (_, at: string) => { const shown = rendered[Number(at)] ?? ""; return `\n\n${isComponentSentinel(shown) ? shown : quote(shown)}\n\n`; });
   return linkSoftWords(body, pages, byId, link, inCode).replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");

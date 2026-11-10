@@ -317,7 +317,7 @@
         "packages/claude-mod/hooks/reply-lines.ts:935bc4e60a9caa03",
         "packages/door/src/doc.ts:331dc5a254a9d8a",
         "packages/door/src/doc.ts:e6a81c9922d18704",
-        "packages/door/src/note-ref.ts:79f484b740c8a3f8",
+        "packages/door/src/note-ref.ts:64cbc1bb82fb038",
         "packages/door/src/surface/note.ts:ab8a10226905a4f0",
         "packages/door/src/surface/note.ts:9164a1fa6641fdb",
         "packages/door/src/surface/note.ts:db94126d06602e6a",
@@ -355,7 +355,7 @@
         "packages/door/src/surface/note.ts:eddfd1dd7fa66b72",
         "packages/door/src/surface/note.ts:9d9bbbe85c3c9cdf",
         "packages/door/src/surface/note.ts:eddfd1dd7fa66b72",
-        "packages/door/src/surface/note.ts:eb72233cdacf3d37",
+        "packages/door/src/surface/note.ts:71af2522f9ca5c4f",
         "packages/door/src/surface/note.ts:6dbf26c059ddfb6",
         "packages/door/src/surface/note.ts:97bd168b8ee871b8",
         "packages/door/src/surface/note.ts:f046456b2d26505f",
@@ -389,7 +389,7 @@
     "packages/door/src/desk/screen-layout.ts": 2324,
     "packages/door/src/screens.ts": 2237,
     "packages/door/src/showcase/showcase.ts": 2134,
-    "packages/door/src/surface/note.ts": 12773,
+    "packages/door/src/surface/note.ts": 12763,
     "packages/outliner/pi-extension/index.ts": 3264,
     "packages/outliner/src/annotation-repository.ts": 2194,
     "packages/outliner/src/detail-controller.ts": 4664,
@@ -397,9 +397,9 @@
     "packages/outliner/src/detail-pi.ts": 2016,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4936,
-    "packages/outliner/src/server.ts": 4274,
+    "packages/outliner/src/server.ts": 4273,
     "packages/outliner/src/store.ts": 6428,
     "packages/outliner/src/tree-controller.ts": 3180,
-    "packages/outliner/src/types.ts": 2713
+    "packages/outliner/src/types.ts": 2712
   }
 }

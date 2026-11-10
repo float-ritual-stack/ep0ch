@@ -1,6 +1,6 @@
 import { outlinesDir } from "./discover";
 import { openLinked } from "@ep0ch/outliner/link";
-import { DEFAULT_WEB_ORIGIN, WEB_ROOT, webBase } from "@ep0ch/outliner/artifact-grants";
+import { DEFAULT_WEB_ORIGIN, webBase } from "@ep0ch/outliner/artifact-grants";
 import { servingSession } from "./session/session-term";
 import type { Ctx } from "./app";
 import { qualifiedReference, referencedBlock } from "@ep0ch/outline-core/link-syntax";
@@ -53,17 +53,6 @@ export async function openRemote(url: string, ctx: Ctx): Promise<boolean> {
   return false;
 }
 
-/**
- * A note's address on the web client (PIE-1297, `note.copy-ref kind=link`): `target` is its id or Work ID, at
- * `/pub/o/<outline>/p/<target>` on EP0CH_WEB_URL's origin (`webBase`), else `DEFAULT_WEB_ORIGIN`. The outline is always
- * named: the door doesn't know which outline the web client serves at its root, and that one's `/pub/o/<name>/` redirects
- * to `/pub/p/`. With no outline known, `/pub/p/<target>`. `destinationOf` reads it back as a note.
- */
-export function notePageUrl(target: string, outline: string | undefined, env: Record<string, string | undefined> = process.env): string {
-  const base = webBase(env) ?? `${DEFAULT_WEB_ORIGIN}${WEB_ROOT}`;
-  return `${base}${outline ? `/o/${encodeURIComponent(outline)}` : ""}/p/${encodeURIComponent(target)}`;
-}
-
 const FRAGMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /**
@@ -79,7 +68,8 @@ export function destinationOf(url: string, env: Record<string, string | undefine
   if (/^https?:\/\//i.test(u)) {
     try {
       const p = new URL(u);
-      // What notePageUrl writes, on the web client's origin or the default one: `/pub/o/<outline>/p/<target>`, or `/pub/p/<target>` (this outline's).
+      // A note's web link (the service's `notes.address` link, PIE-1316), on the web client's origin or the default one:
+      // `/pub/o/<outline>/p/<target>`, or `/pub/p/<target>` (the home outline's).
       const ours = [DEFAULT_WEB_ORIGIN, webBase(env)].some(b => b && new URL(b).host === p.host);
       const match = ours && p.pathname.match(/^\/pub\/(?:o\/([^/]+)\/(?:p\/)?|p\/)([^/]+)\/?$/);
       if (match) {

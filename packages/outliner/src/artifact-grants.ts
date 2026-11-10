@@ -10,6 +10,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ArtifactReader } from "@ep0ch/outline-core/artifacts";
+import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 
 /** How long a path the owner's page hands its frame keeps working: the frame loads its own files from it. */
 export const OWNER_GRANT_MS = 60 * 60_000;
@@ -86,6 +87,17 @@ export const DEFAULT_WEB_ORIGIN = "https://my.ep0ch.sh";
 export function webBase(env: Record<string, string | undefined> = process.env): string | undefined {
   const first = env.EP0CH_WEB_URL?.split(",").map(origin => origin.trim()).find(Boolean);
   return first && URL.canParse(first) ? `${new URL(first).origin}${WEB_ROOT}` : undefined;
+}
+
+/**
+ * A note's web link (PIE-1316, `notes.address`'s `link`, what `note.copy-ref kind=link` copies): `<base>/o/<outline>/p/<its
+ * Work ID, else its id>`. `base` is the web address a publisher said (its own, or another's on the host); with none, the web
+ * client's (EP0CH_WEB_URL, else DEFAULT_WEB_ORIGIN). The outline is always named, so the link opens the note pasted into any
+ * outline's note; the home outline's `/o/<name>/` redirects to its root.
+ */
+export function noteWebLink(base: string | undefined, outline: string, note: { id: string; text: string }, env: Record<string, string | undefined> = process.env): string {
+  const at = (base ?? webBase(env) ?? `${DEFAULT_WEB_ORIGIN}${WEB_ROOT}`).replace(/\/+$/, ""), named = /\/o\/[^/]+$/.test(at) ? at : `${at}/o/${encodeURIComponent(outline)}`;
+  return `${named}/p/${encodeURIComponent(workIdOf(note) ?? note.id)}`;
 }
 
 /** The page that opens artifact `ref` in the web client (signed in, or by a share), or none when no web client is known. */

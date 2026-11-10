@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { propertyValueLinks } from "../src/property-grammar";
 import {
+  bareAddressOccurrences,
   blockRefText,
   blockReferenceOccurrences,
   embedOccurrences,
@@ -125,4 +126,21 @@ test("a figure's cells name notes to resolve; its code doesn't (PIE-1334)", () =
   const note = ["Asks", "", "::graph-table", "---", "rows:", '  - ["((0a1b2c3d|the shed)) x", "`((9f8e7d6c))`"]', "---", "::", "", "```", "((1a2b3c4d))", "```"].join("\n");
   expect(blockReferenceOccurrences(note)).toEqual([]);
   expect(referencesToResolve(note).map(r => r.blockId)).toEqual(["0a1b2c3d"]);
+});
+
+test("a bare address is a link where nothing else holds it: a web link, an ep0ch:// address, not code, a Markdown link, a reference or a property (PIE-1401)", () => {
+  const uri = `ep0ch://shed@garden-pi/b/${PAINT_ID}#beds`;
+  const text = [
+    `Paste https://my.ep0ch.sh/pub/p/HOME-006. and (${uri}) here`,
+    "`https://example.org/code` [docs](https://example.org/docs) ![p](https://example.org/p.png)",
+    `((${PAINT_ID}|see https://example.org/label)) [web::https://example.org/prop] ep0ch://not-an-address`,
+    "a page (https://en.wikipedia.org/wiki/Pea_(plant)) and https://example.org/a_b_ ok",
+  ].join("\n");
+  expect(linkOccurrences(text).filter(l => l.kind === "url").map(l => [text.slice(l.start, l.end), l.kind === "url" ? l.url : null])).toEqual([
+    ["https://my.ep0ch.sh/pub/p/HOME-006", "https://my.ep0ch.sh/pub/p/HOME-006"],
+    [uri, uri],
+    ["https://en.wikipedia.org/wiki/Pea_(plant)", "https://en.wikipedia.org/wiki/Pea_(plant)"],
+    ["https://example.org/a_b", "https://example.org/a_b"],
+  ]);
+  expect(bareAddressOccurrences("see http://").map(a => a.url)).toEqual([]);
 });
