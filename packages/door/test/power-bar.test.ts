@@ -135,7 +135,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.query).toBe('(text~"Runner beans")');
     expect(frame().some(line => line.includes("Runner beans"))).toBe(true);
     await app.dispatch.press("bar.close");
-    const entry = { id: "demo", name: "Demo", state: "active", actions: [] } as any;
+    const entry = { id: "demo", name: "Demo", state: "active", serving: true, actions: [] } as any;
     const action = { id: "run", name: "ext.demo.run", label: "Run demo", args: [{ name: "query", type: "query" }] } as any;
     let ran: Record<string, string> | null = null;
     await askingFirst(app as any, entry, action, undefined, {}, USER, async args => { ran = args; }, false, true);
@@ -693,7 +693,7 @@ describe.skipIf(!outliner)("the power bar", () => {
   });
 
   test("a script's form asks every slot it declares, the needed first and the optional ones left out when empty; a query slot completes (PIE-1473)", async () => {
-    const entry = { id: "demo", name: "Demo", state: "active", actions: [] } as any;
+    const entry = { id: "demo", name: "Demo", state: "active", serving: true, actions: [] } as any;
     const action = { id: "run", name: "ext.demo.run", label: "Run demo", args: [
       { name: "query", type: "query", description: "what to draw" },
       { name: "title", type: "text", required: true },

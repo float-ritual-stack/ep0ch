@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An extension says what it serves, how it installs and what it attaches; one cap on every agent write (Nov 3 review cards 16 and 6, PIE-1549, PIE-1544)
+
+- **The host's list says what serves:** every `extensions.list` entry carries `serving` (active, or failed on its last good copy), from the registry's own `serving()`. The door reads it; it no longer works it out from `state` and `name`.
+- **The host's list says how to install:** each available extension carries `install` (`ep0ch ext add <id>`). The power bar's install row shows that command instead of spelling it again.
+- **An extension can attach a surface:** its manifest's `attachments` (`kind`, `noun`) come back on its list entry as `<id>.<kind>`, and while it is served the door accepts that kind as `target=` (`attachment.split`, `placement.menu`). The five built-in kinds stay. An unknown `target=` is refused once, saying what is known and that an extension adds its own.
+- **An agent's write passes the MCP access cap once:** the gateway no longer wraps the outlines to lower the access status and then applies the same cap again in `levelFor`. Every board knows who is asking, so reads and writes use the write gate's one `effectiveLevel`.
+- **Run:** `ep0ch install --apply` (the list gained fields; PROTOCOL needs loki's bump at the final rebase).
 ### ctrl+z takes back a note's newest change, whatever kind it was (Nov 3 review card 15)
 
 - **One journal per note:** a step's status, a callout, a picture's layout, a `::use` fill, a source line, an extension's write and a note move are entries in one journal (`undo-journal.ts`) that carry their note, kind, what takes them back, who made them and a label; ctrl+z reads the note's newest instead of choosing among eight stacks by a global sequence. Settings keep a journal of their own scope through the same type.

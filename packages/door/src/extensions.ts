@@ -20,6 +20,7 @@ import { errorDetails, type MessageDetails } from "./status-log";
 // The service announces a change (an `extensions` event): the list is read again and bound again, so an
 // extension added or removed while the door runs shows up or goes away without a restart.
 import { TXN } from "./surface/txn";
+import { declareAttachmentKinds } from "./surface/attachments";
 import { INVITES, type Press } from "./surface/invite";
 import { useResourceProviders } from "./resource-providers";
 import { hostname } from "node:os";
@@ -115,10 +116,10 @@ const boundKinds = new Map<string, string>();
   ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
 
 /**
- * An extension the service serves from: active, or failed but still on its last good version (it has a name).
- * What it serves is the service's call: a folder it doesn't serve lists no handlers, actions or tiles.
+ * An extension the service serves from: active, or failed but still on its last good version. The host's record says it
+ * (`serving`, from the registry's own `serving()`); a folder it doesn't serve lists no handlers, actions or tiles.
  */
-const serving = (e: ExtensionEntry) => e.state === "active" || (e.state === "failed" && !!e.name);
+const serving = (e: ExtensionEntry) => e.serving;
 
 /** One line of extension text (a name, a label, a message): no control characters reach the terminal. */
 export const oneLine = (v: unknown) => printable(v, " ").trim();
@@ -891,6 +892,8 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   setAnsweringAgents((next?.extensions ?? []).flatMap(e => (e.agents ?? []).filter(a => a.threads).map(a => ({ name: a.name, ...(a.description ? { description: a.description } : {}), ...(a.ask ? { ask: a.ask } : {}), ...(next?.pages?.[e.id] ? { page: next.pages[e.id]! } : {}) }))));
   useResourceProviders(next?.resourceProviders ?? []);
   const served = (next?.extensions ?? []).filter(serving);
+  // The surfaces they attach beside a note: their kinds are accepted as a `target=` while they're served, gone when they stop.
+  declareAttachmentKinds(served.flatMap(e => e.attachments ?? []));
   const problems: string[] = [];
   for (const id of boundFacets) unregisterFacetSource(id);
   boundFacets.clear();

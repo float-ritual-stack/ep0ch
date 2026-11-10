@@ -4,8 +4,9 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Attachments, type AttachedState, type AttachmentDef, type AttachmentHost, type AttachmentKind } from "../src/surface/attachments";
+import { ATTACHMENT_KINDS, Attachments, attachmentKinds, declareAttachmentKinds, type AttachedState, type AttachmentDef, type AttachmentHost, type AttachmentKind } from "../src/surface/attachments";
 import type { AttachedSide } from "../src/surface/attached";
+import { bindExtensions } from "../src/extensions";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 
@@ -98,4 +99,35 @@ test("note.ts keeps no placement code of its own for an attachment", () => {
   // Geometry, float frames and tiles are the layer's: the reader asks it, never draws or sizes one itself.
   expect(src.match(/drawAttachedFloat\(/g)?.length ?? 0).toBe(1); // the comment's box, placed by its passage
   expect(src).not.toMatch(/new AttachedTile\(|renderBeside|placeSources|placeListPreview|placeEditPreview|splitAttachment|settingsTile\(|sourcesTile\(/);
+});
+
+test("binding the host's list declares the kinds of the extensions it says it serves, and only those", () => {
+  const entry = (id: string, serving: boolean) => ({ id, name: id, version: 1, state: serving ? "active" : "disabled", serving, handlers: [], actions: [], agents: [], tiles: [], bar: [], completion: [], attachments: [{ kind: `${id}.pins`, noun: "pins" }] });
+  const list = (...e: ReturnType<typeof entry>[]) => ({ extensions: e, tileKinds: [], rules: [], ruleProblems: [], available: [], resourceProviders: [], pages: {}, demos: {}, about: {} }) as never;
+  try {
+    bindExtensions(list(entry("pinboard", true), entry("idle", false)));
+    expect(attachmentKinds()).toEqual([...ATTACHMENT_KINDS, "pinboard.pins"]);
+  } finally { bindExtensions(null); }
+  expect(attachmentKinds()).toEqual([...ATTACHMENT_KINDS]);
+});
+
+test("a served extension's record declares an attachment kind; an unknown one is refused once, with why (Nov 3 review card 16, ledger H)", async () => {
+  const { def } = made("sources");
+  const gizmo = made("pinboard.pins");
+  const layer = new Attachments([def, gizmo.def]);
+  const { h } = host(false);
+  try {
+    // Not declared yet: the boundary refuses it and says what is known and where a new one comes from.
+    expect(() => layer.kind("pinboard.pins")).toThrow(/no attachment kind[\s\S]*comment, sources[\s\S]*manifest's attachments/);
+    expect(() => layer.kind("nonsense")).toThrow("no attachment kind");
+    declareAttachmentKinds([{ kind: "pinboard.pins", noun: "pins" }, { kind: "sources", noun: "can't shadow a built-in" }]);
+    expect(layer.kind("pinboard.pins")).toBe("pinboard.pins");
+    expect(attachmentKinds()).toEqual([...ATTACHMENT_KINDS, "pinboard.pins"]);
+    // The layer places it like any: no placement code of its own.
+    expect(await layer.put("pinboard.pins", "floating", h)).toBe("floating");
+    // Stopped being served: refused again.
+    declareAttachmentKinds([]);
+    expect(() => layer.kind("pinboard.pins")).toThrow("no attachment kind");
+    expect(layer.kind("sources")).toBe("sources");
+  } finally { declareAttachmentKinds([]); }
 });
