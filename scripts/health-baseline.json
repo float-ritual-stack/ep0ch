@@ -355,7 +355,7 @@
     "packages/door/src/desk/screen-layout.ts": 2324,
     "packages/door/src/screens.ts": 2237,
     "packages/door/src/showcase/showcase.ts": 2134,
-    "packages/door/src/surface/note.ts": 9101,
+    "packages/door/src/surface/note.ts": 9090,
     "packages/outliner/pi-extension/index.ts": 3264,
     "packages/outliner/src/annotation-repository.ts": 2194,
     "packages/outliner/src/detail-controller.ts": 4074,

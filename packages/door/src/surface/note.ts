@@ -117,7 +117,7 @@ import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { blockdownHooks, drawIn, embedOnly, linkSink, NO_READER, readableSource, sequenceStart, tagInto } from "./blockdown-context";
 export { embedOnly, readableSource } from "./blockdown-context";
-import { copyControls, pickTarget } from "./note-targets";
+import { bodyTargets, copyControls, pickTarget } from "./note-targets";
 export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, def, keyCaption, agentLabel, agentWords, asActor, type ActionSet, type ArgsOf, type ArgsOfSet } from "./actions";
 import { Dispatcher } from "./dispatch";
@@ -678,12 +678,15 @@ export class NoteSurface {
    * The reading position (PIE-1556): the current element's key, the one place `[ ]`, a click and `act` put it, and what ⏎,
    * a click and element.open act on and the ruler tints (PIE-441). There is no second cursor: a link is current as its element.
    */
-  private cur: string | null = null;
+  private pos: { key: string | null; link: Link | null } = { key: null, link: null };
+  private get cur(): string | null { return this.pos.key; }
+  /** Moving the position to an element (or letting go) drops a link that was waiting to be drawn: there is one position. */
+  private set cur(key: string | null) { this.pos = { key, link: null }; }
   /**
-   * A link selected (`selectLink`) while the note wasn't laid out yet (shown again, not yet drawn): its element becomes
-   * the position at the next layout, unless the position moved meanwhile.
+   * A link selected (`selectLink`) while the note wasn't laid out yet (shown again, not yet drawn) is the position too
+   * (`pos.link`): its element becomes `cur` at the next layout, unless the position moved meanwhile.
    */
-  private pendingLink: Link | null = null;
+  private get pendingLink(): Link | null { return this.pos.link; }
   /** A collection row picked before its element is drawn (a page turn, a row off the viewport): the [ ] position lands on it at the next layout (PIE-1501). */
   private pendingRow: { key: string; row: string; group?: string } | null = null;
   /** The collection row the [ ] position is about to land on (pendingRow), for what asks between the pick and the layout. */
@@ -1986,24 +1989,13 @@ export class NoteSurface {
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     this.hits.push(...headerHit.hits);
     const figureCol = (row: number) => wideFigureAt(doc, row) ? host?.heroBounds?.col ?? 0 : bx;
-    const firstOf = new Map<number, string>();
-    for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + figureCol(r.line)}`) ?? "");
-    for (const r of doc.links) {
-      const row = r.line - this.scroll, dx = figureCol(r.line), cols = wideFigureAt(doc, r.line)?.cols ?? w;
-      const link = drawn[r.n];
-      if (link && row >= 0 && row < room && r.from < cols) this.hits.push({ row: top + row, from: r.from + dx, to: Math.min(cols, r.to) + dx, link, elem: firstOf.get(r.n) || undefined });
-    }
-    // An image's caption opens it (its controls, tagged above, come first); a click on the image makes it the `[ ]` position.
-    for (const e of this.elems) {
-      if (!e.link?.media) continue;
-      const row = e.row - top - this.scroll;
-      if (row >= 0 && row < room) this.hits.push({ row: e.row - this.scroll, from: e.from, to: Math.min(w, e.to), link: e.link, elem: e.key });
-      const x = doc.media.find(x => top + x.row === e.row), im = x?.image !== undefined ? doc.images[x.image] : undefined;
-      if (im) for (let r = im.line; r < im.line + im.rows; r++) {
-        const at = r - this.scroll;
-        if (at >= 0 && at < room) this.hits.push({ row: top + at, from: bx + im.col, to: Math.min(w, bx + im.col + im.cols), image: e.key });
-      }
-    }
+    // The links and pictures are the shared builder's (note-targets.ts), as a river column's digest uses it. An image's
+    // caption opens it (its controls, tagged above, come first); a click on the image makes it the `[ ]` position.
+    this.hits.push(...bodyTargets(doc, drawn, this.elems, {
+      at: r => { const row = r - this.scroll; return row >= 0 && row < room ? top + row : null; },
+      dx: figureCol, cols: r => wideFigureAt(doc, r)?.cols ?? w, bx, w, elemBx: bx, top,
+      elemOf: r => keyOf.get(`${top + r.line}:${r.from + figureCol(r.line)}`),
+    }));
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
       if (whole.has(k.thread)) continue;
@@ -2620,9 +2612,8 @@ export class NoteSurface {
     const ruled = current && !this.framedList(current) ? current.ruler : null;
     const lines = doc.lines.map((l, r) => (ruled && r >= ruled[0] && r < ruled[1] && !pictureRowsOf(doc.images, 0).has(r) ? paintRange(pad(l, bw), 0, bw, RULER_BG) : l));
     const headLines = head.map((l, r) => (ruled && r - head.length >= ruled[0] && r - head.length < ruled[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
-    const targets: Hit[] = [];
     const elemOf = new Map<Link, string>(this.elems.filter(e => e.link).map(e => [e.link!, e.key]));
-    for (const r of doc.links) { const link = drawn[r.n]; if (link) targets.push({ row: r.line, from: r.from, to: r.to, link, elem: elemOf.get(link) }); }
+    const targets: Hit[] = bodyTargets(doc, drawn, this.elems, { at: r => r, dx: () => 0, cols: () => Infinity, bx: 0, w: bw, elemBx: this.bx, top: 0, elemOf: r => { const l = drawn[r.n]; return l ? elemOf.get(l) : undefined; } });
     for (const [i, row] of (picks?.rows ?? []).entries()) targets.push({ row, from: 0, to: bw, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     // Every row of a wrapped heading is its disclosure (PIE-1349).
     for (const h of doc.heads) { const n = points.findIndex(p => p.key === h.key); if (n >= 0) for (let k = 0; k < (h.rows ?? 1); k++) targets.push({ row: h.row + k, from: 0, to: h.cols, fold: n + 1 }); }
@@ -5043,7 +5034,7 @@ export class NoteSurface {
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
-  letGo() { this.cur = null; this.pendingLink = null; this.pendingRow = null; }
+  letGo() { this.cur = null; this.pendingRow = null; }
   /**
    * The region whose row behind its mark is shown: the one the `[ ]` position is in (its mark, a control in that row, a link
    * in its words). Hovering would do it too, but the door asks the terminal for button tracking, not motion.
@@ -5067,7 +5058,6 @@ export class NoteSurface {
     const p = this.msg && this.foldsIn(this.msg).points.find(p => `fold:${p.key}` === e.key);
     if (p && this.previews(p)) this.selectListPoint();
     const l = e.link;
-    this.pendingLink = null;
     // A row of an inline ::links (PIE-693): it's that component's selection too, and its preview follows.
     const lb = l?.listRow;
     if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
@@ -6312,7 +6302,7 @@ export class NoteSurface {
     // A link selected before its element is drawn (not laid out yet, or folded away) waits until it is drawn, the position
     // moves (setElem) or the note changes (letGo): a repaint that still doesn't draw it keeps it.
     const unlaid = this.cur === null ? this.pendingLink : null, e = unlaid && this.elementOfLink(unlaid);
-    if (e) { this.cur = e.key; this.pendingLink = null; }
+    if (e) this.cur = e.key;
     const loading = !!this.src && (stepsLoading(this.src.board) || embedsLoading(this.src.board));
     if (this.cur && !this.foldSel && !drawn(this.cur)) {
       const a = this.stepRenamed, cur = this.cur;
@@ -8821,8 +8811,7 @@ export class NoteSurface {
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
     const e = this.elementOfLink(l);
     if (e) { this.setElem(e); return; }
-    this.cur = null;
-    this.pendingLink = l;
+    this.pos = { key: null, link: l };
   }
   /** The link the position is on: the current element's, else one selected before it was drawn. */
   selectedLink(): Link | null { return (this.cur ? this.elems.find(x => x.key === this.cur)?.link : undefined) ?? this.pendingLink; }

@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A link, chip or picture opens the same in the reader and in a river column (PIE-1543, PIE-1556)
+
+- **One builder for the link and picture targets:** the reader's scroll window and a river column's whole-note digest build them through `bodyTargets` (`surface/note-targets.ts`) instead of two copies. A picture's caption and cells are now targets in a river column, as in the reader.
+- **One reading position:** a link selected before the note is drawn is the same position as a current element (`cur`), not a second field, so moving or letting go drops it and ⏎ has one thing to act on.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
+
 ### The outliner's three biggest files: what's pure moved beside them, copies folded onto their owners (PIE-1376)
 
 - **Nothing you use changes:** Tree, Detail, the host and the CLI answer exactly as before; Tree and Detail were driven side by side with main's and drew the same screens. This is for whoever opens the code next.

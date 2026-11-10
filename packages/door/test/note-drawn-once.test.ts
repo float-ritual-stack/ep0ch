@@ -245,4 +245,45 @@ describe("the one drawing: the reader and the digest index the same header targe
       expect(plain(drawn.lines[copy.row]!)).toContain("⧉");
     }
   });
+
+  // Nov 3 review card 2 and card 10: one index of the drawn rows, one reading position. Hosts by notes.
+  const linked = { ...note, text: "Sow the leeks\nSee ((51111111-2222-4333-8444-555555555555|the plot)) and [[Beds]].\n\n# Beds\nunder\n\n```\nrows: 3\n```" };
+  const draw = {
+    reader: (s: NoteSurface, h: SurfaceHost, w: number) => { s.render(w, 40, h); return (s as any).hits as any[]; },
+    river: (s: NoteSurface, h: SurfaceHost, w: number) => { const d = s.digest(linked as any, w, h); return [...d.header.targets, ...d.targets] as any[]; },
+  };
+  const linkHits = (hits: any[]) => hits.filter(x => "link" in x && x.elem).map(x => `${x.elem}:${x.link.page ?? x.link.block}`).sort();
+
+  test.each([44, 160])("every link is the same element in the reader and in a river column, at %d columns", w => {
+    const seen = Object.entries(draw).map(([name, f]) => {
+      const s = new NoteSurface(), h = host();
+      s.show(linked as any, h);
+      return [name, linkHits(f(s, h, w))] as const;
+    });
+    expect(seen[0]![1].length).toBeGreaterThan(0);
+    expect(seen[1]![1]).toEqual(seen[0]![1]);
+  });
+
+  test.each(Object.keys(draw) as (keyof typeof draw)[])("a link selected before it is drawn is the one position in the %s", host_ => {
+    const s = new NoteSurface(), h = host();
+    s.show(linked as any, h);
+    s.selectLink(1);
+    const wanted = s.selectedLink();
+    expect(wanted?.page).toBeDefined();
+    draw[host_](s, h, 80);
+    // Drawn: the position is that link's element; there is nothing left waiting.
+    expect((s as any).cur).toBe(s.elementOfLink(wanted!)?.key);
+    expect((s as any).pendingLink).toBeNull();
+    expect(s.selectedLink()).toBe(s.elems.find(e => e.key === (s as any).cur)?.link ?? null);
+    s.letGo();
+    expect(s.selectedLink()).toBeNull();
+  });
+
+  test("moving the position drops a link still waiting to be drawn", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(linked as any, h);
+    s.selectLink(0);
+    s.letGo();
+    expect(s.selectedLink()).toBeNull();
+  });
 });
