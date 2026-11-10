@@ -230,7 +230,9 @@ export const COMMENT_DEFS = {
     run: (_, { surface, host }) => surface.commentEscape(host),
   }),
   "comment.close": def({
-    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)", keys: modeActionKeys(ATTACHED_KEYS, "comment.escape"),
+    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)",
+    // Esc is comment.escape's key (PIE-1667): it closes through this action once nothing is unsent, so this says that, not esc again.
+    keys: [{ via: "esc runs comment.escape, which closes the comment this way when nothing is unsent (esc twice puts typed text aside first)" }],
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
     examples: [
