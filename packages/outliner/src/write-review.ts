@@ -303,7 +303,9 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
       const schema = schemas.find(x => x.id === kit.choice);
       // A section that draws a figure already chose one: it isn't told about another.
       const held = kitIn(s.text, schemas);
-      if (schema && !held.has(schema.id) && ![...held].some(id => schemas.some(x => x.id === id && x.group === "figures"))) {
+      // Open boxes are choices Evan ticks: a decision figure would leave them only to read (PIE-1657, write-shape's `choice`).
+      const ticks = schema?.id === "graph-decision" && s.text.split("\n").some(l => /^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+\[ \]/.test(l));
+      if (schema && !ticks && !held.has(schema.id) && ![...held].some(id => schemas.some(x => x.id === id && x.group === "figures"))) {
         const name = blockNameOf(schema);
         const made = figurePatch(s.text, schema.id);
         const patch = "patch" in made && made.patch.every(p => text.split(p.observed).length === 2) ? made.patch : undefined;
