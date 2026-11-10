@@ -224,7 +224,37 @@ async function openSettingsCard(ctx: ExtOn["ctx"] & { dispatch: NonNullable<ExtO
   // That extension's, wherever the screen was left, and its card has the keys.
   await ctx.dispatch.act({ action: "settings.index.select", tile: "index", args: { ext: e.id } }, actor).catch(() => { /* no list on the screen: the card shows what the screen opened on */ });
   await ctx.dispatch.act({ action: "tile.focus", tile: "card" }, actor).catch(() => { /* a screen without the tile: its keys stay where they are */ });
+  // In the card, as the settings action puts the keys in it: asked for again on the same page, the card that's already
+  // there takes them too, never left with "e/⏎ enter" (PIE-1725).
+  await ctx.dispatch.act({ action: "settings", tile: "card" }, actor).catch(() => { /* no card: the screen says why */ });
   return opened;
+}
+
+/**
+ * Whose settings a settings card shows when they live outside the note it frames (PIE-1709, PIE-1725): an extension's
+ * config.json on the outline's host, or the door's own (the trail's, src/door-settings.ts). One shape, the service's
+ * `ExtensionSettings`, so the card reads them alike; each owner has its own write.
+ */
+export interface SettingsOwner {
+  id: string; name: string; description?: string;
+  settings: ExtensionSettings;
+  /** Its card's fields, from its own schema (`extensionCardSchema`). */
+  schema(s: ExtensionSettings): ComponentSchema;
+  /** Each field's value and state as the card shows them. */
+  values(s: ExtensionSettings): Map<string, ExtensionCardField>;
+  /** Its settings as they are now (a write since this card was read), else the ones it was read with. */
+  now(): ExtensionSettings;
+  /** Write `given` (`key=value`, `unset=a,b`), as `actor`: its settings as written, and an error that followed. */
+  write(ctx: ExtOn["ctx"], given: Record<string, unknown>, actor: Actor): Promise<{ settings: ExtensionSettings; error?: string }>;
+  /** Where they're kept, in the card's header ("on float-2", "here, in trail.json"). */
+  kept?: string;
+}
+
+/** An extension as a settings card's owner: its configSchema's fields, written to config.json through the service. */
+export function extensionOwner(e: ExtensionEntry, s: ExtensionSettings): SettingsOwner {
+  return { id: e.id, name: e.name ?? e.id, ...(e.description ? { description: e.description } : {}), settings: s,
+    schema: x => extensionCardSchema(e, x), values: x => extensionCardValues(e, x), now: () => settingsNow(e) ?? s,
+    write: (ctx, given, actor) => configureExtension(ctx, e, settingsNow(e) ?? s, given, actor) };
 }
 
 /** The extension a page is about: its `[ext.page::<id>]`, written by the service on every extension's page. */
@@ -238,7 +268,7 @@ export function pageExtension(props: readonly { key: string; value: string }[]):
  * field per setting and per secret (or `config`, whole, when the schema isn't named fields), each its own words. The
  * card reads it as it reads a component's, so the keys, placements and actions are the card's own.
  */
-export function extensionCardSchema(e: ExtensionEntry, s: ExtensionSettings): ComponentSchema {
+export function extensionCardSchema(e: { id: string; name?: string; description?: string }, s: ExtensionSettings): ComponentSchema {
   const field = (f: ExtensionSettingField): PropSchema => ({
     key: f.name, where: "note", meaning: f.description ?? f.name,
     ...(f.type === "boolean" ? { type: "enum", values: [{ value: "true", meaning: "on" }, { value: "false", meaning: "off" }] }
@@ -260,11 +290,11 @@ export function extensionCardSchema(e: ExtensionEntry, s: ExtensionSettings): Co
 export interface ExtensionCardField { value: string | null; state: ExtensionSettingField["state"] | "missing" | "set"; tries?: string; secret?: true; whole?: true }
 
 /** Each card field's value and state, in the schema's order (`extensionCardSchema`'s props). */
-export function extensionCardValues(e: ExtensionEntry, s: ExtensionSettings): Map<string, ExtensionCardField> {
+export function extensionCardValues(e: ExtensionEntry | null, s: ExtensionSettings): Map<string, ExtensionCardField> {
   const out = new Map<string, ExtensionCardField>();
   if (s.whole) out.set("config", { value: JSON.stringify(s.config), state: Object.keys(s.config).length ? "set" : "default", whole: true });
   for (const f of s.fields) {
-    const tries = triesOf(e, f.name);
+    const tries = e ? triesOf(e, f.name) : undefined;
     out.set(f.name, { value: f.value !== undefined ? shownValue(f, f.value) : null, state: f.state, ...(tries ? { tries } : {}) });
   }
   for (const x of s.secrets) out.set(secretArg(x.name), { value: x.reference ?? null, state: x.state, secret: true });

@@ -557,6 +557,9 @@ export class Dispatcher {
     return asked.hosted.get(address)!;
   }
   private resolveNow(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null {
+    // A block this screen's own tiles show is theirs to rank (byBlock, as the actor asks); the host layer finds it
+    // only elsewhere (a recorded comment's note in the drawer or a group, PIE-1725).
+    if (BLOCK.test(sel) && this.tilesNow().some(t => t.shows?.startsWith(sel))) return null;
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
     return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
@@ -613,6 +616,8 @@ export class Dispatcher {
   }
 
   /** A tile showing `note` here, or on the screen this host hands its tile actions to (the door's shell to its desk). */
+  /** The tile here showing block `sel` (an id or its first 8+ characters), as `tile=` ranks them (byBlock), or null; never one that only lists it. */
+  shownBy(sel: string, actor: Actor = USER): TileRef | null { return this.byBlock(sel, this.tilesNow().filter(t => t.shows?.startsWith(sel)), actor)?.t ?? null; }
   private showing(note: string): TileRef | null {
     const address = this.where().address;
     return this.tile(note) ?? (address ? this.resolve(address)?.dispatch.tile(note) ?? null : null);
@@ -857,8 +862,12 @@ export class Dispatcher {
         const value = recordedArgs[key];
         if (spec.kind === "tile" && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
       }
+      // What a recorded step acts on (PIE-1725), decided here once: a reader's note action (a comment, a reply, the thread
+      // list, an edit) acts on the note its tile shows, named by its id (the block-id grammar finds whichever tile shows it at
+      // replay, and refuses with "open it first" when none does); every other step acts on its tile, by the tile's id.
+      const onNote = reg.set.scope === "note" && at.tile?.shows && BLOCK.test(at.tile.shows) ? at.tile.shows : undefined;
       const ran = actor.kind === "user" && ctx?.recordAction && def.record !== false
-        ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run, def.record as import("./actions").RecordStep | undefined)
+        ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: onNote ?? at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run, def.record as import("./actions").RecordStep | undefined)
         : run();
       // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
       // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).

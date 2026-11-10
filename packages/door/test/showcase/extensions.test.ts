@@ -823,6 +823,62 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(existsSync(set.settings.file)).toBe(false);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
+
+  // PIE-1725: every row on the settings screen opens a card like yo's. The trail's settings are its action's own fields,
+  // kept in this door's trail.json; a setting's line clears with ctrl+u; settings opened again keeps the keys in the card.
+  test("PIE-1725: the trail row opens a settings card of its own fields; ctrl+u clears a line; settings again keeps the keys in the card", async () => {
+    const top = () => app.screens().at(-1) as any;
+    const drawn = () => (top().render(app).lines as string[]).map(l => l.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
+    const card = () => top().paneNamed("card") as ReaderPane;
+    const inCard = () => (top() as Desk).isIn(card());
+    await app.dispatch.press("screen.open", { name: "settings" });
+    await until(() => top().name === "settings", "the settings screen", 8000);
+    const listed = await app.dispatch.act({ action: "settings.index.filter", tile: "index", args: { text: "", done: true } }, USER) as { rows: { label: string }[] };
+    const trailRow = listed.rows.findIndex(r => r.label === "trail");
+    expect(trailRow).toBeGreaterThanOrEqual(0);
+    // Selected, its card shows beside, from trail.settings' own words; ⏎ gives the card the keys.
+    await app.dispatch.act({ action: "settings.index.select", tile: "index", args: { n: trailRow + 2 } }, USER);
+    await until(() => drawn().includes("settings · Trail") && drawn().includes("days to retain"), "the trail's card", 8000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    expect(drawn()).not.toContain("trail.settings");
+    await app.dispatch.act({ action: "tile.focus", tile: "index" }, USER);
+    press({ kind: "enter" });
+    await until(() => inCard(), "the card has the keys", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    // days: ⏎ edits it in place, the foot says ctrl+u clears, a 0 is refused with the 0 kept, 14 saves into the trail.
+    press({ kind: "enter" });
+    await until(() => drawn().includes("editing days") && drawn().includes("^U clears"), "days being typed", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    press({ kind: "char", ch: "u", ctrl: true });
+    ch("0");
+    press({ kind: "enter" });
+    await until(() => drawn().includes("positive"), "0 refused", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    expect(app.trail.settings.days).toBe(7);
+    press({ kind: "char", ch: "u", ctrl: true });
+    ch("1"); ch("4");
+    press({ kind: "enter" });
+    await until(() => app.trail.settings.days === 14 && drawn().includes("saved · days: 14"), "days saved", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    // An agent reads the same card, and ctrl+z's action puts the person's change back.
+    expect(await app.dispatch.act({ action: "settings", tile: "card" }, { kind: "agent", id: "test-agent" })).toMatchObject({ extension: "trail", fields: expect.arrayContaining([expect.objectContaining({ key: "days", value: "14", state: "set" })]) });
+    await app.dispatch.act({ action: "settings.undo", tile: "card" }, USER);
+    expect(app.trail.settings.days).toBe(7);
+    // An undo the trail refuses (a trail.json that held a value its action can't take) says so, and stays to try again.
+    app.trail.configure({ days: -3 });
+    await app.dispatch.act({ action: "settings.set", tile: "card", args: { key: "days", value: "21" } }, USER);
+    expect(app.trail.settings.days).toBe(21);
+    (app as any).message = "";
+    await expect(app.dispatch.act({ action: "settings.undo", tile: "card" }, USER)).rejects.toThrow("couldn't undo: trail.settings values must be positive");
+    expect((app as any).message).toContain("couldn't undo");
+    await expect(app.dispatch.act({ action: "settings.undo", tile: "card" }, USER)).rejects.toThrow("couldn't undo: trail.settings");
+    app.trail.configure({ days: 7 });
+    // Settings asked for from the settings screen (yo's ⚙, `& settings yo`): yo's card has the keys; out of it (esc) and
+    // asked for again, the keys are in its card again, never left outside it.
+    await app.dispatch.press("ext.yo.settings", {});
+    await until(() => drawn().includes("settings · Yo") && inCard(), "yo's card has the keys", 8000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    press({ kind: "esc" });
+    await until(() => !inCard(), "out of the card", 5000);
+    await app.dispatch.press("ext.yo.settings", {});
+    await until(() => drawn().includes("settings · Yo") && inCard(), "yo's card has the keys again", 8000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    for (let i = 0; i < 4 && top().name === "settings"; i++) { await app.dispatch.press("screen.back", {}); await Bun.sleep(100); }
+    await until(() => top().name !== "settings", "back from the settings screen");
+  }, 60_000);
 });
 
 describe.skipIf(!outliner)("the showcase: the door's own extension folders (PIE-1537)", () => {

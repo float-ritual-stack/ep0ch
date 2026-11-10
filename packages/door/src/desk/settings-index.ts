@@ -1,6 +1,6 @@
 // The settings screen's index (PIE-1709): every place a setting lives, in one list a search reads. The door's own come
-// first, each opening the window that already keeps it (the keys window's rebinding, the trail's, the outline's settings
-// note); then each installed extension with settings, its state in the chip's words (set, its defaults, needs setup,
+// first: the trail's settings as a card like an extension's (PIE-1725, src/door-settings.ts), the keys window's
+// rebinding and the outline's settings note in the windows that keep them; then each installed extension with settings, its state in the chip's words (set, its defaults, needs setup,
 // failing). Typed words find a section by its name and a setting by its name or what it does, the setting shown under its
 // extension. Picking one shows its settings card in the screen's card tile (the open wire); ⏎ gives that card the keys.
 // The rows are the extensions' own words (extensions.list), never a list written here; every key and click is an action.
@@ -17,14 +17,15 @@ import { extensionCardSchema, settingsChip, settingsNow } from "../extension-set
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { ScreenSpec } from "./screen-spec";
+import { DOOR_PAGE, doorOwner, doorPage } from "../door-settings";
 
-/** One row: a heading, a door place (`act`: the action that opens its window), an extension, or one of its settings. */
-export interface IndexRow { label: string; detail?: string; head?: true; ext?: string; field?: string; act?: { action: string; args?: Record<string, unknown> } }
+/** One row: a heading, a door place (`page`: its card's door page; `act`: the action that opens its window), an extension, or one of its settings. */
+export interface IndexRow { label: string; detail?: string; head?: true; ext?: string; page?: string; field?: string; act?: { action: string; args?: Record<string, unknown> } }
 
 /** The door's own settings places (Evan, Nov 10: the windows that keep them now; a schema of their own makes them rows here). */
 const DOOR_ROWS: readonly IndexRow[] = [
   { label: "keys", detail: "rebind any key · the keys window", act: { action: "screen.open", args: { name: "keys" } } },
-  { label: "trail", detail: "how long it keeps visits, when one counts as read", act: { action: "bar.form", args: { op: "open", action: "trail.settings" } } },
+  { label: "trail", detail: "how long it keeps visits, when one counts as read", page: "trail" },
   { label: "outline settings note", detail: "[query-suggest::off] and the like", act: { action: "settings.index.note" } },
 ];
 
@@ -40,10 +41,16 @@ function extensionRows(e: ExtensionEntry, words: readonly string[]): IndexRow[] 
   return has(`${name} ${e.id} ${e.description ?? ""}`) || fields.length ? [row, ...fields] : [];
 }
 
+/** A door place's settings a search finds by name or words, from its card's own schema (the trail's: its action's arguments). */
+function doorFields(r: IndexRow, words: readonly string[]): IndexRow[] {
+  const owner = r.page && words.length ? doorOwner(`${DOOR_PAGE}${r.page}`) : null;
+  return owner ? owner.schema(owner.settings).props.filter(p => words.every(w => `${p.key} ${p.meaning}`.toLowerCase().includes(w))).map(p => ({ label: `  ${p.key}`, detail: p.meaning, page: r.page!, field: p.key })) : [];
+}
+
 /** Every row for the words typed: the door's places, then the extensions, each under its heading. */
 export function indexRows(filter: string): IndexRow[] {
   const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
-  const door = DOOR_ROWS.filter(r => words.every(w => `${r.label} ${r.detail}`.toLowerCase().includes(w)));
+  const door = DOOR_ROWS.flatMap(r => { const found = doorFields(r, words), named = words.every(w => `${r.label} ${r.detail}`.toLowerCase().includes(w)); return named || found[0] ? [r, ...found] : []; });
   const exts = (extensionList()?.extensions ?? []).filter(e => e.state !== "shadowed" && !e.script && settingsNow(e)).flatMap(e => extensionRows(e, words));
   const count = exts.filter(r => !r.field).length;
   return [
@@ -149,20 +156,25 @@ const paneOf = (p: unknown): SettingsIndexPane => {
   return p;
 };
 
-/** The selected extension's page shown in the screen's card tile (the open wire), its setting `field` selected there. */
-async function show(p: SettingsIndexPane, desk: DeskApi, keys: boolean): Promise<{ extension: string; field?: string } | null> {
-  const r = p.selected();
-  if (!r?.ext) return null;
-  const page = extensionList()?.pages?.[r.ext];
-  if (!page) throw new ActionRefused(`${r.ext}'s page isn't written yet`);
-  const m = await desk.ctx.board.get(page);
-  if (!m) throw new ActionRefused(`${r.ext}'s page isn't in the outline`);
+/** The selected extension's page, or door place's (the trail's), shown in the screen's card tile (the open wire), its setting `field` selected there. */
+async function show(p: SettingsIndexPane, desk: DeskApi, keys: boolean): Promise<{ extension?: string; place?: string; field?: string } | null> {
+  const r = p.selected(), of = r?.ext ?? r?.page;
+  if (!r || !of) return null;
+  let m: Msg | null;
+  if (r.page) m = doorPage(r.page);
+  else {
+    const page = extensionList()?.pages?.[of];
+    if (!page) throw new ActionRefused(`${of}'s page isn't written yet`);
+    m = await desk.ctx.board.get(page);
+    if (!m) throw new ActionRefused(`${of}'s page isn't in the outline`);
+  }
+  if (!m) return null;
   // Moving onto it shows it (the select wire, the keys stay in the list); opening it gives the card the keys (the open wire).
-  if (r.field) cardField.set(page, r.field);
-  if (p.shown !== `${r.ext}:${r.field ?? ""}` || keys) desk.openFromTile(m as Msg, keys ? { from: p, link: true } : { from: p });
-  p.shown = `${r.ext}:${r.field ?? ""}`;
+  if (r.field) cardField.set(m.id, r.field);
+  if (p.shown !== `${of}:${r.field ?? ""}` || keys) desk.openFromTile(m, keys ? { from: p, link: true } : { from: p });
+  p.shown = `${of}:${r.field ?? ""}`;
   desk.redraw();
-  return { extension: r.ext, ...(r.field ? { field: r.field } : {}) };
+  return { ...(r.ext ? { extension: r.ext } : { place: of }), ...(r.field ? { field: r.field } : {}) };
 }
 
 /** The setting a pick in the index asked the card to select, by the page it's on: the card tile reads it as it opens. */
@@ -190,7 +202,7 @@ export const SETTINGS_INDEX_ACTIONS = actionSet<KindHost>()("settings-index", {
     },
   }),
   "settings.index.open": def({
-    summary: "open the selected row: an extension's settings card takes the keys (a setting selected in it), a door place opens its own window (the keys window, the trail's form, the outline's settings note)",
+    summary: "open the selected row: its settings card takes the keys (an extension's, the trail's; a setting selected in it), and a door place without one opens its own window (the keys window, the outline's settings note)",
     keys: "⏎, l or → on a row, or a second click on it", touches: "tile", replay: "ask", person: "the keys are the person's",
     args: { n: { type: "number", optional: true, about: "the row, from one; default the selected one" } },
     examples: [{ act: "settings.index.open n=6 tile=index", does: "opens the sixth row's settings" }],
@@ -200,7 +212,10 @@ export const SETTINGS_INDEX_ACTIONS = actionSet<KindHost>()("settings-index", {
       const r = p.selected();
       if (!r) throw new ActionRefused("nothing selected");
       if (r.act) return desk.ctx.dispatch!.act({ action: r.act.action, ...(r.act.args ? { args: r.act.args } : {}) }, actor);
-      return show(p, desk, true);
+      const shown = await show(p, desk, true);
+      // Its card takes the keys, the one already showing that page too (PIE-1725).
+      await desk.ctx.dispatch?.act({ action: "settings", tile: "card" }, actor).catch(() => { /* no card tile: the open wire's tile has them */ });
+      return shown;
     },
   }),
   "settings.index.filter": def({

@@ -2810,18 +2810,18 @@ function valuedText(text: string, values: readonly SiteValue[]): string {
 
 /** Markdown emphasis for a fixed placeholder such as "locked note". */
 const placeholder = (text: string) => `*${text}*`;
+const embedWhy = (message: string | undefined, word: string) => { const said = message?.startsWith(word) ? message.slice(word.length).replace(/^\s*·\s*/, "") : ""; return said ? ` · ${said.replace(/[\\`*_[\]<>]/g, c => `\\${c}`)}` : ""; };
 
 /** An embedded note (or why it is not shown) as markdown, before it is quoted. */
 function renderEmbed(node: TransclusionNode | undefined, context: TextContext): string {
   const expansion = context.embeds!;
   if (!node) return placeholder(TRANSCLUSION_WORDING.limit);
-  // On a public page an embed of a note that isn't public names nothing from it, whatever its state.
-  if (expansion.shareable && !expansion.shareable.has(node.blockId)) return placeholder(NOT_SHARED_NOTE);
+  // On a public page an embed of a note that isn't public names nothing from it, whatever its state; a query or page address that found none is the page's own words, its reason said.
+  if (expansion.shareable && !expansion.shareable.has(node.blockId) && !((node.status === "missing" || node.status === "failed") && resolvedEmbedTarget(node.blockId))) return placeholder(NOT_SHARED_NOTE);
   if (node.status !== "ready") {
-    // Wording that names nothing from the target: a trashed note's title is not shown.
+    // Wording that names nothing from the target (a trashed note's title is not shown); a missing or failed one's reason as the door says it (PIE-1723).
     if (node.status === "deleted") return placeholder("note in Trash");
-    if (node.status === "missing") return placeholder("missing note");
-    if (node.status === "failed") return placeholder("embed failed");
+    if (node.status === "missing" || node.status === "failed") return placeholder(`${node.status === "missing" ? "missing note" : "embed failed"}${embedWhy(node.message, node.status === "missing" ? TRANSCLUSION_WORDING.missing : TRANSCLUSION_WORDING.failed(""))}`);
     return placeholder(node.message ?? "not shown");
   }
   if (expansion.locked.has(node.blockId)) return placeholder(LOCKED_NOTE);
