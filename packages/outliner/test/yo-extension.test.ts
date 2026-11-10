@@ -362,3 +362,167 @@ test("asked about itself, yo answers from its own page and settings, with no mod
   expect(hi).not.toContain("steps");
   expect(t.models()).toEqual([]);
 }, 60_000);
+
+// PIE-1722: a note asked yo before is asked again like a fresh one. Its ninth ask was never seen (a cap counted every
+// @name line from the top, answered or not), and the same words asked again were taken for the first ask's.
+test("PIE-1722: a new ask in a note with eight answered asks is answered, and the same words asked again are answered again", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const asks = ["lift the barrow", "lift the barrow high", "water the tray", "lift it again", "drop the barrow", "water it now", "tilt the tray", "lift the shed"];
+  const made = await t.client.request<{ id: string }>({ action: "create", text: ["Shed list", "", ...asks.map(a => `@yo how do I ${a}\n`)].join("\n"), author: "user" } as never);
+  const answered = (n: number) => until(`${n} answers`, () => { const b = t.store.require(made.id); return t.store.agentRequests(made.id).filter(r => r.answeredAt).length >= n ? b : null; });
+  let note = await answered(8);
+  await t.client.request({ action: "update", blockId: made.id, text: `${note.text}\n\n@yo how do I sweep the shed\n`, expectedRevision: note.revision, mutation: { author: "user" } } as never);
+  note = await answered(9);
+  expect(note.text).toMatch(/@yo how do I sweep the shed\n> \[!note\]\+ @yo answered\n/);
+  // The first ask's words again, further down: a request of its own, answered under its own line.
+  await t.client.request({ action: "update", blockId: made.id, text: `${note.text}\n\n@yo how do I lift the barrow\n`, expectedRevision: note.revision, mutation: { author: "user" } } as never);
+  note = await answered(10);
+  const lines = note.text.split("\n"), last = lines.lastIndexOf("@yo how do I lift the barrow");
+  expect(lines.indexOf("@yo how do I lift the barrow")).toBeLessThan(last);
+  expect(lines[last + 1]).toBe("> [!note]+ @yo answered");
+}, 90_000);
+
+// PIE-1712: an answer fits the ask: the argument it names, the one key that presses it, and a button that gets there first.
+const SHELF_VIEW: ActionRecord = {
+  name: "shelf.view", summary: "change a shelf tile's view: step=<control> steps one", scope: "shelf",
+  keys: [{ keys: "s", does: "the next sort order", args: { step: "sort" } }, { keys: "K", does: "by kind, a kind at a time", args: { step: "kind" } }, { keys: "click", does: "on the status line" }],
+  args: { step: { type: "string", optional: true, about: "a control stepped to its next value: kind or sort" } },
+  examples: [{ act: "shelf.view step=kind", does: "groups the shelf by kind" }],
+};
+const SHED_SHELF: ActionRecord = { name: "shed.shelf", summary: "show this note's shelf in the shelf tile", scope: "note", opens: "shelf", args: {} };
+
+test("PIE-1712: the key line names only the key for the arguments, the button says what it does and gets to its tile first", () => {
+  expect(keysOf(SHELF_VIEW)).toBe("s · K · click");
+  expect(keysOf(SHELF_VIEW, 3, { step: "kind" })).toBe("K: by kind");
+  expect(quoted(SHELF_VIEW, { step: "kind" })[1]).toBe("keys: K: by kind");
+  expect(labelOf(SHELF_VIEW, "shelf.view step=kind")).toBe("▸ by kind");
+  expect(labelOf(SHELF_VIEW)).toBe("▸ view");
+  const { pathTo } = require("../extensions/yo/yo-line") as typeof import("../extensions/yo/yo-line");
+  const before = pathTo(SHELF_VIEW, [SHED_SHELF, SHELF_VIEW]);
+  expect(before).toEqual(["shed.shelf"]);
+  // Asked from a shelf tile, it's already there.
+  expect(pathTo(SHELF_VIEW, [SHED_SHELF, SHELF_VIEW], "shelf")).toEqual([]);
+  const line = buttonLine(SHELF_VIEW, pressLine(SHELF_VIEW, { step: "kind" }), "how do I find shelf items by a type", { before });
+  expect(line).toBe('::button{label="▸ by kind" act=["shed.shelf", "shelf.view step=kind", "ext.yo.remember act=shelf.view asked=find-shelf-items-type args=step:kind"]}');
+  // do it presses every step but the remember, in order; the answer is about shelf.view.
+  expect(buttonIn(`> ${line}`)).toEqual({ label: "▸ by kind", act: "shelf.view step=kind", steps: ["shed.shelf", "shelf.view step=kind"] });
+  // A find's button keeps nothing: do it opens it, and no memory note is written of its query.
+  expect(buttonIn(`> ::button{label="▸ open in facets" act=["tile.open kind=facets name=found", "facets.query text='type=plan' tile=found"]}`)).toEqual({ label: "▸ open in facets", act: "facets.query text='type=plan' tile=found", steps: ["tile.open kind=facets name=found", "facets.query text='type=plan' tile=found"], forget: true });
+  // The model reads each argument and an example, so "by kind" can be filled.
+  const prompt = planPrompt({ asked: "how do I find shelf items by a type", question: true, candidates: [SHELF_VIEW], docs: [], habits: [] });
+  expect(prompt).toContain("shelf.view: change a shelf tile's view");
+  expect(prompt).toContain("args: step (a control stepped to its next value: kind or sort); presets: step=sort: the next sort order; step=kind: by kind, a kind at a time e.g. shelf.view step=kind");
+  // No key row or button of its own for these arguments: its verb, with them.
+  expect(labelOf(SHELF_VIEW, "shelf.view sort=title")).toBe("▸ view sort title");
+});
+
+test("PIE-1712: asked how, the answer fills the argument the model read, names its one key and gets to the tile first", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift", args: { reach: "full" } });
+  const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow across the shed", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).toContain('act=["barrow.lift reach=full", "ext.yo.remember act=barrow.lift asked=lift-barrow-across-shed args=reach:full"]');
+}, 30_000);
+
+// PIE-1711: a find ask is answered with the notes, the query that found them and buttons, from the outline's own facets
+// through query.suggest. Jev is a made-up server here that reads words as their values do.
+function lexicalJev() {
+  const stem = (w: string) => w.toLowerCase().replace(/(?<=\w{3})s$/, "");
+  const said = (request: string, value: string) => {
+    const words = request.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(stem), parts = value.toLowerCase().split(/[-_ ]+/).map(stem);
+    const at = words.findIndex(w => parts.includes(w));
+    return at < 0 ? null : { at, negated: words[at - 1] === "not" || (words[at - 2] === "not" && parts.length > 1) };
+  };
+  return Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(request) {
+    const payload = await request.json() as { state: { request: string; candidates: Record<string, { value: string }[]> }; questions: Record<string, { type: string; criteria?: Record<string, string>; instructions?: { key?: string; span?: string } }> };
+    const ask = payload.state.request, keyOf = (id: string) => id.split(":").slice(1).join(":");
+    const hit = (key: string) => (payload.state.candidates[key] ?? []).map(c => ({ value: c.value, m: said(ask, c.value) })).find(c => c.m);
+    const answers = Object.fromEntries(Object.entries(payload.questions).map(([id, q]) => {
+      const key = keyOf(id), found = hit(key);
+      if (q.type === "noul") return [id, { type: "noul", noul: id.startsWith("gate:") ? (found && key !== "by" && key !== "view" ? 0.96 : 0.02) : id.startsWith("negate:") ? (found?.m?.negated ? 0.96 : 0.02) : 0.02 }];
+      const criteria = Object.entries(q.criteria ?? {}).filter(([k]) => k !== "none");
+      const choice = id.startsWith("pick:") ? criteria.find(([, v]) => v === found?.value)?.[0] : id.startsWith("words:") ? criteria.find(([, v]) => found && said(v, found.value))?.[0] : undefined;
+      return [id, { type: "choice", choice: choice ?? "none", confidence: 0.9, probabilities: { [choice ?? "none"]: 0.9 } }];
+    }));
+    return Response.json({ model: "jev-made-up", answers, usage: { input_tokens: 10, output_tokens: 1 } });
+  } });
+}
+
+test("PIE-1711: a find ask answers with the notes, the query that found them, how it read the words and buttons; no model", async () => {
+  const jev = lexicalJev();
+  const was = { key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
+  Object.assign(process.env, { TYPESAFE_API_KEY: "made-up", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${jev.port}` });
+  cleanups.push(() => { jev.stop(true); for (const [k, v] of Object.entries({ TYPESAFE_API_KEY: was.key, OUTLINER_JEV_ENDPOINT: was.endpoint })) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const make = (text: string) => t.client.request<{ id: string }>({ action: "create", text, author: "user" } as never);
+  const seed = await make("Seed swap flyer [type::hub-item] [status::draft]");
+  const shed = await make("Shed rota [type::hub-item] [status::queued]");
+  await make("Compost notice [type::hub-item] [status::sent]");
+  await make("Bean trellis plan [type::plan] [status::draft]");
+  const ask = async (words: string) => {
+    const note = await make(`Shed list\n\n@yo ${words}`);
+    return until(`the answer to ${words}`, () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  };
+  const found = await ask("find me all hub items that are not sent yet");
+  expect(found).toContain(`((${seed.id}|Seed swap flyer))`);
+  expect(found).toContain(`((${shed.id}|Shed rota))`);
+  expect(found).not.toContain("Compost notice");
+  expect(found).not.toContain("Bean trellis");
+  // The query, as the service wrote it, and how the words were read.
+  expect(found).toMatch(/> 2 notes: `[^`]*type=hub-item[^`]*NOT[^`]*status=sent[^`]*`/);
+  expect(found).toMatch(/> read: hub( items?)? → type=hub-item · not sent → NOT \(?status=sent\)?/);
+  expect(found).toMatch(/::button\{label="▸ open in facets" act=\["tile\.open kind=facets name=found", "facets\.query text='[^']+' tile=found"\]\}/);
+  expect(found).toContain('label="▸ edit the query"');
+  expect(found).toContain('label="▸ save as a view"');
+  expect(found).toContain("> > - a find by its words: query.suggest over this outline's facets");
+  // Not the actions' docs, and no model.
+  expect(found).not.toContain("barrow.lift");
+  expect(t.models()).toEqual([]);
+  // Nothing matches: the query said, and the nearest keys and values.
+  const none = await ask("find me all invoices that are paid");
+  expect(none).toMatch(/> no notes: /);
+  expect(none).toMatch(/nearest|keys here/);
+  expect(t.models()).toEqual([]);
+}, 60_000);
+
+test("PIE-1711: a find is told from a how-do-I by its words, before any model", async () => {
+  const { findAsk } = await import("../extensions/yo/yo-line");
+  for (const [asked, words] of [["find me all hub items that are not sent yet", "hub items that are not sent yet"], ["show me the plans tagged garden", "plans tagged garden"], ["which notes are drafts", "notes are drafts"], ["list all chirps from this week", "chirps from this week"], ["all hub items not sent", "hub items not sent"]] as const)
+    expect([asked, findAsk(asked)]).toEqual([asked, words]);
+  for (const asked of ["how do I find backlinks by a type", "how do I lift the agent", "show me how to lift the agent", "find the key for zoom", "lift the agent", "what's the key for lift", ""])
+    expect([asked, findAsk(asked)]).toEqual([asked, null]);
+});
+
+// PIE-1711 review (CodeRabbit on #1422): an extension may read words into a query; recording an outcome or corrections writes
+// the query-words rule note, which its read is no grant for.
+test("an extension's query.suggest reads; an outcome or corrections from it is refused and writes nothing", async () => {
+  const t = await setup({ kind: "none", line: "no" });
+  const folder = join(t.store.workspaceRoot!, "extensions", "wordprobe");
+  mkdirSync(folder, { recursive: true });
+  cpSync(join(import.meta.dir, "..", "extensions", "yo", "outline.ts"), join(folder, "outline.ts"));
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "wordprobe", version: 1, name: "Word probe", description: "Asks query.suggest", run: ["bun", "probe.ts"],
+    actions: [{ id: "learn", label: "Learn", on: "outline", effects: "read" }] }));
+  writeFileSync(join(folder, "probe.ts"), `import { outline } from "./outline";
+await Bun.stdin.json();
+const said = await outline({ action: "query.suggest", text: "beds", outcome: "accepted", suggestion: { id: "x", input: "beds", base: "", where: "#beds", text: [], clauses: [{ clause: "#beds", from: ["beds"], confidence: 1, alternatives: [] }] } }).then(() => "accepted", (e: Error) => "refused: " + e.message);
+process.stdout.write(JSON.stringify({ ok: true, value: { message: said } }));`);
+  await until("the probe loaded", async () => (await t.client.request<{ extensions: { id: string; state?: string }[] }>({ action: "extensions.list" } as never)).extensions.some(e => e.id === "wordprobe" && e.state === "active"));
+  const answer = await t.client.request<{ message: string }>({ action: "extensions.act", extension: "wordprobe", extensionAction: "learn" } as never);
+  expect(answer.message).toStartWith("refused:");
+  expect(answer.message).toContain("query-words");
+  expect((await t.client.request<{ blocks: unknown[] }>({ action: "blocks.query", query: { where: "rule-name=query-words", limit: 5 } } as never)).blocks).toEqual([]);
+}, 60_000);
+
+// PIE-1711 review (CodeRabbit on #1422): a thread draws a find's buttons as links, and a link ends at the first ")": the
+// action a link carries is the whole query, or there is no link.
+test("in a thread, a find's links carry the whole query, as the comment's links read it", async () => {
+  const { findAnswer } = await import("../extensions/yo/yo-line");
+  const { linkOccurrences } = await import("@ep0ch/outline-core/link-syntax");
+  const acts = (lines: string[]) => lines.flatMap(l => linkOccurrences(l).flatMap(o => o.kind === "markdown" ? [o.url.replace(/^act:\s*/, "")] : []));
+  const found = { notes: [{ id: "n1", title: "Seed swap flyer" }], more: false };
+  const plain = findAnswer({ words: "hub items not sent", where: "(type=hub-item NOT status=sent)", found, thread: true });
+  expect(acts(plain)).toEqual(["facets.query text='type=hub-item NOT status=sent' tile=found", "facets.edit text='type=hub-item NOT status=sent' tile=found", "facets.save name='Hub items not sent' tile=found"]);
+  // Parentheses inside it: no link would carry it, so none is drawn, and the query is still said.
+  const grouped = findAnswer({ words: "plans or chirps", where: "(type=plan OR type=chirp) status=draft", found, thread: true });
+  expect(acts(grouped)).toEqual([]);
+  expect(grouped[0]).toContain("`(type=plan OR type=chirp) status=draft`");
+});

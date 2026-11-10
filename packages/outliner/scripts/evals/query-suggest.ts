@@ -20,6 +20,8 @@ const fixtures = [
   ["Fence", "Fence [stage::ready] [tag::fences] [project::garden]\nCopper hinges.", "user"],
   ["Old trellis", "Old trellis [stage::ready] [tag::trellises] [project::archive]\nWooden supports.", "heron"],
   ["Rare", "Rare [stage::ready] [tag::lunar-kiln] [project::studio]\nA kiln firing.", "user"],
+  ["Flyer", "Flyer [type::hub-item] [status::draft]\nThe seed swap flyer.", "user"],
+  ["Notice", "Notice [type::hub-item] [status::sent]\nThe compost notice.", "user"],
 ] as const;
 const cases = [
   { text: "things heron merged about trellises", wants: ["Trellis"] },
@@ -33,6 +35,10 @@ const cases = [
   { text: "the ones since Tuesday about fences", wants: ["Fence"] },
   { text: "fences last week", wants: [], date: true },
   { text: "aardvark zeppelins", wants: [], none: true },
+  // PIE-1711: a value's words in the plural, and a state said in the negative.
+  { text: "hub items that are not sent yet", wants: ["Flyer"] },
+  { text: "all the hub items", wants: ["Flyer", "Notice"] },
+  { text: "my ready notes", wants: ["Fence", "Rare"] },
   { text: "which invoice is paid", wants: [], none: true },
   { text: "sort my dinner by tastiness", wants: [], none: true },
 ];

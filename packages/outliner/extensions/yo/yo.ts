@@ -5,8 +5,8 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
-import { failureWords, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine } from "./yo-line";
-import { actPrompt, argsOf, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { failureWords, findAnswer, findAsk, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine, type FoundNotes } from "./yo-line";
+import { actPrompt, argsOf, pathTo, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -153,7 +153,7 @@ const reversible = (a: ActionRecord | undefined, pressed: { wrote: boolean; chan
 const withSteps = (lines: readonly string[]) => [...lines, ...stepsFold(steps)].join("\n");
 
 /** yo's own newest answer: in a thread its newest reply, in a note the newest fold above the line. Nothing else here is pressed. */
-function pending(): { ask: string; button: { line: string; at?: number; label: string; act: string } | null } | null {
+function pending(): { ask: string; button: { line: string; at?: number; label: string; act: string; steps?: string[]; forget?: true } | null } | null {
   if (inThread()) {
     const turns = input.thread!, at = turns.findLastIndex(t => t.author.startsWith("ext:yo"));
     if (at < 0) return null;
@@ -168,12 +168,14 @@ function pending(): { ask: string; button: { line: string; at?: number; label: s
 async function go() {
   const answer = pending(), button = answer?.button;
   if (!button) return ok({ message: "nothing to press yet", reply: "nothing of mine to press here: ask me how to do something first." });
-  const pressed = await press(button.act, button.label);
+  // The way there first (PIE-1712): each step pressed in order, as the button would; the last is the action asked about.
+  let pressed: Awaited<ReturnType<typeof press>> = { refused: "nothing to press" };
+  for (const step of button.steps ?? [button.act]) { pressed = await press(step, button.label); if ("refused" in pressed) break; }
   if ("refused" in pressed) {
     const said = `the door refused ${button.label}: ${pressed.refused}`;
     return ok(inThread() ? { reply: said } : { message: said.slice(0, 480), reply: withSteps([said]) });
   }
-  await remember(answer!.ask || button.act, button.act);
+  if (!button.forget) await remember(answer!.ask || button.act, button.act);
   const name = button.act.split(/\s/, 1)[0]!, action = (await catalog().catch(() => [] as ActionRecord[])).find(a => a.name === name);
   const row = doneRow(button.label, pressed.undo, reversible(action, pressed), pressed.changed);
   if (inThread()) return ok({ reply: withSteps([row]) });
@@ -186,11 +188,53 @@ async function go() {
 }
 
 /** What the line says while the person keeps typing: the action and its first keys. */
-const said = (a: ActionRecord) => [a.name, keysOf(a, 2)].filter(Boolean).join(" · ");
+const said = (a: ActionRecord, args: Record<string, string> = {}) => [a.name, keysOf(a, 2, args)].filter(Boolean).join(" · ");
 
-/** Quote one action: its two lines and its button. */
+/** Every action's record, once read: the way to an action's tile is another action's (`opens`). */
+let catalogRead: ActionRecord[] = [];
+/** The button for an action with these arguments, the one way every answer draws it: the steps that get to its tile first (PIE-1712). */
+function buttonFor(a: ActionRecord, asked: string, args?: Record<string, string>): string {
+  const before = pathTo(a, catalogRead, input.properties?.["ask-tile-kind"]?.[0]);
+  return buttonLine(a, pressLine(a, args), asked, { thread: inThread(), ...(tileFor(a) ? { tile: tileFor(a)! } : {}), ...(before.length ? { before } : {}) });
+}
+
+/** Quote one action: its two lines (the key for these arguments alone) and its button. */
 function quoteAnswer(a: ActionRecord, asked: string, args?: Record<string, string>, note?: string): string[] {
-  return [...quoted(a), buttonLine(a, pressLine(a, args), asked, { thread: inThread(), ...(tileFor(a) ? { tile: tileFor(a)! } : {}) }), ...(note ? [note] : [])];
+  return [...quoted(a, args), buttonFor(a, asked, args), ...(note ? [note] : [])];
+}
+
+/**
+ * A find ask answered (PIE-1711): the words read into a query by the service (query.suggest, over this outline's facets),
+ * the notes it finds (blocks.query, the first ten), how each word was read, and buttons to open, edit and save it. A
+ * query that names a key nobody has is answered with the nearest keys, as the service says them.
+ */
+async function find(words: string) {
+  steps.push("a find by its words: query.suggest over this outline's facets");
+  type Words = { where: string; clauses: { clause: string; from: string[]; widens?: true; alternatives: string[] }[]; text: string[]; grammar?: true; pending?: true } | { unavailable: string };
+  let read: Words;
+  try { read = await outline<Words>({ action: "query.suggest", text: words }, { timeoutMs: 15_000 }); }
+  catch (error) { read = { unavailable: firstLine(error) }; }
+  const where = "unavailable" in read || read.pending ? null : read.where.trim() || null;
+  if (!where) {
+    const why = "unavailable" in read ? read.unavailable : "the words weren't read in time";
+    steps.push(`no query from the words: ${why}`);
+    return ok({ message: "couldn't read that into a query", reply: withSteps(findAnswer({ words, why, thread: inThread() })) });
+  }
+  let found: FoundNotes;
+  try {
+    const answer = await outline<{ blocks: { id: string; text: string; title?: string }[]; more?: boolean; hint?: string; facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { where, limit: 11 } });
+    // The note the ask is written in holds its words: never a note it found.
+    const rows = answer.blocks.filter(b => b.id !== input.note?.id);
+    found = { notes: rows.slice(0, 10).map(b => ({ id: b.id, title: b.text.split("\n", 1)[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").replace(/\s+#\S+/g, "").trim() || "(untitled)" })), more: !!answer.more || rows.length > 10, ...(answer.hint ? { hint: answer.hint } : {}) };
+  } catch (error) { found = { notes: [], more: false, refused: firstLine(error) }; }
+  if (!found.notes.length && !found.hint && !found.refused) {
+    // Nothing matched: the keys the outline has, nearest to the words, so the next ask can name one.
+    const facets = await outline<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { facets: true, facetKeys: 1000, facetValues: 5, facetSearch: words, limit: 1 } }).catch(() => ({ facets: [] }));
+    found.nearest = (facets.facets ?? []).slice(0, 4).map(f => `${f.key} (${f.values.slice(0, 3).map(v => v.value).join(", ")})`);
+  }
+  steps.push(`found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}: ${where}`);
+  const message = found.notes.length ? `found ${found.notes.length}${found.more ? "+" : ""} note${found.notes.length === 1 ? "" : "s"}` : "no notes match";
+  return ok({ message, reply: withSteps(findAnswer({ words, where, read: "clauses" in read ? read.clauses : [], found, thread: inThread() })) });
 }
 
 /** yo's own page (PIE-1710): its README, read as an action's doc is; empty when it can't be read. */
@@ -208,22 +252,26 @@ async function respond() {
     const lines = selfAnswer(self, { readme, answer: config.answer ?? defaults.answer.default, act: config.act ?? defaults.act.default, answerDefault: config.answer === undefined, ...(memoryAt.outline ? { memory: memoryAt.outline } : {}), thread: inThread() });
     return ok({ message: self === "greeting" ? "yo" : `yo, about itself: ${self === "use" ? "how to use it" : "how to set it up"}`, reply: self === "greeting" ? lines.join("\n") : withSteps(lines) });
   }
+  // A find (PIE-1711): code tells it by its words, and the outline answers it: query.suggest reads the words over its own
+  // facets, blocks.query finds the notes. No actions' docs, no model.
+  const finding = findAsk(asked);
+  if (finding !== null) return find(finding);
   const tile = input.properties?.["ask-tile-kind"]?.[0];
   const known = await memories();
-  const actions = await catalog();
+  const actions = catalogRead = await catalog();
   steps.push(`read ${actions.length} actions' own docs`);
 
   const { hit, conflict } = recalled(known.filter(m => m.kind === "answer"), asked);
   if (conflict) {
     steps.push(`memory disagrees: ${conflict.map(m => m.text).join("; ")}`);
-    const named = conflict.flatMap(m => { const a = actions.find(x => x.name === m.action); return a ? [`\`${m.line}\`, for "${m.asked}"`, buttonLine(a, pressLine(a, argsOf(m.line)), m.asked, { thread: inThread() })] : []; });
+    const named = conflict.flatMap(m => { const a = actions.find(x => x.name === m.action); return a ? [`\`${m.line}\`, for "${m.asked}"`, buttonFor(a, m.asked, argsOf(m.line))] : []; });
     return ok({ message: "from memory: which one?", reply: withSteps(["you've used more than one for that. Which?", ...named]) });
   }
   const remembered = hit ? actions.find(a => a.name === hit.action) : undefined;
   if (remembered) {
     steps.push(`answered from memory: ${hit!.text}`);
-    const [quote, keys] = quoted(remembered);
-    return ok({ message: `from memory: ${said(remembered)}`, reply: withSteps([`${quote} · ${keys}`, buttonLine(remembered, pressLine(remembered, argsOf(hit!.line)), asked, { thread: inThread(), ...(tileFor(remembered) ? { tile: tileFor(remembered)! } : {}) })]) });
+    const [quote, keys] = quoted(remembered, argsOf(hit!.line));
+    return ok({ message: `from memory: ${said(remembered, argsOf(hit!.line))}`, reply: withSteps([`${quote} · ${keys}`, buttonFor(remembered, asked, argsOf(hit!.line))]) });
   }
 
   const boost = tile ? wordsOf(tile) : [];
@@ -262,7 +310,7 @@ async function respond() {
   const action = candidates.find(a => a.name === (plan as { action: string }).action)!;
   // A question is quoted, whatever the model picked: whether to press is code's (PIE-1629), and only a command presses.
   if (plan.kind === "act" && question) steps.push("the model said press it; it's a question, so code quoted it");
-  if (plan.kind === "quote" || question) return ok({ message: said(action), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? ASKED_HOW : undefined)) });
+  if (plan.kind === "quote" || question) return ok({ message: said(action, plan.args), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? ASKED_HOW : undefined)) });
 
   // An act: code steps up, once, to the model that presses.
   const actCommand = config.act ?? defaults.act.default;
@@ -276,10 +324,12 @@ async function respond() {
   } catch (error) { return ok({ message: "not pressed", reply: withSteps([...quoteAnswer(action, asked, plan.args), `not pressed: ${firstLine(error)}`, settingsButton(inThread())]) }); }
   const line = pressLine(action, args);
   if (line.slots.length) return ok({ message: action.name, reply: withSteps(quoteAnswer(action, asked, args, `it needs ${line.slots.join(", ")}: press it and say.`)) });
-  const label = labelOf(action, line.line), pressed = await press(line.line, label);
+  const label = labelOf(action, line.line);
+  let pressed: Awaited<ReturnType<typeof press>> = { refused: "nothing to press" };
+  for (const step of [...pathTo(action, actions, tile), line.line]) { pressed = await press(step, label); if ("refused" in pressed) break; }
   if ("refused" in pressed) return ok({ message: "the door refused it", reply: withSteps([...quoteAnswer(action, asked, args), `the door refused it as yo: ${pressed.refused}`]) });
   await remember(asked, line.line);
-  return ok({ message: `✓ pressed ${label} as yo`, reply: withSteps([...quoted(action), doneRow(label, pressed.undo, reversible(action, pressed), pressed.changed)]) });
+  return ok({ message: `✓ pressed ${label} as yo`, reply: withSteps([...quoted(action, args), doneRow(label, pressed.undo, reversible(action, pressed), pressed.changed)]) });
 }
 
 try {

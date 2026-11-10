@@ -52,6 +52,7 @@ import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
+import { renameInEdit } from "./rename-in-edit";
 import { recordedAnswer, USER, whoOf, type Actor, type OutlineEvent, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
@@ -4385,10 +4386,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * revision the service has now. Without text the person gets a prompt holding the title.
    */
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
-    const t = this.tile(sel), p = this.panes.get(t.id);
-    const shown = this.noteOf(t.id);
+    const t = this.tile(sel), p = this.panes.get(t.id), shown = this.noteOf(t.id);
     if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
-    if (p instanceof ReaderPane && p.surface.draft) throw new ActionRefused("this reader is editing the note: change its title in the edit");
+    const inEdit = p instanceof ReaderPane && p.surface.draft ? renameInEdit(p.surface.draft, text, actor, expect) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
     const now = await this.ctx.board.get(shown.id);
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
     // What the prompt (or an agent) read: the same note, at the same revision, or nothing is written.
