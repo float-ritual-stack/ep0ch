@@ -89,6 +89,8 @@ export const SETTINGS_KEYS: readonly ModeKey[] = keyTable("settings", "the setti
   ...["backtab", "k", "up"].map(key => say(row(key, "settings.pick", "field", { by: -1 }), "select the previous field of the card")),
   say(row("enter", "settings.set", "edit"), "edit the selected field's value"), say(row("e", "settings.set", "edit"), "edit the selected field's value"),
   row("x", "settings.clear", "clear"), row("delete", "settings.clear", "clear"),
+  say(row("t", "settings.try", "try"), "try the selected setting: the extension's own check of it (PIE-1709)"),
+  say(row("X", "settings.reset", "all defaults"), "put every one of an extension's settings back to its default"),
   say(row("ctrl+z", "settings.undo", "undo"), "put the last settings write back"),
   row("i", "props", "every property"),
   ...["esc", "q", ","].map(key => row(key, "props.close", "close")),

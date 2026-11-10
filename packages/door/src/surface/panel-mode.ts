@@ -16,21 +16,29 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
       name: "panel", of: P, panel: P, holdsKeys: true, noun: "the property value",
       word: "property panel",
       // A value being typed closes on its line's own key (esc, or where the person moved it: PIE-1688), and the way out says it.
-      escCloses: () => (P.field ? escVia(P.field.input.closeKey(), "the property value") : null),
+      escCloses: () => (P.field ? escVia(P.field.input.closeKey(), "the property value") : P.card?.editing ? escVia(P.card.editing.input.closeKey(), "the setting") : null),
       // A list row's revision says nothing about the value's token: only a whole read is news, the value's session's (PIE-1658).
       changed: (revision, partial) => { if (!partial) P.field?.session.changedTo(revision); },
-      editing: () => !!P.field, covers: () => P.full,
+      editing: () => !!P.field || !!P.card?.editing, covers: () => P.full,
       key: (k, host) => key(k, host),
       click: (x, y, host) => {
         // A value being typed keeps the reader's clicks, but for a candidate of its completion popup (PIE-626); a click on a row selects it (on its value, follows it).
         if (P.field) return completerOf(P.field.input)?.click(y, x) ?? false;
         if (P.card) {
           if (P.card.place === "tile" && host.attachment !== "settings") return undefined;
-          const hit = P.card.hit(x, y + (P.card.place === "inline" ? 0 : offset(host)));
+          const yy = y + (P.card.place === "inline" ? 0 : offset(host));
+          const hit = P.card.hit(x, yy);
           void surface.runKey("settings.focus", { on: hit !== null }, host);
           if (hit === null) return undefined;
+          // A setting being typed in place (PIE-1709) takes its own line's clicks: the cursor, a word, a selection.
+          const e = P.card.editing, at = P.card.editAt, r = P.card.rect;
+          if (e && at) return e.input.mouse({ kind: "mouse", action: "down", button: 0, x, y: yy }, { x: r.col + at.x, y: r.row + 1 + at.y, w: at.w }) || true;
           if (hit === "place") void surface.runKey("settings.place", {}, host);
-          else if (typeof hit === "number") {
+          else if (hit === "resetAll") void surface.runKey("settings.reset", {}, host);
+          else if (typeof hit === "object") {
+            const f = surface.msg && surface.settingFields(surface.msg, P.card.schemas)["tries" in hit ? hit.tries - 1 : hit.reset - 1];
+            if (f) void surface.runKey("tries" in hit ? "settings.try" : "settings.clear", { key: f.prop.key }, host);
+          } else if (typeof hit === "number") {
             const f = surface.msg && surface.settingFields(surface.msg, P.card.schemas)[hit - 1];
             if (f && P.card.sel === hit - 1) void surface.runKey("settings.set", { key: f.prop.key }, host);
             else void surface.runKey("settings.pick", { n: hit }, host);
@@ -57,18 +65,25 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
       },
       // Drawn by the reading render: above the note, or filling the reader under its header (full).
       rows: () => null,
-      leave: async host => { if (P.field) { P.field.session.dispose(); P.field = null; host.redraw(); } return { left: "nothing" }; },
+      leave: async host => {
+        if (P.field) { P.field.session.dispose(); P.field = null; host.redraw(); }
+        if (P.card?.editing) { P.card.editing.session.dispose(); P.card.editing = null; host.redraw(); }
+        return { left: "nothing" };
+      },
       leaveRefusal: () => {
         const f = P.field;
+        if (P.card?.editing?.input.draft.dirty) return "finish the setting first · ⏎ saves · esc keeps the old value";
         return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; // says, not a hint row
       },
-      unsaved: () => !!P.field && P.field.input.text !== P.field.row.value,
+      unsaved: () => (!!P.field && P.field.input.text !== P.field.row.value) || !!P.card?.editing?.input.draft.dirty,
       hint: () => (P.card ? P.card.hint() : P.hint()),
       state: () => (P.card ? "settings" : P.field ? "editing a property" : "properties"),
       describe: () => {
         const m = surface.msg;
         if (m && P.card) {
-          return { open: "settings", place: P.card.place, schemas: P.card.schemas.map(s => s.id), selected: P.card.sel + 1, note: P.card.note || null, editing: null,
+          const e = P.card.editing;
+          return { open: "settings", place: P.card.place, schemas: P.card.schemas.map(s => s.id), selected: P.card.sel + 1, note: P.card.note || null,
+            editing: e ? { key: e.key, text: e.input.text, note: e.session.status.note || null } : null, ...(P.card.trying ? { trying: P.card.trying } : {}),
             fields: surface.settingFields(m, P.card.schemas).map(f => ({ n: f.n, section: P.card!.schemas[f.section]!.id, key: f.prop.key, type: f.prop.type, value: f.value, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}) })), rows: [] };
         }
         return m ? {

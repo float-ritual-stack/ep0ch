@@ -157,6 +157,31 @@ export function scriptCall(argsIn: readonly string[]): { args: string[]; ws?: st
   return { args: [name, ...rest, ...keep, ...argsIn.slice(words.length)], ...out };
 }
 
+/** The commands that reach a running door through its control socket (`act`, `peek`…): `doorFlags` reads their outline. */
+export const DOOR_COMMANDS = ["peek", "snap", "open", "actions", "act", "subscribe", "trace"] as const;
+
+/**
+ * A door command's `--ws <outline>` and `--machine <ssh-name>`, wherever they are on the line (`ep0ch act --ws pie
+ * ext.yo.settings …`, `ep0ch act ext.yo.settings --ws pie …`): taken out, so the action's words are only its own
+ * (`key=value`), and said, so main.ts reaches that outline's door. A flag with no value is refused with what it takes.
+ */
+export function doorFlags(argsIn: readonly string[]): { args: string[]; ws?: string; machine?: string } | { error: string } {
+  const end = argsIn.indexOf("--");
+  const words = end >= 0 ? argsIn.slice(0, end) : argsIn;
+  const out: { ws?: string; machine?: string } = {}, args: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!;
+    // The word after --as or --tile is a name as written, never a flag of ours.
+    if (w === "--as" || w === "--tile") { args.push(w); if (i + 1 < words.length) args.push(words[++i]!); continue; }
+    if (w !== "--ws" && w !== "--machine") { args.push(w); continue; }
+    const v = words[i + 1];
+    if (v === undefined || v.startsWith("-")) return { error: `${w} needs ${w === "--ws" ? "an outline's name" : "an ssh config name"}: ep0ch ${argsIn[0] ?? "act"} … ${w} <${w === "--ws" ? "outline" : "machine"}>` };
+    i++;
+    out[w === "--ws" ? "ws" : "machine"] = v;
+  }
+  return { args: [...args, ...argsIn.slice(words.length)], ...out };
+}
+
 /**
  * A script run's answer as a shell's exit (PIE-1469): a run that said steps failed (`failed`, from the script's own
  * `script.failed`; neat reports a refused step and goes on, so the run itself ends "done") is the refusal `act` gives, exit 1,

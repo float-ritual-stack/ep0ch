@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import { durationMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
+import { agentDeadlineMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
@@ -124,11 +124,12 @@ const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
  * A deadline that ended an agent's answer (PIE-1452, PIE-1713), said in the person's words: what took too long, on
  * how much, and what to ask instead. Undefined when the error was something else.
  */
-function deadlineHit(error: unknown, agent: string, deadlineMs: number, words?: number): string | undefined {
+function deadlineHit(error: unknown, agent: string, deadlineMs: number, words: number | undefined, extension: string): string | undefined {
   if (!/timed out/.test(message(error))) return undefined;
   const took = deadlineMs % 3_600_000 === 0 ? `${deadlineMs / 3_600_000} h` : deadlineMs % 60_000 === 0 ? `${deadlineMs / 60_000} min` : `${Math.round(deadlineMs / 1000)} s`;
   const on = words === undefined ? "" : ` on this ${words.toLocaleString("en-US")}-word note`;
-  return `@${agent} took longer than its ${took}${on} and was stopped: ask it about a shorter passage`;
+  // Or give it longer (PIE-1709): its deadline is a setting, on the settings screen at its extension.
+  return `@${agent} took longer than its ${took}${on} and was stopped: ask it about a shorter passage, or give it longer in its settings (ep0ch act ext.${extension}.settings agent.${agent}.deadline=${Math.min(120, Math.ceil(deadlineMs / 30_000))}m)`;
 }
 
 export interface AgentRequestDeps {
@@ -290,7 +291,7 @@ export class AgentRequests {
     const { extension, agent } = bound;
     const result = await this.runtime.invokeLoaded(extension, "respond", {
       agent: "tidy", request: "Resolve this conflict", resolution: input,
-    }, durationMs(agent.deadline) ?? DEFAULT_DEADLINE_MS, { requestedBy, label: "ext.tidy.agent.resolve" });
+    }, agentDeadlineMs(extension, agent) ?? DEFAULT_DEADLINE_MS, { requestedBy, label: "ext.tidy.agent.resolve" });
     const value = result.value;
     if (isObject(value) && typeof value.ambiguous === "string") return {ambiguous: cleanExtensionText(value.ambiguous)};
     if (isObject(value) && typeof value.replacement === "string") return {replacement: value.replacement};
@@ -780,7 +781,7 @@ export class AgentRequests {
     };
     let ticker: ReturnType<typeof setInterval> | undefined;
     const first = setTimeout(() => { tick(); ticker = setInterval(tick, this.deps.progressMs ?? PROGRESS_MS); }, this.deps.workingAfterMs ?? WORKING_AFTER_MS);
-    const deadline = durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS;
+    const deadline = agentDeadlineMs(extension, agent) ?? DEFAULT_DEADLINE_MS;
     let words: number | undefined;
     try {
       const draft = await this.deps.readDraft(blockId);
@@ -913,7 +914,7 @@ export class AgentRequests {
       }
     } catch (error) {
       const wrote = this.wrote(line.agent, new Date(started).toISOString());
-      answer = { status: "failed", message: `${deadlineHit(error, line.agent, deadline, words) ?? message(error)}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
+      answer = { status: "failed", message: `${deadlineHit(error, line.agent, deadline, words, extension.id) ?? message(error)}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
     } finally {
       clearTimeout(first);
       if (ticker) clearInterval(ticker);
@@ -1045,7 +1046,7 @@ export class AgentRequests {
     const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
     let reply: string;
     let next: string | undefined;
-    const deadline = durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS;
+    const deadline = agentDeadlineMs(extension, agent) ?? DEFAULT_DEADLINE_MS;
     // A long answer says so in the thread (PIE-1452): a reply that it's working, then what it has written, until the
     // answer takes its place. A TL;DR never: it would be the thread's face.
     const started = this.now;
@@ -1074,7 +1075,7 @@ export class AgentRequests {
     } catch (error) {
       // Nor is an error: it would become the face.
       if (tldr) return { refused: `@${line.agent} couldn't write the TL;DR: ${message(error)}` };
-      reply = deadlineHit(error, line.agent, deadline, note ? wordCount(note.text) : undefined) ?? `@${line.agent} couldn't answer: ${message(error)}`;
+      reply = deadlineHit(error, line.agent, deadline, note ? wordCount(note.text) : undefined, extension.id) ?? `@${line.agent} couldn't answer: ${message(error)}`;
     } finally {
       working?.stop();
     }
