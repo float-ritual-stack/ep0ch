@@ -35,7 +35,9 @@ import {
   emptyAttentionState,
 } from "./attention";
 import {
+  backlinkGroupExpanded,
   backlinkGroupRows,
+  backlinkNarrowingActive,
   BACKLINK_QUERY_LIMIT,
   backlinkView,
   DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -113,7 +115,7 @@ import { isVirtualBranchDefinition } from "./virtual-branches";
 import { blockDisplayTitle } from "./references";
 import { authoredResourceReferenceOccurrences, isAuthoredFileOccurrence } from "./resource-references";
 import {
-  RESOURCE_CAPABILITY_FACTORS,
+  blockingCapabilityFactor,
   resourceRevisionRefEquals,
   resourceAddressLabel,
   resourceDescriptionLabel,
@@ -121,6 +123,7 @@ import {
 } from "./resources";
 import { isRemoteEntity } from "./remote-entity";
 import { TextBuffer } from "./text-buffer";
+import { applyTextBufferEditorCommand, type TextBufferEditorMoveDirection } from "./text-buffer-editor";
 import { sanitizeDynamicText, type TerminalKey } from "./terminal";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import type {
@@ -328,16 +331,12 @@ export function detailBacklinkView(backlinks: Readonly<DetailBacklinkState>): Ba
   return backlinkView(backlinks.collection, detailBacklinkViewOptions(backlinks));
 }
 
-/** A narrowing filter opens every group so matches are never folded away. */
-function backlinkNarrowingActive(backlinks: Readonly<DetailBacklinkState>): boolean {
-  return backlinks.filter !== "" || backlinks.kindFilter !== null || backlinks.stageFilter !== "all";
-}
-
+/** Whether a group is open in Detail's panel: outline-core's rule, the door's too, over Detail's state. */
 export function detailBacklinkGroupExpanded(
   backlinks: Readonly<DetailBacklinkState>,
   kind: string,
 ): boolean {
-  return backlinks.expandedKinds.has(kind) || backlinkNarrowingActive(backlinks);
+  return backlinkGroupExpanded(detailBacklinkViewOptions(backlinks), backlinks.expandedKinds, kind);
 }
 
 /** Backlink rows as rendered, in order; selection and focus index this list. */
@@ -715,16 +714,6 @@ export interface DetailEffects {
   bookmarksRoot(): Promise<Block>;
 }
 
-export type DetailBufferMoveDirection =
-  | "left"
-  | "right"
-  | "up"
-  | "down"
-  | "home"
-  | "end"
-  | "word-left"
-  | "word-right";
-
 export type DetailOpenRouting = "linked" | "chooser";
 
 export interface DetailResourceSelectionCapture {
@@ -816,7 +805,7 @@ export type DetailIntent =
   | { type: "buffer.newline" }
   | { type: "buffer.backspace" }
   | { type: "buffer.delete" }
-  | { type: "buffer.move"; direction: DetailBufferMoveDirection; extend?: boolean }
+  | { type: "buffer.move"; direction: TextBufferEditorMoveDirection; extend?: boolean }
   | { type: "buffer.select-all" }
   | { type: "buffer.copy" }
   | { type: "buffer.undo" }
@@ -1004,6 +993,7 @@ export function createDetailController(
   let loadGeneration = 0;
   let openGeneration = 0;
   let fileReadGeneration = 0;
+  // ── The block cache, change notices and the breadcrumb ──
   const blockCache = new Map<string, DetailBlockCacheEntry>();
 
   const readBlockCache = (
@@ -1054,6 +1044,7 @@ export function createDetailController(
     state.resolvedBreadcrumb = titles.join(" › ");
   };
 
+  // ── Loading: files, reads, annotations ──
   const loadFile = async (block: Block): Promise<boolean> => {
     const fileGeneration = ++fileReadGeneration;
     const generation = loadGeneration;
@@ -1202,7 +1193,7 @@ export function createDetailController(
     } catch {
       threads = [];
     }
-    // Resolve only when a title can change; otherwise apply in this turn as before.
+    // Resolve reference titles only when a thread holds a reference; the answer applies in this turn when asked to (`current-turn`), else as a queued view update.
     const references = annotationReferenceTokens(threads).length
       ? await resolveAnnotationReferences(threads, text => effects.resolveReferences(text)) : new Map<string, string>();
     const apply = () => {
@@ -1221,6 +1212,15 @@ export function createDetailController(
     };
     if (application === "current-turn") apply();
     else effects.enqueueViewUpdate(apply);
+  };
+
+  // ── Backlinks ──
+  /** Selects the backlink row of a source block when it shows; false when it doesn't (filtered or folded away). */
+  const selectBacklinkSource = (blockId: string | null): boolean => {
+    const index = visibleBacklinkSources(state.backlinks).findIndex((source) => source.blockId === blockId);
+    if (index < 0) return false;
+    state.backlinks.selectedIndex = index;
+    return true;
   };
 
   const invalidateBacklinks = (): void => {
@@ -1293,6 +1293,7 @@ export function createDetailController(
     }
   };
 
+  // ── Navigation history and the document showing ──
   const syncNavigationState = (): void => {
     state.canNavigateBack = navigationIndex > 0;
     state.canNavigateForward = navigationIndex >= 0 && navigationIndex < navigationHistory.length - 1;
@@ -1676,6 +1677,7 @@ export function createDetailController(
     );
   };
 
+  // ── Opening a link: the destination chooser, open in linked Detail ──
   const resolveDestinationTarget = async (
     target: OpenDestinationTarget,
     reference: OutlinerLinkTarget,
@@ -1705,20 +1707,16 @@ export function createDetailController(
     target: OpenDestinationTarget,
     preserveSource = false,
   ): Promise<boolean> => {
-    try {
-      const dispatched = await effects.dispatchNavigation(target.target, "open", {
-        ...(preserveSource ? { preserveSource: true } : {}),
-      });
-      if (dispatched.targetClientId === effects.clientId) {
-        if (options.openHere) {
-          if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
-        } else await applyNavigationCommand(dispatched.command);
-      }
-      routineNotice(`Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`);
-      return true;
-    } catch (error) {
-      throw error;
+    const dispatched = await effects.dispatchNavigation(target.target, "open", {
+      ...(preserveSource ? { preserveSource: true } : {}),
+    });
+    if (dispatched.targetClientId === effects.clientId) {
+      if (options.openHere) {
+        if (!await options.openHere(target.target)) throw new Error("Finish or cancel the Current draft or source selection before opening here");
+      } else await applyNavigationCommand(dispatched.command);
     }
+    routineNotice(`Opened ${target.title} in ${options.readerLabel ?? "linked Detail"}`);
+    return true;
   };
 
   destinationChooser = new OpenDestinationChooser({
@@ -1779,6 +1777,7 @@ export function createDetailController(
     await loadCurrentTarget(true);
   };
 
+  // ── Editing: the editor's viewport, $EDITOR, recovery ──
   const editorLayout = (viewport: DetailViewport) =>
     layoutDetailEditor(
       state.buffer.lines,
@@ -1788,11 +1787,15 @@ export function createDetailController(
       state.buffer.selectionRange,
     );
 
+  /** How far the editor can scroll: its last row at the bottom of what shows. */
+  const editorMaxOffset = (layout: ReturnType<typeof editorLayout>, viewport: DetailViewport): number =>
+    Math.max(0, layout.rows.length - detailVisibleEditorHeight(state, viewport));
+
   const ensureEditorCursorVisible = (viewport: DetailViewport): void => {
     state.editorViewportManual = false;
     const visibleHeight = detailVisibleEditorHeight(state, viewport);
     const layout = editorLayout(viewport);
-    const maxOffset = Math.max(0, layout.rows.length - visibleHeight);
+    const maxOffset = editorMaxOffset(layout, viewport);
     state.editorVisualOffset = Math.max(
       0,
       Math.min(state.editorVisualOffset, maxOffset),
@@ -1851,14 +1854,7 @@ export function createDetailController(
       }
       const write = description.capabilities.write;
       if (write.status !== "available") {
-        const factor = RESOURCE_CAPABILITY_FACTORS
-          .map((name) => write.factors[name])
-          .find((assessment) =>
-            assessment.state === "blocked" || assessment.state === "unknown"
-          );
-        state.status = factor && "detail" in factor
-          ? factor.detail
-          : "Filesystem Resource writing is unavailable";
+        state.status = blockingCapabilityFactor(write)?.detail ?? "Filesystem Resource writing is unavailable";
         return;
       }
       text = description.filesystem.text;
@@ -1960,11 +1956,7 @@ export function createDetailController(
         }
       } else result.cleanup();
       const layout = editorLayout(viewport);
-      const maximumOffset = Math.max(
-        0,
-        layout.rows.length - detailVisibleEditorHeight(state, viewport),
-      );
-      state.editorVisualOffset = Math.min(previousViewportOffset, maximumOffset);
+      state.editorVisualOffset = Math.min(previousViewportOffset, editorMaxOffset(layout, viewport));
       state.completion = null;
       state.status = state.recovery && state.recovery.latest.revision !== selected.revision
         ? "Combined independent changes · Ctrl+S saves · original writing retained"
@@ -2041,6 +2033,7 @@ export function createDetailController(
     ensureEditorCursorVisible(viewport);
   };
 
+  // ── Property edit ──
   const beginPropertyEdit = async (): Promise<void> => {
     const selected = state.context.selected;
     if (!selected) {
@@ -2106,6 +2099,7 @@ export function createDetailController(
     }
   };
 
+  // ── Comments: a selection becomes a target, threads, replies, edits, lifecycle ──
   const beginAnnotationSelection = async (
     sourceLine = 0,
     sourceColumn = 0,
@@ -2422,6 +2416,7 @@ export function createDetailController(
     }
   };
 
+  // ── Cancel and save ──
   const cancelBuffer = async (): Promise<void> => {
     let retentionNotice: string | undefined;
     if (state.mode.kind === "edit" && state.recovery && effects.recovery && state.buffer.text !== state.recovery.draftText) {
@@ -2601,6 +2596,7 @@ export function createDetailController(
   };
 
   let completionViewport:DetailViewport={width:80,height:24};
+  // ── Completion, preview and file stepping, checklists ──
   const completions = new ReferenceCompletionSession({
     completionRows: (request, signal) => effects.completionRows(request, signal),
     completionPicked: (key, insert) => effects.completionPicked(key, insert),
@@ -2683,6 +2679,7 @@ export function createDetailController(
     if (generation === openGeneration && result.link) state.status = "Step link copied";
   };
 
+  // ── dispatch: every intent, by group (editing, Resources, navigation, preview regions, properties, backlinks, buffer) ──
   const dispatch = async (intent: DetailIntent, viewport: DetailViewport): Promise<void> => {
     completionViewport=viewport;
     const requestGeneration = ++openGeneration;
@@ -2758,7 +2755,7 @@ export function createDetailController(
             await loadCurrentTarget(true);
             state.status = "Refreshed this note's tickets and extension lines";
           } catch (error) {
-            state.status = `Refresh failed · ${error instanceof Error ? error.message : String(error)}`;
+            state.status = `Refresh failed · ${errorMessage(error)}`;
           } finally {
             state.busy = false;
           }
@@ -2853,14 +2850,7 @@ export function createDetailController(
           break;
         }
         if (capability?.status !== "available") {
-          const unavailableFactor = RESOURCE_CAPABILITY_FACTORS
-            .map((factor) => capability?.factors[factor])
-            .find((assessment) =>
-              assessment?.state === "blocked" || assessment?.state === "unknown"
-            );
-          state.status = unavailableFactor && "detail" in unavailableFactor
-            ? unavailableFactor.detail
-            : "Opening this resource externally is unavailable";
+          state.status = blockingCapabilityFactor(capability)?.detail ?? "Opening this resource externally is unavailable";
           break;
         }
         await effects.openExternal(selected.externalUrl);
@@ -3110,12 +3100,7 @@ export function createDetailController(
           state.selectedAnnotationId = region.activation.annotationId;
         }
         if (region.kind === "backlink-source") {
-          const blockId = region.activation?.type === "backlink.open"
-            ? region.activation.blockId
-            : null;
-          const index = visibleBacklinkSources(state.backlinks)
-            .findIndex((source) => source.blockId === blockId);
-          if (index >= 0) state.backlinks.selectedIndex = index;
+          selectBacklinkSource(region.activation?.type === "backlink.open" ? region.activation.blockId : null);
         }
         break;
       }
@@ -3125,12 +3110,7 @@ export function createDetailController(
           state.selectedAnnotationId = region.activation.annotationId;
         }
         if (region?.kind === "backlink-source") {
-          const blockId = region.activation?.type === "backlink.open"
-            ? region.activation.blockId
-            : null;
-          const index = visibleBacklinkSources(state.backlinks)
-            .findIndex((source) => source.blockId === blockId);
-          if (index >= 0) state.backlinks.selectedIndex = index;
+          selectBacklinkSource(region.activation?.type === "backlink.open" ? region.activation.blockId : null);
         }
         break;
       }
@@ -3221,14 +3201,10 @@ export function createDetailController(
             await dispatch({ type: BACKLINK_CONTROL_INTENTS[intent.action.control] }, viewport);
             break;
           case "backlink.open": {
-            const blockId = intent.action.blockId;
-            const index = visibleBacklinkSources(state.backlinks)
-              .findIndex((candidate) => candidate.blockId === blockId);
-            if (index < 0) {
+            if (!selectBacklinkSource(intent.action.blockId)) {
               state.status = "Backlink source is no longer visible";
               break;
             }
-            state.backlinks.selectedIndex = index;
             await dispatch({ type: "backlinks.open" }, viewport);
             break;
           }
@@ -3319,7 +3295,7 @@ export function createDetailController(
           effects.copyText(entry.value);
           state.status = "Value sent to terminal clipboard";
         } catch (error) {
-          state.status = `Copy failed: ${error instanceof Error ? error.message : String(error)}`;
+          state.status = `Copy failed: ${errorMessage(error)}`;
         }
         break;
       }
@@ -3520,7 +3496,7 @@ export function createDetailController(
           break;
         }
         // A narrowing filter opens every group, so a fold would change nothing visible.
-        if (backlinkNarrowingActive(state.backlinks)) {
+        if (backlinkNarrowingActive(detailBacklinkViewOptions(state.backlinks))) {
           state.status = "Clear the filter to fold groups";
           break;
         }
@@ -3714,40 +3690,12 @@ export function createDetailController(
         ensureEditorCursorVisible(viewport);
         break;
       case "buffer.move": {
-        const extend = intent.extend ?? false;
-        switch (intent.direction) {
-          case "left":
-            state.buffer.moveLeft(extend);
-            break;
-          case "right":
-            state.buffer.moveRight(extend);
-            break;
-          case "up":
-            state.buffer.moveUp(extend);
-            break;
-          case "down":
-            state.buffer.moveDown(extend);
-            break;
-          case "home":
-            state.buffer.moveHome(extend);
-            break;
-          case "end":
-            state.buffer.moveEnd(extend);
-            break;
-          case "word-left":
-            state.buffer.moveWordLeft(extend);
-            break;
-          case "word-right":
-            state.buffer.moveWordRight(extend);
-            break;
-        }
+        applyTextBufferEditorCommand(state.buffer, { type: "move", direction: intent.direction, extend: intent.extend ?? false });
         ensureEditorCursorVisible(viewport);
         break;
       }
       case "editor.viewport.scroll": {
-        const layout = editorLayout(viewport);
-        const visibleHeight = detailVisibleEditorHeight(state, viewport);
-        const maxOffset = Math.max(0, layout.rows.length - visibleHeight);
+        const maxOffset = editorMaxOffset(editorLayout(viewport), viewport);
         state.editorVisualOffset = Math.max(
           0,
           Math.min(maxOffset, state.editorVisualOffset + Math.trunc(intent.delta)),
@@ -3759,11 +3707,7 @@ export function createDetailController(
         const layout = editorLayout(viewport);
         const visualRow = detailEditorVisualRowForSourceLine(layout, intent.sourceLine);
         if (visualRow !== null) {
-          const maxOffset = Math.max(
-            0,
-            layout.rows.length - detailVisibleEditorHeight(state, viewport),
-          );
-          state.editorVisualOffset = Math.max(0, Math.min(maxOffset, visualRow));
+          state.editorVisualOffset = Math.max(0, Math.min(editorMaxOffset(layout, viewport), visualRow));
           state.editorViewportManual = true;
         }
         break;
@@ -3934,10 +3878,7 @@ export function createDetailController(
         const kind = state.backlinks.collection?.sources
           .find((source) => source.blockId === command.sourceBlockId)?.facets?.kind;
         if (kind) state.backlinks.expandedKinds.add(kind);
-        const index = visibleBacklinkSources(state.backlinks)
-          .findIndex((source) => source.blockId === command.sourceBlockId);
-        if (index >= 0) {
-          state.backlinks.selectedIndex = index;
+        if (selectBacklinkSource(command.sourceBlockId)) {
           state.previewRegions.focusedRegionId = `backlink:${command.sourceBlockId}`;
         }
       }

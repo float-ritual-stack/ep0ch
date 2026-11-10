@@ -9,6 +9,7 @@ import { isRemoteEntity } from "./remote-entity";
 import {
   RESOURCE_CAPABILITIES,
   RESOURCE_CAPABILITY_FACTORS,
+  blockingCapabilityFactor,
   providerLabel,
   resourceAddressLabel,
 } from "./resources";
@@ -85,11 +86,7 @@ export const resourceDocument = (description: ResourceDescription): MappedDocume
   if (description.filesystem && renderLocalContent) return content!;
   const externalUrl = presentation?.selected?.externalUrl ?? null;
   const openExternal = presentation?.capabilities["open-external"];
-  const unavailableExternalFactor = RESOURCE_CAPABILITY_FACTORS
-    .map((factor) => openExternal?.factors[factor])
-    .find((assessment) =>
-      assessment?.state === "blocked" || assessment?.state === "unknown"
-    );
+  const unavailableExternalFactor = blockingCapabilityFactor(openExternal);
   const externalLines = externalUrl === null
     ? []
     : openExternal?.status === "available"
@@ -103,11 +100,7 @@ export const resourceDocument = (description: ResourceDescription): MappedDocume
     : [
         "",
         `- External URL: \`${externalUrl}\``,
-        `- External open: unavailable — ${
-          unavailableExternalFactor && "detail" in unavailableExternalFactor
-            ? unavailableExternalFactor.detail
-            : "No negotiated open-external capability"
-        }`,
+        `- External open: unavailable — ${unavailableExternalFactor?.detail ?? "No negotiated open-external capability"}`,
       ];
   const remoteProvider = isRemoteEntity(resource) ? providerLabel(resource.provider) : null;
   const lines = computed && renderLocalContent

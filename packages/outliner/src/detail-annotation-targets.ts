@@ -2,6 +2,7 @@
 // as its page regions, a filesystem Resource's representation, a rendered passage's target, the editor's selection
 // as offsets, and an anchor's offset back as an editor point. The controller (detail-controller.ts) asks these when
 // it begins a comment and when it reveals one; the anchors themselves are annotations.ts's.
+import { lineStart } from "@ep0ch/outline-core/code-ranges";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
 import { annotationSourceHash, createPdfPageRegionAnchor, createTextQuoteAnchor } from "./annotations";
 import type { DetailState } from "./detail-controller";
@@ -159,9 +160,7 @@ function textRangeOffsets(
   const offset = ({ row, column }: TextBufferRange["start"]): number | null => {
     const line = lines[row];
     if (line === undefined || column < 0 || column > line.length) return null;
-    let total = column;
-    for (let index = 0; index < row; index += 1) total += lines[index]!.length + 1;
-    return total;
+    return lineStart(lines, row) + column;
   };
   const anchor = offset(range.start);
   const focus = offset(range.end);
