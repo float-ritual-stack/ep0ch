@@ -7,6 +7,11 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { ResourceCatalogError, type ResourceAddress } from "./resources";
 
+/** Whether a path relative to a root (`relative(root, path)`) leaves it: up past it, or onto another drive. The root itself ("") is inside. */
+export function escapesRoot(fromRoot: string): boolean {
+  return fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot);
+}
+
 export function filesystemRootBinding(root: string): string {
   try {
     const canonical = realpathSync(root);
@@ -93,7 +98,7 @@ export function assertFilesystemConfinement(
   const boundRoot = realpathSync(root);
   const candidate = join(boundRoot, ...address.path.split("/"));
   const fromRoot = relative(boundRoot, candidate);
-  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+  if (escapesRoot(fromRoot)) {
     throw new ResourceCatalogError(
       "outside-source",
       "Filesystem resource path cannot escape its source root",

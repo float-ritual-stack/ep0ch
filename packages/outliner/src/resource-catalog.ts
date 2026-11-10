@@ -1,16 +1,16 @@
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
 import {captureHistoryProducer,CAPTURE_HISTORY_PRODUCER} from "./capture-history";
 import { Database } from "bun:sqlite";
-import { createHash } from "node:crypto";
 import {
   readFileSync,
   realpathSync,
   statSync,
   type BigIntStats,
 } from "node:fs";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
+import { cancelResponseBody, responseMediaType } from "./http-response";
 import { completeReferencedPaths, readFileContents, resolveReferencedPath, MAX_TEXT_FILE_BYTES, type FileContents, type ReferencedPathCandidate } from "./files";
 import { commitFilesystemText, recoverFilesystemSave } from "./filesystem-commit";
 import {
@@ -118,6 +118,7 @@ import {
 } from "./resource-rows";
 import {
   assertFilesystemConfinement,
+  escapesRoot,
   filesystemRootBinding,
   filesystemRootDrift,
   homeWords,
@@ -171,7 +172,7 @@ export interface ResourceCatalogOptions {
   readonly maximumPdfBytes?: number;
   readonly remoteEntityClient?: RemoteEntityProviderClient;
   readonly computedProducerRegistry?: ComputedProducerRegistry;
-  /** When a fetched Jira or Linear copy reads as stale (default 15 minutes). */
+  /** When a fetched remote entity (Linear, an extension's provider) reads as stale (default 15 minutes). */
   readonly remoteEntityStaleAfterMs?: number;
 }
 
@@ -298,24 +299,8 @@ function webRevision(
   };
 }
 
-function responseMediaType(response: Response): string {
-  return response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
-}
-async function cancelResponseBody(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // Preserve the provider validation error when a body cannot be cancelled.
-  }
-}
-
-
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function byteHash(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 
@@ -338,7 +323,7 @@ export class ResourceCatalog {
   private readonly pendingRemoteEntityRefreshes =
     new Map<string, Promise<ResourceDescription>>();
   readonly retention: ResourceRetentionRepository;
-  /** When a fetched Jira or Linear copy reads as stale; an installed handler's `staleAfter` sets it. */
+  /** When a fetched remote entity reads as stale, unless its provider has its own age (below); only this option sets it. */
   remoteEntityStaleAfterMs: number;
   /** A provider's own stale age (its resource handler's `staleAfter`), over `remoteEntityStaleAfterMs`. */
   readonly remoteEntityStaleAfterByProvider = new Map<string, number>();
@@ -395,8 +380,8 @@ export class ResourceCatalog {
       ],
       markMutation: () => this.bumpSequence(),
     });
-    this.recoverInterruptedWebRefreshes();
-    this.recoverInterruptedRemoteEntityRefreshes();
+    this.recoverInterruptedRefreshes("web_resource_state");
+    this.recoverInterruptedRefreshes("remote_entity_resource_state");
     this.recoverInterruptedComputedExecutions();
     this.recoverInterruptedFilesystemSaves();
   }
@@ -557,18 +542,7 @@ export class ResourceCatalog {
       this.database.query(
         "UPDATE resources SET version = version + 1, updated_at = ? WHERE id = ?",
       ).run(now, current.resourceId);
-      this.database.query(`
-        UPDATE computed_resource_state
-        SET generation = generation + 1,
-            status = 'idle',
-            selected_execution_id = NULL,
-            representation_id = NULL,
-            durable_resource_id = NULL,
-            last_failure_execution_id = NULL,
-            started_at = NULL,
-            completed_at = NULL
-        WHERE resource_id = ?
-      `).run(current.resourceId);
+      this.resetComputedStateFromCurrentRead(current.resourceId);
       this.bumpSequence();
       return this.requireComputedInvocationFromCurrentRead(invocationId);
     })();
@@ -683,7 +657,7 @@ export class ResourceCatalog {
       if (error instanceof ResourceCatalogError) throw error;
       throw new ResourceCatalogError(
         "source-unavailable",
-        `Filesystem resource is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        `Filesystem resource is unavailable: ${errorText(error)}`,
       );
     }
     const candidates = this.filesystemSourceCandidates(absolutePath);
@@ -737,10 +711,7 @@ export class ResourceCatalog {
         source.provider === "filesystem"
       )
       .filter((source) => {
-        const pathFromRoot = relative(source.boundary.root, absolutePath);
-        return pathFromRoot !== ".." &&
-          !pathFromRoot.startsWith(`..${sep}`) &&
-          !isAbsolute(pathFromRoot);
+        return !escapesRoot(relative(source.boundary.root, absolutePath));
       })
       .sort((left, right) =>
         right.boundary.root.length - left.boundary.root.length ||
@@ -1090,18 +1061,7 @@ export class ResourceCatalog {
           SET source_id = ?, version = version + 1, updated_at = ?
           WHERE resource_id = ?
         `).run(destination.id, now, resource.id);
-        this.database.query(`
-          UPDATE computed_resource_state
-          SET generation = generation + 1,
-              status = 'idle',
-              selected_execution_id = NULL,
-              representation_id = NULL,
-              durable_resource_id = NULL,
-              last_failure_execution_id = NULL,
-              started_at = NULL,
-              completed_at = NULL
-          WHERE resource_id = ?
-        `).run(resource.id);
+        this.resetComputedStateFromCurrentRead(resource.id);
       }
       if (relocated.mediaType === "application/pdf") {
         this.database.query(`
@@ -2668,7 +2628,7 @@ export class ResourceCatalog {
       } catch {
         throw new ResourceCatalogError("source-unavailable", "PDF Resource is unreadable");
       }
-      const contentHash = byteHash(bytes);
+      const contentHash = sha256(bytes);
       const revision: ResourceRevisionRef = {
         resourceId: initial.resource.id,
         addressVersion: initial.resource.addressVersion,
@@ -2777,7 +2737,7 @@ export class ResourceCatalog {
           );
         }
         const bytes = await this.readPdfBody(response);
-        const contentHash = byteHash(bytes);
+        const contentHash = sha256(bytes);
         const etag = webEtag(response);
         const lastModified = response.headers.get("last-modified")?.trim() || null;
         observation = {
@@ -3785,7 +3745,7 @@ export class ResourceCatalog {
           completedAt,
         };
       }
-      const contentHash = byteHash(new TextEncoder().encode(output.content));
+      const contentHash = sha256(new TextEncoder().encode(output.content));
       let representation = cachedRepresentation;
       if (!representation) {
         const representationId = crypto.randomUUID();
@@ -4263,22 +4223,27 @@ export class ResourceCatalog {
 
 
 
-  private recoverInterruptedWebRefreshes(): void {
-    this.database.transaction(() => {
-      const recovered = this.database.query(`
-        UPDATE web_resource_state
-        SET freshness = 'failed',
-            last_error = 'Refresh interrupted before completion'
-        WHERE freshness = 'refreshing'
-      `).run();
-      if (recovered.changes > 0) this.bumpSequence();
-    })();
+  /** A computed resource whose invocation changed (revised or relocated) starts again: idle, nothing selected. */
+  private resetComputedStateFromCurrentRead(resourceId: string): void {
+    this.database.query(`
+      UPDATE computed_resource_state
+      SET generation = generation + 1,
+          status = 'idle',
+          selected_execution_id = NULL,
+          representation_id = NULL,
+          durable_resource_id = NULL,
+          last_failure_execution_id = NULL,
+          started_at = NULL,
+          completed_at = NULL
+      WHERE resource_id = ?
+    `).run(resourceId);
   }
 
-  private recoverInterruptedRemoteEntityRefreshes(): void {
+  /** A web or remote-entity refresh the host stopped in the middle of reads as failed, not refreshing forever. */
+  private recoverInterruptedRefreshes(table: "web_resource_state" | "remote_entity_resource_state"): void {
     this.database.transaction(() => {
       const recovered = this.database.query(`
-        UPDATE remote_entity_resource_state
+        UPDATE ${table}
         SET freshness = 'failed',
             last_error = 'Refresh interrupted before completion'
         WHERE freshness = 'refreshing'
