@@ -211,10 +211,12 @@ test("the note reaching done clears every mark, and a done note gets none", asyn
 test("PIE-1662: a roadmap item's own lines never reach Jev or a chip, though the same lines in a plain note do; a mark already on one comes off", async () => {
   const t = await setup();
   const body = ["", "Evan opens the yard note and every bed has a label he can read.", "", "- **Red first:** a made-up bed with no label gets no decision on main.", "- **Done when:** Evan sees every bed with its label.", "- Should the shed face south, Evan?"];
-  // The control: in an ordinary note the description lines are Jev's unsure band, and the question a sure ask.
+  // The control: in an ordinary note the description lines are Jev's unsure band, and the question a sure ask. A
+  // bold-led line that asks nothing of Evan is filed in code and never marked (PIE-1715).
   const plain = await t.write(["Yard labels", ...body].join("\n"));
-  const marked = (await t.marked(plain.id, 4)).split("\n");
+  const marked = (await t.marked(plain.id, 3)).split("\n");
   expect(marked[2]).toContain("[maybe-needs::sysop]");
+  expect(marked[4]).not.toContain("needs::sysop");
   expect(marked[6]).toContain("[needs::sysop: Should the shed face south, Evan?]");
   const jevBefore = t.asked.length, modelBefore = t.modelPrompts().length;
   const item = await t.write(["YARD-7 — Every bed shows its label [type::roadmap-item] [work-stage::queued] [work-id::YARD-7]", ...body].join("\n"));

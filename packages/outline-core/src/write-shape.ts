@@ -770,6 +770,13 @@ const FILING_LEAD = /^(?:decision|decided|check)[*_ \t]*:/i;
 /** An agent's words to itself, whatever they say. */
 const NOTE_TO_SELF = /^note to self[*_ \t]*:/i;
 const LIST_LEAD = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+(?:\[.\][ \t]+)?)?/;
+/**
+ * A bold lead, the way a line names what it describes (`- **Waiters:** …`): with no question, no Evan and no please in
+ * its own words after it, the line explains something and asks nothing, whatever "you" or "approve" it holds (PIE-1715).
+ */
+const BOLD_LEAD = /^(\*\*|__)(?!\s)[^*_\n]+?\1[ \t]*:?/;
+const ASKING_WORDS = /\?|\bEvan\b|\bplease\b|\blet me know\b/i;
+const OPEN_BOX = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[ \]/;
 
 /**
  * The lines that can't be asking, by what they are rather than what they say (PIE-1620), so no model reads them: a
@@ -787,8 +794,9 @@ export function structuralLines(lines: readonly string[]): Set<number> {
     const content = quoteDepth(line).content;
     if (!asksAt(lines, i, "yes") || HEADING.test(content) || TABLE_ROW.test(content)) out.add(i);
     else {
-      const lead = content.replace(LIST_LEAD, "").replace(/^[*_]+/, ""), filing = FILING_LEAD.exec(lead);
+      const listed = content.replace(LIST_LEAD, ""), lead = listed.replace(/^[*_]+/, ""), filing = FILING_LEAD.exec(lead), bold = BOLD_LEAD.exec(listed);
       if (NOTE_TO_SELF.test(lead) || (filing && !mayAsk(lead.slice(filing[0].length)))) out.add(i);
+      else if (bold && !OPEN_BOX.test(content) && !ASKING_WORDS.test(stripPropertyTokens(proseOf(listed.slice(bold[0].length))))) out.add(i);
     }
   });
   return out;
