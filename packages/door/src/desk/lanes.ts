@@ -678,7 +678,8 @@ export class Lanes implements SourceModel {
     if (!r) throw new ActionRefused("not moved");
     if (r.result.startsWith("refused")) throw new ActionRefused(r.result.replace(/^refused: /, ""));
     for (const x of this.readers()) if (x.msg?.id === c.id) x.surface.noteAgent(actor, `moved this card to ${lanes[to]!.name}`);
-    return { card: c.id, lane: lanes[to]!.name, result: r.result };
+    // Already there: nothing was written, so nothing was recorded.
+    return { card: c.id, lane: lanes[to]!.name, result: r.result, ...(r.result.startsWith("moved") ? { recordedAs: recordedAnswer(actor) } : {}) };
   }
 
   /**
@@ -1202,7 +1203,7 @@ export class Lanes implements SourceModel {
   }
 
   /** A note under `parentId` (a card's child), as it was typed. */
-  async createNote(parentId: string, text: string, actor: Actor): Promise<{ id: string; parent: string; text: string }> {
+  async createNote(parentId: string, text: string, actor: Actor): Promise<{ id: string; parent: string; text: string; recordedAs: RecordedAs }> {
     const body = text.replace(/\s+$/, "");
     if (!body.trim()) throw new ActionRefused("type the note first");
     const m = await this.landCreate(parentId, body, actor);
@@ -1212,7 +1213,7 @@ export class Lanes implements SourceModel {
     this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId}`, ...(byOf(actor)) };
     for (const r of this.readers()) if (r.msg?.id === parentId) r.surface.noteAgent(actor, "added a note under this card");
     this.host.redraw();
-    return { id: m.id, parent: parentId, text: m.text };
+    return { id: m.id, parent: parentId, text: m.text, recordedAs: recordedAnswer(actor, "new") };
   }
 
   /** One `create`, never retried: a refusal is the service's reason; a lost answer is looked for. */
@@ -1274,7 +1275,7 @@ export class Lanes implements SourceModel {
    * again. A step without an id is named by where it starts at the read revision, and the service gives
    * it one (the note's text gains `^t-…`).
    */
-  async setStep(cardId: string, index: number | string, status: StepStatus | undefined, actor: Actor, shown?: { item: ChecklistStep; revision: number }): Promise<{ card: string; step: number; status: StepStatus; changed: boolean; revision?: number; id?: string }> {
+  async setStep(cardId: string, index: number | string, status: StepStatus | undefined, actor: Actor, shown?: { item: ChecklistStep; revision: number }): Promise<{ card: string; step: number; status: StepStatus; changed: boolean; revision?: number; id?: string; recordedAs?: RecordedAs }> {
     const card = this.cardFor(cardId);
     const blocked = this.moveBlocked(card);
     if (blocked) throw new ActionRefused(blocked.replace("another move is still landing", "a move is still landing"));
@@ -1297,7 +1298,7 @@ export class Lanes implements SourceModel {
       asActor(this.host.ctx, actor).flash(r.changed ? said : `already ${to}: ${stepText(it.text)}`);
       this.lastWrite = { what: "step", id: card.id, result: `step ${i + 1} ${it.status} -> ${to} · revision ${r.block.revision}`, ...(byOf(actor)) };
       if (S) { S.note = r.changed ? said : ""; }
-      return { card: card.id, step: i + 1, status: to, changed: r.changed, revision: r.block.revision, id: r.item.itemId };
+      return { card: card.id, step: i + 1, status: to, changed: r.changed, revision: r.block.revision, id: r.item.itemId, ...(r.changed ? { recordedAs: recordedAnswer(actor) } : {}) };
     } catch (e) {
       const why = e instanceof Refused ? `${e.message} · the steps were read again; nothing changed` : e instanceof Error ? e.message : String(e);
       throw new ActionRefused(why);
@@ -1354,11 +1355,11 @@ export class Lanes implements SourceModel {
   }
 
   /** `u`: bring back the card trashed last (or `id`), where it was. */
-  async restoreCard(id: string | undefined, actor: Actor): Promise<{ restored: string; title: string; renamedPages?: PageRename[] }> {
+  async restoreCard(id: string | undefined, actor: Actor): Promise<{ restored: string; title: string; renamedPages?: PageRename[]; recordedAs: RecordedAs }> {
     const target = id ?? this.trashed?.id;
     if (!target) throw new ActionRefused("nothing was trashed from this board; pass id=<block id> to restore another");
     let m: Msg & { renamedPages?: PageRename[] };
-    try { m = await this.host.ctx.board.restore(target); }
+    try { m = await this.host.ctx.board.restore(target, actor); }
     catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     const title = titleOf(m);
     if (this.trashed?.id === m.id) {
@@ -1371,7 +1372,7 @@ export class Lanes implements SourceModel {
     const renamed = m.renamedPages?.length ? ` · ${renamedPagesNote(m.renamedPages)}` : "";
     asActor(this.host.ctx, actor).flash(`restored "${title}"${renamed}`);
     this.host.redraw();
-    return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}) };
+    return { restored: m.id, title, ...(m.renamedPages?.length ? { renamedPages: m.renamedPages } : {}), recordedAs: recordedAnswer(actor) };
   }
 
   // ── drawing: the desk draws the tiles; the board adds its pickers, its composer and its hint row ──
@@ -1640,7 +1641,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "card.move": def({
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     examples: [
       { act: "card.move lane=Doing", does: "moves the selected card into the Doing lane, patching what its query names" },
@@ -1747,7 +1748,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "note.create": def({
     summary: "add a note under the selected card (or parent=<id>)", keys: [{ keys: "N", does: "start a note, then type its text" }, { keys: "ctrl+s", does: "save it", says: "save the new note" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     examples: [
       { act: "note.create text=\"Swap is on the second Saturday\"", does: "adds that note under the selected card" },
@@ -1768,7 +1769,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "step.set": def({
     summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s then space ⏎ x w ! + -",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       step: { type: "string", about: "the step's number in `steps` (from 1), or its ^id" },
       status: { type: "string", optional: true, about: `${CHECKLIST_STATUSES.join(", ")}; default toggles done (an approved or rejected step reopens to todo)` },
@@ -1805,7 +1806,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "card.restore": def({
     summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     menu: { label: "restore the card trashed last", group: BOARD, key: "u", now: on => (on.model instanceof Lanes && on.model.trashed ? null : { hide: true }) },
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
     examples: [

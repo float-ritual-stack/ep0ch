@@ -74,7 +74,8 @@ const WRITE_RULES =
   "Evan reads on a phone or between other work: lead with the conclusion; keep the title line short (under about 70 characters) " +
   "with the detail in the body; a section is one component (a figure, a callout, a check, a compare) plus at most three short lines, " +
   "and a paragraph is at most three sentences; a number a query can count goes in a live figure, never in prose. A question for Evan " +
-  "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
+  "goes first as one `- [ ]` line (a choice, one per option: a `status: proposed` graph-decision is one he can only read, not answer), " +
+  "and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
   "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " +
   "in prose; one point per bullet; headings over a note past a screen. The answer reviews what you wrote: `review.verdict` is ship or " +
   "fix, each finding says where and the smallest fix, many with a ready `patch` to pass to outline_patch as written; every `warnings` " +

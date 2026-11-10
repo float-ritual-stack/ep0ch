@@ -348,6 +348,42 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
   }, 20_000);
 
 
+  test("an artifact file dropped on the terminal (PIE-1656): its escaped path becomes an [artifact::] line naming the file as it is; pasted after a typed [artifact:: it stays the line's value", async () => {
+    ch("5"); press({ kind: "enter" });
+    const desk = () => S().stages.get(4).top;
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
+    const d = ([...desk().panes.values()].find((p: any) => p.editing) as any).surface.draft;
+    const before = d.text, file = join(SHOWCASE_ASSETS, "artifacts", "night shift lamp.html");
+    const dropped = file.replace(/ /g, "\\ ");
+    press({ kind: "end" }); press({ kind: "enter" });
+    press({ kind: "paste", text: dropped });
+    await until(() => d.text.includes(`[artifact::${file}]`), "the dropped artifact's line", 5000);
+    expect(d.lines[d.row]).toBe(`[artifact::${file}]`);
+    expect(d.text).not.toContain(dropped);
+    expect(d.note).toContain("an artifact, run from where it is");
+    // ctrl+z gives back what was dropped.
+    press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.lines[d.row]).toBe(dropped);
+    for (let i = 0; i < 4 && d.text !== before; i++) press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.text).toBe(before);
+    // Typed, then the path pasted as its value: one line, as written, read as the same file.
+    press({ kind: "end" }); press({ kind: "enter" });
+    for (const c of "[artifact::") press({ kind: "char", ch: c });
+    press({ kind: "paste", text: dropped });
+    // The drop's turn comes after the paste lands (a microtask, then its action): given it, it leaves the value alone.
+    await Bun.sleep(100);
+    expect(d.lines[d.row]).toBe(`[artifact::${dropped}`);
+    press({ kind: "char", ch: "]" });
+    expect(d.lines[d.row]).toBe(`[artifact::${dropped}]`);
+    const { parseMediaLine } = await import("@ep0ch/outline-core/media-line");
+    expect(parseMediaLine(d.lines[d.row])!.path).toBe(file);
+    for (let i = 0; i < 40 && d.text !== before; i++) press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.text).toBe(before);
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
+
   test("rich-edit: edit both tables through actions, undo, save and read back", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "rich-edit" }, as: "rich-builder" });

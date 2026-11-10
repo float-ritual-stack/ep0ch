@@ -279,6 +279,16 @@ export const artifactsText = (pinned = "showcase-orbit@1") => [
   "[artifact::https://github.com/ep0ch-artifacts/orbit-lamp-site]",
   "",
   "[artifact::github.com/example-studio/orbit-lamp-site]",
+  "",
+  "## A dropped file, and one that isn't there",
+  "",
+  "Drag a file onto the terminal while you edit: its path arrives with the shell's escapes (or quoted), and an HTML, JSX or SVG file becomes an artifact line naming it as it is. Typed or pasted after `[artifact::` the escaped path reads as the same file, and the card is titled by its whole name.",
+  "",
+  `[artifact::${join(SHOWCASE_ASSETS, "artifacts").replace(/ /g, "\\ ")}/night\\ shift\\ lamp.html]`,
+  "",
+  "A card that can't read its file says why in full, wrapped inside the tile at any width, with what to do at its end.",
+  "",
+  "[artifact::/made/up/nowhere/on/this/machine/moth lantern.html]",
 ].join("\n");
 
 /**

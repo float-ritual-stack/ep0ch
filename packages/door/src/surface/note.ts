@@ -6628,7 +6628,7 @@ export class NoteSurface {
     const opened = open ? await this.writeQuote(r.block.id, host) : null;
     if (r.undo) EXT_UNDO.push({ undo: r.undo, label, by: partyOf(actor), context: opened ? r.block.id : m.id });
     say.flash(`quoted ${r.placement.said}: ${printable(r.block.text.split("\n", 1)[0] ?? "")}${!r.undo ? "" : opened ? " · esc, then ctrl+z there undoes it" : " · ctrl+z undoes"}`);
-    return { ...(opened ? { tile: opened } : {}), block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}) };
+    return { ...(opened ? { tile: opened } : {}), block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}), recordedAs: recordedAnswer(actor, "new") };
   }
 
   /**
@@ -9464,7 +9464,7 @@ async function attention(on: { surface: NoteSurface; host: SurfaceHost }, actor:
   await s.attend(on.surface.env(on.host, actor), to);
   if (s.error) throw new ActionRefused(s.error);
   on.surface.noteAgent(actor, said);
-  return { lifecycle: to };
+  return { lifecycle: to, recordedAs: recordedAnswer(actor) };
 }
 
 const findThread = (s: CommentSession, id: string): number => {
@@ -9495,7 +9495,7 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
   await s.send(surface.env(host, actor));
   if (s.error || s.mode === "compose") throw new ActionRefused(s.error ?? s.composer?.note ?? "not sent");
   surface.noteAgent(actor, kind === "reply" ? "replied to a comment" : kind === "edit" ? "edited a comment" : "commented on this note");
-  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })) };
+  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })), recordedAs: recordedAnswer(actor, kind === "edit" ? "revision" : "new") };
 }
 
 /**
@@ -10434,7 +10434,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "page.create": def({
     summary: "make the page a [[address]] names when nothing answers it yet (address=, or the selected link's): `X [page::X]` where new notes go (the outline's placement rule: today the top of the Inbox), then open it as the link would; a page there already is opened. Following a missing [[page]] offers this first (⏎ or a click on it again). An agent's makes it, attributed and said, and opens nothing",
     keys: [{ keys: "⏎ click", does: "on a [[missing page]] link, twice (the first offers it)" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     says: out => (out?.said ? `· ${out.said}` : null),
     args: {
       address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" },
@@ -10454,7 +10454,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "component.new": def({
     summary: "make a note component (a render script) named name=: its starter note `Name [script::name] [mode::render]` with a where= prop and a tsx fence that lists the notes its where holds, written under [[components]] (under= another page; made when missing), and ::name{} put at the draft's cursor (on a line of its own); the person's opens the note beside. Completion's `+ new component ::name` row runs the same. Both writes are attributed",
     keys: [{ via: "completion's `+ new component ::name` row, ⏎ or tab on it" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     says: out => (out?.said ? `· ${out.said}` : null),
     args: {
       name: { type: "string", about: "the component's name, what ::name{} calls: lowercase letters, digits and -, starting with a letter" },
@@ -10473,7 +10473,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.noteAgent(actor, `made component ::${name}`, d);
       if (standing && actor.kind === "user") host.navigate(made.note, { fresh: true });
       host.redraw();
-      return { id: made.note.id, page: made.page.id, said: made.said };
+      return { id: made.note.id, page: made.page.id, said: made.said, recordedAs: recordedAnswer(actor, "new") };
     },
   }),
   "link.select": def({
@@ -10579,7 +10579,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "button.pin": def({
     summary: "pin to status bar: append this note's selected ::button to your [status-bar::true] note; label= picks a button by its exact label, or a note with one button needs no selection",
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
     keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
     examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
@@ -10961,13 +10961,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.send": def({
     summary: "send the comment or reply; a retry of the same text can't land twice", keys: modeActionKeys(ATTACHED_KEYS, "comment.send"),
-    touches: "draft", draft: "leave", replay: "ask",
+    touches: "draft", draft: "leave", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => sendComment(surface, host, actor),
   }),
   "comment": def({
     summary: "comment on a passage in one step: passage.select, comment.write, comment.send",
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       quote: { type: "string", about: "the exact words to quote, as stored" },
       body: { type: "string", about: "the comment's text" },
@@ -10986,7 +10986,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "comment.note": def({
     summary: "comment on the whole note, not a passage (PIE-846): the person's composer opens at the top of the note, where whole-note threads are (a comment put aside on the note comes back in it); body= sends it at once, as an agent's always is. Its thread sits at the top of the note, its card in the margin's first row",
     keys: [{ keys: "C", does: "with nothing selected" }, { keys: "click", does: "the byline's [comment]" }, { via: "the tile menu's \"comment on the whole note\"" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     menu: noteRow("comment on the whole note", "C", { busy: true }),
     args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
     examples: [
@@ -11004,7 +11004,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         asActor(host.ctx, actor).flash("commented on the whole note");
         surface.noteAgent(actor, "commented on the whole note");
         host.redraw();
-        return { thread: r.id, whole: true };
+        return { thread: r.id, whole: true, recordedAs: recordedAnswer(actor, "new") };
       }
       if (actor.kind !== "user") throw new ActionRefused("say body=: an agent's comment is sent at once");
       const why = await surface.commentOnNote(host, actor, host.still);
@@ -11017,7 +11017,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "passage.act": def({
     summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
     keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask", says: "ask the agent about the selected passage" }, { keys: "a then e", does: "explain", says: "have the selected passage explained" }, { keys: "a then h", does: "highlight", says: "highlight the selected passage" }, { keys: "a then d", does: "define", says: "define the selected passage" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
       quote: { type: "string", optional: true, about: "the exact words, as stored (default: your selection)" },
@@ -11054,7 +11054,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
           const thread = await send(text, props);
           said.flash(action === "comment" ? "commented on the passage" : `asked @${agent!.name} · the answer lands in the margin`);
           surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${p.note.quote}"`);
-          return { thread, passage: p.target };
+          return { thread, passage: p.target, recordedAs: recordedAnswer(actor, "new") };
         }
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
         if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
@@ -11294,7 +11294,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "reply": def({
     summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: [{ keys: "m", does: "the thread list" }, { keys: "j k", does: "pick a thread" }, { keys: "r", does: "reply, then typing" }, { keys: "ctrl+s", does: "save the reply" }, { keys: "click", does: "[Reply] on an expanded thread" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the reply's text, sent at once; left out, the person writes it" } },
     examples: [
       { act: 'reply thread=5b2e8d body="Yes, the front bed too"', does: "sends that reply on the comment thread at once" },
@@ -11314,7 +11314,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "comment.edit": def({
     summary: "edit a posted comment, or one of its replies (reply=), in the same editor it was written in (PIE-763). Left out body=, the person's editor opens on its words (ctrl+s saves, esc leaves it as it was, a click away saves it as an edit does); body= saves new words at once, as an agent's always does. Checked against the revision it was read at: an edit made meanwhile is refused (ctrl+r loads it), never overwritten. Attributed to whoever edits it; it shows as edited, its earlier words kept in its revisions",
     keys: [{ keys: "e", does: "in the thread list (m)" }, { keys: "click", does: "[Edit] on an expanded thread, or beside one of its replies" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
       reply: { type: "string", optional: true, about: "one of its replies to edit instead (its id, or its first 6+ characters); left out, the thread's own comment" },
@@ -11345,7 +11345,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "resolve": def({
     summary: "resolve a comment thread that's a ticket (a request done), or reopen it with open=true. A thread that only needed reading is seen (thread.seen), not resolved. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: [{ keys: "m then s", does: "marks one seen" }],
-    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
+    touches: "tile", replay: "ask", answer: RECORDED_AS, way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, open: { type: "boolean", optional: true, about: "reopen instead of resolving" } },
     examples: [
       { act: "resolve thread=5b2e8d", does: "marks that comment thread resolved, a request done" },
@@ -11358,7 +11358,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "thread.seen": def({
     summary: "mark a comment thread seen (PIE-791): it leaves the margin for the earlier shelf, and a new reply brings it back; back=true brings it back now. It opens the thread list in the reader",
     keys: [{ keys: "s", does: "in the thread list (m)" }, { keys: "click", does: "[Seen] on an expanded thread" }],
-    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent marks it in another reader (tile=)",
+    touches: "tile", replay: "ask", answer: RECORDED_AS, way: "the thread list would cover what they're reading · an agent marks it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, back: { type: "boolean", optional: true, about: "bring an earlier thread back instead" } },
     examples: [
       { act: "thread.seen thread=5b2e8d", does: "marks that thread seen, moving it off the margin to the earlier shelf" },
@@ -11374,7 +11374,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "thread.keep": def({
     summary: "keep a comment thread (PIE-791): it stays in the margin whatever else is put away, and is in the outline's kept marks; again (or keep=false) unkeeps it. It opens the thread list in the reader",
     keys: [{ keys: "p", does: "in the thread list (m)" }, { keys: "click", does: "[Keep] on an expanded thread" }],
-    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent keeps it in another reader (tile=)",
+    touches: "tile", replay: "ask", answer: RECORDED_AS, way: "the thread list would cover what they're reading · an agent keeps it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, keep: { type: "boolean", optional: true, about: "true keeps, false unkeeps; left out, it toggles" } },
     examples: [
       { act: "thread.keep thread=5b2e8d", does: "keeps that thread in the margin, or unkeeps it if kept" },
@@ -11390,7 +11390,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "thread.tldr": def({
     summary: "a comment thread's TL;DR (PIE-791): @margin writes a short summary as a reply with [kind::tldr], which becomes the thread's face, its discussion folded behind it. body= writes it instead (yours, or an edit of @margin's). With no model set up for @margin none is written, and it says how to set one up (PIE-860). remove=true takes it away: the discussion is the face again",
     keys: [{ keys: "t", does: "in the thread list (m)" }, { keys: "T", does: "takes it away" }, { keys: "click", does: "[TL;DR] on an expanded thread, [TL;DR again], [No TL;DR]" }],
-    touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent asks in another reader (tile=)",
+    touches: "tile", replay: "ask", answer: RECORDED_AS, way: "the thread list would cover what they're reading · an agent asks in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the TL;DR itself; left out, @margin writes it" }, remove: { type: "boolean", optional: true, about: "take its TL;DR away" } },
     examples: [
       { act: "thread.tldr thread=5b2e8d", does: "asks @margin to write a short TL;DR as that thread's face" },
@@ -11409,7 +11409,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         asActor(host.ctx, actor).flash("took the TL;DR away");
         surface.noteAgent(actor, "took a comment's TL;DR away");
         host.redraw();
-        return { removed: true };
+        return { removed: true, recordedAs: recordedAnswer(actor) };
       }
       const s = await surface.ensureSession(host, "threads");
       const i = findThread(s, thread);
@@ -11420,7 +11420,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         s.threads = await env.reloadComments();
         surface.noteAgent(actor, "wrote a comment's TL;DR");
         host.redraw();
-        return { tldr: body };
+        return { tldr: body, recordedAs: recordedAnswer(actor) };
       }
       const asked = await s.askTldr(env);
       if (!asked) throw new ActionRefused(s.error ?? "no agent could be asked for a TL;DR");
@@ -11503,7 +11503,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.move.undo": def({
     summary: "put the note shown back where the last move made here (by you) took it from",
-    keys: modeActionKeys(ATTACHED_KEYS, "note.move.undo"), touches: "nothing", replay: "ask", args: { id: { type: "string", optional: true, about: "the moved note; default the one shown" } },
+    keys: modeActionKeys(ATTACHED_KEYS, "note.move.undo"), touches: "nothing", replay: "ask", answer: RECORDED_AS, args: { id: { type: "string", optional: true, about: "the moved note; default the one shown" } },
     examples: [
       { act: "note.move.undo", does: "puts the note shown back where your last move took it from" },
       { act: "note.move.undo id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "puts that note back where your last move took it from" },
@@ -11523,7 +11523,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "quote": def({
     summary: "quote marks into a new block (the margin's quote-tweet): a highlight, a comment or a reply, or several, each transcluded (!((mark))) under one [from::((mark))] line so it traces back to where it was said; each mark's card then says quoted in. where= inbox (the default), note (under this note) or a block (its id or ((ref))); the person's, left out, is asked in the power bar: under this note (first: a quote-reply sits with what it answers), the Inbox, or any note by its words. The person's quote then opens where their new notes open (note.opens: a float beside the reader, by default), lit as just arrived, in their edit at the end of the quote (PIE-1184); an agent's opens nothing. text= the new block's own words above the quotes (its title). The marks stay where they are. One write: ctrl+z (ext.undo) takes it back. Recorded as whoever asks",
     keys: "q in the thread list (m) on the thread, or on the threads picked with space; a click on an expanded thread's [Quote] or a reply's [Quote]",
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: {
       threads: { type: "string", optional: true, about: "the marks: ids (or their first 6+ characters) of threads (a highlight or comment) or replies on this note, comma-separated; left out, the thread list's picked threads, else its current one" },
       where: { type: "string", optional: true, about: "inbox (the top of the Inbox), note (under this note) or a block id or ((ref)) to put it under; an agent's default is inbox" },

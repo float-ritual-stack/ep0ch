@@ -412,7 +412,7 @@ Every note clears this floor:
   address written bare is a link too: it opens the note in the door and on its published page.
 - A short title line (under about 70 characters), a paragraph of at most three sentences, a section of one component
   plus at most three short lines. A question for Evan goes first as one `- [ ]` line, with `[needs::sysop: …]` on the
-  note. The write answer measures these (below).
+  note; a choice is one `- [ ]` per option, since a `status: proposed` graph-decision is one he can only read, not tick. The write answer measures these (below).
 - A fragment of an idea still forming is `[type::chirp]`. A request is only something ready to work on (the workboard's
   "Requests are chirps": an idea becomes a request when someone can start it).
 - Suggest mode in chat follows the same rules: one line per note, then the swaps. No wall in chat either.

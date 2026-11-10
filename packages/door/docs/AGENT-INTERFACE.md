@@ -146,8 +146,10 @@ shows. A door older than these fields is still read: what it can't check is `?`,
 **`recordedAs`: who a write was recorded as, one shape on every writing action** (PIE-1406): `{ author, actorId?, says }`.
 `author` is `agent` or `user`, as stored; `actorId` is the id stored with it (none on a block the person made alone);
 `says` is the door's words (`yours`, `an agent (<id>)'s`, `yours, naming <ids>`). `card.create`, `note.trash`,
-`props.edit`, `image.size`, `edit.save`, `note.move`, `tile.type`, `agents.yolo` and the rest answer it, built by
-`recordedAnswer` from `recorded()` (the door's `src/socket.ts`); each action's page lists it under `answer`.
+`props.edit`, `image.size`, `edit.save`, `note.move`, `tile.type`, `agents.yolo`, `card.move`, a comment or reply sent,
+`welcome.move`, `note.untrash` and the rest answer it, built by `recordedAnswer` from `recorded()` (the door's
+`src/socket.ts`); each action's page lists it under `answer`. A run that wrote nothing (a card already in that lane)
+answers none (PIE-1655).
 
 ### `subscribe`: the live feed
 

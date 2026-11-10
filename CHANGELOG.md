@@ -19,7 +19,29 @@ are its record. The outliner's entries from then are kept below, under
 - **One line reference everywhere:** a step's "copy link" and a `::fields` row's ¶ give the same `((id^anchor|its words))` as copy line reference on that line, with one wording for the copy and for a note that changed since it was read.
 - **An alt press asks for its own slot:** `::button{act="tile.info" alt="tile.zoom tile={lift}" lift=}` asks which tile on alt+click and then lifts it; a plain click runs `tile.info` without asking.
 - **In the kitchen sink:** the Paste a link section (`ep0ch --showcase`).
-- **Run:** PROTOCOL moves (loki sets it at merge) and GRAMMAR is 46: `ep0ch install --apply` on float-2 and the laptop.
+- **Run:** PROTOCOL 319 and GRAMMAR 47: `ep0ch install --apply` on float-2 and the laptop.
+
+### Card moves, comment sends and Welcome moves say who they were recorded as (PIE-1655)
+
+- **The three PIE-1406 left out answer `recordedAs`:** `card.move`, a comment or reply sent (`comment.send`, `comment`, `reply`, `comment.note`, `comment.edit`, `passage.act`) and `welcome.move`. Each one's status bar already named the agent. A move that changed nothing (the card already in that lane, the note already in that place) answers no `recordedAs`.
+- **An agent's restore is recorded as the agent:** `note.untrash` and `card.restore` used to send no mutation, so the service logged no restore activity and the restore wasn't attributed to anyone. Both now answer `recordedAs` too.
+- **The other writing actions answer it as well:** `note.create`, `step.set`, `resolve`, `thread.seen`, `thread.keep`, `thread.tldr`, `note.move.undo`, `agent.ask`, `quote`, `status.bar.pin`, `button.pin`, `note.new`, `page.create`, `template.stamp`, `component.new`, `facets.save`, `facets.pin`, `facets.tag`, `trail.save`, `screen.save`, `screen.menu` and `note.rename`. Each one's page lists the field under `answer`.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change: `trash.restore` already took `mutation`).
+
+### A dropped file with spaces in its name runs as an artifact, and a card's error reads whole (PIE-1656)
+
+- **A path written as a terminal's drop writes it names the file:** `[artifact::/made/up/LATE\ SHIFT.html]`, a quoted path, and any other escape (`\(`, `'it'\''s'`) are read as a shell reads one word, by outline-core's media line (`shellPath`), so the door, the service's copy on save, `artifacts.show` and the publisher all ask for the same file. The note keeps what you wrote. Before, the service asked for the backslashes and answered "isn't on laptop or float-2" for a file that was there.
+- **The card is titled by the whole name:** `fileName` no longer splits on `\`, so `Vent\ Rail.html` is "Vent Rail.html", not "Rail.html".
+- **A dropped HTML, JSX, SVG or Mermaid file becomes an artifact line:** dropped on the terminal while you edit, its path lands as `[artifact::<path>]` with its spaces as they are (pictures are still copied into `media/`; an artifact runs from where it is). Pasted after a typed `[artifact::` or `[img::`, a drop stays as it was pasted, on its one line.
+- **A card's "can't read it" reason wraps inside the tile,** at 44 columns too, so the part that says what to do is read whole; an image or video's "file not found" caption wraps the same way.
+- **One shell reader:** the door's drop (`droppedFiles`) and its file lookup (`resolveMediaPath`) read paths through outline-core's `shellWords` and `shellPath`, no longer their own.
+- **Run:** `ep0ch install --apply` (GRAMMAR 45 → 46: an older door still draws, warned once, and asks for the escaped path until it updates; no PROTOCOL or schema change).
+
+### A choice left to Evan is a box he can tick (PIE-1657)
+
+- **The write review answers fix for a choice he can only read:** a `::graph-decision` whose `status:` is still open (proposed, open, pending…), or a `[needs::sysop…]` on a note with no open box. Its ready patch puts one `- [ ]` per option at the top and marks the note `[needs::sysop: …]`; ticked, the choice is answered.
+- **Agents are told where they write:** outline_create, outline_edit and outline_patch, the outline guide and the ep0ch-outline skill say a proposed decision isn't a question he can answer.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
 
 ### A note's comments read at any width, and a comment's title keeps the chips it quotes (PIE-1572, PIE-1596)
 

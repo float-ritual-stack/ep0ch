@@ -7,7 +7,7 @@ import { subject, type Msg } from "../board";
 import { printable } from "../props";
 import { isOutlineNote } from "../authored";
 import type { LinkTarget } from "../refs";
-import { USER, type Actor, type SoftLinkChoice } from "../socket";
+import { recordedAnswer, USER, type Actor, type RecordedAs, type SoftLinkChoice } from "../socket";
 import { ActionRefused } from "./actions";
 import type { Again } from "../arm";
 import type { OpenHow, SurfaceHost } from "./note";
@@ -99,7 +99,7 @@ async function createUnder(text: string, under: string, host: SurfaceHost, actor
  * of the Inbox) as `X [page::X]`, then opened as a followed link opens; one that exists already is opened. An agent's is
  * made and said, opening nothing.
  */
-export async function createPage(r: PageOfferReader, address: string, host: SurfaceHost, actor: Actor, standing: boolean, under?: string): Promise<{ id: string; created: boolean; said?: string }> {
+export async function createPage(r: PageOfferReader, address: string, host: SurfaceHost, actor: Actor, standing: boolean, under?: string): Promise<{ id: string; created: boolean; said?: string; recordedAs?: RecordedAs }> {
   const made = await (under ? createUnder(address, under, host, actor) : host.ctx.board.followPage(address, actor)).catch((e: Error) => { throw new ActionRefused(`no page ${address}: ${e.message}`); });
   if (!made.note) throw new ActionRefused(made.status === "deleted" ? `[[${address}]] is a page in the trash: restore it there` : `no page ${address}`);
   const said = made.created ? `created page ${subject(made.note)} ${made.placement?.said ?? ""}`.trim() : `${subject(made.note)} was there already`;
@@ -108,5 +108,6 @@ export async function createPage(r: PageOfferReader, address: string, host: Surf
     host.ctx.flash(said);
   }
   host.redraw();
-  return { id: made.note.id, created: made.created, said };
+  // One there already was opened, not written.
+  return { id: made.note.id, created: made.created, said, ...(made.created ? { recordedAs: recordedAnswer(actor, "new") } : {}) };
 }
