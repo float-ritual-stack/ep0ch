@@ -58,11 +58,28 @@ const result = await runHerdrScenario({
     await s.keys(detail, "escape");
     await s.waitFor("Detail's menu closed", () => s.visible(detail), frame => !frame.includes("Find:"));
 
-    // The backlink peek takes clicks: the title opens the chooser, a chooser control opens the backlink.
     const peek = async () => {
       const frame = await terminal.visible();
       return frame.includes("Backlink 1/2") || frame.includes("Backlink 2/2") ? frame : "";
     };
+    // ⏎ on a backlink in Detail opens its peek, through Detail's own launch (PIE-1695): newest first, so source two.
+    await s.keys(detail, "b");
+    await s.waitVisible(detail, "Backlinks expanded");
+    await s.keys(detail, "/");
+    await s.text(detail, "two");
+    await s.keys(detail, "enter");
+    await s.waitVisible(detail, "Filtered backlinks by");
+    await s.waitVisible(detail, "▶ ACTIVE Clove source two");
+    await s.checkpoint("04a-backlink-found");
+    await s.keys(detail, "enter");
+    await s.waitFor("⏎ peeks the selected backlink", async () => (await terminal.visible()).includes("Backlink 1/1") ? terminal.visible() : "",
+      text => text.includes("CLOVE-TWO-BODY"));
+    await s.checkpoint("04a-peek-by-enter");
+    await terminal.write("\x1b");
+    await s.waitFor("the peek closes", terminal.visible, text => !text.includes("Backlink 1/1"));
+    await s.focus(detail);
+
+    // The backlink peek takes clicks: the title opens the chooser, a chooser control opens the backlink.
     await s.openBacklinkPeek(target.id, one.id);
     let frame = await s.waitFor("backlink peek open", peek, text => text.includes("CLOVE-ONE-BODY"));
     const at = (text: string, label: string) => {

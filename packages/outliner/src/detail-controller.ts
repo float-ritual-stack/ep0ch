@@ -3117,6 +3117,8 @@ export function createDetailController(
       case "preview.activate": {
         const action = focusedPreviewRegion(state.previewRegions)?.activation;
         if (action) await dispatch({ type: "preview.action", action }, viewport);
+        // With nothing focused, the backlink drawn ▶ ACTIVE (its selection) is what ⏎ means (PIE-1695).
+        else if (state.backlinks.expanded && selectedBacklinkSource()) await dispatch({ type: "backlinks.open" }, viewport);
         break;
       }
       case "checklist.toggle": {
