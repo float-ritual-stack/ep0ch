@@ -125,6 +125,17 @@ export const DRAFT_KEYS: readonly ModeKey[] = keyTable("draft", "every place a p
   // Typed over a selection, these wrap it instead of replacing it (`Draft.binding`); with nothing selected they're text.
   ...Object.keys(WRAPS).map(key => ({ key, action: "draft.wrap", args: { with: key }, label: "wraps", says: `wrap the selected text in ${key}${WRAPS[key]}; typed twice, in ${key}${key}${WRAPS[key]}${WRAPS[key]}` })),
 ]);
+/**
+ * The keys only a one-line field has (the power bar, a rename, a filter, a property's value): readline's, which a note's
+ * edit leaves alone (ctrl+w is the desk's window chord there, ctrl+x its $EDITOR chord, ctrl+u the line's start). Read
+ * ahead of DRAFT_KEYS by a line field (`Draft.tables`), with the keymap applied, so each is rebound, hinted and listed in
+ * the keys window like any other row.
+ */
+export const LINE_KEYS: readonly ModeKey[] = keyTable("line", "a line field: the power bar's line, a rename, a filter, a property's value", [
+  { key: "ctrl+w", action: "draft.erase", args: { to: "word-back" }, label: "erase word", says: "erase the word before the cursor" },
+  { key: "ctrl+u", action: "draft.clear", label: "clear", says: "clear the whole line" },
+  { key: "ctrl+x", action: "draft.cut", label: "cut", says: "cut the selected text to the clipboard" },
+]);
 /** What a table key asks of the draft's host (its session runs the host's action); the rest are the draft's own actions. */
 type DraftActionName = Parameters<typeof DRAFT_ACTIONS.run>[0];
 const HOST_PART: Record<string, DraftAction> = { "edit.save": "save", "draft.pick": "pick", "edit.reload": "reload", "draft.image": "image", "edit.follow": "follow", "draft.copy": "copy" };
@@ -583,7 +594,7 @@ export class Draft {
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER, "the cut to the line's end"); } return "keep"; }
       // A key the person's keymap took from a draft action (ctrl+z after draft.undo went to alt+u) says where it went.
-      const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");
+      const moved = this.moved(k);
       if (moved) this.status.say(moved);
       return "keep";
     }
@@ -681,8 +692,19 @@ export class Draft {
    */
   binding(k: Key): ModeKey | undefined {
     if (k.kind === "mouse") return undefined;
-    const name = exactKeyName(k), row = name ? effective(DRAFT_KEYS).find(r => r.key === name) : undefined;
+    const name = exactKeyName(k);
+    let row: ModeKey | undefined;
+    if (name) for (const table of this.tables) if ((row = effective(table).find(r => r.key === name))) break;
     return row?.action === "draft.wrap" && (!this.selection() || this.typesOver()) ? undefined : row;
+  }
+
+  /** The key tables this draft reads, first match wins: every draft's (DRAFT_KEYS); a line field puts its own (LINE_KEYS) ahead. */
+  tables: readonly (readonly ModeKey[])[] = [DRAFT_KEYS];
+
+  /** What to say of a key a table of this draft once bound and the person's keymap took away (where it went), or null. */
+  moved(k: Key): string | null {
+    for (const table of this.tables) { const said = movedInTable(table, "", keyName(k) ?? ""); if (said) return said; }
+    return null;
   }
 
   /**
@@ -1188,6 +1210,20 @@ export class Draft {
     return true;
   }
 
+  /** Erase all of the text (a line field's ctrl+u). One undo step; whether anything went. */
+  clear(by: Actor = USER): boolean {
+    this.settle();
+    this.record(USER, "a change");
+    const before = this.text;
+    this.anchor = { row: 0, col: 0 };
+    this.row = this.lines.length - 1; this.col = this.endOf(this.row);
+    this.deleteSelection();
+    this.anchor = null; this.goal = null;
+    if (this.text === before) return false;
+    this.wrote(by, "the clear");
+    return true;
+  }
+
   /** The selection between `open` and its closer, the same text left selected, so the key again wraps again. One undo step. */
   wrap(open: string, by: Actor = USER) {
     const s = this.selection();
@@ -1356,7 +1392,7 @@ export type DraftActionArgs = ArgsOfSet<typeof DRAFT_ACTIONS>;
 export type DraftGo = "line-start" | "line-end" | "doc-start" | "doc-end" | "word-back" | "word-forward";
 const DRAFT_GOES = ["line-start", "line-end", "doc-start", "doc-end", "word-back", "word-forward"] as const;
 /** The keys a table row of these names, for an action's def (the row's own words say what each does). */
-const rowKeys = (action: string, args: Record<string, unknown> = {}) => DRAFT_KEYS.filter(r => r.action === action && Object.entries(args).every(([k, v]) => r.args?.[k] === v)).map(r => r.key).join(" ");
+const rowKeys = (action: string, args: Record<string, unknown> = {}) => [...DRAFT_KEYS, ...LINE_KEYS].filter(r => r.action === action && Object.entries(args).every(([k, v]) => r.args?.[k] === v)).map(r => r.key).join(" ");
 
 /**
  * What the draft does besides typing, as actions: Enter's list continuation, Tab and Shift+Tab, a click or a
@@ -1465,9 +1501,16 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
       return { erased: d.erase(to, actor) };
     },
   }),
+  "draft.clear": def({
+    summary: "erase the whole text of the draft, the selection or not. One undo step",
+    keys: rowKeys("draft.clear"), touches: "draft", draft: "type", replay: "ask",
+    args: {},
+    examples: [{ act: "draft.clear", does: "empties the draft; ctrl+z puts it back" }],
+    run(_, d, actor) { return { cleared: d.clear(actor) }; },
+  }),
   "draft.cut": def({
     summary: "take the selected text out, returned. The person's goes on their clipboard (OSC 52; an agent's never), as draft.copy's does. One undo step",
-    keys: "cmd+x alt+x", touches: "draft", draft: "type", replay: "ask",
+    keys: rowKeys("draft.cut"), touches: "draft", draft: "type", replay: "ask",
     args: {},
     run(_, d, actor) {
       const text = d.selectedText();

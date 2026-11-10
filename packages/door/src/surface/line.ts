@@ -4,10 +4,8 @@
 // (shift selects), ctrl+a ctrl+e, ctrl+u, ctrl+w and alt+backspace (the word before), ctrl+k, ctrl+x (cut), ctrl+z
 // ctrl+y (undo, redo), cmd+c (copy), and the mouse: a click places the cursor, a drag selects, a double click a word,
 // a triple the line. Enter, esc, tab, ↑ ↓ and the rest stay the caller's (`take` answers false for them).
-import { Draft, DRAFT_KEYS } from "../edit";
+import { Draft, DRAFT_KEYS, LINE_KEYS as LINE_TABLE } from "../edit";
 import { LineRow } from "../draft-view";
-import { keyName } from "./actions";
-import { movedInTable } from "./keymap";
 import { INPUT_CURSOR, paint, bg, C, fg, RESET } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -22,7 +20,7 @@ export { lineCompletionHooks, type LineCompletion };
 /** The line's own ctrl motions (start, end, cut to the end, clear, the word before, cut); the table's keys come first. */
 const LINE_MOTIONS = new Set(["a", "e", "k", "u", "w", "x"]);
 /** What the draft's key table does in one line too (PIE-1607): a move of lines isn't, and save, insert and the like are the caller's. */
-const LINE_ACTIONS = new Set(["draft.go", "draft.select", "draft.erase", "draft.cut", "draft.wrap"]);
+const LINE_ACTIONS = new Set(["draft.go", "draft.select", "draft.erase", "draft.clear", "draft.cut", "draft.wrap"]);
 const LINE_KEYS = new Set<Key["kind"]>(["char", "paste", "backspace", "delete", "left", "right", "home", "end", "alt-backspace"]);
 
 export class LineField extends Draft {
@@ -45,6 +43,7 @@ export class LineField extends Draft {
 
   constructor(text = "", prefilled = false, o: { complete?: LineCompletion; id?: string } = {}) {
     super(o.id ?? "line", 0, text.replace(/\r\n?|\n/g, " "));
+    this.tables = [LINE_TABLE, DRAFT_KEYS];
     this.fresh = prefilled && !!text;
     if (this.fresh) { this.place(0, 0); this.place(0, this.text.length, true); this.markTypesOver(); }
     this.complete = o.complete ?? {};
@@ -89,17 +88,21 @@ export class LineField extends Draft {
       this.history(bound.action === "draft.redo" || ("shift" in k && !!k.shift) ? "redo" : "undo");
       return true;
     }
-    // The line's own ctrl motions stay its own (ctrl+u clears it).
-    if (bound && LINE_ACTIONS.has(bound.action) && !(k.kind === "char" && k.ctrl)) { this.fresh = false; this.key(k); return true; }
+    // The table's rows for a line (erase, clear, cut, the motions) run as the draft's actions; a cut with nothing selected is said.
+    if (bound && LINE_ACTIONS.has(bound.action)) { this.fresh = false; this.key(k); return true; }
     if (k.kind === "char" && k.ctrl) {
       if (!LINE_MOTIONS.has(k.ch)) {
-        const moved = movedInTable(DRAFT_KEYS, "", keyName(k) ?? "");
+        const moved = this.moved(k);
         if (moved) { this.status.say(moved); return true; }
         return false;
       }
+      // ctrl+a ctrl+e ctrl+k are the control's own motions.
       this.fresh = false;
       if (k.ch === "a" || k.ch === "e" || k.ch === "k") { this.key(k); return true; }
-      return editorLineKey(this, k, this.copy);
+      // A key the keymap took from erase, clear or cut (ctrl+w, ctrl+u, ctrl+x) says where it went and does nothing.
+      const moved = this.moved(k);
+      if (moved) this.status.say(moved);
+      return true;
     }
     // A line break or a tab inside a paste typed out key by key is a space in one line: never the caller's ⏎.
     if ((k.kind === "enter" || k.kind === "tab") && "pasted" in k && k.pasted) k = { kind: "char", ch: " ", pasted: true };

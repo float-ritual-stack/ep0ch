@@ -252,13 +252,12 @@ export class PowerBar {
     if (k.kind === "alt" && ["o", "y", "i", "m"].includes(k.ch)) { void this.host.dispatch.press(k.ch === "i" ? "bar.insert" : "bar.command", k.ch === "i" ? {} : { op: k.ch === "o" ? "copy" : k.ch === "y" ? "button" : "menu" }); return true; }
     if (k.kind === "right" && this.scope !== "ask" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
-    if (k.kind === "alt-backspace") { void this.host.dispatch.press("bar.edit", { op: "delete-word" }); return true; }
-    // ctrl+u ctrl+w ctrl+x are the bar's edits (bar.edit); undo and redo are the line's own, through the edit control's key
-    // table, so a rebind of draft.undo works here too (PIE-1542).
-    if (k.kind === "char" && k.ctrl && ["u", "w", "x"].includes(k.ch) && !k.shift) {
-      void this.host.dispatch.press("bar.edit", { op: k.ch === "u" ? "clear" : k.ch === "w" ? "delete-word" : "cut" });
-      return true;
-    }
+    // Clear, erase a word and cut are the bar's edits (bar.edit: its masked answers and its clipboard); the keys are the
+    // line field's table rows (LINE_KEYS, DRAFT_KEYS with the keymap applied), so a rebind works here as in every line
+    // (PIE-1542, Nov 3 review card 1). Undo and redo are the line's own, through the same table.
+    const bound = this.input.binding(k);
+    const op = bound?.action === "draft.clear" ? "clear" : bound?.action === "draft.cut" ? "cut" : bound?.action === "draft.erase" && bound.args?.to === "word-back" ? "delete-word" : null;
+    if (op) { void this.host.dispatch.press("bar.edit", { op }); return true; }
     if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
     if (k.kind === "char" && !k.ctrl && this.typedPrefix) {
       const typed = this.query.slice(0, this.input.cursor) + k.ch + this.query.slice(this.input.cursor);
@@ -286,8 +285,15 @@ export class PowerBar {
     else if (op === "clear") this.clear();
     else if (op === "undo") { this.input.history("undo"); this.refresh(); }
     else if (op !== "select") {
-      const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : op === "delete-word" ? { kind: "alt-backspace" } : { kind: "char", ctrl: true, ch: "x" };
-      editorLineKey(this.input, k, text => { if (clipboard && !(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text); });
+      if (op === "paste") editorLineKey(this.input, { kind: "paste", text: o.text ?? "" }, () => {});
+      else if (op === "delete-word") this.input.erase("word-back");
+      else {
+        const text = this.input.selectedText();
+        if (text) {
+          if (clipboard && !(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text);
+          this.input.erase("line-end");
+        }
+      }
       if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
       this.refresh();
     }

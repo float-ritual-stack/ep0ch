@@ -427,25 +427,16 @@ export function recoverEdits(alive: (pid: number) => boolean): string[] {
   return kept;
 }
 
-/** A query uses the same draft, with line breaks flattened at the input edge. */
+/**
+ * A query's typing, with line breaks flattened at the input edge: a paste (whole, its breaks as spaces), the selection
+ * taken away by backspace or delete, plain typing. Every other key (erase a word, clear, cut) is a row of the key table
+ * (`LINE_KEYS`, `DRAFT_KEYS`), which the line field and the power bar run as the draft's actions.
+ */
 export function editorLineKey(d: Draft, k: Key, copy: (text: string) => void): boolean {
   if (["enter", "esc", "tab", "backtab", "up", "down", "pgup", "pgdn", "mouse"].includes(k.kind)) return false;
-  if (k.kind === "alt-backspace") k = { kind: "char", ch: "w", ctrl: true };
-  if (k.kind === "char" && k.ctrl) {
-    if (k.ch === "u") { d.splice(0, d.text.length, ""); return true; }
-    if (k.ch === "w") {
-      d.erase("word-back"); return true;
-    }
-    if (k.ch === "x") {
-      const text = d.selectedText();
-      if (text) { copy(text); const selected = d.selection()!; d.splice(selected[0].col, selected[1].col, ""); }
-      return true;
-    }
-  }
+  // The selection goes in one undo step of its own (typing runs on into one step; the splice closes it first).
   const selected = d.selection();
-  if (selected && (k.kind === "backspace" || k.kind === "delete")) {
-    d.splice(selected[0].col, selected[1].col, ""); return true;
-  }
+  if (selected && (k.kind === "backspace" || k.kind === "delete")) { d.splice(selected[0].col, selected[1].col, ""); return true; }
   const input = k.kind === "paste" ? { ...k, text: k.text.replace(/[\r\n]+$/, "").replace(/\r\n?|\n|\t/g, " ") } : k;
   if (d.key(input) === "copy") { const text = d.selectedText(); if (text) copy(text); }
   return true;

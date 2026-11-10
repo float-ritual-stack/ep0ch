@@ -131,6 +131,75 @@ describe("the edit control's keys are one table the keymap rebinds (PIE-1542)", 
   });
 });
 
+describe("the line field's erase, clear and cut keys are rows of the key table too (Nov 3 review card 1)", () => {
+  const was = process.env.EP0CH_KEYMAP;
+  let file = "";
+  beforeAll(() => { file = join(mkdtempSync(join(tmpdir(), "edit-keymap-line-")), "keybindings.json"); process.env.EP0CH_KEYMAP = file; reloadKeymap(); });
+  afterAll(() => { if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was; reloadKeymap(); });
+  const rebind = (map: Record<string, string[]>) => { writeFileSync(file, JSON.stringify(map)); reloadKeymap(); };
+  const line = (text: string) => { const l = new LineField(text, false, { complete: false }); l.copy = t => { copied.push(t); }; return l; };
+  const copied: string[] = [];
+
+  test("draft.erase to=word-back rebound to alt+e erases the word before in every host, and ctrl+w no longer does in a line field", async () => {
+    rebind({ "draft.erase to=word-back": ["alt+e"] });
+    try {
+      for (const h of [sessionHost("note edit"), sessionHost("comment"), sessionHost("composer"), await inspectorHost(), lineHost()]) {
+        for (const k of typeKeys("sow peas")) await h.press(k);
+        await h.press(alt("e"));
+        await Bun.sleep(0);
+        expect({ host: h.name, text: h.text() }).toEqual({ host: h.name, text: "sow " });
+      }
+      const l = line("sow peas");
+      l.take(ctrl("w"));
+      expect(l.text).toBe("sow peas");
+      expect(l.note).toContain("alt+e");
+    } finally { rebind({}); }
+  });
+
+  test("draft.clear rebound to alt+k clears the line field, and ctrl+u no longer does", () => {
+    rebind({ "draft.clear": ["alt+k"] });
+    try {
+      const l = line("sow peas");
+      l.place(0, 3);
+      // ctrl+u is no longer "clear": what's left of it is the draft table's ctrl+u, erase to the line's start.
+      l.take(ctrl("u"));
+      expect(l.text).toBe(" peas");
+      l.take(ctrl("z"));
+      expect(l.text).toBe("sow peas");
+      l.take(alt("k"));
+      expect(l.text).toBe("");
+      l.take(ctrl("z"));
+      expect(l.text).toBe("sow peas");
+    } finally { rebind({}); }
+  });
+
+  test("draft.cut rebound to alt+q cuts the selection to the field's clipboard, and ctrl+x no longer does", () => {
+    rebind({ "draft.cut": ["alt+q"] });
+    try {
+      copied.length = 0;
+      const l = line("sow peas");
+      l.place(0, 4); l.place(0, 8, true);
+      l.take(ctrl("x"));
+      expect(l.text).toBe("sow peas");
+      l.take(alt("q"));
+      expect(l.text).toBe("sow ");
+      expect(copied).toEqual(["peas"]);
+    } finally { rebind({}); }
+  });
+
+  test("unrebound, ctrl+w ctrl+u ctrl+x are the table's rows: erase the word, clear the line, cut the selection", () => {
+    copied.length = 0;
+    const l = line("sow peas now");
+    l.take(ctrl("w"));
+    expect(l.text).toBe("sow peas ");
+    l.place(0, 4); l.place(0, 8, true);
+    l.take(ctrl("x"));
+    expect(copied).toEqual(["peas"]);
+    l.take(ctrl("u"));
+    expect(l.text).toBe("");
+  });
+});
+
 describe("an inspector field takes a paste as the edit control does (PIE-1542)", () => {
   test("a multi-line paste lands whole and nothing saves until the person saves", async () => {
     const h = await inspectorHost();
