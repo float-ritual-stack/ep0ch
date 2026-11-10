@@ -341,10 +341,10 @@ export class DraftPatchRouter {
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
     if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason, outcome.kind);
     if (input.propose === "on-conflict") return this.propose(outcome.reason, edits, mutation, mark, sent);
-    throw this.patchRefusal(edits, outcome.reason);
+    throw this.patchRefusal(edits, outcome.reason, outcome.kind);
   }
 
-  private patchRefusal(edits: DraftPatchEdit[], reason: string): DraftPatchRefusal {
+  private patchRefusal(edits: DraftPatchEdit[], reason: string, kind?: RefusalKind): DraftPatchRefusal {
     const notes = edits.map(edit => {
       const block = this.deps.store.requireActive(edit.blockId);
       const revision = this.holderOf(edit.blockId)?.revision ?? block.revision;
@@ -352,7 +352,7 @@ export class DraftPatchRouter {
       return `${blockDisplayTitle(block)} ((${block.id})) ${changed} (revision ${edit.revision}, now ${revision})`;
     });
     const stale = edits.some(edit => (this.holderOf(edit.blockId)?.revision ?? this.deps.store.requireActive(edit.blockId).revision) !== edit.revision);
-    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, stale ? "stale-revision" : "conflict");
+    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, kind ?? (stale ? "stale-revision" : "conflict"));
   }
 
   /**
