@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Three door paper cuts: a river list's stale pick, docks per undone terminal, an alt press asking the wrong kind (PIE-1540, PIE-1575, PIE-1660)
+
+- **j lets go of a river list's pick:** in a river column, `j` (or `k`, a click on a card, the column's scroll or `esc`) off a `::links` list picked with `]` and PgDn no longer leaves that row drawn picked with its preview on it; the list reads as it did before the walk reached it (its first row lit for its preview), and PgDn scrolls the column.
+- **One dock for every terminal an undo kept:** opening a terminal and undoing it, again and again, keeps each still-running program in the one shut dock at the right edge (a tab each, the newest in front), on the desk, in a group and in your drawer, instead of a new dock per terminal.
+- **An alt press asks for what `alt=` takes:** a button whose `act=` and `alt=` read the same empty slot asks, on alt+click (or alt+⏎), in the kind `alt=`'s own argument takes (words in the power bar for `tile.title text={word}`), not the main action's (the tile picker); an agent answering it is told to add `alt=true` to `button.slot`.
+- **In the kitchen sink:** the Pick a tile section's title it button (`ep0ch --showcase`).
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL and GRAMMAR don't move.
+
 ### Paste a note's link into a note and it opens (PIE-1401, PIE-1316, PIE-1390)
 
 - **A bare address is a link.** A note's web link (`https://my.ep0ch.sh/pub/p/HOME-006`) or its `ep0ch://` address pasted on its own into a note is drawn as written and opens that note when clicked (⏎ on it, or `link.follow`); one of this outline's opens as its own note. Any other `https://` page opens in the browser. Code, Markdown links, references and `[key::…]` values are left as they were.
