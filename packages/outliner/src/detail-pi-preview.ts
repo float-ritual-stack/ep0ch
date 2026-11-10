@@ -1226,6 +1226,13 @@ class DetailPreviewBody implements Component {
   renderedFrame:DocumentFrame|null=null;
   renderedWidth:number|undefined;
   renderedLines:readonly string[]|undefined;
+  /** Rows at this width without replacing the render on screen: a drag made over it still maps to its frame (PIE-1698). */
+  measure(width:number):number {
+    const shown=this.renderedWidth===width&&this.renderedLines?[this.renderedLines,this.renderedFrame] as const:null;
+    const rows=this.render(width).length;
+    if(shown)[this.renderedLines,this.renderedFrame]=shown;
+    return rows;
+  }
   constructor(
     private readonly state: Readonly<DetailState>,
     private readonly authored: DetailAnnotationPreview,
@@ -2165,7 +2172,7 @@ export class DetailPiPreviewLayout extends VStack {
       if(viewportHeight!==this.scrollView.viewportHeight&&this.state.previewRegions.focusedRegionId){
         this.scheduleFocusedRegionScroll();
       }
-      this.scrollView.updateLayout(this.body.render(this.scrollView.getContentWidth(width)).length,viewportHeight,()=>{});
+      this.scrollView.updateLayout(this.body.measure(this.scrollView.getContentWidth(width)),viewportHeight,()=>{});
     }
     let changed=this.ensureBacklinkSelectionVisible(width);
     changed=this.ensureAnnotationSelectionVisible(width)||changed;
