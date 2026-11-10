@@ -623,17 +623,28 @@ test("a mixed section answers with the note as drawn and a finding naming its fa
 
 test("an id written bare is quoted with its link, and the patch that links it clears the finding (PIE-588)", async () => {
   const { store, agent } = await setup();
-  const rota = await agent("create", { parent: "root", text: "Compost rota\n\nTurn it on Sundays." });
-  const short = String(rota.json.id).slice(0, 8);
+  // A note whose id's first 8 characters have a digit and a letter: an all-digit or all-letter prefix reads as a word.
+  let rota: { json: { id: string } } | undefined;
+  for (let k = 0; k < 20 && !rota; k++) {
+    const made = await agent("create", { parent: "root", text: `Compost rota ${k + 1}\n\nTurn it on Sundays.` });
+    if (/\d/.test(made.json.id.slice(0, 8)) && /[a-f]/.test(made.json.id.slice(0, 8))) rota = made;
+  }
+  const short = rota!.json.id.slice(0, 8), title = store.require(rota!.json.id).text.split("\n")[0]!;
   const made = await agent("create", { parent: "root", text: `Garden jobs\n\nTurn the heap before the beds, the order is in ${short}.` });
   expect(made.exitCode, made.stderr).toBe(0);
   const context = (made.json.review as Review).findings.find(f => f.rule === "context")!;
   expect(context.say).toContain(`names ${short} bare`);
-  expect(context.say).toContain(`((${rota.json.id}|Compost rota))`);
-  expect(context.patch).toEqual([{ observed: `Turn the heap before the beds, the order is in ${short}.`, replacement: `Turn the heap before the beds, the order is in ((${rota.json.id}|Compost rota)).` }]);
+  expect(context.say).toContain(`((${rota!.json.id}|${title}))`);
+  expect(context.patch).toEqual([{ observed: `Turn the heap before the beds, the order is in ${short}.`, replacement: `Turn the heap before the beds, the order is in ((${rota!.json.id}|${title})).` }]);
   const note = store.require(made.json.id);
   const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: context.patch });
   expect((patched.json.review as Review).findings.filter(f => f.rule === "context")).toEqual([]);
+
+  // A whole id written bare is write-shape's bare-id finding, said once: never a second context finding beside it.
+  const whole = await agent("create", { parent: "root", text: `Shed jobs\n\nThe rota is ${rota!.json.id}.` });
+  const rules = (whole.json.review as Review).findings.map(f => f.rule);
+  expect(rules).toContain("bare-id");
+  expect(rules).not.toContain("context");
 });
 
 test("a figure write comes back with the figure as the door draws it, and its live count answered (PIE-721, PIE-588)", async () => {
@@ -651,4 +662,18 @@ test("a figure write comes back with the figure as the door draws it, and its li
   expect(drawn).toMatch(/2 +0/);
   expect(made.json.viewOf).toBe("the note, as the door draws it at 44 columns");
   expect(took).toBeLessThan(15_000);
+}, 30_000);
+
+test("a patch deep in a long section is drawn: its rows, under the section's heading if it's near, within the budget (PIE-588)", async () => {
+  const { store, agent } = await setup();
+  const rows = Array.from({ length: 60 }, (_, k) => `- Row ${k + 1}: the bed by the fence was weeded and watered.`);
+  const made = await agent("create", { parent: "root", text: ["Bed log", "## Weeding", ...rows].join("\n") });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "- Row 57: the bed by the fence was weeded and watered.", replacement: "- Row 57: the bed by the fence went to seed." }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const drawn = patched.json.view.join("\n");
+  expect(drawn).toMatch(/went to\s+seed/);
+  expect(drawn).toContain("Bed log");
+  expect(patched.json.view.length).toBeLessThanOrEqual(40);
 }, 30_000);

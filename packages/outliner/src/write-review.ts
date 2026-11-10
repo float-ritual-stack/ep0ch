@@ -161,16 +161,18 @@ function codeLines(text: string): Set<number> {
   return new Set([...fences.flatMap(f => Array.from({ length: f.end - f.start + 1 }, (_, k) => f.start + k)), ...indented]);
 }
 
-/** An id written bare in a note: a Work ID (`PIE-587`) or a block id (a uuid, or its first 8 characters), outside links, code and properties. */
+/** An id written bare in a note: a Work ID (`PIE-587`) or a block id's first 8 characters, outside links, code and properties. */
 export interface BareId { line: number; start: number; end: number; token: string; kind: "work" | "block" }
 
 const BARE_WORK_ID = /(?<![\p{L}\p{N}_\-:/.#])[A-Z][A-Z0-9]{0,15}-\d+(?![\p{L}\p{N}_-])/gu;
-const BARE_BLOCK_ID = /(?<![\p{L}\p{N}_\-:/.#])[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?(?![\p{L}\p{N}_-])/gu;
+/** A note's id cut to its first 8 characters: a whole uuid written bare is write-shape's `bare-id` rule, its one owner. */
+const BARE_BLOCK_ID = /(?<![\p{L}\p{N}_\-:/.#])[0-9a-f]{8}(?![\p{L}\p{N}_-])/gu;
 
 /**
  * The ids `text` names bare, a line at a time: what a context finding quotes, each with its fix (PIE-588). Not one in a
  * link (`((id))`, `[[page]]`, a Markdown link, an address), in code, in a property token or in a component's lines. A
- * block id is 8 hex characters with a digit and a letter in them (a short word like `deadbeef` aside), or a whole uuid.
+ * block id is 8 hex characters with a digit and a letter in them (a short word like `deadbeef` aside); a whole uuid is
+ * write-shape's to say (its `bare-id` rule), never said twice.
  */
 export function bareIds(text: string): BareId[] {
   const lines = text.split("\n"), structure = noteStructure(lines), out: BareId[] = [];
@@ -183,7 +185,7 @@ export function bareIds(text: string): BareId[] {
     for (const [pattern, kind] of [[BARE_WORK_ID, "work"], [BARE_BLOCK_ID, "block"]] as const) {
       for (const m of line.matchAll(pattern)) {
         const token = m[0], at = starts[i]! + m.index!;
-        if (kind === "block" && token.length === 8 && !(/\d/.test(token) && /[a-f]/.test(token))) continue;
+        if (kind === "block" && !(/\d/.test(token) && /[a-f]/.test(token))) continue;
         // An unclosed `((id` or `[[page` is a reference written wrong: the reference warnings say so, with the fix.
         if (/(?:\(\(|\[\[)$/.test(line.slice(0, m.index))) continue;
         if (free(at, at + token.length)) out.push({ line: i, start: m.index!, end: m.index! + token.length, token, kind });

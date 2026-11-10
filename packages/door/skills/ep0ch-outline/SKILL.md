@@ -428,7 +428,7 @@ comes back in `figures` with the rows it returned, and one that returned 0 is a 
 `outline_find` (`hasKey` names a property). Every create, edit and patch is reviewed (PIE-1388): the answer's `review` has a `verdict`, `ship` or `fix`, and
 `findings`, each filed under Evan's rubric (dense, format, buried, unclear, mixed, context, argues, qa-for-evan) with
 the lines it names and the smallest fix (PIE-588: a `context` finding quotes the id written bare and gives its link, a
-Work ID of another outline as `[[pie:PIE-587]]`, a note's id as `((id|title))`; a `mixed` finding names which lines are
+Work ID of another outline as `[[pie:PIE-587]]`, a note's id cut to 8 characters as `((id|title))`; a `mixed` finding names which lines are
 what's true, what was decided and what's still open, and its patch moves each under a heading of its own). Code measures a title over about 70 characters, a paragraph past three sentences, a
 bullet stacking several points, a note past a screen with no headings, a count typed in prose that a query keeps true,
 a bare id, a question for Evan below the top; Jev reads every section the write changed (prose too) for the rest, and

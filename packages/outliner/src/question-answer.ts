@@ -3,6 +3,7 @@ export { RECENT_BUCKETS, recentBucket };
 export type ValuesOf = import("@ep0ch/outline-core/query-facets").ValuesOf<Block>;
 import { missingPropertyHint, missingWorkIdHint } from "@ep0ch/outline-core/property-hint";
 import { expressionWorkIds, WORK_ID_KEY } from "@ep0ch/outline-core/query-expression";
+import { propertyValueHolds } from "@ep0ch/outline-core/property-grammar";
 // Service hints read the same query keys as the shared counter; the store supplies values in the requested scope.
 import { RECENT_BUCKETS, recentBucket } from "@ep0ch/outline-core/date-buckets";
 import { readBound, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
@@ -38,8 +39,9 @@ export function questionHint(query: NormalizedBlockSearchQuery, known: ReadonlyS
 export function questionWorkIdHint(query: NormalizedBlockSearchQuery, records: ReadonlyMap<string, readonly { key: string; value: string }[]>, active: (blockId: string) => boolean): string | undefined {
   const asked = [...(query.filters ?? []).flatMap(f => f.key === WORK_ID_KEY && f.value !== undefined ? [f.value] : []), ...expressionWorkIds(query.predicate)];
   if (!asked.length) return undefined;
-  const held = new Set([...records].flatMap(([id, rs]) => active(id) ? rs.filter(r => r.key === WORK_ID_KEY).map(r => r.value) : []));
-  return missingWorkIdHint([...new Set(asked)].filter(id => !held.has(id)));
+  // Held as a query's clause holds it (outline-core's propertyValueHolds: case, lists): never "no item has" one it matches.
+  const held = [...records].flatMap(([id, rs]) => active(id) ? rs.filter(r => r.key === WORK_ID_KEY).map(r => r.value) : []);
+  return missingWorkIdHint([...new Set(asked)].filter(id => !held.some(value => propertyValueHolds(value, id))));
 }
 
 /** The comparisons a question makes as dates or numbers: `due <= +3d`, `rating > 3`, `due=today` (under NOT too). */

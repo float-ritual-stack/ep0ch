@@ -1067,6 +1067,8 @@ async function warned(client: AgentToolsClient, text: string, o: { near?: string
 
 /** The drawing's size: Evan's reading width (a 44-column desk tile) and at most this many rows of the part written. */
 const DRAW_ROWS = 40;
+/** How far from a change its section's heading and end, or a new finding's line, may be and still be drawn with it. */
+const DRAW_CONTEXT_LINES = 6;
 /** At most this long added to a write's answer by its drawing (the door settles live figures for up to 3 s). */
 const DRAW_BUDGET_MS = 6000;
 
@@ -1091,12 +1093,14 @@ async function drawnWrite(client: AgentToolsClient, id: string, text: string, be
     let a = lines.length - 1, b = was.length - 1;
     while (a >= lo && b >= lo && lines[a] === was[b]) { a--; b--; }
     hi = Math.max(lo, a);
-    // From the heading of the section the change starts in to the end of the one it ends in, so the drawing says where it is.
+    // From the heading of the section the change starts in to the end of the one it ends in, so the drawing says where it
+    // is: when they're near. A change deep in a long section is drawn from itself, inside the row budget.
     const sections = sectionsOf(text), first = sections.find(s => s.line <= lo && lo <= s.end), last = sections.find(s => s.line <= hi && hi <= s.end);
-    if (first) lo = first.line;
-    if (last) hi = last.end;
+    if (first && lo - first.line <= DRAW_CONTEXT_LINES) lo = first.line;
+    if (last && last.end - hi <= DRAW_CONTEXT_LINES) hi = last.end;
   }
-  for (const f of review?.findings ?? []) if (f.new && f.line) { lo = Math.min(lo, f.line - 1); hi = Math.max(hi, f.line - 1); }
+  // A new finding's line is drawn too, when it's near what was written (a far one is named in the finding itself).
+  for (const f of review?.findings ?? []) if (f.new && f.line && f.line - 1 >= lo - DRAW_CONTEXT_LINES && f.line - 1 <= hi + DRAW_CONTEXT_LINES) { lo = Math.min(lo, f.line - 1); hi = Math.max(hi, f.line - 1); }
   lo = Math.max(0, Math.min(lo, lines.length - 1)); hi = Math.max(lo, Math.min(hi, lines.length - 1));
   const whole = lo === 0 && hi === lines.length - 1;
   try {

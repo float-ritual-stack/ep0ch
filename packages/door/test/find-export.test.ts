@@ -200,6 +200,9 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
       expect((await run(["find", "--query", "GDN-303", "--ids"], env)).out.trim()).toBe(`((${made[2]}))`);
       const none = await run(["find", "--query", "GDN-999"], env);
       expect(plain(none.out + none.err)).toContain("work-id=GDN-999");
+      // A Work ID in small letters is still that item's: an empty answer for another reason never says no item has it.
+      const other = await run(["find", "--query", "work-id=gdn-301 type=absent"], env);
+      expect(plain(other.out + other.err)).not.toContain("no item has gdn-301");
       // Written in small letters it reads as a key, and the hint that says no note has it names work-id= too.
       const lower = await run(["find", "--query", "gdn-301"], env);
       expect(plain(lower.out + lower.err)).toContain("work-id=GDN-301");
