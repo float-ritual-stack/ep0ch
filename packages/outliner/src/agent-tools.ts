@@ -19,7 +19,8 @@ import { parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type Ma
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { hasCountCandidate, SHAPE_LIMITS, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
-import { bareIds, outlineFacets, reviewWarnings, reviewWrite, sectionsOf, type BareIdAnswers, type WriteReview } from "./write-review";
+import { bareIds, headed, outlineFacets, reviewWarnings, reviewWrite, sectionsOf, type BareIdAnswers, type WriteReview } from "./write-review";
+import { diffArrays } from "diff";
 import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
@@ -84,8 +85,8 @@ export interface AgentToolsClient extends WorkToolsClient {
   requireCompatibleService(): Promise<unknown>;
   /**
    * The note as the door draws it (PIE-588): the door's own drawing, lent by a host that has it (the MCP gateway draws
-   * in process, the outliner CLI runs `ep0ch show`), so a write's answer can carry it. `lines` (from 1) keeps the rows
-   * those source lines draw, under the note's header; at most `rows` of them. Null when there's no such note. A client
+   * in process, the outliner CLI runs `ep0ch show`), so a write's answer can carry it. `lines` (parts, source lines
+   * from 1) keeps the rows those parts draw, under the note's header, sharing at most `rows` of them. Null when there's no such note. A client
    * without it answers a write undrawn, saying so.
    */
   draw?(id: string, o: NoteDrawing): Promise<string[] | null>;
@@ -95,8 +96,8 @@ export interface AgentToolsClient extends WorkToolsClient {
   askOutline?(outline: string, request: { action: string } & Record<string, unknown>): Promise<unknown>;
 }
 
-/** What a write's drawing asks for: the width, the source lines (from 1) it is about, and how many rows at most. */
-export interface NoteDrawing { width: number; lines?: [number, number]; rows: number }
+/** What a write's drawing asks for: the width, the parts (source lines from 1) it is about, and how many rows at most. */
+export interface NoteDrawing { width: number; lines?: [number, number][]; rows: number }
 
 /** The agent a write is attributed to: always `author: agent`, with its actor id and session. */
 export interface AgentActor {
@@ -1065,51 +1066,100 @@ async function warned(client: AgentToolsClient, text: string, o: { near?: string
   };
 }
 
-/** The drawing's size: Evan's reading width (a 44-column desk tile) and at most this many rows of the part written. */
+/** The drawing's size: Evan's reading width (a 44-column desk tile) and at most this many rows of the parts written. */
 const DRAW_ROWS = 40;
-/** How far from a change its section's heading and end, or a new finding's line, may be and still be drawn with it. */
+/** How far from a change its section's heading and end, a new finding's line, or the next change may be and still be drawn with it. */
 const DRAW_CONTEXT_LINES = 6;
+/** At most this many changed parts are drawn, sharing the rows; the rest are named in `viewOf` with the command that draws them. */
+const DRAW_PARTS = 4;
 /** At most this long added to a write's answer by its drawing (the door settles live figures for up to 3 s). */
 const DRAW_BUDGET_MS = 6000;
 
 /** What `next` says when the answer holds the drawing: read it there, and the whole note with ep0ch show. */
-const drawnNext = (id: string) => `read \`view\` (the part this write changed, as the door draws it at ${SHAPE_LIMITS.readingWidth} columns) before you call it done; the whole note: \`ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth}\``;
+const drawnNext = (id: string) => `read \`view\` (the parts this write changed, as the door draws them at ${SHAPE_LIMITS.readingWidth} columns) before you call it done; the whole note: \`ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth}\``;
+
+/** Source lines (from 1) as words: "line 33", "lines 2–3, 60". */
+const linesWords = (ranges: readonly (readonly [number, number])[]) => `${ranges.length === 1 && ranges[0]![0] === ranges[0]![1] ? "line" : "lines"} ${ranges.map(([a, b]) => a === b ? `${a}` : `${a}–${b}`).join(", ")}`;
 
 /**
- * The part of the note a write changed, drawn as the door draws it (PIE-588), by the client's drawer: the lines that
- * differ from `before` (all of a new note), from the start of the section they're in, and each new finding's line,
- * under the note's header and at most DRAW_ROWS rows. `viewError` says why there's none (no drawer, a draft, a failure).
+ * The lines (from 0) a write changed in `text` from `before`: each run of lines it added or rewrote, and where it
+ * removed some, the line now in their place.
+ */
+function changedLines(before: string, text: string): [number, number][] {
+  const now = text.split("\n"), out: [number, number][] = [];
+  let at = 0;
+  for (const c of diffArrays(before.split("\n"), now)) {
+    const n = c.count ?? c.value.length;
+    if (c.added) { out.push([at, at + n - 1]); at += n; }
+    else if (c.removed) { const l = Math.max(0, Math.min(at, now.length - 1)); out.push([l, l]); }
+    else at += n;
+  }
+  return out;
+}
+
+/** Ranges (from 0) sorted and joined where they're within `near` lines of each other. */
+function joined(ranges: readonly (readonly [number, number])[], near: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [a, b] of [...ranges].sort((x, y) => x[0] - y[0])) {
+    const last = out.at(-1);
+    if (last && a <= last[1] + 1 + near) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+/**
+ * What a write's drawing shows (PIE-588): each part the write changed (all of a new note), with the section it's in
+ * from its heading when that's near (a far heading drawn as a line of its own above it) to its end when that's near,
+ * and each new finding's line near one. Parts near each other are one. The first DRAW_PARTS are drawn (`parts`,
+ * source lines from 1); the rest are `left`. Null: the whole note (a new note, or a write that changed none of it or all).
+ */
+function drawnParts(text: string, before: string | undefined, review: Pick<WriteReview, "findings"> | null): { parts: [number, number][]; left: [number, number][] } | null {
+  if (before === undefined) return null;
+  const lines = text.split("\n"), last = lines.length - 1, sections = sectionsOf(text);
+  let changes = joined(changedLines(before, text), DRAW_CONTEXT_LINES);
+  // A new finding's line is drawn too, when it's near what was written (a far one is named in the finding itself).
+  const found = (review?.findings ?? []).flatMap(f => f.new && f.line ? [f.line - 1] : []).filter(l => changes.some(([a, b]) => l >= a - DRAW_CONTEXT_LINES && l <= b + DRAW_CONTEXT_LINES));
+  changes = joined([...changes, ...found.map(l => [l, l] as [number, number])], DRAW_CONTEXT_LINES);
+  // From the heading of the section a part starts in to the end of the one it ends in, so the drawing says where it is:
+  // when they're near. A part deep in a long section is drawn from itself, under its heading.
+  const regions = changes.map(([lo, hi]) => {
+    lo = Math.max(0, Math.min(lo, last)); hi = Math.max(lo, Math.min(hi, last));
+    const first = sections.find(s => s.line <= lo && lo <= s.end), end = sections.find(s => s.line <= hi && hi <= s.end);
+    let heading: number | undefined;
+    if (first && lo - first.line <= DRAW_CONTEXT_LINES) lo = first.line;
+    else if (first && headed(first)) heading = first.line;
+    if (end && end.end - hi <= DRAW_CONTEXT_LINES) hi = end.end;
+    return { lo, hi, heading };
+  });
+  // Nothing changed (a write of the same text), or all of it did: the whole note.
+  if (!regions.length || (regions.length === 1 && regions[0]!.lo === 0 && regions[0]!.hi === last)) return null;
+  const ranges = (rs: typeof regions) => joined(rs.flatMap(r => [...(r.heading === undefined ? [] : [[r.heading, r.heading] as [number, number]]), [r.lo, r.hi] as [number, number]]), 0).map(([a, b]) => [a + 1, b + 1] as [number, number]);
+  return { parts: ranges(regions.slice(0, DRAW_PARTS)), left: ranges(regions.slice(DRAW_PARTS)) };
+}
+
+/**
+ * The parts of the note a write changed, drawn as the door draws them (PIE-588), by the client's drawer: `drawnParts`,
+ * under the note's header, sharing at most DRAW_ROWS rows (the drawer's cut: a long part cut to its share, never one
+ * left out for another). `viewOf` names the lines drawn and any part left out, with the command that draws it.
+ * `viewError` says why there's none (no drawer, a draft, a failure).
  */
 async function drawnWrite(client: AgentToolsClient, id: string, text: string, before: string | undefined, review: WriteReview | null, undrawn?: string): Promise<Pick<WriteAnswer, "view" | "viewOf" | "viewError">> {
   // Off only where a test says so (the outliner's preload): its writes are about their words, not the drawing.
   if (process.env.OUTLINER_WRITE_VIEW === "off") return {};
   if (undrawn) return { viewError: undrawn };
   if (!client.draw) return { viewError: `this client can't draw the note: ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth} (or outline_read with view: true) shows it` };
-  const lines = text.split("\n");
-  let lo = 0, hi = lines.length - 1;
-  if (before !== undefined) {
-    const was = before.split("\n");
-    while (lo < lines.length && lo < was.length && lines[lo] === was[lo]) lo++;
-    let a = lines.length - 1, b = was.length - 1;
-    while (a >= lo && b >= lo && lines[a] === was[b]) { a--; b--; }
-    hi = Math.max(lo, a);
-    // From the heading of the section the change starts in to the end of the one it ends in, so the drawing says where it
-    // is: when they're near. A change deep in a long section is drawn from itself, inside the row budget.
-    const sections = sectionsOf(text), first = sections.find(s => s.line <= lo && lo <= s.end), last = sections.find(s => s.line <= hi && hi <= s.end);
-    if (first && lo - first.line <= DRAW_CONTEXT_LINES) lo = first.line;
-    if (last && last.end - hi <= DRAW_CONTEXT_LINES) hi = last.end;
-  }
-  // A new finding's line is drawn too, when it's near what was written (a far one is named in the finding itself).
-  for (const f of review?.findings ?? []) if (f.new && f.line && f.line - 1 >= lo - DRAW_CONTEXT_LINES && f.line - 1 <= hi + DRAW_CONTEXT_LINES) { lo = Math.min(lo, f.line - 1); hi = Math.max(hi, f.line - 1); }
-  lo = Math.max(0, Math.min(lo, lines.length - 1)); hi = Math.max(lo, Math.min(hi, lines.length - 1));
-  const whole = lo === 0 && hi === lines.length - 1;
+  const width = SHAPE_LIMITS.readingWidth, cut = drawnParts(text, before, review), of = text.split("\n").length;
   try {
-    const drawn = await Promise.race([client.draw(id, { width: SHAPE_LIMITS.readingWidth, ...(whole ? {} : { lines: [lo + 1, hi + 1] as [number, number] }), rows: DRAW_ROWS }), Bun.sleep(DRAW_BUDGET_MS).then(() => "late" as const)]);
-    if (drawn === "late") return { viewError: `the drawing took over ${DRAW_BUDGET_MS / 1000} s: ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth} shows it` };
+    const drawn = await Promise.race([client.draw(id, { width, ...(cut ? { lines: cut.parts } : {}), rows: DRAW_ROWS }), Bun.sleep(DRAW_BUDGET_MS).then(() => "late" as const)]);
+    if (drawn === "late") return { viewError: `the drawing took over ${DRAW_BUDGET_MS / 1000} s: ep0ch show ${id} --width ${width} shows it` };
     if (!drawn) return { viewError: `no note ${id} to draw` };
-    return { view: drawn, viewOf: `${whole ? "the note" : `lines ${lo + 1}–${hi + 1} of ${lines.length}`}, as the door draws it at ${SHAPE_LIMITS.readingWidth} columns${drawn.length >= DRAW_ROWS ? `, its first ${DRAW_ROWS} rows` : ""}` };
+    const full = drawn.length >= DRAW_ROWS;
+    const rows = !full ? "" : cut && cut.parts.length > 1 ? `, sharing its ${DRAW_ROWS} rows ("⋮ n more rows" under a part cut to fit)` : `, its first ${DRAW_ROWS} rows`;
+    const left = cut?.left.length ? `; ${linesWords(cut.left)} not drawn (past ${DRAW_PARTS} parts): ep0ch show ${id} --width ${width} --lines ${cut.left.map(([a, b]) => a === b ? `${a}` : `${a}-${b}`).join(",")}` : "";
+    return { view: drawn, viewOf: `${cut ? `${linesWords(cut.parts)} of ${of}` : "the note"}, as the door draws it at ${width} columns${rows}${left}` };
   } catch (e) {
-    return { viewError: `the note couldn't be drawn (${(e as Error).message}): ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth}` };
+    return { viewError: `the note couldn't be drawn (${(e as Error).message}): ep0ch show ${id} --width ${width}` };
   }
 }
 

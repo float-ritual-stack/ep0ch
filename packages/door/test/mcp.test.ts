@@ -485,6 +485,37 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       await setAccess("read");
     }, 60_000);
 
+    test("a patch in two places far apart answers with both drawn, each under its heading (PIE-588)", async () => {
+      const saved = process.env.OUTLINER_WRITE_VIEW;
+      process.env.OUTLINER_WRITE_VIEW = "on";
+      await setAccess("full");
+      try {
+        // A 60-line note: its title, a heading, then 58 rows; the patch changes line 3 and line 60.
+        const rows = Array.from({ length: 58 }, (_, k) => `- Row ${k + 1}: weeded and watered.`);
+        const note = await board.request("create", { parentId: null, text: ["Bed log", "## Weeding", ...rows].join("\n"), author: "user" });
+        const uri = formatEp0chBlockUri({ outline: scratch.name, machine, blockId: note.id });
+        const revision = (await board.records([note.id])).records[0]!.revision;
+        const response = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_patch", arguments: { uri, revision, patches: [
+          { observed: "- Row 1: weeded and watered.", replacement: "- Row 1: the rhubarb bolted." },
+          { observed: "- Row 58: weeded and watered.", replacement: "- Row 58: the leeks went to seed." },
+        ] } } }]);
+        const answer = called(response.find(r => r.id === 2));
+        expect(answer.json?.outcome, answer.text).toBe("applied");
+        expect(answer.json.viewError, answer.text).toBeUndefined();
+        const drawn = (answer.json.view as string[]).join("\n");
+        expect(drawn).toContain("Bed log");
+        expect(drawn).toContain("Weeding");
+        expect(drawn).toMatch(/rhubarb\s+bolted/);
+        // The far change is drawn too, not cut off by the first one's rows.
+        expect(drawn).toMatch(/leeks\s+went\s+to\s+seed/);
+        expect((answer.json.view as string[]).length).toBeLessThanOrEqual(40);
+        expect(answer.json.viewOf).toStartWith("lines 2–3, 60 of 60");
+      } finally {
+        if (saved === undefined) delete process.env.OUTLINER_WRITE_VIEW; else process.env.OUTLINER_WRITE_VIEW = saved;
+        await setAccess("read");
+      }
+    }, 60_000);
+
     test("scripts, the mod CLI and MCP patch the same note with each writer attributed", async () => {
       // The outliner owns its type-check configuration, as with the gateway's agent-tools import.
       const hostApiModule = "@ep0ch/outliner/host-api";
