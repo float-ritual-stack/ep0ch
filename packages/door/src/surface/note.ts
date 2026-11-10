@@ -16,14 +16,14 @@ import { listMode, collectionBinding, collectionKey, type ListMode } from "./lis
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, NotePictures, bandBesidePicture, pictureEdits, pictureRows, pictureRowsOf, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
 import { READER_ESC, escNext, escPress } from "../esc-rule";
 import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
-import { READER_KEYS, READER_SAYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
+import { READER_KEYS, READER_SAYS, RESOLVE_KEYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
 import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, NOTE_EDIT_KEYS, hintOf, rk, chooseKeys, PLACEMENT_KEYS, FIELD_KEYS, CHILDREN_KEYS, replyHint, figureKeys, LET_GO_KEYS, gripKeys, backKeys } from "./attached-keys";
-import { modeBinding, modeHint, type ModeName } from "./modes";
+import { modeBinding, modeHint, PRECEDENCE, type ModeName } from "./modes";
 import { fullPlainText, selectFullText } from "../overflow";
 import { pressing } from "./button";
 import { figurePropertyPatch } from "@ep0ch/outline-core/figure-patch";
@@ -64,7 +64,7 @@ import { ownPropertyRecords, parsePropertyRecords } from "@ep0ch/outline-core/pr
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { linkOccurrences, referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { lineAtOffset, lineStart } from "@ep0ch/outline-core/code-ranges";
 import { CommentSession, type CommentEnv } from "../comment";
@@ -76,7 +76,7 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { withSchemaParams, drawSources, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
+import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
@@ -101,9 +101,9 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, RECORDED_AS, recordedAnswer, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, type RecordedAs, requesterOf } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedAnswer, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { BUTTON_GROUP, copyLineRef, deliverNoteRef, lineRef, noteCopyText, type NoteRefKind } from "../note-ref";
+import { copyLineRef, deliverNoteRef, lineRef, noteCopyText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { drawRevision, openingRow, revisionFacts, type RevisionAgainst, type RevisionView, compareAt } from "./revision-compare";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
@@ -124,7 +124,7 @@ import { Dispatcher } from "./dispatch";
 import { holdsEdit, NOBODY } from "../whereabouts";
 import { editHint, editState, saidRows, editorClick, selectClicks, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
-import { attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedSide, type AttachedPlace, type FloatMove, moveFloat, frameZone, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
+import { attachedRect, drawAttachedFloat, type AttachedSide, type AttachedPlace, type FloatMove, moveFloat, frameZone, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { Attachments, type AttachedState, type AttachmentDef, type AttachmentKind } from "./attachments";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
@@ -156,7 +156,6 @@ import { filterLine, LineField } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, linkRowLines, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlocksEnv } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
-import { readState } from "../state";
 import { menuRow } from "../desk/tile-menu";
 import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
 import { createPage, followSoft, offerPage, PAGE_OFFER_MS, type PageOffer, type PageOfferReader, type SoftChoices } from "./soft-follow";
@@ -167,7 +166,7 @@ import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-poi
 import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 import { type Link, calloutBase, calloutTitle, figureElemBase, linkText, linksOf, refOfLink, sameElementLink, sameLink, taskBase } from "./link-model";
 import { calloutPanel, type Choice, type Control, controlKey, type Picker, pickerPanel, rowsOfLines, type ThreadControl, threadPanel, withRows, isWholeNote } from "./note-panels";
-import { armsEdit, BUTTON_TILES, movedOn, noteRow, type On, SESSION_ACTIONS, type SessionKind, tileNamed, TINT_ARGS, foldLabel, REFUSED } from "./note-actions/shared";
+import { armsEdit, BUTTON_TILES, movedOn, type On, SESSION_ACTIONS, type SessionKind, tileNamed, TINT_ARGS, foldLabel, REFUSED } from "./note-actions/shared";
 import { PROPOSAL_DEFS } from "./note-actions/proposals";
 import { FORM_DEFS } from "./note-actions/forms";
 import { EDIT_DEFS, EDIT_OPEN_DEFS, EDIT_SAVE_DEFS, EDIT_STRAYS_DEFS } from "./note-actions/editing";
@@ -185,6 +184,7 @@ import { CALLOUT_DEFS } from "./note-actions/callouts";
 import { IMAGE_DEFS, IMAGE_UNDO_DEFS } from "./note-actions/images";
 import { SOURCES_DEFS } from "./note-actions/sources";
 import { UNSENT_DEFS } from "./note-actions/unsent";
+import { BUTTON_DEFS } from "./note-actions/buttons";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed (⏎ or a
@@ -332,6 +332,8 @@ export interface SurfaceHost {
   ownKeys?: string;
   /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it only when the reader has nothing of its own to undo (PIE-1435). */
   layoutUndoSeq?(): number | undefined;
+  /** The place in the undo order of the newest change on any of the person's layouts here (the screen, the drawer, a group): what `layout.undo anywhere=true` takes back. */
+  layoutNewestSeq?(): number | undefined;
   /**
    * Bring back the note the person trashed last on `board` (the desk's note.untrash): a reader's ctrl+z, when that trash is
    * newer than its own change. False when the desk can't: a reader on another outline's board.
@@ -565,6 +567,12 @@ const NO_COMMENT = "no comment is being written here; C on selected words (or pa
 /** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
 const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr", T: "thread.tldr" };
 
+/**
+ * Source writes (a slot, a field, a line) for every reader (PIE-1666): one history, as the extensions' and the moves' are, so a
+ * write made where no reader shows the note (a status-bar press, an agent's button.slot note=) is undone by the reader that does.
+ */
+const SOURCE_UNDO = new UndoHistory<LineUndo>();
+
 export class NoteSurface {
   msg: Msg | null = null;
   private rereadNote(m: Msg): Msg {
@@ -778,7 +786,7 @@ export class NoteSurface {
   private readonly listEditor = new Inspector();
   private previewLists = new Map<string, boolean>();
   private previewOpen = new Set<string>();
-  readonly listPreview = { place: (attachedPlaceOf(readState<{ place?: string }>("list-preview-place.json")?.place) ?? "split") as AttachedPlace, float: null as FloatRect | null, frame: null as FloatRect | null, rect: null as FloatRect | null, top: 0, max: 0 };
+  readonly listPreview = { place: "split" as AttachedPlace, float: null as FloatRect | null, frame: null as FloatRect | null, rect: null as FloatRect | null, top: 0, max: 0 };
   private drawnFolds: FoldPoint[] = [];
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, its rows' sources and fold heads, and `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
@@ -800,9 +808,14 @@ export class NoteSurface {
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
-  readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } as { w: number; h: number; col?: number; row?: number } };
+  readonly editPreview = { place: "inline" as AttachedPlace, float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } as { w: number; h: number; col?: number; row?: number } };
   /** Everything attached to the note (PIE-1536): the comment being written, Sources, settings, a list's children, the edit preview. */
   readonly attachments: Attachments<SurfaceHost, SurfaceView> = new Attachments<SurfaceHost, SurfaceView>(this.attachmentKinds(), () => this.lastLook?.values);
+  constructor() {
+    // Where the previews were left (PIE-1671): read once, by the attachments layer that keeps them, never by a field of its own.
+    this.listPreview.place = this.attachments.keptPlace("list-preview") ?? this.listPreview.place;
+    this.editPreview.place = this.attachments.keptPlace("edit-preview") ?? this.editPreview.place;
+  }
   private innerFrame?: FloatRect;
   private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): a mode over the comment, waiting on their answer in the power bar. */
@@ -1079,7 +1092,8 @@ export class NoteSurface {
     const zoom = this.zoomHint();
     if (this.zoom) return `${extra}${zoom} · ${backPart}${hintOf([...STEP_KEYS, ...ELEMENT_STEP_KEYS, READING_KEYS[0]!])}`;
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
-    const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
+    // Else R resolves one in view (PIE-1668): the hint names it, from the row its key runs, so R never does what it doesn't say.
+    const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : this.resolveTarget() ? `${hintOf(RESOLVE_KEYS)} · ` : "";
     return `${extra}${proposal}${backPart}${hintOf([...STEP_KEYS, ...SECTION_KEYS, ...ELEMENT_STEP_KEYS])} · ${zoom} · ${hintOf(READING_KEYS)}`;
   }
 
@@ -1125,7 +1139,7 @@ export class NoteSurface {
   private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
   private menuOffset = { col: 0, row: 0 };
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
-  readonly sourceHistory = new UndoHistory<LineUndo>();
+  readonly sourceHistory = SOURCE_UNDO;
   /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
   private oldUnsentShown = new Set<string>();
   /** The text an edit kept without its own starting text began from, read from the note's history, by edit (null: not kept; absent: being read). */
@@ -4336,7 +4350,8 @@ export class NoteSurface {
       case "outline": return !!m && isOutlineNote(m);
       case "parent": return !!m?.parentId;
       case "preview": return host.attachment === "list-preview" && !!this.previewPoint();
-      case "resolvable": return !!this.resolveTarget();
+      // R on a line that runs fetches it again, as its hint says (PIE-1668); a proposal elsewhere in view waits for R off it.
+      case "resolvable": return !this.runsAtCurrent() && !!this.resolveTarget();
       case "proposal": return !!m && (isOpenProposal(m) || !!this.currentProposal());
       case "element": return !!this.cur || !!this.pendingLink;
       case "tinted": return !!this.focusMark;
@@ -4601,16 +4616,25 @@ export class NoteSurface {
     const said = `${button.label}: ${key}=${given}`;
     if (wrote) { host.ctx.flash(`${said}${actor.kind === "user" && !a.run ? " · press it again to use it · ctrl+z takes it back" : ""}`); this.noteAgent(actor, said); }
     host.redraw();
-    const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
-    // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
-    if (actor.kind === "user" && (a.next !== undefined || a.ask || a.run)) {
+    const out: Record<string, unknown> = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
+    const entry = wrote ? this.sourceHistory.last(partyOf(actor), this.msg?.id ?? m.id) : null;
+    // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this); an agent passes each itself.
+    if (actor.kind === "user" ? a.next !== undefined || a.ask || a.run : a.run) {
       const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
-      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? (a.alt ? again?.altEmpty : again?.empty) ?? [] : [];
+      const left = actor.kind !== "user" ? [] : a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? (a.alt ? again?.altEmpty : again?.empty) ?? [] : [];
       const fail = (e: unknown) => host.ctx.flash(e instanceof Error ? e.message : String(e));
       if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run, !!a.alt).catch(fail);
-      // The last answer of a press runs it, as the press meant (PIE-1392), its alt= for an alt press; a slot still empty is asked by that press.
-      else if (again && a.run && again.act !== null && (a.alt ? again.alt : again.act) && !(a.alt ? again.altEmpty ?? [] : again.empty).includes(key)) {
-        void this.runPress({ act: (a.alt ? again.alt : again.act)!, block: m.id, line, label: again.label }, host, actor, false, undefined, !!a.alt).catch(fail);
+      // The last answer of a press runs it, as the press meant (PIE-1392), its alt= for an alt press; a slot still empty is asked by
+      // that press (an agent is told the line). What it did is taken back with the words by one undo (PIE-1666).
+      else if (again && a.run && again.act !== null && (a.alt ? again.alt : again.act)) {
+        const layoutBefore = host.layoutNewestSeq?.();
+        try {
+          const ran = await this.runPress({ act: (a.alt ? again.alt : again.act)!, block: m.id, line, label: again.label }, host, actor, false, undefined, !!a.alt);
+          out.ran = ran ?? null;
+          const run = (ran as { undo?: unknown } | null)?.undo, layout = host.layoutNewestSeq?.();
+          if (entry && typeof run === "string") { entry.then = { run }; EXT_UNDO.dropWhere(u => u.undo === run); }
+          else if (entry && layout !== undefined && layout !== layoutBefore) entry.then = { layout };
+        } catch (e) { if (actor.kind !== "user") throw e; fail(e); }
       }
     }
     return out;
@@ -4631,17 +4655,21 @@ export class NoteSurface {
   }
 
   // ── refreshing a resource's projection (PIE-445) ─────────────────────────────
+  /** The line that runs under the [ ] position (an extension's line, a ticket region, a ticket), which R fetches or runs again before anything else. */
+  private runsAtCurrent(): { block: string; line?: number } | null {
+    const l = this.inView()?.link;
+    if (l?.ext) return { block: l.ext.block, line: l.ext.line };
+    if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
+    return l?.role === "resource" && l.block ? { block: l.block } : null;
+  }
   /**
    * The block `R` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
    * line that runs. With no position and several lines that run (a handler line, a component, an @name request), `R`
    * runs none of them and says which there are: a stray key never asks an agent again or runs a script (PIE-956).
    */
   refreshTarget(): { block: string; line?: number } {
-    const x = this.inView()?.link?.ext;
-    if (x) return { block: x.block, line: x.line };
-    const l = this.inView()?.link;
-    if (l?.refresh) return { block: l.refresh, ...(l.refreshLine !== undefined ? { line: l.refreshLine } : {}) };
-    if (l?.role === "resource" && l.block) return { block: l.block };
+    const at = this.runsAtCurrent();
+    if (at) return at;
     const m = this.msg!;
     // Not read yet: what the note runs isn't known, so nothing is asked of the service on a guess.
     if (!projectionsLoaded(m, this.src) && mayHaveProjections(m.text)) throw new ActionRefused("reading what this note runs · press again in a moment, or put [ ] on a line first");
@@ -6862,10 +6890,18 @@ export class NoteSurface {
   /** The reader mode that takes attachment `kind`'s keys, clicks and wheel, while it's open. */
   private attachedMode(kind: AttachmentKind) { const mode = this.attachments.def(kind).mode as ModeName | undefined; return mode ? this.modes.get(mode) : null; }
 
+  /**
+   * The keys go to attachment `target` (its tile has them, PIE-1669): its mode takes them, and every other attachment's open
+   * mode that would answer a key before it (PRECEDENCE) waits, read from the attachments' own table, whichever kinds are open.
+   */
   attachedKeys(target: AttachmentKind) {
-    const sm = this.sourcesMode;
-    if (sm) this.modes.focus(sm, target === "sources");
-    if (this.panel?.card) this.modes.focus(this.modes.get("panel")!, target === "settings");
+    const own = this.attachedMode(target);
+    if (own) this.modes.focus(own, true);
+    for (const kind of this.attachments.kinds()) {
+      const mode = kind === target ? null : this.attachedMode(kind);
+      const d = this.attachments.def(kind);   // open as this kind: the `i` panel is the panel mode too, but no settings card
+      if (mode && d.owner() && d.tileKeys() && (!own || PRECEDENCE[mode.name as ModeName] >= PRECEDENCE[own.name as ModeName])) this.modes.focus(mode, false);
+    }
   }
 
   // ── the placement menu ───────────────────────────────────────────────────────
@@ -7298,16 +7334,30 @@ export class NoteSurface {
   undoSource(host: SurfaceHost, actor: Actor) {
     return this.inTurn(async () => {
       const e = this.msg && this.sourceHistory.last(partyOf(actor), this.msg.id);
+      const then = e?.then;
+      const took = (r: Record<string, unknown>) => then ? this.undoPress(then, host, actor).then(back => ({ ...r, ...back })) : r;
       if (e?.patch) {
         const m = await host.ctx.board.request("drafts.read", { blockId: e.block }), edit = e.edits[0]!;
         await this.patchSource(e.block, m.revision, edit.after, edit.before, e.patch.start, host, actor);
         this.sourceHistory.drop(e);
         if (this.sourcesMode) await this.readSources(this.sourcesMode.panel, host);
-        return { block: e.block, line: edit.line + 1, recordedAs: recordedAnswer(actor) };
+        return took({ block: e.block, line: edit.line + 1, recordedAs: recordedAnswer(actor) });
       }
       const r = await this.undoLines(this.sourceHistory, "source parameter", host, actor);
-      return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
+      return took({ block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) });
     });
+  }
+
+  /**
+   * What a press finished by a slot's words did, taken back with them (PIE-1666): its run (ext.undo), or the layout step it took
+   * while that is still the newest (layout.undo); a layout changed since is left as it is, and said.
+   */
+  private async undoPress(then: NonNullable<LineUndo["then"]>, host: SurfaceHost, actor: Actor): Promise<Record<string, unknown>> {
+    // The words are back already: an undo of what the press did that is refused (changed since, nothing to take back) is said, not thrown.
+    const kept = (e: unknown) => { const why = e instanceof Error ? e.message : String(e); asActor(host.ctx, actor).flash(`took the words back; what the press did stays: ${why}`); return { press: `kept: ${why}` }; };
+    if ("run" in then) return this.undoExtension(host, actor, then.run).then(undid => ({ undid }), kept);
+    if (host.layoutNewestSeq?.() !== then.layout) { host.ctx.flash("took the words back; the layout changed since, so what the press did stays · ^W B undoes the newest"); return { press: "kept: the layout changed since" }; }
+    return host.ctx.dispatch!.act({ action: "layout.undo", args: { anywhere: true } }, actor).then(undid => ({ undid }), kept);
   }
 
   private sourcesModeOf(P: SourcesPanel, host: SurfaceHost): SourcesMode {
@@ -7315,7 +7365,7 @@ export class NoteSurface {
     const mode: SourcesMode = {
       get keys() { return mode.view.field ? SOURCE_FIELD_KEYS : P.open === null ? SOURCES_KEYS : SOURCE_KEYS; },
       name: "sources", of: P, reveal: true, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => !!P.inspector.field, covers: () => false,
-      place: attachedPlaceOf(readState<{ place: string }>("sources-place.json")?.place) ?? "split", float: null, frame: null, room: { w: 0, h: 0 },
+      place: this.attachments.keptPlace("sources") ?? "split", float: null, frame: null, room: { w: 0, h: 0 },
       rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, view: P.inspector, footer: 0,
       changed: () => { if (!P.loading) void this.readSources(P, host); },
       key: k => {
@@ -8842,7 +8892,11 @@ const IMAGE_STALE: Stale = { flash: "that image's line changed since it was draw
 /** One line of a note rewritten: its index, its text as it was read, and what it became. `picture`: who the line is, so an undo finds it wherever it has moved to. */
 interface LineEdit { line: number; before: string; after: string; picture?: string }
 /** A change of whole lines (a callout's header, an image's layout) for undo. */
-interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string }
+interface LineUndo {
+  patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string;
+  /** What the press this write finished did (PIE-1666): its run's undo, or the layout step it took, taken back with it. */
+  then?: { run: string } | { layout: number };
+}
 
 
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
@@ -8948,110 +9002,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   ...REPLY_DEFS,
   ...EDIT_SAVE_DEFS,
   ...ELEMENT_DEFS,
-  "button.pin": def({
-    summary: "pin to status bar: append this note's selected ::button to your [status-bar::true] note; label= picks a button by its exact label, or a note with one button needs no selection",
-    touches: "nothing", replay: "ask", answer: RECORDED_AS,
-    args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
-    keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
-    examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
-    // In the Button group, the menu's first (PIE-1428): about the button the right-click landed on.
-    menu: { ...noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }), group: BUTTON_GROUP },
-    async run({ label }, { surface, host }, actor) {
-      await surface.whole();
-      const line = surface.statusButtonLine(label);
-      if (!line) throw new ActionRefused("select one ::button with [ ], or say button.pin label=<its exact label>");
-      return host.ctx.dispatch!.act({ action: "status.bar.pin", args: { line } }, actor);
-    },
-  }),
-  "button.press": def({
-    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button, an [label](act: …) link or a control a render script drew (a view's button, badge, card or row, from the service's projection) in a note that is open nowhere, with no focus moved",
-    keys: readerKeys("button.press", { keys: "click", does: "on a button" }, { keys: "alt+click", does: "a control's alt action (a breadcrumb's reveal)" }), touches: "nothing", replay: "ask",
-    args: {
-      label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
-      alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
-      n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
-      line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
-      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note, and a reader's action (comment.note) in a reader showing it, else at the person's own press their focus, else refused: open it first" },
-    },
-    examples: [
-      { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
-      { act: 'button.press note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 label="Water beds"', does: "presses that button of a note open nowhere, moving no focus" },
-    ],
-    async run({ label, n, note, alt, line }, { surface, host }, actor) {
-      if (note !== undefined) {
-        if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
-        // Its first 8+ characters, a Work ID or a [[page]] too, as open id= takes them (PIE-1428): the one resolver, readNote's.
-        const m = await readNote(host.ctx, note);
-        if (!m) throw new ActionRefused(`no note ${note}: button.press note= takes a note's id, its first 8+ characters, a Work ID or a [[page]]`);
-        const found: { label: string; act: string; alt?: string; line: number }[] = [];
-        for (const c of buttonCallsOf(m.text)) if (c.act || c.problem) found.push({ label: c.label, act: c.act ?? "", alt: c.alt, line: c.line });
-        m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
-        const want = label.toLowerCase();
-        const matching = (list: typeof found) => {
-          const exact = list.filter(f => f.label.toLowerCase() === want);
-          return (exact.length ? exact : list.filter(f => f.label.toLowerCase().includes(want))).filter(f => line === undefined || f.line === line - 1);
-        };
-        // Controls a render script drew on the note (a view's button, badge, card or row) are the service's projection of it, so a note open
-        // nowhere has them too. Lines still being drawn are waited for (the read itself asks the service to draw them), so which
-        // line answers a label never depends on which finished first.
-        if (!matching(found).length && mayHaveProjections(m.text)) {
-          for (const end = Date.now() + 10_000; ;) {
-            const read = await host.ctx.board.request("resources.projection.read", { blockId: m.id, materialize: true }).catch(() => null);
-            if (!read) break;
-            const drawn = drawnPresses(read);
-            if (!drawingPending(read) || Date.now() > end) { found.push(...drawn.filter(d => !found.some(f => f.act === d.act && f.line === d.line && f.label === d.label))); break; }
-            await Bun.sleep(150);
-          }
-        }
-        const hits = matching(found);
-        if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
-        if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
-        const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;
-        const r = await surface.runPress({ act, block: m.id, line: hit.line, label: hit.label }, host, actor, !!alt && !hit.alt, { ...(surface.msg?.id === m.id ? { tile: messageContext.getStore()?.tile } : {}), note: m.id, actor }, !!alt && !!hit.alt);
-        surface.noteAgent(actor, `pressed ${hit.label} (${act})`);
-        return { note: m.id, kind: "control", act, ...(r && typeof r === "object" ? r : {}) };
-      }
-      await surface.whole();
-      surface.requireDrawn();
-      if ((label === undefined) === (n === undefined)) throw new ActionRefused("say label= (the button's words) or n= (its number in elements)");
-      const all = surface.describeElements();
-      const pressable = (i: number) => { const e = surface.element(i + 1); return e.kind === "control" && !!e.link?.press; };
-      let hits = n !== undefined ? (n >= 1 && n <= all.length && pressable(n - 1) ? [n] : []) : all.map((_, i) => i + 1).filter(i => pressable(i - 1) && all[i - 1]!.label.toLowerCase().includes(label!.toLowerCase()));
-      const exact = hits.filter(i => all[i - 1]!.label.replace(/^\[|\]$/g, "").toLowerCase() === label?.toLowerCase());
-      if (exact.length) hits = exact;
-      if (!hits.length) {
-        const have = all.map((e, i) => ({ e, i: i + 1 })).filter(x => pressable(x.i - 1)).map(x => `${x.i}: ${x.e.label}`);
-        throw new ActionRefused(`${n !== undefined ? `element ${n} is not a button` : `no button says "${label}"`} in this note; ${have.length ? `it has ${have.join(", ")}` : "it has none (a button is ::button{label=… act=…} or a view's pressable square)"}. Example: button.press label="${(have[0]?.split(": ")[1] ?? "Review").replace(/^\[|\]$/g, "")}"`);
-      }
-      if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
-      const i = hits[0]!, e = surface.element(i), p = e.link!.press!;
-      const act = alt && p.alt ? p.alt : p.act;
-      const r = await surface.runPress({ ...p, act }, host, actor, !!alt && !p.alt, undefined, !!alt && !!p.alt);
-      surface.noteAgent(actor, `pressed ${e.label} (${act})`);
-      return { element: i, kind: e.kind, act, ...(r && typeof r === "object" ? r : {}) };
-    },
-  }),
-  "button.slot": def({
-    words: "write one slot of a button's sequence",
-    summary: "write one slot of a ::button onto its line (PIE-1298): `::button{act=\"tile.zoom tile={target}\" target=}` runs once target= says a tile. The note's checked save, recorded as whoever asks; ctrl+z (sources.undo) takes it back. A tile is kept as its id (t-<uuid>, exactly that tile) or the address of its place (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), never a number. The person, with no value=, is asked (the wire picker for a tile: click one); an agent passes value= and never opens the picker",
-    keys: [{ keys: "click", does: "a button with an empty slot, then click a tile" }, { keys: "alt-click", does: "a button with a slot to choose again" }], touches: "nothing", replay: "ask", answer: RECORDED_AS,
-    args: {
-      note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
-      line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
-      label: { type: "string", optional: true, about: "or: the button's label (or part of it); with line=, its whole label: a moved line is found by it, a gone button refused" },
-      key: { type: "string", optional: true, about: "the slot (the word on the line a {key} fills); default the first empty one" },
-      value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
-      ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
-      next: { type: "string", optional: true, about: "after this, ask for these slots of the same button, in order (key,key: a re-pick of filled ones)" },
-      run: { type: "boolean", optional: true, about: "after the last slot is answered, press the button (the person's press that asked for them)" },
-      alt: { type: "boolean", optional: true, about: "the alt press's slot: the value is read as alt='s argument (a slot act= and alt= both read), and with run= its alt= runs" },
-    },
-    examples: [
-      { act: 'button.slot label="pop it" key=target value=drawer.agent', does: "writes target=drawer.agent on the pop it button, so its next press lifts the drawer's agent" },
-      { act: "button.slot line=3 key=target", does: "asks the person to choose the tile again for the button on line 3" },
-    ],
-    run: (a, { surface, host }, actor) => surface.setButtonSlot(a, host, actor),
-  }),
+  ...BUTTON_DEFS,
   ...ELEMENT_OPEN_DEFS,
   ...COMMENT_DEFS,
   ...PLACEMENT_DEFS,

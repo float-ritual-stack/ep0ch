@@ -21,7 +21,7 @@ export const READER_GUARDS = {
   outline: "the note is the outline's",
   parent: "the note has a parent",
   preview: "it is a list's preview of a row's children",
-  resolvable: "a proposal can be resolved: the current one, the one shown, or the only one in view (with several in view, R asks which)",
+  resolvable: "a proposal can be resolved: the current one, the one shown, or the only one in view (with several in view, R asks which), and [ ] isn't on a line that runs (there R fetches it again)",
   proposal: "a proposal is shown, or is the current element",
   element: "an element is current ([ ] or a click)",
   tinted: "someone's focus mark is on the note",
@@ -197,5 +197,7 @@ const rowsOf = (action: string, keys: readonly string[]) => keys.map(key => READ
 export const STEP_KEYS: readonly ModeKey[] = rowsOf("reading.step", ["up", "down", "j", "k"]);
 export const ELEMENT_STEP_KEYS: readonly ModeKey[] = rowsOf("element.select", ["[", "]"]);
 export const SECTION_KEYS: readonly ModeKey[] = rowsOf("fold.select", ["(", ")"]);
+/** R on a proposal in view that isn't the note shown (PIE-1668): named on the hint row whenever it is what R does. */
+export const RESOLVE_KEYS: readonly ModeKey[] = rowsOf("proposal.resolve", ["R"]);
 /** The reading keys the hint row names after the steps, in the order it names them. */
 export const READING_KEYS: readonly ModeKey[] = ["f", "M", "r", "t", "i", "z", "u", "C", "m"].map(key => READER_KEYS.find(row => row.key === key && !row.when?.includes("preview"))!);

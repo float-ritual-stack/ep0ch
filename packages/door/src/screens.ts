@@ -1,7 +1,8 @@
 import { drawCompletionFloat } from "./surface/completion-float";
 import { BACK_KEY, hotParts, listKeys, messageNavHint } from "./hint-parts";
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
+import { NOTE_MOVE, NOTE_MOVE_UNDO } from "./surface/note-actions/move";
+import { modeBinding, modeHint, Modes } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -1135,27 +1136,19 @@ const rowAt = (list: BbsList, n: number) => {
 
 /** The lists' actions: j k ↑↓ PgUp PgDn and the wheel run list.select, ⏎ and a click on the lit row list.open. */
 export const LIST_ACTIONS = actionSet<ListOn>()("list", {
+  // One note.move, mounted here on the lit row (PIE-1672): its words, keys and arguments are the reader's (move.ts).
   "note.move": def({
-    summary: "move the selected message, or id=, using the service's revision-checked move",
-    keys: modeActionKeys([LIST_MOVE_KEYS], "note.move"),
-    touches: "nothing", replay: "ask", answer: RECORDED_AS,
-    args: {
-      id: { type: "string", optional: true, about: "the note to move; default selected" },
-      undo: { type: "boolean", optional: true, about: "put the last move back" },
-      to: { type: "string", optional: true, about: "the destination note, inbox or root" },
-      before: { type: "string", optional: true, about: "place before this note" },
-      after: { type: "string", optional: true, about: "place after this note" },
-      step: { type: "string", optional: true, about: "up, down, in or out" },
-      position: { type: "number", optional: true, about: "position under to, from 1" },
-      revision: { type: "number", optional: true, about: "revision read" },
-    },
-    examples: [
-      { act: "note.move id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 to=inbox", does: "moves that note to the inbox" },
-      { act: "note.move step=down", does: "moves the selected note one place down" },
-    ],
-    async run(args: MoveArgs & { id?: string; undo?: boolean }, { list, ctx }, actor) {
+    ...NOTE_MOVE,
+    async run(args: MoveArgs & { id?: string }, { list, ctx }, actor) {
       if (!(list instanceof MessageList)) throw new ActionRefused("this list has no notes to move");
       return list.move(args, ctx, actor);
+    },
+  }),
+  "note.move.undo": def({
+    ...NOTE_MOVE_UNDO,
+    async run({ id }, { list, ctx }, actor) {
+      if (!(list instanceof MessageList) || !(id ?? list.lastMoved)) throw new ActionRefused(list instanceof MessageList ? "no move made in this list to undo; note.move.undo id=<note> names one" : "this list has no notes to move");
+      return list.move({ id: id ?? list.lastMoved, undo: true }, ctx, actor);
     },
   }),
   "list.select": def({
@@ -1517,7 +1510,7 @@ function mergeOverlays(list: Overlay[]): Overlay[] {
 export class MessageList extends BbsList {
   private readonly rowsView = new RowView();
   private items: Msg[] | null = null;
-  private lastMoved?: string;
+  lastMoved?: string; // the note this list moved last for the person: what its ctrl+z and a bare note.move.undo put back
   private moveDown: { msg: Msg; y: number } | null = null;
   async move(args: MoveArgs & { id?: string; undo?: boolean }, ctx: Ctx, actor: Actor) {
     const selected = this.items?.[this.sel];
@@ -1608,9 +1601,9 @@ export class MessageList extends BbsList {
   /** T: the lit row's replies (list.thread); an empty list takes every other key quietly. */
   protected override ownKey(k: Key) {
     const move = modeBinding(LIST_MOVE_KEYS, k);
-    if (move?.args?.undo && this.lastMoved) { this.press("note.move", { id: this.lastMoved, ...move.args }); return true; }
+    if (move?.action === "note.move.undo") { if (this.lastMoved) this.press("note.move.undo", { id: this.lastMoved }); return !!this.lastMoved; }
     if (!this.items?.length) return true;
-    if (move && !move.args?.undo) { this.press("note.move", move.args ?? {}); return true; }
+    if (move) { this.press("note.move", move.args ?? {}); return true; }
     if (k.kind !== "char" || k.ctrl || k.ch.toLowerCase() !== "t") return false;
     this.press("list.thread", {});
     return true;
@@ -1681,7 +1674,7 @@ export class MessageReader implements Screen {
       conference: true,
       ctx,
       // Framed in a desk's tile, the desk's layout undo and untrash are what its ctrl+z yields to (PIE-1470).
-      ...(ctx.layoutUndoSeq ? { layoutUndoSeq: () => ctx.layoutUndoSeq!() } : {}),
+      ...(ctx.layoutUndoSeq ? { layoutUndoSeq: () => ctx.layoutUndoSeq!() } : {}), ...(ctx.layoutNewestSeq ? { layoutNewestSeq: () => ctx.layoutNewestSeq!() } : {}),
       ...(ctx.untrash ? { untrash: (b: object) => ctx.untrash!(b) } : {}),
       redraw: () => ctx.redraw(),
       navigate: (m, how) => {

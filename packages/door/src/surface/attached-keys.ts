@@ -37,7 +37,8 @@ export const REORDER_KEYS: readonly ModeKey[] = keyTable("reorder", "moving a no
 ]);
 export const TREE_MOVE_KEYS = REORDER_KEYS.map(binding => ({ ...binding, action: "tree.move", ...(binding.action === "note.move.undo" ? { args: { undo: true } } : {}) }));
 export const COLUMN_MOVE_KEYS = keyTable("river column moves", "moving a river column's card among its siblings", TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "column.move" })), "", "river");
-export const LIST_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "note.move" }));
+/** A list's moves are the reader's own: note.move and note.move.undo (PIE-1672). */
+export const LIST_MOVE_KEYS = REORDER_KEYS;
 
 export const REPLIES_KEYS: readonly ModeKey[] = keyTable("replies", "a note's replies, t in a reader", [
   // A way back (PIE-1533): esc and alt+← (the reader's back) leave the replies for the note, as q and t do.

@@ -11,6 +11,8 @@ export const PICK_A_TILE = [
   '::button{label="about this" act="tile.info card=true" alt="tile.zoom tile={lift} reach=column" lift=}',
   "When act= and alt= read the same empty slot, each press asks in its own kind: a click on title it asks which tile to lift; alt+click asks for words, which alt= writes on the preview tile as its title. The slot keeps one value for both: after words, a click names no tile and is drawn dim until ctrl+z takes them back.",
   '::button{label="title it" act="tile.zoom tile={word} reach=column" alt="tile.title tile=preview text={word}" word=}',
+  "ctrl+z after an alt press of title it takes back the words and the title they gave, together. A press that changes nothing says so and leaves nothing to undo: unlock frees the screen's lock, so pressed with nothing locked it says it was already so.",
+  '::button{label="unlock" act=["layout.lock on=false"]}',
   "A button that reads differently than it was written runs nothing, and says what to write (nested quotes ended act= early):",
   '::button{label="misread" act="tile.zoom reach="column" tile="t-a6125371"}',
   "What it says to write: one action per line under the button, then ::. A line of its own has no outer quote for an inner one to end, so the quotes stay as you'd type them:",

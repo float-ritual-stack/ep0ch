@@ -17,7 +17,10 @@ import { external } from "../src/open";
 import { drawingPending, drawnPresses, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
 import { bindExtensions, type ExtensionList } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
-import { MainMenu } from "../src/screens";
+import { MainMenu, MessageReader } from "../src/screens";
+import { proposed } from "./wire";
+import { hintOf } from "../src/surface/attached-keys";
+import { RESOLVE_KEYS } from "../src/surface/reader-keys";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard, USER, requesterOf } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -481,6 +484,36 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ le
     expect(targets.find(t => t.refresh)).toMatchObject({ refresh: ticket.id });
     expect(targets.find(t => t.refresh)?.refreshLine).toBeUndefined();
     expect(targets.find(t => t.block)).toMatchObject({ block: ticket.id });
+  }, 30_000);
+
+  test("R on a note that is both a proposal's and a ticket's: the hint names the one R does, and [ ] on the ticket makes R fetch it (PIE-1668)", async () => {
+    const both = await create(null, "Seed order ACME-12\nask about the order\njira:: --compact\ndelivery Monday");
+    const at = (await board.get(both.id))!;
+    proposed(await board.request("draft.patch", { blockId: both.id, revision: at.revision, propose: true, patches: [{ observed: "ask about the order", replacement: "ask twice about the order" }], mutation: { author: "agent", actorId: "moss" } }));
+    const now = (await board.get(both.id))!;
+    await board.update(now.id, now.text.replace("Monday", "Tuesday"), now.revision!);
+    const asked: string[] = [], resolve = board.resolveProposal.bind(board);
+    (board as any).resolveProposal = async (id: string) => { asked.push(id); return { outcome: "asked", message: "asked the agent" }; };
+    try {
+      const r = new MessageReader([(await board.get(both.id))!], 0);
+      app.push(r);
+      const shown = () => r.render(app as any).lines.map(plain).join("\n");
+      await until(() => shown().includes("[resolve]") && shown().includes("Jira ACME-12"), "the proposal and the ticket", 10_000);
+      // Nothing current: R resolves the proposal in view, and the hint row says so.
+      expect(visible(r.surface.hint())).toContain(visible(hintOf(RESOLVE_KEYS)));
+      // [ ] on the ticket: R fetches it again, as its line says, and the proposal waits.
+      for (let i = 0; i < 12 && r.surface.describe().elements?.current?.kind !== "resource"; i++) { key(char("]")); shown(); }
+      expect(r.surface.describe().elements?.current).toMatchObject({ kind: "resource" });
+      const fetches = board.sent.filter(a => a === "resources.projection.refresh").length;
+      key(char("R"));
+      await until(() => board.sent.filter(a => a === "resources.projection.refresh").length > fetches, "R fetching the ticket", 10_000);
+      expect(asked).toEqual([]);
+      // Off the ticket again, R resolves.
+      key({ kind: "esc" });
+      key(char("R"));
+      await until(() => asked.length === 1, "R resolving the proposal in view");
+      app.pop();
+    } finally { (board as any).resolveProposal = resolve; }
   }, 30_000);
 });
 
