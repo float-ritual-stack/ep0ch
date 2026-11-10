@@ -244,8 +244,9 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
 - **One PR per experience** (Evan, Oct 25: nine small PRs in a day each cost a CodeRabbit pass): one builder, one
   branch from origin/main, one PR into main that names every ticket it carries. Don't commit `bun.lock` churn; commit
   it only when dependencies change.
-- **Tag what matters:** a landed note for a change in performance, infrastructure, cost, an incident or the
-  architecture carries `[notable::<kind>]` (pie's "Notable changes" view lists them).
+- **Tag what matters:** a ticket closed for a change in performance, infrastructure, cost, an incident or the
+  architecture carries `[notable::<kind>]` on its header, set when it closes (pie's "pie, this week" page lists them).
+  Merges need no note of their own: the merge step writes a `[type::merge]` row for each.
 - **PROTOCOL at the final rebase.** Set `PROTOCOL` to main's value plus one right before merging, never earlier
   (when several PRs bump it, loki orders their merges). A protocol or schema bump says in the PR exactly what to run
   on each machine, with real values.
