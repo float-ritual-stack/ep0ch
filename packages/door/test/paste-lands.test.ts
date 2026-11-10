@@ -201,6 +201,101 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
     } finally { d.quit(); }
   }, 20_000);
 
+  // PIE-1675: the offer is the bar with the paste in its line, not the person's typing: one Esc puts it away, and the
+  // next key is the screen's again (`e` opens the edit, never the bar's search). Esc and `e` are separate reads, as typed.
+  async function escPutsAwayOffer(d: Awaited<ReturnType<typeof door>>) {
+    await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
+    await d.feed("\x1b");
+    await sleep(100);
+    expect(d.peek().bar?.query ?? "the bar is closed").toBe("the bar is closed");
+    await d.feed("e");
+    expect(d.peek().bar?.query ?? "the bar is closed").toBe("the bar is closed");
+  }
+
+  test("one Esc puts away a paste the power bar offered on a reader, and e then opens the edit (PIE-1675)", async () => {
+    const d = await door();
+    try {
+      await d.onBeans();
+      await d.feed(bracketed(TEXT));
+      await escPutsAwayOffer(d);
+      await until(() => d.reader()?.surface.draft?.blockId === beans.id, "e opened the beans' edit", 5000);
+      await d.feed("\x1b");
+    } finally { d.quit(); }
+  }, 20_000);
+
+  test("one Esc puts away a paste the power bar offered on a board's lanes, and e then edits the card (PIE-1675)", async () => {
+    const b = BV.boardScreen(plot.id, false);
+    const d = await door(b);
+    try {
+      await until(() => BV.view(b).lanes.length === 2 && BV.view(b).lanes.every((l: any) => l.items), "the lanes", 10_000);
+      BV.at(b, "lanes");
+      await until(() => !!BV.view(b).card(), "a card selected", 5000);
+      const card = BV.view(b).selectedCardId();
+      await d.feed(bracketed(TEXT));
+      await escPutsAwayOffer(d);
+      const editing = () => [...(b as any).panes.values()].some((p: any) => p instanceof ReaderPane && p.surface.draft?.blockId === card);
+      await until(editing, "e opened the card's edit", 5000);
+      await d.feed("\x1b");
+    } finally { d.quit(); }
+  }, 30_000);
+
+  test("one Esc puts away a paste the power bar offered in the drawer, and e then opens the edit there (PIE-1675)", async () => {
+    const d = await door();
+    try {
+      await d.app.dispatch.press("host.toggle", { open: true });
+      await until(() => d.app.drawer.tile?.running === true && d.app.drawer.entered, "in the drawer");
+      const dd = d.app.drawer.desk!;
+      await dd.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "pantry" } }, USER);
+      showIn(dd, beans, "pantry");
+      dd.focusPane(dd.pane("pantry")!, USER);
+      await until(() => d.reader(dd)?.msg?.id === beans.id, "the beans in the drawer's reader");
+      await d.feed(bracketed(TEXT));
+      await escPutsAwayOffer(d);
+      await until(() => d.reader(dd)?.surface.draft?.blockId === beans.id, "e opened the beans' edit in the drawer", 5000);
+      await d.feed("\x1b");
+    } finally { d.quit(); }
+  }, 20_000);
+
+  test("a paste into the power bar the person opened: Esc clears the line first, as typing (PIE-1675)", async () => {
+    const d = await door();
+    try {
+      await d.onBeans();
+      await d.app.dispatch.press("bar.open");
+      await until(() => d.peek().bar !== undefined, "the bar open");
+      await d.feed(bracketed("bean poles"));
+      await until(() => d.peek().bar?.query === "bean poles", "the paste in the bar's line", 3000);
+      await d.feed("\x1b");
+      await sleep(100);
+      expect(d.peek().bar?.query).toBe("");
+      await d.feed("\x1b");
+    } finally { d.quit(); }
+  }, 20_000);
+
+  // PIE-1674: what the person typed and pasted while a comment opened is theirs, even when the open fails: kept, and
+  // offered back in a comment (the tile menu's recover typed text), never dropped.
+  test("typed and pasted while a comment opens that fails: kept, and offered back in a comment (PIE-1674)", async () => {
+    const d = await door();
+    const get = board.get.bind(board);
+    try {
+      await d.onBeans();
+      const before = (await board.get(beans.id))!;
+      // The scratch host refuses the read the comment opens on.
+      board.get = (async (id: string, ...rest: any[]) => { if (id === beans.id) throw new Error("scratch read refused"); return (get as any)(id, ...rest); }) as any;
+      const names = await d.ran(`Cpea ${bracketed(TEXT)}`);
+      expect(names.filter(n => /trash|close|collapse/.test(n))).toEqual([]);
+      board.get = get;
+      await d.untouched("typing while a comment failed to open", before);
+      const desk = d.desk, name = desk.nameOf(desk.focus);
+      expect(desk.hasFailedEdit(name)).toBe(true);
+      const kept = await d.app.press("edit.recover", { op: "copy" }, name) as any;
+      expect(kept.text).toBe(`pea ${TEXT}`);
+      await d.app.press("edit.recover", { op: "open" }, name);
+      const comment = () => (d.reader()?.surface.session?.writing?.draft.text ?? "") as string;
+      await until(() => comment().includes(`pea ${TEXT}`), "the kept text in a comment", 5000);
+      expect(d.reader()!.surface.draft).toBeNull();
+    } finally { board.get = get; d.quit(); }
+  }, 20_000);
+
   test("pasted after ^W: the chord runs nothing and no tile closes", async () => {
     const d = await door();
     try {
