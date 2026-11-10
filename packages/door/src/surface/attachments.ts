@@ -9,9 +9,23 @@ import { ActionRefused } from "./actions";
 import { ATTACHED_PLACES, AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, frameZone, moveFloat, nextPlace, type AttachedPlace, type AttachedSide, type AttachedSplit, type AttachedTileHost, type FloatMove, type FloatRect } from "./attached";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { C, fg, pad, RESET } from "../style";
-import { readState, writeState } from "../state";
+import { join } from "node:path";
+import { readState, stateDir, writeState } from "../state";
 import { declaredAttachmentKinds, extensionAttachments, type ExtensionAttachmentAt } from "./extension-attachment";
 export { declareAttachmentKinds, declaredAttachment, type DeclaredAttachment } from "./extension-attachment";
+
+/** Where an attachment kind was left: its placement and split, as its state file keeps them. */
+type Kept = { place?: string; split?: AttachedSplit };
+/**
+ * Each placement file read once a process (PIE-1671), by its path in the state dir: every reader opened after the first
+ * takes its kinds' placement and split from here, and `keep` writes through it, so the next reader starts where the last left.
+ */
+const keptFiles = new Map<string, Kept | null>();
+function keptIn(file: string): Kept | null {
+  const at = join(stateDir(), file);
+  if (!keptFiles.has(at)) keptFiles.set(at, readState<Kept>(file));
+  return keptFiles.get(at) ?? null;
+}
 
 /** The reader's own attachments, each with its adapter in note.ts. */
 export const ATTACHMENT_KINDS = ["comment", "sources", "list-preview", "edit-preview", "settings"] as const;
@@ -121,14 +135,22 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
     for (const d of defs) this.register(d);
   }
 
-  /** One more kind: its split is read back from where it was kept. */
+  /** One more kind: its placement and split are read back, once, from where they were kept. */
   register(d: AttachmentDef<H, V>) {
     this.defs.set(d.kind, d);
     this.tiles[d.kind] = new AttachedTile();
-    const kept = d.persist ? readState<{ split?: AttachedSplit }>(d.persist)?.split : undefined;
-    this.splits[d.kind] ??= kept ?? { ...d.split };
+    const kept = d.persist ? keptIn(d.persist) : null;
+    this.splits[d.kind] ??= kept?.split ? { ...kept.split } : { ...d.split };
   }
 
+  /** Where `kind` was last placed (its state file, read once), or null: where its owner starts when it opens. */
+  keptPlace(kind: AttachmentKind): AttachedPlace | null {
+    const d = this.defs.get(kind);
+    return (d?.persist && attachedPlaceOf(keptIn(d.persist)?.place)) || null;
+  }
+
+  /** Every kind registered, in the order they were. */
+  kinds(): AttachmentKind[] { return [...this.defs.keys()]; }
   def(kind: AttachmentKind): AttachmentDef<H, V> {
     const d = this.defs.get(kind);
     if (!d) throw new ActionRefused(`target is ${[...this.defs.keys()].join(", ")}`);
@@ -195,7 +217,10 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
 
   private keep(kind: AttachmentKind) {
     const d = this.def(kind), place = d.owner()?.place;
-    if (d.persist && place) writeState(d.persist, { place, split: this.splits[kind] });
+    if (!d.persist || !place) return;
+    const kept = { place, split: { ...this.splits[kind] } };
+    writeState(d.persist, kept);
+    keptFiles.set(join(stateDir(), d.persist), kept);
   }
 
   /** Its split beside the note (`right`) or under it (`down`), and its share of the reader. */

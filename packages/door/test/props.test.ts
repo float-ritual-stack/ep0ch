@@ -406,6 +406,9 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     expect(s.yours).toEqual({ keys: ["project", "work-stage"], source: "yours" });
     expect(s.here.source).toBe("view");                                                    // the lane still decides for its cards
     await act("props.summary", { reset: true });
+    // A bad argument is refused with the usage line, never a TypeError (PIE-1681): reset=false and an empty toggle choose nothing.
+    for (const bad of [{ reset: false }, { toggle: "" }]) await expect(act("props.summary", bad)).rejects.toThrow("pass one of keys=a,b toggle=key reset=true");
+    for (const bad of [{ reset: false }, { toggle: "" }]) await expect(mine("props.summary", bad)).rejects.toThrow("pass one of keys=a,b toggle=key reset=true");
   });
 
   test("requests: an unrelated change asks nothing again, a note's references resolve once, embed targets are read together", async () => {

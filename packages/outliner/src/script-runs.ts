@@ -92,6 +92,8 @@ interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: H
 type ChangeWord = NonNullable<ExtensionActResult["changed"]>[number]["change"];
 /** What a run's change says it did to a note (PIE-1436), and which word wins when it did several. */
 const CHANGED: Partial<Record<OutlinerChange["kind"], ChangeWord>> = { create: "created", edit: "edited", draft: "edited", move: "moved", reorder: "moved", delete: "trashed", restore: "restored" };
+/** What a press that changed nothing says in place of its undo (PIE-1678; yo's done row says the same, PIE-1626). */
+export const NOTHING_TO_UNDO = "nothing to undo: it was already so";
 const RANK: readonly ChangeWord[] = ["edited", "moved", "restored", "trashed", "created"];
 /** Blocks a run writes that aren't notes it changed: its proposals and comments (PIE-1436). */
 const NOT_NOTES: ReadonlySet<string> = new Set([DRAFT_PROPOSAL_TYPE, "annotation", "annotation-reply"]);
@@ -542,7 +544,10 @@ export class ScriptRuns {
         const ended = answer as { state?: string; message?: string; error?: string } | undefined;
         said([ended?.state ?? "done", ended?.error ?? ended?.message].filter(Boolean).join(" · "));
         if (trace) { actionAnswer = answer; effects.push(`${name}: ${JSON.stringify(answer)}`); }
-        if (extension.doorActor && (answer as { changed?: unknown } | null | undefined)?.changed !== false) this.doorMoved.set(undo, true);
+        // A press's door steps say whether they changed anything (PIE-1626, PIE-1678): an answer of `changed: false` changed nothing.
+        // An extension's action that wrote nothing (`written: []`) changed nothing either.
+        const told = answer as { changed?: unknown; written?: unknown } | null | undefined;
+        if ((extension.doorActor || sequence) && told?.changed !== false && !(name.startsWith("ext.") && told?.changed === undefined && Array.isArray(told?.written) && !told.written.length)) this.doorMoved.set(undo, true);
         return answer;
       },
     });
@@ -660,6 +665,10 @@ export class ScriptRuns {
           lines.push(`Undo unavailable: ${problem}`);
           this.writes.finishRun(undo, [], problem);
         }
+        // A press that changed nothing, no note and nothing in the door, has nothing to undo, and says so (PIE-1678).
+        const unchanged = sequence !== undefined && reason === "done" && failure === undefined && !this.writes.ranWrites(undo) && !this.doorMoved.get(undo);
+        if (!extension.doorActor) this.doorMoved.delete(undo);
+        if (unchanged) message = `${message} · ${NOTHING_TO_UNDO}`;
         try { update(); } finally {
           this.captures.delete(undo);
           this.running.delete(controller);
@@ -690,7 +699,7 @@ export class ScriptRuns {
           if (returned !== undefined && returned !== result.message) result.answer = returned;
           if (inserted && reason === "done") result.insert = inserted;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
-          this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,
+          this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable && !unchanged,
             ...(result.insert && reason === "done" ? { insert: { ...result.insert, ...(request.blockId ? { block: request.blockId } : {}) } } : {}),
             ...(request.clientId && !request.background ? { targetClientId: request.clientId } : {}) });
         }

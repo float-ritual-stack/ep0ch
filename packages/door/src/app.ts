@@ -54,7 +54,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, type Handover, 
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { describeModules, hostDoorModules, releaseDoorModules, runningModules, unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
+import { describeModules, hostDoorModules, releaseDoorModules, runningModules, unbindExtensions, EXT_ACTIONS, EXT_UNDO, EXTENSION_INSTALL_ACTIONS, SCRIPT_RUN_ACTIONS, asScriptRun, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage, insertAnswer, oneLine } from "./extensions";
 import { loadScreenNotes, SCREEN_TYPE, watchedScreens } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { referenceWords } from "./refs";
@@ -189,7 +189,7 @@ export interface Ctx {
   lastOpen?(tile: string): DoorOpen | undefined;
   readonly glass?: FloatLayer; readonly hover?: Hover; // the float layer above every screen; what is under the pointer
   /** Where a framed screen sits in a desk's undo order (the desk's `layoutUndoSeq`/`untrash`), so a reader in a tile hands ctrl+z on as one on the desk does (PIE-1470). */
-  layoutUndoSeq?(): number | undefined;
+  layoutUndoSeq?(): number | undefined; layoutNewestSeq?(): number | undefined; // and the newest on any of its layouts (layout.undo anywhere=true's, PIE-1666)
   untrash?(board: object): boolean;
   /** Local extension undo owns the layout receipt; consume its broadcast without undoing twice. */
   readonly scriptUndos?: Set<string>;
@@ -1036,6 +1036,7 @@ export class App implements Ctx {
     const screens = [...this.stack, ...this.background];
     if (e.ended) {
       INVITES.spendRun(e.ended.run);
+      if (!e.ended.undo) EXT_UNDO.dropWhere(u => u.undo === e.ended!.run); // nothing to undo (PIE-1678): no ctrl+z step left behind
       for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.sequence ? "done" : e.ended.reason);
       pressEnded(e.ended.run, e.ended.reason, e.ended.message, () => this.redraw());
       if (e.ended.targetClientId === this.board.clientId) {

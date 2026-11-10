@@ -40,6 +40,13 @@ export class UndoJournal {
     const list = this.byNote.get(e.context), i = list?.lastIndexOf(e) ?? -1;
     if (list && i >= 0) { list.splice(i, 1); if (!list.length) this.byNote.delete(e.context); }
   }
+  /** Forget every entry of `kind` that `gone` holds for: a change found to have nothing to take back (PIE-1678). */
+  dropWhere(kind: UndoKind, gone: (e: Journaled) => boolean) {
+    for (const [note, list] of this.byNote) {
+      const kept = list.filter(e => e.kind !== kind || !gone(e));
+      if (kept.length) this.byNote.set(note, kept); else this.byNote.delete(note);
+    }
+  }
   /** Only our own box writes preserve a row's position; other edits leave its undo stale. */
   advance(kind: UndoKind, block: string, before: number, after: number) {
     for (const list of this.byNote.values()) for (const e of list) {
@@ -71,6 +78,8 @@ export class UndoHistory<E extends Made = UndoEntry> {
   last(by: string, context: string): Journaled<E> | null { return this.journal.lastOf(this.spec.kind, by, context); }
   advance(block: string, before: number, after: number) { this.journal.advance(this.spec.kind, block, before, after); }
   drop(e: Journaled<E>) { this.journal.drop(e); }
+  /** Forget every change of this kind `gone` holds for (PIE-1678). */
+  dropWhere(gone: (e: Journaled<E>) => boolean) { this.journal.dropWhere(this.spec.kind, gone as (e: Journaled) => boolean); }
   /** The changes of this kind in the note `context` (the status line counts a note's step changes). */
   size(context: string) { return this.journal.count(this.spec.kind, context); }
 }

@@ -11,7 +11,9 @@ import { Desk } from "../src/desk/desk";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { renderDoc } from "../src/doc";
 import { MainMenu } from "../src/screens";
-import { ACTOR_ID, Refused, SocketBoard } from "../src/socket";
+import { ACTOR_ID, Refused, SocketBoard, USER } from "../src/socket";
+import { NOTE_ACTIONS } from "../src/surface/note";
+import { declaredKeys, hintKeys, keysText } from "../src/surface/actions";
 import type { Key } from "../src/term";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -167,6 +169,22 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     pane.key({ kind: "esc" }, d);
     expect(pane.session).toBeNull();
     expect(plain(pane.render(80, 30, true, d).lines[2]!)).toContain("1 comment · short cards (M)");
+  });
+
+  // PIE-1667: the key the hint row names for leaving a comment closes it, and it is esc's one action, comment.escape; comment.close
+  // is the same close for act (discard= for unsent text), reached by esc through comment.escape, never a second binding of esc.
+  test("the hint row's esc closes the comment by key, and comment.escape and comment.close close it through act (PIE-1667)", async () => {
+    const b = await create(NOTE);
+    expect(keysText(NOTE_ACTIONS.def("comment.escape")!.keys)).toBe("esc");
+    expect(declaredKeys(NOTE_ACTIONS.def("comment.close")!.keys).has("esc")).toBe(false);
+    expect(keysText(NOTE_ACTIONS.def("comment.close")!.keys)).toContain("comment.escape");
+    for (const how of ["key", "comment.escape", "comment.close"] as const) for (const start of ["C", "m"] as const) {
+      const { pane, d } = await open(b.id, start);
+      const hint = plain(pane.session!.hint());
+      expect(hintKeys(hint)).toContain("esc");
+      if (how === "key") pane.key({ kind: "esc" }, d); else await pane.surface.act(how, {}, pane.host(d), USER);
+      await until(() => !pane.session, `${how} to close the ${start === "C" ? "passage picker" : "thread list"} (hint: ${hint})`);
+    }
   });
 
   // Capture is more reliable than interpretation (AGENTS.md): a comment that quotes a broken reference lands as written,

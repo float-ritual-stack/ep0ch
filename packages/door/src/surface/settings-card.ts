@@ -17,8 +17,7 @@ import { printable } from "../props";
 import { RowView } from "../scroll";
 import { selectedRow, C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { rowLines, rule } from "../text";
-import { attachedPlaceOf, type AttachedPlace, type FloatRect } from "./attached";
-import { readState } from "../state";
+import { type AttachedPlace, type FloatRect } from "./attached";
 import { modeHint } from "./modes";
 import { SETTINGS_KEYS } from "./attached-keys";
 import { isBlockId } from "@ep0ch/outline-core/addressable-resource";
@@ -177,7 +176,8 @@ export function settingValue(field: SettingField, answer: string): string {
 
 /** The card's state while it's the panel's face: which field is selected, what it last said, where its rows were drawn. */
 export class SettingsCard {
-  place: AttachedPlace = attachedPlaceOf(readState<{ place: string }>("settings-place.json")?.place) ?? "inline";
+  /** Where it sits: inline until its reader's attachments say where the card was left (openSettings, PIE-1671). */
+  place: AttachedPlace = "inline";
   float: FloatRect | null = null;
   frame: FloatRect | null = null;
   room: { w: number; h: number; col?: number; row?: number } = { w: 0, h: 0 };
