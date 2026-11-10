@@ -1020,7 +1020,7 @@ export class AgentRequests {
     const request = TLDR_REQUEST, gen = this.tldrGen.get(rootId) ?? 0;
     // Taken away (annotations.tldr remove) while it was being written: it isn't posted.
     const still = () => (this.tldrGen.get(rootId) ?? 0) === gen;
-    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] }, still);
+    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}`, wordsKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] }, still);
     const done = await Promise.race([turn, Bun.sleep(wait).then(() => undefined)]);
     if (done && "refused" in done) throw new Error(done.refused);
     return name;

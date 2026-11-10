@@ -406,10 +406,14 @@ test("PIE-1712: the key line names only the key for the arguments, the button sa
   expect(line).toBe('::button{label="▸ by kind" act=["shed.shelf", "shelf.view step=kind", "ext.yo.remember act=shelf.view asked=find-shelf-items-type args=step:kind"]}');
   // do it presses every step but the remember, in order; the answer is about shelf.view.
   expect(buttonIn(`> ${line}`)).toEqual({ label: "▸ by kind", act: "shelf.view step=kind", steps: ["shed.shelf", "shelf.view step=kind"] });
+  // A find's button keeps nothing: do it opens it, and no memory note is written of its query.
+  expect(buttonIn(`> ::button{label="▸ open in facets" act=["tile.open kind=facets name=found", "facets.query text='type=plan' tile=found"]}`)).toEqual({ label: "▸ open in facets", act: "facets.query text='type=plan' tile=found", steps: ["tile.open kind=facets name=found", "facets.query text='type=plan' tile=found"], forget: true });
   // The model reads each argument and an example, so "by kind" can be filled.
   const prompt = planPrompt({ asked: "how do I find shelf items by a type", question: true, candidates: [SHELF_VIEW], docs: [], habits: [] });
   expect(prompt).toContain("shelf.view: change a shelf tile's view");
-  expect(prompt).toContain("args: step (a control stepped to its next value: kind or sort) e.g. shelf.view step=kind");
+  expect(prompt).toContain("args: step (a control stepped to its next value: kind or sort); presets: step=sort: the next sort order; step=kind: by kind, a kind at a time e.g. shelf.view step=kind");
+  // No key row or button of its own for these arguments: its verb, with them.
+  expect(labelOf(SHELF_VIEW, "shelf.view sort=title")).toBe("▸ view sort title");
 });
 
 test("PIE-1712: asked how, the answer fills the argument the model read, names its one key and gets to the tile first", async () => {

@@ -153,7 +153,7 @@ const reversible = (a: ActionRecord | undefined, pressed: { wrote: boolean; chan
 const withSteps = (lines: readonly string[]) => [...lines, ...stepsFold(steps)].join("\n");
 
 /** yo's own newest answer: in a thread its newest reply, in a note the newest fold above the line. Nothing else here is pressed. */
-function pending(): { ask: string; button: { line: string; at?: number; label: string; act: string } | null } | null {
+function pending(): { ask: string; button: { line: string; at?: number; label: string; act: string; steps?: string[]; forget?: true } | null } | null {
   if (inThread()) {
     const turns = input.thread!, at = turns.findLastIndex(t => t.author.startsWith("ext:yo"));
     if (at < 0) return null;
@@ -175,7 +175,7 @@ async function go() {
     const said = `the door refused ${button.label}: ${pressed.refused}`;
     return ok(inThread() ? { reply: said } : { message: said.slice(0, 480), reply: withSteps([said]) });
   }
-  await remember(answer!.ask || button.act, button.act);
+  if (!button.forget) await remember(answer!.ask || button.act, button.act);
   const name = button.act.split(/\s/, 1)[0]!, action = (await catalog().catch(() => [] as ActionRecord[])).find(a => a.name === name);
   const row = doneRow(button.label, pressed.undo, reversible(action, pressed), pressed.changed);
   if (inThread()) return ok({ reply: withSteps([row]) });

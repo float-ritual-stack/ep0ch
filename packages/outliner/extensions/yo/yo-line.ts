@@ -67,7 +67,9 @@ export function labelOf(a: ActionRecord, line = a.name): string {
   // No button of its own for these arguments: the key row that presses them says what it does (`▸ by kind`, PIE-1712).
   const row = best?.fits ? null : keyRowsFor(a, given)[0];
   if (row?.does) return `▸ ${row.does.split(",", 1)[0]}`;
-  return best?.label ?? `▸ ${a.name.split(".").at(-1)}`;
+  // Else its verb, with the arguments it presses (`▸ view resolved`), so two buttons of one action read apart.
+  const words = Object.entries(given).filter(([, v]) => !v.startsWith("{")).map(([k, v]) => (v === "true" ? k : `${k} ${v}`)).join(" ");
+  return best?.label ?? `▸ ${a.name.split(".").at(-1)}${words ? ` ${words}` : ""}`;
 }
 
 /** The action line a press runs: its arguments as given, a required one it lacks asked for (`{key}`, the button's own slot). */
@@ -150,7 +152,7 @@ export function quoted(a: ActionRecord, given: Readonly<Record<string, string>> 
  * The action a button line presses and its label: the act of one yo drew (as a line or as a thread's link), and `steps`,
  * every line it presses in order but yo's own remember (the way there first, PIE-1712). `act` is the action asked about.
  */
-export function buttonIn(line: string): { label: string; act: string; steps?: string[] } | null {
+export function buttonIn(line: string): { label: string; act: string; steps?: string[]; forget?: true } | null {
   const m = /::button\{label="([^"]*)" act=(?:\[((?:"[^"]*"(?:,\s*)?)+)\]|"([^"]*)")/.exec(line);
   if (m) {
     const all = m[2] !== undefined ? [...m[2].matchAll(/"([^"]*)"/g)].map(x => x[1]!) : [m[3]!];
@@ -159,7 +161,8 @@ export function buttonIn(line: string): { label: string; act: string; steps?: st
     const act = steps.find(l => l.split(/\s/, 1)[0] === named) ?? steps.at(-1) ?? all[0]!;
     // Its settings button (PIE-1709) is a way to fix yo, never the answer: `do it` doesn't press it.
     if (act === SETTINGS_ACT) return null;
-    return { label: m[1]!, act, ...(steps.length > 1 ? { steps } : {}) };
+    // A press of several steps with no remember of its own (a find's open, edit or save) is nothing yo keeps (PIE-1711).
+    return { label: m[1]!, act, ...(steps.length > 1 ? { steps } : {}), ...(all.length > 1 && !named ? { forget: true as const } : {}) };
   }
   const link = /\[([^\]]+)\]\(act: ([^)]+)\)/.exec(line);
   return link && !link[2]!.startsWith("ext.undo") && link[2] !== SETTINGS_ACT ? { label: link[1]!, act: link[2]! } : null;
@@ -167,7 +170,7 @@ export function buttonIn(line: string): { label: string; act: string; steps?: st
 const SETTINGS_ACT = "ext.yo.settings";
 
 /** The newest button a yo answer drew in these lines, and its line as written. */
-export function lastButton(lines: readonly string[]): { line: string; label: string; act: string; steps?: string[] } | null {
+export function lastButton(lines: readonly string[]): { line: string; label: string; act: string; steps?: string[]; forget?: true } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const found = buttonIn(lines[i]!);
     if (found) return { line: lines[i]!, ...found };
@@ -250,7 +253,7 @@ export function findAnswer(o: { words: string; where?: string; why?: string; rea
  * yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note.
  * The button says which line it is (`at`, from 0): the same answer can be written above it word for word (PIE-1632).
  */
-export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; at: number; label: string; act: string; steps?: string[] } | null } | null {
+export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; at: number; label: string; act: string; steps?: string[]; forget?: true } | null } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!/^>\s*\[!note\][+-]?\s+@yo answered\s*$/.test(lines[i]!)) continue;
     let end = i + 1;
@@ -326,7 +329,9 @@ function argsLine(a: ActionRecord): string {
   if (!args.length) return "";
   const each = args.slice(0, 8).map(([k, v]) => `${k}${v.choices?.length ? ` (${v.choices.join("|")})` : v.about ? ` (${v.about.slice(0, 90)})` : ""}`);
   const example = a.examples?.find(e => e.act.split(/\s/, 1)[0] === a.name);
-  return ` args: ${each.join("; ")}${example ? ` e.g. ${example.act}` : ""}`;
+  // Its keys that press it with arguments say what each does: the words an ask uses ("by a type" is K, step=kind).
+  const rows = typeof a.keys === "string" || !a.keys ? [] : a.keys.flatMap(r => ("via" in r || !r.args ? [] : [`${Object.entries(r.args).map(([k, v]) => `${k}=${v}`).join(" ")}: ${r.does ?? ""}`]));
+  return ` args: ${each.join("; ")}${rows.length ? `; presets: ${rows.join("; ")}` : ""}${example ? ` e.g. ${example.act}` : ""}`;
 }
 
 /** The prompt that picks. */
