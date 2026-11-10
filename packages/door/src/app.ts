@@ -337,7 +337,7 @@ export interface Ctx {
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
    */
   person?(): Whereabouts;
-  recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown): unknown;
+  recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown, records?: import("./surface/actions").RecordStep): unknown;
   /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
   press?(name: string, args?: Record<string, unknown>, tile?: string): Promise<unknown>;
   /**
@@ -684,7 +684,7 @@ export class App implements Ctx {
     this.drawer = new AgentDrawer({ statusChip: () => {
       const hit = this.statusBoxes.find(h => h.item.id === "drawer");
       return hit ? { from: hit.from, to: hit.to, row: this.term.info.rows - 1 } : null;
-    }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
+    }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), recording: () => this.recording.active, ctx: () => this });
     this.hover = new Hover(this, this.drawer); this.glass = new FloatLayer(this, this.drawer, this.hover); hostDoorModules(this);
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
@@ -1219,7 +1219,7 @@ export class App implements Ctx {
     focused: () => ({ tile: this.keysScreen()?.keys?.().address ?? undefined, strip: this.bar ? "scopes" : undefined }),
     redraw: () => this.redraw(),
   });
-  recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
+  recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown, records?: import("./surface/actions").RecordStep) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run, records); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this, shellIn: c => { const here = (c as Ctx).screens?.().at(-1); return here ? shellDispatcher(here, c as Ctx) : null; } }, [
     { set: TRAIL_QUERIES, takes: "none", on: () => this },

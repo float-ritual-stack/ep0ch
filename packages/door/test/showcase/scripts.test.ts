@@ -308,6 +308,143 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
   }, 30_000);
 
 
+  // PIE-1718: what the person types into a comment is in the recording, so its key posts the comment again.
+  const recordByKeys = async (keys: () => Promise<void>, { click = false } = {}) => {
+    const before = new Set((await board.queryNotes("script", 200)).notes.map(n => n.id));
+    // alt+Q waits while a tile holds the keys (the thread list does): the status bar's ⇧⌥Q is the way in then.
+    if (click) {
+      const at = ((await app.dispatch.act({ action: "status.bar.items" }, USER)) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "macro")!;
+      press({ kind: "mouse", action: "down", x: at.from!, y: 59, button: 0 });
+    } else press({ kind: "alt", ch: "Q" });
+    await until(() => app.recording.active, "the key started recording");
+    await keys();
+    press({ kind: "alt", ch: "Q" });
+    await until(() => !app.recording.active, "the key stopped recording");
+    let saved: any;
+    await untilAsync(async () => {
+      const hit = (await board.queryNotes("script", 200)).notes.find(n => !before.has(n.id) && n.text.startsWith("Recorded: "));
+      saved = hit ? await board.get(hit.id) : undefined;
+      return !!saved;
+    }, "the recording saved");
+    return saved as { id: string; text: string; revision: number };
+  };
+  /** The recording run by its name, as the power bar runs it: what the door says when it ends (done, or the line that refused). */
+  const replay = async (saved: { text: string }) => {
+    const name = /\[script::([^\]]+)\]/.exec(saved.text)![1]!;
+    await until(() => !!extensionList()?.extensions.find(e => e.name === name), "the recording loaded");
+    const extension = extensionList()!.extensions.find(e => e.name === name)!;
+    (app as any).message = "";
+    await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
+    await until(() => /done · ctrl\+z|Line \d/.test((app as any).message), "the replay ended", 10_000);
+    return (app as any).message as string;
+  };
+  /** The comments with these words on the checklist, once both are there: the replayed one arrives through the outline's event. */
+  const threadsWith = async (body: string, want = 2) => {
+    let n = 0;
+    await untilAsync(async () => {
+      const listed = await app.dispatch.act({ action: "threads", tile: "notes" }, USER) as { threads: { body: string }[] };
+      await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);
+      n = listed.threads.filter(t => t.body === body).length;
+      return n >= want;
+    }, `${want} comments reading "${body}"`).catch(() => {});
+    return n;
+  };
+  const notesTile = () => S().stage(S().sel).top.paneNamed("notes") as ReaderPane;
+  const intoNotes = async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
+    screen();
+    press({ kind: "tab" });
+    await until(() => S().focus === "stage", "the stage has the keys");
+    await app.dispatch.act({ action: "tile.focus", tile: "notes" }, USER);
+  };
+  /** C, the words typed one key at a time, ^S: as the person writes a comment. */
+  const typeComment = async (body: string, kind: "note" | "quote", r: ReaderPane = notesTile()) => {
+    press({ kind: "char", ch: "C" });
+    await until(() => r.surface.session?.mode === "compose" && r.surface.session?.target?.kind === kind, `the ${kind} composer opened`);
+    for (const c of body) press({ kind: "char", ch: c });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !r.surface.session?.composer, "the comment sent");
+  };
+  /** The recorded line that sends a comment, at the tile it was written in. */
+  const sendsLine = (text: string) => text.split("\n").filter(l => /^comment(\.note)? /.test(l));
+
+  test("PIE-1718: a comment on the whole note typed while recording replays with its words", async () => {
+    await intoNotes();
+    const body = "Bring twine for the canes";
+    // As PIE-1717's walk recorded it: m, esc, C, the words, ^S. A close of threads the recording saw open stays in it.
+    const saved = await recordByKeys(async () => {
+      press({ kind: "char", ch: "m" });
+      await until(() => notesTile().surface.session?.mode === "threads", "the threads open");
+      press({ kind: "esc" });
+      await until(() => !notesTile().surface.session, "the threads closed");
+      await typeComment(body, "note");
+    });
+    const tile = S().stage(S().sel).top.dispatch.tile("notes").id;
+    expect(saved.text).toContain(`threads tile="${tile}"\ncomment.close tile="${tile}"\n`);
+    expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${tile}"`]);
+    expect(saved.text).not.toContain("comment.send");
+    expect(await replay(saved)).toContain("done · ctrl+z");
+    expect(await threadsWith(body)).toBe(2);
+  }, 30_000);
+
+  test("PIE-1718: a comment on words selected with the mouse, typed while recording, replays on those words", async () => {
+    await intoNotes();
+    const body = "Labels in pencil, not ink";
+    const saved = await recordByKeys(async () => {
+      const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("Prepare the seed labels"));
+      const x = rows[y]!.indexOf("seed labels");
+      press({ kind: "mouse", action: "down", x, y, button: 0 });
+      press({ kind: "mouse", action: "drag", x: x + "seed labels".length - 1, y, button: 0 });
+      press({ kind: "mouse", action: "up", x: x + "seed labels".length - 1, y, button: 0 });
+      await until(() => !!notesTile().surface.selection, "the words selected");
+      await typeComment(body, "quote");
+    });
+    expect(sendsLine(saved.text)).toEqual([`comment quote="seed labels" body="${body}" tile="${S().stage(S().sel).top.dispatch.tile("notes").id}"`]);
+    expect(saved.text).not.toContain("passage.select");
+    expect(await replay(saved)).toContain("done · ctrl+z");
+    expect(await threadsWith(body)).toBe(2);
+  }, 30_000);
+
+  test("PIE-1718: in your drawer, alt+Q records a typed comment, and its replay posts it there", async () => {
+    await intoNotes();
+    const r = notesTile(), stage = S().stage(S().sel).top;
+    const tile = stage.dispatch.tile("notes").id;
+    await stage.dispatch.act({ action: "tile.drawer" }, USER);
+    (app as any).paint();
+    await app.dispatch.act({ action: "host.enter" }, USER);
+    try {
+      const body = "Netting over the brassicas";
+      const saved = await recordByKeys(() => typeComment(body, "note", r));
+      expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${tile}"`]);
+      expect(await replay(saved)).toContain("done · ctrl+z");
+      const listed = await app.drawer.desk!.dispatch.act({ action: "threads", tile }, USER) as { threads: { body: string }[] };
+      expect(listed.threads.filter(t => t.body === body)).toHaveLength(2);
+      await app.drawer.desk!.dispatch.act({ action: "comment.close", tile }, USER);
+    } finally {
+      // Back where it was, left of the source, as the later tests find it.
+      await app.drawer.desk!.dispatch.act({ action: "tile.drawer", tile, args: { on: false, to: stage.dispatch.tile("source").id, where: "left" } }, USER).catch(() => {});
+      await app.dispatch.act({ action: "host.leave" }, USER).catch(() => {});
+    }
+  }, 30_000);
+
+  test("PIE-1718: a macro begun with the threads already open runs whole when replayed", async () => {
+    await intoNotes();
+    press({ kind: "char", ch: "m" });
+    await until(() => notesTile().surface.session?.mode === "threads", "the threads open");
+    const body = "Water after sowing";
+    const saved = await recordByKeys(async () => {
+      press({ kind: "esc" });
+      await until(() => !notesTile().surface.session, "the threads closed");
+      await typeComment(body, "note");
+    }, { click: true });
+    // The close of threads opened before the recording is left out: replayed with nothing open, it would refuse.
+    expect(saved.text).not.toContain("comment.close");
+    expect(await replay(saved)).toContain("done · ctrl+z");
+    expect(await threadsWith(body)).toBe(2);
+  }, 30_000);
+
+
   test("a macro records an extension invocation once, not its asynchronous script actions", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });

@@ -240,6 +240,7 @@ if (request.input.request === "describe the beds") {
     "## Nearby",
     "- **Seed count** (below) runs from `@seed-count` in a note, or from a rule with `[rule-on::script:seed-count]`.",
     "- **Recording:** alt+Q starts and stops recording what you do as an editable script; a `{tag}` in a line makes the power bar ask for it.",
+    "- **A comment in a recording:** C on the checklist, type a comment, ^S: the recording saves it as one line with your words (`comment.note body=\"…\"`), so its replay posts it again.",
     "```ts",
     "const dispatcher = await act('layout.get');",
     // The tile showing the checklist, by its note's id (a tile= answers to the block it shows): a press from this note's own

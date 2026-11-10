@@ -201,7 +201,7 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
+export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown, records?: import("./actions").RecordStep): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
   /**
    * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
    * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
@@ -846,7 +846,7 @@ export class Dispatcher {
         if (spec.kind === "tile" && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
       }
       const ran = actor.kind === "user" && ctx?.recordAction && def.record !== false
-        ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run)
+        ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run, def.record as import("./actions").RecordStep | undefined)
         : run();
       // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
       // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).

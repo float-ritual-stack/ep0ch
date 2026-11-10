@@ -320,6 +320,7 @@ export interface SurfaceHost {
    * reader is a tile (PIE-514); `quiet`: the action says its own refusal. Without it the reader's own dispatcher runs it.
    */
   press?(name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), host?: SurfaceHost): Promise<unknown>;
+  /** The reader's tile's id on its screen: its own dispatcher (`alone`) names it, so a step it runs records its tile (PIE-1718). */ tileId?(): string | undefined;
   /** The same press for an action of another set on this reader's tile (the lists' actions, PIE-747). */
   pressSet?(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), host?: SurfaceHost): Promise<unknown>;
   /**
@@ -531,7 +532,6 @@ export const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.
 export type FocusSpec = ArgsOf<typeof TINT_ARGS>;
 /** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
 interface Mark { col?: number; thread: string; open: boolean; row: number; rows: [number, number]; label: string }
-
 
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
 const printableBlock = (s: string) => printable(s, "", { lines: true });
@@ -4430,7 +4430,7 @@ export class NoteSurface {
     return new Dispatcher({
       title: "reader", ctx: () => host.ctx,
       where: () => ({ ...(host.ctx.person?.() ?? NOBODY), focus: host.focused === false ? null : me, typingIn: this.personHolds ? me : null, ...(this.holdsKeys ? { busy: true } : {}) }),
-      tiles: () => [{ name: me, kind: "reader", shows: this.msg?.id ?? null, editing: this.editing, holds: a => this.heldBy(a) }],
+      tiles: () => [{ name: me, ...(host.tileId?.() ? { id: host.tileId()! } : {}), kind: "reader", shows: this.msg?.id ?? null, editing: this.editing, holds: a => this.heldBy(a) }],
       draftOf: () => ({ board: host.ctx.board, blockId: this.msg?.id ?? null, session: this.draftSession() }),
     }, [
       { set: NOTE_ACTIONS, takes: "tile", noun: "a reader", on: (_, how) => ({ surface: this, host, standing: how.standing }), run: (name, args, on, actor, typed) => this.run(name, args, host, actor, on.standing, typed) },

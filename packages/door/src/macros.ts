@@ -2,37 +2,48 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { actionLine, type ActRequest } from "@ep0ch/outline-core/action-line";
 import type { Ctx } from "./app";
 import { USER } from "./socket";
-import { ActionRefused, actionSet, def, type Replay } from "./surface/actions";
+import { ActionRefused, actionSet, def, type RecordStep, type Replay } from "./surface/actions";
+
+/** A step the person took while recording: the line it saves once it finished (null: it failed, or saves nothing). */
+interface Step { replay: Replay; finished: Promise<string | null> }
 
 /** The session owns the recording; each dispatcher contributes only its completed person actions. */
 export class MacroRecording {
   private saving = false;
   private readonly inside = new AsyncLocalStorage<boolean>();
-  private recording: { name?: string; near?: string; steps: { line: string; replay: Replay; finished: Promise<boolean> }[] } | null = null;
+  private recording: { name?: string; near?: string; since: number; steps: Step[] } | null = null;
   get active() { return this.recording !== null; }
 
   /** Unnamed, it's named when it stops, after what it did (`recorded-note-open-oct29-151402`): never by its own timestamp alone. */
   start(name: string | undefined, near?: string) {
     if (this.saving) throw new ActionRefused("The previous recording is saving; keep working, then macro.record starts the next one");
     if (this.recording) throw new ActionRefused("Already recording; macro.stop saves it first");
-    this.recording = { name, near, steps: [] };
+    this.recording = { name, near, since: Date.now(), steps: [] };
     // Unnamed, the name comes when it stops (macro.stop answers it as `script`).
     return name ? { recording: name } : {};
   }
 
-  run(req: ActRequest, replay: Replay, work: () => unknown): unknown {
+  /** `records`: the line a finished step saves, as its action says (ActionDef.record); left out, the step as pressed. */
+  run(req: ActRequest, replay: Replay, work: () => unknown, records?: RecordStep): unknown {
     // Palette navigation and its screen-list lookup are not commands; composed actions record only their outer command.
     if (!this.recording || req.action === "screen.list" || /^(macro\.|bar\.)/.test(req.action) || this.inside.getStore()) return work();
-    let finish!: (ok: boolean) => void;
-    const finished = new Promise<boolean>(resolve => { finish = resolve; });
-    this.recording.steps.push({ line: actionLine(req), replay, finished });
+    const since = this.recording.since;
+    let finish!: (line: string | null) => void;
+    // The line is settled when the step finishes: what the person typed exists only then (the comment they sent).
+    const finished = new Promise<string | null>(resolve => { finish = resolve; });
+    const settle = (out: unknown) => {
+      if (!records) return finish(actionLine(req));
+      const as = records({ action: req.action, args: req.args ?? {}, out, since });
+      finish(as && actionLine({ ...as, ...(req.tile !== undefined ? { tile: req.tile } : {}) }));
+    };
+    this.recording.steps.push({ replay, finished });
     return this.inside.run(true, () => {
       try {
         const out = work();
-        if (out instanceof Promise) return out.then(value => { finish(true); return value; }, error => { finish(false); throw error; });
-        finish(true);
+        if (out instanceof Promise) return out.then(value => { settle(value); return value; }, error => { finish(null); throw error; });
+        settle(out);
         return out;
-      } catch (error) { finish(false); throw error; }
+      } catch (error) { finish(null); throw error; }
     });
   }
 
@@ -42,8 +53,8 @@ export class MacroRecording {
     this.recording = null;
     this.saving = true;
     const finished = await Promise.all(recording.steps.map(s => s.finished));
-    const lines = recording.steps.filter((_, i) => finished[i]).map(s => s.line);
-    const replay = recording.steps.some((s, i) => finished[i] && s.replay === "ask") ? "Includes actions that write or reach outside the door. Run explicitly from the power bar." : "Recorded actions are safe to replay.";
+    const lines = finished.filter((line): line is string => line !== null);
+    const replay = recording.steps.some((s, i) => finished[i] !== null && s.replay === "ask") ? "Includes actions that write or reach outside the door. Run explicitly from the power bar." : "Recorded actions are safe to replay.";
     const body = lines.join("\n");
     const actions = [...new Set(lines.map(line => line.split(/\s/)[0]!))];
     // Its day and second keep two recordings of the same first action apart (a script name binds one script).
