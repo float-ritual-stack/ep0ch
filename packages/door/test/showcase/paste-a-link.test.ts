@@ -127,7 +127,6 @@ describe.skipIf(!outliner)("the showcase screen: paste a link", () => {
   test("the note says how to recover text typed while an open failed, drawn in the notes reader", async () => {
     const m = (await board.get(seeded.notes.pasteALink.id))!;
     expect(m.text).toContain("tile menu offers recover typed text");
-
     await until(() => screen().includes("tile menu offers recover"), "the recovery line drawn", 5000);
   }, 20_000);
 
