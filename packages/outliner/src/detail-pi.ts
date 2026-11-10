@@ -1962,7 +1962,7 @@ tui.addOutlinerInputListener(data => {
     // Keys are already split by Pi. Choose their region when they execute, after
     // earlier keys have changed focus, not while they are entering the queue.
     serviceEventScheduler.scheduleWork(async () => {
-      if (matchesKey(data, "f6")) focusRegion(focusedRegion === "tree" ? "detail" : "tree");
+      if (actionMenuInput) actionMenuInput(data); else if (matchesKey(data, "f6")) focusRegion(focusedRegion === "tree" ? "detail" : "tree");
       else if (focusedRegion === "tree" && !controller.state.destinationChooser.active) await composedTree.handleInput(data);
       else await handleInput(data);
     });
