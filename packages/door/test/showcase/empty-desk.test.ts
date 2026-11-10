@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { SECTIONS } from "../../src/showcase/showcase";
 import { USER } from "../../src/socket";
+import { ReaderPane } from "../../src/desk/panes";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -32,5 +33,38 @@ describe.skipIf(!outliner)("the showcase screen: an empty desk", () => {
     expect(shown).toBe(seeded.notes.shed.id);
     expect(stage().layoutGet().focus).toBe(reader.name);
     await until(() => screen().includes("Bike shed"), "the note drawn");
+  });
+  // PIE-1726: the stage empty, the keys in the drawer's reader, `e`: the edit arms, its hint shows on that reader in the
+  // drawer, and no paint throws the empty stage's refusal (it crashed the door from finishFrame → syncModeHint).
+  test("an empty stage, the keys in the drawer's reader, e: the edit arms there and ⏎ opens it, nothing thrown", async () => {
+    const n = SECTIONS.findIndex(s => s.key === "empty-desk") + 1;
+    const stage = () => S().stages.get(n - 1).top as any;
+    const [reader] = stage().layoutGet().tiles;
+    expect(reader?.kind).toBe("reader");
+    // The reader into the drawer, the stage's other tile closed (^W x): the stage is empty again; the keys go into the drawer.
+    await stage().dispatch.act({ action: "tile.open", tile: reader.name, args: { kind: "reader", name: "spare", where: "right" } }, USER);
+    await stage().dispatch.act({ action: "tile.drawer", tile: reader.name, args: { on: true } }, USER);
+    await stage().dispatch.act({ action: "tile.close", tile: "spare", args: {} }, USER);
+    await app.dispatch.act({ action: "host.enter" }, USER);
+    screen();
+    expect(stage().layoutGet().tiles).toEqual([]);
+    const dd: any = app.drawer.made!;
+    const rd = () => dd.all().map((id: unknown) => dd.panes.get(id)).find((p: unknown) => p instanceof ReaderPane) as ReaderPane;
+    await until(() => !!rd()?.surface.msg, "the reader in the drawer");
+    await dd.dispatch.act({ action: "tile.focus", tile: dd.nameOf(dd.all().find((id: unknown) => dd.panes.get(id) === rd())!) }, USER);
+    screen();
+    h.ch("e");
+    expect(app.armed()?.of).toBe(rd().surface);
+    // The door's paint after the arm (the stage and the drawer): the door crashed here.
+    const paint = () => (app as any).paint(true);
+    expect(paint).not.toThrow();
+    // The confirm is the drawer's mode, on the armed reader; the empty stage holds no mode and no card.
+    expect(stage().modeHintKey).toBe("");
+    expect(stage().hintGet().cards).toEqual([]);
+    expect(dd.modeHintKey).toBe("confirm");
+    press({ kind: "enter" });
+    await until(() => !!rd().surface.draft, "the edit open in the drawer's reader");
+    expect(paint).not.toThrow();
+    await dd.dispatch.act({ action: "edit.close", tile: dd.tileIdOfPane(rd()), args: {} }, USER);
   });
 });
