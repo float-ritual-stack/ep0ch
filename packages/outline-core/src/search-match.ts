@@ -89,14 +89,21 @@ export function searchFold(value: string): string {
 }
 
 /**
- * The words `blocks.query` `text` requires, each as a case-folded substring of a note's text (SQLite's `INSTR` on
- * `LOWER(text)` and the same in memory): split where `searchFold` splits, but with apostrophes kept, since the
- * stored text isn't folded. A query of punctuation alone is one term as typed.
+ * The words `blocks.query` `text` requires, each as a case-folded substring of a note's text (`textHoldsTerms`):
+ * split where `searchFold` splits, but with apostrophes kept, since the stored text isn't folded. A query of
+ * punctuation alone is one term as typed.
  */
 export function searchTextTerms(value: string): string[] {
   const lower = value.normalize("NFKC").toLowerCase();
   const terms = lower.split(/[^\p{L}\p{M}\p{N}'’ʼ]+/u).map(term => term.replace(/^['’ʼ]+|['’ʼ]+$/g, "")).filter(Boolean);
   return terms.length ? [...new Set(terms)] : lower.trim() ? [lower.trim()] : [];
+}
+
+/** Whether `text` holds every one of `terms` (`searchTextTerms`), folded the same way: the one test of `text` (PIE-1691). */
+export function textHoldsTerms(text: string, terms: readonly string[]): boolean {
+  if (!terms.length) return true;
+  const folded = text.normalize("NFKC").toLowerCase();
+  return terms.every(term => folded.includes(term));
 }
 
 /** The letters of `query` in order in `candidate`: 1000 less the gaps and the extra length, or 0. */
