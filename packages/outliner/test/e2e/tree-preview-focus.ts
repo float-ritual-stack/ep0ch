@@ -32,7 +32,9 @@ const result = await runHerdrScenario({
         const rows = frame.split("\n");
         const previewRow = rows.findIndex(line => /[●○] Preview · FOCUS FIRST/.test(line));
         const line = rows[previewRow] ?? "";
-        return previewRow >= 0 && Math.max(...rows.map(visibleWidth)) < columns && frame.includes("PREVIEW ROW 01") && (placement === "beside" ? visibleWidth(line.slice(0, line.indexOf("Preview"))) > 40 : previewRow > 8);
+        // A frame drawn for the old width reads back cropped to the new one; drawn for this width, Preview's bar ends
+        // with its menu button.
+        return previewRow >= 0 && Math.max(...rows.map(visibleWidth)) < columns && line.trimEnd().endsWith("[⋯]") && frame.includes("PREVIEW ROW 01") && (placement === "beside" ? visibleWidth(line.slice(0, line.indexOf("Preview"))) > 40 : previewRow > 8);
       });
       // xterm resizes immediately and can briefly show cropped old-width rows.
       // Match header offsets with the settled pane frame before using columns.
@@ -100,7 +102,9 @@ const result = await runHerdrScenario({
       await session.waitVisible(panes.tree, "● Preview");
       await session.record(`${placement}-alt-p-round-trip`, {frame: await terminal.visible(), context: await context(), rawReturnKey: "ESC+p"});
       const treeRows = (await terminal.visible()).split("\n");
-      const treeRow = treeRows.findIndex(line => line.includes("FOCUS FIRST") && /[•▸▾]/.test(line) && !line.includes("Preview"));
+      // The row glyph right before the title: the Preview's own first line is the note's title too, beside a seeded
+      // note's row (Inbox, Extensions) drawn above the fixture's.
+      const treeRow = treeRows.findIndex(line => /[•▸▾] FOCUS FIRST/.test(line) && !line.includes("Preview"));
       assert.ok(treeRow >= 0, "Tree row must be visible for a native click");
       const treeColumn = visibleWidth(treeRows[treeRow]!.slice(0, treeRows[treeRow]!.indexOf("FOCUS FIRST"))) + 2;
       await click(treeColumn, treeRow);

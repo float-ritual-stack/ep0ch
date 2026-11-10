@@ -10,7 +10,7 @@ const renderedComment = "PIE281 captured comment";
 const fileComment = "PIE281 file comment";
 const result = await runHerdrScenario({
   name: "annotation-identity",
-  async prepare(root) {
+  async prepare(_project, _paths, root) {
     await writeFile(join(root, "evidence.txt"), "ORIGINAL-FILE-QUOTE\nOriginal second line");
     await writeFile(join(root, "metadata.bin"), "Available source\n\nHIDDEN-QUOTE");
   },
@@ -42,9 +42,10 @@ const result = await runHerdrScenario({
     await reveal(host.id);
     await session.waitVisible(detail, quote);
     const snapshot = await session.paneSnapshot(detail);
+    // The capture is the pane's own text (its embed drawn), not the host's source; compact chrome (PIE-385) draws no
+    // Properties row, so the pane text is checked by what the embed draws.
     assert.ok(snapshot.text.includes(quote));
-    assert.ok(snapshot.text.includes("Properties · 0 records"));
-    assert.ok(snapshot.text.includes("⌃Q close"));
+    assert.ok(snapshot.text.includes("Embedded block: Generated passage"));
     assert.ok(!host.text.includes(quote));
     const capture: RenderedSelectionCapture = {
       quote, capturedAt: new Date().toISOString(), hostBlockId: host.id,
@@ -68,7 +69,8 @@ const result = await runHerdrScenario({
     assert.equal(snapshot.text.slice(start, end), quote);
     assert.notEqual(host.text.slice(start, end), quote);
     await session.waitVisible(detail, "Unpositioned comments");
-    await session.keys(detail, "tab", "enter");
+    // The embed's own link is the first Tab stop, the comments group the second.
+    await session.keys(detail, "tab", "tab", "enter");
     await session.waitVisible(detail, renderedComment);
     await session.waitVisible(detail, "Open thread");
     await session.checkpoint("01-real-capture-unpositioned-thread");
@@ -81,7 +83,7 @@ const result = await runHerdrScenario({
     await session.checkpoint("02-reveal-host-without-capture-offset");
     await terminal.resize(100, 32);
     await session.waitFor("narrow Detail frame", () => session.visible(detail), frame => frame.split("\n")[0]!.length < 70);
-    await session.keys(detail, "tab");
+    await session.keys(detail, "tab", "tab");
     await session.checkpoint("03a-narrow-region-focused");
     await session.keys(detail, "enter");
     await session.waitVisible(detail, renderedComment);
@@ -108,7 +110,7 @@ const result = await runHerdrScenario({
     await session.client.request({ action: "move", blockId: fileSaved.block.id, expectedRevision: fileSaved.block.revision, parentId: fileHost.id, position: 0 });
     await reveal(fileSaved.block.id);
     await session.waitVisible(detail, "Stored resolution: resolved");
-    await writeFile(join(session.projectRoot, "evidence.txt"), "DIFFERENT-FILE-CONTENT\nChanged second line");
+    await writeFile(join(session.outlineRoot, "evidence.txt"), "DIFFERENT-FILE-CONTENT\nChanged second line");
     const beforeRefresh = await session.client.request<Block>({ action: "get", blockId: fileSaved.block.id });
     await session.client.request({
       action: "update", blockId: beforeRefresh.id, text: `${beforeRefresh.text}\nAnnotation refreshed`,
@@ -165,7 +167,8 @@ const result = await runHerdrScenario({
     const metadataFrame = await session.visible(detail);
     assert.ok(!metadataFrame.includes("HIDDEN-QUOTE"));
     assert.ok(!metadataFrame.split("\n").some(line => line.startsWith("+ ") && line.includes("metadata.bin")));
-    await session.keys(detail, "tab", "enter");
+    // The Resource's metadata card and its sections come first; the comments group is the last Tab stop.
+    await session.keys(detail, "shift+tab", "enter");
     await session.waitVisible(detail, "Comment on hidden source");
     await session.waitVisible(detail, "HIDDEN-QUOTE");
     await session.checkpoint("06-metadata-only-unpositioned-comment");

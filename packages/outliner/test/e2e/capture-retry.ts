@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer, type Socket } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import type { Block, BrowsingContextState, OutlinerRequest, QuickCaptureDraft, VisibleBlockCollection } from "../../src/types";
 import { runHerdrScenario } from "./herdr-runner";
@@ -17,16 +17,31 @@ const result = await runHerdrScenario({
       sockets.add(socket);
       socket.on("close", () => sockets.delete(socket));
       socket.on("error", () => {});
-      socket.setEncoding("utf8");
       let buffer = "";
-      socket.on("data", (chunk) => {
-        buffer += chunk;
+      const onData = (chunk: Buffer) => {
+        buffer += chunk.toString("utf8");
         const newline = buffer.indexOf("\n");
         if (newline < 0) return;
         const request = JSON.parse(buffer.slice(0, newline)) as OutlinerRequest;
+        // Only the two faulted actions are answered here. The rest (the popup's owner watch, which stays open, its
+        // work-id and client lookups) go to the host as they are: capture ownership (d40a76f0b, 44b5b73df) made the
+        // popup a watching client, so a one-request-per-socket fixture can't carry it.
+        if (request.action !== "capture.draft.clear" && request.action !== "capture.create") {
+          socket.off("data", onData);
+          const upstream = connect(session.client.socketPath);
+          sockets.add(upstream);
+          upstream.on("close", () => { sockets.delete(upstream); socket.destroy(); });
+          upstream.on("error", () => socket.destroy());
+          socket.on("close", () => upstream.destroy());
+          upstream.write(buffer);
+          buffer = "";
+          socket.pipe(upstream);
+          upstream.pipe(socket);
+          trace.push({ action: request.action });
+          return;
+        }
         buffer = "";
         void (async () => {
-          assert.ok(request.action === "ping" || request.action.startsWith("capture."), "Capture fixture received an unrelated operation");
           if (fault === "cleanup" && request.action === "capture.draft.clear") {
             fault = null;
             trace.push({ action: request.action, fault: "rejected before cleanup" });
@@ -44,7 +59,8 @@ const result = await runHerdrScenario({
         })().catch((error) => {
           socket.end(`${JSON.stringify({ id: request.id, ok: false, error: String(error) })}\n`);
         });
-      });
+      };
+      socket.on("data", onData);
     });
     await new Promise<void>((resolve, reject) => {
       proxy.once("error", reject);

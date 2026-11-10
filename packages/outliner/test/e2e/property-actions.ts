@@ -17,7 +17,9 @@ process.env.PATH=`${capture}:${originalPath}`;
 
 const url='https://example.test/threads/DEMO-762?thread=123.456&channel=alpha#reply';
 let result;
-try { result=await runHerdrScenario({name:'property-actions',async prepare(){},async run(s){
+try { result=await runHerdrScenario({name:'property-actions',
+ // Inline Properties is Detail's first tab stop in full chrome; compact (PIE-385, 254fb52ae) hides it until p.
+ uiConfig:{chrome:{detail:'full'}},async prepare(){},async run(s){
  const terminal=await s.attachClient();await terminal.resize(220,65);
  const destination=await s.client.request<Block>({action:'create',text:'PROPERTY DESTINATION\n\nArrived from an internal property link.'});
  const mixed=`Read https://example.test/one then [Second](https://example.test/two) and [Inside](pi-outliner://block/${destination.id})`;

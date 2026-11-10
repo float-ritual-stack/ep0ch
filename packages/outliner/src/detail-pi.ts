@@ -1013,7 +1013,7 @@ const session = createHerdrSession({
 });
 
 let actionMenuHandle: OverlayHandle | null = null;
-let actionMenuInvoke: ((id: string) => void) | null = null;
+let actionMenuInvoke: ((id: string) => void) | null = null, actionMenuInput: ((data: string) => void) | null = null; // keys queued before the menu opened are its own (PIE-1698)
 /** Set while a menu of Detail actions is open: pins or unpins one of its items on the Detail bar. */
 let actionMenuPin: ((id: string) => void) | null = null;
 let paneOwnsRightClick = rightClickOwnership === "outliner";
@@ -1101,7 +1101,7 @@ function closeActionMenu(cancel = true): void {
   actionMenuCancelled = undefined;
   actionMenuHandle?.hide();
   actionMenuHandle = null;
-  actionMenuInvoke = null;
+  actionMenuInvoke = null; actionMenuInput = null;
   actionMenuPin = null;
   syncRightClickOwnership();
   if (cancel) cancelled?.();
@@ -1271,7 +1271,7 @@ function showActionMenu(
     if (cancelled) void invoke(actionId);
     else serviceEventScheduler.scheduleWork(() => invoke(actionId));
   };
-  actionMenuInvoke = menu.onSelect;
+  actionMenuInvoke = menu.onSelect; actionMenuInput = data => { menu.handleInput(data); tui.requestRender(); };
   menu.onCancel = () => {
     closeActionMenu();
     tui.requestRender();
@@ -1737,7 +1737,7 @@ const customFrame = new DetailPiComponent({
       destinationLabel,
     };
   },
-  helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
+  helpText: () => `${actionKeymap.helpText("detail", activeDetailActionScopes())}  ${composed ? "F6 Tree  " : ""}${readingHelp()}`.trimEnd(), // the mode's own keys first: a narrow footer cut ⌃S save (PIE-1698)
 });
 const preview = new DetailPiPreviewLayout(
   controller.state,
@@ -1758,7 +1758,7 @@ const preview = new DetailPiPreviewLayout(
     splitActive: draftSplitActive,
     focused: () => (!composed || focusedRegion === "detail") && draftSplitFocus === "preview",
     surfaceLabel: currentLabel,
-    helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
+    helpText: () => `${actionKeymap.helpText("detail", activeDetailActionScopes())}  ${composed ? "F6 Tree  " : ""}${readingHelp()}`.trimEnd(), // the mode's own keys first: a narrow footer cut ⌃S save (PIE-1698)
     chooserHelpText: () => controller.destinationChooserHelpText(),
     setRegions: (regions) => controller.setPreviewRegions(regions),
   },
@@ -1771,7 +1771,7 @@ const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdown
   hints: () => ({entries: actionKeymap.hints("detail", detailActionScopes(inspection.state)), menuKey: displayActionChord(actionKeymap.primaryBinding("detail.menu.open"))}),
   destinationLabel: () => destinationDisplay.text,
   surfaceLabel: () => `${readingSurface.focused === "preview" ? "●" : "○"} Preview`,
-  helpText: () => `${readingHelp()}${actionKeymap.helpText("detail", detailActionScopes(inspection.state))}`,
+  helpText: () => `${actionKeymap.helpText("detail", detailActionScopes(inspection.state))}  ${readingHelp()}`.trimEnd(),
   chooserHelpText: () => inspection.destinationChooserHelpText(),
   setRegions: regions => inspection.setPreviewRegions(regions),
 });
@@ -1902,7 +1902,7 @@ synchronizeLayout();
 
 const detailInputListener = createPiDetailInputListener(
   data => {
-    if (!session.stopping) { serviceEventScheduler.scheduleWork(() => handleInput(data)); scheduleInputFlush(); }
+    if (!session.stopping) { serviceEventScheduler.scheduleWork(() => actionMenuInput ? actionMenuInput(data) : handleInput(data)); scheduleInputFlush(); }
   },
   data => shouldPassDetailInputToTui(data),
 );
@@ -1947,8 +1947,8 @@ tui.addOutlinerInputListener(data => {
     const detailColumn = detailPointer.column - (composed ? composedWidths(processTerminal.columns).detailX : 0);
     if (detailColumn >= 0) {
       const rect = readerGeometry().preview;
-      readingSurface.focused = detailColumn >= rect.x && detailPointer.row >= rect.y ? "preview" : "current";
-      synchronizeLayout?.();
+      const reader = detailColumn >= rect.x && detailPointer.row >= rect.y ? "preview" : "current";
+      if (reader !== readingSurface.focused) { readingSurface.focused = reader; synchronizeLayout?.(); } // a needless re-render voids the drag's copy (PIE-1698)
     }
   }
   if (!composedTree) return detailInputListener(data);
@@ -1962,7 +1962,7 @@ tui.addOutlinerInputListener(data => {
     // Keys are already split by Pi. Choose their region when they execute, after
     // earlier keys have changed focus, not while they are entering the queue.
     serviceEventScheduler.scheduleWork(async () => {
-      if (matchesKey(data, "f6")) focusRegion(focusedRegion === "tree" ? "detail" : "tree");
+      if (actionMenuInput) actionMenuInput(data); else if (matchesKey(data, "f6")) focusRegion(focusedRegion === "tree" ? "detail" : "tree");
       else if (focusedRegion === "tree" && !controller.state.destinationChooser.active) await composedTree.handleInput(data);
       else await handleInput(data);
     });

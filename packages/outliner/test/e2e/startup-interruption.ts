@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { rm } from "node:fs/promises";
+import { dirname } from "node:path";
 import { runHerdrScenario } from "./herdr-runner";
 
 const result = await runHerdrScenario({
@@ -58,4 +60,6 @@ if (status.running) {
   assert.equal(stopExitCode, 0, "Regression probe must clean up the leaked private server");
 }
 assert.equal(status.running, false, "Cancelled preparation must not start a detached server after cleanup");
-process.stdout.write(`${JSON.stringify({ status: "passed", scenario: "startup-interruption", artifactDirectory: result.artifactDirectory })}\n`);
+// The run failed on purpose, so the harness kept its folder: this probe has read it, and removes it.
+if (process.env.EP0CH_E2E_KEEP !== "1") await rm(dirname(result.artifactDirectory), { recursive: true, force: true });
+process.stdout.write(`${JSON.stringify({ status: "passed", scenario: "startup-interruption" })}\n`);

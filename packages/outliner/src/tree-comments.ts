@@ -11,6 +11,8 @@ interface Node<T extends ProjectionBlock> {
 export class TreeComments {
   private readonly expanded = new Set<string>();
   private readonly parents = new Map<string,string>();
+  /** Threads a view's attention has already opened a group for. */
+  private readonly attended = new Set<string>();
 
   toggle(group: CommentGroupRow): void {
     if (group.collapsed) this.expanded.add(group.rowId);
@@ -56,6 +58,14 @@ export class TreeComments {
       if (!threads.length || !isBlockTreeRow(owner)) return;
       const rowId=`comments:${owner.rowId}`;
       if (!options.revealAll && threads.some(thread=>revealPath.has(thread))) this.expanded.add(rowId);
+      // A view's `expand-when` is the author's own ask: a thread it matches opens its group, once per thread,
+      // so a collapse of the group afterwards sticks (PIE-379's attention path through PIE-383's groups).
+      for (const thread of threads) {
+        const row=thread.row;
+        if (row.kind!=='occurrence' || !row.attention || this.attended.has(row.rowId)) continue;
+        this.attended.add(row.rowId);
+        this.expanded.add(rowId);
+      }
       const collapsed=!options.revealAll && !this.expanded.has(rowId);
       result.push({kind:'comment-group',rowId,parentRowId:owner.rowId,
         owner:{rowId:owner.rowId,blockId:owner.canonicalId},depth:depth+1,

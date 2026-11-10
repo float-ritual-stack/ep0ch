@@ -83,7 +83,8 @@ export class DetailReadingSurface {
       if (!this.current.state.target) this.focused = "preview";
       await this.preview.handleUiCommand(command, viewport);
     } else {
-      this.focused = "current";
+      // A command for Current never takes the keys from words being typed in the Preview.
+      if (!(this.previewVisible && this.preview.isBufferMode())) this.focused = "current";
       await this.current.handleUiCommand(command, viewport);
     }
     this.invalidate();

@@ -1248,8 +1248,8 @@ class DetailPreviewBody implements Component {
     );
   }
 
-  render(width: number): string[] {
-    this.renderedWidth=width;
+  render(width: number, measuring=false): string[] { // measuring counts rows and keeps the render on screen: a drag over it still copies (PIE-1698)
+    if(!measuring)this.renderedWidth=width;
     const inspector = this.renderInspector(width);
     if (this.dedicatedInspector()) {this.renderedFrame=null;this.renderedLines=inspector;return inspector;}
     const selectionSource = previewSelectionSource(this.state);
@@ -1273,7 +1273,7 @@ class DetailPreviewBody implements Component {
     const arrangement=arrangeInlinePreview(authored,this.includeInspector()?inspector:[]);
     const lines=[...arrangement.lines];
     if (this.includeBacklinks()) lines.push("", ...this.backlinks.render(width));
-    const frame=this.authored.renderedFrame;
+    if(measuring)return lines; const frame=this.authored.renderedFrame;
     this.renderedFrame=frame?DocumentFrame.compose(lines,[{frame,place:cell=>({
       row:arrangement.mapAuthoredRow(cell.row),column:cell.column+(rowShifts.get(cell.row)??0),
     })}]):null;
@@ -2162,7 +2162,7 @@ export class DetailPiPreviewLayout extends VStack {
       if(viewportHeight!==this.scrollView.viewportHeight&&this.state.previewRegions.focusedRegionId){
         this.scheduleFocusedRegionScroll();
       }
-      this.scrollView.updateLayout(this.body.render(this.scrollView.getContentWidth(width)).length,viewportHeight,()=>{});
+      this.scrollView.updateLayout(this.body.render(this.scrollView.getContentWidth(width),true).length,viewportHeight,()=>{});
     }
     let changed=this.ensureBacklinkSelectionVisible(width);
     changed=this.ensureAnnotationSelectionVisible(width)||changed;

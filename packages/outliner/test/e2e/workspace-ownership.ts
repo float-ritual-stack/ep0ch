@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+// The host keeps no service-pane.json since outlines by name (PIE-530, d65c7af78): ownership is the socket and lock.
 import type { InternResourceReceipt, ResourceDescription, ResourceSource } from "../../src/types";
 import { runHerdrScenario } from "./herdr-runner";
 
@@ -49,17 +48,15 @@ try {
         const before = readState();
         assert.deepEqual(before, { freshness: "refreshing", last_error: null });
         const sequence = session.database.query("SELECT value FROM metadata WHERE key = 'sequence'").get();
-        const paneStatePath = join(dirname(session.client.socketPath), "service-pane.json");
-        const paneState = await readFile(paneStatePath, "utf8");
         await session.checkpoint("01-original-owner-refreshing");
 
         const rejected = await session.rejectCompetingService();
-        assert.match(rejected.stderr, /Outliner workspace is already owned/);
+        // One host serves every outline (PIE-457, cfe63edbc): a second host is refused by the host lock.
+        assert.match(rejected.stderr, /The outline host lock is already owned/);
         assert.equal(rejected.stdout.includes('"status":"ready"'), false);
         assert.deepEqual(readState(), before, "Rejected startup changed the live refresh");
         assert.deepEqual(session.database.query("SELECT value FROM metadata WHERE key = 'sequence'").get(), sequence);
-        assert.equal(await readFile(paneStatePath, "utf8"), paneState, "Rejected startup changed the owner's pane registration");
-        await session.record("competing-startup-rejected", { rejected, state: readState(), sequence, paneStateUnchanged: true });
+        await session.record("competing-startup-rejected", { rejected, state: readState(), sequence });
         await session.checkpoint("02-contender-rejected");
 
         release.resolve();

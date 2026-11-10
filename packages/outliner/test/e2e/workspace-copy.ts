@@ -85,19 +85,24 @@ const result=await runHerdrScenario({
       await copied(()=>terminal.write(`\x1b[<0;${start!.column+1};${start!.row+1}M\x1b[<32;${start!.column+90};${start!.row+1}M\x1b[<0;${start!.column+90};${start!.row+1}m`),prefix);
     }
 
-    await resize(composed?220:110,50);
+    // Narrow enough that the Outlines folder value wraps: the run folder is under the short scratch root (PIE-1654).
+    await resize(composed?220:84,50);
     await session.waitFor('narrow config rendered',()=>session.visible(tree),frame=>frame.includes('› Outlines folder:')&&!frame.includes(config));
     const payload=await copied(()=>session.keys(tree,'c'),config);
     await session.checkpoint('narrow-complete-value');
     await terminal.write('\x1b[6~');
+    // Client grammar sits between Client protocol and Outlines folder (PIE-1228, 554da0fdd).
+    await session.keys(tree,'shift+tab');
+    await session.waitVisible(tree,'› Client grammar:');
     await session.keys(tree,'shift+tab');
     await session.waitVisible(tree,'› Client protocol:');
     const service=await session.client.request<OutlinerServiceStatus>({action:'ping'});
     await copied(()=>session.keys(tree,'c'),String(service.protocolVersion));
-    await focusField(tree,'Local database');
+    // The client's own database line is "Database" since outlines by name (PIE-530, d65c7af78).
+    await focusField(tree,'Database');
     await copied(()=>session.keys(tree,'c'),service.location!.database);
     await session.keys(tree,'escape');
-    await session.waitFor('returned to Tree',()=>session.visible(tree),frame=>!frame.includes('Workspace and connection')&&/[●○] Tree \[/u.test(frame));
+    await session.waitFor('returned to Tree',()=>session.visible(tree),frame=>!frame.includes('Workspace and connection')&&/[●○] Tree +\[/u.test(frame));
     assert.deepEqual(session.database.query('SELECT id,text,revision FROM blocks ORDER BY id').all(),baseline);
 
     // Feed the terminal clipboard payload into the real editor and verify exact persisted bytes.

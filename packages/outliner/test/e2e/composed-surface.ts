@@ -7,7 +7,7 @@ import { runHerdrScenario } from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "composed-surface", layout: "composed",
-  async prepare(root) { await writeFile(join(root, "reference.md"), "Reference source\n\nSELECTABLE-FILE-QUOTE\n"); },
+  async prepare(_project, _paths, root) { await writeFile(join(root, "reference.md"), "Reference source\n\nSELECTABLE-FILE-QUOTE\n"); },
   async run(session) {
     const terminal = await session.attachClient();
     const pane = session.panes.tree;
@@ -161,7 +161,9 @@ const result = await runHerdrScenario({
     assert.equal(annotation.originalTarget.anchor.kind, "text-quote");
     if (annotation.originalTarget.anchor.kind !== "text-quote") throw new Error("Expected source quote");
     assert.equal(annotation.originalTarget.anchor.exact, quote);
-    assert.equal(annotation.originalTarget.anchor.start, "Reference source\n\n".length);
+    // A rendered selection keeps its exact source range in the passage's slices, not the outer quote (PIE-350, ac0817a46).
+    const slices = annotation.originalTarget.passage!.fragments.flatMap(fragment => fragment.kind === "source" ? fragment.slices : []);
+    assert.deepEqual(slices.map(slice => [slice.anchor.start, slice.anchor.exact]), [["Reference source\n\n".length, quote]]);
     await session.record("source-coordinate-proof", {row, column, annotation});
     await session.checkpoint("08-source-selection-comment");
   },

@@ -15,7 +15,8 @@ const result=await runHerdrScenario({name:'tree-only',commandKeys:[{key:'prefix+
   }else {await s.keys(s.panes[origin],'?');await s.waitVisible(s.panes[origin],'Find:');await s.text(s.panes[origin],'New Tree');await s.waitVisible(s.panes[origin],'New Tree');await s.keys(s.panes[origin],'enter');}
   const clients=await s.waitFor('new Tree registration',s.registrations,cs=>cs.some(c=>c.role==='tree'&&!before.has(c.clientId)));
   const added=clients.filter(c=>c.role==='tree'&&!before.has(c.clientId));assert.equal(added.length,1);assert.equal(clients.filter(c=>c.role==='detail').length,detailCount);
-  const pane=await s.adoptDetached(added[0]!.clientId,'tree');await s.waitVisible(pane,'Outliner');
+  // A Tree's own bar names it "● Tree" since compact chrome (PIE-385, 254fb52ae); "Outliner" is only Herdr's pane title.
+  const pane=await s.adoptDetached(added[0]!.clientId,'tree');await s.waitVisible(pane,'● Tree');
   assert.ok(added[0]!.contextId);assert.ok(!initial.some(c=>c.contextId===added[0]!.contextId));
   await s.checkpoint(`new-tree-from-${origin}`);await s.closeDetached(pane);
  }

@@ -62,10 +62,9 @@ const result = await runHerdrScenario({
     if ((await terminal.visible()).includes("Bookmarks · split")) await terminal.write("\u001b");
     const rejected = await session.rejectCompetingService();
     assert.equal(rejected.exitCode, 1);
-    assert.match(rejected.stderr, /Outliner service failed to start/);
-    assert.match(rejected.stderr, /service-startup-error\.log/);
-    await session.waitFor("failed startup is visible in the attached Herdr client", () => terminal.visible(),
-      frame => frame.includes("Outliner service failed to start"));
+    // One host serves every outline and says a failed start on stderr only (PIE-457, cfe63edbc); its startup log
+    // and toast went with outlines by name (PIE-530, d65c7af78).
+    assert.match(rejected.stderr, /Outline host failed to start: Error: The outline host lock is already owned/);
     await session.record("startup-diagnostics", { rejected, rootId, targetId, editedText });
     await session.client.request({ action: "ping" });
     await session.checkpoint("02-owner-still-running-after-rejected-start");

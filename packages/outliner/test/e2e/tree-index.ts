@@ -6,10 +6,17 @@ import { runHerdrScenario } from "./herdr-runner";
 const transport = process.argv.includes("--forwarded") ? "forwarded" : "direct";
 const result = await runHerdrScenario({
   name: `tree-index-${transport}`,
+  // The block counts are full chrome; compact (the default since PIE-385, 254fb52ae) has none.
+  uiConfig: { chrome: { tree: "full" } },
   async prepare() {},
   async run(session) {
     // Prepare data through the real service. Leave the original views in input
-    // mode so fixture creation does not queue a thousand unrelated UI reloads.
+    // mode so fixture creation does not queue a thousand unrelated UI reloads. Detail edits the note it shows, so Tree
+    // opens its first row there first: whether Detail picks up Tree's first selection by itself is a startup race.
+    await session.keys(session.panes.tree, "enter");
+    await session.waitFor("Detail shows Tree's first row", () => session.visible(session.panes.detail),
+      frame => frame.includes("● Current") && !frame.includes("Select a block or resource"));
+    await session.focus(session.panes.tree);
     await session.keys(session.panes.tree, "a");
     await session.waitVisible(session.panes.tree, "↵ save");
     await session.keys(session.panes.detail, "e");
@@ -66,7 +73,10 @@ const result = await runHerdrScenario({
     const coldRequests = session.forwardedTreeRequests();
     if (transport === "forwarded") {
       assert.ok(coldRequests.some(request => request.action === "tree.index"));
-      assert.ok(!coldRequests.some(request => request.action === "get" || request.action === "workspace.snapshot"));
+      assert.ok(!coldRequests.some(request => request.action === "workspace.snapshot"));
+      // The index draws Tree; Tree's local Preview (cb876c3da) reads only the one note it shows, never block by block.
+      const reads = coldRequests.filter(request => request.action === "get");
+      assert.ok(reads.length <= 1, `cold Tree sent ${reads.length} block reads`);
     }
     await session.record("cold-tree", { firstObservedFrameMs: remote.firstTreeFrameMs, requests: coldRequests });
     await session.checkpoint("01-cold-complete-index");
@@ -96,9 +106,11 @@ const result = await runHerdrScenario({
     await session.checkpoint("02-exact-edit-beyond-preview");
 
     await session.revealTree(remote.tree, board.id);
+    // Selecting the source shows it in Tree's local Preview (cb876c3da), which reads its whole body; expanding it
+    // inline then uses that read. One read of the source between selecting and expanding, not one each.
+    const beforeExpand = session.forwardedTreeRequests().length;
     await session.keys(remote.tree, "down");
     await selected(long.id);
-    const beforeExpand = session.forwardedTreeRequests().length;
     await session.keys(remote.tree, ".");
     await session.waitVisible(remote.tree, "EXPANDED BODY CHECKPOINT");
     if (transport === "forwarded") {

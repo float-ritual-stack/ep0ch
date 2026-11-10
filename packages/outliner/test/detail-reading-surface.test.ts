@@ -92,3 +92,17 @@ test("Escape defers to file-line selection without releasing Preview", async () 
   expect(preview.releases()).toBe(1);
   expect(released).toBe(1);
 });
+
+test("a command for Current leaves the keys with a Preview draft being typed (PIE-1698)", async () => {
+  const current = reader(); const preview = reader(); const received: string[] = [];
+  (current.controller as unknown as {handleUiCommand: (command: {command: string}) => Promise<void>}).handleUiCommand = async command => { received.push(command.command); };
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  surface.previewVisible = true; surface.focused = "preview";
+  preview.state.mode = {kind: "comment"};
+  await surface.receive({command: "replace", targetClientId: "detail", target: {kind: "block", blockId: "other"}}, {width: 80, height: 20});
+  expect(received).toEqual(["replace"]);
+  expect(surface.focused).toBe("preview");
+  preview.state.mode = {kind: "preview"};
+  await surface.receive({command: "replace", targetClientId: "detail", target: {kind: "block", blockId: "other"}}, {width: 80, height: 20});
+  expect(String(surface.focused)).toBe("current");
+});

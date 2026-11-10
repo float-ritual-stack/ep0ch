@@ -19,7 +19,8 @@ const result = await runHerdrScenario({
     const socket = join(outlines, ".host", "host.sock");
     const host = new OutlinerClient(socket);
     const names = async () => (await host.request<{ outlines: { name: string }[] }>({ action: "outlines.list" })).outlines.map(outline => outline.name);
-    const outlineEntries = () => readdirSync(outlines).filter(entry => entry.endsWith(".sqlite")).sort();
+    // Each outline's owner lock sits beside it as `<name>.sqlite.owner.sqlite`: not an outline.
+    const outlineEntries = () => readdirSync(outlines).filter(entry => entry.endsWith(".sqlite") && !entry.endsWith(".owner.sqlite")).sort();
     const [jam, attic, fern] = ["jam-shelf", "quiet-attic", "fern-ledger"].map(name => join(runRoot, name));
     for (const folder of [jam, attic, fern]) await mkdir(folder!);
     const terminal = await s.attachClient();
@@ -66,14 +67,17 @@ const result = await runHerdrScenario({
     const jamTree = await newTree(project, before, "Tree opened on the picked outline");
     assert.equal(readFileSync(join(jam!, ".ep0ch", "config.toml"), "utf8"), 'ws = "project"\n');
     const jamPane = await s.adoptDetached(jamTree.clientId, "tree", project);
-    await s.waitVisible(jamPane, "Tree [Note]");
+    // The bar pads its title to its pins (PIE-525, a0af73f53): "● Tree" names the pane.
+    await s.waitVisible(jamPane, "● Tree");
     await s.checkpoint("01-mouse-pick-opened-tree");
 
     // 2. Ctrl-b u again in that folder opens directly, without a chooser.
     // Focus the shell by clicking its prompt, as a person would, then press Ctrl-b u.
-    const prompt = await s.waitFor("shell prompt", popup, text => text.includes("jam-shelf$"));
-    const promptRow = prompt.split("\n").findIndex(line => line.includes("jam-shelf$"));
-    const promptColumn = visibleWidth(prompt.split("\n")[promptRow]!.slice(0, prompt.split("\n")[promptRow]!.indexOf("jam-shelf$")));
+    // The prompt is the shell's own (bash's `…/jam-shelf$`, or a two-line one that prints the folder above `❯`): click
+    // the folder it shows.
+    const prompt = await s.waitFor("shell prompt", popup, text => text.includes("/jam-shelf"));
+    const promptRow = prompt.split("\n").findIndex(line => line.includes("/jam-shelf"));
+    const promptColumn = visibleWidth(prompt.split("\n")[promptRow]!.slice(0, prompt.split("\n")[promptRow]!.indexOf("/jam-shelf")));
     await terminal.write(`\x1b[<0;${promptColumn + 1};${promptRow + 1}M\x1b[<0;${promptColumn + 1};${promptRow + 1}m`);
     const beforeAgain = await treeIds(project);
     await terminal.write("\x02");
@@ -81,7 +85,7 @@ const result = await runHerdrScenario({
     await terminal.write("u");
     const again = await newTree(project, beforeAgain, "Ctrl-b u opened directly");
     const againPane = await s.adoptDetached(again.clientId, "tree", project);
-    await s.waitVisible(againPane, "Tree [Note]");
+    await s.waitVisible(againPane, "● Tree");
     const logs = await s.pluginActionLogs();
     assert.equal(logs.find(log => log.actionId === "open-here")?.status, "succeeded");
     await s.checkpoint("02-second-open-direct");

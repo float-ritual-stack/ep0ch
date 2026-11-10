@@ -6,7 +6,7 @@ import { runHerdrScenario } from "./herdr-runner";
 
 const result = await runHerdrScenario({
   name: "composed-boundaries", layout: "composed",
-  async prepare(root) { await writeFile(join(root, "generated.md"), "GENERATED-RESOURCE-CONTENT"); },
+  async prepare(_project, _paths, root) { await writeFile(join(root, "generated.md"), "GENERATED-RESOURCE-CONTENT"); },
   async run(session) {
     const terminal = await session.attachClient();
     const pane = session.panes.tree;
@@ -17,7 +17,8 @@ const result = await runHerdrScenario({
     const second = await session.client.request<Block>({action: "create", parentId: null, text: "PIE283 publication B"});
     const third = await session.client.request<Block>({action: "create", parentId: null, text: "PIE283 publication C"});
     await session.revealTree(pane, first.id);
-    await session.keys(pane, "enter");
+    // ⏎ keeps Tree focus (PIE-364); ⌥⏎ opens and focuses Detail.
+    await session.keys(pane, "alt+enter");
     await session.waitFor("A Current ready", session.registrations, values => values[0]?.currentTarget?.kind === "block" && values[0].currentTarget.blockId === first.id && values[0].focusedRegion === "detail");
     await session.keys(pane, "q");
     await session.waitFor("Tree ready for publication race", session.registrations, values => values[0]?.focusedRegion === "tree");
@@ -69,7 +70,7 @@ const result = await runHerdrScenario({
     await session.keys(pane, "down", "down");
     let selection = await session.waitFor("generated Outlink selected", session.registrations, values => values[0]?.treeSelection?.target.kind === "block" && values[0].treeSelection.target.blockId === second.id && values[0].treeSelection.rowId !== second.id);
     const beforeLink = selection[0]!.treeSelection;
-    await session.keys(pane, "enter");
+    await session.keys(pane, "alt+enter");
     await session.waitFor("generated Outlink opened locally", session.registrations, values => values[0]?.currentTarget?.kind === "block" && values[0].currentTarget.blockId === second.id && values[0].focusedRegion === "detail");
     assert.deepEqual((await session.registrations())[0]!.treeSelection, beforeLink);
     assert.equal((await session.registrations()).length, 1);
@@ -79,13 +80,13 @@ const result = await runHerdrScenario({
     await session.keys(pane, "q", "down", "down");
     selection = await session.waitFor("generated Resource selected", session.registrations, values => values[0]?.treeSelection?.target.kind === "resource");
     const beforeResource = selection[0]!.treeSelection;
-    await session.keys(pane, "enter");
+    await session.keys(pane, "alt+enter");
     await session.waitFor("generated Resource opened without discovery", session.registrations, values => values[0]?.currentTarget?.kind === "resource" && values[0].focusedRegion === "detail");
     await session.waitVisible(pane, "GENERATED-RESOURCE-CONTENT");
     assert.deepEqual((await session.registrations())[0]!.treeSelection, beforeResource);
     assert.equal((await session.registrations()).length, 1);
     await session.checkpoint("05-generated-resource-without-discovery");
-    await session.keys(pane, "q", "up", "up", "enter");
+    await session.keys(pane, "q", "up", "up", "alt+enter");
     await session.waitFor("generated Outlink opened without discovery", session.registrations, values => values[0]?.currentTarget?.kind === "block" && values[0].currentTarget.blockId === second.id && values[0].focusedRegion === "detail");
     assert.deepEqual((await session.registrations())[0]!.treeSelection, beforeLink);
     await session.checkpoint("06-generated-outlink-without-discovery");

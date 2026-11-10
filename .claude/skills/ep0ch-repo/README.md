@@ -44,7 +44,7 @@ Claude Code's dangerous-command check stops some `rm -rf` shapes (a glob over th
 Two parts (`hooks/scratch.ts`, `scripts/scratch-clean`):
 
 - **Agents don't write `rm -rf`:** they run `scripts/scratch-clean <dir>…`, which removes only folders under
-  `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/` and `~/.agent-env/` (and `~/wt/<name>` worktrees through `git worktree
+  `/tmp/claude-<uid>/`, `/tmp/ep0ch-agent-<uid>/`, `/tmp/ep0ch-<uid>/` and `~/.agent-env/` (and `~/wt/<name>` worktrees through `git worktree
   remove`), and refuses anything else with why. A script's own `rm` is not a command the check sees.
 - **The mod answers "allow"** to a permission request for a Bash command that is nothing but `rm -r` of plain paths that
   all resolve (`realpath -m`: links followed, `..` taken) under those scratch roots. A variable, glob, other command,

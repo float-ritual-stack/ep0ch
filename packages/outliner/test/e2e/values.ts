@@ -14,8 +14,10 @@ const result=await runHerdrScenario({name:'values',async prepare(){},async run(s
  await s.client.request({action:'navigation.link.set',source:{clientId:detail.clientId,region:'detail'},destination:null});
  await s.client.request({action:'navigation.dispatch',sourceClientId:tree.clientId,sourceRegion:'tree',intent:'open',target:{kind:'block',blockId:note.id},destination:{clientId:detail.clientId,region:'detail'}});
  const shown=await s.waitFor('Detail draws the values',()=>s.visible(s.panes.detail),
-  text=>text.includes('host-marker-line')&&text.includes('Owner sam plays at https://example.test/vent'));
- assert.ok(shown.includes('typo {{this.ownr}}')&&shown.includes('did you mean'),'the typo is shown as typed, with the nearest key');
+  // The nearest-key hint can land a frame after the values: wait for both.
+  text=>text.includes('host-marker-line')&&text.replace(/\s+/g,' ').includes('Owner sam plays at https://example.test/vent')&&text.replace(/\s+/g,' ').includes('did you mean owner'));
+ const flat=shown.replace(/\s+/g,' '); // the line wraps where the pane's width puts it
+ assert.ok(flat.includes('typo {{this.ownr}}')&&flat.includes('did you mean'),'the typo is shown as typed, with the nearest key');
  assert.ok(!shown.includes('{{this.owner}}'),'a resolved placeholder shows its value, not its braces');
  await s.checkpoint('values-preview');
  // The editor shows the source as written.

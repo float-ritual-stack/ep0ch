@@ -570,7 +570,11 @@ One host serves every client of every outline on one event loop, and a client gi
 
 The checks and the full suites are in the repository's
 [Verification](../../CONTRIBUTING.md#verification). The Herdr journeys
-(`bun run test:e2e:*`) are manual checks, run by hand, not on a schedule.
+(`bun run test:e2e:*`) are manual checks, run by hand, not on a schedule. `bun run test:e2e:all` runs every one,
+with each variant it takes (`--composed`, `--forwarded`, `--held`), one at a time, and prints a row per run with its
+log; run it under `scripts/agent-env <name> --test --` (about 40 minutes). A red means Tree, Detail or Preview broke,
+or a scenario fell behind a change that was meant: find the commit before changing what the scenario expects.
+`goto-jev` asks a live Jev and runs only with `TYPESAFE_API_KEY` (`with-secrets typesafe -- …`).
 Tree, Detail and Preview remain maintained as the sysop console, covered by
 the outliner's in-process tests. Each remaining journey runs a private Herdr session of its own
 (`test/e2e/herdr-runner.ts`): its own outlines folder, the host in a tab of a
