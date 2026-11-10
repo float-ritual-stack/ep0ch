@@ -1,6 +1,6 @@
 # Yo
 
-Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's own doc, with a button. Say `@yo do it` and it presses it for you, attributed to yo, as one undo step. Next time it answers from memory.
+Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's own doc, with a button. Say `@yo do it` and it presses it for you, attributed to yo, as one undo step. Next time it answers from memory. Ask it to find notes and it answers with them, and the query that found them.
 
 ```text
 @yo how do I lift the agent again
@@ -12,11 +12,25 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 > ✓ yo pressed ▲ lift · undo
 
 @yo lift                               ← a week later, from memory, no model
+
+@yo find me all hub items that are not sent yet
+> 2 notes: `type=hub-item NOT status=sent`
+> - ((…|Seed swap flyer))
+> - ((…|Shed rota))
+> read: hub items → type=hub-item · not sent → NOT (status=sent)
+> ▸ open in facets   ▸ edit the query   ▸ save as a view
 ```
 
 ## What you do
 
 - **Ask on a line:** write `@yo …` on its own line in any note and keep typing. The answer opens under the line.
+  - **Every ask is heard:** a note's tenth ask like its first, and the same words asked again further down get an answer of their own.
+- **Find notes:** `@yo find me all hub items that are not sent yet`, `@yo list the plans tagged garden`, `@yo which notes are drafts`.
+  - **The answer:** up to ten notes as links, the query that found them, and how it read each word (`not sent → NOT (status=sent)`).
+  - **Its buttons:** open it in a facets tile, put it on that tile's query line to edit, or save it as a view (you name it).
+  - **Where the query comes from:** the outline's own facets, read by the service (`query.suggest`, Jev picking); yo keeps no list of properties. Without Jev it says so and offers your words on the facets query line.
+  - **Nothing found:** the query, and the keys nearest your words.
+  - **Told by its words:** "find", "list", "show me the…", "which notes…" is a find; "how do I find…" is a how-do-I. Code decides, before any model.
 - **Ask about a tile:** `ask yo about this` in a tile's menu, `ask yo` in the power bar, or `✦y` (the key note under this page).
   - **From a shell:** `ep0ch act agent.ask to=yo about=tile`.
   - **Where it lands:** a thread on the note in that tile; a tile with no note, on this page.
@@ -24,7 +38,10 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
   - **A question never presses:** `how do I…`, `what's the key for…`, `is there a way to…`, or anything ending in `?` gets the quote and the button. Code reads the words before any model runs.
   - **A command presses:** `@yo lift the agent` (the act model fills it in, once).
 - **Take it back:** the `undo` on the done row. An action that changes no note and no layout has none, and a press that changed nothing (dropping what wasn't lifted) has nothing to undo: the row says which.
-- **The button's words** are the action's own: the `::button` its doc gives for those arguments (`agent.lift on=false` reads `▼ drop`), else its verb.
+- **The button's words** are the action's own: the `::button` its doc gives for those arguments (`agent.lift on=false` reads `▼ drop`), else what its key for them does (`backlinks.view step=kind` reads `▸ by kind`), else its verb.
+- **The argument the ask names:** `@yo how do I see backlinks by kind` answers `backlinks.view step=kind`, and its keys line names that key alone: `K: by kind`.
+- **The way there:** an action of a tile you don't have open (backlinks.view needs a backlinks tile) gets a button that opens it first (`links`), then does it, one press.
+- **A note action** (`note.rename`'s `▸ rename`) pressed in the answer tile beside your edit acts on your note: the title changes in your edit.
 - **See how it knew:** the steps fold under each answer: what it read and each model call, with its cost.
 - **Ask about yo:** `@yo how do I use you`, `@yo how do I set you up` or `@yo whats good` answers from this page and its settings, with no model, and a button to its settings.
 - **Banter:** `@yo mamama` gets one line in character, then quiet.
