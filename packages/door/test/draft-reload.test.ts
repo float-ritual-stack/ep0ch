@@ -788,7 +788,7 @@ describe("one lifecycle, every host (PIE-1658)", () => {
       type(s, h, " side");
       const hear = heard(s, h, o, m.id);
       return {
-        s, h, d: () => s.panel!.field!.input, hear, after: "south!", said: "loaded revision 2",
+        s, h, d: () => s.panel!.field!.input.draft, hear, after: "south!", said: "loaded revision 2",
         change: async () => { Object.assign(o.edit(m.id, "Leeks [bed::south]\nRaked."), { properties: [{ key: "bed", value: "south" }] }); await hear(); },
       };
     },

@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Rebind any key of a draft and it works, and shows, wherever you type (Nov 3 review cards 1 and 8)
+
+- **Every draft key is a row of a table:** esc (`edit.close`), tab and shift+tab (`draft.indent`, `draft.outdent`), the second key of the `ctrl+x ctrl+e` $EDITOR chord (`"edit.external": ["ctrl+x alt+e"]`), and a line field's ctrl+w (`draft.erase to=word-back`), ctrl+u (new `draft.clear`) and ctrl+x (`draft.cut`) are rows in `DRAFT_KEYS`, a chord table and `LINE_KEYS`. A rebind in `keybindings.json` or the keys window (`?`) works in a note's edit, a comment, the composer, an inspector field, the power bar and every line field; the old key does nothing, and a line field says where it went.
+- **The hint row names the key that runs:** `editHint` no longer writes a key; the snippet row, the inspector's `esc cancels`, ctrl+o and ctrl+g (`comment.place`, `comment.grip`) and the `[` wrap come from the tables with the keymap applied. An edit's keys (`ctrl+k` the keys window) list the draft's table.
+- **The facets query line** closes on the draft's `edit.close` (rebindable) and its ⏎ is a listed row; its typing was already the line field's.
+- **The line field is an adapter over the edit control** (`LineField` holds a `Draft`, `field.draft`) instead of a subclass of it.
+- **The showcase starts again on this branch:** the home screen and the library drew through the reader's Blockdown module, and that import cycle stopped the showcase's seed loading (`Cannot access 'nounOf' before initialization`). They draw through its light half, `surface/blockdown-draw.ts`.
+- **A draft brought back names your keys:** "brought back your edit · alt+s saves · alt+q twice drops it" when those are your save and close keys, not ctrl+s and esc.
+- **In the kitchen sink:** the keys section's test moves the draft's esc to alt+q through the keys tile, closes an edit on alt+q and reads the hint.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
+
 ### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
 
 - **Nothing you use changes:** the door draws, answers keys and lists its actions exactly as before; the one thing drawn differently is the kitchen sink's file pointers, which name the new modules. This is for whoever opens the code next.

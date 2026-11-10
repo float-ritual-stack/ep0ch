@@ -1,5 +1,5 @@
 // A component's variation drawn as the reader draws it (PIE-618): its text through the readers' own body renderer
-// (`renderDoc`, after `presentLinks`), with the outline's callout types and heading styles plus what the variation's
+// (`drawIn` in the `page` context, after `presentLinks`), with the outline's callout types and heading styles plus what the variation's
 // declaring note declares (a `[heading-style::mine]` note is a style for this drawing alone, never written to the
 // outline), and a rule note's decorations as the service draws them (`rules.preview`, asked once per variation and
 // kept), placed by `planDecorations`. Nothing here knows a component: a schema's source is drawn by what draws it in
@@ -10,14 +10,15 @@ import { headingStyleRegistry, headingStylesFromBlocks } from "@ep0ch/outline-co
 import { propertyTokensInLine } from "@ep0ch/outline-core/property-grammar";
 import { calloutsOf } from "../callouts";
 import { planDecorations } from "../decorations";
-import { renderDoc, type DocEnv } from "../doc";
+import type { DocEnv } from "../doc";
 import { headingStylesOf } from "../heading-styles";
 import type { ListSource } from "../outline-lists";
 import type { Decoration } from "../projection";
 import { figureDemo, linksDemo, fieldsDemo } from "./demo";
 import { drawProps } from "../figures/props";
 import { buttonRows } from "../surface/button";
-import { presentLinks } from "../refs";
+import { presentLinks, type LinkTarget } from "../refs";
+import { drawIn, linkSink } from "../surface/blockdown-draw";
 
 export const PROP_PLACE_WORDS: Record<PropPlace, string> = { line: "on the line", note: "on the declaring note", yaml: "in the YAML" };
 
@@ -59,7 +60,7 @@ export async function variationReady(v: Variation, src: ListSource | null): Prom
  * Variation `v` drawn `width` columns wide, in colour, as a reader on `src`'s outline draws its text: the outline's own
  * styles and types, and those its declaring note declares.
  */
-export function drawVariation(v: Variation, width: number, src: ListSource | null = null): string[] {
+export function drawVariation(v: Variation, width: number, src: ListSource | null = null, drawn?: LinkTarget[]): string[] {
   const declared = v.note ? [{ id: "library-declaring-note", properties: propertyTokensInLine(v.note).map(t => ({ key: t.key, value: t.value })) }] : [];
   const headings = headingStyleRegistry([...headingStylesOf(src).styles.filter(s => s.block), ...headingStylesFromBlocks(declared).styles]);
   const callouts = calloutRegistry([...calloutsOf(src).types.filter(t => t.block), ...calloutTypesFromBlocks(declared).types]);
@@ -67,11 +68,11 @@ export function drawVariation(v: Variation, width: number, src: ListSource | nul
   const body = v.use.split("\n");
   const decorations = ruleDecorations(v, src).decorations ?? [];
   if (decorations.length) {
-    const plan = planDecorations(decorations, body.map((_, i) => i), { headings, markdown: (text, mw) => renderDoc(text, { ...env, width: mw }).lines }, body);
+    const plan = planDecorations(decorations, body.map((_, i) => i), { headings, markdown: (text, mw) => drawIn("extension-text", text, env, {}, { width: mw }).lines }, body);
     env.after = (line, aw) => (plan.after.get(line) ?? []).flatMap(f => f(aw));
     env.decorate = (line, dw) => { const p = plan.place.get(line), r = p?.draw(dw); return p && r ? { end: p.end, ...r } : null; };
   }
-  return renderDoc(presentLinks(v.use, false, src as never, v.use), env).lines;
+  return drawIn("page", presentLinks(v.use, false, src as never, v.use, drawn), env, drawn ? linkSink(drawn) : {}).lines;
 }
 
 /**
