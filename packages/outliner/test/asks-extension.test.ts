@@ -29,7 +29,7 @@ async function until<T>(what: string, check: () => T | undefined | null | false 
 }
 
 /** The fake Jev's word on a line: by the words in it. */
-const NOUL: [RegExp, number][] = [[/shed|fence|hedge|quoted/i, 0.92], [/maybe/i, 0.4], [/idle/i, 0.1], [/Evan, Oct|Decision:|Mark a finding|Wildcards|Check:|Note to self/, 0.72]];
+const NOUL: [RegExp, number][] = [[/opens the yard|Red first|Done when/, 0.4], [/shed|fence|hedge|quoted/i, 0.92], [/maybe/i, 0.4], [/idle/i, 0.1], [/Evan, Oct|Decision:|Mark a finding|Wildcards|Check:|Note to self/, 0.72]];
 /** Its word on the questions beside "does it ask": each reads the line and where it sits, so these can only pass if the note's context reached Jev. */
 const BESIDE: Record<string, (line: string, around: { heading?: string; parent?: string; before?: string; after?: string }) => boolean> = {
   record: line => /^- \*\*\d+:\d+/.test(line),
@@ -206,6 +206,35 @@ test("the note reaching done clears every mark, and a done note gets none", asyn
   const closed = await t.write("Old yard [status::done]\n\nSome text.\n\n- Should the shed face south?");
   await t.settled();
   expect(t.store.require(closed.id).text).not.toContain("asks.derived");
+});
+
+test("PIE-1662: a roadmap item's own lines never reach Jev or a chip, though the same lines in a plain note do; a mark already on one comes off", async () => {
+  const t = await setup();
+  const body = ["", "Evan opens the yard note and every bed has a label he can read.", "", "- **Red first:** a made-up bed with no label gets no decision on main.", "- **Done when:** Evan sees every bed with its label.", "- Should the shed face south, Evan?"];
+  // The control: in an ordinary note the description lines are Jev's unsure band, and the question a sure ask.
+  const plain = await t.write(["Yard labels", ...body].join("\n"));
+  const marked = (await t.marked(plain.id, 4)).split("\n");
+  expect(marked[2]).toContain("[maybe-needs::sysop]");
+  expect(marked[6]).toContain("[needs::sysop: Should the shed face south, Evan?]");
+  const jevBefore = t.asked.length, modelBefore = t.modelPrompts().length;
+  const item = await t.write(["YARD-7 — Every bed shows its label [type::roadmap-item] [work-stage::queued] [work-id::YARD-7]", ...body].join("\n"));
+  await t.settled();
+  // Its own run says why, and leaves the text as written.
+  const ran = await t.client.request<{ message: string }>({ action: "extensions.act", extension: "asks", extensionAction: "settle", blockId: item.id, mutation: AGENT } as never);
+  expect(ran.message).toBe("left out: a roadmap-item's lines describe the work, they don't ask");
+  expect(t.store.require(item.id).text).toBe(item.text);
+  // Decided in code: neither Jev nor the model was asked about it.
+  expect(t.asked.slice(jevBefore).flatMap(a => Object.values(a))).not.toContain("- **Done when:** Evan sees every bed with its label.");
+  expect(t.modelPrompts().slice(modelBefore).join("\n")).not.toContain("YARD-7");
+  expect((await t.waiting()).blocks.map(b => b.id)).not.toContain(item.id);
+  // A ticket marked before this: the next save takes its marks off.
+  const lines = ["YARD-8 — Every bed shows its label [type::roadmap-item] [work-stage::queued] [work-id::YARD-8]", ...body];
+  lines[2] = withMark(lines[2]!, "unsure");
+  const old = await t.write(lines.join("\n"), PERSON);
+  await t.settled();
+  await t.edit(old.id, text => `${text}\n- Labels are slate.`, AGENT);
+  await t.marked(old.id, 0);
+  expect(t.store.require(old.id).text).not.toContain("maybe-needs");
 });
 
 test("dry: it says what it would write and writes nothing", async () => {
