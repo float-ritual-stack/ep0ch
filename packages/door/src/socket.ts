@@ -328,6 +328,7 @@ export type FragmentCandidate = WireAnswer<"fragments.candidates">["items"][numb
 /**
  * One transclusion as the service projects it (`transclusions.read`): ready with its note (and a fragment's
  * slice), the steps inside what it shows and the embeds inside it, nested; or why not, in the service's words.
+ * Reshaped on purpose: the door inlines the note as a `Msg` and resolves the results itself.
  */
 export interface TransclusionNode {
   resolvedBlockId?: string;
