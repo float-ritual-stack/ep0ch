@@ -1,7 +1,7 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
 import { multiplexed, SIZED_QUERY, sizedAnswer, sizedHint } from "./text-sizing";
-import { isHyperReport, KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
+import { isHyperReport, KBD_POP, LEGACY_ALT, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
 import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@ep0ch/outline-core/program-status";
 
@@ -463,7 +463,7 @@ export class KeyDecoder {
       if (p[0] === "\x1b" && (p[1] === "\x7f" || p[1] === "\x08")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-backspace" }); continue; }
       // Alt+letter or digit (or one of the punctuation keys the door binds: alt+' steps through marks) arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
       // sequences, so an ESC before one of them keeps its old meaning.
-      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9?/<>{}']$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
+      if (p[0] === "\x1b" && p.length >= 2 && LEGACY_ALT.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
         const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);

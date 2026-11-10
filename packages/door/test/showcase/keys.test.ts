@@ -71,6 +71,27 @@ describe.skipIf(!outliner)("the keys section", () => {
     expect(new Draft("keys-demo", 0, "Plum jam").key({ kind: "esc" })).toBe("close");
   });
 
+  test("an agent gives draft.clear alt+u: the answer says the glass keeps it first, Conflicts lists it with why; alt+[ is said to need key reports (PIE-1688)", async () => {
+    await import("../../ext/glass/glass");
+    await h.app.act({ action: "section", args: { name: "keys" }, as: "keys-demo" });
+    await until(() => !!h.S().stages.get(h.S().sel), "the keys section");
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    const text = () => d.render(h.app).lines.map(visible).join("\n");
+    try {
+      const r: any = await d.dispatch.act({ action: "keys.rebind", args: { id: "draft.clear", key: "ctrl+u", to: "alt+u" }, tile: "keys" }, AGENT);
+      expect(r).toMatchObject({ saved: true, id: "draft.clear", to: "alt+u" });
+      expect(r.still).toContain("glass.toggle");
+      const tab: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "conflicts" }, tile: "keys" }, AGENT);
+      expect(tab.rows).toBe(2);
+      await until(() => text().includes("Conflicts 1"), "the Conflicts tab counts it");
+      const odd: any = await d.dispatch.act({ action: "keys.rebind", args: { id: "draft.clear", key: "alt+u", to: "alt+[" }, tile: "keys" }, AGENT);
+      expect(odd.sends).toContain("Kitty keyboard protocol");
+    } finally {
+      await d.dispatch.act({ action: "keys.reset", args: { id: "draft.clear" }, tile: "keys" }, AGENT);
+      await d.dispatch.act({ action: "keys.tab", args: { tab: "bindings" }, tile: "keys" }, AGENT);
+    }
+  });
+
   test("on the House board, ? opens the keys window where the board can take it; esc gives the keys back to the lanes", async () => {
     const board = openScreen("board", { hub: h.seeded.notes.hub.id, persist: false }) as Desk;
     h.app.push(board as never);

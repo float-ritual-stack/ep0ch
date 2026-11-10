@@ -254,6 +254,11 @@ export interface Pane {
    */
   claims?(k: Key): boolean;
   /**
+   * It waits for a key to record (the keys window's rebind): the next key, whatever it is, is its, before every layer of the
+   * door that would take it (a door module's alt+u, alt+v on every screen, the drawer's alt+a). Esc still goes by the ladder.
+   */
+  recordsKey?(): boolean;
+  /**
    * What the next Esc closes in it, in the hint's words (esc-rule.ts): null, nothing, and the key goes on past it; ESC_TAKEN,
    * it has the key and nothing to name; left out, it says nothing and is still asked.
    */
