@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { completeReferencedPaths, readFileContents, referencedFilePreview, resolveReferencedPath } from "../src/files";
 import { OutlinerStore } from "../src/store";
+import { resourceAnnotationRepresentation } from "../src/annotation-representations";
+import { filesystemAnnotationRepresentation } from "../src/detail-annotation-targets";
 
 test("reads the line range declared by a file-reference block", () => {
   const workspace = mkdtempSync(join(tmpdir(), "pi-outliner-files-"));
@@ -117,6 +119,24 @@ test("follows usable symlinks and skips dangling candidates", () => {
     expect(candidates).toContainEqual({ sourcePath: "file-link", isDirectory: false });
     expect(candidates.some((candidate) => candidate.sourcePath.startsWith("dangling-link"))).toBe(false);
   } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("a file comment made in Detail names the snapshot by the id the service gives it (PIE-1690)", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "file-annotation-id-"));
+  const path = join(workspace, "sowing.md");
+  writeFileSync(path, "# Sowing\nPeas in March\n");
+  const store = new OutlinerStore(join(workspace, "db.sqlite"));
+  try {
+    const block = store.create("Sowing [file::sowing.md]");
+    const preview = referencedFilePreview(block, readFileContents(block.properties.find(p => p.key === "file")!.value, workspace));
+    const resource = store.resources.internFilesystem({ path }).resource;
+    const fromDetail = filesystemAnnotationRepresentation(resource, preview);
+    const fromService = resourceAnnotationRepresentation(store.resources.describe(resource.id, true));
+    expect(fromDetail.id).toBe(fromService!.id);
+  } finally {
+    store.close();
     rmSync(workspace, { recursive: true, force: true });
   }
 });

@@ -3120,3 +3120,61 @@ Second paragraph`;
     expect(store.moveVirtualOccurrences({ view: `((${view.id}))`, blocks: [kit!.id.slice(0, 10)], to: 0 }).blockIds).toEqual([kit!.id, oil!.id]);
   });
 });
+
+describe("one clock, one order, one filter (PIE-1691)", () => {
+  test("tickets, captures and an extension's records made in one millisecond list in the order they were made", () => {
+    const store = makeStore();
+    store.configureWorkIdPrefix("SEED");
+    store.create("Work [type::work-queue] [project::garden]");
+    const parent = store.create("Seed swap sync");
+    setSystemTime(new Date("2031-04-05T06:07:08.009Z"));
+    try {
+      const tickets = ["Sow the peas", "Label the trays", "Water the beans"].map((title) =>
+        store.createRoadmapItem({ title, project: "garden", arc: "spring", tracks: ["beds"], priority: "low" }).block);
+      const captures = ["Moth trap at dusk", "Borrow the dibber", "Compost check"].map((text, index) =>
+        store.capture(`same-ms-${index}`, text, "cli").block);
+      const record = store.writeExtensionRecord({
+        extensionId: "seed-swap", label: "Seed swap", parentBlockId: parent.id, itemKey: "swap-1", resourceId: null,
+        text: "Swap list", comments: [{ itemKey: "c1", text: "First offer" }, { itemKey: "c2", text: "Second offer" }, { itemKey: "c3", text: "Third offer" }],
+      }).record;
+      const comments = store.children(record.id);
+      for (const made of [tickets, captures, comments]) {
+        const times = made.map((block) => store.require(block.id).createdAt);
+        expect(times).toEqual([...new Set(times)].sort());
+      }
+      const listed = store.queryBlocks({ where: "type=roadmap-item", sort: "created" }).blocks.map((block) => block.id);
+      expect(listed).toEqual(tickets.map((block) => block.id));
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("both selection reads leave a note's trashed children out, and keep them for a note in Trash", () => {
+    const store = makeStore();
+    const bed = store.create("North bed");
+    const kept = store.create("Garlic row", bed.id);
+    const binned = store.create("Old stakes", bed.id);
+    store.delete(binned.id);
+    store.setSelection(bed.id);
+    expect(store.getSelection().children.map((child) => child.id)).toEqual([kept.id]);
+    expect(store.readWorkspaceSnapshot().selection.children.map((child) => child.id)).toEqual([kept.id]);
+    const shed = store.create("Shed");
+    const rake = store.create("Rake", shed.id);
+    store.delete(shed.id);
+    store.setSelection(shed.id);
+    expect(store.getSelection().children.map((child) => child.id)).toEqual([rake.id]);
+    expect(store.readWorkspaceSnapshot().selection.children.map((child) => child.id)).toEqual([rake.id]);
+  });
+
+  test("a text filter folds case the same on the ranked and the graph path", () => {
+    const store = makeStore();
+    const note = store.create("ÜNÏCODE seed packets");
+    store.create("plain seed packets");
+    const cafe = store.create("Cafe\u0301 notes");
+    const view = store.create("Ranked [type::view]");
+    for (const [text, expected] of [["ünïcode", [note.id]], ["cafe", [cafe.id]]] as const) {
+      expect(store.queryBlocks({ text }).blocks.map((block) => block.id)).toEqual([...expected]);
+      expect(store.queryBlocks({ text, rankViewId: view.id }).blocks.map((block) => block.id)).toEqual([...expected]);
+    }
+  });
+});

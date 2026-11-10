@@ -28,6 +28,7 @@ Entries newer than the last fold wait in [`changelog/`](changelog/), one file pe
 - **`props.summary reset=false` and `toggle=`** are refused with the usage line instead of a TypeError.
 - **Opening many notes reads each attachment's saved place once** (the previews, Sources and settings), from the attachments layer.
 - **Run:** `ep0ch install --apply` (the service and the door both change); PROTOCOL, GRAMMAR and the schema don't move.
+
 ### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
 
 - **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".
