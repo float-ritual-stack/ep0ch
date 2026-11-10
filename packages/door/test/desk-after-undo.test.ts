@@ -422,6 +422,37 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
       } finally { d.quit(); }
     });
 
+    // PIE-1575: each undone terminal open kept its program in a dock of its own; the second joins the first's.
+    test("two shells opened and each undone by real keys: both kept in one dock at the right edge, one click shows them", async () => {
+      const d = await door(cols, rows);
+      try {
+        const containerOf = (name: string) => (d.desk.layoutGet().tiles.find((t: any) => t.name === name) as { container?: string } | undefined)?.container;
+        await d.inTile("tree");
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (d.desk.pane("pty") as PtyPane | undefined)?.running === true, "the first shell runs");
+        await d.press(ctrl("]"), ctrl("z"));
+        expect(d.said()).toContain("pty");
+        expect(d.said()).toContain("kept in a dock");
+        await d.inTile("tree");
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (d.desk.pane("pty2") as PtyPane | undefined)?.running === true, "the second shell runs");
+        const first = d.desk.pane("pty") as PtyPane, second = d.desk.pane("pty2") as PtyPane;
+        await d.press(ctrl("]"), ctrl("z"));
+        expect(d.said()).toContain("pty2");
+        expect(d.said()).toContain("kept in a dock");
+        // Both programs run on, in the one dock: one edge on screen, not one per terminal.
+        expect(first.running && second.running).toBe(true);
+        expect(containerOf("pty")).toBeTruthy();
+        expect(containerOf("pty2")).toBe(containerOf("pty"));
+        expect(new Set(d.desk.layoutGet().tiles.map((t: any) => t.container).filter((c: unknown) => typeof c === "string" && /^d\d+$/.test(c))).size).toBe(1);
+        expect(d.desk.outOfStep()).toEqual([]);
+        const spot = d.edgeOf("pty2") ?? d.edgeOf("pty");
+        expect(spot).not.toBeNull();
+        await d.click(spot!.x, spot!.y);
+        expect(d.desk.layoutGet().tiles.some((t: any) => (t.name === "pty" || t.name === "pty2") && t.shown)).toBe(true);
+      } finally { d.quit(); }
+    });
+
     test("a shell opened inside a group in the drawer, undone twice: the door stays up", async () => {
       const d = await door(cols, rows);
       try {

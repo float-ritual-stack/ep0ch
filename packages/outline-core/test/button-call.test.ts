@@ -78,6 +78,15 @@ test("a slot only alt= reads is open for the alt press, not the main one", () =>
   expect(filled.altEmpty).toBeUndefined();
 });
 
+// PIE-1660: a slot act= and alt= both read is asked, by the alt press, as alt='s argument.
+test("a slot act= and alt= share is read as the press's own line's argument first", () => {
+  const b = buttonCallAt(['::button{label="title it" act="tile.zoom tile={word}" alt="tile.title text={word}" word=}'], 0)!;
+  expect(b).toMatchObject({ empty: ["word"], altEmpty: ["word"] });
+  expect(slotArgs(b, "word")[0]).toEqual({ step: 0, action: "tile.zoom", arg: "tile" });
+  expect(slotArgs(b, "word", { alt: true })[0]).toEqual({ step: -1, action: "tile.title", arg: "text" });
+  expect(slotArgs(b, "word", { alt: true })).toHaveLength(2);
+});
+
 // PIE-1298: a slot is a `{word}` in act= (or in an of= script's values) that the line itself fills.
 test("a {slot} in act= is filled from the line's own word; an empty one is listed and left in the line", () => {
   const empty = buttonCallAt(['::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}'], 0)!;

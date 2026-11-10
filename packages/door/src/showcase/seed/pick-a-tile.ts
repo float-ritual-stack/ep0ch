@@ -9,6 +9,8 @@ export const PICK_A_TILE = [
   '::button{label="two up" of="neat" page={page1} page={page2} page1= page2=}',
   "A slot only the alt press reads is asked by the alt press: a click on about this shows the focused tile's card; alt+click asks which tile to lift, then lifts it.",
   '::button{label="about this" act="tile.info card=true" alt="tile.zoom tile={lift} reach=column" lift=}',
+  "When act= and alt= read the same empty slot, each press asks in its own kind: a click on title it asks which tile to lift; alt+click asks for words, which alt= writes on the preview tile as its title. The slot keeps one value for both: after words, a click names no tile and is drawn dim until ctrl+z takes them back.",
+  '::button{label="title it" act="tile.zoom tile={word} reach=column" alt="tile.title tile=preview text={word}" word=}',
   "A button that reads differently than it was written runs nothing, and says what to write (nested quotes ended act= early):",
   '::button{label="misread" act="tile.zoom reach="column" tile="t-a6125371"}',
   "What it says to write: one action per line under the button, then ::. A line of its own has no outer quote for an inner one to end, so the quotes stay as you'd type them:",

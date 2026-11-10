@@ -346,9 +346,11 @@ export function buttonCallsOf(text: string): ButtonCall[] {
  * Where slot `key` is read (PIE-1298): each step's action and the argument whose whole value is `{key}`, so a press asks for it
  * in the kind that argument takes (the action's own schema: `tile=` a tile). A script step (`of=`, or `((name …))` in a body)
  * reads it through the script's slot of that name, said `script: true`: `action` is then the script's name, and its kind is
- * the one the script declares for that slot. `tile=` is an argument here as in any action line.
+ * the one the script declares for that slot. `tile=` is an argument here as in any action line. The first use is the one the
+ * press asks it as: the steps' for the press, the alt line's (step -1) for the alt press (`alt: true`, PIE-1660), so a slot
+ * act= and alt= both read is asked in the kind of the line that press runs.
  */
-export function slotArgs(call: ButtonCall, key: string): { step: number; action: string; arg: string; script?: true }[] {
+export function slotArgs(call: ButtonCall, key: string, press: { alt?: boolean } = {}): { step: number; action: string; arg: string; script?: true }[] {
   const out: { step: number; action: string; arg: string; script?: true }[] = [];
   const read = (line: string, step: number, script: boolean) => {
     const [action, ...words] = lineWords(line);
@@ -360,7 +362,7 @@ export function slotArgs(call: ButtonCall, key: string): { step: number; action:
   call.steps.forEach((s, step) => read(s.written ?? s.source, step, s.kind === "script"));
   // The alt press's line (PIE-1316), as step -1: a slot only it reads is asked as its argument.
   if (call.altWritten) read(call.altWritten, -1, false);
-  return out;
+  return press.alt ? [...out.filter(u => u.step === -1), ...out.filter(u => u.step !== -1)] : out;
 }
 
 /**

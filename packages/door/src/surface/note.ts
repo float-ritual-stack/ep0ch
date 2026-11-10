@@ -4592,10 +4592,10 @@ export class NoteSurface {
   /**
    * What slot `key` of `button` is asked as (PIE-1298): the question of the argument that reads it, from that argument's own
    * declaration: an action's arg schema, or for a script step the slot the script declares (`[form-field::page note]`), read
-   * from the script the press would run. Null when nothing declares it (it is asked as text).
+   * from the script the press would run; the alt press's, alt='s argument (PIE-1660). Null when nothing declares it (as text).
    */
-  private async slotQuestion(block: string, button: ButtonCall, key: string, host: SurfaceHost) {
-    const use = slotArgs(button, key)[0];
+  private async slotQuestion(block: string, button: ButtonCall, key: string, host: SurfaceHost, alt = false) {
+    const use = slotArgs(button, key, { alt })[0];
     if (!use) return null;
     let action = use.action;
     if (use.script) {
@@ -4617,13 +4617,13 @@ export class NoteSurface {
     const key = keys[0]!, line = button.line + 1;
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to ask with");
-    const q = await this.slotQuestion(block, button, key, host);
+    const q = await this.slotQuestion(block, button, key, host, alt);
     if (actor.kind !== "user") {
-      throw new ActionRefused(`${button.label} has no ${key} yet: it is the person's to choose; give it: button.slot note=${block} line=${line} key=${key} value=<${q?.kind ?? "the value"}>${q?.kind === "tile" ? " (a tile's name, its id or drawer.agent)" : ""}`);
+      throw new ActionRefused(`${button.label} has no ${key} yet: it is the person's to choose; give it: button.slot note=${block} line=${line} key=${key}${alt ? " alt=true" : ""} value=<${q?.kind ?? "the value"}>${q?.kind === "tile" ? " (a tile's name, its id or drawer.agent)" : ""}`);
     }
     const tile = messageContext.getStore()?.tile;
     // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
-    const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}${run && alt ? " alt=true" : ""}`;
+    const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}${alt ? " alt=true" : ""}`;
     const then = `button.slot note=${block} line=${line} label=${JSON.stringify(button.label)} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
     const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
     if (q?.kind === "tile") {
@@ -4631,7 +4631,7 @@ export class NoteSurface {
       return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
     }
     return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
-      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true, ...(alt ? { alt: true } : {}) } : {}) }, ...(tile ? { tile } : {}) }, actor));
+      answers => d.act({ action: "button.slot", args: { note: block, line, label: button.label, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}), ...(alt ? { alt: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
   }
 
   /**
@@ -4647,7 +4647,7 @@ export class NoteSurface {
     const named = slotButton(buttonCallsOf(m.text), a); if ("refused" in named) throw new ActionRefused(named.refused);
     const { button, key } = named;
     if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor, !!a.run, !!a.alt);
-    const given = await this.slotValue(m.id, button, key, a.value, host, actor);
+    const given = await this.slotValue(m.id, button, key, a.value, host, actor, !!a.alt);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
     if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line can't hold a newline, { or } in a value`);
     const wrote = after !== before;
@@ -4659,7 +4659,7 @@ export class NoteSurface {
     // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
     if (actor.kind === "user" && (a.next !== undefined || a.ask || a.run)) {
       const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
-      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? again?.empty ?? [] : [];
+      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? (a.alt ? again?.altEmpty : again?.empty) ?? [] : [];
       const fail = (e: unknown) => host.ctx.flash(e instanceof Error ? e.message : String(e));
       if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run, !!a.alt).catch(fail);
       // The last answer of a press runs it, as the press meant (PIE-1392), its alt= for an alt press; a slot still empty is asked by that press.
@@ -4673,11 +4673,11 @@ export class NoteSurface {
   /**
    * A slot's value as it is kept (PIE-1298): a tile is kept by an address the tile grammar reads as identity (its `t-<uuid>`, a
    * role, a slot of a screen); a name, a number, `t7` or `focused` is resolved now and kept as the tile's id, for none of those
-   * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason.
+   * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason (alt: as alt= reads it).
    */
-  private async slotValue(block: string, button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor): Promise<string> {
+  private async slotValue(block: string, button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor, alt = false): Promise<string> {
     if (!value) return value;
-    const q = await this.slotQuestion(block, button, key, host);
+    const q = await this.slotQuestion(block, button, key, host, alt);
     if (q?.kind !== "tile") return value;
     const found = await tileNamed(host, value, actor);
     if ("why" in found) throw new ActionRefused(`not kept: ${found.why}`);
@@ -8865,7 +8865,7 @@ export class NoteSurface {
   closeSession() { this.session = null; }
   /** A link with no element drawn for it (folded away, not laid out yet): followed where ⏎ on it would go. */
   followLink(l: Link, host: SurfaceHost, fresh = false) { return this.followTarget(l, host, { link: true, fresh }); }
-  clearLink() { this.letGo(); }
+  clearLink() { this.listAtCursor()?.view.setPick(PERSON, null); this.letGo(); } // the host's selection takes over: the [ ] position and its list's pick go (PIE-1540)
   /** Where the reader's position is (its current element) and what it folded: a host that reuses a digest keys on it. */
   get cursorKey(): string { return `${this.cur ?? ""}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
   /** The note's followable links, in order (link.follow's n=). */
@@ -10668,7 +10668,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
       next: { type: "string", optional: true, about: "after this, ask for these slots of the same button, in order (key,key: a re-pick of filled ones)" },
       run: { type: "boolean", optional: true, about: "after the last slot is answered, press the button (the person's press that asked for them)" },
-      alt: { type: "boolean", optional: true, about: "with run=: the press was the alt press, so its alt= runs" },
+      alt: { type: "boolean", optional: true, about: "the alt press's slot: the value is read as alt='s argument (a slot act= and alt= both read), and with run= its alt= runs" },
     },
     examples: [
       { act: 'button.slot label="pop it" key=target value=drawer.agent', does: "writes target=drawer.agent on the pop it button, so its next press lifts the drawer's agent" },

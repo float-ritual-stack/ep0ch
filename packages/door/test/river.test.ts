@@ -539,6 +539,19 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await mine("tile.widen", {}, r);
     await until(() => screen().includes("Seed packet 01"), "the packets drawn");
     const s = paneOf(r).surface as any;
+    // A row is drawn picked when it wears the selected band (a background); a row never picked wears none. At rest the list
+    // lights its first row, the one its preview shows.
+    const band = (label: string) => {
+      // The row inside the list's frame (┊), not the Library's row of the same note or a neighbour's cell on that screen row.
+      for (const line of river.render(river.ctx).lines as string[]) {
+        const at = line.lastIndexOf(label), before = at < 0 ? "" : line.slice(0, at), cell = before.slice(Math.max(before.lastIndexOf("│"), before.lastIndexOf("║")));
+        if (at >= 0 && cell.includes("┊")) return cell.includes("\x1b[48;");
+      }
+      return undefined;
+    };
+    const lit = () => ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14"].filter(n => band(`Seed packet ${n}`));
+    const resting = lit();
+    expect(resting).toEqual(["01"]);
     for (let i = 0; i < 12 && !s.listAtCursor(); i++) key(char("]"));
     expect(s.listAtCursor()?.title).toBe("Packets");
     const sel = focused().sel, row = () => s.selectedElement()?.label;
@@ -547,10 +560,25 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(s.listAtCursor()?.title).toBe("Packets");
     expect(row()).not.toBe(first);
     expect(focused().sel).toBe(sel);
-    const picked = row();
+    const picked = row(), drawn = String(picked).match(/Seed packet \d+/)![0];
+    expect(lit()).toEqual([drawn.slice(-2)]);
+    expect(screen()).toContain("esc: the lit element");
     key(char("j"));                                              // the river's column.select, not a step in the list
     expect(focused().sel).toBe(sel + 1);
     expect(row()).not.toBe(picked);
+    // PIE-1540: j lets the list's pick go with the position: the row PgDn picked is drawn plain, the list lights only what it
+    // lit before the walk reached it (its preview's row), and the hint row no longer offers esc for a lit element.
+    const packets = (s.listsDrawn as any[]).find(l => l.title === "Packets");
+    expect(packets.view.hasPick("you")).toBe(false);
+    expect(band(drawn)).toBe(false);
+    expect(lit()).toEqual(resting);
+    expect(screen()).not.toContain("esc: the lit element");
+    const top = focused().top;
+    key({ kind: "pgdn" });                                       // column.scroll now: the list is no longer under the keys
+    expect(focused().top).toBeGreaterThan(top);
+    expect(focused().sel).toBe(sel + 1);
+    expect(packets.view.hasPick("you")).toBe(false);
+    expect(band(drawn)).toBe(false);
   });
 
   test("a note column folds as a reader does: fold n=1 hides its section; ( ) f and a click on the heading unfold it (round 3, W4)", async () => {
