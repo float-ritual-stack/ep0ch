@@ -4330,12 +4330,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // Tiles that keep this one's name as their source (a preview, a comment beside it, a tune) follow it.
         for (const q of this.panes.values()) q.renamedTile?.(t.name, this.nameOf(t.id));
         p.writtenTitle = this.nameOf(t.id); p.systemTitle = false;          // the title it shows is its name (as the layout kept it: a name the drawer has is numbered), until a title is written on it
-      } else if ((text || undefined) !== p.writtenTitle || p.systemTitle) {
-        // A title written on a tile is a step of the layout's one history (PIE-1666), as a rename is: ctrl+z takes it back.
-        const prior = this.settled ?? this.snapshotShape();
-        p.writtenTitle = text || undefined; p.systemTitle = false;
-        if (prior) { this.recordChange(prior.before, actor, "title"); this.settled = this.snapshotShape(); }
-      }
+      } else if ((text || undefined) !== p.writtenTitle || p.systemTitle) { // a written title is a layout step, as a rename is: ctrl+z takes it back (PIE-1666)
+        const prior = this.settled ?? this.snapshotShape(); p.writtenTitle = text || undefined; p.systemTitle = false; if (prior) { this.recordChange(prior.before, actor, "title"); this.settled = this.snapshotShape(); } }
     } else {
       if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<name or title>; text= clears a written title");
       this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename this tile", text: p.writtenTitle ?? t.name, prefilled: true, verbatim: true,
@@ -5821,9 +5817,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.save(); this.redraw();
     return { ...answer, spilled: out.tiles.map(x => this.nameOf(ids.get(x.id)!)) };
   }
-  /**
-   * Inspect a spill before asking the containing layout: a refusal must leave picks and pending interactions intact.
-   */
+  /** Inspect a spill before asking the containing layout: a refusal must leave picks and pending interactions intact. */
   private spillState(): { tree: LNode; tiles: { id: number; name: string; pane: Pane }[]; folds: [number, Fold][]; agents: [number, AgentLevel][]; wires: TileWire[]; ext: [number, ExtLink[]][] } {
     if (this.floats.length) throw new ActionRefused(`${this.floats.map(f => this.nameOf(f.id)).join(", ")} float${this.floats.length === 1 ? "s" : ""} in it: put ${this.floats.length === 1 ? "it" : "them"} back first (^W f inside, ^W e goes in)`);
     const tiles = leaves(this.root).map(id => ({ id, name: this.nameOf(id), pane: this.panes.get(id)! }));
