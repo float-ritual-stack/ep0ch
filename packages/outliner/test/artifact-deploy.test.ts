@@ -12,7 +12,7 @@ import { artifactDestination } from "../src/artifact-deploy";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const f of cleanup.splice(0).reverse()) await f(); });
 
-async function fixture(app = false) {
+async function fixture(app = false, options: { kit?: boolean; before?: (store: OutlinerStore) => Promise<void> } = {}) {
   const root = mkdtempSync(join(tmpdir(), "deploy-")), paths = scratchOutline(root);
   const bin = join(root, "bin"); mkdirSync(bin);
   writeFileSync(join(root, "commit"), "abc123");
@@ -20,6 +20,8 @@ async function fixture(app = false) {
   process.env.EP0CH_ARTIFACT_DEPLOYS = join(root, "clones");
   process.env.ARTIFACT_FIXTURE = root;
   process.env.EP0CH_VERCEL_VERIFY_WAIT_MS = "1";
+  // A user folder in use, as on float-2: the kit still goes in the outline's own (PIE-1509).
+  process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
   const wrapper = (name: string, source: string) => {
     const file = join(bin, name);
     writeFileSync(file, `#!/bin/sh\nset -eu\nprintf '%s\\n' '${name}' "$@" >> "$ARTIFACT_FIXTURE/calls"\n${source}\n`, { mode: 0o700 });
@@ -88,10 +90,13 @@ else
   shift; shift; exec "$@"
 fi`);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
+  await options.before?.(store);
   const server = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines, ruleQuietMs: 20 });
   await server.start();
   cleanup.push(async () => { await server.extensionRules.settle(); await server.close(); store.close(); process.env = old; rmSync(root, { recursive: true, force: true }); });
   const client = new OutlinerClient(paths.socket);
+  // Installed as a person does: the power bar's install row runs extensions.install.
+  if (options.kit) await client.request({ action: "extensions.install", extension: "artifact-deploy" });
   const cli = async (...args: string[]) => {
     const p = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../door/src/main.ts"), "artifact", ...args, "--ws", "scratch"], {
       env: { ...process.env, ...paths.env, EP0CH_SOCKET: paths.socket, EP0CH_MACHINE: "", XDG_CONFIG_HOME: join(root, "config") }, stdout: "pipe", stderr: "pipe",
@@ -154,7 +159,7 @@ test.each([
 });
 
 test("a saved property runs the shared deployment action, redeploys a new commit and keeps capture on failure", async () => {
-  const { root, client, store, server, cli } = await fixture(true);
+  const { root, client, store, server, cli } = await fixture(true, { kit: true });
   const note = await client.request<{ id: string }>({ action: "create", text: "Moth garden [artifact::github.com/ep0ch-artifacts/moth-garden]", author: "user" });
   await server.extensionRules.settle();
   for (const started = Date.now(); !store.get(note.id)!.text.includes("[url::") && Date.now() - started < 5000;) await Bun.sleep(20);
@@ -258,7 +263,7 @@ test("with no record, a --domain finds the project already serving that name ins
 });
 
 test("the CLI domain overrides the note domain, and saved notes use their domain", async () => {
-  const { root, cli, store, client, server } = await fixture(true);
+  const { root, cli, store, client, server } = await fixture(true, { kit: true });
   writeFileSync(join(root, "token"), "present");
   const note = store.create("Moth garden [artifact::ep0ch-artifacts/moth-garden] [domain::glow]", null, "agent", { actorId: "ext:fixture" });
   const result = await cli("deploy", "moth-garden", "--domain", "moon");
@@ -361,7 +366,7 @@ test("verify is asked again while the record reaches Vercel; one that never come
 });
 
 test("a full name on a team-held domain on Vercel's nameservers skips the TXT and Hetzner, from the flag or the note", async () => {
-  const { root, cli, store, client, server } = await fixture(true);
+  const { root, cli, store, client, server } = await fixture(true, { kit: true });
   writeFileSync(join(root, "token"), "present");
   const result = await cli("deploy", "moth-garden", "--domain", "moon.vercelheld.example");
   expect(result.err).toBe(""); expect(result.code).toBe(0);
@@ -432,7 +437,7 @@ test("artifact dns reconciles the address by hand, as it did", async () => {
 });
 
 test("a repo on a line of a note, as a URL, deploys on save and artifacts.show answers its deploy state", async () => {
-  const { client, store, server, root } = await fixture();
+  const { client, store, server, root } = await fixture(false, { kit: true });
   const repo = "https://github.com/ep0ch-artifacts/moth-garden";
   expect((await client.request<Shown>({ action: "artifacts.show", name: repo })).deploy).toMatchObject({ state: "not-deployed", command: "ep0ch artifact deploy ep0ch-artifacts/moth-garden" });
   const note = await client.request<{ id: string }>({ action: "create", text: `Trying things\n\n[artifact::${repo}]`, author: "user" });
@@ -471,43 +476,86 @@ test("a repo outside ep0ch-artifacts is refused with the fork, and an imported d
   expect(imported).toMatchObject({ url: "https://lamp-loop.ep0ch.sh", deploy: { state: "live", recorded: "someone/lamp-loop-original" } });
 });
 
-test("an earlier seeded deploy rule and script, never edited, are brought up to reading lines", async () => {
-  const root = mkdtempSync(join(tmpdir(), "deploy-seed-")), paths = scratchOutline(root);
-  cleanup.push(async () => rmSync(root, { recursive: true, force: true }));
-  let store = new OutlinerStore(paths.database, { workspaceRoot: root });
+/** Waits for `done`, up to five seconds; answers whether it came. */
+async function until(done: () => boolean): Promise<boolean> {
+  for (const started = Date.now(); !done() && Date.now() - started < 5000;) await Bun.sleep(20);
+  return done();
+}
+/** The commit the catalogue says is deployed, if any: a plain-files repo deploys to the static store, with no vercel call. */
+const deployed = (store: OutlinerStore) => store.queryBlocks({ where: "type=artifact-deployment" }).blocks[0]?.properties.find(p => p.key === "commit")?.value;
+type Listed = { extensions: { id: string; state: string; origin: string; directory: string }[]; available?: { id: string }[] };
+const kitOf = async (client: OutlinerClient) => (await client.request<Listed>({ action: "extensions.list" })).extensions.find(e => e.id === "artifact-deploy" && e.state !== "shadowed");
+const save = async (client: OutlinerClient, store: OutlinerStore, id: string, text: string) =>
+  client.request({ action: "update", blockId: id, text, expectedRevision: store.get(id)!.revision, mutation: { author: "user" } });
+
+// The texts the host wrote into every outline before the kit (PIE-1509), the earlier of each: what an old outline holds.
+const SEEDED_SCRIPT = 'Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0], domain: this.properties.find(p => p.key === "domain")?.values[0] }));\n```';
+const seededRule = (action: string, extra = "", body = "Only ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.") =>
+  `Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]${extra}\n\n${body}`;
+async function seedOld(store: OutlinerStore, rule: (action: string) => string = seededRule) {
   const actor = { actorId: "ext:artifact-deploy" };
-  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0], domain: this.properties.find(p => p.key === "domain")?.values[0] }));\n```', null, "agent", actor);
   const { scriptSourceId } = await import("../src/script-sources");
-  const action = `${scriptSourceId(script.id)}/run`;
-  const rule = store.create(`Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.`, null, "agent", actor);
-  store.writeMetadata("artifacts.deploy-rule", rule.id);
-  const edited = store.create("Not ours [script::deploy-artifact]\n\n```js\ntext(1)\n```", null, "user");
-  store.close();
-  store = new OutlinerStore(paths.database, { workspaceRoot: root });
-  const server = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines });
-  await server.start();
-  cleanup.push(async () => { await server.close(); store.close(); });
-  expect(store.get(rule.id)!.text).toContain("[property-scope::all]");
-  expect(store.get(rule.id)!.text).toContain(`[rule-on::${action}]`);
-  expect(store.get(script.id)!.text).toContain("tools.artifact_deploy({ note: this.id })");
-  expect(store.get(edited.id)!.text).toContain("text(1)");
+  const script = store.create(SEEDED_SCRIPT, null, "agent", actor);
+  const made = store.create(rule(`${scriptSourceId(script.id)}/run`), null, "agent", actor);
+  store.writeMetadata("artifacts.deploy-rule", made.id);
+  return { script, rule: made };
+}
+
+test("a fresh outline deploys nothing until the kit is installed from the install row, in its own folder; uninstalled, it stops", async () => {
+  const { root, client, store, server } = await fixture();
+  // Nothing is written into the outline at start any more: no rule note, no script note.
+  expect(store.queryBlocks({ where: "rule-name=deploy-artifact" }).blocks).toHaveLength(0);
+  expect(store.queryBlocks({ where: "script=deploy-artifact" }).blocks).toHaveLength(0);
+  expect((await client.request<Listed>({ action: "extensions.list" })).available?.map(a => a.id)).toContain("artifact-deploy");
+  const note = await client.request<{ id: string }>({ action: "create", text: "Moth garden [artifact::ep0ch-artifacts/moth-garden]", author: "user" });
+  await server.extensionRules.settle(); await Bun.sleep(100);
+  expect(deployed(store)).toBeUndefined();
+  // The power bar's install row: a user folder is in use, and the kit still lands in this outline's own.
+  await client.request({ action: "extensions.install", extension: "artifact-deploy" });
+  expect(await kitOf(client)).toMatchObject({ state: "active", origin: "outline", directory: join(root, "extensions", "artifact-deploy") });
+  expect(existsSync(join(root, "user-extensions", "artifact-deploy"))).toBe(false);
+  await save(client, store, note.id, "Moth garden [artifact::ep0ch-artifacts/moth-garden]\nsown");
+  await server.extensionRules.settle();
+  expect(await until(() => deployed(store) === "abc123")).toBe(true);
+  // The kit's script ran on the saved note (`this`): the deploy wrote its URL there.
+  expect(await until(() => store.get(note.id)!.text.includes("[url::"))).toBe(true);
+  await client.request({ action: "extensions.uninstall", extension: "artifact-deploy", demo: "keep" });
+  expect(await kitOf(client)).toBeUndefined();
+  writeFileSync(join(root, "commit"), "def456");
+  await save(client, store, note.id, `${store.get(note.id)!.text}\nthinned`);
+  await server.extensionRules.settle(); await Bun.sleep(100);
+  expect(deployed(store)).toBe("abc123");
 });
 
-test("a seeded rule someone edited is left as they wrote it", async () => {
-  const root = mkdtempSync(join(tmpdir(), "deploy-edited-")), paths = scratchOutline(root);
-  cleanup.push(async () => rmSync(root, { recursive: true, force: true }));
-  let store = new OutlinerStore(paths.database, { workspaceRoot: root });
-  const actor = { actorId: "ext:artifact-deploy" };
-  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0] }));\n```', null, "agent", actor);
-  const { scriptSourceId } = await import("../src/script-sources");
-  const action = `${scriptSourceId(script.id)}/run`;
-  const rule = store.create(`Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}] [rule-quiet::30s]\n\nMine now.`, null, "agent", actor);
-  store.writeMetadata("artifacts.deploy-rule", rule.id);
-  store.close();
-  store = new OutlinerStore(paths.database, { workspaceRoot: root });
-  const server = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines });
-  await server.start();
-  cleanup.push(async () => { await server.close(); store.close(); });
-  expect(store.get(rule.id)!.text).toContain("Mine now.");
-  expect(store.get(script.id)!.text).toContain("tools.artifact_deploy({ note: this.id })");
+test("an outline with the old seeded notes lists the kit as installed, keeps deploying on save, and never gets them back", async () => {
+  let seeded: Awaited<ReturnType<typeof seedOld>> | undefined;
+  const { root, client, store, server, paths } = await fixture(false, { before: async (s) => { seeded = await seedOld(s); } });
+  // Installed in the outline's own folder, as the power bar's row would: removable from here alone.
+  expect(await kitOf(client)).toMatchObject({ state: "active", origin: "outline", directory: join(root, "extensions", "artifact-deploy") });
+  // The two notes did what the kit does now: they're in Trash, by the extension, and the key is spent.
+  expect(store.get(seeded!.rule.id)!.effectiveDeletedRootId).toBe(seeded!.rule.id);
+  expect(store.get(seeded!.script.id)!.effectiveDeletedRootId).toBe(seeded!.script.id);
+  expect(store.readMetadata("artifacts.deploy-rule")).toBe("");
+  const note = await client.request<{ id: string }>({ action: "create", text: "Lamp yard\n\n[artifact::ep0ch-artifacts/moth-garden]", author: "user" });
+  await server.extensionRules.settle();
+  expect(await until(() => deployed(store) === "abc123")).toBe(true);
+  // Uninstalled here, a restart doesn't bring the notes or the kit back.
+  await client.request({ action: "extensions.uninstall", extension: "artifact-deploy", demo: "keep" });
+  await server.extensionRules.settle(); await server.close();
+  const again = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines, ruleQuietMs: 20 });
+  await again.start();
+  cleanup.push(async () => { await again.extensionRules.settle(); await again.close(); });
+  expect(await kitOf(new OutlinerClient(paths.socket))).toBeUndefined();
+  expect(store.queryBlocks({ where: "rule-name=deploy-artifact" }).blocks).toHaveLength(0);
+  expect(store.get(note.id)!.effectiveDeletedRootId).toBeFalsy();
+});
+
+test("seeded notes someone edited stay their own rule: kept as written, and the kit isn't installed over them", async () => {
+  let seeded: Awaited<ReturnType<typeof seedOld>> | undefined;
+  const { client, store } = await fixture(false, { before: async (s) => { seeded = await seedOld(s, (action) => seededRule(action, " [rule-quiet::30s]", "Mine now.")); } });
+  expect(store.get(seeded!.rule.id)!.text).toContain("Mine now.");
+  expect(store.get(seeded!.rule.id)!.effectiveDeletedRootId).toBeFalsy();
+  // Its script nobody edited still reads lines (PIE-1060).
+  expect(store.get(seeded!.script.id)!.text).toContain("tools.artifact_deploy({ note: this.id })");
+  expect(await kitOf(client)).toBeUndefined();
 });

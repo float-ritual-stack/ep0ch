@@ -3,7 +3,7 @@ import { CompletionRequests } from "./completion-requests";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
-import { deployArtifact, deployNote, artifactDns, artifactRepoInfo, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
+import { adoptArtifactKit, deployArtifact, deployNote, artifactDns, artifactRepoInfo, backfillArtifacts } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
 import type { MediaCopier } from "./media-copies"; import { answerArtifact, lineCopier, type ArtifactLineHost } from "./artifact-lines";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
@@ -83,7 +83,7 @@ import { Yolo } from "./yolo";
 import { yoloTask } from "@ep0ch/outline-core/attribution";
 import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
 import { ExtensionPages } from "./extension-pages";
-import { addExtension, removeExtension } from "./extension-install";
+import { addExtension, installsPerOutline, removeExtension } from "./extension-install";
 import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse, type ExtensionRunStatus } from "./resource-extensions";
 import { readExtensionFolder, type ExtensionOrigin } from "./extension-manifest";
 import { settingsOf, writeExtensionSettings } from "./extension-settings";
@@ -716,7 +716,7 @@ export class OutlinerServer {
     if (!existsSync(join(BUILT_IN_EXTENSIONS, id, "extension.json"))) {
       throw new Error(`No extension ${id} in the repo's folder${available.length ? ` (available: ${available.join(", ")})` : ""}`);
     }
-    const outline = where === "outline" || (where === undefined && !userExtensionsFolderInUse());
+    const outline = where === "outline" || (where === undefined && (installsPerOutline(id) || !userExtensionsFolderInUse()));
     const disabled = this.extensionPages.disabledRules()[id] ?? 0;
     const lines = await addExtension(id, outline ? { outlineFolder: this.store.workspaceRoot } : {});
     await this.extensionRegistry.reload();
@@ -866,10 +866,10 @@ export class OutlinerServer {
     heldBy(`open ${name}: agent requests`, () => this.agentRequests.start());
     this.extensionSync.start();
     heldBy(`open ${name}: rules`, () => this.extensionRules.start());
-    heldBy(`open ${name}: routing`, () => { this.routing.ensureHub(); seedArtifactRule(this.store); });
+    heldBy(`open ${name}: routing`, () => this.routing.ensureHub());
     this.extensionSchedules.start();
     // Its resource providers once its folders are read (and again on every reload); answered when that and its pages are done.
-    return this.extensionPages.giveWay().then(() => this.extensionRegistry.watch()).catch(() => {}).then(() => this.refreshResourceProviders()).then(() => this.syncExtensionPages(false)).catch(() => {});
+    return this.extensionPages.giveWay().then(() => adoptArtifactKit(this.store, this.readOnly, name)).then(() => this.extensionRegistry.watch()).catch(() => {}).then(() => this.refreshResourceProviders()).then(() => this.syncExtensionPages(false)).catch(() => {});
   }
 
   /** Takes over a connection the host accepted; `buffered` is what the host already read from it. */
@@ -904,7 +904,7 @@ export class OutlinerServer {
     }
     this.extensionSync.start();
     this.extensionRules.start();
-    if (!this.readOnly) { this.routing.ensureHub(); seedArtifactRule(this.store); this.extensionSchedules.start(); }
+    if (!this.readOnly) { this.routing.ensureHub(); this.extensionSchedules.start(); await adoptArtifactKit(this.store, false, this.outline?.name); }
     await this.extensionRegistry.watch().catch(() => {});
     // Its resource providers once its folders are read: a note saved as soon as it answers reads its `key::` lines.
     await this.refreshResourceProviders();

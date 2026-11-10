@@ -226,8 +226,9 @@ function triggerOn(on: {
   start?: string | ActionRef; stop?: string | ActionRef; change?: string | ActionRef; open?: string | ActionRef; events?: Readonly<Record<string, string | ActionRef>>; extension?: string;
   quiet?: string; from?: string | readonly string[]; batch?: string; cap?: string | number; skip?: string;
 }): NonNullable<RuleEntry["on"]> {
+  // A manifest's `script:<name>` is a script it ships (PIE-1509), run as a rule note's `[rule-on::script:<name>]` is.
   const ref = (value: string | ActionRef | undefined): ActionRef | undefined =>
-    value === undefined ? undefined : typeof value === "string" ? { extension: on.extension!, action: value } : value;
+    value === undefined ? undefined : typeof value !== "string" ? value : value.startsWith("script:") ? { extension: value, action: "run" } : { extension: on.extension!, action: value };
   const start = ref(on.start), stop = ref(on.stop), change = ref(on.change), open = ref(on.open);
   const from = on.from === undefined ? undefined : parseRuleWriters(on.from).writers;
   const cap = on.cap === undefined ? undefined : typeof on.cap === "number" ? on.cap : parseRuleCap(on.cap);

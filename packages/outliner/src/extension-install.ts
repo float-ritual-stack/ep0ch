@@ -4,7 +4,7 @@ import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs
 import { cliActorId } from "./machine-name";
 import { checkServiceCompatibility } from "./service-compatibility";
 import type { OutlinerServiceStatus } from "./types";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -159,6 +159,11 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
   }
   lines.push("The service watches the folder: it loads now, with no restart; code changes apply on the next call.");
   return lines;
+}
+
+/** Whether a built-in says it installs per outline (`installs: "outline"`, PIE-1509): the install row puts it in the outline's own folder. */
+export function installsPerOutline(id: string, builtInsDir = BUILT_INS): boolean {
+  try { return JSON.parse(readFileSync(join(builtInsDir, id, "extension.json"), "utf8")).installs === "outline"; } catch { return false; }
 }
 
 /** Deletes an installed extension's folder. Its records stay as blocks; the service drops what it declared. */

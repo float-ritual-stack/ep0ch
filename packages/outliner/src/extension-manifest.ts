@@ -50,6 +50,8 @@ export const EXTENSION_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
 /** A screen's name, as the door's screen registry takes one (a letter, then letters, digits, . - _; at most 40). */
 const SCREEN_NAME_PATTERN = "^[A-Za-z][\\w.-]{0,39}$";
 const ID = Type.String({ pattern: EXTENSION_ID_PATTERN });
+/** What a rule's `on` runs: an action the manifest declares (`stamp`), or a script it ships (`script:deploy-artifact`, PIE-1509). */
+const RuleAction = Type.String({ pattern: "^(script:)?[a-z][a-z0-9-]{0,31}$" });
 /** What a file script's first line (`// ep0ch-script effects=write mode=render`, each setting optional) declares; null when the line isn't the opt-in. */
 export function scriptHeader(line: string): { effects: "read" | "write"; render: boolean } | null {
   const found = /^\s*\/\/ ep0ch-script((?: (?:effects=(?:read|write)|mode=render))*)\s*$/.exec(line);
@@ -397,7 +399,8 @@ const RuleSchema = Type.Object(
       { additionalProperties: false },
     )),
     /**
-     * Run an action (from `actions[]`) on the block when it starts matching, stops matching, or is saved while it
+     * Run an action (from `actions[]`, or `script:<name>` for a script `scripts[]` ships, run as its `run` with the
+     * block as `this`) on the block when it starts matching, stops matching, or is saved while it
      * matches, once it has been quiet for `quiet` (default 2s). `from` names the writers whose saves set it off
      * (`user`, `agent`, `ext:<id>`; default a person's and agents', never an extension's); nothing a trigger wrote sets
      * it off. Guards for an action that starts an agent: `batch` gathers a burst into one call, `cap` (`20/day`) the
@@ -405,7 +408,7 @@ const RuleSchema = Type.Object(
      */
     on: Type.Optional(Type.Object(
       {
-        start: Type.Optional(ID), stop: Type.Optional(ID), change: Type.Optional(ID), open: Type.Optional(ID), events: Type.Optional(Type.Record(Type.String({ pattern: "^door\\." }), ID)), quiet: Type.Optional(Duration),
+        start: Type.Optional(RuleAction), stop: Type.Optional(RuleAction), change: Type.Optional(RuleAction), open: Type.Optional(RuleAction), events: Type.Optional(Type.Record(Type.String({ pattern: "^door\\." }), RuleAction)), quiet: Type.Optional(Duration),
         from: Type.Optional(Type.Array(Type.String({ pattern: "^(user|agent|ext:[a-z][a-z0-9-]{0,31})$" }), { minItems: 1, maxItems: 16 })),
         batch: Type.Optional(Duration),
         cap: Type.Optional(Type.String({ pattern: "^[1-9][0-9]{0,3}(/day)?$" })),
@@ -485,6 +488,12 @@ const ManifestV2 = Type.Object(
      * host at start when no copy is installed and nobody uninstalled it here (`extensions.uninstall` keeps that choice).
      */
     defaultOn: Type.Optional(Type.Boolean()),
+    /**
+     * Where `extensions.install` (the power bar's install row, `act`) puts a built-in when nothing says: `outline`, the
+     * outline's own folder, for a behaviour each outline turns on or off by itself (artifact deploy, PIE-1509); left out,
+     * the user folder (every outline the host serves) when one is in use.
+     */
+    installs: Type.Optional(Type.Literal("outline")),
     /**
      * A door module the door ships (PIE-1505, packages/door/ext/<name>, src/door-modules.ts): run in the door's own
      * process while this extension is served, for a behaviour that answers the pointer and keys within a frame (the
@@ -767,6 +776,10 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (ruleDeadline !== undefined && ruleDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`${where}/decorate/deadline is longer than 5m`);
     for (const [when, id] of [...["start", "stop", "change", "open"].map(when => [when, rule.on?.[when as "start" | "stop" | "change" | "open"]]), ...Object.entries(rule.on?.events ?? {})]) {
       if (id === undefined) continue;
+      if (id.startsWith("script:")) {
+        if (!(manifest.scripts ?? []).some((script) => script.name === id.slice(7))) throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which scripts[] doesn't declare`);
+        continue;
+      }
       const action = (manifest.actions ?? []).find((candidate) => candidate.id === id);
       if (!action) throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which actions[] doesn't declare`);
       if ((action.on ?? "block") !== "block") throw new ExtensionLoadError(`${where}/on/${when} names ${id}, which acts on ${action.on}; a rule's action acts on the block (on: block)`);
