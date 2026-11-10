@@ -16,6 +16,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Gone, each already run on pie and float-hub:** the migrations 0001 to 0010 and the schema-6 copy, the brace sweep (`outliner sweep`, and its `ep0ch install --apply` step), the machinery backfill (`ep0ch machinery backfill`), the comment-target repair and the route-to-note-mover rewrite. An old `[type::route]` rule still moves notes and warns on save.
 - **An outline at an older schema, or one missing its instance id,** is refused with the import route (`ep0ch outline import`), with the exact commands.
 - **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
+
+### One owner each for the helpers that had twins (PIE-1646, PIE-1647, PIE-1648)
+
+- **The Herdr popups share one terminal session runner** (PIE-1648): Tree, Detail, the navigator and the other popups start, queue input, draw and leave the terminal through it.
+- **One copy each of HTML escaping, the publisher's sentinels, `clip` and stable JSON** (PIE-1647). Every page the outliner writes goes through `html-escape.ts`, which escapes the apostrophe too.
+- **The Claude mod carries outline-core through its bundle only** (PIE-1646), with no second copy beside it.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
+
 ### Type an artifact's path or name in any outline and it runs (PIE-1644, PIE-1643)
 
 - **No put, no `--machine`, no store:** write `[artifact::<any path on a machine you use>]` or `[artifact::<name>]` in any outline on any machine and save. It runs in the door's card, on my.ep0ch.sh and through a share.
