@@ -1,7 +1,8 @@
 export { dateBucket, questionFacets, questionGroups } from "@ep0ch/outline-core/query-facets";
 export { RECENT_BUCKETS, recentBucket };
 export type ValuesOf = import("@ep0ch/outline-core/query-facets").ValuesOf<Block>;
-import { missingPropertyHint } from "@ep0ch/outline-core/property-hint";
+import { missingPropertyHint, missingWorkIdHint } from "@ep0ch/outline-core/property-hint";
+import { expressionWorkIds, WORK_ID_KEY } from "@ep0ch/outline-core/query-expression";
 // Service hints read the same query keys as the shared counter; the store supplies values in the requested scope.
 import { RECENT_BUCKETS, recentBucket } from "@ep0ch/outline-core/date-buckets";
 import { readBound, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
@@ -28,6 +29,15 @@ export function questionHint(query: NormalizedBlockSearchQuery, known: ReadonlyS
   const missing = questionKeys(query).filter(key => !known.has(key) && !(key === "tag" && known.has("tags")));
   if (!missing.length) return undefined;
   return missing.map(key => missingPropertyHint(key, [...known])).join(" · ");
+}
+
+/**
+ * For a question that answered nothing: each Work ID it asked for by its item (`work-id=PIE-587`, or bare) that no item
+ * has (`has`), named with the clause it was read as (PIE-1682), so an empty answer never reads as "no such key".
+ */
+export function questionWorkIdHint(query: NormalizedBlockSearchQuery, has: (workId: string) => boolean): string | undefined {
+  const asked = [...(query.filters ?? []).flatMap(f => f.key === WORK_ID_KEY && f.value !== undefined ? [f.value] : []), ...expressionWorkIds(query.predicate)];
+  return missingWorkIdHint([...new Set(asked)].filter(id => !has(id)));
 }
 
 /** The comparisons a question makes as dates or numbers: `due <= +3d`, `rating > 3`, `due=today` (under NOT too). */

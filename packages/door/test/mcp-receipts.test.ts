@@ -228,6 +228,23 @@ describe.skipIf(!outliner)("write receipts, read-your-writes and outline_query o
     expect([...first.matches, ...rest.matches].map((m: { record: { id: string } }) => m.record.id)).toEqual(expected);
   });
 
+  test("outline_query with bare Work IDs answers their items, as outline_read resolves one; one no item has names work-id= (PIE-1682)", async () => {
+    const garden = boardOn(here, "garden-notes", HERE);
+    const made: string[] = [];
+    for (const text of ["Rehang the gate [type::roadmap-item] [work-stage::queued] [work-id::GDN-587]", "Oil the hinges [type::roadmap-item] [work-stage::queued] [work-id::GDN-588]"]) {
+      made.push((await garden.request("create", { parentId: null, text, author: "user" })).id);
+    }
+    try {
+      const both = (await tool("outline_query", { outline: "garden-notes", query: "GDN-587 OR GDN-588" })).json;
+      expect(both.matches.map((m: { record: { id: string } }) => m.record.id).sort()).toEqual([...made].sort());
+      const none = (await tool("outline_query", { outline: "garden-notes", query: "GDN-999" })).json;
+      expect(none.total).toBe(0);
+      expect(none.hint).toContain("work-id=GDN-999");
+    } finally {
+      for (const id of made) await garden.trash(id);
+    }
+  });
+
   test("outline_query by saved view returns the members the door's view shows", async () => {
     const garden = boardOn(here, "garden-notes", HERE);
     const shown = (await garden.readSavedView(ids.view!)).blocks.map(b => b.id);
