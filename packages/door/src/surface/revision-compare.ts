@@ -6,8 +6,10 @@ import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { C, fg, pad, RESET, width } from "../style";
 import { rowLines } from "../text";
 import { whenPut } from "../edit";
-import { diffInk, type RevisionDiff } from "../desk/what-changed";
+import { diffInk, type RevisionDiff, revisionDiff } from "../desk/what-changed";
 import { REVISION_CONTROLS } from "./attached-keys";
+import { ActionRefused } from "./actions";
+import type { SocketBoard } from "../socket";
 
 export type RevisionAgainst = "next" | "now";
 
@@ -77,4 +79,15 @@ export function revisionFacts(v: RevisionView) {
   const { from, to, current, rows } = v.diff;
   return { revision: from.revision, to: to.revision, current, against: v.against, title: revisionTitle(v), top: v.top,
     changed: rows.filter(r => r[0] === "+" || r[0] === "-").length, rows: rows.length, diff: rows };
+}
+
+/**
+ * The compare a reader opens (PIE-1433): revision `revision` (left out: the one before the note now) against the next
+ * one kept, or against the note now. The person's and an agent's revision.compare both ask it.
+ */
+export async function compareAt(board: SocketBoard, id: string, revision: number | undefined, against: RevisionAgainst) {
+  const list = await board.revisions(id);
+  const from = revision ?? list.revisions.find(r => r.revision < list.revision)?.revision;
+  if (from === undefined) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision}; the outline keeps a note's newest 100 texts)`);
+  return revisionDiff(board, id, from, against === "now" ? list.revision : undefined, list);
 }
