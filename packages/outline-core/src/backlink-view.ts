@@ -342,6 +342,16 @@ export function backlinkView(
   };
 }
 
+/** A text, kind or stage filter narrows the view; then every group is open, so a match is never folded away. */
+export function backlinkNarrowingActive(options: Readonly<BacklinkViewOptions>): boolean {
+  return options.filter !== "" || options.kind !== null || options.stage !== "all";
+}
+
+/** Groups start collapsed; one the reader opened, or any while narrowing, is open. Detail and the door both ask it. */
+export function backlinkGroupExpanded(options: Readonly<BacklinkViewOptions>, expandedKinds: ReadonlySet<string>, kind: string): boolean {
+  return expandedKinds.has(kind) || backlinkNarrowingActive(options);
+}
+
 /** Sources that render as rows: an expanded group lists every source; a collapsed one only its open sources. */
 export function backlinkGroupRows(group: BacklinkViewGroup, expanded: boolean): BacklinkSource[] {
   return expanded

@@ -17,6 +17,14 @@ are its record. The outliner's entries from then are kept below, under
 - **A comment's footer names `^R reload`:** while a draft is "changed elsewhere", its reload key leads the footer (a comment, a reply, a comment's edit and a note's edit), so a narrow tile still shows it. A "nothing newer to load" said earlier goes once a change is heard.
 - **The paste offer's Esc after an edit:** type a letter on an offered paste and delete it, and the line is yours: Esc clears it first and a second Esc closes the bar. The kitchen sink's paste-a-link note now says how to recover text typed while an edit or a comment failed to open.
 - **A picker shows every choice on a narrow screen:** a picker sized for its choices grows by the rows a wrapped choice takes (the tile menu's recover typed text at 44 columns draws both), within the screen; a picker sized to scroll keeps its height.
+
+### The outliner's three biggest files: what's pure moved beside them, copies folded onto their owners (PIE-1376)
+
+- **Nothing you use changes:** Tree, Detail, the host and the CLI answer exactly as before; Tree and Detail were driven side by side with main's and drew the same screens. This is for whoever opens the code next.
+- **`store.ts` (6,428 → 6,172 lines):** a tree index's labels moved to `tree-index-labels.ts`, a roadmap item's input checks to `roadmap-input.ts`. Its banners say what's under them, and every metadata read and write goes through `readMetadata`/`writeMetadata`.
+- **`resource-catalog.ts` (4,936 → 4,296):** the tables' rows and their records moved to `resource-rows.ts`, a filesystem Source's root and confinement to `filesystem-source.ts`, and a fetched response's media type and body cancel to `http-response.ts`, now shared with the remote-entity client.
+- **`detail-controller.ts` (4,664 → 4,074):** a selection made into an annotation target moved to `detail-annotation-targets.ts`, the document shown for a Resource to `detail-resource-document.ts`. The controller's closure is banded by region.
+- **Copies folded onto one owner each:** a canonical Work ID (outline-core `canonicalWorkId`), the backlink panel's open/closed rule (outline-core `backlinkGroupExpanded`, which the door had copied), a blocked capability factor (`blockingCapabilityFactor`), the content hash (`sha256`, now over text or bytes), the root-escape test (`escapesRoot`), the editor's moves (`applyTextBufferEditorCommand`), and lists the store wrote out again (work stages, property scopes, property columns).
 - **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
 
 ### Rebind any key of a draft and it works, and shows, wherever you type (Nov 3 review cards 1 and 8)
