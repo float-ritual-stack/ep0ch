@@ -265,4 +265,6 @@ test("a press finds its button moved by an edit above it, and a gone sequence is
   expect(() => buttonPressed(`${now}\n\n${button}`, press)).toThrow("isn't in the note as it is now");
   // A press with one step and no button (a link's or a view's) is the caller's to run as its line.
   expect(buttonPressed("Shelf", { line: 0, act: "status.log" })).toBeNull();
+  // A press with no label isn't a note's button (a chip's, drawn at line 0): a button written on that line isn't it.
+  expect(buttonPressed('::button{label="Go" act="status.log"}\nShelf', { line: 0, act: "theme.cycle" })).toBeNull();
 });
