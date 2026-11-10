@@ -189,6 +189,27 @@ describe.skipIf(!outliner)("Esc's one order (PIE-1614)", () => {
     } finally { d.quit(); }
   });
 
+  test("edit.close moved to alt+q: a stray Esc in a comment being written does nothing, so alt+q still takes two presses to put it aside (PIE-1688)", async () => {
+    process.env.EP0CH_EDIT_ARM = "off";
+    setKeys("edit.close", ["alt+q"]); reloadKeymap();
+    const d = await door();
+    try {
+      const said = () => escSays(d.app.esc.next() ?? "");
+      const writing = () => !!(d.reader().surface as any).session?.composer;
+      await d.feed("C");
+      await until(writing, "the comment opens");
+      await d.feed("mulch the beds");
+      expect(said()).toBe("alt+q: the comment, twice puts it aside");
+      await d.feed(ESC);
+      await sleep(300);
+      expect(writing()).toBe(true);
+      expect(said()).toBe("alt+q: the comment, twice puts it aside");
+      await d.feed("\x1bq");
+      expect(writing()).toBe(true);
+      expect(said()).toBe("alt+q: the comment, put aside");
+    } finally { d.quit(); }
+  });
+
   test("an edit's mode has a key table for the keys window: the draft's rows, the $EDITOR chord and the note edit's own keys (Nov 3 review card 1)", async () => {
     process.env.EP0CH_EDIT_ARM = "off";
     const d = await door();

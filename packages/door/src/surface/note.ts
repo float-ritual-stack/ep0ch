@@ -4055,8 +4055,8 @@ export class NoteSurface {
 
   private commentKey(s: CommentSession, k: Key, host: SurfaceHost, escape = false): boolean {
     if (!escape && s.mode === "compose" && s.composer && !s.busy && !s.composer.busy && !completerOf(s.composer)?.shown) {
-      const binding = modeBinding(COMMENT_KEYS, k);
-      if (binding) { void this.runKey(binding.action as keyof NoteActionArgs, binding.args as never, host, true); return true; }
+      const binding = modeBinding(COMMENT_KEYS, k), stray = binding?.action === "comment.escape" && !s.composer.closesBy(k);   // edit.close moved: esc is stray (PIE-1688)
+      if (binding && !stray) { void this.runKey(binding.action as keyof NoteActionArgs, binding.args as never, host, true); return true; }
     }
     const writing = s.writing;
     // Back to writing: a "leave it unsent?" asked in the power bar (PIE-785) is over, and its answer does nothing.
