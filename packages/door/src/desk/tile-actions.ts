@@ -285,7 +285,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     words: "zoom a tile to fill the screen, or lift it above the drawer",
     summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full (a spine opens first); on=false drops it. An agent may zoom or lift the tile the person types in, keeping their keys; it never replaces the person's lift",
     keys: [...W_KEYS.filter(k => k.action === "tile.zoom").map(k => wCaption(k.key)), ...HYPER_KEYS.filter(k => k.action === "tile.zoom").map(k => `✦${k.key}`), ZOOM_WHEEL.key].join(", "),
-    touches: "shape", replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
+    touches: "shape", inPlace: true, replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
     menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" }, reach: { type: "string", optional: true, choices: ["screen", "column", "full"], about: "screen (default), column (lift this column above the drawer), or full (lift across the terminal)" } },
     examples: [
@@ -520,7 +520,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     hint: { title: "Agents", lines: ["Free allows changes. Edit keeps the shape. Off leaves this tile to you."], keys: [{ keys: "ctrl+w g", does: "cycle the level" }] },
     summary: "what an agent may do to tile=<tile> (PIE-639): policy=free (open notes in it, navigate, split, close, retarget it: the default), edit (edit the note it shows: patch, comment, set properties; no navigating, closing, retargeting or moving it; its own new tiles go elsewhere) or off (read it through peek; no action on it or its note); inherit takes the tile's own away, so its container's and the screen's default (layout.policy node=screen agents=edit) say again; left out, the next level. Saved with the layout, shown as a chip on the tile's frame, reported in peek, layout.get and `ep0ch where`. Enforced for agents only: the person's own keys are never limited. An agent may tighten a tile (free to edit, edit to off), never loosen one: the refusal names the person's command",
     keys: [{ keys: "^W g", does: "cycles free, edit, off" }, { keys: "click", does: "on the tile's agents chip" }, { via: "its ⋯ menu" }],
-    touches: "shape", ownGate: true, replay: "safe", confirms: true,
+    touches: "shape", inPlace: true, ownGate: true, replay: "safe", confirms: true,
     says: r => (r.changed === false ? null : `set ${r.name ?? r.tile} to ${AGENT_WORDS[r.agents as AgentLevel]}`),
     menu: { label: "what agents may do here", group: TILE, key: "ctrl+w g", now: ({ d, reader }) => { const a = d.agentNow(reader); return { label: a.level === "free" ? "agents: free · set edit only" : a.level === "edit" ? "agents: edit only · set hands off" : "agents: hands off · set free" }; } },
     args: { policy: { type: "string", optional: true, choices: ["free", "edit", "off", "inherit"], about: "free, edit, off, or inherit; left out, the next one (free, edit, off, free)" } },
@@ -590,7 +590,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "tile.title": def({
     summary: "rename a tile: a name (letters, digits, . - _) becomes its name, what tile= and paths resolve (unique in its layer: a taken name is refused) and is the title it shows; any other text (spaces, {{this.title}}) is a title written on it, the name staying, and a tile with a title written like that keeps taking text as a title (text= clears it first). Written titles support {{this.title}}, {{this.<property>}}, {{tile.kind}} and {{tile.n}}; text= clears a written title. Without text the person gets the rename prompt. Renaming the note a tile shows is the note's own edit",
     keys: [{ keys: "^W n", does: "rename" }, { keys: "double-click", does: "a frame title or tab" }, { via: "\"rename this tile\" in the tile menu (\"rename this note\" beside it is note.rename)" }],
-    touches: "nothing", replay: "safe",
+    touches: "nothing", inPlace: true, replay: "safe",
     says: r => r.prompt ? null : `${r.name}: ${r.title}`,
     menu: { label: "rename this tile…", group: TILE, key: "ctrl+w n" },
     args: { text: { type: "string", optional: true, about: "the new name, or a title to write on it; empty clears a written title" } },

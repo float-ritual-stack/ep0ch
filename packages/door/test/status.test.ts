@@ -572,6 +572,23 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); }
   });
 
+  test("at 44 columns a message the bar cuts reads from its start, cut at its end, and stays so (PIE-1707)", async () => {
+    size.cols = 44;
+    try {
+      const said = "the shed is locked until the frost has gone and the key is back on its hook";
+      app.flash(said, 60_000, { kind: "refusal" });
+      // The chip as drawn: its cells on the bar (status.bar.items says where), its start, an ellipsis where it's cut.
+      const chip = async () => { const row = bar(), m = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message; return row.slice(m.from, m.to).trim(); };
+      const first = await chip();
+      expect(first.at(-1)).toMatch(/[…·]/);   // the shared cut's mark (the video mode may draw it as ·)
+      expect(said.startsWith(first.slice(0, -1))).toBe(true);
+      expect(first.length).toBeGreaterThan(2);
+      // Past the Overflow pass's pause (900 ms, then a cell each 100 ms): the same start, never a window from its middle.
+      await Bun.sleep(1600);
+      expect(await chip()).toBe(first);
+    } finally { size.cols = 220; app.flash(""); }
+  });
+
   test("status.bar.items says when the bar cut the update notice it draws with no flash up, by what was drawn against its room (PIE-1598)", async () => {
     const notice = "the link to the allotment society's machine has an update waiting: run the install on both ends";
     (app as any).linkLabel = notice;
