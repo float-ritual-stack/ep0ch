@@ -115,7 +115,6 @@ import { machineryBlind, watchesHear } from "./watch-machinery";
 import { answerMarks } from "./marks";
 import { copyAnswers, eventOf, extensionMay, holdsNoQueue, isAsyncOnly, isHostAction, isWatchable, replayOnce, wired, type ActionName, type NotHandledHere, type WireAnswer } from "./actions";
 import { LineWatches } from "./line-watches";
-import { WorkflowManager } from "./workflows";
 import { boundFolderOf, resolveOutlinesFolder } from "./paths";
 import {
   type OutlinerServiceOutline,
@@ -152,9 +151,6 @@ import {
   type OutlinerRequest,
   type RoadmapItemCreateReceipt,
   type OutlinerResponse,
-  type WorkflowRun,
-  type WorkflowStartInput,
-  type WorkflowTransitionInput,
   type ResourceDescription,
   type ResourceCapability,
   type ResourceProviderCommandResult,
@@ -349,7 +345,6 @@ export class OutlinerServer {
   private readonly browsingContextTargets = new Map<string, OutlinerNavigationTarget | null>();
   private readonly attentionStates = new Map<string, AttentionClientState>();
   private readonly attentionTimers = new Map<string, Timer>();
-  private readonly workflows: WorkflowManager;
   private readonly hostname = systemHostname();
   private outline: OutlinerServiceOutline | undefined;
   /** Set when an outline host accepts this outline's connections instead of a listener of its own. */
@@ -468,7 +463,6 @@ export class OutlinerServer {
       machineryBlind: (request, response) => machineryBlind(this.store, request, response),
     });
     this.lineWatches = new LineWatches(this.watches, { changed: blockId => { if (!this.stopping) void this.extensionCalls.refreshOutput(blockId, "open").catch(() => {}); } });
-    this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
     this.editRecovery = new EditRecoveryRepository(store);
     this.draftPatches = new DraftPatchRouter({
@@ -1756,127 +1750,6 @@ export class OutlinerServer {
     return next;
   }
 
-  private workflowAttentionMarkId(runId: string, ordinal: number): string {
-    return `workflow:${runId}:${ordinal}`;
-  }
-
-  private workflowAttentionInput(
-    run: WorkflowRun,
-    step: WorkflowRun["route"][number],
-    targetClientId: string,
-    focus = false,
-  ): AttentionMarkInput {
-    return {
-      ...(this.attentionClient(targetClientId).role === "composed" ? {targetRegion: "detail" as const} : {}),
-      markId: this.workflowAttentionMarkId(run.runId, step.ordinal),
-      targetClientId,
-      target: step.target,
-      tone: "current",
-      role: "current",
-      sender: `workflow:${run.runId.slice(0, 8)}`,
-      expiresInMs: 60 * 60 * 1_000,
-      reveal: true,
-      focus,
-    };
-  }
-
-  private startWorkflow(input: WorkflowStartInput) {
-    if (input.targetClientId) {
-      this.attentionClient(input.targetClientId);
-      if (!input.capabilities.includes("attention.mark")) {
-        throw new Error("Targeted workflows require the attention.mark capability");
-      }
-    }
-    return this.workflows.start(input);
-  }
-
-  private transitionWorkflow(input: WorkflowTransitionInput): WorkflowRun {
-    let before = this.workflows.get(input.runId);
-    if (input.targetClientId && input.targetClientId !== before.targetClientId) {
-      this.attentionClient(input.targetClientId);
-      if (before.targetClientId && this.hasClient(before.targetClientId)) {
-        throw new Error("A live workflow target cannot be replaced");
-      }
-      before = this.workflows.retarget(before.runId, input.targetClientId);
-    }
-    const targetClientId = input.targetClientId ?? before.targetClientId;
-    if (targetClientId) {
-      this.attentionClient(targetClientId);
-      if (!before.capabilities.includes("attention.mark")) {
-        throw new Error("Workflow run lacks attention.mark capability");
-      }
-    }
-    if (
-      targetClientId &&
-      input.action !== "pause" &&
-      input.action !== "branch" &&
-      input.action !== "end"
-    ) {
-      const candidateIndex = before.status === "ready" && input.action === "next"
-        ? 0
-        : input.action === "previous"
-        ? Math.max(0, (before.currentStepIndex ?? 0) - 1)
-        : input.action === "next" || input.action === "skip"
-        ? Math.min(before.route.length - 1, (before.currentStepIndex ?? 0) + 1)
-        : before.currentStepIndex ?? 0;
-      const step = before.route[candidateIndex];
-      if (step) {
-        const target = this.attentionClient(targetClientId);
-        const source = this.store.require(step.target.sourceBlockId);
-        normalizeAttentionMark(
-          this.workflowAttentionInput(before, step, targetClientId, input.focus ?? false),
-          target,
-          source,
-        );
-      }
-    }
-    const next = this.workflows.transition(input);
-    if (!targetClientId) return next;
-
-    if (input.action === "end") {
-      const previous = before.currentStepIndex === null ? null : before.route[before.currentStepIndex];
-      if (previous) {
-        const attention = this.clearAttention({
-          targetClientId,
-          markId: this.workflowAttentionMarkId(before.runId, previous.ordinal),
-        });
-        this.emitAttention("workflows.transition", attention);
-      }
-      return next;
-    }
-    if (input.action === "pause" || input.action === "branch") return next;
-    const step = next.currentStepIndex === null ? null : next.route[next.currentStepIndex];
-    if (!step) return next;
-    const attentionInput = this.workflowAttentionInput(
-      next,
-      step,
-      targetClientId,
-      input.focus ?? false,
-    );
-    const attention = this.setAttention(attentionInput, true);
-    this.emitAttention("workflows.transition", attention, {
-      ...(this.attentionClient(targetClientId).role === "composed" ? {targetRegion: "detail" as const} : {}),
-      markId: attentionInput.markId,
-      reveal: true,
-      focus: attentionInput.focus ?? false,
-    }, step.target.sourceBlockId);
-    return next;
-  }
-
-  private cancelWorkflow(runId: string): WorkflowRun {
-    const before = this.workflows.get(runId);
-    const next = this.workflows.cancel(runId);
-    const step = before.currentStepIndex === null ? null : before.route[before.currentStepIndex];
-    if (before.targetClientId && step) {
-      const attention = this.clearAttention({
-        targetClientId: before.targetClientId,
-        markId: this.workflowAttentionMarkId(before.runId, step.ordinal),
-      });
-      this.emitAttention("workflows.cancel", attention);
-    }
-    return next;
-  }
-
   private emitAttention(
     action: string,
     attention: AttentionClientState,
@@ -2983,33 +2856,6 @@ export class OutlinerServer {
           break;
         case "attention.acknowledge":
           result = wired(action, this.acknowledgeAttention(request.input));
-          break;
-        case "workflows.start":
-          result = wired(action, this.startWorkflow(request.input));
-          break;
-        case "workflows.get":
-          result = wired(action, this.workflows.get(request.runId));
-          break;
-        case "workflows.list":
-          result = wired(action, this.workflows.list(request.limit));
-          break;
-        case "workflows.structure":
-          result = wired(action, this.workflows.structure(request.runId));
-          break;
-        case "workflows.plan":
-          result = wired(action, this.workflows.savePlan(request.input));
-          break;
-        case "workflows.transition":
-          result = wired(action, this.transitionWorkflow(request.input));
-          break;
-        case "workflows.cancel":
-          result = wired(action, this.cancelWorkflow(request.runId));
-          break;
-        case "workflows.promotion.preview":
-          result = wired(action, this.workflows.previewPromotion(request.input));
-          break;
-        case "workflows.promotion.commit":
-          result = wired(action, this.workflows.commitPromotion(request.input, request.provenance));
           break;
         case "blocks.context":
           result = wired(action, this.store.blockContext(request.blockId));

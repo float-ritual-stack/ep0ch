@@ -345,7 +345,6 @@ test("registers the workspace commands and annotation-aware tools", () => {
     "outliner_annotation_lifecycle",
     "outliner_annotation_batch",
     "outliner_attention",
-    "outliner_workflow",
     "outliner_update",
     "outliner_checklist_query",
     "outliner_checklist_update",
@@ -377,9 +376,6 @@ test("registers the workspace commands and annotation-aware tools", () => {
   const annotateSchema = JSON.stringify(
     registeredTools.find((definition) => definition.name === "outliner_annotate")?.parameters,
   );
-  const workflowSchema = JSON.stringify(
-    registeredTools.find((definition) => definition.name === "outliner_workflow")?.parameters,
-  );
   expect(createSchema).not.toContain("author");
   expect(updateSchema).toContain("expectedRevision");
   expect(attentionSchema).toContain("advance");
@@ -401,9 +397,6 @@ test("registers the workspace commands and annotation-aware tools", () => {
   expect(annotateSchema).toContain("sourceSnapshot");
   expect(annotateSchema).toContain("adapter");
   expect(annotateSchema).not.toContain("filePath");
-  expect(workflowSchema).toContain("walkthrough");
-  expect(workflowSchema).toContain("promotion_preview");
-  expect(workflowSchema).not.toContain("javascript");
 });
 
 test("annotation tools validate reference context while retaining ordinary comment targets", () => {

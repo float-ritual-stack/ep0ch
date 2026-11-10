@@ -1,5 +1,5 @@
 {
-  "revision": "16c4a925ef6092b59671ed67c56d7f3f33932a08",
+  "revision": "fd2e56659336f00ff3805f0986962d9a81fa1791",
   "patterns": {
     "width-length": {
       "count": 241,
@@ -311,7 +311,7 @@
       ]
     },
     "heading-regex": {
-      "count": 31,
+      "count": 30,
       "sites": [
         "packages/claude-mod/hooks/detail-view.ts:d66eef8edbab52f7",
         "packages/claude-mod/hooks/reply-lines.ts:935bc4e60a9caa03",
@@ -342,7 +342,6 @@
         "packages/outliner/src/publish.ts:5527bc37a11ef15",
         "packages/outliner/src/terminal.ts:7821408c8e2c0b0d",
         "packages/outliner/src/work-tools.ts:91919ed58a8a8fe8",
-        "packages/outliner/src/workflows.ts:90b29ac24066aecf",
         "packages/outliner/src/write-review.ts:43ed608343251ad8"
       ]
     },
@@ -391,16 +390,16 @@
     "packages/door/src/screens.ts": 2237,
     "packages/door/src/showcase/showcase.ts": 2134,
     "packages/door/src/surface/note.ts": 12775,
-    "packages/outliner/pi-extension/index.ts": 3475,
+    "packages/outliner/pi-extension/index.ts": 3264,
     "packages/outliner/src/annotation-repository.ts": 2194,
     "packages/outliner/src/detail-controller.ts": 4664,
     "packages/outliner/src/detail-pi-preview.ts": 2410,
     "packages/outliner/src/detail-pi.ts": 2016,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4936,
-    "packages/outliner/src/server.ts": 4428,
+    "packages/outliner/src/server.ts": 4274,
     "packages/outliner/src/store.ts": 6428,
     "packages/outliner/src/tree-controller.ts": 3180,
-    "packages/outliner/src/types.ts": 2910
+    "packages/outliner/src/types.ts": 2713
   }
 }
