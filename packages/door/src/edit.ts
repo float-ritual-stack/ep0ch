@@ -696,6 +696,8 @@ export class Draft {
   closesBy(k: Key): boolean {
     return this.binding(k)?.action === "edit.close" || (k.kind === "esc" && escByHint());
   }
+  /** The key `closesBy` answers to, as the table has it (esc, or the person's rebind): what a host's hint names. */
+  closeKey(): string { return this.closeRow()?.key ?? "esc"; }
   private closeRow(): ModeKey | undefined { for (const t of this.tables) { const r = effective(t).find(x => x.action === "edit.close"); if (r) return r; } return undefined; }
 
   /** The key the table gives `action` now (the keymap applied), for what this draft says of its keys. */

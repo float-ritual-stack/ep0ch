@@ -116,7 +116,8 @@ export class ListPicker<T, H> implements Mode<H> {
     return [
       { key: "click", action: chooses ? "picker.choose" : "picker.select", label: chooses ? "picks" : "selects" },
       ...(!chooses ? [{ key: "double-click", action: "picker.choose", label: "opens" }] : []),
-      { key: "esc", action: "picker.close", label: this.spec.escClears && input?.text ? "clear filter" : "close" },
+      // A picker with a line closes on the line's own close key (Draft.closesBy): esc, or where the person moved it (PIE-1688).
+      { key: input?.closeKey() ?? "esc", action: "picker.close", label: this.spec.escClears && input?.text ? "clear filter" : "close" },
       ...(!input ? [...this.spec.closers ?? ""].map(key => ({ key, action: "picker.close", label: "close", args: { letter: true } })) : []),
       ...this.spec.bindings ?? [],
       ...["enter", "shift+enter", "ctrl+enter"].map(key => ({ key, action: "picker.choose", label: this.spec.stays ? "change" : "choose" })),
@@ -148,9 +149,9 @@ export class ListPicker<T, H> implements Mode<H> {
       return true;
     }
     const input = this.spec.input, binding = modeBinding(this.bindings, k);
-    if (binding?.action === "picker.close") {
-      if (!binding.args?.letter && this.spec.escClears && input?.text) { input.set(""); this.sel = 0; this.spec.typed?.(host); }
-      else this.close(host, binding.args?.letter ? "letter" : "esc");
+    if (input ? input.closesBy(k) : binding?.action === "picker.close") {
+      if (!binding?.args?.letter && this.spec.escClears && input?.text) { input.set(""); this.sel = 0; this.spec.typed?.(host); }
+      else this.close(host, binding?.args?.letter ? "letter" : "esc");
       return true;
     }
     if (binding && this.spec.bindings?.includes(binding)) { this.spec.dispatch!(binding, host); return true; }
