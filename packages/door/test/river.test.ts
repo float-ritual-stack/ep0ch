@@ -539,6 +539,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await mine("tile.widen", {}, r);
     await until(() => screen().includes("Seed packet 01"), "the packets drawn");
     const s = paneOf(r).surface as any;
+    // The column's frame footer: its hint row, as the person reads it.
+    const footer = () => (river.render(river.ctx).lines as string[]).map(l => l.replace(/\x1b\[[0-9;]*m/g, "")).find(l => l.includes("╚═") && l.includes("columns"))!;
+    const rest = footer();
     for (let i = 0; i < 12 && !s.listAtCursor(); i++) key(char("]"));
     expect(s.listAtCursor()?.title).toBe("Packets");
     const sel = focused().sel, row = () => s.selectedElement()?.label;
@@ -548,9 +551,24 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(row()).not.toBe(first);
     expect(focused().sel).toBe(sel);
     const picked = row();
+    // A row is drawn picked when it wears the selected band (a background); a row never picked wears none.
+    const band = (label: string) => (river.render(river.ctx).lines as string[]).find(l => l.replace(/\x1b\[[0-9;]*m/g, "").includes(label))?.includes("\x1b[48;");
+    expect(band(picked)).toBe(true);
     key(char("j"));                                              // the river's column.select, not a step in the list
     expect(focused().sel).toBe(sel + 1);
     expect(row()).not.toBe(picked);
+    // PIE-1540: j lets the list's pick go with the position: the row PgDn picked is drawn plain, the list is as it was before
+    // the walk reached it (its preview on its first row), and the hint row is the column's again.
+    const packets = (s.listsDrawn as any[]).find(l => l.title === "Packets");
+    expect(packets.view.hasPick("you")).toBe(false);
+    expect(band(picked)).toBe(false);
+    expect(footer()).toBe(rest);
+    const top = focused().top;
+    key({ kind: "pgdn" });                                       // column.scroll now: the list is no longer under the keys
+    expect(focused().top).toBeGreaterThan(top);
+    expect(focused().sel).toBe(sel + 1);
+    expect(packets.view.hasPick("you")).toBe(false);
+    expect(band(picked)).toBe(false);
   });
 
   test("a note column folds as a reader does: fold n=1 hides its section; ( ) f and a click on the heading unfold it (round 3, W4)", async () => {

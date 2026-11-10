@@ -8872,7 +8872,15 @@ export class NoteSurface {
   closeSession() { this.session = null; }
   /** A link with no element drawn for it (folded away, not laid out yet): followed where ⏎ on it would go. */
   followLink(l: Link, host: SurfaceHost, fresh = false) { return this.followTarget(l, host, { link: true, fresh }); }
-  clearLink() { this.letGo(); }
+  /**
+   * The host's own selection takes over (a river column's j k, a click on a card, its scroll or esc): the `[ ]` position is let
+   * go, and with it the person's pick in the list it was on, so no row stays drawn picked (nor its preview) once the keys no
+   * longer reach it; the list reads as before the walk reached it (PIE-1540).
+   */
+  clearLink() {
+    this.listAtCursor()?.view.setPick(PERSON, null);
+    this.letGo();
+  }
   /** Where the reader's position is (its current element) and what it folded: a host that reuses a digest keys on it. */
   get cursorKey(): string { return `${this.cur ?? ""}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
   /** The note's followable links, in order (link.follow's n=). */
