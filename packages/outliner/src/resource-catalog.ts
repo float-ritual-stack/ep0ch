@@ -3,14 +3,12 @@ import {captureHistoryProducer,CAPTURE_HISTORY_PRODUCER} from "./capture-history
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
-  lstatSync,
   readFileSync,
   realpathSync,
   statSync,
   type BigIntStats,
 } from "node:fs";
-import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 import { Parse } from "typebox/value";
 import { completeReferencedPaths, readFileContents, resolveReferencedPath, MAX_TEXT_FILE_BYTES, type FileContents, type ReferencedPathCandidate } from "./files";
@@ -54,10 +52,8 @@ import {
   normalizeResourceSourceInput,
   type ComputedExecutionHistory,
   type ComputedExecutionReceipt,
-  type ComputedExecutionRecord,
   type ComputedHandlerResolution,
   type ComputedInvocation,
-  type ComputedProducerDeclarationSnapshot,
   type ComputedResourceDocument,
   type ComputedResourceFailure,
   type ComputedResourceStatus,
@@ -76,7 +72,6 @@ import {
   type ResourceAddress,
   type ResourceDescription,
   type ResourceNativePayload,
-  type ResourceFreshness,
   type ResourceRetentionCollectionReceipt,
   type ResourceRetentionPin,
   type ResourceRetentionPolicy,
@@ -94,104 +89,42 @@ import {
   type ResourceProviderCommandInput,
   type ResourceProviderCommandReceipt,
   type ExtensionProvider,
-  EXTENSION_PROVIDER_PATTERN,
   providerLabel,
 } from "./resources";
 import { BLOCK_ID_SOURCE } from "@ep0ch/outline-core/addressable-resource";
+import {
+  computedExecutionRecordFromRow,
+  computedInvocationFromRow,
+  parsedJson,
+  parseRemoteEntitySnapshotPayload,
+  resourceFromRow,
+  sourceFromRow,
+  type ComputedExecutionRow,
+  type ComputedInvocationRow,
+  type ComputedRepresentationRow,
+  type ComputedResourceStateRow,
+  type PdfRepresentationRow,
+  type PdfResourceStateRow,
+  type PdfSourceSnapshotRow,
+  type RemoteEntityRepresentationRow,
+  type RemoteEntityResourceStateRow,
+  type RemoteEntitySnapshotPayload,
+  type RemoteEntitySourceSnapshotRow,
+  type ResourceRow,
+  type SourceRow,
+  type WebRepresentationRow,
+  type WebResourceStateRow,
+  type WebSourceSnapshotRow,
+} from "./resource-rows";
+import {
+  assertFilesystemConfinement,
+  filesystemRootBinding,
+  filesystemRootDrift,
+  homeWords,
+  sourceMoved,
+} from "./filesystem-source";
 
-interface SourceRow {
-  id: string;
-  name: string;
-  provider: string;
-  boundary_json: string;
-  policy_json: string;
-  root_binding: string | null;
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ResourceRow {
-  id: string;
-  source_id: string;
-  provider: string;
-  address_json: string;
-  canonical_key: string;
-  media_type: string | null;
-  address_version: number;
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ComputedInvocationRow {
-  id: string;
-  resource_id: string;
-  source_id: string;
-  producer_id: string;
-  producer_version: number;
-  input_version: number;
-  inputs_json: string;
-  dependencies_json: string;
-  declaration_json: string;
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ComputedRepresentationRow {
-  id: string;
-  cache_key: string | null;
-  producer_id: string;
-  producer_version: number;
-  input_version: number;
-  dependency_fingerprint: string;
-  media_type: string;
-  content_hash: string;
-  content: string;
-  created_at: string;
-}
-
-interface ComputedExecutionRow {
-  id: string;
-  invocation_id: string;
-  resource_id: string;
-  generation: number;
-  producer_id: string;
-  producer_version: number;
-  input_version: number;
-  dependency_fingerprint: string;
-  dependencies_json: string;
-  cache_hit: number;
-  status: "executing" | "succeeded" | "failed";
-  output_kind:
-    | "transient-representation"
-    | "immutable-snapshot"
-    | "durable-resource"
-    | "failure"
-    | null;
-  media_type: string | null;
-  output_content_hash: string | null;
-  representation_id: string | null;
-  durable_resource_id: string | null;
-  failure_code: string | null;
-  failure_message: string | null;
-  started_at: string;
-  completed_at: string | null;
-}
-
-interface ComputedResourceStateRow {
-  resource_id: string;
-  invocation_id: string;
-  generation: number;
-  status: "idle" | "executing" | "succeeded" | "failed";
-  selected_execution_id: string | null;
-  representation_id: string | null;
-  durable_resource_id: string | null;
-  last_failure_execution_id: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-}
+export { rebindCommand } from "./filesystem-source";
 
 interface ComputedExecutionInitial {
   readonly id: string;
@@ -202,120 +135,6 @@ interface ComputedExecutionInitial {
   readonly invocation: ComputedInvocation;
   readonly dependencyFingerprint: string;
   readonly startedAt: string;
-}
-interface WebSourceSnapshotRow {
-  id: string;
-  resource_id: string;
-  address_version: number;
-  canonical_url: string | null;
-  content_hash: string | null;
-  revision_json: string;
-  etag: string | null;
-  last_modified: string | null;
-  html: string | null;
-  evicted_at: string | null;
-  fetched_at: string | null;
-}
-
-interface WebRepresentationRow {
-  id: string;
-  source_snapshot_id: string;
-  media_type: "text/markdown";
-  adapter_id: string;
-  adapter_version: number;
-  content_hash: string;
-  markdown: string | null;
-  evicted_at: string | null;
-  derived_at: string | null;
-}
-
-interface WebResourceStateRow {
-  resource_id: string;
-  address_version: number;
-  generation: number;
-  source_snapshot_id: string | null;
-  representation_id: string | null;
-  freshness: ResourceFreshness;
-  checked_at: string | null;
-  last_error: string | null;
-}
-
-interface PdfSourceSnapshotRow {
-  id: string;
-  resource_id: string;
-  address_version: number;
-  locator: string;
-  content_hash: string;
-  revision_json: string;
-  etag: string | null;
-  last_modified: string | null;
-  bytes: Uint8Array | null;
-  payload_state: "available" | "evicted";
-  payload_bytes: number;
-  evicted_at: string | null;
-  captured_at: string;
-}
-
-interface PdfRepresentationRow {
-  id: string;
-  source_snapshot_id: string;
-  media_type: "application/pdf" | "text/markdown";
-  adapter_id: string;
-  adapter_version: number;
-  content_hash: string;
-  markdown: string | null;
-  pages_json: string | null;
-  derived_at: string;
-  payload_state: "available" | "evicted";
-  payload_bytes: number;
-  evicted_at: string | null;
-}
-
-interface PdfResourceStateRow {
-  resource_id: string;
-  address_version: number;
-  generation: number;
-  source_snapshot_id: string | null;
-  representation_id: string | null;
-}
-
-interface RemoteEntitySourceSnapshotRow {
-  id: string;
-  resource_id: string;
-  address_version: number;
-  provider: RemoteEntityProvider;
-  entity_id: string;
-  revision_json: string;
-  payload_json: string | null;
-  captured_at: string;
-  payload_state: "available" | "evicted";
-  payload_bytes: number;
-  evicted_at: string | null;
-}
-
-interface RemoteEntityRepresentationRow {
-  id: string;
-  source_snapshot_id: string;
-  media_type: "text/markdown";
-  adapter_id: string;
-  version: number;
-  content_hash: string;
-  markdown: string | null;
-  derived_at: string;
-  payload_state: "available" | "evicted";
-  payload_bytes: number;
-  evicted_at: string | null;
-}
-
-interface RemoteEntityResourceStateRow {
-  resource_id: string;
-  address_version: number;
-  generation: number;
-  source_snapshot_id: string | null;
-  representation_id: string | null;
-  freshness: ResourceFreshness;
-  checked_at: string | null;
-  last_error: string | null;
 }
 
 interface PdfObservation {
@@ -363,13 +182,6 @@ const DEFAULT_MAXIMUM_PDF_BYTES = 16 * 1024 * 1024;
 const PDF_NATIVE_ADAPTER = { id: "builtin.pdf-native", version: 1 } as const;
 const COMPUTED_MARKDOWN_ADAPTER = { id: "builtin.computed-markdown", version: 1 } as const;
 
-function parsedJson(value: string, label: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new ResourceCatalogError("invalid-input", `${label} contains invalid JSON`);
-  }
-}
 const InternIdentitySchema = Type.Object({
   sourceId: Type.String(),
 });
@@ -390,65 +202,6 @@ const ComputedInvocationRevisionSchema = Type.Object({
   inputs: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   dependencies: Type.Optional(Type.Array(Type.Unknown())),
 }, { additionalProperties: false });
-const ComputedProducerDeclarationSnapshotSchema = Type.Object({
-  id: Type.String(),
-  version: Type.Integer({ minimum: 1 }),
-  permissions: Type.Array(Type.String()),
-  determinism: Type.Union([
-    Type.Literal("deterministic"),
-    Type.Literal("nondeterministic"),
-  ]),
-  cachePolicy: Type.Union([
-    Type.Literal("none"),
-    Type.Literal("content-addressed"),
-  ]),
-  outputMediaTypes: Type.Array(Type.String()),
-}, { additionalProperties: false });
-const RemoteEntityCommandDescriptorSchema = Type.Union([
-  Type.Object({
-    provider: Type.String({ pattern: EXTENSION_PROVIDER_PATTERN.source }),
-    command: Type.Literal("comment.create"),
-    label: Type.String(),
-    input: Type.Object({
-      body: Type.Object({
-        type: Type.Literal("string"),
-        required: Type.Literal(true),
-        maxLength: Type.Literal(10_000),
-      }, { additionalProperties: false }),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
-  Type.Object({
-    provider: Type.Literal("linear"),
-    command: Type.Literal("comment.create"),
-    label: Type.String(),
-    input: Type.Object({
-      body: Type.Object({
-        type: Type.Literal("string"),
-        required: Type.Literal(true),
-        maxLength: Type.Literal(10_000),
-      }, { additionalProperties: false }),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
-]);
-const RemoteEntitySnapshotPayloadSchema = Type.Object({
-  title: Type.String(),
-  metadata: Type.Record(
-    Type.String(),
-    Type.Union([Type.String(), Type.Array(Type.String()), Type.Null()]),
-  ),
-  externalUrl: Type.String(),
-  locator: Type.String(),
-  contentHash: Type.String(),
-  commandDescriptors: Type.Array(RemoteEntityCommandDescriptorSchema),
-}, { additionalProperties: false });
-interface RemoteEntitySnapshotPayload {
-  readonly title: string;
-  readonly metadata: RemoteEntityDocument["metadata"];
-  readonly externalUrl: string;
-  readonly locator: string;
-  readonly contentHash: string;
-  readonly commandDescriptors: RemoteEntityDocument["commandDescriptors"];
-}
 type InternIdentity = Static<typeof InternIdentitySchema>;
 type RelocationIdentity = Static<typeof RelocationIdentitySchema>;
 type ParsedComputedInvocationInput = Static<typeof ComputedInvocationInputSchema>;
@@ -473,16 +226,6 @@ function parseRelocationIdentity(value: unknown): RelocationIdentity {
   }
 }
 
-function parseRemoteEntitySnapshotPayload(value: unknown): RemoteEntitySnapshotPayload {
-  try {
-    return Parse(RemoteEntitySnapshotPayloadSchema, value) as RemoteEntitySnapshotPayload;
-  } catch {
-    throw new ResourceCatalogError(
-      "source-unavailable",
-      "Stored remote entity snapshot payload is invalid",
-    );
-  }
-}
 
 function parseComputedInvocationInput(value: unknown): ParsedComputedInvocationInput {
   try {
@@ -514,355 +257,7 @@ function parseComputedInvocationRevision(value: unknown): ParsedComputedInvocati
   return parsed;
 }
 
-function parseComputedDeclaration(value: unknown): ComputedProducerDeclarationSnapshot {
-  try {
-    return Parse(ComputedProducerDeclarationSnapshotSchema, value);
-  } catch {
-    throw new ResourceCatalogError(
-      "invalid-input",
-      "Stored computed producer declaration is invalid",
-    );
-  }
-}
 
-function computedInvocationFromRow(row: ComputedInvocationRow): ComputedInvocation {
-  const inputs = parsedJson(row.inputs_json, "Computed invocation inputs");
-  let structuredInputs: Readonly<Record<string, unknown>>;
-  try {
-    structuredInputs = Parse(Type.Record(Type.String(), Type.Unknown()), inputs);
-  } catch {
-    throw new ResourceCatalogError("invalid-input", "Stored computed inputs are invalid");
-  }
-  const dependenciesValue = parsedJson(
-    row.dependencies_json,
-    "Computed invocation dependencies",
-  );
-  if (!Array.isArray(dependenciesValue)) {
-    throw new ResourceCatalogError("invalid-input", "Stored computed dependencies are invalid");
-  }
-  return {
-    id: normalizeResourceId(row.id, "Computed invocation ID"),
-    resourceId: normalizeResourceId(row.resource_id),
-    sourceId: normalizeResourceId(row.source_id, "Resource source ID"),
-    producerId: row.producer_id,
-    producerVersion: row.producer_version,
-    inputVersion: row.input_version,
-    inputs: structuredInputs,
-    dependencies: dependenciesValue.map(normalizeRetainedResourceRevisionRef),
-    declaration: parseComputedDeclaration(
-      parsedJson(row.declaration_json, "Computed producer declaration"),
-    ),
-    version: row.version,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-
-
-
-function computedExecutionRecordFromRow(row: ComputedExecutionRow): ComputedExecutionRecord {
-  if (!row.completed_at || !row.output_kind) {
-    throw new ResourceCatalogError("invalid-input", "Stored computed execution is incomplete");
-  }
-  const dependenciesValue = parsedJson(
-    row.dependencies_json,
-    "Computed execution dependencies",
-  );
-  if (!Array.isArray(dependenciesValue)) {
-    throw new ResourceCatalogError(
-      "invalid-input",
-      "Stored computed execution dependencies are invalid",
-    );
-  }
-  const dependencies = dependenciesValue.map(normalizeRetainedResourceRevisionRef);
-  let output: ComputedExecutionRecord["output"];
-  switch (row.output_kind) {
-    case "transient-representation":
-      if (!row.media_type) {
-        throw new ResourceCatalogError("invalid-input", "Stored transient output is invalid");
-      }
-      output = { kind: "transient-representation", mediaType: row.media_type };
-      break;
-    case "immutable-snapshot": {
-      if (!row.media_type || !row.representation_id || !row.output_content_hash) {
-        throw new ResourceCatalogError("invalid-input", "Stored immutable output is invalid");
-      }
-      output = {
-        kind: "immutable-snapshot",
-        mediaType: row.media_type,
-        contentHash: row.output_content_hash,
-        representationId: row.representation_id,
-      };
-      break;
-    }
-    case "durable-resource":
-      if (!row.durable_resource_id) {
-        throw new ResourceCatalogError("invalid-input", "Stored durable output is invalid");
-      }
-      output = { kind: "durable-resource", resourceId: row.durable_resource_id };
-      break;
-    case "failure":
-      if (!row.failure_code || !row.failure_message) {
-        throw new ResourceCatalogError("invalid-input", "Stored computed failure is invalid");
-      }
-      output = {
-        kind: "failure",
-        code: row.failure_code,
-        message: row.failure_message,
-      };
-      break;
-  }
-  return {
-    id: row.id,
-    invocationId: row.invocation_id,
-    resourceId: row.resource_id,
-    producerId: row.producer_id,
-    producerVersion: row.producer_version,
-    inputVersion: row.input_version,
-    dependencyFingerprint: row.dependency_fingerprint,
-    dependencies,
-    cacheHit: row.cache_hit === 1,
-    output,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-  };
-}
-
-function sourceFromRow(row: SourceRow): ResourceSource {
-  const boundary = parsedJson(row.boundary_json, "Resource source boundary");
-  const policy = parsedJson(row.policy_json, "Resource source policy");
-  const normalized = normalizeResourceSourceInput({
-    name: row.name,
-    provider: row.provider,
-    boundary,
-    policy,
-  });
-  const header = {
-    id: normalizeResourceId(row.id, "Resource source ID"),
-    name: normalized.name,
-    version: row.version,
-    policy: {
-      deniedCapabilities: normalized.policy.deniedCapabilities,
-    },
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-  switch (normalized.provider) {
-    case "filesystem":
-      return {
-        ...header,
-        provider: "filesystem",
-        boundary: { kind: "filesystem", root: normalized.boundary.root },
-      };
-    case "web":
-      return {
-        ...header,
-        provider: "web",
-        boundary: { kind: "web", baseUrl: normalized.boundary.baseUrl },
-      };
-    case "github":
-      return {
-        ...header,
-        provider: "github",
-        boundary: { kind: "github", ...normalized.boundary },
-      };
-    case "linear":
-      return {
-        ...header,
-        provider: "linear",
-        boundary: { kind: "linear", ...normalized.boundary },
-      };
-    case "application":
-      return {
-        ...header,
-        provider: "application",
-        boundary: { kind: "application", ...normalized.boundary },
-      };
-    case "computed":
-      return {
-        ...header,
-        provider: "computed",
-        boundary: { kind: "computed", ...normalized.boundary },
-      };
-    default:
-      return {
-        ...header,
-        provider: normalized.provider,
-        boundary: { kind: normalized.provider, ...normalized.boundary },
-      };
-  }
-}
-
-function resourceFromRow(row: ResourceRow, source: ResourceSource): Resource {
-  if (row.provider !== source.provider) {
-    throw new ResourceCatalogError(
-      "provider-mismatch",
-      `Stored resource provider ${row.provider} does not match source ${source.provider}`,
-    );
-  }
-  const normalized = normalizeResourceAddress(
-    source,
-    parsedJson(row.address_json, "Resource address"),
-  );
-  if (normalized.canonicalKey !== row.canonical_key) {
-    throw new ResourceCatalogError(
-      "invalid-input",
-      `Stored resource canonical key is invalid: ${row.id}`,
-    );
-  }
-  const header = {
-    id: normalizeResourceId(row.id),
-    sourceId: normalizeResourceId(row.source_id, "Resource source ID"),
-    version: row.version,
-    addressVersion: row.address_version,
-    mediaType: row.media_type,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-  switch (normalized.address.kind) {
-    case "filesystem":
-      return { ...header, provider: "filesystem", address: normalized.address };
-    case "web":
-      return { ...header, provider: "web", address: normalized.address };
-    case "github":
-      return { ...header, provider: "github", address: normalized.address };
-    case "linear":
-      return { ...header, provider: "linear", address: normalized.address };
-    case "application":
-      return { ...header, provider: "application", address: normalized.address };
-    case "computed":
-      return { ...header, provider: "computed", address: normalized.address };
-    default:
-      return { ...header, provider: normalized.address.kind, address: normalized.address };
-  }
-}
-
-function filesystemRootBinding(root: string): string {
-  try {
-    const canonical = realpathSync(root);
-    const stat = statSync(canonical, { bigint: true });
-    if (!stat.isDirectory()) throw new Error("root is not a directory");
-    return JSON.stringify({
-      path: canonical,
-      device: stat.dev.toString(),
-      inode: stat.ino.toString(),
-    });
-  } catch (error) {
-    throw new ResourceCatalogError(
-      "source-unavailable",
-      `Filesystem source root is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-/**
- * How a filesystem Source's root compares with the directory it was bound to: the same directory; the same place
- * holding a new directory (deleted and made again, a sync's rename into place: a new inode); or a place that now
- * resolves to another directory (a symlink retargeted, a folder moved over it).
- */
-function filesystemRootDrift(
-  root: string,
-  rootBinding: string,
-): { kind: "same" } | { kind: "recreated"; binding: string } | { kind: "moved"; was: string; now: string } {
-  const binding = filesystemRootBinding(root);
-  if (binding === rootBinding) return { kind: "same" };
-  const now = (JSON.parse(binding) as { path: string }).path;
-  let was: string | undefined;
-  try {
-    was = (JSON.parse(rootBinding) as { path?: unknown }).path as string | undefined;
-  } catch {
-    was = undefined;
-  }
-  return was === now ? { kind: "recreated", binding } : { kind: "moved", was: was ?? "an unknown folder", now };
-}
-
-/** A path as a person reads it: under their home, from `~`. */
-function homeWords(path: string): string {
-  const home = homedir();
-  return path === home ? "~" : path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
-}
-
-/** A path as a shell takes it: quoted when it has anything but the plain characters. */
-function shellWord(path: string): string {
-  return /^[\w@%+=:,./~-]+$/.test(path) ? path : `'${path.replaceAll("'", `'\\''`)}'`;
-}
-
-/**
- * The command that binds a Source's root to the directory it resolves to now (`ep0ch resource rebind`). The path is
- * the host's, in full: a `~` would be the home of whichever machine's shell runs it.
- */
-export function rebindCommand(root: string, outline?: string): string {
-  return `ep0ch resource rebind ${shellWord(root)}${outline ? ` --ws ${shellWord(outline)}` : ""}`;
-}
-
-function sourceMoved(root: string, was: string, now: string, outline?: string): ResourceCatalogError {
-  return new ResourceCatalogError(
-    "source-moved",
-    `${homeWords(root)} now leads to ${homeWords(now)}, not ${homeWords(was)} where its files were registered, so they aren't read from it. ` +
-      `If ${homeWords(now)} is where they live now: ${rebindCommand(root, outline)}`,
-  );
-}
-
-function assertFilesystemConfinement(
-  root: string,
-  rootBinding: string | null,
-  address: Extract<ResourceAddress, { kind: "filesystem" }>,
-  outline?: string,
-): void {
-  if (!rootBinding) {
-    throw new ResourceCatalogError("source-unavailable", "Filesystem source has no root binding");
-  }
-  const drift = filesystemRootDrift(root, rootBinding);
-  if (drift.kind === "moved") throw sourceMoved(root, drift.was, drift.now, outline);
-  if (drift.kind === "recreated") {
-    throw new ResourceCatalogError(
-      "source-unavailable",
-      `${homeWords(root)} was replaced during this read or save of one of its files; try again`,
-    );
-  }
-  const boundRoot = realpathSync(root);
-  const candidate = join(boundRoot, ...address.path.split("/"));
-  const fromRoot = relative(boundRoot, candidate);
-  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
-    throw new ResourceCatalogError(
-      "outside-source",
-      "Filesystem resource path cannot escape its source root",
-    );
-  }
-  let current = boundRoot;
-  for (const segment of address.path.split("/")) {
-    if (segment === ".") continue;
-    current = join(current, segment);
-    try {
-      const stat = lstatSync(current);
-      if (stat.isSymbolicLink()) {
-        throw new ResourceCatalogError(
-          "symlink-disallowed",
-          `Filesystem resource path contains a symbolic link: ${segment}`,
-        );
-      }
-      if (!stat.isDirectory() && current !== candidate) {
-        throw new ResourceCatalogError(
-          "outside-source",
-          `Filesystem resource path descends through a non-directory: ${segment}`,
-        );
-      }
-    } catch (error) {
-      if (error instanceof ResourceCatalogError) throw error;
-      if (
-        typeof error === "object" && error !== null && "code" in error &&
-        error.code === "ENOENT"
-      ) {
-        return;
-      }
-      throw new ResourceCatalogError(
-        "source-unavailable",
-        `Filesystem resource prefix is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-}
 function webEtag(response: Response): string | null {
   const value = response.headers.get("etag")?.trim();
   return value || null;
