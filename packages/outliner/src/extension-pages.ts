@@ -249,8 +249,9 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string, inst
     };
     // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
     out.push(installed
-      ? `- **Settings:** the settings button above (the settings screen at ${manifest.id}), or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`
-      : `- **Settings,** once it's installed: its page's settings button (the settings screen), or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
+      ? `- **Settings:** ⚙ settings above, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`
+      : `- **Settings,** once it's installed: ⚙ settings on its page, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`:`,
+      ...(installed ? [`  - **In** \`${directory ? join(directory, "config.json") : "config.json"}\``] : []),
       ...Object.entries(settings).flatMap(([key, spec]) => said(key, spec)));
   }
   return out;

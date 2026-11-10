@@ -1,11 +1,13 @@
 import { requesterOf } from "./socket";
-// An extension's settings in the door (PIE-1343): what the service says of them (`extensions.list`'s `settings`, from
-// the manifest's configSchema and secrets) drawn as a chip on its power bar row and a settings row whose preview says
-// each field, and `ext.<id>.settings`, an action whose arguments are the schema's fields. A person's press opens the
-// action form (src/bar/form.ts) every action with arguments has; an agent names the fields it sets. The service checks
-// the values against the schema and writes config.json on the machine that hosts the outline (`extensions.configure`).
-// The only thing here is the mapping from a schema field to an argument and back: the form, the check and the file
-// are the existing parts'.
+// An extension's settings in the door (PIE-1343, PIE-1709): what the service says of them (`extensions.list`'s
+// `settings`, from the manifest's configSchema, secrets and agents) drawn as a chip on its power bar row and a settings
+// row whose preview says each field, and `ext.<id>.settings`, an action whose arguments are the schema's fields. A
+// person's press with no fields opens the settings screen at the extension (src/desk/settings-index.ts): its settings
+// card (src/surface/settings.ts, the PIE-786 card with an extension as its subject) reads each field's words, value and
+// state, types one in place and tries it through the extension's own try; an agent names the fields it sets. The service
+// checks the values against the schema and writes config.json on the machine that hosts the outline
+// (`extensions.configure`). Here: the mapping from a schema field to an argument and a card field and back, and the one
+// write (`configureExtension`) the card, the form and an agent's act share.
 import type { ExtensionSecretReference, ExtensionSettingField, ExtensionSettings, ExtensionsConfigured, ExtensionsConfigureRequest } from "@ep0ch/outline-core/protocol";
 import type { ComponentSchema, PropSchema } from "@ep0ch/outline-core/component-schema";
 import { extensionList } from "./extensions";
@@ -119,9 +121,9 @@ export function settingsChip(s: ExtensionSettings): string {
   return s.state === "set" ? "set" : "its defaults";
 }
 
-/** Its settings in a sentence for an extension's preview: their state in the chip's words, and where its form is (by id, as `ext.<id>.settings` names it). */
+/** Its settings in a sentence for an extension's preview: their state in the chip's words, and where they're changed (by id, as `ext.<id>.settings` names it). */
 export const settingsWords = (id: string, s: ExtensionSettings): string =>
-  `Settings: ${settingsChip(s)}${s.error ? ` (${s.error.replace(/\s+/g, " ")})` : ""}. Type \`settings ${id}\` here for its form.`;
+  `Settings: ${settingsChip(s)}${s.error ? ` (${s.error.replace(/\s+/g, " ")})` : ""}. Type \`settings ${id}\` here for the settings screen at it.`;
 
 /** Whether a row should say anything of its settings: only when they need the person (setup, a failure). */
 export const settingsNeedYou = (s: ExtensionSettings | undefined): boolean => s?.state === "failing" || s?.state === "missing";
@@ -138,7 +140,7 @@ export function settingsMarkdown(e: ExtensionEntry, s: ExtensionSettings): strin
   }
   for (const x of s.secrets) lines.push(`- secret **${x.name}**: ${x.reference ? `\`${x.reference}\`` : "no reference"}${x.state === "missing" ? " · **missing**" : ""}${x.description ? ` · ${x.description}` : ""}`);
   lines.push("", `In \`${s.file}\`${s.exists ? "" : " (not there yet: saving writes it)"} on the machine that hosts this outline.`,
-    "", `⏎ opens its form: a field per setting, its value now filled in. An agent: \`ep0ch act ext.${e.id}.settings <field>=<value>\`.`);
+    "", `⏎ opens the settings screen at it: each setting with its words, changed in place and tried. An agent: \`ep0ch act ext.${e.id}.settings <field>=<value>\`.`);
   return lines.join("\n");
 }
 
