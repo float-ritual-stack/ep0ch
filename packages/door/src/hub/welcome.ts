@@ -31,7 +31,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { AskAgainAt } from "../search-schedule";
-import { USER, type Actor, type OutlineEvent, type SocketBoard, mutationFor } from "../socket";
+import { USER, type Actor, type OutlineEvent, type SocketBoard, mutationFor, RECORDED_AS, recordedAnswer } from "../socket";
 import { C, chip, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, type Key, type TermInfo } from "../term";
 import { bbsDate, moreRow, waiting, waitingText, wrap } from "../text";
@@ -395,7 +395,7 @@ export class WelcomeList implements Pane {
     const r = await board.request("virtual.occurrences.move", { input: { view: view.id, blocks: [m.id], ...(at.by !== undefined ? { by: at.by } : {}), ...(at.to !== undefined ? { to: at.to - 1 } : {}) }, mutation: mutationFor(actor) });
     await this.load(desk);
     const n = (this.items ?? []).findIndex(x => x.id === m.id);
-    return { id: m.id, title: subject(m), n: n + 1, of: this.items?.length ?? 0, view: view.id, ...(made ? { made: true } : {}), order: r.blockIds };
+    return { id: m.id, title: subject(m), n: n + 1, of: this.items?.length ?? 0, view: view.id, ...(made ? { made: true } : {}), order: r.blockIds, ...(made || r.moved.length ? { recordedAs: recordedAnswer(actor) } : {}) };
   }
 
   nextLogo(by: number, desk: DeskApi) {
@@ -607,7 +607,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.move": def({
     summary: "put a welcome note elsewhere in the Welcome view's hand-set order, which is the screen's order (the first is read when it opens): the one in the detail, or id=; by=<±places> (negative: up) or to=<place from 1>. With no Welcome view yet ([query::welcome]), it's made first, holding today's order. Recorded as who asked; `ep0ch view order` and a board lane on the view change the same order",
     keys: modeActionKeys([WELCOME_LIST_KEYS], "welcome.move"),
-    touches: "nothing", replay: "ask", confirms: true,
+    touches: "nothing", replay: "ask", confirms: true, answer: RECORDED_AS,
     says: r => `moved ${String(r.title)} to welcome ${r.n} of ${r.of}${r.made ? " (made the Welcome view to hold the order)" : ""}`,
     args: {
       id: { type: "string", optional: true, about: "the welcome note's block id (default: the one in the detail)" },

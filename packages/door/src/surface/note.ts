@@ -9508,7 +9508,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
   await s.send(surface.env(host, actor));
   if (s.error || s.mode === "compose") throw new ActionRefused(s.error ?? s.composer?.note ?? "not sent");
   surface.noteAgent(actor, kind === "reply" ? "replied to a comment" : kind === "edit" ? "edited a comment" : "commented on this note");
-  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })) };
+  // A comment or reply is made now; an edit changes one posted before.
+  return { sent: kind === "reply" ? "reply" : kind === "edit" ? "edit" : "comment", threads: s.threads.map(t => ({ id: t.id, open: t.open, quote: t.quote, replies: t.replies.length })), recordedAs: recordedAnswer(actor, kind === "edit" ? "revision" : "new") };
 }
 
 /**
@@ -10973,13 +10974,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.send": def({
     summary: "send the comment or reply; a retry of the same text can't land twice", keys: modeActionKeys(ATTACHED_KEYS, "comment.send"),
-    touches: "draft", draft: "leave", replay: "ask",
+    touches: "draft", draft: "leave", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => sendComment(surface, host, actor),
   }),
   "comment": def({
     summary: "comment on a passage in one step: passage.select, comment.write, comment.send",
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       quote: { type: "string", about: "the exact words to quote, as stored" },
       body: { type: "string", about: "the comment's text" },
@@ -10998,7 +10999,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "comment.note": def({
     summary: "comment on the whole note, not a passage (PIE-846): the person's composer opens at the top of the note, where whole-note threads are (a comment put aside on the note comes back in it); body= sends it at once, as an agent's always is. Its thread sits at the top of the note, its card in the margin's first row",
     keys: [{ keys: "C", does: "with nothing selected" }, { keys: "click", does: "the byline's [comment]" }, { via: "the tile menu's \"comment on the whole note\"" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     menu: noteRow("comment on the whole note", "C", { busy: true }),
     args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
     examples: [
@@ -11016,7 +11017,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         asActor(host.ctx, actor).flash("commented on the whole note");
         surface.noteAgent(actor, "commented on the whole note");
         host.redraw();
-        return { thread: r.id, whole: true };
+        return { thread: r.id, whole: true, recordedAs: recordedAnswer(actor, "new") };
       }
       if (actor.kind !== "user") throw new ActionRefused("say body=: an agent's comment is sent at once");
       const why = await surface.commentOnNote(host, actor, host.still);
@@ -11029,7 +11030,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "passage.act": def({
     summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
     keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask", says: "ask the agent about the selected passage" }, { keys: "a then e", does: "explain", says: "have the selected passage explained" }, { keys: "a then h", does: "highlight", says: "highlight the selected passage" }, { keys: "a then d", does: "define", says: "define the selected passage" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
       quote: { type: "string", optional: true, about: "the exact words, as stored (default: your selection)" },
@@ -11066,7 +11067,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
           const thread = await send(text, props);
           said.flash(action === "comment" ? "commented on the passage" : `asked @${agent!.name} · the answer lands in the margin`);
           surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${p.note.quote}"`);
-          return { thread, passage: p.target };
+          return { thread, passage: p.target, recordedAs: recordedAnswer(actor, "new") };
         }
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
         if (actor.kind !== "user") throw new ActionRefused(action === "ask" ? "say question=: an agent's question is sent at once" : "say body=: an agent's comment is sent at once");
@@ -11306,7 +11307,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "reply": def({
     summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: [{ keys: "m", does: "the thread list" }, { keys: "j k", does: "pick a thread" }, { keys: "r", does: "reply, then typing" }, { keys: "ctrl+s", does: "save the reply" }, { keys: "click", does: "[Reply] on an expanded thread" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the reply's text, sent at once; left out, the person writes it" } },
     examples: [
       { act: 'reply thread=5b2e8d body="Yes, the front bed too"', does: "sends that reply on the comment thread at once" },
@@ -11326,7 +11327,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "comment.edit": def({
     summary: "edit a posted comment, or one of its replies (reply=), in the same editor it was written in (PIE-763). Left out body=, the person's editor opens on its words (ctrl+s saves, esc leaves it as it was, a click away saves it as an edit does); body= saves new words at once, as an agent's always does. Checked against the revision it was read at: an edit made meanwhile is refused (ctrl+r loads it), never overwritten. Attributed to whoever edits it; it shows as edited, its earlier words kept in its revisions",
     keys: [{ keys: "e", does: "in the thread list (m)" }, { keys: "click", does: "[Edit] on an expanded thread, or beside one of its replies" }],
-    touches: "draft", draft: "type", replay: "ask",
+    touches: "draft", draft: "type", replay: "ask", answer: RECORDED_AS,
     args: {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
       reply: { type: "string", optional: true, about: "one of its replies to edit instead (its id, or its first 6+ characters); left out, the thread's own comment" },

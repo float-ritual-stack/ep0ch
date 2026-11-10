@@ -678,7 +678,8 @@ export class Lanes implements SourceModel {
     if (!r) throw new ActionRefused("not moved");
     if (r.result.startsWith("refused")) throw new ActionRefused(r.result.replace(/^refused: /, ""));
     for (const x of this.readers()) if (x.msg?.id === c.id) x.surface.noteAgent(actor, `moved this card to ${lanes[to]!.name}`);
-    return { card: c.id, lane: lanes[to]!.name, result: r.result };
+    // Already there: nothing was written, so nothing was recorded.
+    return { card: c.id, lane: lanes[to]!.name, result: r.result, ...(r.result.startsWith("moved") ? { recordedAs: recordedAnswer(actor) } : {}) };
   }
 
   /**
@@ -1640,7 +1641,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "card.move": def({
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     examples: [
       { act: "card.move lane=Doing", does: "moves the selected card into the Doing lane, patching what its query names" },
