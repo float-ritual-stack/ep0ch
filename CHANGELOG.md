@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Pasted text never runs as commands (PIE-1659)
+
+- **Paste anything, anywhere:** no letter of a paste runs as a key any more. On a reader with no edit open, a board's lanes, the drawer's reader or the main menu, the power bar opens with the text in its line (a note's address as that note's row, other words as a search; line breaks read as spaces); nothing runs until ⏎ or a click, and Esc puts it away. Before, `dd` in pasted text trashed the note or card in front and `x` closed a tile.
+- **While an edit or a comment opens:** a paste sent right after `e` or `C` lands in it once it opens, a comment included (only an edit kept them before). A paste while an armed edit waits for ⏎ lets the arm go and is offered, as any other key would.
+- **After ^W:** a paste in an edit stays the edit's text (it no longer left the edit); outside one the chord lets go and nothing runs.
+- **Cut by a slow link:** a paste whose start or end marker is split across reads waits for the rest (half a second, as a cut key report does) instead of reading the rest as keys; a terminal tile's program never sees a stray `[200~`.
+- **Terminal tiles unchanged:** a program gets the paste as it asked, bracketed in mode 2004, plain otherwise.
+- **In the kitchen sink:** the Paste a link section says it and its test pastes text holding `d` and `x` on the note.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
 ### Three door paper cuts: a river list's stale pick, docks per undone terminal, an alt press asking the wrong kind (PIE-1540, PIE-1575, PIE-1660)
 
 - **j lets go of a river list's pick:** in a river column, `j` (or `k`, a click on a card, the column's scroll or `esc`) off a `::links` list picked with `]` and PgDn no longer leaves that row drawn picked with its preview on it; the list reads as it did before the walk reached it (its first row lit for its preview), and PgDn scrolls the column.

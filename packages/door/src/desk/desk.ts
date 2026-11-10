@@ -93,7 +93,7 @@ import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
 import { AnswerTile } from "./answer-tile";
 import { AttachedTilePane, type Attachment } from "./attached-tile";
-import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
+import { Entered, ReaderPane, sessionName, sessionStart, startSession, TYPED_WHILE_OPENING, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { deskWay, DoorKeys, keysThrough, type DeskWay } from "./keys-fact";
 import { ptyBackend } from "./pty-backend";
@@ -3161,7 +3161,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const f = this.panes.get(this.focus), via = this.readerOfFocus(), viaId = this.idOf(via);
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
     const exited = this.waitsOnExit(), busy = exited ? this.holdsOtherKeys() : this.holdsKeys();   // an exited program isn't typed in and holds nobody back (PIE-1563)
-    const typing = !!f && ((this.rawKeys() && !exited) || !!this.personIn() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
+    const typing = !!f && ((this.rawKeys() && !exited) || !!this.personIn() || !!this.keptOpen() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.() || !!factsOf(f, { keys: true }).typing);
     const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
     const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
     const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
@@ -3504,10 +3504,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   enterTiles() { this.reenter(); this.redraw(); }
   /** The keys are back on a reader holding the person's own edit or comment, left open when they went elsewhere: they're in it again, as it was (PIE-785, PIE-812). */
-  private reenter() {
-    const back = this.focusedReader();
-    if (back && !this.entered.in(back) && back.surface.keepsOnFocusAway() && !this.prefix && !this.overlays.top()) this.entered.enter(back);
-  }
+  /** An edit or comment of the person's kept open on the focused reader (PIE-812): their next key goes back into it. */
+  private keptOpen(): ReaderPane | null { const back = this.focusedReader(); return back && !this.entered.in(back) && back.surface.keepsOnFocusAway() && !this.prefix && !this.overlays.top() ? back : null; }
+  private reenter() { const back = this.keptOpen(); if (back) this.entered.enter(back); }
 
   unsaved() { return this.drafts().length > 0 || [...this.models.values()].some(m => m.unsaved?.()); }
   /** A reader's history changed, or the door is handing over: the layout is saved with it (PIE-643). */
@@ -4884,7 +4883,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
 
     const pending = this.pending;
-    if (pending && (pending.kind === "edit" || pending.kind === "external")) {
+    if (pending && TYPED_WHILE_OPENING.has(pending.kind)) {
       const here = pending.pane === this.focusedReader() && !this.overlays.top();
       const pasted = k.kind === "paste" || "pasted" in k && k.pasted;
       const repeat = !pasted && k.kind === pending.opener.kind && (k.kind !== "char" || pending.opener.kind !== "char" || k.ch === pending.opener.ch && !!k.ctrl === !!pending.opener.ctrl);
@@ -5039,10 +5038,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }
     if (focused?.holdsKeys) {
       if (this.entered.in(focused)) {
-        // The person is in it: every key is the edit's, comment's or panel's (tab indents), until it's closed
-        // or left. ^W is the way out by keys: the window key after it leaves the edit as a click away does
-        // (session.leave) and runs; esc after it stays in. The wheel scrolls the pane under the pointer.
+        // The person is in it: every key is the edit's, comment's or panel's until it's closed or left; ^W then a window
+        // key leaves it (session.leave) and runs, esc stays in, a paste is text, never a chord's (PIE-1659). Wheel: scroll.
         if (k.kind !== "mouse") {
+          if (this.prefix === "wm" && k.kind === "paste") this.prefix = "";
           if (this.prefix === "wm") {
             if (focused.editing && !this.leaveSession(focused)) { this.prefix = ""; return this.redraw(); }
             return this.command(k);

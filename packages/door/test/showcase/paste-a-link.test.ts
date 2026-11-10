@@ -1,9 +1,10 @@
-// PIE-1401 / PIE-1316 / PIE-1390: the showcase's "Paste a link" section. A note's web link and its ep0ch:// address pasted
+// PIE-1401 / PIE-1316 / PIE-1390 / PIE-1659: the showcase's "Paste a link" section. A note's web link and its ep0ch:// address pasted
 // bare are links that open the note; what copy note web link and copy line reference give, pasted by the person into the
 // note and saved, opens it too; another web page goes to the browser. One of the showcase's test files; the seed is made up.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { USER } from "../../src/socket";
 import { external } from "../../src/open";
+import { traceActions } from "../../src/surface/actions";
 import { outliner, until, untilAsync } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -98,6 +99,26 @@ describe.skipIf(!outliner)("the showcase screen: paste a link", () => {
     await followN((await elements()).findIndex(e => e.label.includes("Ana opens")) + 1, "the line reference");
     for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" });
   }, 40_000);
+
+  // PIE-1659: any other text pasted where nothing is typed into is offered in the power bar; none of its letters runs.
+  test("plain text pasted on the note with no edit open: the power bar offers it, and no letter runs as a key", async () => {
+    await act("tile.focus", {}, "notes");
+    h.press({ kind: "enter" });
+    await until(() => h.S().focus === "stage", "in the stage");
+    const before = (await board.get(seeded.notes.pasteALink.id))!, tiles = (desk().layoutGet().tiles as any[]).map(t => t.name);
+    const ran: string[] = [];
+    const stop = traceActions(r => ran.push(r.name));
+    try {
+      h.press({ kind: "paste", text: "dd the shed key\nx Ana opens at nine" });
+      await until(() => (app.describe() as any).bar?.query === "dd the shed key x Ana opens at nine", "the power bar offers the paste, its line break a space", 3000);
+    } finally { stop(); }
+    expect(ran.filter(n => !n.startsWith("bar.") && n !== "screen.list")).toEqual([]);
+    h.press({ kind: "esc" });
+    const after = (await board.get(seeded.notes.pasteALink.id))!;
+    expect({ revision: after.revision, trashed: !!(after as any).effectiveDeletedRootId }).toEqual({ revision: before.revision, trashed: false });
+    expect((desk().layoutGet().tiles as any[]).map(t => t.name)).toEqual(tiles);
+    for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" });
+  }, 30_000);
 
   // PIE-1316: every row that is a note copies it through its own tile's menu: the tree's selected row too, with no ref=.
   test("the tree's selected row copies its note's web link, the service's answer", async () => {
