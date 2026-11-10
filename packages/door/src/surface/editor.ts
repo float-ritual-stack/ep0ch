@@ -313,12 +313,13 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
   const row = (key: string, action: string, label: string): ModeKey[] => [{ key, action, label }];
   const bound = (action: string, label: string): ModeKey[] => { const r = DRAFT_KEYS.find(x => x.action === action); return r ? row(r.key, action, label) : []; };
   return draftKeys([
-    ...bound("edit.save", o.save), ...row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
+    // A change elsewhere's key first, beside the warning it answers, so a narrow footer still names it (PIE-1664).
+    ...(o.reload ? bound("edit.reload", o.reload) : []), ...bound("edit.save", o.save), ...row("esc", "edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
     ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
     ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
     ...(o.place ? row("ctrl+o", "comment.place", o.place) : []), ...(o.move ? row("ctrl+g", "comment.grip", "move") : []),
     ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), { key: "[", action: "draft.wrap", args: { with: "[" }, label: "wraps" }] : []),
-    ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"), ...(o.reload ? bound("edit.reload", o.reload) : []),
+    ...row("ctrl+x ctrl+e", "edit.external", "$EDITOR"),
     ...bound("draft.pick", "insert"), ...row("tab", "draft.indent", "indent"), ...row("shift+tab", "draft.outdent", "out"), ...bound("draft.preview", "preview"),
   ]);
 }

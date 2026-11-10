@@ -848,8 +848,8 @@ describe("one lifecycle, every host (PIE-1658)", () => {
     await r.change();
     const d = r.d();
     expect({ warned: d.status.changedElsewhere || !!d.status.conflict }).toEqual({ warned: true });
-    // The hint names the reload while there's something to reload.
-    expect(visible(s.hint())).toContain("reload");
+    // The hint names the reload while there's something to reload (a passage's comment finds its quote again).
+    expect(visible(s.hint())).toMatch(/reload|find quote/);
     // The second writer's host is slow: ctrl+r's read waits until it's let go.
     const board = h.ctx.board as { get(id: string): Promise<Msg | null>; comments(id: string): Promise<unknown[]> }, get = board.get, comments = board.comments;
     let letGo!: () => void;
@@ -871,6 +871,24 @@ describe("one lifecycle, every host (PIE-1658)", () => {
     // Cleared once: the same news heard again says nothing new.
     await r.hear();
     expect({ changedElsewhere: d.status.changedElsewhere, conflict: d.status.conflict }).toEqual({ changedElsewhere: false, conflict: null });
+    s.draftSession()?.dispose();
+  });
+
+  // PIE-1664: the warning's key fits a 44-column footer, right after the save, in every host; and "nothing newer to
+  // load" said before the change is no longer the news once the change is heard.
+  for (const [name, open] of Object.entries(hosts)) test(`${name}: ^R reload in a 44-column footer; a stale "nothing newer" goes`, async () => {
+    const r = await open(), { s, h } = r;
+    s.key(ctrl("r"), h);
+    await Bun.sleep(0);
+    const d = r.d();
+    expect(d.note).toBe("nothing newer to load");
+    expect(visible(s.hint())).not.toContain("reload");
+    await r.change();
+    expect(d.status.changedElsewhere || !!d.status.conflict).toBe(true);
+    expect(d.note).not.toContain("nothing newer");
+    // The property panel says ctrl+r on its own last line; the rest name it in the footer.
+    if (name.includes("panel")) expect(s.panel!.foot()).toContain("ctrl+r");
+    else expect(visible(s.hint()).slice(0, 44)).toMatch(/\^R (reload|find quote)/);
     s.draftSession()?.dispose();
   });
 

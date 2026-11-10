@@ -433,7 +433,8 @@ export class DraftSession {
     if (!this.open) return;
     if (!this.target.reload) { this.status.say("nothing to reload"); this.env.redraw?.(); return; }
     if (this.draft.busy) return;
-    if (!this.status.conflict && !this.status.changedElsewhere) { this.status.say("nothing newer to load"); this.env.redraw?.(); return; }
+    // Said like a reload's line, so a change heard after it retires it too (PIE-1664).
+    if (!this.status.conflict && !this.status.changedElsewhere) { this.reloadSaid = this.status.say("nothing newer to load"); this.env.redraw?.(); return; }
     try { await this.reading(); } finally { this.replayHeld(); }
   }
 

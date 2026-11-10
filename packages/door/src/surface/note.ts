@@ -3657,7 +3657,13 @@ export class NoteSurface {
     const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
     const mode: CommentMode = {
       // ctrl+r is the draft's own key (DRAFT_KEYS); it's named here only when there's something to reload.
-      get keys() { return cs.mode === "compose" ? [...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row), ...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload") : [])] : undefined; },
+      // First, beside the warning it answers, so a narrow footer still names it (PIE-1664); a comment on a passage reloads by finding its quote.
+      get keys() {
+        if (cs.mode !== "compose") return undefined;
+        const st = cs.composer?.status, label = cs.target?.kind === "quote" ? "find quote" : "reload";
+        const reload = st?.conflict || st?.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload").map(row => ({ ...row, label })) : [];
+        return [...reload, ...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row)];
+      },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The note moved on: a comment on a passage of it, or on the whole of it, is told as a note's edit is (PIE-1658).
       changed: revision => cs.noteChanged(revision),
