@@ -5,7 +5,7 @@ import type { TileKind } from "./tile-kinds";
 import type { KindHost } from "./tile-kinds";
 import { actionSet, def, ActionRefused } from "../surface/actions";
 import { partsHint } from "../surface/modes";
-import { refOfLink, type Link } from "../surface/note";
+import { refOfLink, type Link } from "../surface/link-model";
 import type { LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { projectionsOf } from "../projection";

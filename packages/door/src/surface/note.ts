@@ -27,7 +27,7 @@ import { modeBinding, modeHint, modeActionKeys, type ModeName } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
 import { insertButton, insertNoteLine } from "./note-insert";
-import { buttonText, pressing } from "./button";
+import { pressing } from "./button";
 import { figurePropertyPatch } from "@ep0ch/outline-core/figure-patch";
 import { figureActions, FIGURE_SIZE_KEYS } from "./figure-actions";
 import { FigureSizing, wideFigureAt } from "./figure-sizing";
@@ -36,7 +36,7 @@ import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
 import { errorDetails } from "../status-log";
 import { messageContext } from "../status-log";
-import { Canvas, LINE_BOX, stringFrame } from "../canvas";
+import { Canvas } from "../canvas";
 import { CONFIRM_HINT, hintStatus } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
@@ -68,9 +68,9 @@ import { ownPropertyRecords, parsePropertyRecords } from "@ep0ch/outline-core/pr
 import { shellLines } from "@ep0ch/outline-core/shell-line";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { linkOccurrences, referencedBlock, withoutFragmentAnchor, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
+import { linkOccurrences, referencedBlock, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { landingLine } from "@ep0ch/outline-core/block-insert";
-import { CommentSession, editedMark, type CommentEnv } from "../comment";
+import { CommentSession, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { codeSpans, compareFoldPosition, foldPoints, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, inertButton } from "../doc";
 import { type Density, type FigureControl, type FigureInfo } from "../graphs";
@@ -83,7 +83,7 @@ import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHavePr
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
-import { type CalloutRef, type ImageRef, pageView, pageOf, presentLinks, softLinkIgnoreOf, commentNotes, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, presentLinks, softLinkIgnoreOf, commentNotes, commentSubject, resourceTokensOf, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, listOpenTarget, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
@@ -115,7 +115,7 @@ import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
 import { visible, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago, bbsDate, rowLines, rule, waitingText, wrap } from "../text";
+import { bbsDate, rowLines, rule, waitingText, wrap } from "../text";
 import { startShare, endsIn } from "../share-cli";
 import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
@@ -150,7 +150,7 @@ import type { LiveSite } from "../live";
 import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
-import { cardBg, hasCard, kindOf, wholeNoteMarks, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { hasCard, kindOf, wholeNoteMarks, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
@@ -168,11 +168,13 @@ import { readState } from "../state";
 import { menuRow } from "../desk/tile-menu";
 import { centred, listFieldPicker, ListPicker, pickRow } from "./picker";
 import { createPage, followSoft, offerPage, PAGE_OFFER_MS, type PageOffer, type PageOfferReader, type SoftChoices } from "./soft-follow";
-import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
+import { calloutProblems, calloutsOf, calloutsStamp } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
-import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
+import { calloutBlocks, rewriteCalloutHeader, stripQuotes } from "@ep0ch/outline-core/callouts";
 import { ReaderPointer, type KeptCursor, type ReaderGesture } from "./reader-pointer";
 import { AGENT_BG, selectText, cellsOf, copyOnSelect, isCopyKey, lineAt, modeKey, paintRange, ITEM_BG, ITEM_IDLE_BG, putCell, RULER_BG, RULER_IDLE_BG, readingRuler, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
+import { type Link, calloutBase, calloutTitle, figureElemBase, linkOf, linkOfRef, linkText, linksOf, refOfLink, sameElementLink, sameLink, taskBase } from "./link-model";
+import { calloutPanel, type Choice, type Control, controlKey, type Picker, pickerPanel, rowsOfLines, type ThreadControl, threadPanel, withRows, isWholeNote } from "./note-panels";
 
 /**
  * How a note is being opened (PIE-441), for the host to decide where: `link`, a link the person followed (⏎ or a
@@ -434,7 +436,6 @@ interface Laid {
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
 export interface SurfaceView { wide?: { row: number; col: number; cols: number }[]; frame?: FloatRect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
-export type Link = LinkTarget;
 
 /**
  * The compare a reader opens (PIE-1433): revision `revision` (left out: the one before the note now) against the next
@@ -446,19 +447,6 @@ async function compareAt(board: SocketBoard, id: string, revision: number | unde
   if (from === undefined) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision}; the outline keeps a note's newest 100 texts)`);
   return revisionDiff(board, id, from, against === "now" ? list.revision : undefined, list);
 }
-/** A figure's control, named across renders (its figure's key, then which). */
-const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : c.row !== undefined ? `row:${c.row}` : c.size ? "size" : "density"}`;
-/** Two links name the same target the same way (a click finds the `[ ]` link it is). */
-const softKey = (l: Link) => (l.soft ? JSON.stringify([l.soft.name, l.soft.line]) : undefined);
-const sameLink = (a: Link, b: Link) => a.tag === b.tag && softKey(a) === softKey(b) && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
-/** The same element's link in another draw: a press by its button's place, anything else as sameLink, of the same role. */
-const sameElementLink = (a: Link, b: Link) => a.press || b.press
-  ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
-  : a.role === b.role && sameLink(a, b) && same(a.task, b.task, taskBase) && same(a.callout, b.callout, calloutBase)
-    && same(a.figure, b.figure, figureElemBase) && a.inlineList?.key === b.inlineList?.key && a.inlineList?.row === b.inlineList?.row
-    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row && a.listRow?.group === b.listRow?.group
-    && a.proposal?.op === b.proposal?.op && a.proposal?.id === b.proposal?.id && a.unsent?.op === b.unsent?.op;
-const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) => (a && b ? base(a) === base(b) : !a === !b);
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
@@ -486,11 +474,6 @@ const ITEM_KINDS = new Set<ElementKind>(["row", "task"]);
  * and a comment mark (in the margin).
  */
 export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure" | "block";
-/**
- * The controls of a comment thread expanded inline (PIE-420): Select, Reply, Seen (or Bring back), Keep (or Unkeep), TL;DR;
- * Quote (the thread's mark, or a reply's: `value` names the reply); a "quoted in" line opens the block quoting it.
- */
-export type ThreadControl = "select" | "reply" | "edit" | "seen" | "keep" | "tldr" | "untldr" | "toggle" | "card" | "quote" | "quoted";
 /**
  * One element where the last render drew it. Rows are content rows: the header's, then the body's (so the
  * header's stay put and the body's move with the scroll). `ruler`: the rows [from, to) of the block it's in,
@@ -549,40 +532,7 @@ const TINT_ARGS = {
 export type FocusSpec = ArgsOf<typeof TINT_ARGS>;
 /** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
 interface Mark { col?: number; thread: string; open: boolean; row: number; rows: [number, number]; label: string }
-/** A thread control where the last render drew it: its body row, and columns in the body's own cells (no margin). */
-interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string; value?: string }
 
-/**
- * The note's links in reading order, as outline-core's scan finds them: `((…))` (transclusions too), `[[…]]` and
- * Markdown `[text](url)`.
- */
-const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map(linkOf);
-/** One link of outline-core's scan as the reader follows it. */
-const linkOf = (l: LinkOccurrence): Link => {
-  if (l.kind === "block") return { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
-  if (l.kind === "page") return { page: l.displayAddress, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
-  return { url: l.url, label: l.kind === "markdown" ? l.text : l.url };
-};
-/**
- * A link a draft's preview draws as `edit.follow`'s `ref=` (PIE-592): `((id^fragment))`, `[[page]]`, a URL or `#tag`;
- * null for one that has no such words (a resource token, a picture).
- */
-export const refOfLink = (l: Link): string | null =>
-  l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}${l.fragment ? `^${l.fragment}` : ""}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
-/** `edit.follow`'s `ref=` back to the link it names: what `refOfLink` writes, or one link written whole. */
-function linkOfRef(ref: string): Link | null {
-  const text = ref.trim();
-  if (text.startsWith("#") && text.length > 1) return { tag: text.slice(1) };
-  const [l] = linkOccurrences(text, []);
-  if (l && l.start === 0 && l.end === text.length) return linkOf(l);
-  if (/^[a-z][a-z0-9+.-]*:\S+$/i.test(text)) return { url: text };
-  const b = referencedBlock(text);
-  return b ? { block: b.blockId, ...(b.fragment ? { fragment: b.fragment } : {}) } : null;
-}
-/** How a link reads in the hint and `peek`: its title or label, as the note shows it. */
-const linkText = (l: Link, text: string, src: Source | null) => l.block
-  ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment))).text
-  : l.soft ? l.label ?? "" : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
 
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
 const printableBlock = (s: string) => printable(s, "", { lines: true });
@@ -591,12 +541,6 @@ const tagged = tagInto;
 
 export { leaveSaid, propertyChange, type LeaveResult };
 
-/**
- * The choice open under an element: a step's status (PIE-472) or a callout's type (PIE-538). The element (its key),
- * the choices as a list picker, what the last choice said. The person's alone (an agent sets a status by `task.status`).
- */
-interface Choice { id: string; label: string; key: string }
-interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 // The reader's modes (src/surface/modes.ts), each with what it's about.
 /** A note at a revision, beside how it is now (PIE-1433): the compare's view, its header's controls and where it was drawn. */
 type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; want?: number; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
@@ -8890,19 +8834,6 @@ export class NoteSurface {
   selectedPage(): string | null { return this.selectedLink()?.page ?? null; }
 }
 
-/**
- * A step's element key, before its `#n` (which occurrence: the same step shown twice): by its id, or,
- * without one, by its evidence (its text), never by where it sits, so a step moved by an edit elsewhere is
- * still itself and another step that moved into its place is not it.
- */
-const taskBase = (t: StepRef) => `task:${t.block}|${t.step.itemId ? `^${t.step.itemId}` : `ev:${t.step.evidence}`}`;
-/**
- * A callout's element key, before its `#n`: its note, depth and title as written, never its line or its type, so
- * choosing another type keeps the `[ ]` position on it (as its fold point's key does).
- */
-const calloutBase = (c: CalloutRef) => { const b = calloutBlocks([c.header])[0]; return `callout:${c.block}|${b?.depth ?? 0}|${b?.title ?? c.header.trim()}`; };
-/** A callout's title as written, else its type's. */
-const calloutTitle = (c: CalloutRef) => calloutBlocks([c.header])[0]?.title || c.type;
 /** The fewest rows a pane has for the reader to draw a header image above its note. */
 const HERO_MIN_PANE = 16;
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
@@ -8916,56 +8847,6 @@ interface LineEdit { line: number; before: string; after: string; picture?: stri
 /** A change of whole lines (a callout's header, an image's layout) for undo. */
 interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string }
 
-/**
- * A step's status choice (PIE-472), `W` cells wide: Detail's choices in its order, each with its key, the
- * one the keys are on lit, the step's current status marked, and what the last choice said.
- */
-function pickerPanel(ref: StepRef, choices: readonly Choice[], sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
-  const edge = fg(C.yellow), inner = Math.max(8, W - 2), f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, pad: 0, open: true });
-  const lines = [f.top(fg(C.white) + ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `)];
-  const rows: number[] = [];
-  // The list's own choices (on a live row, each says what it writes): the panel draws them, never a second copy.
-  choices.forEach((c, i) => {
-    const now = (c.id === ref.step.status ? " · now" : "");
-    const text = pad(` ${c.label}${now}`, Math.max(1, inner - 3)) + ` ${c.key} `;
-    rows.push(lines.length);
-    lines.push(f.row((i === sel ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + pad(text, inner)));
-  });
-  if (note) lines.push(f.row(fg(busy ? C.dark : C.lred) + pad(` ${printable(note)}`, inner)));
-  const foot = ` ${hintOf(chooseKeys("task.status").slice(2))}${ref.via ? ` · in ${ref.via}` : ""} `;
-  lines.push(f.bottom(fg(C.dark) + foot));
-  return { lines, rows };
-}
-
-/**
- * A callout's type choice (PIE-538), `W` cells wide: the outline's types (the one list, src/callouts.ts), each with its
- * icon in its tone and its other names, its type now marked; then whether it starts folded or open, the `-` or `+`.
- */
-function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[]; rows: number[] } {
-  const edge = fg(C.yellow), inner = Math.max(8, W - 2), types = P.types!, f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, pad: 0, open: true });
-  const now = types.resolve(ref.type)?.name ?? ref.type;
-  const lines = [f.top(fg(C.white) + ` [!${printable(ref.type)}] ${printable(calloutTitle(ref))} `)];
-  // Every choice drawn, as the step choice draws its own, so each is a click away; the reader brings the panel into
-  // view when it opens, and scrolls (the wheel) over a tall one.
-  const items = P.list.items, rows: number[] = [];
-  items.forEach((c, i) => {
-    const t = c.id.startsWith("type:") ? types.resolve(c.id.slice(5)) : null;
-    const on = i === P.list.sel, base = on ? ITEM_BG + fg(C.white) : fg(C.lcyan);
-    const icon = t ? (on ? "" : fg(TONE[t.tone])) + t.icon + base + " " : "  ";
-    // "now" next to the name, before the aliases a narrow reader cuts.
-    const mark = t?.name === now ? " · now" : "";
-    const label = t ? `${t.name}${mark}${t.aliases.length ? ` · ${t.aliases.join(", ")}` : ""}${t.block ? " · this outline's" : ""}` : c.label;
-    rows.push(lines.length);
-    lines.push(f.row(base + " " + icon + pad(label, Math.max(1, inner - 3 - (c.key ? 3 : 0))) + (c.key ? ` ${c.key} ` : "")));
-  });
-  if (P.note) lines.push(f.row(fg(P.busy ? C.dark : C.lred) + pad(` ${printable(P.note)}`, inner)));
-  const foot = ` ${hintOf([...chooseKeys("callout.type").slice(2, 3), rk("-", "callout.start", "folded", { folded: true }), rk("+", "callout.start", "open"), ...chooseKeys("callout.type").slice(3)])} `;
-  lines.push(f.bottom(fg(C.dark) + foot));
-  return { lines, rows };
-}
-
-/** A thread control's element key: stable across renders while its thread stays expanded. */
-const controlKey = (thread: string, c: ThreadControl, value?: string) => `ctl:${thread}:${c}${value ? `:${value}` : ""}`;
 
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
 const previewPictures = (d: Draft, from: number, to: number): Placement[] =>
@@ -8976,134 +8857,8 @@ const COMMENT_CHIP = "[comment]";
 /** The header's quiet way into the Sources inspector, on a note that generates anything (PIE-956 S6b). */
 const SOURCES_CHIP = "[sources]";
 
-/** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
-export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
-/**
- * A comment thread drawn under its passage (PIE-420), `W` cells wide: who and when, open or resolved, the
- * comment and its replies, and the Select, Reply and Resolve (or Reopen) controls, the current one lit.
- * Controls' rows and columns are the panel's own (no margin).
- */
-function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; bg: string; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
-  // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
-  const images: DocImage[] = [];
-  const links: LinkRange[] = [];
-  const draw = drawDoc && ((text: string, w: number, col = 2, interactive = true): string[] => {
-    const r = drawDoc(text, w);
-    if (Array.isArray(r)) return r;
-    if (interactive) for (const l of r.links ?? []) links.push({ ...l, line: lines.length + l.line, from: col + l.from, to: col + l.to });
-    for (const im of r.images ?? []) images.push({ ...im, line: lines.length + im.line, col: col + im.col });
-    return r.lines;
-  });
-  const edge = fg(c.open ? C.yellow : C.dark), bg = cardBg(c.props);
-  const inner = Math.max(4, W - 2);
-  const n = c.replies.length;
-  const title = ` ${kindOf(c)} · ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
-  const f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, open: true });
-  const lines = [f.top(fg(c.open ? C.white : C.grey) + title, fg(C.lcyan) + "[–]")];
-  const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
-  // The body and replies as the reader draws a note (PIE-770): references by title, embeds transcluded; else as typed.
-  const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
-  if (trim) {
-    const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
-    lines.push(edge + "│ " + fg(C.grey) + drawEllipsized(body(summary, inner).join(" "), inner) + RESET);
-    return { lines: lines.map(l => onCard(l, W, bg)), bg, images: [], links: [], controls: [
-      { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
-      { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
-      { thread: c.id, control: "card", row: 1, from: 0, to: W, label: "Open thread" },
-    ] };
-  }
-  // Its TL;DR first: the thread's face, the discussion under it.
-  if (c.tldr) for (const l of body(`TL;DR ${c.tldr.body}`, inner)) lines.push(edge + "│ " + fg(C.lgreen) + l + RESET);
-  for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
-  if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
-  const controls: Control[] = [{ thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" }];
-  // Where a mark was quoted (quote): a line each, opening the block that quotes it.
-  const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
-    for (const id of ids ?? []) {
-      const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12), 2, false)[0] ?? "") : id.slice(0, 8)}`;
-      const shown = drawEllipsized(said, Math.max(4, inner - indent.length));
-      const on = cur === controlKey(c.id, "quoted", id);
-      controls.push({ thread: c.id, control: "quoted", value: id, row: lines.length, from: 2 + indent.length, to: 2 + indent.length + width(shown), label: "quoted in" });
-      lines.push(edge + "│ " + indent + (on ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET);
-    }
-  };
-  quotedIn(c.quotedIn, "");
-  // A TL;DR is shown once, as the face above (PIE-860): its reply (and any it replaced) isn't listed again under it.
-  for (const r of c.replies.filter(x => !x.tldr)) {
-    // Each reply is a mark too: its own [Quote].
-    // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
-    const stamp = " · " + ago(r.at) + editedMark(r);
-    const head = "└ " + drawEllipsized(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
-    let row = edge + "│ " + fg(C.cyan) + drawEllipsized(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
-    for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
-      if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
-      controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
-      row += " " + (cur === controlKey(c.id, k, r.id) ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + q + RESET;
-      col += 1 + q.length;
-    }
-    lines.push(row);
-    for (const l of body(r.body, Math.max(2, inner - 2), 4)) lines.push(edge + "│ " + fg(C.cyan) + "  " + RESET + l + RESET);
-    quotedIn(r.quotedIn, "  ");
-  }
-  // The controls on one row, or as many as a narrow reader needs: each is whole, never cut off.
-  let row = edge + "│ ", col = 2;
-  // A thread on the whole note has no words to select (PIE-846).
-  // With a TL;DR: edit it, ask for it again, or take it away (PIE-860).
-  const all: [ThreadControl, string, string?][] = [
-    ...(isWholeNote(c) ? [] : [["select", "Select"] as [ThreadControl, string]]), ["reply", "Reply"], ...(c.body.trim() ? [["edit", "Edit"] as [ThreadControl, string]] : []),
-    ["seen", c.open ? "Seen" : "Bring back"], ["keep", c.lifecycle === "kept" ? "Unkeep" : "Keep"],
-    ...(c.tldr ? [["edit", "Edit TL;DR", c.tldr.id], ["tldr", "TL;DR again"], ["untldr", "No TL;DR"]] as [ThreadControl, string, string?][] : [["tldr", "TL;DR"] as [ThreadControl, string]]),
-    ["quote", "Quote"],
-  ];
-  all.forEach(([k, label, value]) => {
-    const shown = `[${label}]`, on = cur === controlKey(c.id, k, value);
-    if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
-    if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
-    row += on ? ITEM_BG + fg(C.white) + shown + RESET : buttonText(label);
-    controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label, ...(value ? { value } : {}) });
-    col += shown.length;
-  });
-  lines.push(row + RESET, f.bottom());
-  return { lines: lines.map(l => onCard(l, W, bg)), bg, controls, images, links };
-}
 
-/**
- * `doc` with rows put in: each insert's `lines` before body row `at` (in order, for the same `at`), drawn
- * from no note line (source -1), so selection, focus and fold lookups pass over them. Links, images,
- * media rows and fold heads move down with the rows under them. `starts[i]`: where insert i landed.
- * `inserts`' `images` (on their own rows) go with them: a thread's panel, a comment's box.
- */
-function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly string[]; images?: readonly DocImage[]; links?: readonly LinkRange[] }[]): { doc: Doc; starts: number[] } {
-  const order = inserts.map((p, i) => ({ ...p, i })).sort((a, b) => a.at - b.at || a.i - b.i);
-  const starts: number[] = [], lines: string[] = [], source: number[] = [], moved: number[] = [];
-  let k = 0;
-  for (let r = 0; r <= doc.lines.length; r++) {
-    for (; k < order.length && order[k]!.at <= r; k++) { starts[order[k]!.i] = lines.length; for (const l of order[k]!.lines) { lines.push(l); source.push(-1); } }
-    if (r < doc.lines.length) { moved[r] = lines.length; lines.push(doc.lines[r]!); source.push(doc.source[r]!); }
-  }
-  const mv = (r: number) => (r < doc.lines.length ? moved[r]! : r + lines.length - doc.lines.length);
-  return {
-    doc: {
-      lines, source,
-      links: [...doc.links.map(l => ({ ...l, line: mv(l.line) })), ...inserts.flatMap((p, i) => (p.links ?? []).map(l => ({ ...l, line: starts[i]! + l.line })))],
-      images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
-      media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
-      parts: doc.parts?.map(p => ({ ...p, row: mv(p.row), ...(p.rows ? { rows: mv(p.row + p.rows - 1) + 1 - mv(p.row) } : {}) })),
-      heads: doc.heads.map(h => ({ ...h, row: mv(h.row), ...(h.rows ? { rows: mv(h.row + h.rows - 1) + 1 - mv(h.row) } : {}) })),
-      ...(doc.regions ? { regions: doc.regions.map(r => ({ ...r, row: mv(r.row), rows: mv(r.row + r.rows - 1) + 1 - mv(r.row) })) } : {}),
-      trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
-      // A block that rows were put inside (a thread under a quote's passage) grows with them.
-      blocks: [
-        ...doc.blocks.map(b => ({ ...b, row: mv(b.row), rows: mv(b.row + b.rows - 1) + 1 - mv(b.row), ...(b.cells ? { cells: b.cells.map(c => ({ ...c, row: mv(c.row) })) } : {}) })),
-        ...inserts.flatMap((p, i) => codeSpans(p.lines, p.lines.map(() => -1)).map(b => ({
-          ...b, row: starts[i]! + b.row, cells: b.cells!.map(c => ({ ...c, row: starts[i]! + c.row })),
-        }))),
-      ],
-    },
-    starts,
-  };
-}
 
 /** The note line (from 0, the subject) each offset of `text` is on. */
 const lineAtOffset = (text: string) => {
@@ -9113,12 +8868,6 @@ const lineAtOffset = (text: string) => {
   return (off: number) => Math.max(0, starts.findLastIndex(s => s <= off));
 };
 
-/** The body rows [from, to) drawn from note lines `lo` to `hi` (from 0, the subject), or null when none is drawn. */
-function rowsOfLines(doc: Doc, noteLines: number[], lo: number, hi: number): [number, number] | null {
-  let a = -1, b = -1;
-  doc.source.forEach((s, r) => { const l = noteLines[s]; if (l !== undefined && l >= lo && l <= hi) { if (a < 0) a = r; b = r; } });
-  return a < 0 ? null : [a, b + 1];
-}
 
 /** Where `quote` is in `text`: the occurrence nearest `near` (an offset), or the first; -1 when it isn't. */
 function findQuote(text: string, quote: string, near?: number): number {
