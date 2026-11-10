@@ -1,11 +1,9 @@
 import {hostname} from "node:os";
 import {focusActiveCapture} from "./capture-owner";
-import {initTheme} from "@earendil-works/pi-coding-agent";
-import {attachCaptureInput} from './capture-input';
 import {referenceCompletionProvider} from './reference-completion';
 import {parseTreePlainClick,treeLinkAtClick} from './tree-mouse';
-import { currentPaneIdentity, pluginInvocationPaneId, reportCurrentPaneWorkspace } from "./pane-control";
-import { createOutlinerClient } from "./client";
+import { currentPaneIdentity, pluginInvocationPaneId } from "./pane-control";
+import { createHerdrSession, requireHerdr, startHerdrClient } from "./herdr-session";
 import {
   CapturePopupController,
   renderCapturePopupFrame,
@@ -15,22 +13,10 @@ import {EditRecoveryClient, EditRecoveryRetainedLocallyError} from "./edit-recov
 import {EditRecoveryReview, type RecoveryChoice} from "./edit-recovery-review";
 import {resolveExternalEditorConfiguration} from "./external-editor";
 import {acceptCaptureHandoff, confirmCaptureHandoff, loadCaptureHandoff, openCaptureSurface} from "./capture-surface";
-import { resolveClientPaths } from "./paths";
-import {
-  BRACKETED_PASTE_DISABLE,
-  BRACKETED_PASTE_ENABLE,
-} from "./terminal";
 import type { Block, CaptureOwnerClaim, QuickCaptureDraft, WorkIdAllocatorStatus } from "./types";
 
-if (process.env.HERDR_ENV !== "1") {
-  throw new Error("Quick capture popup requires Herdr");
-}
-
-initTheme(undefined, false);
-const paths = resolveClientPaths();
-reportCurrentPaneWorkspace(paths.workspaceRoot);
-const client = createOutlinerClient(paths);
-await client.requireCompatibleService();
+requireHerdr("Quick capture popup");
+const {paths, client} = await startHerdrClient({compatible: true});
 const recovery = new EditRecoveryClient(client, paths.stateDir);
 const requestId = process.env.OUTLINER_CAPTURE_REQUEST_ID?.trim() || crypto.randomUUID();
 const capturedFromBlockId = process.env.OUTLINER_CAPTURE_FROM_BLOCK_ID?.trim() || undefined;
@@ -79,31 +65,16 @@ if (!draft?.blockId && draft?.submittedText === undefined) {
 const retainedWriting = draft?.blockId ? await recovery.list(draft.blockId) : [];
 const originPaneId = handoff?.originPaneId ?? process.env.OUTLINER_CAPTURE_ORIGIN_PANE ?? pluginInvocationPaneId();
 const workIds=await client.request<WorkIdAllocatorStatus>({action:'work-ids.status'});
-let detachInput:(()=>void)|undefined;
 let renderedLines:string[]=[];
-let stopping = false;
-let workQueue = Promise.resolve();
 let writingReview: EditRecoveryReview | undefined;
 
-function stop(exitCode = 0): void {
-  if (stopping) return;
-  stopping = true;
-  void ownerWatcher.stop();
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  process.stdout.off("resize", draw);
-  detachInput?.();
-  process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l`);
-  process.exit(exitCode);
-}
-
+/** Keeps the draft (the queue finishes first), then leaves. */
 let shutdownRequested = false;
 function stopAfterRetainingDraft(exitCode: number): void {
-  if (shutdownRequested || stopping) return;
+  if (shutdownRequested || session.stopping) return;
   shutdownRequested = true;
   writingReview?.dismiss();
-  workQueue = workQueue
-    .then(() => controller.retainDraft())
-    .finally(() => stop(exitCode));
+  session.stopAfterQueue(exitCode, () => controller.retainDraft());
 }
 
 const controller = new CapturePopupController({
@@ -142,19 +113,8 @@ const controller = new CapturePopupController({
       }, {
         ...configuration,
         cwd: paths.workspaceRoot,
-        suspendTerminal() {
-          detachInput?.();
-          detachInput = undefined;
-          process.stdin.pause();
-          if (process.stdin.isTTY) process.stdin.setRawMode(false);
-          process.stdout.off("resize", draw);
-          process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l`);
-        },
-        restoreTerminal() {
-          startInput();
-          process.stdout.on("resize", draw);
-          draw();
-        },
+        suspendTerminal() { session.suspend(); },
+        restoreTerminal() { session.resume(); },
         async currentRevision() { return String(draft.blockRevision); },
       });
       return {
@@ -216,7 +176,7 @@ const controller = new CapturePopupController({
       recovery: {id: choice.record.id, revision: choice.record.revision, basedOnBlockRevision: choice.record.latest.revision}};
   },
   close() {
-    stop();
+    void session.stop();
   },
   invalidate() {
     draw();
@@ -241,42 +201,39 @@ function draw(): void {
   process.stdout.write(frame);
 }
 
-function enqueueWork(task: () => void | Promise<void>): void {
-  workQueue = workQueue.then(task).catch((error) => {
+function enqueueWork(task: () => void | Promise<void>): void { session.enqueue(task); }
+const session = createHerdrSession({
+  modes: { mouse: "click", paste: true },
+  draw,
+  onError(error) {
     controller.status = error instanceof Error ? error.message : String(error);
     draw();
-  });
-}
-
-function startInput(): void {
- if (process.stdin.isTTY) process.stdin.setRawMode(true);
- process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}\x1b[?1000h\x1b[?1006h`);
- detachInput=attachCaptureInput(process.stdin,{
- keypress:(text,key,action)=>writingReview ? writingReview.key(text,key) : enqueueWork(()=>controller.handleKeypress(text,key,action)),
- paste:text=>{if (!writingReview) enqueueWork(()=>controller.handlePaste(text));},
- mouse:sequence=>{
-  if(!parseTreePlainClick(sequence))return;
-  const uri=treeLinkAtClick(renderedLines,sequence);
-  if (writingReview) {
-    if (uri?.startsWith("pi-outliner-action:recovery.")) void writingReview.action(uri.slice("pi-outliner-action:recovery.".length));
-    return;
-  }
-  const match=uri?.match(/^pi-outliner-action:completion.choose:(\d+):(\d+)$/);
-  if(match)enqueueWork(()=>controller.chooseCompletion(Number(match[1]),Number(match[2])));
-  const action=uri?.match(/^pi-outliner-action:capture\.(editor|save|retain|discard|history|dock|left|right|bottom|popup)$/)?.[1];
-  if(action)enqueueWork(()=>controller.act(action as CaptureAction));
- },
+  },
+  leave: () => void ownerWatcher.stop(),
+  // Every signal keeps the draft first.
+  onSignal: (_signal, exitCode) => stopAfterRetainingDraft(exitCode),
+  input: { kind: "keypress", handlers: {
+    keypress: (text, key, action) => writingReview ? writingReview.key(text, key) : enqueueWork(() => controller.handleKeypress(text, key, action)),
+    paste: text => { if (!writingReview) enqueueWork(() => controller.handlePaste(text)); },
+    mouse: sequence => {
+      if (!parseTreePlainClick(sequence)) return;
+      const uri = treeLinkAtClick(renderedLines, sequence);
+      if (writingReview) {
+        if (uri?.startsWith("pi-outliner-action:recovery.")) void writingReview.action(uri.slice("pi-outliner-action:recovery.".length));
+        return;
+      }
+      const match = uri?.match(/^pi-outliner-action:completion.choose:(\d+):(\d+)$/);
+      if (match) enqueueWork(() => controller.chooseCompletion(Number(match[1]), Number(match[2])));
+      const action = uri?.match(/^pi-outliner-action:capture\.(editor|save|retain|discard|history|dock|left|right|bottom|popup)$/)?.[1];
+      if (action) enqueueWork(() => controller.act(action as CaptureAction));
+    },
+  } },
 });
- process.stdin.resume();
-}
+
 if (handoffDirectory && handoff) {
   await acceptCaptureHandoff(handoffDirectory, handoff, draft);
 }
-startInput();
-process.stdout.on("resize", draw);
-process.on("SIGINT", () => stopAfterRetainingDraft(130));
-process.on("SIGTERM", () => stopAfterRetainingDraft(143));
-process.on("SIGHUP", () => stopAfterRetainingDraft(129));
+session.start();
 draw();
 if (handoffDirectory && handoff) await confirmCaptureHandoff(handoffDirectory, handoff);
 if (handoff?.editor) enqueueWork(() => controller.editExternal());

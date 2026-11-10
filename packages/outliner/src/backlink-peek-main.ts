@@ -1,26 +1,17 @@
-import { emitKeypressEvents } from "node:readline";
-import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
   BacklinkPeekController,
   renderBacklinkPeekFrame,
   type BacklinkPeekLaunch,
   type BacklinkPeekPreview,
 } from "./backlink-peek";
-import { createOutlinerClient } from "./client";
-import { OutlinerActionKeymap } from "./outliner-actions";
+import { createHerdrSession, requireHerdr, startHerdrClient } from "./herdr-session";
 import { projectedSourceLine } from "./detail-pi-preview";
 import { listLiveClients } from "./client-target";
 import { BACKLINK_QUERY_LIMIT, backlinkView, parseBacklinkViewOptions } from "./backlink-view";
 import { projectDetailRead } from "./detail-embeds";
-import { reportCurrentPaneWorkspace, openDetailPane } from "./pane-control";
-import { resolveClientPaths } from "./paths";
+import { openDetailPane } from "./pane-control";
 import { openDestinationTimeoutFromEnvironment } from "./open-destination-chooser";
-import {
-  BRACKETED_PASTE_DISABLE,
-  BRACKETED_PASTE_ENABLE,
-  TerminalInputDecoder,
-  type TerminalKey,
-} from "./terminal";
 import type {
   BacklinkCollection,
   BacklinkSource,
@@ -28,9 +19,7 @@ import type {
   ResolvedBlockReferences,
 } from "./types";
 
-if (process.env.HERDR_ENV !== "1") {
-  throw new Error("Backlink peek popup requires Herdr");
-}
+requireHerdr("Backlink peek popup");
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -55,13 +44,10 @@ function parseLaunch(): BacklinkPeekLaunch {
 }
 
 const launch = parseLaunch();
-const paths = resolveClientPaths();
-reportCurrentPaneWorkspace(paths.workspaceRoot);
+const { paths, client, keymap: actionKeymap } = await startHerdrClient();
 const destinationTimeoutMs = openDestinationTimeoutFromEnvironment(
   process.env.OUTLINER_OPEN_DESTINATION_TIMEOUT_MS,
 );
-const actionKeymap = OutlinerActionKeymap.load();
-const client = createOutlinerClient(paths);
 const collection = await client.request<BacklinkCollection>({
   action: "references.backlinks",
   query: { targetBlockId: launch.targetBlockId, limit: BACKLINK_QUERY_LIMIT },
@@ -69,17 +55,6 @@ const collection = await client.request<BacklinkCollection>({
 const sources = backlinkView(collection, launch.view).matching;
 if (!sources.some((source) => source.blockId === launch.selectedSourceBlockId)) {
   throw new Error("Selected backlink source is no longer in the filtered snapshot");
-}
-let stopping = false;
-let workQueue = Promise.resolve();
-
-function stop(exitCode = 0): void {
-  if (stopping) return;
-  stopping = true;
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  process.stdout.off("resize", draw);
-  process.stdout.write(`${BRACKETED_PASTE_DISABLE}\x1b[?25h\x1b[?1049l`);
-  process.exit(exitCode);
 }
 
 async function sourcePreview(source: BacklinkSource): Promise<BacklinkPeekPreview> {
@@ -150,7 +125,7 @@ const controller = new BacklinkPeekController(
       });
     },
     close() {
-      stop();
+      void session.stop();
     },
     invalidate() {
       draw();
@@ -168,30 +143,20 @@ function draw(): void {
   ));
 }
 
-function enqueueWork(task: () => void | Promise<void>): void {
-  workQueue = workQueue.then(task).catch((error) => {
+// No mouse reporting: a click stays Herdr's (select and copy). A paste is taken whole and dropped, never typed as keys.
+const session = createHerdrSession({
+  modes: { paste: true },
+  draw,
+  onError(error) {
     controller.status = error instanceof Error ? error.message : String(error);
     draw();
-  });
-}
-
-initTheme(undefined, false);
-const inputDecoder = new TerminalInputDecoder();
-emitKeypressEvents(process.stdin);
-if (process.stdin.isTTY) process.stdin.setRawMode(true);
-process.stdout.write(`\x1b[?1049h\x1b[?25l${BRACKETED_PASTE_ENABLE}`);
-process.stdin.on("keypress", (str: string | undefined, key: TerminalKey) => {
-  const text = str ?? "";
-  const sequence = key.sequence ?? text;
-  if (!sequence && !key.name) return;
-  const action = inputDecoder.consume(text, key);
-  enqueueWork(() =>
-    controller.handleKeypress(text, key, action, process.stdout.rows ?? 30)
-  );
+  },
+  input: { kind: "keypress", handlers: {
+    keypress(text, key, action) {
+      session.enqueue(() => controller.handleKeypress(text, key, action, process.stdout.rows ?? 30));
+    },
+  } },
 });
-process.stdout.on("resize", draw);
-process.on("SIGINT", () => stop(130));
-process.on("SIGTERM", () => stop(143));
-process.on("SIGHUP", () => stop(129));
+session.start();
 await controller.initialize();
 draw();

@@ -295,6 +295,16 @@ source evidence or distinguish authored glyphs from controls.
   outlines. Derive lists of outlines by scanning the folder; never keep one.
 - `src/outline-chooser.ts` and `src/choose-outline-main.ts` are the Herdr popup
   for a folder that names no outline: pick, new or import, then `.ep0ch`.
+- `src/herdr-session.ts` is how every Herdr client starts, holds the terminal and
+  leaves it (PIE-1648): `startHerdrClient` (theme, paths, client, compatibility
+  check, keymap), `waitForService` (Tree and Detail, before the host is up),
+  `attachKeypressInput` (keys, whole pastes and mouse reports split before
+  readline; a lone Escape at once) and `createHerdrSession` (the work queue, the
+  screen's modes with options for mouse and paste, resize, the signals at
+  128 + n, suspend for an editor, and one ordered stop that may refuse). Tree,
+  Detail, goto, capture, backlink peek, choose-outline and the branch navigator
+  all call it; a new popup is a controller and a draw handed to it, not a copy
+  of one of their main files.
 - `src/schema.ts` owns the database's schema and its version (`SCHEMA_VERSION`,
   stamped in `PRAGMA user_version`): every table, index and trigger is created
   there, and `openSchema` creates a new file or refuses another version. No other

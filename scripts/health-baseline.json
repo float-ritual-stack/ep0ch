@@ -378,7 +378,7 @@
     "packages/outliner/src/annotation-repository.ts": 2195,
     "packages/outliner/src/detail-controller.ts": 4664,
     "packages/outliner/src/detail-pi-preview.ts": 2410,
-    "packages/outliner/src/detail-pi.ts": 2042,
+    "packages/outliner/src/detail-pi.ts": 2017,
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4936,
     "packages/outliner/src/server.ts": 4428,
