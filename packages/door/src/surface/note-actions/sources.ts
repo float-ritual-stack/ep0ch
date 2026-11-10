@@ -169,7 +169,7 @@ export const SOURCES_DEFS = {
     run: ({ by, page }, { surface, host }) => surface.scrollSources(host, by, page),
   }),
   "sources.undo": def({
-    summary: "undo the last source edit or line insertion made in this reader while reading this note (an agent undoes its own, the person theirs); refused if that text changed again since",
+    summary: "undo the last source edit, line insertion or button slot written on this note, from any reader or press (an agent undoes its own, the person theirs), with what the press that slot finished did (its run, or its layout step while it is still the newest); refused if that text changed again since",
     keys: modeActionKeys(ATTACHED_KEYS, "sources.undo"), touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {}, run: (_, { surface, host }, actor) => surface.undoSource(host, actor),
   }),

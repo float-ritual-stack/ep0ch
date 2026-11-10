@@ -18,6 +18,17 @@ import { outliner, Scratch, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
 
+test("note.move is one action: every set that mounts it, a reader's and a list's, says one summary and takes one set of arguments (PIE-1672)", async () => {
+  await import("../src/app");
+  const { allActionSets } = await import("../src/surface/actions");
+  for (const name of ["note.move", "note.move.undo"]) {
+    const records = allActionSets().flatMap(s => s.list().filter(a => a.name === name).map(a => ({ scope: s.scope, summary: a.summary, args: Object.keys(a.args).sort().join(" ") })));
+    expect(records.map(r => r.scope).sort()).toEqual(["list", "note"]);
+    expect(new Set(records.map(r => r.summary)).size).toBe(1);
+    expect(new Set(records.map(r => r.args)).size).toBe(1);
+  }
+});
+
 test("the river column loads on its own (a static import cycle through the power bar broke the door's start)", async () => {
   const p = Bun.spawn([process.execPath, "-e", 'await import("./src/river/column.ts")'], { cwd: join(import.meta.dir, ".."), env: { ...process.env, EP0CH_STATE: join(import.meta.dir, "..", ".nonexistent-state") }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   let killed = false;
@@ -237,6 +248,13 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     await waitFor(async () => (await board.get(beta.id))?.parentId === alpha.id, "drag reply under row");
     key({ kind: "char", ch: "z", ctrl: true });
     await waitFor(async () => (await board.get(beta.id))?.parentId === parent.id, "undo reply drag");
+    // note.move.undo with no id takes back the list's last move, whichever row is lit (CodeRabbit on PR #1396).
+    list.render(list.ctx!);
+    mouse("down", 30, 5); mouse("drag", 30, 6); mouse("up", 30, 6);
+    await waitFor(async () => (await board.get(beta.id))?.parentId === alpha.id, "drag reply under row again");
+    list.sel = (list.listRows() ?? []).findIndex(r => r.id === alpha.id);
+    await app.dispatch.act({ action: "note.move.undo" }, { kind: "user" });
+    await waitFor(async () => (await board.get(beta.id))?.parentId === parent.id, "note.move.undo with no id undoing the last move");
     app.pop();
   }, 60_000);
 

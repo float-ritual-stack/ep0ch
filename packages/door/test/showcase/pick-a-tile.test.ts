@@ -480,4 +480,76 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(a.rect.row).toBe(b.rect.row);
     expect(a.rect.col).toBeLessThan(b.rect.col);
   }, 30_000);
+
+  // PIE-1678, PIE-1666: a press says what it changed, and ctrl+z takes back the whole of one. A made-up note in the section's reader.
+  const TITLE = '::button{label="title it" act="tile.zoom tile={word} reach=column" alt="tile.title tile=preview text={word}" word=}';
+  const UNLOCK = '::button{label="unlock" act=["layout.lock on=false"]}';
+  const pressNote = async () => {
+    const note = await board.createBlock(null, `Presses to take back\n${TITLE}\n${UNLOCK}\nThe end.`);
+    const reader = (await act("layout.get")).layers.find((l: any) => !l.drawer).tiles.find((t: any) => t.kind === "reader")?.name as string;
+    await act("open", { id: note.id }, reader);
+    await until(() => desk().pane(reader)?.surface?.msg?.id === note.id && screen().includes("[unlock]"), "the presses note in the reader");
+    const line = async (label: string) => (await board.get(note.id))!.text.split("\n").find(l => l.includes(`label="${label}"`))!;
+    return { note, reader, line };
+  };
+  const title = async () => (await act("tile.info", {}, "preview", AGENT)).title as string | undefined;
+  const said = () => app.describe().messages.map(row => row.message);
+  const clickOn = (text: string) => {
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes(text)), x = lines[y]!.indexOf(text) + 2;
+    h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
+  };
+
+  test("a press that changed nothing says so and leaves nothing to undo, by click and through act (PIE-1678)", async () => {
+    const { note, reader } = await pressNote();
+    const { EXT_UNDO } = await import("../../src/extensions");
+    for (const how of ["act", "click"] as const) {
+      const before = said().length;
+      if (how === "act") await act("button.press", { label: "unlock" }, reader);
+      else clickOn("[unlock]");
+      await until(() => said().slice(before).some(m => m.includes("nothing to undo")), `the ${how}'s press saying it changed nothing (said: ${said().slice(before).join(" | ")})`, 10_000);
+      expect(said().slice(before).join(" | ")).not.toContain("ctrl+z undoes");
+      expect(EXT_UNDO.last("you", note.id)).toBeNull();
+    }
+  }, 30_000);
+
+  test("a run that failed or was stopped keeps its ctrl+z step; one that ended with nothing to undo drops it (PIE-1678 review)", async () => {
+    const { EXT_UNDO } = await import("../../src/extensions");
+    const ended = (run: string, reason: "done" | "failed" | "stopped") => app.event({ domain: "script", ended: { run, reason, message: "made-up run", written: [], requestedBy: { author: "user" }, undo: false } } as never);
+    for (const [run, reason, kept] of [["run-failed", "failed", true], ["run-stopped", "stopped", true], ["run-nothing", "done", false]] as const) {
+      EXT_UNDO.push({ undo: run, label: "made up", by: "you", context: "note-x" });
+      ended(run, reason);
+      expect(!!EXT_UNDO.last("you", "note-x") && EXT_UNDO.last("you", "note-x")!.undo === run).toBe(kept);
+      EXT_UNDO.dropWhere(u => u.undo === run);
+    }
+  });
+
+  test("ctrl+z after an alt press takes back the words and the title they gave; an agent's slot comes back with sources.undo (PIE-1666)", async () => {
+    const { note, reader, line } = await pressNote();
+    const was = await title();
+    const asking = () => (app as any).bar?.describe() as { scope: string } | undefined;
+    await act("button.press", { label: "title it", alt: true }, reader);
+    await until(() => asking()?.scope === "ask", "the alt press's question");
+    for (const c of "Bean rows") h.ch(c);
+    h.press({ kind: "enter" });
+    await untilAsync(async () => (await title()) === "Bean rows", "the preview titled");
+    expect(await line("title it")).toContain('word="Bean rows"');
+    clickOn("The end.");                                              // the person's keys in the reader, as a click puts them
+    h.press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => (await line("title it")) === TITLE, "ctrl+z taking the words back");
+    await untilAsync(async () => (await title()) === was, `ctrl+z taking the title back too (it reads ${await title()})`);
+    // An agent's slot, with run=true: the press runs as the agent, and its own sources.undo takes the words back. In a showcase
+    // section an agent never lays the desk out under the person, so what its press did stays, and the answer says why.
+    const r = await act("button.slot", { label: "title it", key: "word", alt: true, value: "Pea trellis", run: true }, reader, AGENT);
+    expect(r.changed).toBe(true);
+    await untilAsync(async () => (await title()) === "Pea trellis", "the agent's run=true titling the preview");
+    const back = await act("sources.undo", {}, reader, AGENT);
+    expect(await line("title it")).toBe(TITLE);
+    expect(back.press ?? "").toMatch(/^kept: .*an agent doesn't lay the desk out/);
+    // The line the door hands an agent (note= and line=, no tile) writes where no reader is asked; the reader showing the note
+    // undoes it all the same: source writes are one history (PIE-1666).
+    await act("button.slot", { note: note.id, line: 2, key: "word", alt: true, value: "Corn patch", run: true }, undefined, AGENT);
+    await untilAsync(async () => (await title()) === "Corn patch", "the agent's note= press titling the preview");
+    await act("sources.undo", {}, reader, AGENT);
+    expect(await line("title it")).toBe(TITLE);
+  }, 30_000);
 });

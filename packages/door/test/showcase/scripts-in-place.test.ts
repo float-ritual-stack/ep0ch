@@ -146,8 +146,10 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
       const nothing = await press("Nothing");
       expect(nothing.result.text).toContain("returned nothing");
       expect(nothing.result.text).toContain("empty input");
+      // Nothing changed nothing: it leaves no undo step (PIE-1678), so the one ctrl+z takes back Pipe's fold.
+      await until(() => app.describe().messages.some(r => r.message.includes("nothing to undo: it was already so")), "Nothing saying it changed nothing");
       await app.dispatch.act({ action: "ext.undo", tile: "notes" }, USER);
-      await app.dispatch.act({ action: "ext.undo", tile: "notes" }, USER);
+      expect(await collapsed("links")).toBe(false);
       const current = (await board.get(note.id))!;
       await board.update(note.id, current.text + '\n```js script=hold\nawait wait(5000);\n```\n::button{label="Stop"}\ntile.collapse on=true tile=links\n((hold))\ntile.collapse on=true tile=preview\n::', current.revision!, USER);
       await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Stop" } }, USER);

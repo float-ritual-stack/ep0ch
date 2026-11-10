@@ -75,6 +75,8 @@ export interface DeskApi {
   holdReader?(pane: ReaderPane, actor: Actor): void;
   /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
   layoutUndoSeq?(): number | undefined;
+  /** The place in the undo order of the newest change on any of the person's layouts (the screen, the drawer, a group). */
+  layoutNewestSeq?(): number | undefined;
   /** Bring back the note the person trashed last on `board` (note.untrash), for a reader's ctrl+z; false for another outline's board. */
   untrash?(board: object): boolean;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
@@ -588,13 +590,14 @@ export class ReaderPane implements Pane, AttachedOwner {
   }
   attachedKey(a: Attachment, k: Key, desk: DeskApi): boolean {
     if (a === "matches") return false;
-    if (a === "settings") { this.surface.attachedKeys(a); return this.surface.key(k, { ...this.host(desk), attachment: a }); }
+    // The tile's attachment takes the keys (PIE-1669), whichever others are open: one call for every kind.
+    if (a !== "edit-preview" && a !== "list-preview") this.surface.attachedKeys(a);
+    if (a === "settings") return this.surface.key(k, { ...this.host(desk), attachment: a });
     if (a === "edit-preview") {
       if (!this.surface.editPreviewKey(k, { ...this.host(desk), attachment: "edit-preview" })) void desk.perform?.("tile.focus", {}, USER, this);
       return true;
     }
     if (a === "list-preview") return this.surface.key(k, this.listPreviewHost(desk));
-    if (this.surface.sourcesMode) this.surface.attachedKeys(a);
     return (a === "sources" ? !!this.surface.sourcesMode : !!this.surface.session) && this.surface.key(k, this.host(desk));
   }
   attachedMouse(a: Attachment, k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
@@ -640,6 +643,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.retirePeeks ? { retirePeeks: (by: Actor) => desk.retirePeeks!(this, by) } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
+      ...(desk.layoutNewestSeq ? { layoutNewestSeq: () => desk.layoutNewestSeq!() } : {}),
       ...(desk.untrash ? { untrash: (board: object) => desk.untrash!(board) } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): with no wire it replaces
       // its own note (a pinned one opens beside it); alt+⏎ opens beside.

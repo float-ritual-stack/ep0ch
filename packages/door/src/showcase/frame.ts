@@ -20,7 +20,7 @@ export class FramedScreen {
    * `focused`: the frame has the person's keys where it is (its tile is focused, the showcase's stage is entered);
    * the screen inside sees the person's whereabouts through it (`within`). Without it, it always has them.
    */
-  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true, private readonly escaped?: () => void, readonly undo?: () => Pick<Ctx, "layoutUndoSeq" | "untrash">) {
+  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true, private readonly escaped?: () => void, readonly undo?: () => Pick<Ctx, "layoutUndoSeq" | "layoutNewestSeq" | "untrash">) {
     this.stack.push(first);
     this.ctx = frameCtx(this);
   }
@@ -116,7 +116,7 @@ function frameCtx(f: FramedScreen): Ctx {
     get lastCall() { return o().lastCall; },
     set lastCall(v: number) { o().lastCall = v; },
     get events() { return o().events; },
-    ...(f.undo ? { layoutUndoSeq: () => f.undo!().layoutUndoSeq?.(), untrash: (b: object) => f.undo!().untrash?.(b) ?? false } : {}),
+    ...(f.undo ? { layoutUndoSeq: () => f.undo!().layoutUndoSeq?.(), layoutNewestSeq: () => f.undo!().layoutNewestSeq?.(), untrash: (b: object) => f.undo!().untrash?.(b) ?? false } : {}),
     push: s => f.push(s),
     pop: () => f.pop(),
     screens: () => f.screens,

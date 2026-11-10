@@ -73,6 +73,9 @@ Only a `::button{...}` without `act=` or `of=` has a body: its steps begin on th
 Script steps keep their own slots (`((fold tile=links))` fills `{{props.tile}}` in an `actions` fence).
 A render script stays read-only as a step and can pass its return to the next step.
 Each press has its own run-id undo group. Undo refuses an older group while a later group's layout changes remain, even for the same button.
+A press that changed nothing (no note written, every door step answering `changed: false`) has no undo group: it says
+`nothing to undo: it was already so` and leaves no ctrl+z step (PIE-1678). The words a press asked for (a slot filled
+by `button.slot`) and what that press then did are one ctrl+z (`sources.undo`, PIE-1666).
 The kitchen sink's **One button, two tiles** demonstrates both forms. Disk/network effects remain after undo.
 
 **Buttons that ask.** A `{key}` in `act=` (or in an `of=` script's values) is filled from the word `key=` on the same line:
@@ -499,7 +502,8 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
    again"). The check is made at the run's next host call, not at the edit. A script that writes into its own note goes on: only the fence counts. At the end, a changed script setting (its stamp) discards successful output ("The script source changed during this run"); a failed call keeps its refusal reason.
 6. **End.** The run's undo is prepared; "Undo unavailable: why" is added to a kept record when it can't be.
    `scripts.ended` carries the answer (`message`), retained note ids (`written`), requester and end reason. The initiating
-   door shows that answer, with `ctrl+z undoes` on success; actual failures use the refusal voice with a next action.
+   door shows that answer, with `ctrl+z undoes` on success (or `nothing to undo: it was already so` for a press that
+   changed nothing, whose `undo` is false); actual failures use the refusal voice with a next action.
    An inline `@script` ask uses the same answer when there is no retained note to link.
    **The caller is answered too** (PIE-1264): `extensions.act`, `scripts.run` and `scripts.sequence` (so `ep0ch act`, the
    MCP `script_run` and the door's press) wait up to 3 seconds for the run's end and answer with its last word:

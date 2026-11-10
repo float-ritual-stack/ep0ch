@@ -175,5 +175,7 @@ export class UndoHistory<E extends { by: string; context: string } = UndoEntry> 
     }
   }
   drop(e: E) { const i = this.entries.lastIndexOf(e as E & { seq?: number }); if (i >= 0) this.entries.splice(i, 1); }
+  /** Forget every entry `gone` holds for: a change found to have nothing to take back (PIE-1678). */
+  dropWhere(gone: (e: E) => boolean) { this.entries = this.entries.filter(e => !gone(e)); }
   get size() { return this.entries.length; }
 }

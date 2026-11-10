@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every key, hint and undo on a note says and does one thing (PIE-1667, PIE-1668, PIE-1669, PIE-1671, PIE-1672, PIE-1681, PIE-1678, PIE-1666)
+
+- **R says what it does:** with a proposal in view, the hint row names `R resolve`; with `[ ]` on a ticket or a line that runs, R fetches it again, as its line says, and the proposal waits for R off it.
+- **An attachment's tile takes its own keys:** a comment in its own tile beside the settings card (or Sources) in another gets what you type there; before, the card took it.
+- **A press that changed nothing says so:** a button whose steps all changed nothing (pressed by click, key or `act`) says `nothing to undo: it was already so` and leaves no ctrl+z step behind. The pick-a-tile section's `unlock` shows it.
+- **One ctrl+z takes back a slot's words and what its press did:** after an alt press of `title it`, ctrl+z puts back the button's line and the preview's title together. An agent's `button.slot` is undone by its `sources.undo` from the reader showing the note, and its `run=true` runs the button or says why not. A title written on a tile is now a layout step, as a rename is.
+- **`note.move` is one action:** a list mounts the reader's own description and `note.move.undo`, so the keys window and `ep0ch actions` say one thing on every screen.
+- **`comment.close` says where esc runs it:** in the thread list and the passage picker esc runs it directly; in a comment being written esc runs `comment.escape`, which closes through it. The keys window says both.
+- **`props.summary reset=false` and `toggle=`** are refused with the usage line instead of a TypeError.
+- **Opening many notes reads each attachment's saved place once** (the previews, Sources and settings), from the attachments layer.
+- **Run:** `ep0ch install --apply` (the service and the door both change); PROTOCOL, GRAMMAR and the schema don't move.
 ### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
 
 - **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".
