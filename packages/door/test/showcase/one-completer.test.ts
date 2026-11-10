@@ -4,6 +4,7 @@
 // screen's tiles by the names tile= takes. Scratch service, fictional notes.
 import { describe, expect, test } from "bun:test";
 import { completerOf, completionOf } from "../../src/surface/completer";
+import { Dispatcher } from "../../src/surface/dispatch";
 import { until, untilAsync } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
@@ -21,11 +22,21 @@ describe("showcase: one completer (PIE-1076)", () => {
   };
 
   test("in the edit: ctrl+k lists the actions here, the chosen one's arguments complete in place, ⏎ runs it; the bar's tile= lists this screen's tiles", async () => {
-    await h.app.act({ action: "section", args: { name: "one-completer" }, as: "test-agent" });
-    await until(() => marks["one-completer"]!.every(m => screen().includes(m)), "the one-completer section", 8000);
-    press({ kind: "enter" });
-    // The stage opened the edit and asked for the actions here: a / line under the cursor's, its list open.
-    const first = await listed("the actions here", labels => labels.length > 3);
+    // Every action here is listed once for the rows and their docs, never once more for each row's docs (PIE-1532: a
+    // listing per row, 5,864 with the delegates each asks, held the door for 3.5 s at each ctrl+k in an edit).
+    const list = Dispatcher.prototype.list;
+    let listings = 0;
+    Dispatcher.prototype.list = function (this: Dispatcher) { listings++; return list.call(this); };
+    let first: NonNullable<ReturnType<typeof pop>>;
+    try {
+      await h.app.act({ action: "section", args: { name: "one-completer" }, as: "test-agent" });
+      await until(() => marks["one-completer"]!.every(m => screen().includes(m)), "the one-completer section", 8000);
+      press({ kind: "enter" });
+      // The stage opened the edit and asked for the actions here: a / line under the cursor's, its list open.
+      first = await listed("the actions here", labels => labels.length > 3);
+    } finally { Dispatcher.prototype.list = list; }
+    expect(first.items.length).toBeGreaterThan(100);
+    expect(listings).toBeLessThan(100);
     // And drawn under the / at the first ⏎, before any other key (PIE-1445: it waited for a second /).
     await until(() => !!completerOf(draft())?.drawn && screen().includes(first.items[0]!.label), "the list drawn at the cursor", 8000);
     // The note's tile's own actions first, as ctrl+k and / list them, though the keys came in after the list was asked
