@@ -7441,7 +7441,7 @@ export class NoteSurface {
     try { r = await copyLineRef(host.ctx, actor, { blockId: drawnFields.from, line: row.line, revision: drawnFields.revision }, said => this.noteAgent(actor, said)); }
     catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); throw e; }
     host.redraw();
-    return { block: drawnFields.from, noteLine: row.line + 1, anchor: r.anchor, created: r.created, link: r.text, clipboard: r.clipboard, ...(r.recordedAs ? { recordedAs: r.recordedAs } : {}) };
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: r.anchor, created: r.created, link: r.text, clipboard: r.clipboard, ...(({ recordedAs }) => (recordedAs ? { recordedAs } : {}))(r) };
   }
 
   /**

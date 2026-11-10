@@ -74,8 +74,8 @@ export async function lineRef(board: Ctx["board"], actor: Actor, a: LineRefAt): 
 
 /** `lineRef`, copied (`deliverNoteRef`): the person's to their clipboard, an agent's back to it. */
 export async function copyLineRef(ctx: Pick<Ctx, "board" | "copy" | "flash">, actor: Actor, a: LineRefAt, said?: (msg: string) => void) {
-  const r = await lineRef(ctx.board, actor, a);
-  return { ...deliverNoteRef(ctx, actor, a.blockId, "line", r.text, said), line: a.line + 1, anchor: r.anchor, created: r.created, ...(r.recordedAs ? { recordedAs: r.recordedAs } : {}) };
+  const r = await lineRef(ctx.board, actor, a), { recordedAs } = r;
+  return { ...deliverNoteRef(ctx, actor, a.blockId, "line", r.text, said), line: a.line + 1, anchor: r.anchor, created: r.created, ...(recordedAs ? { recordedAs } : {}) };
 }
 
 /**
