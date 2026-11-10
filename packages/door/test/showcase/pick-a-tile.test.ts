@@ -79,7 +79,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(plain.picking).toBeUndefined();
     expect(await aboutLine()).toContain("lift=}");
     // An agent's alt press is told the line to run, never shown the picker.
-    await expect(act("button.press", { label: "about this", alt: true }, undefined, AGENT)).rejects.toThrow(/button\.slot .*key=lift value=/);
+    await expect(act("button.press", { label: "about this", alt: true }, undefined, AGENT)).rejects.toThrow(/button\.slot .*key=lift alt=true value=/);
     const asked = await act("button.press", { label: "about this", alt: true });
     expect(asked.picking).toBe("tile");
     await until(() => screen().includes("about this: choose a tile for lift"), "the picker's card");
@@ -91,6 +91,29 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(lifted, "links lifted by the alt press");
     await act("button.press", { label: "about this", alt: true });
     await until(() => !lifted(), "links dropped");
+  });
+
+  // PIE-1660: act= and alt= read one empty slot, each as a different kind. The alt press asks in alt='s kind (words), the
+  // main press in act='s (a tile), and the alt press's answer is kept as written, never resolved as a tile.
+  test("a slot act= and alt= share: each press asks for it in its own action's kind", async () => {
+    const titleLine = async () => (await text()).split("\n").find(l => l.includes('label="title it"'))!;
+    expect(await titleLine()).toContain("word=}");
+    // An agent is told the kind each press takes: a tile for the main press, a value for the alt press.
+    await expect(act("button.press", { label: "title it" }, undefined, AGENT)).rejects.toThrow(/key=word value=<tile>/);
+    await expect(act("button.press", { label: "title it", alt: true }, undefined, AGENT)).rejects.toThrow(/key=word alt=true value=<the value>$/);
+    // The person's alt press asks in the power bar for words, not the tile picker.
+    const asking = () => (app as any).bar?.describe() as { scope: string } | undefined;
+    const asked = await act("button.press", { label: "title it", alt: true });
+    expect(asked).toMatchObject({ asking: "value", action: "title it: word" });
+    expect(asked.picking).toBeUndefined();
+    await until(() => asking()?.scope === "ask", "the alt press's question in the power bar");
+    expect(screen()).not.toContain("choose a tile for word");
+    for (const c of "Seed list") h.ch(c);
+    h.press({ kind: "enter" });
+    await untilAsync(() => titleLine().then(l => l.includes('word="Seed list"')), "the words written as typed");
+    // The answer finishes the alt press: the preview tile wears the words as its title.
+    await untilAsync(async () => (await act("tile.info", {}, "preview", AGENT)).title === "Seed list", "the preview titled");
+    expect(lifted()).toBe(false);
   });
 
   test("a slot never keeps a name or a number: an agent's value is resolved now and kept as the tile's id", async () => {
