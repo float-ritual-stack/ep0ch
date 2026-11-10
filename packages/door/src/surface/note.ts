@@ -3656,9 +3656,11 @@ export class NoteSurface {
   private commentMode(cs: CommentSession): CommentMode {
     // The comment's own tile (PIE-846) has its mouse (composerPointer): here, a press, a click and the wheel are the note's.
     const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
+    // Its way out is the draft's edit.close, wherever the person's keymap put it (alt+q, PIE-1719): the foot names that key.
+    const closeKey = () => { const k = cs.composer?.keyOf("edit.close"); return k && k !== "(unbound)" && k !== "esc" ? { key: k } : {}; };
     const mode: CommentMode = {
       // ctrl+r is the draft's own key (DRAFT_KEYS), named only when there's something to reload: first, beside the warning, so a narrow footer keeps it (PIE-1664).
-      get keys() { return cs.mode === "compose" ? [...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload").map(row => ({ ...row, label: cs.target?.kind === "quote" ? "find quote" : "reload" })) : []), ...COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row)] : undefined; },
+      get keys() { return cs.mode === "compose" ? [...(cs.composer?.status.conflict || cs.composer?.status.changedElsewhere ? DRAFT_KEYS.filter(row => row.action === "edit.reload").map(row => ({ ...row, label: cs.target?.kind === "quote" ? "find quote" : "reload" })) : []), ...COMMENT_KEYS.map(row => (row.key === "esc" ? { ...row, ...closeKey(), ...(cs.dirty ? { label: "twice puts comment aside" } : {}) } : row))] : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The note moved on: a comment on a passage of it, or on the whole of it, is told as a note's edit is (PIE-1658).
       changed: revision => cs.noteChanged(revision),

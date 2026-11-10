@@ -569,6 +569,11 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       key(char("C"));
       await until(() => frame().join("\n").includes("alt+q"), "the composer, its way out alt+q").catch(e => { throw new Error(`${e.message}:\n${frame().join("\n")}`); });
       for (const ch of "more beans") key(char(ch));
+      // The composer's own foot names the key its way out is now, not esc (wide enough to read the foot).
+      cols = 177;
+      expect(frame().join("\n")).toContain("alt+q twice puts comment aside");
+      expect(frame().join("\n")).not.toContain("esc twice puts comment aside");
+      cols = 44;
       key({ kind: "esc" });
       // Above the bar, whole (wrapped): what esc no longer does to the comment, its way out's words kept apart from it.
       const said = () => frame().slice(-6, -1).map(l => l.trim()).join(" ").replace(/\s+/g, " ");
