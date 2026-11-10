@@ -55,6 +55,32 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "esc" });
   }, 20_000);
 
+  // PIE-1658: the drafts section's edit and comment, when someone else saves their note: both say so, and ctrl+r in each
+  // (edit.reload, as the key runs it) reads the note again, lands what was typed and clears the warning.
+  test("drafts: a note changed elsewhere warns the edit and the comment on it alike; ctrl+r in each reads it and clears the warning", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drafts" }, as: "test-agent" });
+    await until(() => marks.drafts!.every(m => screen().includes(m)), "the drafts section");
+    const stage = () => S().stages.get(S().sel).top;
+    const edit = () => stage().pane("reader")?.surface.draft, comment = () => stage().pane("reader2").surface.session?.composer;
+    await until(() => !!edit() && !!comment(), "the edit and the comment open");
+    const notes = [seeded.notes.whiteboard.id, seeded.notes.notebook.id], was = new Map<string, string>();
+    const elsewhere = async (text: (id: string) => string) => {
+      for (const id of notes) { const now = (await board.get(id))!; if (!was.has(id)) was.set(id, now.text); await board.update(id, text(id), now.revision!); }
+      await until(() => !!edit()?.status.changedElsewhere && !!comment()?.status.changedElsewhere, "both warned", 8000);
+      for (const [tile, d] of [["reader", edit], ["reader2", comment]] as const) {
+        await stage().dispatch.press("edit.reload", {}, tile);
+        await until(() => !!d() && !d()!.status.changedElsewhere && !d()!.status.busy, `${tile} reloaded`, 8000);
+      }
+    };
+    await elsewhere(id => `${was.get(id) ?? ""}\n\nWritten elsewhere.`);
+    expect(edit()!.text).toContain("Written elsewhere.");
+    expect(comment()!.note).toContain("found the quote again");
+    // Put back as it was, the same way, for the tests after.
+    await elsewhere(id => was.get(id)!);
+    expect(edit()!.text).not.toContain("Written elsewhere.");
+  }, 30_000);
+
 
   test("kept edits: the three cases by act: a new line is shown and added as one patch, an edit the note has settles itself, an old conflict folds to a chip and compares both versions", async () => {
     (app as any).lastInput = 0;
@@ -944,4 +970,5 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     } finally { resetKeys("draft.undo"); }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   });
+
 });
