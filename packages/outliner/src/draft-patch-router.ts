@@ -153,7 +153,7 @@ const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).
 const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.text] : []);
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
-type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean };
+type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean; kind?: RefusalKind };
 
 /** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
 class AlongsideFailure extends Error {
@@ -339,12 +339,12 @@ export class DraftPatchRouter {
     }
     const outcome = await this.run(edits, { mutation, mark, output, replyTo: input.replyTo, replyGroup: input.replyGroup, ...sent, ...(input.current === true ? { current: true } : {}) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
-    if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason);
+    if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason, outcome.kind);
     if (input.propose === "on-conflict") return this.propose(outcome.reason, edits, mutation, mark, sent);
-    throw this.patchRefusal(edits, outcome.reason);
+    throw this.patchRefusal(edits, outcome.reason, outcome.kind);
   }
 
-  private patchRefusal(edits: DraftPatchEdit[], reason: string): DraftPatchRefusal {
+  private patchRefusal(edits: DraftPatchEdit[], reason: string, kind?: RefusalKind): DraftPatchRefusal {
     const notes = edits.map(edit => {
       const block = this.deps.store.requireActive(edit.blockId);
       const revision = this.holderOf(edit.blockId)?.revision ?? block.revision;
@@ -352,7 +352,7 @@ export class DraftPatchRouter {
       return `${blockDisplayTitle(block)} ((${block.id})) ${changed} (revision ${edit.revision}, now ${revision})`;
     });
     const stale = edits.some(edit => (this.holderOf(edit.blockId)?.revision ?? this.deps.store.requireActive(edit.blockId).revision) !== edit.revision);
-    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, stale ? "stale-revision" : "conflict");
+    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, kind ?? (stale ? "stale-revision" : "conflict"));
   }
 
   /**
@@ -372,7 +372,7 @@ export class DraftPatchRouter {
     }
     const outcome = await this.run(edits, { mutation, ...sent, alongside: input.write, told: toldBy(input.group), made: madeBy(input.group) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
-    if (outcome.refused) throw new DraftPatchRefusal(outcome.reason);
+    if (outcome.refused) throw new DraftPatchRefusal(outcome.reason, outcome.kind);
     return this.propose(outcome.reason, edits, mutation, undefined, sent, input.group);
   }
 
@@ -802,7 +802,7 @@ export class DraftPatchRouter {
       if (isSqliteBusy(error)) throw error;
       // What a write group makes, moves or orders failing is its refusal, never a proposal of it.
       if (error instanceof AlongsideFailure) throw error.cause;
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      return { ok: false, reason: error instanceof Error ? error.message : String(error), ...(error instanceof Refusal ? { kind: error.kind } : {}) };
     }
     const order = new Map(edits.map((edit, index) => [edit.blockId, index]));
     applied.sort((left, right) => order.get(left.blockId)! - order.get(right.blockId)!);
