@@ -619,7 +619,7 @@ export class DraftSession {
     d.redos = u.history?.redos ?? [];
     d.patches = u.history?.patches ?? [];
     const { what, does } = this.target.returns ?? { what: this.target.verb === "send" ? "words" : this.target.verb === "create" ? "new note" : "edit", does: `${this.target.verb}s` };
-    this.status.say(`brought back your ${what} from ${dayOf(u.at)} · ctrl+s ${does} · esc twice drops it`);
+    this.status.say(`brought back your ${what} from ${dayOf(u.at)} · ${d.keyOf("edit.save")} ${does} · ${d.keyOf("edit.close")} twice drops it`); // the keys the table gives now (a rebind)
     return true;
   }
 

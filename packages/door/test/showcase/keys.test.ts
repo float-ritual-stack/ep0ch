@@ -7,6 +7,8 @@ import { Desk } from "../../src/desk/desk";
 import { openScreen } from "../../src/desk/screen-specs";
 import { wKey } from "../../src/desk/wkeys";
 import { keymapPath } from "../../src/surface/keymap";
+import { Draft } from "../../src/edit";
+import { editHint } from "../../src/surface/editor";
 import { visible } from "../../src/style";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -48,6 +50,21 @@ describe.skipIf(!outliner)("the keys section", () => {
     await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT);
     expect(wKey("x")?.action).toBe("tile.close");
     expect(existsSync(keymapPath())).toBe(true);
+  });
+
+  test("an agent moves the draft's esc to alt+q in the keys tile: an edit closes on alt+q, esc is left alone, the hint names alt+q (Nov 3 review card 1)", async () => {
+    await h.app.act({ action: "section", args: { name: "keys" }, as: "keys-demo" });
+    await until(() => !!h.S().stages.get(h.S().sel), "the keys section");
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    const r: any = await d.dispatch.act({ action: "keys.rebind", args: { id: "edit.close", key: "esc", to: "alt+q" }, tile: "keys" }, AGENT);
+    expect(r).toMatchObject({ saved: true, id: "edit.close" });
+    try {
+      const draft = new Draft("keys-demo", 0, "Plum jam");
+      expect(draft.key({ kind: "esc" })).toBe("keep");
+      expect(draft.key({ kind: "alt", ch: "q" })).toBe("close");
+      expect(visible(editHint(new Draft("keys-demo", 0, ""), { save: "save" }))).toContain("alt+q done");
+    } finally { await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT); }
+    expect(new Draft("keys-demo", 0, "Plum jam").key({ kind: "esc" })).toBe("close");
   });
 
   test("on the House board, ? opens the keys window where the board can take it; esc gives the keys back to the lanes", async () => {

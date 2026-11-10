@@ -1,6 +1,7 @@
 import { lineEscCloses } from "../surface/completer";
 import { buttonText } from "../surface/button";
 import { keyTable } from "../surface/keymap";
+import { DRAFT_KEYS } from "../edit";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import "../trail-facets";
 import { facetSource, facetSources, onFacetSources, sourceAnswer, type SourceRow } from "../facet-sources";
@@ -71,7 +72,10 @@ const MATCHES_KEYS: readonly ModeKey[] = [
   { key: "enter", action: "facets.open", label: "open" }, { key: "alt+enter", action: "facets.open", args: { fresh: true }, label: "beside" },
   { key: "*", action: "facets.pin", label: "pin" }, { key: "t", action: "facets.tag", label: "tag" }, { key: "ctrl+o", action: "facets.place", label: "moves it" },
 ];
-const QUERY_DRAFT_KEYS: readonly ModeKey[] = [{ key: "enter", action: "facets.query", label: "apply" }, { key: "esc", action: "facets.query", label: "undo" }];
+/** The facets query line's own key (⏎ applies); its typing, undo and close are the line field's, the draft's table (DRAFT_KEYS). */
+const QUERY_DRAFT_KEYS: readonly ModeKey[] = keyTable("facets query", "the facets tile's query line, beside the draft's keys", [{ key: "enter", action: "facets.query", label: "apply", says: "apply the typed query as the selection" }]);
+/** The query line's close key as its hint says it: the draft's edit.close row, labelled for what it does here. */
+const queryClose = (): ModeKey[] => DRAFT_KEYS.filter(r => r.action === "edit.close").map(r => ({ ...r, label: "undo" }));
 /** What the Matches list shows of a row unless the tile says (`show=`): its tags. Any key goes (properties are open). */
 const SHOW = ["tag"];
 /** A day picked on the calendar, as the views' grammar writes it (the service's day, as `updated >= YYYY-MM-DD` reads). */
@@ -241,7 +245,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   /** The pane whose wires a pick and an open go through: the Matches tile while there is one, else this. */
   source(): Pane { return this.place === "tile" && this.matchesPane ? this.matchesPane : this; }
   title() { const q = this.query(); return `${this.kind} · ${this.sourceTitle()}${q ? ` ${q}` : ""}`; }
-  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · " + modeHint(QUERY_DRAFT_KEYS, () => undefined) : `${modeHint(HINT_KEYS, () => undefined)} · ${keysText(FACETS_ACTIONS.def("facets.resize")!.keys)}`; }
+  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · " + modeHint([...QUERY_DRAFT_KEYS, ...queryClose()], () => undefined) :`${modeHint(HINT_KEYS, () => undefined)} · ${keysText(FACETS_ACTIONS.def("facets.resize")!.keys)}`; }
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
@@ -740,8 +744,9 @@ export class FacetsPane implements Pane, AttachedOwner {
 
   private draftKey(k: Key, desk: DeskApi): boolean {
     if (this.draft?.take(k)) { desk.redraw(); return true; }
-    if (k.kind === "enter") { const text = this.draft?.text.trim() ?? ""; this.draft = null; this.act(desk, "facets.query", { text }); return true; }
-    if (k.kind === "esc") this.draft = null;
+    // ⏎ applies (this tile's own row); the draft's close key (edit.close, esc built in) drops it, as in every place a person types.
+    if (modeBinding(QUERY_DRAFT_KEYS, k)) { const text = this.draft?.text.trim() ?? ""; this.draft = null; this.act(desk, "facets.query", { text }); return true; }
+    if (this.draft?.binding(k)?.action === "edit.close") this.draft = null;
     else return k.kind !== "tab" && k.kind !== "backtab";
     desk.redraw();
     return true;

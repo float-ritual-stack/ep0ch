@@ -55,3 +55,38 @@ test("a refusal is still one envelope: ok false, the words, the sequence", async
   expect(answer).toMatchObject({ id: "r1", ok: false, sequence: store.sequence });
   expect((answer as { error: string }).error).toMatch(/rank/);
 });
+
+// Card 14, the sync half: handle() used to rethrow a busy error to whoever called it (the query watches, the draft
+// guard's client), so a sync action met a held lock without the one retry and the envelope async gets. The store
+// throws a real SQLITE_BUSY (provoked by a held writer, then kept) on the first try only.
+async function busyOnce(store: OutlinerStore, holdFor: (ms: number) => Promise<unknown>) {
+  const note = store.create("Bean rows");
+  const release = holdFor(5);
+  let busy: unknown;
+  try { store.setSelection(note.id); } catch (error) { busy = error; }
+  await release;
+  expect(busy).toBeDefined();
+  return { note, busy, restore: store.setSelection.bind(store) };
+}
+
+test("a sync action that meets a held writer is retried once, as an async one is", async () => {
+  const { store, server, holdFor } = await setup();
+  const { note, busy, restore } = await busyOnce(store, holdFor);
+  let tries = 0;
+  store.setSelection = (blockId) => { if (tries++ === 0) throw busy; return restore(blockId); };
+  const answer = server.handle(asked({ action: "selection.set", blockId: note.id }));
+  expect(tries).toBe(2);
+  expect(answer).toMatchObject({ id: "r1", ok: true });
+});
+
+test("a sync action that stays busy answers one envelope, never a throw", async () => {
+  const { store, server, holdFor } = await setup();
+  const { note, busy } = await busyOnce(store, holdFor);
+  let tries = 0;
+  store.setSelection = () => { tries++; throw busy; };
+  const answer = server.handle(asked({ action: "selection.set", blockId: note.id }));
+  expect(tries).toBe(2);
+  expect(answer).toMatchObject({ id: "r1", ok: false, sequence: store.sequence });
+  const again = await server.handleAsync(asked({ action: "selection.set", blockId: note.id }));
+  expect(again).toMatchObject({ ok: false, sequence: store.sequence, error: (answer as { error: string }).error });
+});

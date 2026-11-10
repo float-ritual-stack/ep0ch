@@ -116,7 +116,7 @@ describe("an estimated budget and the raise", () => {
     expect(estimated.code).toBe(0);
     expect(estimated.out).toContain("test-budget: over the estimated test budget: no ticket");
     expect(estimated.out).toContain("door/test/kettle.test.ts  45.0 s of 30.0 s");
-    expect(estimated.out).toContain("a measured budget from this run: door 68 s, outliner 13 s, 1 file of its own");
+    expect(estimated.out).toContain("a measured budget from this run: door 68 s, outliner 30 s, 1 file of its own");
     expect(estimated.out).toContain("propose --log");
     expect(readFileSync(line, "utf8")).toStartWith("over the estimated test budget");
     const measured = run("compare", "--log", overLog(), "--budget", files("measured.json", JSON.stringify(budget)), "--last", last);
@@ -139,11 +139,11 @@ describe("an estimated budget and the raise", () => {
 });
 
 describe("the budget itself", () => {
-  test("propose: these times plus 25%, a file of its own only past the package's default, the note on top kept", () => {
+  test("propose: these times plus 25%, a file of its own only past the package's default, the note on top kept, a total never under 30 s", () => {
     const p = propose(timesOf(log({ "test/kettle.test.ts": 40, "test/teapot.test.ts": 8 })), { about: "made up", packages: { door: { total: 1, file: 30 } } }, "today");
     expect(p).toEqual({
       about: "made up", measured: "today",
-      packages: { door: { total: 60, file: 30, files: { "test/kettle.test.ts": 50 } }, outliner: { total: 13, file: 60 } },
+      packages: { door: { total: 60, file: 30, files: { "test/kettle.test.ts": 50 } }, outliner: { total: 30, file: 60 } },
     });
   });
 

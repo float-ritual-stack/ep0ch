@@ -32,6 +32,8 @@ export type Budget = { about?: string; estimated?: boolean; measured?: string; p
 
 export const NEAR = 0.8;
 export const HEADROOM = 1.25;
+/** A package's total never goes under this: a package whose tests take a second would otherwise go red on noise. */
+export const MIN_TOTAL = 30;
 export const BUDGET_PATH = "scripts/test-budget.json";
 const TAG = "test-time";
 
@@ -178,14 +180,14 @@ export function markdown(v: Verdict, lastLabel = "the last green night", log = "
   return out.join("\n");
 }
 
-/** A budget at these times plus 25%: each package's total, and a file of its own for each file past the package's default. */
+/** A budget at these times plus 25%: each package's total (at least MIN_TOTAL), and a file of its own for each file past the package's default. */
 export function propose(now: Times, current: Budget | null, measured: string): Budget {
   const packages: Record<string, PackageBudget> = { ...(current?.packages ?? {}) };
   for (const [pkg, files] of now) {
     const file = current?.packages[pkg]?.file ?? 60;
     const own: Record<string, number> = {};
     for (const [f, secs] of [...files].sort(([a], [b]) => a.localeCompare(b))) if (secs * HEADROOM > file) own[f] = Math.ceil(secs * HEADROOM);
-    packages[pkg] = { total: Math.ceil(sum(files) * HEADROOM), file, ...(Object.keys(own).length ? { files: own } : {}) };
+    packages[pkg] = { total: Math.max(MIN_TOTAL, Math.ceil(sum(files) * HEADROOM)), file, ...(Object.keys(own).length ? { files: own } : {}) };
   }
   return { ...(current?.about ? { about: current.about } : {}), measured, packages };
 }
