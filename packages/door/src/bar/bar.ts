@@ -423,6 +423,9 @@ export class PowerBar {
       for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host, this.scope); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
+    // A line changed off what the bar put there is the person's from now on, even typed back to the same text (PIE-1680).
+    if (this.offered !== null && this.offered !== this.query) this.offered = null;
+    if (this.justRan !== null && this.justRan !== this.query) this.justRan = null;
     // Other rows for what's typed now: a click on one is a first click, whatever was clicked before.
     this.picker.view.forget();
     const turn = this.search.begin(), q = this.query, sources = this.sources();

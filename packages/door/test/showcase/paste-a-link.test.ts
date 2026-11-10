@@ -122,6 +122,15 @@ describe.skipIf(!outliner)("the showcase screen: paste a link", () => {
     for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" });
   }, 30_000);
 
+  // PIE-1680: how to get back what was typed while an edit or a comment failed to open is said in the section's note,
+  // which wraps at any width, not past the end of a one-row aside.
+  test("the note says how to recover text typed while an open failed, drawn in the notes reader", async () => {
+    const m = (await board.get(seeded.notes.pasteALink.id))!;
+    expect(m.text).toContain("tile menu offers recover typed text");
+
+    await until(() => screen().includes("tile menu offers recover"), "the recovery line drawn", 5000);
+  }, 20_000);
+
   // PIE-1316: every row that is a note copies it through its own tile's menu: the tree's selected row too, with no ref=.
   test("the tree's selected row copies its note's web link, the service's answer", async () => {
     await app.dispatch.act({ action: "section", args: { name: "entity" } }, USER);
