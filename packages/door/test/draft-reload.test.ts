@@ -137,9 +137,12 @@ describe("the session owns the reload (a fake target)", () => {
     const found = changed();
     found.press(ctrl("r"));
     found.press(char("!"));
-    found.read.open({ stays: "found the quote again at revision 3" });
+    found.read.open({ stays: "found the quote again at revision 3", revision: 3 });
     await settled(found.d);
-    expect([found.d.status.changedElsewhere, found.d.text]).toEqual([false, "Sowing!\nbeans"]);
+    expect([found.d.status.changedElsewhere, found.d.text, found.d.base]).toEqual([false, "Sowing!\nbeans", 3]);
+    // It stands on revision 3 now: word of it again is no news.
+    found.s.changedTo(3);
+    expect(found.d.status.changedElsewhere).toBe(false);
     expect(found.d.note).toBe("found the quote again at revision 3");
     expect(found.d.status.savedCopy).toBeNull();
   });
@@ -549,6 +552,8 @@ describe("a comment on a passage", () => {
     const env: any = {
       board: { async comment() { throw new Refused("revision is stale"); } },
       fetch: () => read.answer, setMsg() {}, reloadComments: async () => [], external() {}, flash() {}, redraw() {},
+      // ctrl+r's one route: the host's edit.reload, which reloads the session's draft.
+      reload() { void s.reload(env); },
     };
     const s = new CommentSession(msgOf("Gate\nHang it on Friday.", 1), [], "select");
     s.passage!.selectText("Hang it");
@@ -721,5 +726,141 @@ describe("a rebound key in the live hint (a keymap already there when the door s
     const r = await started({ "comment.place": [] });
     expect(r.hint).not.toContain("placement");
     expect(r.hint).toContain("move");
+  });
+});
+
+// PIE-1658: the lifecycle, host by host. Each draft is opened the way a person opens it, a second writer changes what it's
+// written on, and the reader hears it the way the door does (a note read again through `refresh`, the comments through
+// `loadComments`), never a `changedTo` by hand. Then: the warning shows, ctrl+r holds what's typed while it reads, the
+// new text lands with what was typed on it, and the warning clears once (the same news heard again doesn't bring it back).
+describe("one lifecycle, every host (PIE-1658)", () => {
+  type Row = { s: NoteSurface; h: SurfaceHost; d: () => import("../src/edit").Draft; change(): Promise<void>; hear(): Promise<void>; after: string; said: string };
+  const heard = (s: NoteSurface, h: SurfaceHost, o: ReturnType<typeof fakeOutline>, id: string) => async () => { const now = await o.board.get(id); if (now) s.refresh(now); await s.loadComments(h); };
+  const type = (s: NoteSurface, h: SurfaceHost, text: string) => { for (const c of text) s.key(char(c), h); };
+
+  const hosts: Record<string, () => Promise<Row>> = {
+    "a note's edit": async () => {
+      const o = fakeOutline(), m = o.note("Sowing\nbeans"), s = new NoteSurface(), h = o.host();
+      s.show(m, h);
+      s.startDraft(m, h);
+      s.key({ kind: "end" }, h); type(s, h, " soon");
+      const hear = heard(s, h, o, m.id);
+      return { s, h, d: () => s.draft!, change: async () => { o.edit(m.id, "Sowing\npeas"); await hear(); }, hear, after: "Sowing\npeas!", said: "loaded revision 2" };
+    },
+    "a comment on a passage": async () => {
+      const o = fakeOutline(), m = o.note("Gate\nHang it on Friday."), s = new NoteSurface(), h = o.host();
+      s.show(m, h);
+      s.session = new CommentSession(s.msg!, [], "select");
+      s.session.passage!.selectText("Hang it");
+      expect(s.session.write()).toBeNull();
+      type(s, h, "soon");
+      const hear = heard(s, h, o, m.id);
+      return { s, h, d: () => s.session!.composer!, change: async () => { o.edit(m.id, "Gate\nFirst:\nHang it on Friday."); await hear(); }, hear, after: "soon!", said: "found the quote again at revision 2" };
+    },
+    "a comment on the whole note": async () => {
+      const o = fakeOutline(), m = o.note("Gate\nHang it on Friday."), s = new NoteSurface(), h = o.host();
+      s.show(m, h);
+      s.session = new CommentSession(s.msg!, [], "threads");
+      expect(s.session.writeNote()).toBeNull();
+      type(s, h, "soon");
+      const hear = heard(s, h, o, m.id);
+      return { s, h, d: () => s.session!.composer!, change: async () => { o.edit(m.id, "Gate\nHang it on Saturday."); await hear(); }, hear, after: "soon!", said: "revision 2" };
+    },
+    "a comment's edit": async () => {
+      const o = fakeOutline(), m = o.note("Bed\nThe plot by the shed."), t = o.thread(m.id, "How deep is the bed?"), s = new NoteSurface(), h = o.host();
+      s.show(m, h);
+      await s.loadComments(h);
+      s.key(char("m"), h);
+      await until(() => s.session?.mode === "threads" && s.session.threads.length === 1, "the thread list");
+      s.key(char("e"), h);
+      await until(() => !!s.session?.composer, "the comment's edit");
+      type(s, h, " now");
+      const hear = heard(s, h, o, m.id);
+      return { s, h, d: () => s.session!.composer!, change: async () => { Object.assign(t, { body: "How deep should the bed be?", revision: 4 }); await hear(); }, hear, after: "How deep should the bed be?!", said: "loaded revision 4" };
+    },
+    "a property's value in the panel": async () => {
+      const o = fakeOutline(), m = o.note("Leeks [bed::north]\nRaked.");
+      Object.assign(m, { properties: [{ key: "bed", value: "north" }] });
+      const s = new NoteSurface(), h = o.host();
+      s.show(m, h);
+      s.openPanel(false);
+      s.editValue(s.rows(s.msg!)[0]!);
+      type(s, h, " side");
+      const hear = heard(s, h, o, m.id);
+      return {
+        s, h, d: () => s.panel!.field!.input, hear, after: "south!", said: "loaded revision 2",
+        change: async () => { Object.assign(o.edit(m.id, "Leeks [bed::south]\nRaked."), { properties: [{ key: "bed", value: "south" }] }); await hear(); },
+      };
+    },
+  };
+
+  for (const [name, open] of Object.entries(hosts)) test(`${name}: warned, held, read, replayed, cleared once`, async () => {
+    const r = await open(), { s, h } = r;
+    await r.change();
+    const d = r.d();
+    expect({ warned: d.status.changedElsewhere || !!d.status.conflict }).toEqual({ warned: true });
+    // The hint names the reload while there's something to reload.
+    expect(visible(s.hint())).toContain("reload");
+    // The second writer's host is slow: ctrl+r's read waits until it's let go.
+    const board = h.ctx.board as { get(id: string): Promise<Msg | null>; comments(id: string): Promise<unknown[]> }, get = board.get, comments = board.comments;
+    let letGo!: () => void;
+    const waiting = new Promise<void>(res => { letGo = res; });
+    board.get = async id => { await waiting; return get(id); };
+    board.comments = async id => { await waiting; return comments(id); };
+    const before = d.text;
+    s.key(ctrl("r"), h);
+    await until(() => d.status.phase === "reloading", "the reload's read");
+    s.key(char("!"), h);
+    expect(d.text).toBe(before);
+    letGo(); board.get = get; board.comments = comments;
+    await until(() => d.status.phase === null && d.text !== before, "the read and the held key");
+    await Bun.sleep(0);
+    expect(r.d()).toBe(d);
+    expect(d.text).toBe(r.after);
+    expect({ changedElsewhere: d.status.changedElsewhere, conflict: d.status.conflict }).toEqual({ changedElsewhere: false, conflict: null });
+    expect(d.note).toContain(r.said);
+    // Cleared once: the same news heard again says nothing new.
+    await r.hear();
+    expect({ changedElsewhere: d.status.changedElsewhere, conflict: d.status.conflict }).toEqual({ changedElsewhere: false, conflict: null });
+    s.draftSession()?.dispose();
+  });
+
+  test("a reply names no revision: the note changing elsewhere doesn't warn it, and ctrl+r says there's nothing newer", async () => {
+    const o = fakeOutline(), m = o.note("Bed\nThe plot by the shed."), s = new NoteSurface(), h = o.host();
+    o.thread(m.id, "How deep is the bed?");
+    s.show(m, h);
+    await s.loadComments(h);
+    s.key(char("m"), h);
+    await until(() => s.session?.mode === "threads" && s.session.threads.length === 1, "the thread list");
+    s.key(char("r"), h);
+    await until(() => !!s.session?.composer, "the reply");
+    const d = s.session!.composer!;
+    type(s, h, "a spade deep");
+    o.edit(m.id, "Bed\nThe plot by the gate.");
+    await heard(s, h, o, m.id)();
+    expect({ changedElsewhere: d.status.changedElsewhere, conflict: d.status.conflict }).toEqual({ changedElsewhere: false, conflict: null });
+    s.key(ctrl("r"), h);
+    await Bun.sleep(0);
+    expect(d.note).toBe("nothing newer to load");
+    expect(d.text).toBe("a spade deep");
+    s.draftSession()?.dispose();
+  });
+
+  test("a comment on the whole note refused because the note moved on: ctrl+r takes the note as it is now, and ctrl+s sends", async () => {
+    const o = fakeOutline(), m = o.note("Gate\nHang it on Friday."), s = new NoteSurface(), h = o.host();
+    s.show(m, h);
+    s.session = new CommentSession(s.msg!, [], "threads");
+    expect(s.session.writeNote()).toBeNull();
+    const d = s.session.composer!;
+    type(s, h, "soon");
+    o.edit(m.id, "Gate\nHang it on Saturday.");
+    s.key(ctrl("s"), h);
+    await until(() => d.status.conflict !== null || !!s.session!.error, "the refusal");
+    expect({ conflict: d.status.conflict !== null, error: s.session!.error }).toEqual({ conflict: true, error: null });
+    s.key(ctrl("r"), h);
+    await until(() => d.status.phase === null && d.status.conflict === null, "the reload");
+    expect(d.text).toBe("soon");
+    s.key(ctrl("s"), h);
+    await until(() => !s.session?.writing, "the send");
   });
 });
