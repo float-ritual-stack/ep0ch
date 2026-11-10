@@ -161,6 +161,10 @@ export const PLAN_HUB = [
   "preview: below",
   "height: fill",
   "::",
+  "",
+  "A query nothing answers says why:",
+  "",
+  "!((query: comet=bright))",
 ].join("\n");
 
 export const FANTASIA = "const beats = Math.max(1, Math.min(12, Number(props.beats && props.beats[0]) || 4));\nconst tempo = Math.max(150, Math.min(3000, Number(props.tempo && props.tempo[0]) || 500));\nconst style = (props.motion && props.motion[0]) || 'fantasia';\nconst home = (props.layout && props.layout[0]) || '';\nconst stay = !!(props.stay && props.stay[0]);\nconst before = await act('layout.get');\nif (before.locked) return 'fantasia: the screen is locked; a click on ▣ screen locked unlocks it, then run again';\nconst dancers = (before.tiles || []).filter(t => t.shown).map(t => ({ id: t.tile, name: t.name }));\nconst notes = [], floated = [];\nfor (const d of dancers) {\n  try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r.tile, name: d.name }); }\n  catch (e) { notes.push(d.name + ' stayed put: ' + (e && e.message || e)); }\n}\nif (!floated.length) return 'fantasia: no tile would float. ' + notes.join('; ');\nconst drift = [[7, -2], [-5, 3], [6, 2], [-8, -3], [4, 4], [-4, -4], [9, 1], [-6, 2]];\nfor (let beat = 0; beat < beats; beat++) {\n  for (let i = 0; i < floated.length; i++) {\n    const [dx, dy] = drift[(beat + i * 3) % drift.length];\n    try { await act('float.place', { tile: floated[i].id, dx: i % 2 ? -dx : dx, dy, motion: style }); }\n    catch (e) { notes.push('beat ' + (beat + 1) + ', ' + floated[i].name + ': ' + (e && e.message || e)); }\n  }\n  await wait(tempo);\n}\nlet settled = '';\nif (stay) settled = 'and left where they danced (layout.undo puts them back)';\nif (!settled && home) {\n  try { await act('layout.load', { name: home, motion: 'settle' }); settled = 'into the screen ' + home; }\n  catch (e) { notes.push('layout.load ' + home + ': ' + (e && e.message || e)); }\n}\nif (!settled) {\n  // No layout asked: the run's own changes are taken back, so the screen is as it began.\n  try { await act('layout.undo'); settled = 'the layout as it began'; } catch (e) { notes.push('layout.undo: ' + (e && e.message || e)); }\n}\nif (!settled) settled = 'left where they danced (layout.undo, or ctrl+z, puts them back)';\nreturn 'fantasia: ' + floated.length + ' tile' + (floated.length === 1 ? '' : 's') + ' danced ' + beats + ' beat' + (beats === 1 ? '' : 's') + ' at ' + tempo + ' ms, ' + settled + (notes.length ? '\\nnotes: ' + notes.join('; ') : '');";
@@ -257,7 +261,7 @@ if (request.input.request === "describe the beds") {
     "## Nearby",
     "- **Seed count** (below) runs from `@seed-count` in a note, or from a rule with `[rule-on::script:seed-count]`.",
     "- **Recording:** alt+Q starts and stops recording what you do as an editable script; a `{tag}` in a line makes the power bar ask for it.",
-    "- **A comment in a recording:** C on the checklist, type a comment, ^S: the recording saves it as one line with your words (`comment.note body=\"…\"`), so its replay posts it again.",
+    "- **A comment in a recording:** C on the checklist, type a comment, ^S: the recording saves it as one line with your words (`comment.note body=\"…\"`), so its replay posts it again, on the checklist (its line names the note), wherever the checklist is open. ^K and the start of its name runs it.",
     "```ts",
     "const dispatcher = await act('layout.get');",
     // The tile showing the checklist, by its note's id (a tile= answers to the block it shows): a press from this note's own

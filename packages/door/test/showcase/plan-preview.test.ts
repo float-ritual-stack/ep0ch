@@ -21,9 +21,12 @@ describe.skipIf(!outliner)("the showcase screen: plan preview (PIE-1720)", () =>
     // The reader's one scroll carries the embed and the list's whole preview: to the end, no '⋮ more rows'.
     for (let i = 0; i < 40 && !screen().includes("tray 40: barm cakes"); i++) await app.act({ action: "scroll", args: { by: 3 }, tile: "hub", as: "test-agent" });
     expect(screen()).toContain("tray 40: barm cakes");
-    await app.act({ action: "scroll", args: { to: "end" }, tile: "hub", as: "test-agent" });
+    for (let i = 0; i < 40 && !/MATCHES|matches/.test(screen()); i++) await app.act({ action: "scroll", args: { by: 3 }, tile: "hub", as: "test-agent" });
     await until(() => screen().includes("MATCHES") || screen().includes("matches"), "the list under the embed");
     expect(screen()).not.toContain("more rows");
+    // PIE-1723: the aside's last promise, held by the seed: the query nothing answers says why, with the nearest keys.
+    // At the foot, under the list's whole preview: scrolled to as the preview's rows arrive.
+    await until(() => { void app.act({ action: "scroll", args: { to: "end" }, tile: "hub", as: "test-agent" }); return /no notes have comet/.test(screen().replace(/[\s│┊▌]+/g, " ")); }, "the empty query's reason").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     // A newer plan is written: the embed moves to it on its own.
     await board.createBlock(null, "Bakery plan, 2026-03-04 [type::showcase-plan] [day::2026-03-04]\n## Ovens\n- [ ] tray 1: brioche");
     await app.act({ action: "scroll", args: { to: "top" }, tile: "hub", as: "test-agent" });
