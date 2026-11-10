@@ -3647,7 +3647,6 @@ export class NoteSurface {
   private draftMode(s: DraftSession): DraftMode {
     const d = s.draft, self = this;
     return {
-      // The draft's own table (every place a person types, the $EDITOR chord), and a note's own edit's keys beside it where they apply.
       get keys() { return d.views.raw.preview ? EDIT_PREVIEW_READER_KEYS : [...DRAFT_KEYS, ...draftChordRows(), ...(d === self.draft && !self.replyParent ? NOTE_EDIT_KEYS : [])]; },
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
@@ -4128,9 +4127,8 @@ export class NoteSurface {
     if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
     // ctrl+o: the composer somewhere else (inline, floating, split, popup: PIE-770); the thread list into its own tile
     // beside the note and back over it (PIE-846).
-    const placing = modeBinding(COMMENT_KEYS, k)?.action;
-    if (s.mode !== "compose" && !s.busy && placing === "comment.place" && host.attachedTile) { void this.runKey("comment.place", { place: s.place === "tile" ? "inline" : "tile" }, host, true); return true; }
-    if (s.mode !== "compose" && s.place === "tile" && !s.busy && placing === "comment.grip") { void this.runKey("comment.grip", {}, host, true); return true; }
+    if (s.mode !== "compose" && !s.busy && modeBinding(COMMENT_KEYS, k)?.action === "comment.place" && host.attachedTile) { void this.runKey("comment.place", { place: s.place === "tile" ? "inline" : "tile" }, host, true); return true; }
+    if (s.mode !== "compose" && s.place === "tile" && !s.busy && modeBinding(COMMENT_KEYS, k)?.action === "comment.grip") { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings an inline composer (rows of the note) back into view after the wheel took the note elsewhere. A
     // floating, split or popup one is in view already: the note stays where it was scrolled (PIE-846).
     if (s.mode === "compose" && s.place === "inline") { this.revealComposer = true; this.composerAsked = this.scroll; }

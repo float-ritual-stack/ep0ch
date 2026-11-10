@@ -117,7 +117,7 @@ export function valueField(m: Msg & { revision: number }, rows: PropRow[], row: 
   const input = Object.assign(new LineField(row.value, false, { complete: { valueKey: row.key } }), { near: m.id });
   const f = { row } as Field;
   f.input = input;
-  f.session = DraftSession.open(valueDraftTarget(m, rows.filter(r => r.key === row.key).findIndex(r => r.n === row.n), f, host), { draft: input, base: m.revision }, env);
+  f.session = DraftSession.open(valueDraftTarget(m, rows.filter(r => r.key === row.key).findIndex(r => r.n === row.n), f, host), { draft: input.draft, base: m.revision }, env);
   // ⏎ saves: held during a write or a reload, it's a command to press again, never text.
   input.enterSaves = true;
   return f;

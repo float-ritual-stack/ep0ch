@@ -276,6 +276,24 @@ describe("the hint row and the keys follow a rebind of esc, tab, shift+tab, the 
   });
 });
 
+describe("the line field is an adapter over the edit control, not a subclass of it (Nov 3 review card 8)", () => {
+  test("it holds the one Draft its text, history and status live in; a session opened on that draft is the same text", async () => {
+    const l = new LineField("sow", false, { complete: false });
+    expect(l instanceof Draft).toBe(false);
+    expect(l.draft).toBeInstanceOf(Draft);
+    l.take({ kind: "char", ch: "n" });
+    expect([l.text, l.draft.text, l.col, l.draft.col]).toEqual(["sown", "sown", 4, 4]);
+    // The field's undo is the draft's own history.
+    expect(l.draft.undos.length).toBeGreaterThan(0);
+    l.take(ctrl("z"));
+    expect(l.draft.text).toBe("sow");
+    // A session opened on its draft types into the same text (an inspector value is this).
+    const s = DraftSession.open({ place: "test:line-adapter", back: "", label: "line", what: "line", verb: "save", leaveWrites: false, submit: async () => ({ ok: true }) }, { draft: l.draft }, {});
+    s.key({ kind: "char", ch: "!" }, { completer: null, run: () => {} });
+    expect(l.text).toBe("sow!");
+  });
+});
+
 describe("the facets tile's query line is the one line field with the draft's keys (Nov 3 review card 1)", () => {
   const was = process.env.EP0CH_KEYMAP;
   let file = "";

@@ -285,7 +285,7 @@ export class PowerBar {
     else if (op === "clear") this.clear();
     else if (op === "undo") { this.input.history("undo"); this.refresh(); }
     else if (op !== "select") {
-      if (op === "paste") editorLineKey(this.input, { kind: "paste", text: o.text ?? "" }, () => {});
+      if (op === "paste") editorLineKey(this.input.draft, { kind: "paste", text: o.text ?? "" }, () => {});
       else if (op === "delete-word") this.input.erase("word-back");
       else {
         const text = this.input.selectedText();

@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Rebind any key of a draft and it works, and shows, wherever you type (Nov 3 review cards 1 and 8)
+
+- **Every draft key is a row of a table:** esc (`edit.close`), tab and shift+tab (`draft.indent`, `draft.outdent`), the second key of the `ctrl+x ctrl+e` $EDITOR chord (`"edit.external": ["ctrl+x alt+e"]`), and a line field's ctrl+w (`draft.erase to=word-back`), ctrl+u (new `draft.clear`) and ctrl+x (`draft.cut`) are rows in `DRAFT_KEYS`, a chord table and `LINE_KEYS`. A rebind in `keybindings.json` or the keys window (`?`) works in a note's edit, a comment, the composer, an inspector field, the power bar and every line field; the old key does nothing, and a line field says where it went.
+- **The hint row names the key that runs:** `editHint` no longer writes a key; the snippet row, the inspector's `esc cancels`, ctrl+o and ctrl+g (`comment.place`, `comment.grip`) and the `[` wrap come from the tables with the keymap applied. An edit's keys (`ctrl+k` the keys window) list the draft's table.
+- **The facets query line** closes on the draft's `edit.close` (rebindable) and its ⏎ is a listed row; its typing was already the line field's.
+- **The line field is an adapter over the edit control** (`LineField` holds a `Draft`, `field.draft`) instead of a subclass of it.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
+
 ### Four more door paper cuts: a lone kept dock, a render error's advice, yo's drop button, a line anchor's writer (PIE-1663, PIE-1604, PIE-1626, PIE-1661)
 
 - **A group left holding only its kept dock keeps it:** carrying a group's last tile out (`^W a`) used to spill the terminals an undo kept there as plain tiles and lose their dock. They stay in that one dock (open, since it's all the group shows), the next undone terminal joins it, the carry says "the group holds only the dock keeping pty and pty2", and `ctrl+z` puts the tile back beside the shut dock.
