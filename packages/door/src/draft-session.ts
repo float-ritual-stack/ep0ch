@@ -185,10 +185,12 @@ export class DraftSession {
    * block's draft is held on the service, so an agent's `draft.patch` lands in it while it's open. An agent
    * doesn't open a draft of a block someone else has open in one (`agentRefusal`).
    */
-  static open(target: DraftTarget, init: { text?: string; base?: number; props?: PropertyList; by?: Actor; position?: ReaderPosition }, env: SessionEnv = {}): DraftSession {
+  static open(target: DraftTarget, init: { text?: string; base?: number; props?: PropertyList; by?: Actor; position?: ReaderPosition; draft?: Draft }, env: SessionEnv = {}): DraftSession {
     const by = init.by ?? USER;
     if (target.blockId) { const why = agentRefusal(by, { board: env.board, blockId: target.blockId }); if (why) throw new ActionRefused(why); }
-    const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? []), by, env);
+    // `draft`: one its host made on the text (a line field, PIE-1658), which the session runs as any other.
+    const draft = init.draft ? Object.assign(init.draft, { base: init.base ?? 0 }) : new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? []);
+    const s = new DraftSession(target, draft, by, env);
     // A new draft here supersedes strays dropped here earlier: ctrl+z never lays them over what came after.
     strays.delete(target.place);
     s.draft.near = target.near;

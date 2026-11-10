@@ -359,14 +359,21 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     key({ kind: "enter" }); for (const c of "-east") key(char(c));
     expect(B().preview.surface.editing).toBe(true);
     await other.update(ids.card, now!.text.replace!("Beside the beds", "Next to the beds"), now!.revision);
-    await until(() => !!P.field?.changedElsewhere, "changed elsewhere", 5000);
+    await until(() => !!P.field?.input.status.changedElsewhere, "changed elsewhere", 5000);
     key({ kind: "enter" });
-    await until(() => !!P.field && !P.field.saving && P.field.note.includes("not saved"), "the refusal", 5000);
+    await until(() => !!P.field && !P.field.session.busy && !!P.field.input.status.conflict?.includes("not saved"), "the refusal", 5000);
     const after = await current(ids.card);
     expect(after!.text).toContain("[project::garden]");
     expect(after!.text).toContain("Next to the beds");
-    key({ kind: "esc" });
-    expect(P.field).toBeNull();
+    // ctrl+r reads the value as the note has it now (PIE-1658), the conflict clears, and the same keys save it.
+    key({ kind: "char", ch: "r", ctrl: true });
+    await until(() => !!P.field && !P.field.session.busy && P.field.input.status.conflict === null, "the reload", 5000);
+    expect(P.field.input.text).toBe("garden");
+    for (const c of "-east") key(char(c));
+    key({ kind: "enter" });
+    await until(() => P.field === null, "the save", 5000);
+    expect((await current(ids.card))!.text).toContain("[project::garden-east]");
+    await act("props.edit", { key: "project", value: "garden" });                            // as it was, for the tests after
   });
 
   test("follow: a block value opens its target; a missing Work ID says so; the summary choice is yours", async () => {

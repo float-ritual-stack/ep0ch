@@ -8,7 +8,9 @@ import { popupHint, completerOf, completionOf } from "./completer";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { isWritablePropertyValue, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { softLinkableKey, softLinkOfValue, type SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import { titleLine, type Msg } from "../board";
+import { subject, titleLine, type Msg } from "../board";
+import { DraftSession, type DraftTarget, type SessionEnv } from "../draft-session";
+import { EditConflict, type Actor } from "../socket";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId, drawShortId } from "../refs";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
@@ -18,6 +20,7 @@ import { rowLines, rule } from "../text";
 import { RowView } from "../scroll";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import { LineField } from "./line";
+import { DRAFT_KEYS } from "../edit";
 import type { SettingsCard } from "./settings-card";
 
 /** One property token as the panel lists it. `ordinal` is what properties.patch replaces (null: unknown here). */
@@ -97,10 +100,66 @@ export function checkValue(r: PropRow, value: string): string | null {
   return null;
 }
 
-/** A one-line value being edited. */
-export interface Field { row: PropRow; input: LineField; revision: number; saving: boolean; note: string; changedElsewhere: boolean }
+/**
+ * A one-line value being edited: a draft session like any other (PIE-1658), so its line, its "changed elsewhere", a
+ * stale save and ctrl+r are the session's. `row` is where it saves, found again by a reload.
+ */
+export interface Field { row: PropRow; session: DraftSession; input: LineField }
 
-export type PanelIntent = "copy" | "follow" | "edit" | "save" | "cancel" | "close" | "summary" | "full" | null;
+/** What a value's session asks of its reader: write one token of a note at a revision, read the note and its rows now. */
+export interface ValueHost {
+  write(m: Msg, revision: number, row: PropRow, value: string, by: Actor): Promise<Msg>;
+  read(): Promise<{ m: Msg; rows: PropRow[] } | null>;
+}
+
+/** Open the field for `row` of `m` (one of its `rows`), at the revision the panel read: its session, its line field. */
+export function valueField(m: Msg & { revision: number }, rows: PropRow[], row: PropRow, host: ValueHost, env: SessionEnv = {}): Field {
+  const input = Object.assign(new LineField(row.value, false, { complete: { valueKey: row.key } }), { near: m.id });
+  const f = { row } as Field;
+  f.input = input;
+  f.session = DraftSession.open(valueDraftTarget(m, rows.filter(r => r.key === row.key).findIndex(r => r.n === row.n), f, host), { draft: input, base: m.revision }, env);
+  // ⏎ saves: held during a write or a reload, it's a command to press again, never text.
+  input.enterSaves = true;
+  return f;
+}
+
+/**
+ * Where a value is written (PIE-1658): one `properties.patch` of its token at the revision the panel read, refused as
+ * stale if the note moved on. ctrl+r reads the note again and finds the value at the same key and place among that key's.
+ */
+function valueDraftTarget(m: Msg, nth: number, f: Field, host: ValueHost): DraftTarget {
+  let note = m;
+  return {
+    place: `value:${m.id}:${f.row.key}:${f.row.n}`, back: `enter on ${f.row.key} brings it back`, label: `${m.id.slice(0, 8)}-${f.row.key}`,
+    what: `the value of ${f.row.key} on “${subject(m)}”`, verb: "save", leaveWrites: false, near: m.id,
+    async submit(s, by, { report }) {
+      const why = checkValue(f.row, s.draft.text);
+      if (why) return { ok: false, why, said: why };
+      const value = s.draft.text.trim();
+      if (value === f.row.value) return { ok: true, said: "unchanged" };
+      report.phase("saving");
+      try {
+        const saved = await host.write(note, s.draft.base, f.row, value, by);
+        return { ok: true, revision: saved.revision, result: saved };
+      } catch (e) {
+        if (e instanceof EditConflict) return { ok: false, stale: true, why: "changed elsewhere since the panel read it · not saved" };
+        const why = `not saved: ${e instanceof Error ? e.message : String(e)}`;
+        return { ok: false, why, said: why };
+      }
+    },
+    async reload() {
+      const now = await host.read();
+      if (!now) return { none: "the note is gone from the outline" };
+      // The same key's value at the same place among that key's: where the note now keeps it.
+      const row = now.rows.filter(r => r.key === f.row.key)[nth];
+      if (!row) return { none: `${f.row.key} isn't on the note any more · esc, then pick another value` };
+      f.row = row; note = now.m;
+      return { loaded: { ...now.m, text: row.value } };
+    },
+  };
+}
+
+export type PanelIntent = "copy" | "follow" | "edit" | "save" | "cancel" | "reload" | "close" | "summary" | "full" | null;
 
 /** The panel's keys, one row per key: `key()` reads the intent off this table and the hint draws it. */
 type PanelKey = ModeKey & { intent?: Exclude<PanelIntent, null> };
@@ -131,12 +190,13 @@ export class PropertyPanel {
   key(k: Key, rows: number): PanelIntent {
     const f = this.field;
     if (f) {
-      if (f.saving) return null;
+      // A write or a reload under way holds what's typed (the session's), to land once it answers.
+      if (f.session.holding(k, held => { f.input.take(held); })) return null;
       // An open completion popup takes ⏎, esc and the arrows first (the line's own keys, PIE-626); what it leaves is the panel's.
-      if (f.input.take(k)) { f.note = ""; return null; }
+      if (f.input.take(k)) { f.session.status.say(""); return null; }
       if (k.kind === "enter") return "save";
       if (k.kind === "esc") return "cancel";
-      return null;
+      return f.input.binding(k)?.action === "edit.reload" ? "reload" : null;
     }
     const move = (d: number) => { if (rows) { this.sel = (this.sel + d + rows) % rows; this.note = ""; } };
     if (k.kind === "tab" || isDown(k)) move(1);
@@ -154,8 +214,15 @@ export class PropertyPanel {
     return !!f && !!at && f.input.mouse({ kind: "mouse", action, button: 0, x, y }, { x: at.from, y: this.origin + at.y, w: at.w });
   }
 
+  /** The panel's last line: what the value's session says (its conflict, "changed elsewhere"), else what the panel last did. */
+  foot(): string {
+    const st = this.field?.session.status;
+    return (st && (st.note || (st.conflict ? `! ${st.conflict}` : st.changedElsewhere ? "!! the note changed elsewhere since this value was read · ctrl+r loads it" : ""))) || this.note;
+  }
+
   hint(): string {
-    if (this.field) return this.field.saving ? "saving…" : completionOf(this.field.input)?.items.length ? popupHint(completionOf(this.field.input)!) : "type the value · enter saves · esc cancels";
+    const f = this.field, st = f?.session.status;
+    if (f && st) return st.doing ?? (completionOf(f.input)?.items.length ? popupHint(completionOf(f.input)!) : `type the value · enter saves · esc cancels${st.conflict || st.changedElsewhere ? ` · ${modeHint(DRAFT_KEYS.filter(r => r.action === "edit.reload"), () => undefined)}` : ""}`);
     return modeHint(PANEL_KEYS, () => undefined);
   }
 
@@ -164,7 +231,7 @@ export class PropertyPanel {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
     const out = [rule(w, drawEllipsized(title, Math.max(2, w - 8)))];
-    const foot = this.field?.note || this.note;
+    const st = this.field?.session.status, foot = this.foot();
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
     if (!rows.length) out.push(fg(C.dark) + pad("  no properties", w) + RESET);
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
@@ -217,7 +284,7 @@ export class PropertyPanel {
         out.push(pad("  " + fg(C.lcyan) + key + RESET + "  " + reads + RESET, w));
       }
     }
-    if (foot) out.push(fg(this.field?.changedElsewhere || /not saved|can't|refused|failed/.test(foot) ? C.lred : C.yellow) + pad(foot, w) + RESET);
+    if (foot) out.push(fg(st?.conflict || st?.changedElsewhere || /not saved|can't|refused|failed/.test(foot) ? C.lred : C.yellow) + pad(foot, w) + RESET);
     return out.slice(0, h);
   }
 }
