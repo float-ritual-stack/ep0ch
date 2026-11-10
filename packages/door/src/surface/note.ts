@@ -3511,12 +3511,9 @@ export class NoteSurface {
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { const why = "can't comment: the outline didn't say which revision this note is at"; host.ctx.flash(why); return why; }
     if (this.msg?.id !== m.id || this.editing) return;
-    this.msg = this.rereadNote(fresh);
-    if (this.commentsFor !== m.id) await this.loadComments(host);
-    if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
+    if (!await this.takeForComment(m, fresh, host, still)) return;
     this.session = new CommentSession(fresh, this.comments ?? [], mode);
-    // A tile where there are none to be had (the BBS reader, a river column): split, the nearest.
-    if (this.session.place === "tile" && !host.attachedTile) this.session.place = "split";
+    this.placeComment(this.session, host);
     // From a comment mark (⏎, a click, or `m` while on one): the list opens on its thread.
     const on = mine && mode === "threads" && this.cur?.startsWith("comment:") ? this.cur.slice(8) : null;
     const t = on ? this.session.threads.findIndex(x => x.id === on) : -1;
@@ -3551,6 +3548,19 @@ export class NoteSurface {
   }
 
   /**
+   * `m` read again as `fresh` for a comment (C, comment.note), its threads read too: false when the person moved on
+   * meanwhile (another note, an edit), and nothing opens.
+   */
+  private async takeForComment(m: Msg, fresh: Msg, host: SurfaceHost, still?: () => boolean): Promise<boolean> {
+    this.msg = this.rereadNote(fresh);
+    if (this.commentsFor !== m.id) await this.loadComments(host);
+    return !((still && !still()) || this.msg?.id !== m.id || this.editing);
+  }
+
+  /** A comment's place where this host can draw it: a tile where there are none to be had (the BBS reader, a river column) is split, the nearest. */
+  private placeComment(s: CommentSession, host: SurfaceHost) { if (s.place === "tile" && !host.attachedTile) s.place = "split"; }
+
+  /**
    * A comment on the whole note (PIE-846): the person's C with nothing selected, the byline's [comment], `comment.note`.
    * The note is read as the service has it now; the composer opens at the top of its body, where whole-note threads
    * are, and a comment put aside on the note comes back in it. Why it didn't open, else nothing.
@@ -3564,13 +3574,11 @@ export class NoteSurface {
     const fresh = read ? rereadResource(read, m) : read;
     if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
     if (!fresh || fresh.revision === undefined) return "can't comment: the outline didn't say which revision this note is at";
-    this.msg = this.rereadNote(fresh);
-    if (this.commentsFor !== m.id) await this.loadComments(host);
-    if ((still && !still()) || this.msg?.id !== m.id || this.editing) return;
+    if (!await this.takeForComment(m, fresh, host, still)) return;
     // Another comment opened while this one was read (a second C, an act): the one being written stays.
     if ((this.session as CommentSession | null)?.mode === "compose") return "a comment is being written here: send it (ctrl+s) or put it aside (esc twice) first";
     const s = new CommentSession(fresh, this.comments ?? [], "threads");
-    if (s.place === "tile" && !host.attachedTile) s.place = "split";
+    this.placeComment(s, host);
     // Sent (or esc'd), the person is back reading, its thread at the top of the note.
     s.fromReader = true; s.startedBy = actor;
     const why = s.writeNote(actor);
