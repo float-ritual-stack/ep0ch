@@ -187,7 +187,8 @@ export class QuerySuggester {
     for (const axis of [...axes].sort((a, b) => sayAll(b) - sayAll(a))) {
       const pick = response.answers[`pick:${axis.key}`];
       if (!pick?.choice || pick.choice === "none") continue;
-      const candidate = picked(axis), lexical = candidate ? wordsAt(candidate.value) : null, sure = (pick.probabilities?.[pick.choice] ?? 0) >= 0.8;
+      // Every word of a multiword value said in order ("shed items") is evidence enough with Jev's pick; one word needs a sure pick.
+      const candidate = picked(axis), lexical = candidate ? wordsAt(candidate.value) : null, sure = (pick.probabilities?.[pick.choice] ?? 0) >= (lexical && lexical.size > 1 ? QUERY_SUGGEST_THRESHOLDS.probability : 0.8);
       if (!yes(response.answers[`gate:${axis.key}`]) && !(lexical && sure)) continue;
       if (!candidate || (pick.probabilities?.[pick.choice] ?? 0) < QUERY_SUGGEST_THRESHOLDS.probability) continue;
       const said = valueOf(`words:${axis.key}`, response.answers[`words:${axis.key}`]?.choice);
