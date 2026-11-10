@@ -4016,9 +4016,9 @@ export class OutlinerServer {
    * that isn't connected can't either: it goes with the connection (removeSubscriber).
    */
   private setYolo(request: Extract<OutlinerRequest, { action: "agents.yolo" }>): { yolo: boolean } {
-    if (request.mutation?.author === "agent") throw new Error("yolo is the person's to hand over: they turn it on in their door (ctrl+k > agents.yolo); ask them to");
     if (typeof request.on !== "boolean") throw new Error("agents.yolo needs on: true or false");
-    if (request.on) {
+    if (request.on && request.mutation?.author === "agent") throw new Error("yolo is the person's to hand over: they turn it on in their door (ctrl+k > agents.yolo); ask them to");
+    if (request.on) {   // handing the door over is the person's (above); taking it back is anyone's, an agent's too
       if (!this.hasClient(request.clientId)) throw new Error("yolo is held by a connected door: subscribe with that clientId first");
       if (this.yolo.set(request.clientId)) this.announceYolo();
     } else if (this.yolo.clear()) this.announceYolo();

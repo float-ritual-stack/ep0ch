@@ -28,7 +28,7 @@ import { nextFrame, onMediaChange, useMediaFetch } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import { uncover, within, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
-import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
+import { AGENT_ACTOR_ID, Offline, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
@@ -202,6 +202,8 @@ export interface Ctx {
   machineryChanges?: boolean;
   /** Agents are in yolo (`agents.yolo`): no person guard holds one back. Off by default, for this door's run. */
   agentsYolo?: boolean;
+  /** Turns yolo on or off for `actor` (agents.yolo): the service is told who asked (an agent may only take it back). */
+  setAgentsYolo?(on: boolean, actor?: Actor): Promise<void>;
   /** What others changed since the person last looked (PIE-647), from the change feed. */
   whatChanged?: WhatChanged;
   /** Requests an agent or an extension wrote that wait for the person's `r` (PIE-888): the status bar's count and the waiting-on-you list. */
@@ -540,10 +542,10 @@ export class App implements Ctx {
   set agentsYolo(on: boolean) { void this.setAgentsYolo(on); }
   /** Only this door's grant belongs in its handover, never another door's grant. */
   get ownsYolo(): boolean { return this.yoloHere; }
-  async setAgentsYolo(on: boolean): Promise<void> {
+  async setAgentsYolo(on: boolean, actor: Actor = USER): Promise<void> {
     this.yoloHere = on;
     if (!on) this.yoloService = false;
-    await this.tellYolo(on);
+    await this.tellYolo(on, actor);
   }
   /** Bumped by every change of yolo this door hears or makes: an answer that was asked before the latest one is stale and dropped. */
   private yoloEpoch = 0;
@@ -558,10 +560,10 @@ export class App implements Ctx {
     this.yoloService = said;
     this.redraw();
   }
-  private async tellYolo(on: boolean): Promise<void> {
+  private async tellYolo(on: boolean, actor: Actor = USER): Promise<void> {
     const epoch = ++this.yoloEpoch;
     try {
-      const said = await this.board.setAgentsYolo(on);
+      const said = await this.board.setAgentsYolo(on, actor);
       if (epoch === this.yoloEpoch) this.yoloService = said;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);

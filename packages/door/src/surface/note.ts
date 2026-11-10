@@ -103,7 +103,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, RECORDED_AS, recordedAnswer, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
@@ -4662,7 +4662,7 @@ export class NoteSurface {
     const said = `${button.label}: ${key}=${given}`;
     if (wrote) { host.ctx.flash(`${said}${actor.kind === "user" && !a.run ? " · press it again to use it · ctrl+z takes it back" : ""}`); this.noteAgent(actor, said); }
     host.redraw();
-    const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
     // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
     if (actor.kind === "user" && (a.next !== undefined || a.ask || a.run)) {
       const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
@@ -5769,7 +5769,7 @@ export class NoteSurface {
     this.noteAgent(actor, said);
     host.redraw();
     const own = edits.find(e => e.picture === ref.id);
-    return { block: ref.block, line: (own?.line ?? ref.line) + 1, changed: true, image: own?.after ?? ref.source, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    return { block: ref.block, line: (own?.line ?? ref.line) + 1, changed: true, image: own?.after ?? ref.source, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
   /**
@@ -5786,7 +5786,7 @@ export class NoteSurface {
   /** Undo the last image change `actor` made while reading this note. */
   async undoImage(host: SurfaceHost, actor: Actor) {
     const r = await this.inTurn(() => this.undoLines(this.imageHistory, "image", host, actor));
-    return { block: r.block, lines: r.edits.map(e => ({ line: e.line + 1, image: e.before })), revision: r.revision, recordedAs: mutationFor(actor) };
+    return { block: r.block, lines: r.edits.map(e => ({ line: e.line + 1, image: e.before })), revision: r.revision, recordedAs: recordedAnswer(actor) };
   }
 
   /** One step bigger or smaller for picture `ref` (picture.ts), in the room this reader has for it. */
@@ -6556,7 +6556,7 @@ export class NoteSurface {
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
-    return { block: ref.block, line: ref.line + 1, changed: true, header: next, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    return { block: ref.block, line: ref.line + 1, changed: true, header: next, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
   /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
@@ -6736,7 +6736,7 @@ export class NoteSurface {
 
   async undoCallout(host: SurfaceHost, actor: Actor) {
     const r = await this.inTurn(() => this.undoLines(this.calloutHistory, "callout", host, actor));
-    return { block: r.block, line: r.edits[0]!.line + 1, header: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
+    return { block: r.block, line: r.edits[0]!.line + 1, header: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
   }
 
   /**
@@ -6842,7 +6842,7 @@ export class NoteSurface {
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
-    return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: mutationFor(actor) };
+    return { block: ref.block, step: r.item.itemId ?? null, status: r.item.status, from: before, changed: r.changed, revision: r.block.revision ?? null, ...(link ? { link } : {}), recordedAs: recordedAnswer(actor) };
   }
 
   /**
@@ -6874,7 +6874,7 @@ export class NoteSurface {
       host.ctx.flash(`${said}${actor.kind === "user" ? " · ctrl+z takes it back" : ""}`);
       this.noteAgent(actor, said);
       host.redraw();
-      return { block: whole.id, line: call.line + 1, wrote: props, stillMissing: need.filter(x => props[x.name] === undefined).map(x => x.name), revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+      return { block: whole.id, line: call.line + 1, wrote: props, stillMissing: need.filter(x => props[x.name] === undefined).map(x => x.name), revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
     });
     if (!need.length && !Object.keys(given).length) return { block: whole.id, line: call.line + 1, missing: [], said: "this ::use needs nothing more" };
     if (actor.kind !== "user" || !need.length) {
@@ -7300,7 +7300,7 @@ export class NoteSurface {
       host.ctx.flash(`${said}${actor.kind === "user" ? " · ctrl+z takes it back" : ""}`);
       this.noteAgent(actor, said);
       if (P) await this.readSources(P, host);
-      return { block, line: s.line + 1, wrote: { [key]: given }, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+      return { block, line: s.line + 1, wrote: { [key]: given }, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
     });
     if (value !== undefined) return write(value);
     if (actor.kind !== "user") throw new ActionRefused(`give the new value: sources.set source=${source ?? "<n>"} param=${key} value=<text>`);
@@ -7328,7 +7328,7 @@ export class NoteSurface {
       this.noteAgent(actor, `set ${s.name} ${prop.key}=${given}`);
       host.ctx.flash(warning ? `saved · ${warning}` : `saved ${prop.key} · ctrl+z undoes`);
       host.redraw();
-      return { block, wrote: { [prop.key]: given }, recordedAs: mutationFor(actor), ...(warning ? { warning } : {}) };
+      return { block, wrote: { [prop.key]: given }, recordedAs: recordedAnswer(actor), ...(warning ? { warning } : {}) };
     });
     if (value !== undefined) return write(value);
     if (actor.kind !== "user") throw new ActionRefused(`give value= for ${prop.key}`);
@@ -7348,7 +7348,7 @@ export class NoteSurface {
     const { observed, replacement, start } = figurePropertyPatch(m.text, line, values);
     await this.patchSource(m.id, m.revision!, observed, replacement, start, host, actor);
     this.sourceHistory.push({ block: m.id, edits: [{ line, before: observed, after: replacement }], patch: { start }, by: partyOf(actor), context: m.id });
-    return { block: m.id, wrote: values, recordedAs: mutationFor(actor) };
+    return { block: m.id, wrote: values, recordedAs: recordedAnswer(actor) };
   }
 
   private async patchSource(block: string, revision: number, observed: string, replacement: string, start: number, host: SurfaceHost, actor: Actor) {
@@ -7369,10 +7369,10 @@ export class NoteSurface {
         await this.patchSource(e.block, m.revision, edit.after, edit.before, e.patch.start, host, actor);
         this.sourceHistory.drop(e);
         if (this.sourcesMode) await this.readSources(this.sourcesMode.panel, host);
-        return { block: e.block, line: edit.line + 1, recordedAs: mutationFor(actor) };
+        return { block: e.block, line: edit.line + 1, recordedAs: recordedAnswer(actor) };
       }
       const r = await this.undoLines(this.sourceHistory, "source parameter", host, actor);
-      return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
+      return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
     });
   }
 
@@ -7425,7 +7425,7 @@ export class NoteSurface {
 
   async undoUse(host: SurfaceHost, actor: Actor) {
     const r = await this.inTurn(() => this.undoLines(this.useHistory, "::use", host, actor));
-    return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
+    return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
   }
 
   /**
@@ -7459,7 +7459,7 @@ export class NoteSurface {
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
-    return { block: drawnFields.from, noteLine: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: mutationFor(actor) };
+    return { block: drawnFields.from, noteLine: row.line + 1, anchor: anchored.fragmentId, created: anchored.created, link, recordedAs: recordedAnswer(actor) };
   }
 
   /**
@@ -7477,7 +7477,7 @@ export class NoteSurface {
       if (w.changed) this.stepHistory.push({ block: ref.block, evidence: ref.step.evidence, status: before, to: choice, title, by: partyOf(actor), context: this.msg?.id ?? ref.block, live: { key: live.key, before: w.before, after: value } });
       const said = w.changed ? `set "${title}" ${live.key}::${value} (${statusWord(before)} → ${statusWord(choice)})` : `"${title}" already has ${live.key}::${value}`;
       host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
-      return { block: ref.block, step: null, status: choice, from: before, changed: w.changed, revision: w.revision, property: { key: live.key, value }, recordedAs: mutationFor(actor) };
+      return { block: ref.block, step: null, status: choice, from: before, changed: w.changed, revision: w.revision, property: { key: live.key, value }, recordedAs: recordedAnswer(actor) };
     } catch (e) {
       outlineChanged([ref.block]);
       const why = `not changed: ${e instanceof Error ? e.message : String(e)}`;
@@ -7559,7 +7559,7 @@ export class NoteSurface {
       this.stepHistory.drop(e);
       const said = `undid: "${e.title}" ${live.key}::${live.after} → ${live.before ?? "unset"}`;
       host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
-      return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: mutationFor(actor) };
+      return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: recordedAnswer(actor) };
     }
     // A row without an id stays at its recorded position only through our own box writes.
     let step: ChecklistStep = { ...(e.itemId ? { itemId: e.itemId } : {}), identity: e.itemId ? "unique" : "unassigned", status: e.to, evidence: e.evidence, span: { start: e.at?.start ?? 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
@@ -7586,7 +7586,7 @@ export class NoteSurface {
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
-    return { block: e.block, step: e.itemId ?? null, status: r.item.status, from: e.to, revision: r.block.revision ?? null, recordedAs: mutationFor(actor) };
+    return { block: e.block, step: e.itemId ?? null, status: r.item.status, from: e.to, revision: r.block.revision ?? null, recordedAs: recordedAnswer(actor) };
   }
 
   /** The steps this reader draws, in reading order, as `tasks` lists them. */
@@ -9498,7 +9498,7 @@ async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: Actor) 
     throw new ActionRefused(d.status.conflict ? `${d.status.conflict} · ${d.note}` : d.note || "not saved");
   }
   surface.noteAgent(actor, "saved this note");
-  return { saved: true, revision: surface.msg?.revision, from: before, recordedAs: by ? mutationFor(by) : undefined };
+  return { saved: true, revision: surface.msg?.revision, from: before, ...(by ? { recordedAs: recordedAnswer(by) } : {}) };
 }
 
 async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor) {
@@ -10339,7 +10339,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "edit.save": def({
     summary: "save the draft, checked against the revision it started from; a property change is shown first and needs a second save", keys: "ctrl+s",
-    touches: "draft", draft: "leave", replay: "ask",
+    touches: "draft", draft: "leave", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => saveDraft(surface, host, actor),
   }),
@@ -10676,7 +10676,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "button.slot": def({
     words: "write one slot of a button's sequence",
     summary: "write one slot of a ::button onto its line (PIE-1298): `::button{act=\"tile.zoom tile={target}\" target=}` runs once target= says a tile. The note's checked save, recorded as whoever asks; ctrl+z (sources.undo) takes it back. A tile is kept as its id (t-<uuid>, exactly that tile) or the address of its place (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), never a number. The person, with no value=, is asked (the wire picker for a tile: click one); an agent passes value= and never opens the picker",
-    keys: [{ keys: "click", does: "a button with an empty slot, then click a tile" }, { keys: "alt-click", does: "a button with a slot to choose again" }], touches: "nothing", replay: "ask",
+    keys: [{ keys: "click", does: "a button with an empty slot, then click a tile" }, { keys: "alt-click", does: "a button with a slot to choose again" }], touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: {
       note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
       line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
@@ -11444,7 +11444,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "note.move": def({
     summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes changed lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
     keys: modeActionKeys(ATTACHED_KEYS, "note.move"),
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     menu: { label: "move to…", group: "note", key: "Z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "moved a note"),
     args: {
@@ -11644,7 +11644,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "props.edit": def({
     summary: "replace one property value: a properties.patch of that token, refused if the note changed since it was read", keys: [{ keys: "i tab", does: "to the properties" }, { keys: "enter e", does: "edit the value, then typing" }, { keys: "enter", does: "save" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       ...ROW_ARGS,
       value: { type: "string", about: "the new value (one line, no ])" },
@@ -11677,7 +11677,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       host.ctx.flash(`saved · revision ${saved.revision} · ${row.key}: ${printable(row.value)} → ${printable(to)}`);
       surface.noteAgent(actor, `set ${row.key} to ${to}`);
       host.redraw();
-      return { saved: true, key: row.key, from: row.value, to, revision: saved.revision ?? null, fromRevision: m.revision, recordedAs: mutationFor(actor) };
+      return { saved: true, key: row.key, from: row.value, to, revision: saved.revision ?? null, fromRevision: m.revision, recordedAs: recordedAnswer(actor) };
     },
   }),
   "props.close": def({
@@ -12043,7 +12043,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "task.status": def({
     summary: "set a checklist step's status (done, todo, waiting, problem, approved, rejected: approved is the person's yes) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
     keys: [{ keys: "[ ]", does: "to a step" }, { keys: "⏎ click", does: "on its box opens the status choice" }, { keys: "x o + - w !", does: "set the status in the choice" }, ...readerKeys("task.status"), { via: "with no step named, the person's: the status choice open, else the step that is the current element" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
     examples: [
       { act: "task.status n=2 to=done", does: "marks the second checklist step done" },
@@ -12090,7 +12090,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "callout.type": def({
     summary: "change a callout's type (PIE-538): its header's [!type] rewritten through the note's save, checked against the revision read now and the header as drawn, recorded as whoever asks and said on screen; ctrl+z (callout.undo) puts it back. to= is any type the outline has (callout.list), or a new name",
     keys: [{ keys: "⏎ click", does: "opens the type choice, on a callout's icon or type" }, { keys: "⏎", does: "in the type choice picks it" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...CALLOUT_ARGS, to: { type: "string", about: "the type to write: a name or alias the outline has (callout.list), or a new name" } },
     examples: [
       { act: "callout.type n=1 to=warning", does: "rewrites the first callout's header to [!warning]" },
@@ -12106,7 +12106,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "callout.start": def({
     summary: "make a callout start folded (folded=true writes [!type]-) or open (folded=false writes [!type]+): the one change to the text that folding ever makes, through the note's save like callout.type. Folding it in a reader is fold or f, which never writes",
     keys: [{ keys: "- +", does: "in the type choice" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...CALLOUT_ARGS, folded: { type: "boolean", about: "true: it starts folded (-); false: it starts open (+)" } },
     examples: [
       { act: "callout.start n=2 folded=true", does: "makes the second callout start folded, writing [!type]-" },
@@ -12120,7 +12120,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "callout.undo": def({
     summary: "undo the last callout change (type or start) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the callout changed again since",
     keys: readerKeys("callout.undo", { via: "when a callout change was the last change made here" }),
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => surface.undoCallout(host, actor),
   }),
@@ -12172,7 +12172,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "image.size": def({
     summary: "size an image or a picture fence (PIE-532, PIE-1583): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, a ```svg or ```mermaid fence and a script's drawing, its height by the steps image.look prop=height takes; a step that would draw the same stops there and says so). Its aspect is kept. Written as [size::…] [height::…] on its line (a fence: size= height= words on its opening line) through the note's save, the picture found by who it is at the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
     keys: "+ - while an image is the [ ] position, a click on its caption's − or +",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       ...IMAGE_ARGS,
       to: { type: "string", optional: true, about: "its width: cells (40), a share of the reader (50%), full, or none" },
@@ -12214,7 +12214,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "image.align": def({
     summary: "place an image left, center or right in the reader (PIE-532): to=, or by=1|-1 one place right or left. Written as [align::…] on its line (left takes it out: it's where an image is) through the note's save like image.size",
     keys: "← → while an image is the [ ] position, a click on its caption's ◂ or ▸",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "left, center or right" }, by: { type: "number", optional: true, about: "1 one place right, -1 one place left" } },
     examples: [
       { act: "image.align n=1 to=center", does: "centres the first image in the reader" },
@@ -12236,7 +12236,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "image.hero": def({
     summary: "make an image the note's header (PIE-532): drawn above the title, the reader's full width, at most a third of its height (height= on image.size sets its rows), cropped to fill. on=true writes [layout::hero] on its line and takes it off any other image's (one save); on=false takes it off; left out, it toggles. Through the note's save like image.size",
     keys: "H while an image is the [ ] position, a click on its caption's ▀ header",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...IMAGE_ARGS, on: { type: "boolean", optional: true, about: "true: it's the header; false: it isn't; left out, it toggles" } },
     examples: [
       { act: "image.hero n=1 on=true", does: "makes the first image the note's header, above the title" },
@@ -12255,7 +12255,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "image.fit": def({
     summary: "how a header image too tall for its rows is drawn (PIE-532): to=cover crops it to fill the width, to=contain shows it whole, centred; left out, the other one. Written as [fit::…] on its line (cover takes it out: it's the default) through the note's save like image.size",
     keys: "= while the header image is the [ ] position, a click on its caption's [whole] or [fill]",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "cover or contain; left out, the other one" } },
     examples: [
       { act: "image.fit n=1 to=contain", does: "shows the header image whole, centred" },
@@ -12272,7 +12272,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "image.dim": def({
     summary: "how much an image is dimmed (PIE-532): to= a number from 0 (as it is) to 1 (black), or auto (the default: a bright image's mean luminance held at 0.3). Written as [dim::…] on its line through the note's save like image.size. No key brightens an image: the door is dark-first",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...IMAGE_ARGS, to: { type: "string", about: "0 to 1, or auto" } },
     examples: [
       { act: "image.dim n=1 to=0.4", does: "dims the first image by 0.4, writing [dim::0.4] on its line" },
@@ -12291,7 +12291,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "image.look": def({
     summary: "change the note's header image's look (PIE-1361): prop= one of HERO_PROPS (height, focus.x, focus.y, fit, dim, tint, fade, blur, bleed, title, scroll) with to= a value (none takes it off the line: the built-in) or by=1|-1 a step; or focus=x,y for both halves at once. Written as that property on the hero's own line ([tint::0.5], [hero-focus::0.3,0.6]) through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (image.undo) puts it back. The tune's hero rows and the header's drags run this",
     keys: [{ keys: "− + ×", does: "the tune's hero rows" }, { keys: "wheel", does: "the tune's hero rows" }, { keys: "drag", does: "inside the header picture (focus)" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       ...IMAGE_ARGS,
       prop: { type: "string", optional: true, about: "height, focus.x, focus.y, fit, dim, tint, fade, blur, bleed, title or scroll" },
@@ -12355,21 +12355,21 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "image.undo": def({
     summary: "undo the last image change (size, place, header) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
     keys: readerKeys("image.undo", { via: "when an image change was the last change made here" }),
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => surface.undoImage(host, actor),
   }),
   "task.undo": def({
     summary: "undo the last step status change made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the step changed again since",
     keys: readerKeys("task.undo"),
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => surface.undoStep(host, actor),
   }),
   "task.link": def({
     summary: "a step's link ((note^id)), giving the step a stable id first if it has none; the person's copies it to their clipboard, an agent's is returned. copy=false only gives the step its id (Make addressable)",
     keys: [{ keys: "y", does: "in the status choice: Copy step link" }, { keys: "a", does: "in the status choice: Make addressable" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { ...STEP_ARGS, copy: { type: "boolean", optional: true, about: "false: only give the step a stable id, copying nothing" } },
     examples: [
       { act: "task.link n=2", does: "gives the second step an id if it has none and returns its link" },
@@ -12384,7 +12384,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     words: "fill in what a ::use template asks for",
     summary: "give a ::use the props its template needs (PIE-533): the person is asked for each in the power bar, in the picker of its kind (a choice's options, a note found by its words), then the answers are written onto the call's line through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (use.undo) takes them back. An agent names them: with='{\"owner\":\"ada\"}' (it is never asked, and its fill never takes the person's focus). line= which ::use (from 1; default: the only one)",
     keys: "⏎ or a click on a ::use's “needs …” line",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       block: { type: "string", optional: true, about: "the note the ::use is written in, when it is drawn inside this one (an embed, a template): default the note shown" },
       line: { type: "number", optional: true, about: "the line of the ::use, from 1 (default: the only one the note has)" },
@@ -12511,7 +12511,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.set": def({
     summary: "edit one source parameter: figure properties use the shared inspector field and draft.patch against their YAML; handler slots and ::use props use the existing line save. Schema choices and result property names supply the figure's choices; title and query take text, with query warnings after capture. An agent passes value=. Recorded as whoever asks; ctrl+z (sources.undo) takes it back",
-    keys: modeActionKeys(ATTACHED_KEYS, "sources.set"), touches: "draft", draft: "write", replay: "ask",
+    keys: modeActionKeys(ATTACHED_KEYS, "sources.set"), touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { source: { type: "string", optional: true, about: "which source: its number in sources.open's list, or its key (default: the one open in the inspector)" }, param: { type: "string", optional: true, about: "the parameter (default: the focused row's)" }, value: { type: "string", optional: true, about: "the new value (the person is asked when it is left out)" } },
     examples: [
       { act: "sources.set source=2 param=limit value=20", does: "writes 20 into the limit parameter of source 2's line in the note" },
@@ -12564,13 +12564,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.undo": def({
     summary: "undo the last source edit or line insertion made in this reader while reading this note (an agent undoes its own, the person theirs); refused if that text changed again since",
-    keys: modeActionKeys(ATTACHED_KEYS, "sources.undo"), touches: "draft", draft: "write", replay: "ask",
+    keys: modeActionKeys(ATTACHED_KEYS, "sources.undo"), touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {}, run: (_, { surface, host }, actor) => surface.undoSource(host, actor),
   }),
   "use.undo": def({
     summary: "undo the last use.fill made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the ::use line changed again since",
     keys: readerKeys("use.undo", { via: "when a ::use fill was the last change made here" }),
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {},
     run: (_, { surface, host }, actor) => surface.undoUse(host, actor),
   }),
@@ -12578,7 +12578,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     words: "give the line an anchor other notes can link to",
     summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",
     keys: "⏎ or a click on a ::fields row's ¶",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       key: { type: "string", optional: true, about: "which ::fields: its key (default the only one the note draws)" },
       n: { type: "number", optional: true, about: "the row, from 1 (default 1)" },

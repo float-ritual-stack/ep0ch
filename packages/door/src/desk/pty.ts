@@ -814,6 +814,13 @@ export class PtyPane implements Pane {
     return text;
   }
   get hasSelection() { return !!this.sel; }
+  /** Who typed into it last through tile.type (an agent's id, or "you"), how much and when: its describe() says it. */
+  typedBy: { by: string; chars: number; at: string } | null = null;
+  /** tile.type's text (`\n` is ⏎, `\e` escape) sent to the program as typed keys, kept as typed by `by`. */
+  typeAs(text: string, by: string) {
+    this.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
+    this.typedBy = { by, chars: text.length, at: new Date().toISOString() };
+  }
 
   /** The emulator's cursor (0-based column and row in the tile), where the program left it. */
   cursor(): { x: number; y: number } | null { const b = this.term?.buffer.active; return b ? { x: b.cursorX, y: b.cursorY } : null; }
@@ -822,6 +829,7 @@ export class PtyPane implements Pane {
       cmd: this.run.cmd, file: this.file, running: this.running, exited: this.exited, pid: this.pid, mouse: this.term?.modes.mouseTrackingMode ?? "none",
       ...(this.socket ? { nvim: { socket: this.socket, connected: !!this.nvim, view: this.nvim?.view ?? null } } : {}),
       cursor: this.cursor(), text: this.text(), status: this.status.records.list().map(recordFacts),
+      ...(this.typedBy ? { typed: this.typedBy } : {}),
     };
   }
 }

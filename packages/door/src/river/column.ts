@@ -15,7 +15,7 @@ import { errorDetails } from "../status-log";
 // The layout (widen, hold, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { AskAgainAt } from "../search-schedule";
-import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
+import { authorName, RECORDED_AS, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { historyRow, pickTarget, type DrawnNote, type Hit } from "../surface/note";
@@ -1009,7 +1009,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     words: "move the selected card of a river column",
     summary: "move the selected card of a river column, or id=, as note.move does (to=, before=, after=, step=up|down|in|out, position=, revision=): the shared move, recorded as who asks; with none of them the person is asked in the power bar. The column reads its notes again; an agent's never moves your selection",
     keys: modeActionKeys([COLUMN_MOVE_KEYS], "column.move"),
-    touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
+    touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"), answer: RECORDED_AS,
     menu: { label: "move the card to…", group: "Column", key: "Z" },
     args: {
       id: { type: "string", optional: true, about: "the card to move (default: the selected one)" },

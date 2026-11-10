@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every write says who ran it, the same way (PIE-1406, PIE-1651)
+
+- **One `recordedAs` on every writing action's answer:** `{ author, actorId?, says }`, built by `recordedAnswer` from `recorded()` (PIE-1406). `card.create`, `card.trash` and `note.trash` gave words, and `edit.save`, `props.edit`, `image.size` and about 20 more gave the mutation object; now they all give this shape, and so do `note.move`, `tree.move`, `column.move` and `card.reorder`. Each action's page and `ep0ch actions` list it under `answer`; the agent interface names it once.
+- **An agent typing into a terminal tile is named** (PIE-1651): `tile.type` answers `recordedAs`, the tile's peek keeps `typed: { by, chars, at }`, and the status bar says "an agent (<id>) typed into <tile>", by the tile's name instead of its id.
+- **An agent taking yolo back is named:** `agents.yolo on=false` answers `recordedAs`, the status bar says the agent, and the service is told who asked; it still refuses an agent's `on=true`, and now accepts its `on=false` (before, any agent mutation was refused).
+- **`access.apply` answers `recordedAs`:** it stays the person's alone, so an agent's is refused, naming the agent, before it reads anything.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change; the host restart lets an agent's yolo take-back reach the service).
+
 ### Pi's guided walkthrough is gone, with its tables (PIE-1586)
 
 - **Pi and the outliner no longer offer `outliner_workflow`.** The walkthrough had no runs on pie since it shipped (Evan: "not used in a while, it can go"). Its code, its process (`bun run workflow`) and the `callscript` dependency are gone.

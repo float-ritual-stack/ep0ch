@@ -12,7 +12,7 @@ import { SPINES, ALT_RULES, OPEN_RULES, OPEN_RULE_WORDS, type AltRule } from "./
 // takes the person's focus or keys: a tile it opens or moves leaves their focus where it is, and what the
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import { TXN } from "../surface/txn";
-import { USER, type Actor } from "../socket";
+import { RECORDED_AS, USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
@@ -1013,7 +1013,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "note.trash": def({
     summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
     keys: [{ keys: "d then d ⏎", does: "either confirms", says: "move the note to the Trash, after asking" }, { keys: "Delete then Delete ⏎", does: "the same", says: "move the note to the Trash, after asking" }, { via: "a click on the tile menu's row" }],
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     says: r => `trashed “${r.title}”`,
     menu: { label: "trash this note", group: "Trash", key: "d", now: ({ d, reader }: On) => (d.subjectOf(reader).id ? null : { hide: true }) },
     args: {

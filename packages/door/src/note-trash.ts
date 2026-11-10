@@ -7,7 +7,7 @@ import { width, drawEllipsized } from "./style";
 import { confirmPicker, ListPicker } from "./surface/picker";
 import { subject, type Msg } from "./board";
 import { openDraftIds, openDraftOf } from "./draft-session";
-import { changedSinceRead, recorded, Refused, type Actor, type SocketBoard } from "./socket";
+import { changedSinceRead, recordedAnswer, Refused, type Actor, type RecordedAs, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { partyOf, undoStamp } from "./steps";
 import type { PageRename } from "@ep0ch/outline-core/protocol";
@@ -73,7 +73,7 @@ export async function trashAtRevision(board: SocketBoard, id: string, revision: 
   }
 }
 
-export interface TrashDone { trashed: string; title: string; notesUnder: number; restore: string; recordedAs: string }
+export interface TrashDone { trashed: string; title: string; notesUnder: number; restore: string; recordedAs: RecordedAs }
 
 /** `note.trash` confirmed: the note and the notes under it to Trash, recorded as `actor`'s; `note.untrash` brings it back. */
 export async function trashNote(board: SocketBoard, ref: string, actor: Actor, say: (msg: string) => void, saw?: number): Promise<TrashDone> {
@@ -87,7 +87,7 @@ export async function trashNote(board: SocketBoard, ref: string, actor: Actor, s
   if (log.length > 50) log.shift();
   trashed.set(board, log);
   say(`trashed “${title}”${notesUnder ? ` and the ${notesUnder} note${notesUnder === 1 ? "" : "s"} under it` : ""} · ctrl+z brings it back${lost}`);
-  return { trashed: note.id, title, notesUnder, restore: `note.untrash id=${note.id}`, recordedAs: recorded(actor).says };
+  return { trashed: note.id, title, notesUnder, restore: `note.untrash id=${note.id}`, recordedAs: recordedAnswer(actor) };
 }
 
 export interface UntrashDone { restored: string; title: string; renamedPages?: PageRename[] }

@@ -196,7 +196,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
   test("a typed project in the lane's OR group wins over its create:: default (B3); one outside it is refused", async () => {
     await settled();
     const r: any = await act("card.create", { lane: "Queued", text: "Tune the piano [project::pi-outliner] [priority::low] [arc::music] [track::keys]" });
-    expect(r).toMatchObject({ lane: "Queued", parent: queue2.id, workId: expect.stringMatching(/^HOME-\d+$/), recordedAs: `an agent (${AS})'s` });
+    expect(r).toMatchObject({ lane: "Queued", parent: queue2.id, workId: expect.stringMatching(/^HOME-\d+$/), recordedAs: { author: "agent", actorId: AS, says: `an agent (${AS})'s` } });
     const m = await current(r.id);
     expect(m!.properties.filter((p: any) => p.key === "project").map!((p: any) => p.value)).toEqual(["pi-outliner"]);
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
@@ -325,7 +325,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer.session.draft.text).toBe("Paint the railings");
     type(" too");
     const r: any = await act("card.create", { lane: "Doing", text: "Sweep the chimney [project::ep0ch-door] [priority::high] [arc::home] [track::roof]" });
-    expect(r).toMatchObject({ lane: "Doing", parent: queue.id, recordedAs: `an agent (${AS})'s` });
+    expect(r).toMatchObject({ lane: "Doing", parent: queue.id, recordedAs: { author: "agent", actorId: AS, says: `an agent (${AS})'s` } });
     expect(B().composer.session.draft.text).toBe("Paint the railings too");
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     expect(message()).toBe(`an agent (${AS}) · created ${r.workId} in Doing · Sweep the chimney · priority=high arc=home track=roof project=ep0ch-door`);
@@ -511,7 +511,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect((await current(cards.bulb.id))!.deletedAt).toBeUndefined();
     await until(() => B().lanes[laneIndex("Doing")].items.find((m: Msg) => m.id === cards.bulb.id)?.revision === shown.revision + 1, "the lane to catch up", 8000);
     const r: any = await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id.slice(0, 8) });
-    expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: `an agent (${AS})'s` });
+    expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: { author: "agent", actorId: AS, says: `an agent (${AS})'s` } });
     expect((await current(cards.bulb.id))!.deletedAt).toBeDefined();
     expect(hints()).toContain(`TRASHED "Swap the porch bulb" by an agent (${AS}) · u restores`);
     expect(await act("card.restore")).toMatchObject({ restored: cards.bulb.id });

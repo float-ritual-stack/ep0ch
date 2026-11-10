@@ -10,7 +10,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
-import { byOf, recorded, USER, type Actor, type Change, type OutlineEvent, mutationFor } from "../socket";
+import { byOf, RECORDED_AS, recordedAnswer, USER, type Actor, type Change, type OutlineEvent, type RecordedAs, mutationFor } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
@@ -705,7 +705,7 @@ export class Lanes implements SourceModel {
     const place = `#${position + 1} of ${r.blockIds.length} in ${lane.name}`;
     asActor(this.host.ctx, actor).flash(`"${subject(card)}" is ${place}`);
     for (const x of this.readers()) if (x.msg?.id === card.id) x.surface.noteAgent(actor, `put this card ${place}`);
-    return { card: card.id, lane: lane.name, position, of: r.blockIds.length };
+    return { card: card.id, lane: lane.name, position, of: r.blockIds.length, recordedAs: recordedAnswer(actor) };
   }
 
   card(): Msg | undefined { return this.laneTile()?.card(); }
@@ -1091,7 +1091,7 @@ export class Lanes implements SourceModel {
    * parent. `create` has no revision or request id, so a lost answer is looked for, never retried.
    * A roadmap lane's card is a roadmap item, made by the workboard's allocator instead (createItem).
    */
-  async createCard(lane: Lane, text: string, actor: Actor, parent?: string, fileNew = false): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
+  async createCard(lane: Lane, text: string, actor: Actor, parent?: string, fileNew = false): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: RecordedAs }> {
     const body = text.replace(/\s+$/, "");
     if (!body.trim()) throw new ActionRefused("type the card's title first");
     // A person's new roadmap item in its composer: the twin is asked on the title beside the plan, and said first.
@@ -1111,7 +1111,7 @@ export class Lanes implements SourceModel {
     const m = await this.landCreate(plan.parent.id, composed, actor);
     const bornWith = plan.plan.bornWith ?? [];
     this.created(lane, m, actor, `created in ${lane.name} · ${titleOf(m)}${bornWith.length ? ` · born with ${bornWith.map(p => `${p.key}=${p.value}`).join(" ")}` : ""}`, `created in ${lane.name} under ${plan.parent.id.slice(0, 8)}`);
-    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: bornWith.map(p => `${p.key}=${p.value}`), recordedAs: recorded(actor, "new").says };
+    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: bornWith.map(p => `${p.key}=${p.value}`), recordedAs: recordedAnswer(actor, "new") };
   }
 
   /**
@@ -1148,14 +1148,14 @@ export class Lanes implements SourceModel {
     // What the allocator gave it, read off the block it made (its stage rule is the service's, not ours).
     const props = m.properties;
     const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
-    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recorded(actor, "new").says };
+    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recordedAnswer(actor, "new") };
   }
 
   /**
    * `card.attach`: an ask added under open work instead of a ticket of its own (the service's roadmap.items.attach).
    * With text, that text; without, the composer's draft goes through its own submit (so it ends as created does).
    */
-  async attachCard(twin: string | undefined, text: string | undefined, actor: Actor): Promise<{ attached: string; recordedAs: string } | { submitted: boolean }> {
+  async attachCard(twin: string | undefined, text: string | undefined, actor: Actor): Promise<{ attached: string; recordedAs: RecordedAs } | { submitted: boolean }> {
     const C0 = this.composer?.kind === "card" ? this.composer : null;
     if (text === undefined) {
       if (!C0) throw new ActionRefused("no new card is being written; card.attach twin=PIE-n text=… adds an ask under that item");
@@ -1175,7 +1175,7 @@ export class Lanes implements SourceModel {
     catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     this.host.ctx.flash(`added under ${r.attached} · ${title}${actor.kind === "agent" ? ` · by ${agentLabel(actor)}` : ""}`);
     this.host.redraw();
-    return { attached: r.attached, recordedAs: recorded(actor, "new").says };
+    return { attached: r.attached, recordedAs: recordedAnswer(actor, "new") };
   }
 
   /** After an allocator create whose answer was lost: the project's item with that title, made since. */
@@ -1333,7 +1333,7 @@ export class Lanes implements SourceModel {
    * must name the same card: the second `d`, or an agent's `confirm=<id>`. The service's delete records
    * no author, so who did it is said on screen and in the result.
    */
-  async trashCard(id: string, confirm: string, actor: Actor): Promise<{ trashed: string; title: string; lane: string; notesUnder: number; restore: string; recordedAs: string }> {
+  async trashCard(id: string, confirm: string, actor: Actor): Promise<{ trashed: string; title: string; lane: string; notesUnder: number; restore: string; recordedAs: RecordedAs }> {
     const card = this.cardFor(id);
     if (!(confirm === card.id || (confirm.length >= 8 && card.id.startsWith(confirm))))
       throw new ActionRefused(`confirm=${confirm} doesn't name ${card.id.slice(0, 8)} ("${titleOf(card)}"); pass that card's id to trash it`);
@@ -1350,7 +1350,7 @@ export class Lanes implements SourceModel {
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
     asActor(this.host.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it${lost}`);
     this.host.redraw();
-    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: recorded(actor).says };
+    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: recordedAnswer(actor) };
   }
 
   /** `u`: bring back the card trashed last (or `id`), where it was. */
@@ -1651,7 +1651,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   "card.reorder": def({
     summary: "put the selected card (or card=<id>) elsewhere in its lane's hand-set order, the view's own (its figures and Tree show it too): by=<±places> (negative: up), to=<position from 0>, or before=/after=<another card in the lane>. Recorded as who asked. A view with [sort::] has no hand-set order: refused, naming the [sort::] to remove",
     keys: "alt+↑ alt+↓, drag a card up or down its lane",
-    touches: "tile", while: "typing", replay: "ask",
+    touches: "tile", while: "typing", replay: "ask", answer: RECORDED_AS,
     args: {
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
       lane: { type: "string", optional: true, about: "the lane, by name; default the one listing the card" },
@@ -1717,7 +1717,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "card.create": def({
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: [{ keys: "n", does: "start a card, then type its text" }, { keys: "ctrl+s", does: "save it", says: "save the new card" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: {
       lane: { type: "string", about: "the lane's name" },
       text: { type: "string", about: "title line and body; [key::value] tokens are properties (they must meet an OR group the lane has)" },
@@ -1732,7 +1732,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "card.attach": def({
     summary: "add a new ask under open work it repeats instead of filing it (PIE-1258): its title and body, in its writer's words and dated, at the end of that roadmap item. With no text, the new card being written goes there: the composer's [attach here] when it says what the card looks like", keys: "ctrl+x a, click [attach here]",
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     // The card being written is the person's: an agent attaches its own words.
     personWith: a => (a.text === undefined ? "the new card being written is the person's; an agent passes its own text= (card.attach twin=PIE-n text=…)" : null),
     args: {
@@ -1787,7 +1787,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "card.trash": def({
     summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d asks over the board (d again or Delete trashes it, ⏎ or esc keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       confirm: { type: "string", optional: true, about: "the card's id (or its first 8+ characters): the same card, said twice" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },

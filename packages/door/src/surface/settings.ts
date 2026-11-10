@@ -9,7 +9,7 @@ import { extensionList } from "../extensions";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import { tokensFor, printable } from "../props";
 import type { Msg } from "../board";
-import { EditConflict, mutationFor, type Actor } from "../socket";
+import { EditConflict, RECORDED_AS, recordedAnswer, type Actor } from "../socket";
 import { askInBar, changedQuestionValue } from "../bar/ask";
 import { ActionRefused, def } from "./actions";
 import { PropertyPanel } from "./props-panel";
@@ -151,7 +151,7 @@ async function write(on: On, subject: SettingsSubject, field: SettingField, valu
   host.ctx.flash(message);
   surface.noteAgent(actor, said);
   host.redraw();
-  return { saved: true, warnings, cleared: value === null, key: field.prop.key, to: value, revision: saved.revision, recordedAs: mutationFor(actor) };
+  return { saved: true, warnings, cleared: value === null, key: field.prop.key, to: value, revision: saved.revision, recordedAs: recordedAnswer(actor) };
 }
 
 const describe = (subject: SettingsSubject) => ({ id: subject.note.id, revision: subject.note.revision, schema: subject.schemas[0]!.id, schemas: subject.schemas.map(s => ({ id: s.id, title: s.title })), title: subject.schemas.map(s => s.title).join(" + "),
@@ -226,7 +226,7 @@ export const SETTINGS_DEFS = {
   }),
   "settings.set": def({
     summary: "set a settings field in its own source; without value=, ask its schema's question in the power bar",
-    keys: "enter or e on a field; click the selected field", touches: "draft", draft: "write", replay: "ask",
+    keys: "enter or e on a field; click the selected field", touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { list: LIST, key: KEY, value: { type: "string", optional: true, about: "new value; left out asks the person" } },
     examples: [{ act: "settings.set key=sort value=due", does: "writes sort: due into the view's own source" }, { act: "settings.set key=layout", does: "asks the person for a layout in the power bar" }],
     async run({ list, key, value }, on: On, actor) {
@@ -253,7 +253,7 @@ export const SETTINGS_DEFS = {
   }),
   "settings.toggle": def({
     summary: "toggle a schema choice or a matched row's property in a settings list, writing the block's source immediately",
-    keys: "space or enter on a toggle question's row", touches: "draft", draft: "write", replay: "ask",
+    keys: "space or enter on a toggle question's row", touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { list: LIST, key: KEY, value: { type: "string", about: "the choice to show or hide" } },
     examples: [{ act: "settings.toggle key=columns value=due", does: "shows the due column, or hides it when shown" }],
     async run({ list, key, value }, on: On, actor) {
@@ -266,7 +266,7 @@ export const SETTINGS_DEFS = {
   }),
   "binding.set": def({
     summary: "write one settings binding at the read revision; the note's property or inline view's source is the only store",
-    keys: "", touches: "draft", draft: "write", replay: "ask",
+    keys: "", touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: { list: LIST, key: KEY, value: { type: "string", about: "the value to write" }, revision: { type: "number", about: "the revision settings read" } },
     examples: [{ act: "binding.set key=sort value=due revision=12", does: "writes sort: due at revision 12, refused when the note moved on" }],
     async run({ list, key, value, revision }, on: On, actor) {
@@ -278,7 +278,7 @@ export const SETTINGS_DEFS = {
   "settings.undo": def({
     summary: "undo the last settings write made in this reader while reading this note (an agent undoes its own, the person theirs): the key's line goes back as it was; refused if the note changed again since",
     keys: "ctrl+z (when a settings write was the last change made here)",
-    touches: "draft", draft: "write", replay: "ask", args: {},
+    touches: "draft", draft: "write", replay: "ask", args: {}, answer: RECORDED_AS,
     examples: [{ act: "settings.undo", does: "puts layout back as it was before the last settings write" }],
     async run(_, { surface, host }: On, actor) {
       const e = surface.msg ? SETTINGS_UNDO.last(partyOf(actor), surface.msg.id) : null;
@@ -295,12 +295,12 @@ export const SETTINGS_DEFS = {
       host.ctx.flash(said); surface.noteAgent(actor, said);
       if (surface.panel?.card) surface.panel.card.note = said;
       host.redraw();
-      return { block: now.id, key: e.key, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
+      return { block: now.id, key: e.key, revision: saved.revision ?? null, recordedAs: recordedAnswer(actor) };
     },
   }),
   "settings.clear": def({
     summary: "clear a settings field from its source, so the schema's default holds", keys: "x or delete on a field",
-    touches: "draft", draft: "write", replay: "ask", args: { list: LIST, key: KEY },
+    touches: "draft", draft: "write", replay: "ask", args: { list: LIST, key: KEY }, answer: RECORDED_AS,
     examples: [{ act: "settings.clear key=sort", does: "removes sort from the source, so the schema's default holds" }],
     async run({ list, key }, on: On, actor) {
       const subject = await read(on, list), field = fieldOf(subject, key);

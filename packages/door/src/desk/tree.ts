@@ -24,7 +24,7 @@ import { headedTitle, subject, type Msg } from "../board";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS, backlinkView, type BacklinkCollection } from "../backlinks";
 import type { AuthoredLinksSnapshot } from "../authored";
 import { linkBlock, linkNote, linkRowLines, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
-import { USER, type Actor, type OutlineEvent } from "../socket";
+import { RECORDED_AS, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
@@ -837,7 +837,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
   "tree.move": def({
     summary: "move the note of a row of the outline tree (tile=<its name>): n (from 1) or id, else the selected row; step=up or down (one place among its siblings), in (last under the note above it) or out (right after its parent), or to= (inbox, root, an id, ((ref)), [[page]] or Work ID; position= its place among the children, from 1, default first), before= or after= a sibling, or undo=true (puts its last move back). With none of them the person is asked in the power bar (\"Move to…\"). The shared note move (note.move): the service's move, revision= checked when given, recorded as who asks; the lists it left and joined are read again, a note moved into one in sight opens it, and the person's selection follows it (an agent's never moves it)",
     keys: modeActionKeys([TREE_MOVE_KEYS], "tree.move"),
-    touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
+    touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"), answer: RECORDED_AS,
     menu: [
       { label: "move up", group: "Outline", key: "K", args: { step: "up" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },
       { label: "move down", group: "Outline", key: "J", args: { step: "down" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },

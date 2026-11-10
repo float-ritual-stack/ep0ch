@@ -84,6 +84,15 @@ const FAMILIES: Family[] = [
     },
   },
   {
+    question: "what an answer says a write was recorded as (PIE-1406: recordedAs, one shape)",
+    // Every writing action answers `recordedAs: recordedAnswer(actor, made)`, typed RecordedAs. A `recordedAs:` built any
+    // other way (the mutation object, the words alone) is a second shape an agent would have to branch on.
+    pattern: /\brecordedAs\??: (?!recordedAnswer\(|RecordedAs\b)/g,
+    allowed: {
+      "socket.ts": { n: 1, why: "the owner: RECORDED_AS, the field as every writing action's answer describes it" },
+    },
+  },
+  {
     question: "run it as a press or as an act (the person's or an agent's way)",
     pattern: /\.act\(.*\) : [\w.()]*\.press\(|\.press\(.*\) : [\w.()]*\.act\(/g,
     allowed: {
