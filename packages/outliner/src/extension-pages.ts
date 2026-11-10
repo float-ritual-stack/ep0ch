@@ -198,6 +198,7 @@ export function extensionAbout(manifest: ExtensionManifest, directory: string, i
 /** What a manifest adds, as list lines (the page's "What it adds"). */
 export function whatItAdds(manifest: ExtensionManifest, directory?: string, installed = true): string[] {
   const out: string[] = [];
+  if (manifest.installs === "outline") out.push("- Installs per outline: in this outline's own folder, so removing it here leaves every other outline as it was");
   for (const script of manifest.scripts ?? []) out.push(`- Script **${words(script.name)}** (\`${script.file}\`): ${words(script.about)}`);
   for (const handler of manifest.handlers ?? []) {
     out.push(`- \`${handler.key}::\` lines: ${handler.kind === "data" ? "a record kept as a block" : handler.kind === "output" ? "output drawn under the line" : handler.kind === "component" ? "a component drawn under the line" : "a Resource"} (${handler.effects})${scheduleWords(handler.schedule)}${handler.description ? `. ${words(handler.description)}` : ""}`);
