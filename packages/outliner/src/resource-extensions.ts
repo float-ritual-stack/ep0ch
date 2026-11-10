@@ -144,7 +144,8 @@ function baseEnv(): Record<string, string> {
 
 /** How much of a failed process's stderr is shown: its last lines, this many characters at most. */
 const STDERR_TAIL_LINES = 6;
-const STDERR_TAIL_CHARS = 600;
+// An extension's own last words (a refusal naming the command it ran and the one that fixes it) fit whole (PIE-1715).
+const STDERR_TAIL_CHARS = 1200;
 const STDERR_KEPT_BYTES = 16 * 1024;
 
 /** The last few lines of what a process wrote to stderr, one line each, escapes and control characters out. */

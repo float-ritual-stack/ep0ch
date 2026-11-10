@@ -20,8 +20,7 @@ import { parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type Ma
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { hasCountCandidate, SHAPE_LIMITS, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
-import { bareIds, headed, outlineFacets, reviewWarnings, reviewWrite, sectionsOf, type BareIdAnswers, type WriteReview } from "./write-review";
-import { diffArrays } from "diff";
+import { bareIds, changedLines, headed, outlineFacets, reviewWarnings, reviewWrite, sectionsOf, type BareIdAnswers, type WriteReview } from "./write-review";
 import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
@@ -1081,22 +1080,6 @@ const drawnNext = (id: string) => `read \`view\` (the parts this write changed, 
 
 /** Source lines (from 1) as words: "line 33", "lines 2–3, 60". */
 const linesWords = (ranges: readonly (readonly [number, number])[]) => `${ranges.length === 1 && ranges[0]![0] === ranges[0]![1] ? "line" : "lines"} ${ranges.map(([a, b]) => a === b ? `${a}` : `${a}–${b}`).join(", ")}`;
-
-/**
- * The lines (from 0) a write changed in `text` from `before`: each run of lines it added or rewrote, and where it
- * removed some, the line now in their place.
- */
-function changedLines(before: string, text: string): [number, number][] {
-  const now = text.split("\n"), out: [number, number][] = [];
-  let at = 0;
-  for (const c of diffArrays(before.split("\n"), now)) {
-    const n = c.count ?? c.value.length;
-    if (c.added) { out.push([at, at + n - 1]); at += n; }
-    else if (c.removed) { const l = Math.max(0, Math.min(at, now.length - 1)); out.push([l, l]); }
-    else at += n;
-  }
-  return out;
-}
 
 /** Ranges (from 0) sorted and joined where they're within `near` lines of each other. */
 function joined(ranges: readonly (readonly [number, number])[], near: number): [number, number][] {

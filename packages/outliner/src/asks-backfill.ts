@@ -6,6 +6,8 @@ const AT_ONCE = 4;
 const TURNED_DOWN = "turned down: ";
 /** How many notes one read of the window asks for: the most a query answers. */
 const PAGE = 1000;
+/** A failure that is a deadline passing: never the run's to stop on. */
+const DEADLINE = /\btimed out\b|\bno answer from .+ in \d+ m?s\b/i;
 
 export type Sender = { send(action: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>; address: { outline: string } };
 
@@ -29,10 +31,15 @@ export async function asksBackfill(board: Sender, o: { since: string; write: boo
   }
   // A note you alone wrote isn't marked, as the rule hears only agents.
   const notes = found.filter(b => b.author === "agent" && b.actorId && !/^(?:ext:|jev\/)/.test(b.actorId)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, o.limit ?? Infinity);
-  let marked = 0, failed = 0;
+  let marked = 0, failed = 0, read = 0, stopped = false;
   const struck: string[] = [];
-  for (let i = 0; i < notes.length; i += AT_ONCE) {
-    await Promise.all(notes.slice(i, i + AT_ONCE).map(async note => {
+  /** Each failure's words, with the notes that failed them: a failure every note shares (the model's command) is said once. */
+  const failures = new Map<string, string[]>();
+  for (let i = 0; i < notes.length && !stopped; i += AT_ONCE) {
+    const batch = notes.slice(i, i + AT_ONCE);
+    read += batch.length;
+    const before = new Map([...failures].map(([why, ids]) => [why, ids.length]));
+    await Promise.all(batch.map(async note => {
       try {
         const answer = await board.send("extensions.act", { extension: "asks", extensionAction: "settle", blockId: note.id, args: { sure: "yes", ...(o.write ? {} : { dry: "yes" }) }, mutation: { author: "agent", actorId: "review-asks" } }, 300_000) as { message?: string; answer?: string };
         const title = `${note.id}  ${note.text.split("\n")[0]!.slice(0, 60)}`;
@@ -42,10 +49,19 @@ export async function asksBackfill(board: Sender, o: { since: string; write: boo
         if (!/^(?:would write|wrote|proposed)/.test(answer.message ?? "")) return;
         marked++;
         io.out(`${title}\n${said.filter(l => !l.startsWith(TURNED_DOWN)).map(l => `  ${l}`).join("\n")}`);
-      } catch (e) { failed++; io.err(`${note.id}: ${(e as Error).message}`); }
+      } catch (e) { failed++; const why = (e as Error).message; failures.set(why, [...(failures.get(why) ?? []), note.id]); }
     }));
+    for (const [why, ids] of failures) {
+      const fresh = ids.slice(before.get(why) ?? 0);
+      if (fresh.length) io.err(`${fresh.join(", ")}: ${why}`);
+    }
+    // The same failure twice is the run's, not a note's (PIE-1715: every note failed on one model command): stop, said once.
+    // A deadline isn't, the host's ("request timed out") or the extension's reach of the outline ("no answer from … in
+    // 110000 ms"): a slow note or two in a month's run says nothing about the rest.
+    stopped = [...failures].some(([why, ids]) => ids.length > 1 && !DEADLINE.test(why));
   }
   if (struck.length) io.out(`Turned down by the model, not written:\n${struck.join("\n")}`);
-  io.out(`${notes.length} notes read, ${marked} ${o.write ? "written" : "would be written"}${failed ? `, ${failed} failed` : ""}${o.write ? "" : ". Dry run: nothing was written; --write writes it."}`);
+  const rest = notes.length - read;
+  io.out(`${read} notes read, ${marked} ${o.write ? "written" : "would be written"}${failed ? `, ${failed} failed` : ""}${stopped && rest ? `; stopped, ${rest} not read: the notes failed the same way, so fix that and run it again` : stopped ? "; they failed the same way, so fix that and run it again" : ""}${o.write ? "" : ". Dry run: nothing was written; --write writes it."}`);
   return failed ? 1 : 0;
 }

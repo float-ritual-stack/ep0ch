@@ -50,13 +50,13 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch snap [out.png]             exactly what the terminal shows
     ep0ch try --ws <name> --copy     your own door on a private copy of an outline
     ep0ch session list | attach --watch | end   this folder's outline's session (or --ws <name>)
-    ep0ch --skill [<name>]           the stack's skills, or the path of one
+    ep0ch --skill [<name>] [--path]  the stack's skills, or one printed whole (--path: its file)
     ep0ch doctor [--json]            the whole stack's state (✓ ! ✗) with a fix command for each; read-only
     ep0ch install [--json]           the update plan (a dry run); --apply runs it
 
 `bun src/main.ts …` in packages/door of the ep0ch checkout is the same command. The action table is the
 door's README, "Letting an agent see what you see, and do what you do", and the rules per path are its
-`docs/AGENT-INTERFACE.md` (`ep0ch --skill ep0ch` shows this file's path; the package is two directories up);
+`docs/AGENT-INTERFACE.md` (`ep0ch --skill ep0ch --path` shows this file's path; the package is two directories up);
 `ep0ch actions` on a running door lists what its current screen takes; `ep0ch actions --doc <action>` draws one
 action's page (its keys, examples you can copy, its arguments; `--source` for its Blockdown), from the door when one
 runs, else the registry.

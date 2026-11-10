@@ -34,20 +34,21 @@ The first line is the title and its block properties, so every tool finds it:
 
 ## Sources, in this order
 
-`outliner` below is `bun packages/outliner/src/cli.ts` in the ep0ch checkout, with the outline named first
-(`outliner --ws <name> list …`); without `--ws` it uses the outline the folder's `.ep0ch` names. Each command
-prints JSON.
+The reads go through `ep0ch find … --json` (block records, from any folder and with `--machine` for an outline on
+another machine). `outliner` below is the ep0ch checkout's CLI, from any folder:
+`bun "$(ep0ch where --source)/packages/outliner/src/cli.ts"`, with the outline named first (`outliner --ws <name>
+changes …`); without `--ws` it uses the outline the folder's `.ep0ch` names. Each command prints JSON.
 
 1. **The previous brief and its checkpoint.**
-   `outliner list --filter type=daily-brief --limit 50 --fields id,title,properties,timestamps`,
-   then take the newest `brief-date`, and its `feed-sequence`.
+   `ep0ch find --query type=daily-brief --sort brief-date --direction desc --limit 1 --json`:
+   the newest brief, with its `feed-sequence` among its properties.
 2. **The change feed from that checkpoint:** `outliner changes --since <feed-sequence> --limit 200`.
    Page on with the `nextSequence` it returns until it stops. Record the last sequence you read.
    - If the answer is a reset (the window moved past the checkpoint), say so under Sources and rely on
      steps 3 and 4. Don't pretend the feed was complete.
 3. **What changed in the last day:**
-   `outliner list --query "updated >= -1d type=roadmap-item" --fields id,title,properties,timestamps`,
-   and the same for deliveries and captures (`type=capture status=unprocessed` for what's waiting).
+   `ep0ch find --query "updated >= -1d type=roadmap-item" --json`, and the same for deliveries and captures
+   (`type=capture status=unprocessed` for what's waiting).
 4. **Git logs of the active repos:** the repos the changed items name (their deliveries, `project::`).
    `git -C <repo> log --since=yesterday --oneline --all` and merged PRs (`gh pr list --state merged
    --search "merged:>=YYYY-MM-DD"`). Link the PR, not the commit.

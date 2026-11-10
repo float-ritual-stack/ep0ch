@@ -9,5 +9,5 @@ import { screenArg } from "../cli-words";
 export function showcaseTry(args: readonly string[]): string[] | null {
   if (!args.includes("--showcase") || args.includes("--ws")) return null;
   const screen = screenArg(args);
-  return ["--showcase", ...(args.includes("--reset") ? ["--reset"] : []), ...(screen ? ["--screen", screen.name, ...(screen.target ? [screen.target] : [])] : [])];
+  return ["--showcase", ...(args.includes("--reset") ? ["--reset"] : []), ...(args.includes("--prepare") ? ["--prepare"] : []), ...(screen ? ["--screen", screen.name, ...(screen.target ? [screen.target] : [])] : [])];
 }

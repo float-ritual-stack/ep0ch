@@ -58,6 +58,9 @@ async function patch(block: { id: string; revision: number; text: string }, next
 const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extension.json")).json()).configSchema.properties.answer.default;
 /** How long the model gets to answer for one note. */
 const MODEL_MS = 120_000;
+/** Arguments as a POSIX shell reads them back exactly: any but plain words in single quotes, so nothing expands. */
+const shellWords = (args: readonly string[]) => args.map(a => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(" ");
+// The settings value is one word in single quotes, so its own arguments are quoted as the settings parser reads them.
 const FIX = `ep0ch act ext.asks.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => (a === "" || /\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}', or sign in with claude`;
 
 /**
@@ -68,7 +71,8 @@ async function confirm(text: string, passed: readonly number[]): Promise<Map<num
   const command = config?.answer ?? DEFAULT_ANSWER;
   const failed = (why: string) => new Error(`The model couldn't confirm, so nothing was written: ${why}. To fix: ${FIX}`);
   if (!command.length) throw failed("config.answer is empty");
-  const ran = command.join(" ").slice(0, 100);
+  // The command as it runs, every argument, an empty or spaced one quoted: read whole, never cut (PIE-1715).
+  const ran = shellWords(command);
   let proc;
   try { proc = Bun.spawn(command, { stdin: new Blob([confirmPrompt(text, passed)]), stdout: "pipe", stderr: "pipe", timeout: MODEL_MS, cwd: import.meta.dir }); }
   catch (e) { throw failed(`${ran} couldn't start (${(e as Error).message})`); }
@@ -109,7 +113,7 @@ async function settle(note: string, dry: boolean, sure: boolean): Promise<void> 
   const kind = workboardKind(block.properties);
   if (kind) return done(`left out: a ${kind}'s lines describe the work, they don't ask`);
   const read = await outline<{ revision: number; text: string; jev: string; lines: Reading[] }>({ action: "blocks.asks", blockId: note }, { timeoutMs: 110_000 });
-  if (read.jev !== "asked") return done(`not asked: ${read.jev}`);
+  if (read.jev !== "asked") return done(read.jev.startsWith("not asked") ? read.jev : `not asked: ${read.jev}`);
   const lines = read.text.split("\n");
   const chipped = chippedLines(read.text);
   const wanted = read.lines.filter(l => (l.reads === "yes" && !l.top) || (l.reads === "unsure" && !sure)).filter(l => !chipped.has(l.line));
@@ -201,6 +205,13 @@ async function reply(mark: string): Promise<void> {
   return takeOff(at, ({ line }, lines) => about(line, lines), "you commented on it");
 }
 
-if (input.action === "settle") await settle(input.target.blockId, input.args?.dry === "yes", input.args?.sure === "yes");
-else if (input.action === "clear") await clear(input.target.blockId);
-else await reply(input.target.blockId);
+// A refusal is its words alone on stderr, the last thing the host keeps of a failed run: a stack after it would push the
+// command it names out of what the person reads (PIE-1715: "the saved answer command is truncated").
+try {
+  if (input.action === "settle") await settle(input.target.blockId, input.args?.dry === "yes", input.args?.sure === "yes");
+  else if (input.action === "clear") await clear(input.target.blockId);
+  else await reply(input.target.blockId);
+} catch (e) {
+  process.stderr.write(`${(e as Error)?.message ?? String(e)}\n`);
+  process.exit(1);
+}

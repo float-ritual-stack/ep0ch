@@ -6,6 +6,10 @@ describe("ep0ch --showcase", () => {
     expect(showcaseTry(["--showcase"])).toEqual(["--showcase"]);
     expect(showcaseTry(["--showcase", "--reset"])).toEqual(["--showcase", "--reset"]);
   });
+  test("--prepare goes along: it seeds the showcase and exits, the headless path (PIE-1714)", () => {
+    expect(showcaseTry(["--showcase", "--prepare"])).toEqual(["--showcase", "--prepare"]);
+    expect(showcaseTry(["--showcase", "--reset", "--prepare"])).toEqual(["--showcase", "--reset", "--prepare"]);
+  });
   test("with --ws (try-it.sh's own call) it opens the screen on that outline", () => {
     expect(showcaseTry(["--no-daemon", "--ws", "showcase", "--showcase"])).toBeNull();
   });
