@@ -12,7 +12,8 @@ import { SocketBoard, USER } from "../src/socket";
 import { fitHint, visible } from "../src/style";
 import { bindings, conflicts, fightOf, rebindEffects, unbound, type Binding } from "../src/surface/key-catalog";
 import { allActionSets } from "../src/surface/actions";
-import { declaredOf, effective, keymapEntries, keymapProblem, resetKeys, keymapPath, moved, asTyped, parse, reloadKeymap, setKeys, undoKeymap } from "../src/surface/keymap";
+import { DRAFT_ACTIONS } from "../src/edit";
+import { declaredOf, effective, keysNow, keymapEntries, keymapProblem, resetKeys, keymapPath, moved, asTyped, parse, reloadKeymap, setKeys, undoKeymap } from "../src/surface/keymap";
 import type { Key } from "../src/term";
 import { traceActions } from "../src/surface/actions";
 import { traceRequests } from "../src/surface/dispatch";
@@ -96,6 +97,16 @@ describe("the keymap file", () => {
     const fights = conflicts(bindings());
     expect(fights.map(g => g.map(b => b.id))).toEqual([["note.new", "tile.close"]]);
     expect(fightOf(fights[0]!)).toMatchObject({ wins: "tile.close", loses: ["note.new"] });
+  });
+
+  test("an action's keys list a rebind once, however many dispatchers read them again (Nov 3 review card 1)", () => {
+    writeFileSync(keymapPath(), JSON.stringify({ "draft.erase to=word-back": ["alt+z"] }));
+    reloadKeymap();
+    const once = keysNow("draft.erase", DRAFT_ACTIONS.def("draft.erase")!.keys);
+    const thrice = keysNow("draft.erase", keysNow("draft.erase", once));
+    const yours = (k: typeof once) => (typeof k === "string" || !k ? [] : k.filter(r => "keys" in r && r.does.startsWith("yours")));
+    expect(yours(once)).toEqual([{ keys: "alt+z", does: "yours: to=word-back" }]);
+    expect(yours(thrice)).toEqual(yours(once));
   });
 
   test("a rebind of a draft key onto a key the power bar reads first is a conflict: the bar's binding runs, the rebind does nothing there (Nov 3 review card 1)", () => {
