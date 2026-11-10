@@ -453,6 +453,9 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         expect(containerOf("pty2")).toBe(containerOf("pty"));
         expect(new Set(d.desk.layoutGet().tiles.map((t: any) => t.container).filter((c: unknown) => typeof c === "string" && /^d\d+$/.test(c))).size).toBe(1);
         expect(d.desk.outOfStep()).toEqual([]);
+        // The newest kept is the tab in front (PIE-1575); a first rebuild's several keep the first in front (PIE-1692).
+        const tabsOf = (n: any): any => n.tabs?.includes("pty2") ? n : (n.kids ?? (n.kid ? [n.kid] : [])).map(tabsOf).find(Boolean);
+        expect(tabsOf(d.desk.layoutGet().tree)).toMatchObject({ tabs: ["pty", "pty2"], active: "pty2" });
         const spot = d.edgeOf("pty2") ?? d.edgeOf("pty");
         expect(spot).not.toBeNull();
         await d.click(spot!.x, spot!.y);

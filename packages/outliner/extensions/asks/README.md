@@ -41,7 +41,10 @@ Three passes, cheapest first. Each only hands the next what it can't rule out.
 - **Left out:**
   - comments, proposals, snapshots, views, tool bookkeeping and EchoNet copies (`[from::…]`);
   - records: a permission ask, a proof, a day's log, what landed, a decision. The settle rule's query in `extension.json` lists them, and it's yours to edit;
-  - the workboard's own notes: a roadmap item, a delivery, a validation plan (`type`). Their lines describe the work ("Evan opens…", "Done when:"), so code leaves them out before Jev reads a line, and a mark already on one comes off at its next save. A question about a ticket is a `[needs::sysop: …]` its writer puts there;
+  - the workboard's own notes: a roadmap item, a delivery, a validation plan (`type`):
+    - their lines describe the work ("Evan opens…", "Done when:"), so code leaves them out before Jev reads a line;
+    - a mark already on one comes off at its next save;
+    - a question about a ticket is a `[needs::sysop: …]` its writer puts there;
   - notes closed or parked, by any of these:
     - `status`: done, closed, answered, decided, resolved, shipped, complete or verified
     - `work-stage`: done, superseded or later
