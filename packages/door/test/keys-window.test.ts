@@ -568,6 +568,12 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       await until(() => frame().join("\n").includes("Tomatoes"), "the note").catch(e => { throw new Error(`${e.message}:\n${frame().join("\n")}`); });
       key(char("C"));
       await until(() => frame().join("\n").includes("alt+q"), "the composer, its way out alt+q").catch(e => { throw new Error(`${e.message}:\n${frame().join("\n")}`); });
+      // Only spaces typed: one press closes it, and the foot says so (CodeRabbit on #1421).
+      for (const ch of "   ") key(char(ch));
+      cols = 177;
+      expect(frame().join("\n")).toContain("alt+q close comment");
+      expect(frame().join("\n")).not.toContain("twice puts comment aside");
+      cols = 44;
       for (const ch of "more beans") key(char(ch));
       // The composer's own foot names the key its way out is now, not esc (wide enough to read the foot).
       cols = 177;
