@@ -312,14 +312,17 @@ const ACTIONS: BarSource = {
     const menu = (() => { try { return keysDispatch(host)?.menu("focused", USER) ?? []; } catch { return []; } })();
     // While the hyper layer is on (PIE-699) each action that has a chord shows it, as ✦-, beside its other keys.
     const hy = (action: string) => (hyperOn() ? hyperKeysOf(action, scriptBindings()) : []);
-    const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, fill: m.action, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
+    // Every action here, listed once: each row carries its own (`info`), so its page never lists them all again (PIE-1532:
+    // a listing per row held the door for 3.5 s at each ctrl+k in an edit, where every row's page is made at once).
+    const here = host.dispatch.list().actions, byName = new Map(here.map(a => [a.name, a]));
+    const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, fill: m.action, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "", info: byName.get(m.action) } }));
     const seen = new Set(menu.map(m => m.action));
-    for (const a of host.dispatch.list().actions) {
+    for (const a of here) {
       if (seen.has(a.name) || !listed(a)) continue;
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ for a form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, ...(a.words ? { words: a.words } : {}), keys: a.keys, form: takesArgs(a), bare: bare(a) } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ for a form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, ...(a.words ? { words: a.words } : {}), keys: a.keys, form: takesArgs(a), bare: bare(a), info: a } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
@@ -328,8 +331,9 @@ const ACTIONS: BarSource = {
   },
   named: (q, host) => actionLine(q, host),
   preview(row, host) {
-    const d = row.data as { action: string; summary?: string; keys?: string };
-    const found = host.dispatch.list().actions.find(a => a.name === d.action);
+    const d = row.data as { action: string; summary?: string; keys?: string; info?: ActionInfo };
+    // The row's own listing when it has one (rows() made it); a row from elsewhere (the typed line's) asks.
+    const found = d.info ?? host.dispatch.list().actions.find(a => a.name === d.action);
     // A script reads as itself (PIE-1405): its name, as it's typed, and its own words, never its action's id.
     const script = scriptActions().find(s => s.action.name === d.action);
     const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script), args: Object.fromEntries(formFields(found).map(f => [f.name, f.spec])) } : found;

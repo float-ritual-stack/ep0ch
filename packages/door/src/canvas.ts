@@ -12,6 +12,8 @@ import { printable } from "./text";
 /** One terminal cell. A wide glyph's second cell is a spacer: `ch` "", drawn as nothing (the glyph covers it). */
 interface Cell { ch: string; sgr: string; link?: string; full?: string }
 export interface Rect { col: number; row: number; cols: number; rows: number }
+/** Cell (`x`, `y`) is inside a box measured `{ x, y, w, h }` (a reader's panel or float): `inside` in hover.ts is a Rect's. */
+export const inRect = (r: { x: number; y: number; w: number; h: number }, x: number, y: number) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 /** Where a view is in its content: the first line shown, how many fit, how many there are. */
 export interface Scroll { top: number; room: number; total: number }
 

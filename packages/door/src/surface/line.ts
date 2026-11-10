@@ -140,8 +140,6 @@ export class LineField {
       if (moved) this.draft.status.say(moved);
       return true;
     }
-    // A line break or a tab inside a paste typed out key by key is a space in one line: never the caller's ⏎.
-    if ((k.kind === "enter" || k.kind === "tab") && "pasted" in k && k.pasted) k = { kind: "char", ch: " ", pasted: true };
     if (!LINE_KEYS.has(k.kind)) return false;
     if (k.kind === "paste" && !k.text) return false;   // an empty paste (only a picture on the clipboard) is the caller's
     this.fresh = false;

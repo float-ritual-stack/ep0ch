@@ -9,7 +9,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Draft, DRAFT_ACTIONS, listLead, wrapRows } from "../src/edit";
-import { pasteKeys } from "../src/term";
 import { editHint, renderEditor } from "../src/surface/editor";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { cellsOf } from "../src/surface/selection";
@@ -99,7 +98,7 @@ describe("Enter keeps the list going", () => {
     const ct = at_end("- item");                                      // ctrl+enter is Enter
     ct.key({ kind: "enter", ctrl: true }); expect(ct.lines).toEqual(["- item", "- "]);
     const p = at_end("- item");
-    p.key({ kind: "enter", pasted: true }); p.key({ kind: "tab", pasted: true }); type(p, "x");
+    p.key({ kind: "paste", text: "\n\t" }); type(p, "x");
     expect(p.lines).toEqual(["- item", "\tx"]);
     const q = at_end("- item");
     q.key({ kind: "paste", text: "\n- a\n\t- b\n1. c" });
@@ -305,17 +304,17 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
   });
 });
 
-// Review of PIE-496: paste through the App's key path, agents and the person's put-aside text, the
+// Review of PIE-496: a paste (whole, as the App hands it), agents and the person's put-aside text, the
 // unsent index's bound.
 describe("review: nothing reformatted", () => {
-  test("a bracketed paste typed out as keys by the App is never reformatted", () => {
+  test("a bracketed paste is never reformatted", () => {
     const d = new Draft("n1", 1, "");
     const text = "- - [ ] the list, quoted\n1. 2. 3. counting\n\t- tabbed";
-    for (const k of pasteKeys(text)) d.key(k);
+    d.key({ kind: "paste", text });
     expect(d.lines).toEqual(text.split("\n"));
     // CRLF from a Windows clipboard is one break.
     const c = new Draft("n1", 1, "");
-    for (const k of pasteKeys("- a\r\n- b")) c.key(k);
+    c.key({ kind: "paste", text: "- a\r\n- b" });
     expect(c.lines).toEqual(["- a", "- b"]);
   });
 

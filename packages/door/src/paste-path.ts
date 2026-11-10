@@ -7,7 +7,7 @@
 //   picker with no line) lets it go, and no letter of it runs;
 // - **offer**: in the power bar's line where nothing is being typed into (a reader, a board's lanes, the drawer's
 //   reader, a menu screen): a note's address there is that note's row (PIE-1401), any other text the bar's search, an
-//   action line lit as a typed one is; nothing runs until ⏎ or a click, and Esc puts it away;
+//   action line lit as a typed one is; nothing runs until ⏎ or a click, and one Esc puts it away (PIE-1675);
 // - **nowhere**, said: a menu is open over the screen, or the screen has no power bar (the logon). The clipboard still
 //   has it.
 import type { Key } from "./term";
@@ -65,8 +65,9 @@ export function paste(door: PasteDoor, text: string, w: KeyLayers): boolean {
   const facts: PasteFacts = { text, ...(w.over ? { over: w.over } : {}), program: !!w.program && !w.program.over, typingIn: k?.typingIn ?? null, held: !!k?.busy && !k.navHold, bar: !top?.noDrawer };
   const lands = pasteLands(facts);
   if (lands === "picture") { door.key({ kind: "char", ch: "v", ctrl: true }); return true; }
-  // The offer is the power bar with the paste in its line, as a paste into the open bar is (bar.edit op=paste).
-  if (lands === "offer") { void door.press("bar.open").then(() => door.press("bar.edit", { op: "paste", text })); return true; }
+  // The offer is the power bar with the paste in its line, as a paste into the open bar is (bar.edit op=paste), said to be
+  // offered: it isn't the person's typing, so one Esc puts the bar away (PIE-1675).
+  if (lands === "offer") { void door.press("bar.open").then(() => door.press("bar.edit", { op: "paste", text, offer: true })); return true; }
   if (lands === "nowhere") {
     const where = facts.over === "menu" ? "a menu is open" : `nothing types on the ${top?.title ?? "screen"}`;
     door.refuse(text === "" ? "a picture pastes into an edit or a comment" : `pasted text isn't typed here: ${where} · the clipboard still has it`);

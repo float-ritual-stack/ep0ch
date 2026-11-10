@@ -264,11 +264,11 @@ export class DraftSession {
   dropped = "";
   private pasteSoFar: string | null = null;
   /**
-   * Every draft's paste, whole (a `paste`) or typed out key by key (the App's): written first, then, once it's all in,
+   * Every draft's paste (a `paste`, whole: PIE-1673): written first, then, once it's all in,
    * files dropped on a terminal go to the host as `drop` (PIE-1589). A key replayed after a reload runs no command, whichever host's path it comes back by: a held paste stays text.
    */
   private watchPaste(k: Key, host: { run(cmd: DraftCommand): void }): void {
-    const piece = k.kind === "paste" ? k.text : !("pasted" in k && k.pasted) ? null : k.kind === "enter" ? "\n" : k.kind === "tab" ? "\t" : k.kind === "char" ? k.ch : "";
+    const piece = k.kind === "paste" ? k.text : null;
     if (piece === null || this.replaying) return;
     if (this.pasteSoFar === null) queueMicrotask(() => {
       const text = this.pasteSoFar ?? "";

@@ -23,5 +23,5 @@ export const pasteALink = (id: string, link: string, uri: string) => [
   `- The same note by reference, which the links tile lists: ((${id}|the rota))`,
   "Copy one yourself: open the ⋯ menu of the rota (or right-click a row in the links tile) and pick copy note web link, or put the cursor on a line of the rota and pick copy line reference. Press e here, paste it on a line of its own, save, and click it.",
   "- Paste here:",
-  "Paste anything where nothing is being typed (this reader with no edit open, a board, the drawer) and no letter of it runs: the power bar opens with it in its line, a note's address as that note's row, other words as a search. ⏎ picks, Esc puts it away.",
+  "Paste anything where nothing is being typed (this reader with no edit open, a board, the drawer) and no letter of it runs: the power bar opens with it in its line, a note's address as that note's row, other words as a search. ⏎ picks, one Esc puts it away.",
 ].join("\n");

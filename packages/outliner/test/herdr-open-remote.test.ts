@@ -1,17 +1,20 @@
 import {
   chmodSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import { OutlinerClient, type OutlinerWatcher } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
 import type { OutlinerClientRegistration } from "../src/types";
+import { scratchDir } from "./scratch-outline";
+
+// The package folder: the open runs from it, whichever folder the test run started in.
+const outlinerRoot = join(import.meta.dir, "..");
 
 const temporaryDirectories: string[] = [];
 afterEach(() => {
@@ -21,7 +24,7 @@ afterEach(() => {
 });
 
 for (const [mode, via] of [["focus-or-open", "socket"], ["open-tree", "socket"], ["focus-or-open", "machine"]] as const) test(`remote Herdr ${mode} (${via === "socket" ? "EP0CH_SOCKET" : "the .ep0ch's machine"}) keeps the host and the folder's outline, and opens only its required panes`, async () => {
-  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-remote-herdr-"));
+  const directory = scratchDir("herdr-remote-");
   temporaryDirectories.push(directory);
   const workspaceRoot = join(directory, "workspace");
   mkdirSync(workspaceRoot);
@@ -133,7 +136,7 @@ if (args[0] === "pane" && args[1] === "get") {
       "run",
       "src/herdr-open.ts", "--mode", mode,
     ], {
-      cwd: process.cwd(),
+      cwd: outlinerRoot,
       env: {
         ...process.env,
         HERDR_ENV: "1",
@@ -191,7 +194,7 @@ if (args[0] === "pane" && args[1] === "get") {
 }, 60_000);
 
 test("an outline the .ep0ch's machine doesn't have is never made there: refused with the commands, no pane opened (PIE-545)", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-remote-missing-"));
+  const directory = scratchDir("herdr-missing-");
   temporaryDirectories.push(directory);
   const workspaceRoot = join(directory, "workspace");
   mkdirSync(workspaceRoot);
@@ -217,7 +220,7 @@ else console.log(JSON.stringify({ result: { type: "ok" } }));
   chmodSync(herdr, 0o755);
   try {
     const child = Bun.spawn(["bun", "run", "src/herdr-open.ts", "--mode", "focus-or-open"], {
-      cwd: process.cwd(),
+      cwd: outlinerRoot,
       env: {
         ...process.env, HERDR_ENV: "1", HERDR_BIN_PATH: herdr, HERDR_PANE_ID: "workspace:pane", OUTLINER_WORKSPACE_ROOT: workspaceRoot,
         EP0CH_OUTLINES: join(directory, "local-outlines"), EP0CH_SOCKET: undefined, EP0CH_WS: undefined, EP0CH_MACHINE: undefined,
@@ -241,7 +244,7 @@ else console.log(JSON.stringify({ result: { type: "ok" } }));
     };
     // Not spawnSync: the host answers from this process.
     const init = async (...extra: string[]) => {
-      const p = Bun.spawn(["bun", join(process.cwd(), "src/cli.ts"), "init", "nettle", ...extra], { cwd: plain, env: initEnv, stdout: "pipe", stderr: "pipe", timeout: 30_000 });
+      const p = Bun.spawn(["bun", join(outlinerRoot, "src/cli.ts"), "init", "nettle", ...extra], { cwd: plain, env: initEnv, stdout: "pipe", stderr: "pipe", timeout: 30_000 });
       const [exitCode, stderr] = await Promise.all([p.exited, new Response(p.stderr).text()]);
       return { exitCode, stderr };
     };

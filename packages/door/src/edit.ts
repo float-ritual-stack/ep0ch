@@ -228,14 +228,13 @@ export class Draft {
     this.markTypesOver();
   }
   moveSnippet(by: number) {
-    this.settle();
     const slot = this.snippet?.move(by);
     if (slot) this.selectSlot(slot); else this.endSnippet();
     return { slot: this.snippet ? this.snippet.index + 1 : null, of: this.snippet?.slots.length ?? 0 };
   }
-  endSnippet() { this.settle(); this.snippet = null; this.snippetStep = undefined; this.anchor = null; }
+  endSnippet() { this.snippet = null; this.snippetStep = undefined; this.anchor = null; }
   snippetKey(k: Key): boolean {
-    if (!this.snippet || "pasted" in k) return false;
+    if (!this.snippet) return false;
     const own = this.binding(k)?.action;
     const action = own === "draft.indent" ? "snippet.next" : own === "draft.outdent" ? "snippet.previous" : own === "edit.close" ? "snippet.end" : null;
     if (!action) return false;
@@ -244,8 +243,6 @@ export class Draft {
   }
   /** The text as of the last step recorded: the next step's `before`. */
   private seen: string;
-  /** Pasted keys are going in (a paste typed out key by key): they become one step once the paste is all in. */
-  private pasting = false;
   /** Where agents' patches just landed, lit until `until`. */
   flashes: PatchFlash[] = [];
 
@@ -300,7 +297,7 @@ export class Draft {
    * request line they write here (`@tidy …`) runs once quiet, before any save (`drafts.touch`).
    */
   onPersonTyped: (() => void) | null = null;
-  /** Its host draws it again (its session's): a paste typed out key by key is said once it's all in, after the keys drew. */
+  /** Its host draws it again (its session's): when an armed key's say lapses. */
   redraw: (() => void) | null = null;
 
   /** `who` changed the text: a step of the draft's history (`what` it was), and they're among its writers. */
@@ -324,7 +321,6 @@ export class Draft {
    * so a step is a word and the space after it.
    */
   private record(by: Actor, what: string, unit?: PatchUnit, removes = false) {
-    if (this.pasting) return;
     const before = this.seen, after = this.text;
     if (after === before) return;
     this.seen = after;
@@ -349,12 +345,8 @@ export class Draft {
     if (this.undos.length > UNDO_KEEP) this.undos.shift();
   }
 
-  /** A paste typed out key by key that's still going in becomes its step now (before anything else changes the text). */
-  private settle() { if (this.pasting) this.pasted(USER); }
-
   /** A paste is all in: one step, said when it's big. */
   private pasted(by: Actor) {
-    this.pasting = false;
     const before = this.seen;
     const c = changeOf(before, this.text), text = this.text.slice(c.at, c.at + c.added);
     const lines = text ? text.split("\n").length : 0;
@@ -389,7 +381,6 @@ export class Draft {
 
   /** undo, saying whether it took a step back or stopped at a save to ask (`asked`: nothing changed). */
   undoStep(by: Actor, past = false): { asked: boolean; said: string } {
-    this.settle();
     this.record(USER, "a change");
     this.snippet = null; this.snippetStep = undefined;
     const s = this.undos.at(-1);
@@ -413,7 +404,6 @@ export class Draft {
 
   /** ctrl+y (ctrl+shift+z): the last step undo took back, put back. An agent puts back only its own. */
   redo(by: Actor): string {
-    this.settle();
     this.record(USER, "a change");
     const s = this.redos.at(-1);
     if (!s) throw new ActionRefused("nothing to redo in this draft");
@@ -467,7 +457,6 @@ export class Draft {
    * stays: the service still judges it. One undo step, `what` it was.
    */
   replace(text: string, by: Actor = USER, what = by.kind === "agent" ? `${patchLabel(by)}'s text` : "the editor's text", exact = false) {
-    this.settle();
     this.record(USER, "a change");
     const before = this.text;
     // An editor's file ends in a line break the draft never had; `exact` (an earlier revision) keeps the text as it was.
@@ -512,7 +501,6 @@ export class Draft {
    * inserted text, so typing can replace an example value. One change, by `by`.
    */
   splice(start: number, end: number, text: string, lines: Record<number, string> = {}, by: Actor = USER, selection?: { start: number; end: number }) {
-    this.settle();
     this.record(USER, "a change");
     const before = this.text;
     for (const [i, l] of Object.entries(lines)) if (this.lines[Number(i)] !== undefined) this.lines[Number(i)] = l;
@@ -584,14 +572,8 @@ export class Draft {
     if (k.kind === "mouse") return "keep";
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
-    if (k.kind === "paste") { this.pasteText(k.text); return "keep"; }
-    // A paste typed out key by key (the App's) is one step: recorded once the last of its keys is in, or as soon as
-    // another key comes.
-    if (!("pasted" in k && k.pasted)) this.settle();
-    else if (!this.pasting) {
-      this.record(USER, "a change"); this.pasting = true;
-      queueMicrotask(() => { if (this.pasting) { this.pasted(USER); this.redraw?.(); } });
-    }
+    // A paste is the person's typing: what the status line said before goes, as any typed key's does (a big paste says so).
+    if (k.kind === "paste") { this.status.say(""); this.pasteText(k.text); return "keep"; }
     // The keys that run an action, from the one key table (DRAFT_KEYS, the person's keymap applied).
     const bound = this.binding(k);
     // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
@@ -613,8 +595,8 @@ export class Draft {
       if (moved) this.status.say(moved);
       return "keep";
     }
-    // A field whose host says ⏎ saves (an inspector's value): a typed ⏎ saves; shift+⏎ and a pasted line break are text.
-    if (k.kind === "enter" && this.enterSaves && !("pasted" in k && k.pasted) && !("shift" in k && k.shift)) return "save";
+    // A field whose host says ⏎ saves (an inspector's value): ⏎ saves; shift+⏎ and a pasted line break (a paste) are text.
+    if (k.kind === "enter" && this.enterSaves && !("shift" in k && k.shift)) return "save";
     this.status.say("");
     const L = this.lines, len = L.length, r0 = this.row, cur = this.line;
     const typing = k.kind === "char" || k.kind === "enter" || k.kind === "alt-enter" || k.kind === "backspace" || k.kind === "delete";
@@ -644,8 +626,8 @@ export class Draft {
       case "pgdn": this.views.raw.moveBy(this.views.raw.pageRows()); break;
       case "home": this.col = 0; break;
       case "end": this.col = this.line.length; break;
-      // Enter keeps the list going (draft.newline); alt+enter, shift+enter and a pasted line break are plain line breaks.
-      case "enter": void DRAFT_ACTIONS.run("draft.newline", { plain: "pasted" in k || ("shift" in k && !!k.shift) }, this, USER); break;
+      // Enter keeps the list going (draft.newline); alt+enter and shift+enter are plain line breaks, as a paste's are.
+      case "enter": void DRAFT_ACTIONS.run("draft.newline", { plain: "shift" in k && !!k.shift }, this, USER); break;
       case "alt-enter": void DRAFT_ACTIONS.run("draft.newline", { plain: true }, this, USER); break;
       case "backspace":
         if (this.col > 0) {
@@ -664,14 +646,11 @@ export class Draft {
         else if (this.row < L.length - 1) { L[this.row] = this.line + L[this.row + 1]!; L.splice(this.row + 1, 1); }
         break;
       // Tab and shift+tab (draft.indent, draft.outdent: rows of the table, run above) indent and outdent the line, or every
-      // line the selection touches; a pasted tab is text, and a tab the keymap took away is nothing.
-      case "tab":
-        if ("pasted" in k) this.insert("\t");
-        break;
+      // line the selection touches; a paste's tab is text (a paste), and a tab the keymap took away is nothing.
+      case "tab": break;
       case "char":
-        // A marker typed by hand on an item Enter already started ("- " then "- ") takes the item's place.
-        // Pasted text goes in as it came.
-        if (k.ch === " " && !k.pasted && this.col === this.line.length) {
+        // A marker typed by hand on an item Enter already started ("- " then "- ") takes the item's place (a paste goes in as it came).
+        if (k.ch === " " && this.col === this.line.length) {
           const m = TYPED_MARKER.exec(this.line);
           if (m) { L[this.row] = m[1]! + m[2]!; this.col = L[this.row]!.length; }
         }
@@ -762,7 +741,6 @@ export class Draft {
 
   /** Pasted text goes in as it came: no list continuation, no indenting, tabs kept. */
   pasteText(text: string, by: Actor = USER) {
-    this.settle();
     this.record(USER, "a change");
     const before = this.text;
     if (this.anchor) this.deleteSelection();
@@ -988,7 +966,6 @@ export class Draft {
       }
     }
     if (p.replyTo && !p.replyGroup) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
-    this.settle();
     this.record(USER, "a change");
     const prior = p.replyGroup ? this.undos.find(step => step.unit?.group === p.replyGroup && sameParty(step.by, by)) : undefined;
     const rebased: { step: Step; before: string; after: string }[] = [];
@@ -1073,7 +1050,6 @@ export class Draft {
   /** Replace `spans` of the text; the cursor, selection, view and lit patches move with it. */
   private commitPatch(spans: LocatedSpan[], by: Actor, patchId: string | null, map: (o: number) => number = o => mapOffset(o, spans), removed?: PatchUnit) {
     // Whatever changed the text without a step (the text set outright) is one first, so the patch is its own.
-    this.settle();
     this.record(USER, "a change");
     const before = this.text, after = applyLocated(before, spans);
     // What stays put on screen is the place, in source coordinates (a view of the draft keeps it at each render, never
@@ -1220,7 +1196,6 @@ export class Draft {
 
   /** The selection, else from the cursor back or on to `to`, taken out. Word-back is what ctrl+w always erased: the word and the spaces after it. */
   erase(to: "word-back" | "word-forward" | "line-start" | "line-end", by: Actor = USER): boolean {
-    this.settle();
     this.record(USER, "a change");
     const before = this.text;
     if (!this.selection()) {
@@ -1240,7 +1215,6 @@ export class Draft {
 
   /** Erase all of the text (a line field's ctrl+u). One undo step; whether anything went. */
   clear(by: Actor = USER): boolean {
-    this.settle();
     this.record(USER, "a change");
     const before = this.text;
     this.anchor = { row: 0, col: 0 };
@@ -1256,7 +1230,6 @@ export class Draft {
   wrap(open: string, by: Actor = USER) {
     const s = this.selection();
     if (!s) throw new ActionRefused("nothing is selected in the draft · select text (shift+arrows, a drag, draft.place extend=true), then type [ or ( to wrap it");
-    this.settle();
     this.record(USER, "a change");
     const close = [...open].reverse().map(c => WRAPS[c] ?? c).join("");
     const forward = this.anchor!.row === s[0].row && this.anchor!.col === s[0].col, text = this.text;

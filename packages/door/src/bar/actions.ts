@@ -108,11 +108,12 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.edit": def({
     summary: "edit the power bar's shared line: clear, complete, paste, select, cut, delete-word or undo. An agent edits an unseen line supplied by query= and scope=",
-    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "tab", does: "complete", says: "complete the word in the power bar's line, or put the lit action's next example in it" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select", says: "select text in the power bar's line" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+z", does: "undo", says: "undo the last change to the power bar's line; right after a typed line ran and its answer is kept, the run itself is taken back (the bar goes, layout.undo)" }],
+    keys: [{ keys: "esc", does: "with text typed in the line, clears it (a paste the bar offered, or a line that just ran, closes the bar)" }, { keys: "tab", does: "complete", says: "complete the word in the power bar's line, or put the lit action's next example in it" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select", says: "select text in the power bar's line" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+z", does: "undo", says: "undo the last change to the power bar's line; right after a typed line ran and its answer is kept, the run itself is taken back (the bar goes, layout.undo)" }],
     touches: "nothing", replay: "safe",
     args: {
       op: { type: "string", about: "clear, complete, paste, select, cut, delete-word or undo" },
       text: { type: "string", optional: true, about: "text to paste" },
+      offer: { type: "boolean", optional: true, about: "with op=paste: the bar offers the paste, as the paste path does where nothing types (PIE-1659); not the person's typing, so one Esc puts the bar away while the line is as offered" },
       from: { type: "number", optional: true, about: "selection start, zero-based UTF-16 offset" },
       to: { type: "number", optional: true, about: "selection end, zero-based UTF-16 offset" },
       query: { type: "string", optional: true, about: "an agent's own line" },
@@ -122,11 +123,11 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       { act: "bar.edit op=clear", does: "clears the power bar's line" },
       { act: "bar.edit op=complete", does: "fills the next part of the lit row into the line, selected; a name alone takes its first example, then the next" },
     ],
-    async run({ op, text, from, to, query, scope }, { on, standing }, actor: Actor) {
+    async run({ op, text, from, to, offer, query, scope }, { on, standing }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
       const b = !standing ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
-      try { await b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
+      try { await b.edit(op, { text, from, to, offer }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
       finally { if (!standing) b.close(); }
     },
   }),

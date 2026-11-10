@@ -81,7 +81,7 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
       expect(completionOf(key)!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
       // A paste opens nothing, even one ending in a token; ⏎ stays the caller's.
       const pasted = new LineField("");
-      pasted.take({ kind: "char", ch: "see ((xylo", pasted: true } as Key);
+      pasted.take({ kind: "paste", text: "see ((xylo" });
       await tick();
       expect(completionOf(pasted)).toBeNull();
       expect(pasted.take(K("enter"))).toBe(false);

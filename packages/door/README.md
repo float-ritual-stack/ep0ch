@@ -1932,7 +1932,7 @@ queue, so the lane's `create-parent` doesn't apply (and `card.create parent=` is
 Any reader edits the note it shows: the board's preview, details and floats, and the desk's reader.
 On a board lane, `e` edits the selected card in the preview; in a river column, the column's note.
 
-Every reader is the same **note surface** (`src/surface/note.ts`): it draws the note, follows links, holds
+Every reader is the same **note surface** (`src/surface/note.ts`, its actions by prefix in `src/surface/note-actions/`): it draws the note, follows links, holds
 the edit, the passage picker and the comment threads, the property warning and "changed elsewhere", and
 keeps unsaved text safe. A view only gives it a rectangle, of any width, and says where a followed link
 opens. Writing a note and writing a comment use one edit control (`src/surface/editor.ts`): the same

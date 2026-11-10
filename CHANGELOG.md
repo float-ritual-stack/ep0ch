@@ -18,6 +18,29 @@ are its record. The outliner's entries from then are kept below, under
 - **The line field is an adapter over the edit control** (`LineField` holds a `Draft`, `field.draft`) instead of a subclass of it.
 - **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
 
+### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)
+
+- **Nothing you use changes:** the door draws, answers keys and lists its actions exactly as before; the one thing drawn differently is the kitchen sink's file pointers, which name the new modules. This is for whoever opens the code next.
+- **A reader's action lives with its prefix:** `NOTE_ACTIONS` is spread from one module per prefix family in `packages/door/src/surface/note-actions/` (editing, comments, elements, reading, sources, …), with what they share in `shared.ts`. A new action goes in its prefix's module.
+- **The link model and the panels are their own modules:** `surface/link-model.ts` (a note's links as the reader follows them) and `surface/note-panels.ts` (a step's or callout's choice, a thread's card).
+- **Copies folded onto their owners:** the heading test onto outline-core's `HEADING_LINE`, one line↔offset pair (`lineStart`, `lineAtOffset` in outline-core's `code-ranges.ts`), `inRect`, `width()` for the reader's own chips, one refusal table, one thread lookup and one comment send.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL and GRAMMAR don't move.
+
+### ctrl+k in an edit answers at once, and the tests pass in any folder (PIE-1532, PIE-1654)
+
+- **ctrl+k in a note's edit no longer freezes the door:** listing the actions that apply here (ctrl+k, or `/` first on a line) made every row's page by listing all of the door's actions again, about 700 times, and held the door for 2 to 3.5 s each time. Each row now carries its own listing: the list opens in a moment and every row keeps its page.
+- **The machine tests pass under agent-env:** `herdr-open-remote`, `machine-forward` and EchoNet's dial-in test made their folders under TMPDIR, where an agent's long temp folder put the forward's control socket past the length a socket's path may have. They take a short scratch folder now, from the one helper the door's tests use (`scripts/scratch-dir.ts`), and `herdr-open-remote` passes from the repository's root too.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; PROTOCOL, GRAMMAR and the schema don't move.
+
+### Nothing typed or pasted is lost or left hanging (PIE-1674, PIE-1675, PIE-1673)
+
+- **A comment that fails to open hands your text back:** what you typed or pasted after `C` while the note was read is kept when the open fails, as an edit's already was. The tile's hint leads with `tile menu: recover typed text`, before the reason, so a long reason (an outline that isn't answering) no longer cuts it off; it copies the text or opens a comment (not an edit) with it in. `edit.recover op=open` reopens whatever kind was opening.
+- **`C` then `e`:** an `e` typed while a comment opens is the comment's letter; only the key that opened it is taken as a repeat.
+- **One Esc puts away an offered paste:** a paste the power bar offered (on a reader, a board's lanes, the drawer) closes on the first Esc, so the next `e` edits the note. A paste into a bar you opened yourself is still your typing: Esc clears the line first. `bar.edit op=paste offer=true` is the offer.
+- **One paste path behind every editor:** the old `pasted` key form and `pasteKeys` are gone; every editor takes a paste whole, as one key and one undo step.
+- **In the kitchen sink:** Paste a link's test closes the offer with one Esc; the edit section's aside says a comment's typing is recovered too.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
+
 ### Four more door paper cuts: a lone kept dock, a render error's advice, yo's drop button, a line anchor's writer (PIE-1663, PIE-1604, PIE-1626, PIE-1661)
 
 - **A group left holding only its kept dock keeps it:** carrying a group's last tile out (`^W a`) used to spill the terminals an undo kept there as plain tiles and lose their dock. They stay in that one dock (open, since it's all the group shows), the next undone terminal joins it, the carry says "the group holds only the dock keeping pty and pty2", and `ctrl+z` puts the tile back beside the shut dock.
@@ -36,6 +59,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Terminal tiles unchanged:** a program gets the paste as it asked, bracketed in mode 2004, plain otherwise.
 - **In the kitchen sink:** the Paste a link section says it and its test pastes text holding `d` and `x` on the note.
 - **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
+
 ### Three door paper cuts: a river list's stale pick, docks per undone terminal, an alt press asking the wrong kind (PIE-1540, PIE-1575, PIE-1660)
 
 - **j lets go of a river list's pick:** in a river column, `j` (or `k`, a click on a card, the column's scroll or `esc`) off a `::links` list picked with `]` and PgDn no longer leaves that row drawn picked with its preview on it; the list reads as it did before the walk reached it (its first row lit for its preview), and PgDn scrolls the column.

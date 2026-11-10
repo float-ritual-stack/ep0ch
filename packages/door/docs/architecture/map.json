@@ -310,7 +310,7 @@
     {
       "id": "door.surface", "name": "NoteSurface", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.socketboard", "door.grammar", "door.mirrors", "door.actions", "door.draft", "door.draftsession"],
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
-      "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
+      "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code: one def per action in its prefix's module under surface/note-actions/ (what they share in shared.ts), spread into the set in note.ts in their order (PIE-1376). Its link model (link-model.ts) and the panels it draws under an element (note-panels.ts) are pure modules beside it. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
         { "r": "door", "p": "src/surface/note.ts", "l": 737, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 12, "m": "export class InlineList" },
@@ -319,7 +319,10 @@
         { "r": "door", "p": "src/surface/note.ts", "l": 190, "m": "export interface SurfaceHost" },
         { "r": "door", "p": "src/surface/note.ts", "l": 9963, "m": "export const NOTE_ACTIONS" },
         { "r": "door", "p": "src/surface/note.ts", "l": 1291, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1308, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 1308, "m": "reread(host: SurfaceHost)" },
+        { "r": "door", "p": "src/surface/note-actions/shared.ts", "l": 18, "m": "export interface On" },
+        { "r": "door", "p": "src/surface/link-model.ts", "l": 30, "m": "export const linksOf" },
+        { "r": "door", "p": "src/surface/note-panels.ts", "l": 91, "m": "export function threadPanel" }
       ]
     },
     {

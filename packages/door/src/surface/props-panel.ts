@@ -289,3 +289,9 @@ export class PropertyPanel {
     return out.slice(0, h);
   }
 }
+
+/** A panel row as `peek` and the props actions report it. */
+export const describeRow = (r: PropRow, src: Source | null, text: string) => ({
+  n: r.n, key: r.key, value: r.value, scope: r.scope, ...(r.placement ? { placement: r.placement } : {}),
+  ordinal: r.ordinal, ...(r.target ? { target: r.target, reads: printable(valueView(r, src, text)) } : {}),
+});

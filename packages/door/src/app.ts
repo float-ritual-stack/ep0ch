@@ -1563,7 +1563,7 @@ export class App implements Ctx {
       if (!ran && this.flashes === said) this.refuse("nothing selected · drag across the text to copy it, or v and move then y");
       return;
     }
-    if (!held && !raw && !(k.kind === "char" && k.pasted)) {
+    if (!held && !raw) {
       const binding = scriptBindings().find(b => b.key === keyName(k));
       if (binding) {
         const problem = this.dispatch.bindingProblem(binding, scriptBindings());
@@ -1572,7 +1572,7 @@ export class App implements Ctx {
       }
     }
     // ? on a screen that doesn't word it itself (a BBS list, the art viewer): the keys window, filtered to this screen (keys.open).
-    if (top && !top.ownsQuestion && k.kind === "char" && !k.ctrl && k.ch === "?" && !k.pasted && !held && !raw && this.dispatch.has("keys.open")) {
+    if (top && !top.ownsQuestion && k.kind === "char" && !k.ctrl && k.ch === "?" && !held && !raw && this.dispatch.has("keys.open")) {
       void this.dispatch.press("keys.open", { filter: top.name ?? top.title }); return;
     }
     top?.key(k, this);
@@ -1643,7 +1643,7 @@ export class App implements Ctx {
    * was typed (façade, µm). Only on a US-like keyboard (optionKeysOn: by the locale, or EP0CH_OPTION_KEYS).
    */
   private optionAsAlt(k: Key): Key {
-    if (!this.optionKeys || k.kind !== "char" || k.ctrl || k.pasted) return k;
+    if (!this.optionKeys || k.kind !== "char" || k.ctrl) return k;
     const alt = OPTION_KEYS[k.ch];
     if (!alt || this.person().busy) return k;
     return { kind: "alt", ch: alt };

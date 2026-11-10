@@ -278,7 +278,7 @@ export class PowerBar {
     return took;
   }
 
-  async edit(op: string, o: { text?: string; from?: number; to?: number } = {}, clipboard = true) {
+  async edit(op: string, o: { text?: string; from?: number; to?: number; offer?: boolean } = {}, clipboard = true) {
     if (op === "undo") probe("bar.edit.undo");
     if (op === "select" || o.from !== undefined || o.to !== undefined) { this.input.place(0, o.from ?? 0); this.input.place(0, o.to ?? this.query.length, true); }
     if (op === "complete") await this.complete();
@@ -297,6 +297,7 @@ export class PowerBar {
       if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
       this.refresh();
     }
+    if (o.offer && op === "paste") this.offered = this.query;
     this.host.ctx.redraw();
   }
 
@@ -357,8 +358,9 @@ export class PowerBar {
     // An act line's arguments complete in place (PIE-1076), in the one completer every place a person types has: while
     // its list is up ↑ ↓ move, tab and ⏎ take the lit row, esc closes the list (the line stays); tab asks for it.
     if (this.lineCompletes(k)) { ctx.redraw(); return; }
-    // Right after a typed line ran, its answer is kept under "this session" (↑ brings the line back): one Esc closes.
-    if (k.kind === "esc" && this.query && this.justRan === this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.close"); return; }
+    // Right after a typed line ran, its answer is kept under "this session" (↑ brings the line back), or the line is a
+    // paste the bar offered (PIE-1675): it isn't the person's typing, so one Esc closes.
+    if (k.kind === "esc" && this.untypedLine() && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.close"); return; }
     if (k.kind === "esc" && this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
     if (k.kind === "mouse") {
       const r = this.rect;
@@ -665,7 +667,7 @@ export class PowerBar {
     if (c?.shown?.items.length && !c.shown.loading) return "the list";
     if (this.input.snippet) return "the snippet";
     if (this.docsMode) return "the docs";
-    return this.query && !this.compact() && this.justRan !== this.query ? "the typed line" : "the power bar";
+    return this.query && !this.compact() && !this.untypedLine() ? "the typed line" : "the power bar";
   }
 
   /** Whether the line's completion takes `k` first: a key for its open list, tab where an argument is being typed, a click on the list. */
@@ -709,6 +711,14 @@ export class PowerBar {
 
   /** The typed line that just ran, while it's still what the line says: Esc then closes the bar at once. */
   private justRan: string | null = null;
+  /**
+   * The line as the paste path offered it (src/paste-path.ts, a paste where nothing types: bar.edit op=paste offer=true),
+   * while it's still what the line says: Esc closes the bar at once, as after a run (PIE-1675). A key that changes the
+   * line makes it the person's, and Esc clears it first again.
+   */
+  private offered: string | null = null;
+  /** The line holds what the bar put there, not what the person typed: a run's line, or an offered paste. */
+  private untypedLine(): boolean { return !!this.query && (this.justRan === this.query || this.offered === this.query); }
 
   private recordRun(line: string, result: unknown, refused: boolean) {
     this.justRan = refused ? null : line;
