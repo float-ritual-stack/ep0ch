@@ -150,7 +150,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     s.key({ kind: "char", ch: "z", ctrl: true }, host);
     await until(() => flashes.at(-1)?.startsWith("undid \"Sow the beans\" done (made by you)") ?? false, "the second undo");
     s.key({ kind: "char", ch: "z", ctrl: true }, host);
-    await until(() => flashes.at(-1) === "no step change to undo in this note", "nothing left to undo");
+    await until(() => flashes.at(-1) === "nothing of yours to undo in this note", "nothing left to undo");
   }, 30_000);
 
   test("a click on a box opens the choice; a click on Mark waiting sets it; a step without an id gets one", async () => {

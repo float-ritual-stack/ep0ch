@@ -145,7 +145,7 @@ import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
 import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
-import { CALLOUT_HISTORY, IMAGE_HISTORY, newestUndo, SOURCE_HISTORY, STEP_HISTORY, USE_HISTORY, type LineEdit, type LineUndo } from "./note-undo";
+import { CALLOUT_HISTORY, IMAGE_HISTORY, newestUndo, NOTHING_TO_UNDO, SOURCE_HISTORY, STEP_HISTORY, USE_HISTORY, type LineEdit, type LineUndo } from "./note-undo";
 import { undoneSaid, type UndoHistory } from "../undo-journal";
 import { hasCard, kindOf, wholeNoteMarks, MARGIN_MODE_WORDS, MARGIN_RESERVE, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
@@ -4364,8 +4364,7 @@ export class NoteSurface {
   /** ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last. */
   private undoKey(host: SurfaceHost): boolean {
     const at = this.msg?.id ?? "";
-    // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
-    if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
+    if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }   // esc's dropped strays (src/stray.ts) first
     // The newest change of this note's journal, whatever its kind (undo-journal.ts); settings' scope is read beside it.
     const newest = newestUndo("you", at), last = { name: (newest?.via ?? "task.undo") as "task.undo", seq: newest?.seq ?? -1 };
     // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
@@ -4376,6 +4375,7 @@ export class NoteSurface {
       return last.seq >= 0 && !!host.untrash?.(host.ctx.board);
     }
     if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
+    if (!newest) { host.ctx.flash(NOTHING_TO_UNDO); return true; }   // nothing of any kind: the key's answer, not task.undo's (steps only)
     void this.runKey(last.name, {}, host, true);
     return true;
   }

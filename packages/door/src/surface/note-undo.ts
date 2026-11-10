@@ -35,5 +35,8 @@ export const USE_HISTORY = new UndoHistory<LineUndo>(NOTE_JOURNAL, { kind: "use"
  */
 export const SOURCE_HISTORY = new UndoHistory<LineUndo>(NOTE_JOURNAL, { kind: "source", via: "sources.undo", label: lines("the source change to") });
 
+/** What ctrl+z says in a note with no change of the person's to take back, whatever the kind. */
+export const NOTHING_TO_UNDO = "nothing of yours to undo in this note";
+
 /** What ctrl+z takes back in the note `at` for `by`: the newest entry of its journal, or of the settings' scope. */
 export const newestUndo = (by: string, at: string): Journaled | null => newestOf([NOTE_JOURNAL, SETTINGS_JOURNAL], by, at);
