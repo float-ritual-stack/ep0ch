@@ -760,7 +760,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
 }
 /** Tree `t` with leaf `id` put at a place: beside a tile, into its tabs, along an outer edge, into a named line, or the next column. */
 function putAt<I>(t: LNode<I>, id: I, at: At<I>): LNode<I> {
-  if (!leaves(t).length && (at.kind === "edge" || at.kind === "kept")) t = leaf(id);
+  if (!leaves(t).length && at.kind === "edge") t = leaf(id);
   else if (at.kind === "edge" || at.kind === "kept") t = at.kind === "kept" ? keptInDock(t, [id]) : edge(t, id, at.dir);
   else if (at.kind === "tabs") t = tabInto(t, at.target, id, at.index);
   else if (at.kind === "split") t = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);

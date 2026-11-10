@@ -1944,13 +1944,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const host = this.ctx?.hostLayer, given = new Set(this.adopts ? [] : this.given.values());
     const keep = host ? this.carried(given) : [];
     if (keep.length) {
-      const kept = host!.keep(keep.map(([id, p]) => ({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false, ...(docks(this.root).some(x => x.keeps && leaves(x.kid).includes(id)) ? { kept: true as const } : {}) })));
+      const kept = host!.keep(keep.map(([id, p]) => ({ ...this.leaving(id), pane: p, from: this.title, typing: false })));
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
     for (const [id, p] of this.panes) { this.ctx?.trail?.close(this.tileId(id)); p.dispose?.(); tileRegistry.release(p); }
   }
-  private disposed = false;
+  private disposed = false; /** Tile `id` going to the drawer with the screen: leaving asks about it as dispose keeps it (PIE-1679). */ private leaving(id: number) { return { name: this.nameOf(id), spec: this.specOf(id), ...(docks(this.root).some(x => x.keeps && leaves(x.kid).includes(id)) ? { kept: true as const } : {}) }; }
   /** The desk to open: the one kept running in the background, else a new one. */
   static resume(): Desk { const d = kept.desk; kept.desk = null; return d ?? new Desk(); }
   private onScreen = false;
@@ -1977,7 +1977,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   leaveRefusal(): string | null {
     const host = this.ctx?.hostLayer;
     if (this.spec.stays) return null;
-    if (host) return host.keepRefusal(this.carried().map(([id]) => ({ name: this.nameOf(id), spec: this.specOf(id) })));
+    if (host) return host.keepRefusal(this.carried().map(([id]) => this.leaving(id)));
     const r = this.running();
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here, and leaving would end ${r.length === 1 ? "it" : "them"} · ^W x ends ${r.length === 1 ? "it" : "them"} first` : null;
   }
@@ -7596,7 +7596,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Where a tile moved here would land: beside `to` (the person's tile when left out), `where` (into the tabs of `to` here when this screen is the drawer). */
   private landingFor(to: string | undefined, where: Where | undefined, floating?: Rect, kept?: boolean): { at: At<number>; base: string; where: Where } {
-    if (floating || (kept && this.all().length)) return floating ? { at: { kind: "float", rect: floating }, base: "glass", where: "right" } : { at: { kind: "kept" }, base: "kept", where: where ?? "tabs" };
+    if (floating || kept) return floating ? { at: { kind: "float", rect: floating }, base: "glass", where: "right" } : { at: { kind: "kept" }, base: "kept", where: where ?? "tabs" };
     if (!this.all().length) return { at: { kind: "edge", dir: "right" }, base: "home", where: "right" };
     const base = this.tile(to), w = where ?? (this.ctx?.hostLayer?.isDrawer(this) ? "tabs" : "right");
     return { at: placeOf(w, base.id), base: base.name, where: w };

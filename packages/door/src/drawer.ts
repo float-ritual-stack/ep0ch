@@ -1221,7 +1221,7 @@ export class AgentDrawer {
    * each under a name free there; said once. The panes it took (one it couldn't ends with the screen).
    */
   /** Why tiles like these couldn't go into the drawer now (its layout locked, say), or null: leaving a screen asks first. */
-  keepRefusal(moved: Pick<MovedTile, "name" | "spec">[]): string | null {
+  keepRefusal(moved: Pick<MovedTile, "name" | "spec" | "kept">[]): string | null {
     const d = this.desk;
     if (!d) return null;
     for (const m of moved) { const why = d.bringRefusal(m, undefined, "tabs", { kind: "agent", id: "door" }); if (why) return `${m.name} couldn't go into your drawer: ${why}`; }

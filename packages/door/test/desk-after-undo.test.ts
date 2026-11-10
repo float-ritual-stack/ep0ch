@@ -508,9 +508,15 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
 
     // PIE-1679: leaving a screen sent the terminals its kept docks held (its own, and a group's) into the drawer as loose
     // tabs, renamed; they go into the drawer's one kept dock, named as they were where the name is free there.
-    test("a screen left with kept docks, its own and a group's: the drawer keeps their terminals in one dock", async () => {
+    // CodeRabbit on #1393: an empty drawer took the first kept terminal as a plain tile, the next in a dock beside it.
+    for (const empty of [false, true]) test(`a screen left with kept docks, its own and a group's: ${empty ? "an empty" : "the"} drawer keeps their terminals in one dock`, async () => {
       const d = await door(cols, rows, true);
       try {
+        if (empty) {
+          const dr = d.drawer();
+          for (const t of dr.layoutGet().tiles as { name: string }[]) await dr.dispatch.act({ action: "tile.close", tile: t.name }, USER).catch(e => console.log("REFUSED", String(e)));
+          expect(dr.layoutGet().tiles).toEqual([]);
+        }
         await d.inTile("tree");
         await d.press(ctrl("w"), char("o"), char("s"));
         await until(() => (d.desk.pane("pty") as PtyPane | undefined)?.running === true, "the screen's shell runs");
@@ -550,6 +556,31 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         expect(terminals.map(t => t.name).sort()).toEqual(["pty", "pty2", "pty3"]);
         expect(d.said()).toContain("in its kept dock");
         expect(dd.outOfStep()).toEqual([]);
+      } finally { d.quit(); }
+    });
+
+    // CodeRabbit on #1393: leaving asked the drawer about a tab beside its tile with the keys, while the keeping put the
+    // terminal in its kept dock. Where the drawer's screen takes no drops but that tab set does, the leave went ahead and the
+    // terminal ended with the screen; now the leave asks about the place it would land, and is refused, said.
+    test("a screen left with a kept terminal the drawer's kept dock can't take: leaving is refused, the program runs on", async () => {
+      const d = await door(cols, rows, true);
+      try {
+        const dr = d.drawer(), first = dr.layoutGet().focus as string;
+        await dr.dispatch.act({ action: "tile.open", tile: first, args: { kind: "reader", name: "side", where: "right" } }, USER);
+        await dr.dispatch.act({ action: "tile.open", tile: first, args: { kind: "reader", name: "tab2", where: "tabs" } }, USER);
+        await dr.dispatch.act({ action: "layout.policy", tile: first, args: { node: "screen", droppable: false } }, USER);
+        await dr.dispatch.act({ action: "layout.policy", tile: first, args: { droppable: true } }, USER);
+        await d.inTile("tree");
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (d.desk.pane("pty") as PtyPane | undefined)?.running === true, "the screen's shell runs");
+        const shell = d.desk.pane("pty") as PtyPane;
+        await d.press(ctrl("]"), ctrl("z"));
+        expect(d.said()).toContain("kept in a dock");
+        d.app.pop();
+        if (d.app.screens().length === 2 && !d.said().includes("couldn't go into your drawer")) d.app.pop();
+        expect(d.said()).toContain("pty couldn't go into your drawer");
+        expect(d.app.screens().length).toBe(2);
+        expect(shell.running).toBe(true);
       } finally { d.quit(); }
     });
 
