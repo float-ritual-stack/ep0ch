@@ -42,7 +42,6 @@ import { AnnotationRepository } from "./annotation-repository";
 import { blockAnnotationRepresentation } from "./annotation-representations";
 import { resourceDirectiveProviders, type ResourceDirectiveProvider } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
-import { authoredTextDigest } from "./authored-links";
 import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./backlinks";
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
 import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
@@ -87,11 +86,9 @@ import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryP
 import { Marks } from "./marks";
 import { ReadMarks } from "./read-marks";
 import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
-import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
-import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
-import { blockDisplayTitle, blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
-import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockDisplayTitle, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
 import {
   ResourceCatalog,
   type ResourceCatalogOptions,
@@ -176,8 +173,6 @@ import type {
   RoadmapBranchMembership,
   RoadmapItemCreateInput,
   RoadmapItemCreateReceipt,
-  RoadmapItemPriority,
-  RoadmapWorkStage,
   SelectionContext,
   TreeIndexBlock,
   TreeIndexCollection,
@@ -496,7 +491,16 @@ function extensionRecordRow(row: ExtensionRecordDbRow): ExtensionRecordRow {
 
 export { AGENT_REQUEST_STATUSES, type AgentRequestStatus } from "./schema";
 import type { AgentRequestStatus } from "./schema";
-import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import {
+  ROADMAP_CREATE_STAGES,
+  ROADMAP_PRIORITIES,
+  assertNoReservedRoadmapProperties,
+  normalizeRoadmapRelationshipId,
+  normalizeRoadmapRelationshipIds,
+  normalizeRoadmapText,
+  normalizeRoadmapValues,
+} from "./roadmap-input";
+import { boundedTreeLabel, compactTreeBlock, treeIndexMembers, treeIndexOf, type TreeLabels } from "./tree-index-labels";
 
 /** One `@name` request line and what its agent did (`agent_requests`). */
 export interface AgentRequestRow {
@@ -626,89 +630,7 @@ function normalizeCaptureTitle(title: string): string {
   return normalized;
 }
 
-const ROADMAP_PRIORITIES: Record<RoadmapItemPriority, true> = {
-  high: true,
-  medium: true,
-  low: true,
-};
-const ROADMAP_CREATE_STAGES: Record<Exclude<RoadmapWorkStage, "done" | "superseded">, true> = {
-  unprioritized: true,
-  queued: true,
-  doing: true,
-  review: true,
-  validate: true,
-  later: true,
-};
-const RESERVED_ROADMAP_PROPERTY_KEYS: Record<string, true> = {
-  type: true,
-  status: true,
-  priority: true,
-  "work-stage": true,
-  "work-batch": true,
-  project: true,
-  arc: true,
-  track: true,
-  "depends-on": true,
-  "related-to": true,
-  "source-block": true,
-  "work-id": true,
-};
 
-const CANONICAL_BLOCK_ID_PATTERN = BLOCK_ID_PATTERN;
-
-function normalizeRoadmapText(value: unknown, label: string): string {
-  if (typeof value !== "string") throw new Error(`${label} must be a string`);
-  const normalized = value.trim();
-  if (!normalized) throw new Error(`${label} cannot be empty`);
-  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
-    throw new Error(`${label} must be a single printable line`);
-  }
-  return normalized;
-}
-
-function normalizeRoadmapValues(values: unknown, label: string): string[] {
-  if (!Array.isArray(values) || values.length === 0) {
-    throw new Error(`${label} must contain at least one value`);
-  }
-
-  return [...new Set(values.map((value) => normalizeRoadmapText(value, label)))];
-}
-
-function normalizeRoadmapRelationshipId(value: unknown, label: string): string {
-  const blockId = normalizeRoadmapText(value, label);
-  if (!CANONICAL_BLOCK_ID_PATTERN.test(blockId)) {
-    throw new Error(`${label} must contain canonical block UUIDs: ${blockId}`);
-  }
-  return blockId;
-}
-
-function normalizeRoadmapRelationshipIds(
-  values: unknown,
-  label: string,
-): string[] {
-  if (values === undefined) return [];
-  if (!Array.isArray(values)) throw new Error(`${label} must be an array`);
-  return [...new Set(values.map((value) => normalizeRoadmapRelationshipId(value, label)))];
-}
-
-function assertNoReservedRoadmapProperties(title: string, body: string): void {
-  const reservedProperty = parsePropertyRecords(`${title}\n${body}`).find(
-    (property) => RESERVED_ROADMAP_PROPERTY_KEYS[property.key] === true,
-  );
-  if (reservedProperty) {
-    throw new Error(
-      `Roadmap title and body cannot include reserved property: ${reservedProperty.key}`,
-    );
-  }
-}
-
-const treeLabelSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-function boundedTreeLabel(text: string): string {
-  if (text.length <= 512) return text;
-  const boundary = treeLabelSegmenter.segment(text).containing(511)!.index;
-  return `${text.slice(0, boundary)}…`;
-}
 
 const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
 /** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
@@ -727,153 +649,10 @@ async function inSlices<T>(items: readonly T[], each: (item: T) => void, pause: 
   }
 }
 
-/** The notes a tree index labels: every physical note, then any visible one not among them, each once. */
-function treeIndexMembers(snapshot: WorkspaceSnapshot): VisibleBlock[] {
-  const members = new Map(snapshot.physical.blocks.map(block => [block.id, block]));
-  for (const block of snapshot.visible.blocks) if (!members.has(block.id)) members.set(block.id, block);
-  return [...members.values()];
-}
-
-function treeIndexOf(snapshot: WorkspaceSnapshot, labels: ReadonlyMap<string, TreeIndexBlock>): TreeIndexSnapshot {
-  return {
-    blocks: [...labels.values()],
-    physicalBlockIds: snapshot.physical.blocks.map(block => block.id),
-    visible: {
-      rows: snapshot.visible.blocks.map(({ id, depth, propertyMatches }) => ({
-        id,
-        depth,
-        ...(propertyMatches ? { propertyMatches } : {}),
-      })),
-      completeness: snapshot.visible.completeness,
-    },
-    selectedBlockId: snapshot.selection.selected?.id ?? null,
-    virtualOccurrenceRanks: snapshot.virtualOccurrenceRanks,
-    sequence: snapshot.sequence,
-    ...(snapshot.workIdPrefix ? { workIdPrefix: snapshot.workIdPrefix } : {}),
-    ...(snapshot.ticketPrefixes ? { ticketPrefixes: snapshot.ticketPrefixes } : {}),
-  };
-}
 
 /** Internal saved-view evaluation counts every member; public queries stay within 1..1000. */
 const UNBOUNDED_VIEW_MATCHES = 1_000_000_000;
 
-type TreeLabel = Pick<TreeIndexBlock, "preview" | "previewReferences" | "textDigest">;
-/** Per-outline labels retain their source and dependencies, so reads check source text and targets before parsing bodies. */
-type TreeLabels = Map<string, { text: string; hasProperties: boolean; dependencies: Map<string, Block | null>; label: TreeLabel }>;
-
-function compactTreeBlock(
-  { text, displayText: _displayText, propertyMatches, ...withMatches }: VisibleBlock,
-  lookup: (blockId: string) => Block | null,
-  labels: TreeLabels,
-): TreeIndexBlock {
-  // A view that reads line chips (PIE-1277) keeps where each row matched: the door opens the row at that line.
-  const metadata = propertyMatches?.some(match => match.scope !== "block") ? { ...withMatches, propertyMatches } : withMatches;
-  const cached = labels.get(metadata.id);
-  const hasProperties = metadata.properties.length > 0;
-  if (cached && cached.text === text && cached.hasProperties === hasProperties && [...cached.dependencies].every(([id, before]) => {
-    const now = lookup(id);
-    return before?.text === now?.text && before?.effectiveDeletedRootId === now?.effectiveDeletedRootId;
-  })) return { ...metadata, ...cached.label };
-  const dependencies = new Map<string, Block | null>();
-  const resolved = resolveBlockReferencesWithStatus(text, id => {
-    const block = lookup(id);
-    dependencies.set(id, block);
-    return block;
-  });
-  const label = treeLabel(text, resolved, metadata);
-  labels.set(metadata.id, { text, hasProperties, dependencies, label });
-  return { ...metadata, ...label };
-}
-
-function treeLabel(text: string, resolved: ResolvedBlockReferences, metadata: Pick<VisibleBlock, "id" | "properties">): TreeLabel {
-  let offset = 0;
-  let spans = blockReferenceOccurrences(text).map((occurrence, index) => {
-    const reference = resolved.references[index]!;
-    const start = occurrence.start + offset;
-    const end = start + blockReferenceDisplayText(reference).length;
-    offset = end - occurrence.end;
-    return {
-      start,
-      end,
-      target: reference.status === "resolved" || reference.status === "deleted"
-        ? { blockId: reference.blockId, ...(reference.fragmentId ? { fragmentId: reference.fragmentId } : {}) }
-        : null,
-    };
-  });
-  let title = resolved.text;
-  const replaceRanges = (ranges: Array<{ start: number; end: number }>, replacement: string) => {
-    const parts: string[] = [];
-    let cursor = 0;
-    for (const range of [...ranges, { start: title.length, end: title.length }]) {
-      parts.push(title.slice(cursor, range.start));
-      if (range.end > range.start) parts.push(replacement);
-      cursor = range.end;
-    }
-    const mapPosition = (position: number): number => {
-      let delta = 0;
-      for (const range of ranges) {
-        if (position <= range.start) break;
-        if (position < range.end) return range.start + delta;
-        delta += replacement.length - (range.end - range.start);
-      }
-      return position + delta;
-    };
-    spans = spans.flatMap(span => {
-      const start = mapPosition(span.start);
-      const end = mapPosition(span.end);
-      if (start >= end) return [];
-      // Removing an inner label token preserves the reference. Cutting either
-      // delimiter preserves only nonactionable provenance for the visible text.
-      const clipped = ranges.some(range =>
-        (range.start <= span.start && span.start < range.end) ||
-        (range.start < span.end && span.end <= range.end));
-      return [{ start, end, target: clipped ? null : span.target }];
-    });
-    title = parts.join("");
-  };
-  // Matched literal-region marker lines are hidden in Detail, so the label skips
-  // them too. They are removed with the property tokens in one pass: a region
-  // stops protecting its text once a marker is gone.
-  const markerLines = literalMarkerLineRanges(title);
-  if (metadata.properties.length) {
-    replaceRanges([
-      ...titlePropertyRanges(title),
-      ...markerLines,
-    ].sort((left, right) => left.start - right.start), "");
-    let lineStart = 0;
-    for (const line of title.split("\n")) {
-      if (line.trim()) {
-        const start = lineStart + line.length - line.trimStart().length;
-        const end = lineStart + line.trimEnd().length;
-        replaceRanges([{ start: 0, end: start }, { start: end, end: title.length }], "");
-        break;
-      }
-      lineStart += line.length + 1;
-    }
-    if (!title.trim()) {
-      title = metadata.id;
-      spans = [];
-    }
-  } else {
-    if (markerLines.length) replaceRanges(markerLines, "");
-    replaceRanges(Array.from(title.matchAll(/\r?\n/g), match => ({
-      start: match.index, end: match.index + match[0].length,
-    })), " ↵ ");
-  }
-  const preview = boundedTreeLabel(title);
-  const visibleEnd = preview === title ? title.length : preview.length - 1;
-  const previewReferences = spans.filter(span => span.start < visibleEnd).map(({ start, end, target }) => Object.freeze({
-    start,
-    end: Math.min(end, visibleEnd),
-    target: end <= visibleEnd ? target : null,
-  }));
-  // Shared by every read that asks for this label: nobody changes it.
-  return Object.freeze({
-    preview,
-    previewReferences: Object.freeze(previewReferences) as TreeIndexBlock["previewReferences"],
-    textDigest: authoredTextDigest(text),
-  });
-}
 
 export class OutlinerStore {
   private readonly beforeImages = new AsyncLocalStorage<Map<string, Block>>();
