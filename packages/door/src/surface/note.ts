@@ -5671,7 +5671,7 @@ export class NoteSurface {
       throw new ActionRefused("say which image: n= or line= (images lists them), or put [ ] on an image");
     }
     const all = this.imagesIn(await this.whole());
-    if (picture !== undefined) { const hit = all.find(x => x.id === picture); if (hit) return hit; throw new ActionRefused(IMAGE_STALE.refused); }
+    if (picture !== undefined) { const hit = all.find(x => x.id === picture); if (hit) return hit; throw new ActionRefused(IMAGE_STALE.refused, "stale-revision"); }
     const listed = () => all.slice(0, 12).map((x, i) => `${i + 1} line ${x.line + 1} ${x.path.split("/").pop()}`).join("; ") || "none";
     const hit = n !== undefined ? all[n - 1] : all.find(x => x.line + 1 === line);
     if (!hit) throw new ActionRefused(`no such image in this note (${listed()})`);
@@ -5704,7 +5704,7 @@ export class NoteSurface {
   async changeImage(ref: ImageRef & { spec: MediaSpec }, set: Partial<Record<MediaAttr, string | null>>, what: string, host: SurfaceHost, actor: Actor, others: { id: string; kind: Picture["kind"]; set: Partial<Record<MediaAttr, string | null>> }[] = []) {
     // Each found by who it is in the note as the service has it now, wherever that is.
     let edits: LineEdit[] = [];
-    const editsIn = (m: Msg) => (edits = pictureEdits(m.text, [{ id: ref.id, kind: ref.kind, set }, ...others], () => { host.ctx.flash(IMAGE_STALE.flash); return new ActionRefused(IMAGE_STALE.refused); }));
+    const editsIn = (m: Msg) => (edits = pictureEdits(m.text, [{ id: ref.id, kind: ref.kind, set }, ...others], () => { host.ctx.flash(IMAGE_STALE.flash); return new ActionRefused(IMAGE_STALE.refused, "stale-revision"); }));
     const name = ref.path.split("/").pop() ?? ref.path;
     const r = await this.rewriteLines(ref.block, editsIn, this.imageHistory, host, actor, IMAGE_STALE);
     if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
@@ -6700,7 +6700,7 @@ export class NoteSurface {
     if (!m) throw new ActionRefused("that note isn't there any more");
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
     const lines = m.text.split("\n"), edits = typeof change === "function" ? change(m) : change;
-    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
+    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused, "stale-revision"); }
     // Nothing to change (it reads that way already): checked and refused as a change would be, nothing written.
     if (!edits.length) return m;
     for (const e of edits) lines[e.line] = e.after;

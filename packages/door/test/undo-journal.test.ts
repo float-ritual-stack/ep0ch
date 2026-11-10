@@ -76,3 +76,14 @@ describe("one journal per note", () => {
     expect(j.list("you", "other")).toHaveLength(1);
   });
 });
+
+test("an undo of a picture says which picture and who made it, short enough for the status line (walk of #1397)", async () => {
+  const { IMAGE_HISTORY } = await import("../src/surface/note-undo");
+  const line = "[img::/home/someone/very/long/folder/of/pictures/for/the/plot/allotment-dusk.jpg] [size::50%] [align::right]";
+  IMAGE_HISTORY.push({ block: "b", edits: [{ line: 3, before: line, after: line.replace("right", "left") }], by: "you", context: "walk-note" });
+  const said = undoneSaid(IMAGE_HISTORY.last("you", "walk-note")!);
+  expect(said).toContain("allotment-dusk.jpg");
+  expect(said).not.toContain("/home/someone");
+  expect(said.endsWith("(made by you)")).toBe(true);
+  expect(said.length).toBeLessThanOrEqual(100);
+});

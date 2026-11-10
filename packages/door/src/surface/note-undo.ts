@@ -13,7 +13,13 @@ export interface LineUndo {
   then?: { run: string } | { layout: number };
 }
 
-const lines = (what: string) => (e: LineUndo) => `${what} ${printable(e.edits[0]?.after.trim() ?? "")}`;
+/** A line as an undo names it: a picture or file by its name, not its folder, and cut to fit the status line beside who made it. */
+const LABEL_MAX = 56;
+const lineLabel = (line: string) => {
+  const s = printable(line.trim()).replace(/((?:img|video|file|artifact)::\s*)[^\]\s]*\//g, "$1");
+  return s.length > LABEL_MAX ? `${s.slice(0, LABEL_MAX - 1)}…` : s;
+};
+const lines = (what: string) => (e: LineUndo) => `${what} ${lineLabel(e.edits[0]?.after ?? "")}`;
 /** The step changes made in readers, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
 export const STEP_HISTORY = new UndoHistory<UndoEntry>(NOTE_JOURNAL, { kind: "step", via: "task.undo", label: e => (e.live ? `"${e.title}" ${e.live.key}::${e.live.after}` : `"${e.title}" ${statusWord(e.to)}`) });
 /** The callout changes (PIE-538). */
