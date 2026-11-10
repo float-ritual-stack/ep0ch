@@ -6059,7 +6059,7 @@ export class NoteSurface {
     // The byline's [comment] (PIE-846): as its key would, where the host keeps track of the person's session.
     // The byline's comment count (PIE-873): the margin's next mode, as M.
     if (h && "margin" in h) { void this.runKey("margin", {}, host); return true; }
-    if (h && "start" in h) { if (host.startSession) void host.startSession(h.start); else void this.startAsPerson(h.start, host); return true; }
+    if (h && "start" in h) { if (host.startSession) void host.startSession(h.start); else this.startAsPerson(h.start, host).catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); host.redraw(); }); return true; }
     // A chip of the passage toolbar (ADR 0004 contract 5): what its key after `a` does, on the person's selection.
     if (h && "passage" in h) { this.modes.drop("passage-menu"); this.passagePick(h.passage, host); return true; }
     // A click anywhere else lets go of the selection, and does what it always did.

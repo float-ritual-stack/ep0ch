@@ -27,6 +27,8 @@ const MAX_BYTES = 1_048_576;
 
 export class StatusLog {
   readonly rows: StatusMessage[] = [];
+  /** `message` appended unless it is among the latest rows already: a why read under the pointer, past what the rows above the bar hold, is logged once however often it's drawn (alt+M reads it whole). */
+  appendOnce(message: string, details: MessageDetails = {}) { const m = printable(message, " ", { lines: true }); if (!this.rows.slice(-20).some(r => r.message === m)) this.append(message, details); }
   append(message: string, details: MessageDetails = {}) {
     const { stack, passing: _passing, ...meta } = { ...messageContext.getStore(), ...details };
     const row: StatusMessage = { id: randomUUID(), time: new Date().toISOString(), kind: "status", ...meta, message: printable(message, " ", { lines: true }) };

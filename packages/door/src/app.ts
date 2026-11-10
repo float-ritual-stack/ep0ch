@@ -1847,7 +1847,7 @@ export class App implements Ctx {
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(this.strips.draw(lines, cols, rows), cols, Date.now());
-    const saying = this.overflow.saying(); if (saying) readable.lines = [...withWhole(readable.lines.slice(0, at), saying, cols, true), ...readable.lines.slice(at)];   // a button's why under the pointer, said whole (PIE-1686)
+    const saying = this.overflow.saying(); if (saying) { readable.lines = [...withWhole(readable.lines.slice(0, at), saying, cols, true), ...readable.lines.slice(at)]; if (wrap(printable(saying, " "), Math.max(1, cols - 2)).length > 4) this.messages.appendOnce(saying, { kind: "refusal" }); }   // a button's why under the pointer, said whole (PIE-1686)
     if (readable.overlay) placements = uncover(placements, readable.overlay);
     this.display.show(readable.lines, placements);
     this.speed.frame();
