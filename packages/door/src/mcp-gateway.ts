@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import { clientReload, reexecClient } from "@ep0ch/outliner/client-code";
 // `ep0ch mcp serve --http`: the remote MCP gateway (ADR 0002, decision 4; PIE-520's remote part). The same read-only
 // server as `ep0ch mcp` (src/mcp.ts, `answerMcp`), over streamable HTTP, for the outlines on this machine's host and
@@ -17,7 +18,7 @@ import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetK
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { allowedSubjects, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
-import { lowerLevel, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
@@ -119,7 +120,7 @@ const loopback = (url: URL) => url.hostname === "127.0.0.1" || url.hostname === 
  * public URL, or several comma-separated on other hosts (PIE-813: `https://mcp.ep0ch.sh/mcp,https://mcp.floatbbs.net/mcp`),
  * all with the same path: each host is its own OAuth resource, and `resource` is the first.
  */
-export function gatewayConfig(env: Record<string, string | undefined>): { issuer: string; resource: URL; resources: URL[]; allowedSubjects: string[]; allowedClients: string[] } | { error: string } {
+export function gatewayConfig(env: Record<string, string | undefined>): { issuer: string; resource: URL; resources: URL[]; allowedSubjects: string[]; allowedClients: string[] } | { error: string; kind?: RefusalKind } {
   const resourceTexts = listOf(env.EP0CH_MCP_RESOURCE);
   if (!resourceTexts.length) return { error: "EP0CH_MCP_RESOURCE is unset: set it to this endpoint's public URL, e.g. EP0CH_MCP_RESOURCE=https://mcp.ep0ch.sh/mcp (several, comma-separated, for more than one host)" };
   const resources: URL[] = [];
@@ -162,9 +163,9 @@ const localNames = async () => {
  * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
  * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin, o: { drainEveryMs?: number; writeWaitMs?: number } = {}): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string; kind?: RefusalKind }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin, o: { drainEveryMs?: number; writeWaitMs?: number } = {}): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
-  const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
+  const boards = new Map<string, Promise<NotesBoard | { error: string; kind?: RefusalKind }>>();
   const usedBoards = new Set<NotesBoard>();
   let grammarSaid = false;
   /** An outline's machine as answers name it: what it calls itself once its host has answered live, else its ssh name. */
@@ -290,7 +291,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     catch (e) { log(`mcp drain: ${(e as Error).message}`); }
   }
   const summaries = () => netmailAt ? readSummaries(netmailAt) : [];
-  const local = async (name: string): Promise<McpBoard | { error: string }> => {
+  const local = async (name: string): Promise<McpBoard | { error: string; kind?: RefusalKind }> => {
     let pending = boards.get(name);
     if (!pending) { pending = open(name); boards.set(name, pending); }
     const board = await pending;
@@ -341,7 +342,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     log,
     async list(caller) {
       const rows: McpOutlineListing[] = [];
-      const access = async (target: McpBoard | { error: string }) => { if ("error" in target) return undefined; const s = await target.board.request("mcp.access.status", {}).catch(() => undefined); return s && levelFor(s, caller, undefined, target.board.address); };
+      const access = async (target: McpBoard | { error: string; kind?: RefusalKind }) => { if ("error" in target) return undefined; const s = await target.board.request("mcp.access.status", {}).catch(() => undefined); return s && levelFor(s, caller, undefined, target.board.address); };
       // Who made each outline and why (outline_new's), from the host's own list.
       const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
       // An outlines folder that can't be read fails the list (the gateway logs why), never a list without them.
@@ -391,7 +392,7 @@ export interface Gateway { url: string; port: number; stop(): void; drain(): Pro
 
 /** Starts the HTTP gateway. `keys` overrides the issuer's JWKS (tests sign their own). */
 export function startGateway(opts: {
-  config: Exclude<ReturnType<typeof gatewayConfig>, { error: string }>;
+  config: Exclude<ReturnType<typeof gatewayConfig>, { error: string; kind?: RefusalKind }>;
   outlines: McpOutlines;
   port: number;
   bind: string;
@@ -560,7 +561,7 @@ export function startGateway(opts: {
       const minted = !given && isInitialize(body) ? mintCallId() : undefined;
       const call = given ?? minted;
       const named = route.persona ? { persona: route.persona, cap: capOf(route.persona) } : {};
-      try { answer = await answerMcp(named.cap ? cappedOutlines(outlines, named.cap) : outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }, "http"); }
+      try { answer = await answerMcp(outlines, body, { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}), ...(call ? { call } : {}), ...named }, "http"); }
       finally { slot.release(); }
       // Read this to see whether a client opens a session per chat or reuses one: mcp-session-id= is what the client sent (- on its first request), call= the call it is served as, client= the OAuth client; new marks an id minted for an initialize.
       if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} client=${verdict.clientId ?? "-"}${route.persona ? ` path=/${route.persona}${mcpPath} default-cap=${named.cap?.()}` : ""} mcp-session-id=${sent ?? "-"} call=${call ?? "-"}${minted ? " (new)" : ""} ${answer.methods.join(", ")}`);
@@ -584,37 +585,6 @@ export function startGateway(opts: {
   } };
 }
 
-/**
- * The outlines as a capped connection (a named path) sees them: each outline's access setting reads no higher than the
- * cap for it, so every read and write check, the ones that ask no caller included, holds to it. `levelFor` applies the
- * same cap again after the owner's `full` (a scratch outline's maker).
- */
-function cappedOutlines(outlines: McpOutlines, cap: (where?: { outline: string; machine: string }) => McpAccessLevel): McpOutlines {
-  return {
-    ...outlines,
-    async board(named, how) {
-      const found = await outlines.board(named, how);
-      if ("error" in found) return found;
-      const inner = found.board;
-      const board = new Proxy(inner, {
-        get(target, key) {
-          // The access status, asked by action name, reads no higher than the cap.
-          if (key === "request" || key === "send") return async (action: string, ...rest: unknown[]) => {
-            const answer = await (target.send as (...a: unknown[]) => Promise<unknown>).call(target, action, ...rest);
-            if (action !== "mcp.access.status") return answer;
-            const status = answer as Awaited<ReturnType<typeof target.request<"mcp.access.status">>>;
-            const level = lowerLevel(cap(target.address), status.level);
-            return { ...status, level, canRead: status.canRead && level !== "none" };
-          };
-          const value = Reflect.get(target, key, target) as unknown;
-          return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-        },
-      });
-      return { ...found, board };
-    },
-  };
-}
-
 /** Whether a request body is (or holds) an `initialize` call: its JSON-RPC method, not a word in a note. */
 function isInitialize(body: string): boolean {
   try { return [JSON.parse(body)].flat().some(m => m?.method === "initialize"); } catch { return false; }
@@ -622,7 +592,7 @@ function isInitialize(body: string): boolean {
 
 interface ServeIo { err?: (line: string) => void; env?: Record<string, string | undefined>; keys?: JWTVerifyGetKey; ready?: (gateway: Gateway) => void; until?: Promise<unknown> }
 
-function serveArgs(args: string[]): { port: number; bind: string; ws?: string } | { error: string } {
+function serveArgs(args: string[]): { port: number; bind: string; ws?: string } | { error: string; kind?: RefusalKind } {
   if (!args.includes("--http")) return { error: "mcp serve takes --http (the stdio server is `ep0ch mcp`)" };
   let port = DEFAULT_GATEWAY_PORT, bind = "127.0.0.1", ws: string | undefined;
   for (let i = 0; i < args.length; i++) {

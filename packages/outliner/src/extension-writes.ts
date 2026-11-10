@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { personRequestKeys } from "./agent-requests";
 import { personAsk } from "./invocation-grants";
 import type { DraftPatchEdit } from "./draft-patch";
@@ -424,7 +425,7 @@ export class ExtensionWrites {
       const owner = this.store.extensionOwner(blockId);
       if (owner) throw new Error(`${action} tried to ${raw.op} ${blockId}, a record ${owner.extensionId} keeps; ${nothing}`);
       if (current.revision !== raw.expectedRevision) {
-        throw new Error(`${action}: ${blockId} was saved since it was read (revision ${raw.expectedRevision}, now ${current.revision}); ${nothing}`);
+        throw new Refusal("stale-revision", `${action}: ${blockId} was saved since it was read (revision ${raw.expectedRevision}, now ${current.revision}); ${nothing}`);
       }
       if (raw.op === "move") {
         const parentId = named(raw.parentId);
@@ -539,7 +540,7 @@ export class ExtensionWrites {
       } else if (write.op === "move") {
         const block = this.store.get(write.blockId);
         if (!block || block.effectiveDeletedRootId) throw new Error(`${write.blockId} is gone or in the Trash`);
-        if (block.revision !== write.expectedRevision) throw new Error(`${write.blockId} was saved since it was read (revision ${write.expectedRevision}, now ${block.revision})`);
+        if (block.revision !== write.expectedRevision) throw new Refusal("stale-revision", `${write.blockId} was saved since it was read (revision ${write.expectedRevision}, now ${block.revision})`);
         const fromPosition = this.store.children(block.parentId).findIndex((child) => child.id === block.id);
         this.store.move(write.blockId, write.parentId, write.position, by);
         steps.push({ kind: "move", blockId: block.id, fromParent: block.parentId, fromPosition: Math.max(0, fromPosition), toParent: write.parentId });
@@ -556,7 +557,8 @@ export class ExtensionWrites {
         try {
           for (const write of writes) one(write);
         } catch (error) {
-          throw new Error(`${error instanceof Error ? error.message : String(error)}; nothing was written`);
+          const said = `${error instanceof Error ? error.message : String(error)}; nothing was written`;
+          throw error instanceof Refusal ? new Refusal(error.kind, said) : new Error(said);
         }
       },
     };

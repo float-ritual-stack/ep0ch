@@ -5,7 +5,7 @@ Saving a note that names an `ep0ch-artifacts` repo deploys it: to Vercel when it
 ## What you do
 
 - **Install:** ctrl+k, type `&artifact`, and pick **install Artifact deploy** (Enter or a double click).
-  - An agent runs `ep0ch act extensions.install id=artifact-deploy`.
+  - An agent runs `ep0ch act extensions.install id=artifact-deploy`; from a shell, `ep0ch ext add artifact-deploy --ws <outline>` asks that outline's host to do the same.
   - It goes in this outline's own folder: each outline turns it on or off by itself.
 - **Name a repo:** write `[artifact::ep0ch-artifacts/moth-garden]` on a note's header or a line of its own, then save.
   - `github.com/ep0ch-artifacts/moth-garden` and the full `https://` URL read the same.

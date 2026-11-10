@@ -657,7 +657,7 @@ const EXTENSIONS: BarSource = {
         head: `**${a?.name ?? row.label.replace(/^install /, "")}** \`${d.id}\`${a ? ` v${a.version}` : ""} · not installed`,
         description: a?.description ?? d.about, ...(a?.about ? { about: a.about } : {}),
         // Where it goes is the service's to say (the user folder, the outline's own, or its `installs`, in what it adds).
-        then: `⏎ installs it (\`ep0ch act extensions.install id=${d.id}\`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes.`,
+        then: `⏎ installs it${a ? ` (\`${a.install}\`)` : ""}: its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes.`,
       }) };
     }
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };

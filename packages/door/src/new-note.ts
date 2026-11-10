@@ -97,7 +97,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       catch (e) {
         const why = e instanceof Error ? e.message : String(e);
         const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
-        const fix = near !== undefined && /^No live note /.test(why)
+        const fix = near !== undefined && e instanceof Refused && e.kind === "not-found"
           ? ` · in the Inbox instead: ep0ch act note.new inbox=true${text ? ` text=${quote(text)}` : ""}${actor.kind === "agent" ? ` --as ${actor.id}` : ""}` : "";
         throw new ActionRefused(`no new note: ${why}${fix}`);
       }

@@ -11,6 +11,8 @@ import { DraftSession } from "../src/draft-session";
 import { editHint } from "../src/surface/editor";
 import { Inspector } from "../src/surface/inspector";
 import { LineField } from "../src/surface/line";
+import { PropertyPanel } from "../src/surface/props-panel";
+import { asHintEsc } from "../src/esc-rule";
 import { keysNow, reloadKeymap } from "../src/surface/keymap";
 import { LISTVIEW_ACTIONS } from "../src/surface/list-actions";
 import { wordIn } from "../src/surface/selection";
@@ -440,5 +442,64 @@ describe("a table edited as cells keeps the keys inside its cells (PIE-1542 revi
     }
     expect(ran).toEqual([["rich.move", { direction: "up" }], ["rich.move", { direction: "down" }]]);
     expect(d.selection()).toBeNull();
+  });
+});
+
+describe("the hosts take edit.close, tab, shift+tab and the $EDITOR chord from the table, not from the literal keys (Nov 3 review card 1, #1390 walk follow-ups)", () => {
+  const was = process.env.EP0CH_KEYMAP;
+  let file = "";
+  beforeAll(() => { file = join(mkdtempSync(join(tmpdir(), "edit-keymap-hosts-")), "keybindings.json"); process.env.EP0CH_KEYMAP = file; reloadKeymap(); });
+  afterAll(() => { if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was; reloadKeymap(); });
+  const rebind = (map: Record<string, string[]>) => { writeFileSync(file, JSON.stringify(map)); reloadKeymap(); };
+  const open = (name: string) => {
+    const ran: string[] = [];
+    const s = DraftSession.open({ place: `test:${name}`, back: "", label: name, what: name, verb: "save", leaveWrites: false, submit: async () => ({ ok: true }) }, { text: "" }, {});
+    return { s, ran, press: (k: Key) => s.key(k, { completer: null, run: cmd => { ran.push(cmd); } }) };
+  };
+
+  test("a note's edit, a comment and the composer close on the rebound edit.close and indent on the rebound tab; Esc and tab do nothing", () => {
+    rebind({ "edit.close": ["alt+q"], "draft.indent": ["alt+i"], "draft.outdent": ["alt+o"], "edit.external": ["ctrl+x alt+e"] });
+    try {
+      for (const name of ["note edit", "comment", "composer"]) {
+        const h = open(name);
+        h.press({ kind: "esc" });
+        expect({ host: name, ran: h.ran }).toEqual({ host: name, ran: [] });
+        h.press(alt("q"));
+        expect({ host: name, ran: h.ran }).toEqual({ host: name, ran: ["close"] });
+        // The comment's own esc row (comment.escape) reads as the composer's close key, wherever the keymap put it.
+        const again = open(name);
+        asHintEsc(() => again.press({ kind: "esc" }));
+        expect({ host: name, ran: again.ran }).toEqual({ host: name, ran: ["close"] });
+        const typed = open(name);
+        for (const k of typeKeys("- beans")) typed.press(k);
+        typed.press({ kind: "tab" });
+        expect(typed.s.draft.text).toBe("- beans");
+        typed.press(alt("i"));
+        expect(typed.s.draft.text).toBe("  - beans");
+        typed.press(alt("o"));
+        expect(typed.s.draft.text).toBe("- beans");
+        // The chord's second key.
+        typed.press(ctrl("x")); typed.press(ctrl("e"));
+        expect(typed.ran).not.toContain("editor");
+        typed.press(ctrl("x")); typed.press(alt("e"));
+        expect(typed.ran).toContain("editor");
+      }
+    } finally { rebind({}); }
+  });
+
+  test("the inspector's value field cancels on the rebound edit.close, and Esc does nothing there", () => {
+    const panel = (text: string) => {
+      const input = new LineField(text, false, { complete: false });
+      const session = DraftSession.open({ place: "test:panel", back: "", label: "value", what: "value", verb: "save", leaveWrites: false, submit: async () => ({ ok: true }) }, { draft: input.draft }, {});
+      const p = new PropertyPanel();
+      p.field = { row: { key: "priority", value: text } as never, session, input };
+      return p;
+    };
+    expect(panel("high").key({ kind: "esc" }, 10)).toBe("cancel");
+    rebind({ "edit.close": ["alt+q"] });
+    try {
+      expect(panel("high").key({ kind: "esc" }, 10)).toBeNull();
+      expect(panel("high").key(alt("q"), 10)).toBe("cancel");
+    } finally { rebind({}); }
   });
 });

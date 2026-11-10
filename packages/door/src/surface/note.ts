@@ -14,7 +14,7 @@ export { isTrailKey, historyKey, historyRow, historyAction, trailRows, trailLine
 import { collectionHint, listBinding } from "./list-keys";
 import { listMode, collectionBinding, collectionKey, type ListMode } from "./list-mode";
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, NotePictures, bandBesidePicture, pictureEdits, pictureRows, pictureRowsOf, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
-import { READER_ESC, escNext, escPress } from "../esc-rule";
+import { READER_ESC, asHintEsc, escNext, escPress } from "../esc-rule";
 import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
 import { READER_KEYS, READER_SAYS, RESOLVE_KEYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
@@ -85,7 +85,7 @@ import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, reade
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE, rereadResource, resourceRefTarget, resourceTarget, UNSENT_NOTE } from "../authored";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
-import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
+import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, sameParty, tidy } from "../edit";
@@ -117,7 +117,7 @@ import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { blockdownHooks, drawIn, embedOnly, linkSink, NO_READER, readableSource, sequenceStart, tagInto } from "./blockdown-context";
 export { embedOnly, readableSource } from "./blockdown-context";
-import { copyControls, pickTarget } from "./note-targets";
+import { bodyTargets, copyControls, foldHeadTargets, pickTarget, pickTargets, type RowGeometry } from "./note-targets";
 export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, def, keyCaption, agentLabel, agentWords, asActor, type ActionSet, type ArgsOf, type ArgsOfSet } from "./actions";
 import { Dispatcher } from "./dispatch";
@@ -134,7 +134,7 @@ import { INVITES, type Press } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { SettingField } from "./settings-card";
-import { settingsSubject, settingsKey, SETTINGS_DEFS, SETTINGS_UNDO } from "./settings";
+import { settingsSubject, settingsKey, SETTINGS_DEFS } from "./settings";
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import type { ActionInfo } from "./actions";
@@ -145,7 +145,8 @@ import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
 import { AskAgain, heardBy, outlineChanged } from "../search-schedule";
 import { SocketBoard } from "../socket";
-import { MOVE_UNDO } from "../note-move";
+import { CALLOUT_HISTORY, IMAGE_HISTORY, newestUndo, NOTHING_TO_UNDO, SOURCE_HISTORY, STEP_HISTORY, USE_HISTORY, type LineEdit, type LineUndo } from "./note-undo";
+import { undoneSaid, type UndoHistory } from "../undo-journal";
 import { hasCard, kindOf, wholeNoteMarks, MARGIN_MODE_WORDS, MARGIN_RESERVE, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { dropActions, imagePathAt } from "../paste-image";
@@ -567,12 +568,6 @@ const NO_COMMENT = "no comment is being written here; C on selected words (or pa
 /** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
 const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr", T: "thread.tldr" };
 
-/**
- * Source writes (a slot, a field, a line) for every reader (PIE-1666): one history, as the extensions' and the moves' are, so a
- * write made where no reader shows the note (a status-bar press, an agent's button.slot note=) is undone by the reader that does.
- */
-const SOURCE_UNDO = new UndoHistory<LineUndo>();
-
 export class NoteSurface {
   msg: Msg | null = null;
   private rereadNote(m: Msg): Msg {
@@ -686,12 +681,15 @@ export class NoteSurface {
    * The reading position (PIE-1556): the current element's key, the one place `[ ]`, a click and `act` put it, and what ⏎,
    * a click and element.open act on and the ruler tints (PIE-441). There is no second cursor: a link is current as its element.
    */
-  private cur: string | null = null;
+  private pos: { key: string | null; link: Link | null } = { key: null, link: null };
+  private get cur(): string | null { return this.pos.key; }
+  /** Moving the position to an element (or letting go) drops a link that was waiting to be drawn: there is one position. */
+  private set cur(key: string | null) { this.pos = { key, link: null }; }
   /**
-   * A link selected (`selectLink`) while the note wasn't laid out yet (shown again, not yet drawn): its element becomes
-   * the position at the next layout, unless the position moved meanwhile.
+   * A link selected (`selectLink`) while the note wasn't laid out yet (shown again, not yet drawn) is the position too
+   * (`pos.link`): its element becomes `cur` at the next layout, unless the position moved meanwhile.
    */
-  private pendingLink: Link | null = null;
+  private get pendingLink(): Link | null { return this.pos.link; }
   /** A collection row picked before its element is drawn (a page turn, a row off the viewport): the [ ] position lands on it at the next layout (PIE-1501). */
   private pendingRow: { key: string; row: string; group?: string } | null = null;
   /** The collection row the [ ] position is about to land on (pendingRow), for what asks between the pick and the layout. */
@@ -810,7 +808,7 @@ export class NoteSurface {
   private boxRect: FloatRect | null = null;
   readonly editPreview = { place: "inline" as AttachedPlace, float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } as { w: number; h: number; col?: number; row?: number } };
   /** Everything attached to the note (PIE-1536): the comment being written, Sources, settings, a list's children, the edit preview. */
-  readonly attachments: Attachments<SurfaceHost, SurfaceView> = new Attachments<SurfaceHost, SurfaceView>(this.attachmentKinds(), () => this.lastLook?.values);
+  readonly attachments: Attachments<SurfaceHost, SurfaceView> = new Attachments<SurfaceHost, SurfaceView>(this.attachmentKinds(), () => this.lastLook?.values, { note: () => this.msg?.id ?? null, render: (of, props) => this.src ? this.src.board.request("scripts.render", { of, props, deadlineMs: 15_000 }, 20_000) : Promise.reject(new Error("this reader has no outline to ask")), redraw: () => this.src?.redraw() });
   constructor() {
     // Where the previews were left (PIE-1671): read once, by the attachments layer that keeps them, never by a field of its own.
     this.listPreview.place = this.attachments.keptPlace("list-preview") ?? this.listPreview.place;
@@ -961,13 +959,13 @@ export class NoteSurface {
   /** The note drawn as written, without the rules' decorations (PIE-600): `R`, decor.raw. The reader's own state. */
   raw = false;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
-  readonly stepHistory = new UndoHistory();
+  readonly stepHistory = STEP_HISTORY;
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
-  readonly calloutHistory = new UndoHistory<LineUndo>();
+  readonly calloutHistory = CALLOUT_HISTORY;
   /** Image layout changes (PIE-532) made here, for image.undo. */
-  readonly imageHistory = new UndoHistory<LineUndo>();
+  readonly imageHistory = IMAGE_HISTORY;
   /** The props a `::use` line was given here (PIE-533 S4, use.fill), for use.undo. */
-  readonly useHistory = new UndoHistory<LineUndo>();
+  readonly useHistory = USE_HISTORY;
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -1139,7 +1137,7 @@ export class NoteSurface {
   private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
   private menuOffset = { col: 0, row: 0 };
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
-  readonly sourceHistory = SOURCE_UNDO;
+  readonly sourceHistory = SOURCE_HISTORY;
   /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
   private oldUnsentShown = new Set<string>();
   /** The text an edit kept without its own starting text began from, read from the note's history, by edit (null: not kept; absent: being read). */
@@ -2000,24 +1998,13 @@ export class NoteSurface {
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     this.hits.push(...headerHit.hits);
     const figureCol = (row: number) => wideFigureAt(doc, row) ? host?.heroBounds?.col ?? 0 : bx;
-    const firstOf = new Map<number, string>();
-    for (const r of doc.links) if (!firstOf.has(r.n)) firstOf.set(r.n, keyOf.get(`${top + r.line}:${r.from + figureCol(r.line)}`) ?? "");
-    for (const r of doc.links) {
-      const row = r.line - this.scroll, dx = figureCol(r.line), cols = wideFigureAt(doc, r.line)?.cols ?? w;
-      const link = drawn[r.n];
-      if (link && row >= 0 && row < room && r.from < cols) this.hits.push({ row: top + row, from: r.from + dx, to: Math.min(cols, r.to) + dx, link, elem: firstOf.get(r.n) || undefined });
-    }
-    // An image's caption opens it (its controls, tagged above, come first); a click on the image makes it the `[ ]` position.
-    for (const e of this.elems) {
-      if (!e.link?.media) continue;
-      const row = e.row - top - this.scroll;
-      if (row >= 0 && row < room) this.hits.push({ row: e.row - this.scroll, from: e.from, to: Math.min(w, e.to), link: e.link, elem: e.key });
-      const x = doc.media.find(x => top + x.row === e.row), im = x?.image !== undefined ? doc.images[x.image] : undefined;
-      if (im) for (let r = im.line; r < im.line + im.rows; r++) {
-        const at = r - this.scroll;
-        if (at >= 0 && at < room) this.hits.push({ row: top + at, from: bx + im.col, to: Math.min(w, bx + im.col + im.cols), image: e.key });
-      }
-    }
+    // The links and pictures are the shared builder's (note-targets.ts), as a river column's digest uses it. An image's
+    // caption opens it (its controls, tagged above, come first); a click on the image makes it the `[ ]` position.
+    this.hits.push(...bodyTargets(doc, drawn, this.elems, {
+      at: r => { const row = r - this.scroll; return row >= 0 && row < room ? top + row : null; },
+      dx: figureCol, cols: r => wideFigureAt(doc, r)?.cols ?? w, bx, w, elemBx: bx, top,
+      elemOf: r => keyOf.get(`${top + r.line}:${r.from + figureCol(r.line)}`),
+    }));
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
       if (whole.has(k.thread)) continue;
@@ -2027,10 +2014,8 @@ export class NoteSurface {
       const row = c.row - this.scroll;
       if (row >= 0 && row < room && c.from + bx < w) this.hits.push({ row: top + row, from: c.from + bx, to: Math.min(w, c.to + bx), thread: c.thread, elem: controlKey(c.thread, c.control, c.value) });
     }
-    for (const [i, r] of (picks?.rows ?? []).entries()) {
-      const row = r - this.scroll;
-      if (row >= 0 && row < room) this.hits.push({ row: top + row, from: bx, to: w, pick: i });
-    }
+    const window: RowGeometry = { at: r => { const row = r - this.scroll; return row >= 0 && row < room ? top + row : null; }, from: bx, to: w };
+    this.hits.push(...pickTargets(picks?.rows ?? [], window));
     // A template's figures share one source line, so their container tint uses the figure's drawn bounds;
     // the selected row's own lines are the item band (PIE-969). The ruler wins over an open thread's passage tint.
     const reading = this.readingRows(), framedList = this.framedList(current);
@@ -2104,6 +2089,12 @@ export class NoteSurface {
     placements.unshift(...shade.placements);
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
+    // A fold head's gutter and the disclosure drawn at the heading's words (doc.ts's headingGlyph, PIE-1403) are targets of
+    // the shared builder; the glyph is the first thing drawn at the body's start (indented or not), a ▸ in the words is never one.
+    if (!this.printed) this.hits.push(...foldHeadTargets(doc.heads, key => { const n = this.foldsIn(m).points.findIndex(p => p.key === key); return n < 0 ? null : n + 1; }, window, {
+      gutter: [this.gutterStart, this.gutterStart + 1],
+      glyphCol: row => { let col = 0; for (const c of visible(lines[row] ?? "")) { if (col >= this.bx && c !== " ") return c === "▾" || c === "▸" ? col : null; col += width(c); } return null; },
+    }));
     if (!this.printed) for (const hd of doc.heads) {
       const first = top + hd.row - this.scroll, rows = hd.rows ?? 1;
       if (first + rows <= top || first >= top + room) continue;
@@ -2111,17 +2102,6 @@ export class NoteSurface {
       if (n < 0) continue;
       const folded = this.effectiveFolded(this.foldsIn(m).points[n]!);
       if (first >= top) gutterRows.set(first, dim(folded ? "▸" : "▾"));
-      // A wrapped heading is one heading (PIE-1349): a click on any of its rows folds it.
-      for (let r = Math.max(top, first); r < Math.min(first + rows, top + room); r++) this.hits.push({ row: r, from: this.gutterStart, to: this.gutterStart + 1, fold: n + 1 });
-      // The disclosure drawn at the heading's words (doc.ts's headingGlyph) is a click target as much as the gutter's (PIE-1403).
-      // It is the first thing drawn at the body's start (indented or not); a ▸ in the heading's words is never one.
-      if (first >= top) {
-        let col = 0;
-        for (const c of visible(lines[first] ?? "")) {
-          if (col >= this.bx && c !== " ") { if (c === "▾" || c === "▸") this.hits.push({ row: first, from: col, to: col + 1, fold: n + 1 }); break; }
-          col += width(c);
-        }
-      }
       // What a fold hides is said after its last row.
       const row = first + rows - 1;
       if (row < top || row >= top + room) continue;
@@ -2634,12 +2614,12 @@ export class NoteSurface {
     const ruled = current && !this.framedList(current) ? current.ruler : null;
     const lines = doc.lines.map((l, r) => (ruled && r >= ruled[0] && r < ruled[1] && !pictureRowsOf(doc.images, 0).has(r) ? paintRange(pad(l, bw), 0, bw, RULER_BG) : l));
     const headLines = head.map((l, r) => (ruled && r - head.length >= ruled[0] && r - head.length < ruled[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
-    const targets: Hit[] = [];
     const elemOf = new Map<Link, string>(this.elems.filter(e => e.link).map(e => [e.link!, e.key]));
-    for (const r of doc.links) { const link = drawn[r.n]; if (link) targets.push({ row: r.line, from: r.from, to: r.to, link, elem: elemOf.get(link) }); }
-    for (const [i, row] of (picks?.rows ?? []).entries()) targets.push({ row, from: 0, to: bw, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
+    const targets: Hit[] = bodyTargets(doc, drawn, this.elems, { at: r => r, dx: () => 0, cols: () => Infinity, bx: 0, w: bw, elemBx: this.bx, top: 0, elemOf: r => { const l = drawn[r.n]; return l ? elemOf.get(l) : undefined; } });
+    const whole: RowGeometry = { at: r => r, from: 0, to: bw };
+    targets.push(...pickTargets(picks?.rows ?? [], whole));
     // Every row of a wrapped heading is its disclosure (PIE-1349).
-    for (const h of doc.heads) { const n = points.findIndex(p => p.key === h.key); if (n >= 0) for (let k = 0; k < (h.rows ?? 1); k++) targets.push({ row: h.row + k, from: 0, to: h.cols, fold: n + 1 }); }
+    targets.push(...foldHeadTargets(doc.heads, key => { const n = points.findIndex(p => p.key === key); return n < 0 ? null : n + 1; }, whole));
     const copies = copyControls(lines, doc, { at: r => r, bx: 0, w: bw, now: current ? this.blockOf(current) : null });
     targets.push(...copies);
     const placements = imagePlacements(doc.images, 0, ...cellOf(host));
@@ -4046,7 +4026,7 @@ export class NoteSurface {
       : { row: f.row, col: f.col, cols: f.cols + (g.zone.cols ? dx : 0), rows: f.rows + (g.zone.rows ? dy : 0) };
     const o = this.attachments.def(g.target).owner(), now = o?.float ?? o?.frame ?? (g.target === "comment" ? this.boxRect : null);
     if (now && now.row === to.row && now.col === to.col && now.cols === to.cols && now.rows === to.rows) return;
-    void this.runKey(this.attachments.def(g.target).actions.move as keyof NoteActionArgs, to as never, host, true);
+    void this.runKey(this.attachments.def(g.target).actions.move as keyof NoteActionArgs, { ...to, ...this.attachments.def(g.target).args } as never, host, true);
   }
 
   // ── the comment or edit being written: its keys, clicks, tile and pointer (PIE-846) ────
@@ -4070,13 +4050,13 @@ export class NoteSurface {
     return true;
   }
 
-  /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. */
-  commentEscape(host: SurfaceHost) { return this.session ? this.commentKey(this.session, { kind: "esc" }, host, true) : false; }
+  /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. comment.escape (esc, its own row) is the composer's edit.close key, wherever the keymap put that. */
+  commentEscape(host: SurfaceHost) { const s = this.session; return s ? asHintEsc(() => this.commentKey(s, { kind: "esc" }, host, true)) : false; }
 
   private commentKey(s: CommentSession, k: Key, host: SurfaceHost, escape = false): boolean {
     if (!escape && s.mode === "compose" && s.composer && !s.busy && !s.composer.busy && !completerOf(s.composer)?.shown) {
-      const binding = modeBinding(COMMENT_KEYS, k);
-      if (binding) { void this.runKey(binding.action as keyof NoteActionArgs, binding.args as never, host, true); return true; }
+      const binding = modeBinding(COMMENT_KEYS, k), stray = binding?.action === "comment.escape" && !s.composer.closesBy(k);   // edit.close moved: esc is stray (PIE-1688)
+      if (binding && !stray) { void this.runKey(binding.action as keyof NoteActionArgs, binding.args as never, host, true); return true; }
     }
     const writing = s.writing;
     // Back to writing: a "leave it unsent?" asked in the power bar (PIE-785) is over, and its answer does nothing.
@@ -4384,10 +4364,9 @@ export class NoteSurface {
   /** ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last. */
   private undoKey(host: SurfaceHost): boolean {
     const at = this.msg?.id ?? "";
-    // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
-    if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
-    const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)], ["settings.undo", SETTINGS_UNDO.last("you", at)]] as const)
-      .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo" | "settings.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+    if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }   // esc's dropped strays (src/stray.ts) first
+    // The newest change of this note's journal, whatever its kind (undo-journal.ts); settings' scope is read beside it.
+    const newest = newestUndo("you", at), last = { name: (newest?.via ?? "task.undo") as "task.undo", seq: newest?.seq ?? -1 };
     // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
     // didn't happen to this note, so the desk's ctrl+z (layout.undo, or a trash newer than it) gets the key only when the
     // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
@@ -4396,6 +4375,7 @@ export class NoteSurface {
       return last.seq >= 0 && !!host.untrash?.(host.ctx.board);
     }
     if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
+    if (!newest) { host.ctx.flash(NOTHING_TO_UNDO); return true; }   // nothing of any kind: the key's answer, not task.undo's (steps only)
     void this.runKey(last.name, {}, host, true);
     return true;
   }
@@ -4406,17 +4386,17 @@ export class NoteSurface {
    * Otherwise ⏎ isn't the reader's.
    */
   private enterKey(fresh: boolean, host: SurfaceHost): boolean {
-    const e = this.inView();
     if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
+    // The one reading position answers (card 10): the current element, else (nothing current, no link waiting to be
+    // drawn) the ::button on the reading line (j k, PIE-1518): ⏎ presses it, no ] first.
+    const e = this.inView() ?? (this.pendingLink ? null : this.buttonAtReading());
     if (e) {
       if (fresh && !opens(e) && !e.link?.press?.alt) return false;
       void this.activate(e, host, fresh);
       return true;
     }
     // The position is a link selected before its element was laid out (link.select, then ⏎ before a paint): it follows.
-    if (!this.cur && this.pendingLink) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
-    const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
-    if (b && (!fresh || b.link?.press?.alt)) { void this.activate(b, host, fresh); return true; }
+    if (this.pendingLink) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
     return false;
   }
 
@@ -4973,7 +4953,8 @@ export class NoteSurface {
   }
 
   readingRows(): [number, number] | null {
-    const d = this.drawn;
+    // The reader's rows, or a host's digest (a river column: the whole note, from row 0): one reading position over both.
+    const d = this.drawn ?? (this.digesting && this.digested ? { doc: this.digested.doc, lines: this.digested.lines } : null);
     if (!d) return null;
     const line = this.readingSourceLine();
     const row = d.doc.source.findIndex(s => d.lines[s] === line);
@@ -5071,7 +5052,7 @@ export class NoteSurface {
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
-  letGo() { this.cur = null; this.pendingLink = null; this.pendingRow = null; }
+  letGo() { this.cur = null; this.pendingRow = null; }
   /**
    * The region whose row behind its mark is shown: the one the `[ ]` position is in (its mark, a control in that row, a link
    * in its words). Hovering would do it too, but the door asks the terminal for button tracking, not motion.
@@ -5095,14 +5076,16 @@ export class NoteSurface {
     const p = this.msg && this.foldsIn(this.msg).points.find(p => `fold:${p.key}` === e.key);
     if (p && this.previews(p)) this.selectListPoint();
     const l = e.link;
-    this.pendingLink = null;
     // A row of an inline ::links (PIE-693): it's that component's selection too, and its preview follows.
     const lb = l?.listRow;
     if (lb?.row) { try { this.listViews.get(lb.key)?.pick(PERSON, lb.row, lb.group); } catch { /* a row the list no longer draws */ } }
   }
 
   /** The ::button the reading line is on, in view, with no element current: what ⏎ presses there (PIE-1518). */
-  buttonAtReading() { const d = this.drawn, r = this.readingRows(); return d && r && !this.cur ? buttonIn(this.elems, d.top + Math.max(r[0], d.scroll), d.top + Math.min(r[1], d.scroll + d.room)) : null; }
+  buttonAtReading() {
+    const v = this.drawn ?? (this.digesting ? { top: 0, scroll: 0, room: Infinity } : null), r = this.readingRows();
+    return v && r && !this.cur ? buttonIn(this.elems, v.top + Math.max(r[0], v.scroll), v.top + Math.min(r[1], v.scroll + v.room)) : null;
+  }
   /** The current element while the person can see it (or it's about to be brought into view). */
   inView(): Element | null {
     const e = this.selectedElement(), d = this.drawn;
@@ -5688,7 +5671,7 @@ export class NoteSurface {
       throw new ActionRefused("say which image: n= or line= (images lists them), or put [ ] on an image");
     }
     const all = this.imagesIn(await this.whole());
-    if (picture !== undefined) { const hit = all.find(x => x.id === picture); if (hit) return hit; throw new ActionRefused(IMAGE_STALE.refused); }
+    if (picture !== undefined) { const hit = all.find(x => x.id === picture); if (hit) return hit; throw new ActionRefused(IMAGE_STALE.refused, "stale-revision"); }
     const listed = () => all.slice(0, 12).map((x, i) => `${i + 1} line ${x.line + 1} ${x.path.split("/").pop()}`).join("; ") || "none";
     const hit = n !== undefined ? all[n - 1] : all.find(x => x.line + 1 === line);
     if (!hit) throw new ActionRefused(`no such image in this note (${listed()})`);
@@ -5721,7 +5704,7 @@ export class NoteSurface {
   async changeImage(ref: ImageRef & { spec: MediaSpec }, set: Partial<Record<MediaAttr, string | null>>, what: string, host: SurfaceHost, actor: Actor, others: { id: string; kind: Picture["kind"]; set: Partial<Record<MediaAttr, string | null>> }[] = []) {
     // Each found by who it is in the note as the service has it now, wherever that is.
     let edits: LineEdit[] = [];
-    const editsIn = (m: Msg) => (edits = pictureEdits(m.text, [{ id: ref.id, kind: ref.kind, set }, ...others], () => { host.ctx.flash(IMAGE_STALE.flash); return new ActionRefused(IMAGE_STALE.refused); }));
+    const editsIn = (m: Msg) => (edits = pictureEdits(m.text, [{ id: ref.id, kind: ref.kind, set }, ...others], () => { host.ctx.flash(IMAGE_STALE.flash); return new ActionRefused(IMAGE_STALE.refused, "stale-revision"); }));
     const name = ref.path.split("/").pop() ?? ref.path;
     const r = await this.rewriteLines(ref.block, editsIn, this.imageHistory, host, actor, IMAGE_STALE);
     if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
@@ -6094,8 +6077,10 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
-    // A panel row or a status choice is its mode's (above); with that mode gone, nothing.
-    if ("prop" in h || "pick" in h) return false;
+    // A row of an open choice (a step's status, a callout's type) chooses it: the reader's picker mode takes it first, a
+    // river column's digest (no mode stack of its own) lands here; with the choice gone, nothing. A panel row is its mode's.
+    if ("pick" in h) { if (!this.picker) return false; void this.choose(h.pick, host); return true; }
+    if ("prop" in h) return false;
     // An image itself: it becomes the `[ ]` position, so its keys (+ - ← → H) change it; ⏎ or a click on its caption opens it.
     if ("image" in h) { void this.runKey("element.select", { n: this.elems.findIndex(x => x.key === h.image) + 1 }, host); return true; }
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
@@ -6340,7 +6325,7 @@ export class NoteSurface {
     // A link selected before its element is drawn (not laid out yet, or folded away) waits until it is drawn, the position
     // moves (setElem) or the note changes (letGo): a repaint that still doesn't draw it keeps it.
     const unlaid = this.cur === null ? this.pendingLink : null, e = unlaid && this.elementOfLink(unlaid);
-    if (e) { this.cur = e.key; this.pendingLink = null; }
+    if (e) this.cur = e.key;
     const loading = !!this.src && (stepsLoading(this.src.board) || embedsLoading(this.src.board));
     if (this.cur && !this.foldSel && !drawn(this.cur)) {
       const a = this.stepRenamed, cur = this.cur;
@@ -6538,7 +6523,7 @@ export class NoteSurface {
         try { const l = await dispatch.act({ action: "layout.undo", args: { txn: e.undo } }, actor) as { steps: number; screen: string; left?: string }; layout = { undone: true, steps: l.steps, screen: l.screen, ...(l.left ? { left: l.left } : {}) }; }
         catch (err) { const why = err instanceof Error ? err.message : String(err); if (!/no layout change in transaction/.test(why)) layout = { refused: why }; }
       }
-      say.flash(`undid ${e.label.toLowerCase()}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? ` · layout restored to ${layout.screen}${layout.left ? ` · remaining: ${layout.left}` : ""}` : ""}`);
+      say.flash(`${"seq" in e ? undoneSaid(e as never) : `undid ${e.label.toLowerCase()}`}${layout && "refused" in layout ? ` · layout not undone: ${layout.refused}` : layout ? ` · layout restored to ${layout.screen}${layout.left ? ` · remaining: ${layout.left}` : ""}` : ""}`);
       host.redraw();
       return { undone: e.undo, action: r.action, written: r.written, ...(layout ? { layout } : {}) };
     } catch (err) {
@@ -6715,7 +6700,7 @@ export class NoteSurface {
     if (!m) throw new ActionRefused("that note isn't there any more");
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
     const lines = m.text.split("\n"), edits = typeof change === "function" ? change(m) : change;
-    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
+    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused, "stale-revision"); }
     // Nothing to change (it reads that way already): checked and refused as a change would be, nothing written.
     if (!edits.length) return m;
     for (const e of edits) lines[e.line] = e.after;
@@ -6754,7 +6739,7 @@ export class NoteSurface {
     history.drop(e);
     outlineChanged([m.id]);
     if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
-    const said = `undid the ${what} change: ${printable(e.edits[0]!.before.trim())}`;
+    const said = undoneSaid(e);
     host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
     return { block: m.id, edits: e.edits, revision: saved.revision ?? null };
   }
@@ -6965,7 +6950,7 @@ export class NoteSurface {
     const chosen = place ?? m.list.items[m.list.sel]!;
     if (direction) this.attachments.split(m.target, direction, undefined);
     this.closePlacement(host);
-    return this.runKey(this.attachments.def(m.target).actions.place as keyof NoteActionArgs, { place: chosen } as never, host);
+    return this.runKey(this.attachments.def(m.target).actions.place as keyof NoteActionArgs, { place: chosen, ...this.attachments.def(m.target).args } as never, host);
   }
 
   private withPlacementMenu(view: SurfaceView, w: number, h: number, where: "reader" | AttachmentKind): SurfaceView {
@@ -7498,7 +7483,7 @@ export class NoteSurface {
     try {
       return await board.changeStep(ref.block, ref.step, ref.revision, changeOf(choice), actor);
     } catch (e) {
-      if (!(e instanceof Refused) || ref.step.identity === "unique" || !/location changed/i.test(e.message)) throw e;
+      if (!(e instanceof Refused) || ref.step.identity === "unique" || e.kind !== "moved") throw e;
       const now = await board.request("checklist.query", { blockId: ref.block, query: { limit: 1000, nested: "include" } });
       const same = now.items.filter(i => i.evidence === ref.step.evidence);
       if (same.length !== 1) throw e;
@@ -7534,7 +7519,7 @@ export class NoteSurface {
         throw new ActionRefused(why);
       }
       this.stepHistory.drop(e);
-      const said = `undid: "${e.title}" ${live.key}::${live.after} → ${live.before ?? "unset"}`;
+      const said = undoneSaid(e);
       host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
       return { block: e.block, step: null, status: e.status, from: e.to, revision: w.revision, recordedAs: recordedAnswer(actor) };
     }
@@ -7558,7 +7543,7 @@ export class NoteSurface {
     embedStepChanged(host.ctx.board, r.block, step, r.item);
     outlineChanged([e.block]);
     if (this.msg?.id === e.block && !this.msg.partial) this.refresh({ ...r.block, childIds: this.msg.childIds });
-    const said = `undid: "${e.title}" ${statusWord(e.to)} → ${statusWord(e.status)}`;
+    const said = `${undoneSaid(e)}: ${statusWord(e.to)} → ${statusWord(e.status)}`;
     // An agent's host says who it is (asActor); the person's says it plainly.
     host.ctx.flash(said);
     this.noteAgent(actor, said);
@@ -7707,7 +7692,7 @@ export class NoteSurface {
    */
   async zoomInto(at: { line?: number; anchor?: string }, host: SurfaceHost): Promise<Zoom> {
     const m = this.msg;
-    if (!m || !isOutlineNote(m)) throw new ActionRefused("no note here to zoom into");
+    if (!m || !isOutlineNote(m)) throw new ActionRefused("no note here to zoom into", "not-found");
     if (m.partial) throw new ActionRefused("the note is still being read: zoom again in a moment");
     const holding = this.modes.holding();
     if (holding) throw new ActionRefused(`finish ${holding} first · ${this.holdingHint()}`);
@@ -8541,7 +8526,7 @@ export class NoteSurface {
    */
   passageFor(actor: Actor, quote?: string, near?: number): { target: PassageTarget; note: CommentPassage } {
     const m = this.msg;
-    if (!m || m.revision === undefined) throw new ActionRefused("no note here to act on a passage of");
+    if (!m || m.revision === undefined) throw new ActionRefused("no note here to act on a passage of", "not-found");
     if (m.resource?.uncommentable) throw new ActionRefused(m.resource.uncommentable);
     let from: number, to: number;
     if (quote !== undefined) {
@@ -8673,7 +8658,7 @@ export class NoteSurface {
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       history: this.describeHistory(),
       ...(this.zoom ? { zoom: { kind: this.zoom.kind, label: this.zoom.label, lines: [this.zoom.start + 1, this.zoom.end + 1], ...(this.zoom.anchor ? { anchor: this.zoom.anchor } : {}) } } : {}),
-      steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
+      steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.msg ? this.stepHistory.size(this.msg.id) : 0, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
       // What the rules draw on the note (PIE-600), and whether the person has it raw (R).
       decorations: this.msg && isOutlineNote(this.msg) ? { raw: this.raw, drawn: decorationsOf(this.msg, this.src).map(d => ({ rule: d.name, place: d.place, status: d.status, on: d.hit.at, line: d.hit.line })) } : null,
       agent: this.agent,
@@ -8803,7 +8788,7 @@ export class NoteSurface {
 
   // ── what the action table reads and asks ─────────────────────────────────────
   requireNote(): Msg {
-    if (!this.msg) throw new ActionRefused("this reader shows no note; open one first");
+    if (!this.msg) throw new ActionRefused("this reader shows no note; open one first", "not-found");
     return this.msg;
   }
 
@@ -8871,8 +8856,7 @@ export class NoteSurface {
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
     const e = this.elementOfLink(l);
     if (e) { this.setElem(e); return; }
-    this.cur = null;
-    this.pendingLink = l;
+    this.pos = { key: null, link: l };
   }
   /** The link the position is on: the current element's, else one selected before it was drawn. */
   selectedLink(): Link | null { return (this.cur ? this.elems.find(x => x.key === this.cur)?.link : undefined) ?? this.pendingLink; }
@@ -8889,14 +8873,6 @@ const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn �
 const SOURCE_STALE: Stale = { flash: "that line changed since the sources were read · nothing was changed · read them again (r)", refused: "that line changed since the sources were read; nothing was changed", again: "read the sources again (r) and retry" };
 const USE_STALE: Stale = { flash: "that ::use line changed since it was drawn · nothing was changed · press again", refused: "that ::use line changed since it was drawn; nothing was changed (use.fill reads it again)", again: "press again" };
 const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
-/** One line of a note rewritten: its index, its text as it was read, and what it became. `picture`: who the line is, so an undo finds it wherever it has moved to. */
-interface LineEdit { line: number; before: string; after: string; picture?: string }
-/** A change of whole lines (a callout's header, an image's layout) for undo. */
-interface LineUndo {
-  patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string;
-  /** What the press this write finished did (PIE-1666): its run's undo, or the layout step it took, taken back with it. */
-  then?: { run: string } | { layout: number };
-}
 
 
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */

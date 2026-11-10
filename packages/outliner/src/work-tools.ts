@@ -8,6 +8,7 @@
  * roadmap properties, delivery facts); these helpers only refuse what they can
  * tell is wrong before writing, and say why.
  */
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { reviewCompletion, reviewTicket } from "./work-review";
 import { reviewWarnings, type ReviewReading, type WriteReview } from "./write-review";
@@ -57,8 +58,10 @@ export interface WorkActor {
 
 /** A refusal made before writing; the message says what to change. */
 export class WorkToolRefusal extends Error {
-  constructor(message: string) {
+  readonly kind: RefusalKind;
+  constructor(message: string, kind: RefusalKind = "invalid") {
     super(message);
+    this.kind = kind;
     this.name = "WorkToolRefusal";
   }
 }

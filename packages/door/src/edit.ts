@@ -22,6 +22,7 @@ import { stateDir } from "./state";
 import { width } from "./style";
 import { pageRows } from "./scroll";
 import type { Key } from "./term";
+import { escByHint } from "./esc-rule";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
@@ -585,7 +586,7 @@ export class Draft {
     // A paste is the person's typing: what the status line said before goes, as any typed key's does (a big paste says so).
     if (k.kind === "paste") { this.status.say(""); this.pasteText(k.text); return "keep"; }
     // The keys that run an action, from the one key table (DRAFT_KEYS, the person's keymap applied).
-    const bound = this.binding(k);
+    const bound = this.binding(k) ?? (this.closesBy(k) ? this.closeRow() : undefined);
     // cmd+c copies the selection; it never types, and never ends a put-aside's second esc.
     if (bound?.action === "draft.copy") return "copy";
     // A cmd (super) key nothing binds never types; one the table binds (a rebind to cmd+z) runs below.
@@ -691,6 +692,14 @@ export class Draft {
     }
     return "discard";
   }
+  /** Whether `k` closes the innermost thing here: its edit.close row's key, or the hint's click (`esc.close`) while Esc is moved off. */
+  closesBy(k: Key): boolean {
+    return this.binding(k)?.action === "edit.close" || (k.kind === "esc" && escByHint());
+  }
+  /** The key `closesBy` answers to, as the table has it (esc, or the person's rebind): what a host's hint names. */
+  closeKey(): string { return this.closeRow()?.key ?? "esc"; }
+  private closeRow(): ModeKey | undefined { for (const t of this.tables) { const r = effective(t).find(x => x.action === "edit.close"); if (r) return r; } return undefined; }
+
   /** The key the table gives `action` now (the keymap applied), for what this draft says of its keys. */
   keyOf(action: string): string {
     const r = effective(DRAFT_KEYS).find(x => x.action === action);
@@ -1280,7 +1289,7 @@ export class Draft {
   }
   /** `k` is the second press of `what`. */
   private confirmsArm(what: DraftArm, k: Key): boolean {
-    if (what === "discard") return this.binding(k)?.action === "edit.close";
+    if (what === "discard") return this.closesBy(k);
     if (what === "undo") return this.binding(k)?.action === "draft.undo" && !("shift" in k && k.shift);
     return !!this.chordBinding(k) || (this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a");
   }

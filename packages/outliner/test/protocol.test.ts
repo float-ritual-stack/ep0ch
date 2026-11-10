@@ -2213,6 +2213,7 @@ test("prunes destroyed client registrations before listing or targeting", () => 
     id: "focus",
     ok: false,
     error: "Target client is not registered: destroyed-tree",
+    kind: "failed",
     sequence,
   });
 

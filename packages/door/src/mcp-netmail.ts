@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 // Netmail (PIE-615, PIE-562's store-and-forward writes): a remote MCP write to an outline whose home is another machine
 // (float-hub on the laptop) never touches the read-only mirror the gateway reads it from. It waits on the gateway's
 // machine, in a small store of its own (`<mirrors>/.netmail.sqlite`), until that machine dials in and applies it.
@@ -411,7 +412,7 @@ export interface PullOptions {
   now?: () => number;
   say?: (line: string) => void;
   /** Opens one of this machine's outlines (tests pass their scratch host's). */
-  open?: (outline: string) => Promise<NotesBoard | { error: string }>;
+  open?: (outline: string) => Promise<NotesBoard | { error: string; kind?: RefusalKind }>;
 }
 
 export interface PullResult { ok: boolean; detail: string; taken: number; settled: NetmailSettled[] }
@@ -539,7 +540,7 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
   try { ledger = readLedger(o.state); } catch (e) { return { ok: false, detail: (e as Error).message, taken: entries.length, settled: [] }; }
   if (!entries.length && !Object.keys(ledger).length) return { ok: true, detail: `nothing queued on ${o.hub}`, taken: 0, settled: [] };
   const open = o.open ?? (name => boardFor(["--ws", name, "--here"]));
-  const boards = new Map<string, NotesBoard | { error: string }>();
+  const boards = new Map<string, NotesBoard | { error: string; kind?: RefusalKind }>();
   const results: NetmailSettled[] = [];
   // Why each entry that waits does: said in the pull's answer, so `ep0ch mcp pull` and the job's state name it.
   const why = new Set<string>();

@@ -1,3 +1,4 @@
+import { Refusal, blockNotFound } from "@ep0ch/outline-core/refusal";
 import { eraseBack, wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { ticketScope } from "@ep0ch/outline-core/work-ids";
@@ -104,7 +105,6 @@ import {
   type TreePresentationState,
 } from "./virtual-branches";
 import { valueOf } from "@ep0ch/outline-core/block-record";
-
 type TreeRow = ProjectedTreeRow<TreeIndexBlock>;
 type PhysicalTreeRow = ProjectedPhysicalRow<TreeIndexBlock>;
 type VirtualBranchOccurrenceRow = ProjectedOccurrenceRow<TreeIndexBlock>;
@@ -1147,7 +1147,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (branchState) {
         const config = branchState.config;
         if (!config || config.readOnly) {
-          throw new Error("Virtual branch is read-only");
+          throw new Refusal("no-access", "Virtual branch is read-only");
         }
         const created = await effects.request<Block>({
           action: "create",
@@ -1386,7 +1386,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (branchFilter) await clearBranchFilter();
       root = null;
       const target = physicalBlocksById.get(canonicalId);
-      if (!target) throw new Error(`Block not found: ${canonicalId}`);
+      if (!target) throw blockNotFound(canonicalId);
       if (activeFilter) {
         activeFilter = "";
         visibilityChanged = true;

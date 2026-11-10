@@ -360,7 +360,7 @@ created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --t
 ## show
 
 ```text
-ep0ch show <id>… [--source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
+ep0ch show <id>… [--source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--lines <a-b>[,…]] [--ws <name>] [--machine <ssh-name>]
 ```
 
 each note drawn as a reader draws it, at that width (default the terminal's,
@@ -374,7 +374,10 @@ a cut said with the ep0ch find command that reads the rest); --ansi keeps the dr
 as a line of JSON {id, columns, rows, cells, replaced}: cells row-major,
 base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
 terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
-(counted in replaced); --rows keeps the first n rows; --site prints each note as a
+(counted in replaced); --rows keeps the first n rows; --lines a-b only the rows
+source lines a to b draw (from 1), under the note's header (several parts, like
+--lines 2-3,60, share --rows, a ⋮ between, a part too long for its share cut with
+"⋮ n more rows"); --site prints each note as a
 line of JSON {id, uri, text, site}: its text as written and, when it holds a {{ }},
 the service's whole answer for it (outline_read's site: each placeholder's values,
 or problem and nearest keys, how it was found, and the notes it came from)

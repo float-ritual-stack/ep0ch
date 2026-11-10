@@ -49,19 +49,19 @@ export function normalizeSort(sort: unknown, defaultDirection = "asc"): BlockQue
   let field: unknown, direction: unknown;
   if (typeof sort === "string") {
     const words = sort.trim().split(/\s+/);
-    if (!words[0] || words.length > 2) throw new Error(`Sort is "<property|created|updated|title>[ asc|desc]", not ${sort}`);
+    if (!words[0] || words.length > 2) throw new BlockQueryError(`Sort is "<property|created|updated|title>[ asc|desc]", not ${sort}`, "sort");
     field = words[0];
     direction = words[1] ?? defaultDirection;
   } else if (sort && typeof sort === "object" && !Array.isArray(sort)) {
     ({ field, direction } = sort as { field?: unknown; direction?: unknown });
   } else {
-    throw new Error("Block search sort must be an object or \"<field>[ asc|desc]\"");
+    throw new BlockQueryError("Block search sort must be an object or \"<field>[ asc|desc]\"", "sort");
   }
   const normalized = normalizeSortField(field);
-  if (normalized === null) throw new Error(sortFieldProblem(field));
+  if (normalized === null) throw new BlockQueryError(sortFieldProblem(field), "sort");
   const dir = typeof direction === "string" ? direction.trim().toLowerCase() : direction;
   if (dir !== "asc" && dir !== "desc") {
-    throw new Error(`Sort direction is asc or desc, not ${String(direction)}: asc puts the smallest first`);
+    throw new BlockQueryError(`Sort direction is asc or desc, not ${String(direction)}: asc puts the smallest first`, "direction");
   }
   return { field: normalized, direction: dir };
 }
@@ -325,7 +325,7 @@ export function queryRequestProblem(error: unknown): OutlinerRequestProblem | un
       ...(error.field ? { field: error.field, position: error.index } : {}),
     };
   }
-  if (error instanceof BlockQueryError) return { code: "query-invalid", message: error.message };
+  if (error instanceof BlockQueryError) return { code: "query-invalid", message: error.message, ...(error.field ? { field: error.field } : {}) };
   if (error instanceof StillCounting) return error.problem;
   return undefined;
 }

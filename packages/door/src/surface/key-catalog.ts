@@ -253,11 +253,32 @@ export function conflicts(all: readonly Binding[]): Binding[][] {
     groups.set(at, g);
   }
   const order = (id: string) => keymapEntries().findIndex(e => e.id === id);
-  return [...groups.entries()].flatMap(([at, g]) => (at.startsWith("file ") ? (g.length > 1 ? [g.sort((a, b) => order(a.id) - order(b.id)).map(({ table: _table, ...b }) => b)] : []) : g.some((b, i) => g.slice(i + 1).some(x => meet(b, x))) ? [g] : []));
+  return [...hostShadows(all), ...[...groups.entries()].flatMap(([at, g]) => (at.startsWith("file ") ? (g.length > 1 ? [g.sort((a, b) => order(a.id) - order(b.id)).map(({ table: _table, ...b }) => b)] : []) : g.some((b, i) => g.slice(i + 1).some(x => meet(b, x))) ? [g] : []))];
+}
+
+/**
+ * A host reads several tables in a set order, and the first to name a key takes it. The power bar's line reads the bar's
+ * own keys (the `bar` set's) before the line field's and the draft's tables, so a key the person's keymap gives a draft
+ * action that the bar already uses (alt+j scrolls its docs) does nothing in the bar. Built-in rows are the design (tab
+ * completes in the bar, indents elsewhere), so only a row of the keymap's is a fight: [the bar's binding, the rebind].
+ */
+const READ_FIRST_IN_HOST: Readonly<Record<string, readonly string[]>> = { bar: ["line", "draft"] };
+const hostFight = (g: readonly Binding[]) => g[0]!.scope in READ_FIRST_IN_HOST && g.length > 1 && !!g[1]!.yours && g[1]!.table !== undefined && READ_FIRST_IN_HOST[g[0]!.scope]!.includes(g[1]!.scope);
+function hostShadows(all: readonly Binding[]): Binding[][] {
+  const out: Binding[][] = [];
+  for (const [first, after] of Object.entries(READ_FIRST_IN_HOST)) for (const mine of all) {
+    if (!mine.yours || !after.includes(mine.scope) || mine.table === undefined) continue;
+    const over = all.find(x => x.scope === first && x.key === mine.key && x.id !== mine.id);
+    if (!over || out.some(g => g[0] === over && g[1]!.id === mine.id)) continue;
+    out.push([over, mine]);
+  }
+  return out;
 }
 
 /** Who wins a fight `conflicts` found, by the same lookup: a table's first row, the file's last entry. */
 export function fightOf(g: readonly Binding[]): { wins: string; loses: string[]; why: string } {
+  // A host's first-read table (the power bar's keys over the line's): the first of the group runs, the rebind never does there.
+  if (hostFight(g)) return { wins: g[0]!.id, loses: g.slice(1).map(b => b.id), why: `the power bar reads its own keys before the line's: ${g[1]!.cap} does nothing there` };
   const file = g[0]!.table === undefined;
   const w = file ? g.at(-1)! : g[0]!;
   // A first row that runs only on some tiles wins only there.

@@ -559,3 +559,14 @@ test("seeded notes someone edited stay their own rule: kept as written, and the 
   expect(store.get(seeded!.script.id)!.text).toContain("tools.artifact_deploy({ note: this.id })");
   expect(await kitOf(client)).toBeUndefined();
 });
+
+test("ep0ch ext add artifact-deploy, the command the install row shows, installs it where the row does: this outline's own folder", async () => {
+  const { root, client } = await fixture();
+  const { runExtCommand } = await import("../src/extension-install");
+  const logs: string[] = [], log = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.join(" ")); };
+  try { expect(await runExtCommand(["add", "artifact-deploy"], async () => client)).toBe(0); } finally { console.log = log; }
+  expect(logs.join("\n")).toContain(`installed artifact-deploy in ${join(root, "extensions", "artifact-deploy")}`);
+  expect(logs.join("\n")).toContain("service: artifact-deploy is active");
+  expect(existsSync(join(root, "user-extensions", "artifact-deploy"))).toBe(false);
+});

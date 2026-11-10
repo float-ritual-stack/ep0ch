@@ -192,3 +192,32 @@ test("a long menu item wraps and its second line chooses the same item", () => {
   p.key(click(6, 3), null);
   expect(said).toEqual([`chose ${label}`]);
 });
+
+describe("a picker with a line closes on the line's close key (PIE-1688)", () => {
+  test("edit.close moved to alt+q: the rename prompt keeps a stray esc and closes on alt+q, and its hint names alt+q", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { reloadKeymap, setKeys } = await import("../src/surface/keymap");
+    const { linePrompt } = await import("../src/surface/picker");
+    const was = process.env.EP0CH_STATE, state = mkdtempSync(join(tmpdir(), "ep0ch-picker-close-"));
+    process.env.EP0CH_STATE = state;
+    try {
+      setKeys("edit.close", ["alt+q"]); reloadKeymap();
+      const closed: string[] = [];
+      const p = linePrompt<null>({ name: "tile title", title: "Rename this tile", text: "Seed trays", doing: t => `rename it ${t}`, done: () => {} });
+      (p as unknown as { spec: { closed?: (h: null, how: string) => void } }).spec.closed = (_h, how) => closed.push(how);
+      p.key({ kind: "esc" }, null);
+      expect(closed).toEqual([]);
+      expect(p.hint()).toContain("alt+q");
+      expect(p.hint()).not.toMatch(/\besc close/);
+      const { escSays } = await import("../src/esc-rule");
+      expect(escSays(p.escCloses())).toBe("alt+q: the picker");   // the way-out on the hint row names it too
+      p.key({ kind: "alt", ch: "q" }, null);
+      expect(closed).toEqual(["esc"]);
+    } finally {
+      reloadKeymap(); if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
+      rmSync(state, { recursive: true, force: true }); reloadKeymap();
+    }
+  });
+});

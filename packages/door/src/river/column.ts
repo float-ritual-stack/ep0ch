@@ -581,7 +581,8 @@ export class RiverColumn extends ReaderPane {
     if (current && (this.surface.claims(k) || this.surface.imageKeyOf(k))) return super.key(k, desk);
     if (!held) {
       // A link or an element `[ ]` is on: ⏎ (and space on a step) are the surface's, as in any reader.
-      if ((this.linked() || current) && (k.kind === "enter" || k.kind === "alt-enter")) return super.key(k, desk);
+      // So is the ::button on the reading line, which ⏎ presses with no [ ] first (the surface's one reading position).
+      if ((this.linked() || current || (this.surface.msg?.id === this.noteOf()?.id && this.surface.buttonAtReading())) && (k.kind === "enter" || k.kind === "alt-enter")) return super.key(k, desk);
       if (current === "task" && c === " ") return super.key(k, desk);
       if (isDown(k) || isUp(k)) { this.run(desk, "column.select", { by: isDown(k) ? 1 : -1 }); return true; }
       if (k.kind === "pgdn" || k.kind === "pgup") { this.run(desk, "column.scroll", { by: (k.kind === "pgdn" ? 1 : -1) * pageRows(this.height - 1) }); return true; }
@@ -858,14 +859,14 @@ export class RiverColumn extends ReaderPane {
   /** `column.note`: the whole note the column shows, copied as the reader copies it (note.copy). */
   copyNote(actor: Actor, desk: DeskApi, source = false) {
     const m = this.noteOf();
-    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
+    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`, "not-found");
     return this.surface.copyNote(this.host(desk), actor, source);
   }
 
   /** `column.block`: a code block, quote or callout of the note the column shows, copied as the reader copies one (block.copy). */
   copyBlock(n: number | undefined, actor: Actor, desk: DeskApi) {
     const m = this.noteOf();
-    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
+    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`, "not-found");
     return this.surface.copyBlock(n, this.host(desk), actor);
   }
 

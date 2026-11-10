@@ -1951,7 +1951,7 @@ async function showInHerdrPane(
   const shown = await outliner(['link', uri, '--detail-client', detail, '--no-focus'])
   if (shown.exitCode === 0) return String(JSON.parse(shown.stdout)?.title ?? '')
   const reason = failureReasonOf(shown.stderr)
-  throw Error(isProtectedDestination(reason)
+  throw Error(isProtectedDestination(shown.stderr)
     ? 'the Outliner Detail beside you is mid-edit; finish or cancel it there'
     : reason || 'navigation failed')
 }

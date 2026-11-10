@@ -5,7 +5,7 @@ import type { Screen } from "./app";
 import type { AgentDrawer as Drawer, DrawerRun } from "./drawer";
 import type { Desk } from "./desk/desk";
 import { rawKey } from "./kbd";
-import { DOOR_ESC, ESC_DRAWER, ESC_DRAWER_KEYS, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
+import { asHintEsc, escWordOf, DOOR_ESC, ESC_DRAWER, ESC_DRAWER_KEYS, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
 import { runningModules } from "./door-modules";
 import { nothingToClose } from "./shell-keys";
 import { keyName } from "./surface/actions";
@@ -26,7 +26,7 @@ export class DoorEsc {
   next(): string | null { return escNext(DOOR_ESC, doorEscSteps(this.a)); }
   press(): void { escPress(DOOR_ESC, doorEscSteps(this.a)); }
   /** The key's work, for a click on the hint: what it closed. */
-  close(): string | null { const closes = this.next(); this.press(); this.a.redraw(); return closes; }
+  close(): string | null { const closes = this.next(); asHintEsc(() => this.press()); this.a.redraw(); return closes && escWordOf(closes).word; }
   private shown: string | null = null;
   /** The hint row's word for it. A strip's picker lists that row's own parts by their place and has its esc on its foot, so while one is open the row says what it said. */
   hint(): string | null { if (!this.a.strips.engaged) this.shown = this.next(); return this.shown; }

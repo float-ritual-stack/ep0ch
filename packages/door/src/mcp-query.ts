@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 // outline_query (PIE-648): the views' grammar over MCP. The expression is the saved views' (`[query::…]`, virtual
 // branches, ::graph-table): `type=outbox-item outbox=next`, `type=ticket NOT work-stage=done`; or a saved view by id.
 // The service answers it (`blocks.query`, `views.read`), through the same selection `ep0ch find --query/--view` runs
@@ -66,7 +67,7 @@ export interface QueryAsk {
 const inTool = (why: string) => why.replace(/--property-scope/g, "propertyScope").replace(/--query/g, "query").replace(/--sort/g, "sort").replace(/--direction/g, "direction").replace(/--under/g, "under").replace(/\n\s+\(.*lists them\)|\n\s+the grammar is.*$/gs, "");
 
 /** One page of what a query or a saved view holds, in the order the service gives them, as records. */
-export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAnswer | { error: string }> {
+export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAnswer | { error: string; kind?: RefusalKind }> {
   const picked = await selectNotes(board, {
     ids: [], words: [], dates: [], ...(a.query ? { query: a.query } : {}), ...(a.view ? { view: viewIdOf(a.view) } : {}),
     ...(a.sort ? { sort: a.sort.field, direction: a.sort.direction } : {}), ...(a.under ? { under: a.under } : {}),

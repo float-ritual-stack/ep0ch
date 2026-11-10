@@ -51,6 +51,9 @@ interface PagesState {
   demos: Record<string, { at: string; notes: Record<string, Seeded> }>;
 }
 
+/** The shell command that installs one of the repo's extensions: the one place it's spelled (the door and the hub page say it from here). */
+export const installCommand = (id: string): string => `ep0ch ext add ${id}`;
+
 /** An extension in the repo's folder that isn't installed here. */
 export interface AvailableExtension {
   readonly id: string;
@@ -62,6 +65,8 @@ export interface AvailableExtension {
   readonly door?: string;
   /** The screens it would add (PIE-1525), by name: a screen nobody has names this to install. */
   readonly screens?: readonly string[];
+  /** How it's installed from a shell: the command a client shows (and the `extensions.install` it runs is the same install). */
+  readonly install: string;
   /** What installing it gives you (PIE-1549): its README's opening, what it adds, its demo notes, what it needs. */
   readonly about: ExtensionAbout;
 }
@@ -405,7 +410,7 @@ export class ExtensionPages {
       try {
         const { manifest } = loadExtensionManifest({ manifestRaw: text, configRaw: "{}", origin: "user", directory: join(root, name), expectedId: name, idFrom: "the folder's name" }, { checkConfig: false });
         out.push({
-          id: name, name: manifest.name, version: manifest.version,
+          id: name, name: manifest.name, version: manifest.version, install: installCommand(name),
           ...(manifest.scripts?.length ? { scripts: manifest.scripts } : {}),
           ...(manifest.door ? { door: manifest.door } : {}),
           ...(manifest.screens?.length ? { screens: manifest.screens.map((screen) => screen.name) } : {}),
