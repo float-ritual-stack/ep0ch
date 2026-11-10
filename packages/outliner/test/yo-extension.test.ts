@@ -381,3 +381,40 @@ test("PIE-1722: a new ask in a note with eight answered asks is answered, and th
   expect(lines.indexOf("@yo how do I lift the barrow")).toBeLessThan(last);
   expect(lines[last + 1]).toBe("> [!note]+ @yo answered");
 }, 90_000);
+
+// PIE-1712: an answer fits the ask: the argument it names, the one key that presses it, and a button that gets there first.
+const SHELF_VIEW: ActionRecord = {
+  name: "shelf.view", summary: "change a shelf tile's view: step=<control> steps one", scope: "shelf",
+  keys: [{ keys: "s", does: "the next sort order", args: { step: "sort" } }, { keys: "K", does: "by kind, a kind at a time", args: { step: "kind" } }, { keys: "click", does: "on the status line" }],
+  args: { step: { type: "string", optional: true, about: "a control stepped to its next value: kind or sort" } },
+  examples: [{ act: "shelf.view step=kind", does: "groups the shelf by kind" }],
+};
+const SHED_SHELF: ActionRecord = { name: "shed.shelf", summary: "show this note's shelf in the shelf tile", scope: "note", opens: "shelf", args: {} };
+
+test("PIE-1712: the key line names only the key for the arguments, the button says what it does and gets to its tile first", () => {
+  expect(keysOf(SHELF_VIEW)).toBe("s · K · click");
+  expect(keysOf(SHELF_VIEW, 3, { step: "kind" })).toBe("K: by kind");
+  expect(quoted(SHELF_VIEW, { step: "kind" })[1]).toBe("keys: K: by kind");
+  expect(labelOf(SHELF_VIEW, "shelf.view step=kind")).toBe("▸ by kind");
+  expect(labelOf(SHELF_VIEW)).toBe("▸ view");
+  const { pathTo } = require("../extensions/yo/yo-line") as typeof import("../extensions/yo/yo-line");
+  const before = pathTo(SHELF_VIEW, [SHED_SHELF, SHELF_VIEW]);
+  expect(before).toEqual(["shed.shelf"]);
+  // Asked from a shelf tile, it's already there.
+  expect(pathTo(SHELF_VIEW, [SHED_SHELF, SHELF_VIEW], "shelf")).toEqual([]);
+  const line = buttonLine(SHELF_VIEW, pressLine(SHELF_VIEW, { step: "kind" }), "how do I find shelf items by a type", { before });
+  expect(line).toBe('::button{label="▸ by kind" act=["shed.shelf", "shelf.view step=kind", "ext.yo.remember act=shelf.view asked=find-shelf-items-by-type args=step:kind"]}');
+  // do it presses every step but the remember, in order; the answer is about shelf.view.
+  expect(buttonIn(`> ${line}`)).toEqual({ label: "▸ by kind", act: "shelf.view step=kind", steps: ["shed.shelf", "shelf.view step=kind"] });
+  // The model reads each argument and an example, so "by kind" can be filled.
+  const prompt = planPrompt({ asked: "how do I find shelf items by a type", question: true, candidates: [SHELF_VIEW], docs: [], habits: [] });
+  expect(prompt).toContain("shelf.view: change a shelf tile's view");
+  expect(prompt).toContain("args: step (a control stepped to its next value: kind or sort) e.g. shelf.view step=kind");
+});
+
+test("PIE-1712: asked how, the answer fills the argument the model read, names its one key and gets to the tile first", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift", args: { reach: "full" } });
+  const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow across the shed", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).toContain('act=["barrow.lift reach=full", "ext.yo.remember act=barrow.lift asked=lift-barrow-across-shed args=reach:full"]');
+}, 30_000);

@@ -597,7 +597,19 @@ export class Dispatcher {
     if (tile === undefined && typeof at === "object" && at.note && (this.showing(at.note) || !this.standing(at.actor, "tile"))) tile = at.note;
     if (req.tile !== undefined || tile === undefined) return req;
     const there = { ...req, tile };
-    return this.tileAction(there, made) ? there : req;
+    return this.tileAction(there, made) && this.fits(there) ? there : req;
+  }
+
+  /**
+   * Whether a tile set's action can run in the tile a press names: a backlinks action pressed in a reader can't, so it
+   * keeps its own default, the screen's backlinks tile (a button's `links` then `backlinks.view step=kind`, PIE-1712).
+   */
+  fits(req: ActRequest): boolean {
+    const r = this.owner(req);
+    if (r && !("set" in r)) { const to = r.delegate(req); return !to || to.fits(r.request ? r.request(req) : req); }
+    if (!r || r.takes !== "tile" || !r.in) return true;
+    const t = this.resolve(req.tile!)?.tile ?? this.tile(req.tile!);
+    return !t || r.in(t);
   }
 
   /** A tile showing `note` here, or on the screen this host hands its tile actions to (the door's shell to its desk). */

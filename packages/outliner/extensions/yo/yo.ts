@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
 import { failureWords, selfAnswer, selfAsk, settingsButton, TRY_PROMPT, triedLine } from "./yo-line";
-import { actPrompt, argsOf, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
+import { actPrompt, argsOf, pathTo, CLAUDE_LOGIN_FIX, notLoggedIn, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
 interface Input {
@@ -168,7 +168,9 @@ function pending(): { ask: string; button: { line: string; at?: number; label: s
 async function go() {
   const answer = pending(), button = answer?.button;
   if (!button) return ok({ message: "nothing to press yet", reply: "nothing of mine to press here: ask me how to do something first." });
-  const pressed = await press(button.act, button.label);
+  // The way there first (PIE-1712): each step pressed in order, as the button would; the last is the action asked about.
+  let pressed: Awaited<ReturnType<typeof press>> = { refused: "nothing to press" };
+  for (const step of button.steps ?? [button.act]) { pressed = await press(step, button.label); if ("refused" in pressed) break; }
   if ("refused" in pressed) {
     const said = `the door refused ${button.label}: ${pressed.refused}`;
     return ok(inThread() ? { reply: said } : { message: said.slice(0, 480), reply: withSteps([said]) });
@@ -188,9 +190,17 @@ async function go() {
 /** What the line says while the person keeps typing: the action and its first keys. */
 const said = (a: ActionRecord) => [a.name, keysOf(a, 2)].filter(Boolean).join(" · ");
 
-/** Quote one action: its two lines and its button. */
+/** Every action's record, once read: the way to an action's tile is another action's (`opens`). */
+let catalogRead: ActionRecord[] = [];
+/** The button for an action with these arguments, the one way every answer draws it: the steps that get to its tile first (PIE-1712). */
+function buttonFor(a: ActionRecord, asked: string, args?: Record<string, string>): string {
+  const before = pathTo(a, catalogRead, input.properties?.["ask-tile-kind"]?.[0]);
+  return buttonLine(a, pressLine(a, args), asked, { thread: inThread(), ...(tileFor(a) ? { tile: tileFor(a)! } : {}), ...(before.length ? { before } : {}) });
+}
+
+/** Quote one action: its two lines (the key for these arguments alone) and its button. */
 function quoteAnswer(a: ActionRecord, asked: string, args?: Record<string, string>, note?: string): string[] {
-  return [...quoted(a), buttonLine(a, pressLine(a, args), asked, { thread: inThread(), ...(tileFor(a) ? { tile: tileFor(a)! } : {}) }), ...(note ? [note] : [])];
+  return [...quoted(a, args), buttonFor(a, asked, args), ...(note ? [note] : [])];
 }
 
 /** yo's own page (PIE-1710): its README, read as an action's doc is; empty when it can't be read. */
@@ -210,20 +220,20 @@ async function respond() {
   }
   const tile = input.properties?.["ask-tile-kind"]?.[0];
   const known = await memories();
-  const actions = await catalog();
+  const actions = catalogRead = await catalog();
   steps.push(`read ${actions.length} actions' own docs`);
 
   const { hit, conflict } = recalled(known.filter(m => m.kind === "answer"), asked);
   if (conflict) {
     steps.push(`memory disagrees: ${conflict.map(m => m.text).join("; ")}`);
-    const named = conflict.flatMap(m => { const a = actions.find(x => x.name === m.action); return a ? [`\`${m.line}\`, for "${m.asked}"`, buttonLine(a, pressLine(a, argsOf(m.line)), m.asked, { thread: inThread() })] : []; });
+    const named = conflict.flatMap(m => { const a = actions.find(x => x.name === m.action); return a ? [`\`${m.line}\`, for "${m.asked}"`, buttonFor(a, m.asked, argsOf(m.line))] : []; });
     return ok({ message: "from memory: which one?", reply: withSteps(["you've used more than one for that. Which?", ...named]) });
   }
   const remembered = hit ? actions.find(a => a.name === hit.action) : undefined;
   if (remembered) {
     steps.push(`answered from memory: ${hit!.text}`);
-    const [quote, keys] = quoted(remembered);
-    return ok({ message: `from memory: ${said(remembered)}`, reply: withSteps([`${quote} · ${keys}`, buttonLine(remembered, pressLine(remembered, argsOf(hit!.line)), asked, { thread: inThread(), ...(tileFor(remembered) ? { tile: tileFor(remembered)! } : {}) })]) });
+    const [quote, keys] = quoted(remembered, argsOf(hit!.line));
+    return ok({ message: `from memory: ${said(remembered)}`, reply: withSteps([`${quote} · ${keys}`, buttonFor(remembered, asked, argsOf(hit!.line))]) });
   }
 
   const boost = tile ? wordsOf(tile) : [];
@@ -276,10 +286,12 @@ async function respond() {
   } catch (error) { return ok({ message: "not pressed", reply: withSteps([...quoteAnswer(action, asked, plan.args), `not pressed: ${firstLine(error)}`, settingsButton(inThread())]) }); }
   const line = pressLine(action, args);
   if (line.slots.length) return ok({ message: action.name, reply: withSteps(quoteAnswer(action, asked, args, `it needs ${line.slots.join(", ")}: press it and say.`)) });
-  const label = labelOf(action, line.line), pressed = await press(line.line, label);
+  const label = labelOf(action, line.line);
+  let pressed: Awaited<ReturnType<typeof press>> = { refused: "nothing to press" };
+  for (const step of [...pathTo(action, actions, tile), line.line]) { pressed = await press(step, label); if ("refused" in pressed) break; }
   if ("refused" in pressed) return ok({ message: "the door refused it", reply: withSteps([...quoteAnswer(action, asked, args), `the door refused it as yo: ${pressed.refused}`]) });
   await remember(asked, line.line);
-  return ok({ message: `✓ pressed ${label} as yo`, reply: withSteps([...quoted(action), doneRow(label, pressed.undo, reversible(action, pressed), pressed.changed)]) });
+  return ok({ message: `✓ pressed ${label} as yo`, reply: withSteps([...quoted(action, args), doneRow(label, pressed.undo, reversible(action, pressed), pressed.changed)]) });
 }
 
 try {

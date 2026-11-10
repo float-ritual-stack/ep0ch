@@ -116,7 +116,12 @@ export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
  * `on`, the one screen or tile these keys are that place's own, by the name `in:` filters it (`menu`: the main menu's
  * letters, matched by its own key code; `tune`): the keys window then never says they take a key anywhere else (PIE-1439).
  */
-export type KeyRow = { keys: string; does: string; says?: string; on?: string } | { via: string };
+/**
+ * One way to press an action: its keys and what they do. `args`: the arguments that key presses it with, when the action's
+ * keys differ by them (backlinks.view's K is step=kind): so a part answering "how do I group by kind" names that key alone
+ * (yo, PIE-1712).
+ */
+export type KeyRow = { keys: string; does: string; says?: string; on?: string; args?: Readonly<Record<string, string | number | boolean>> } | { via: string };
 /** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
 export type Keys = string | readonly KeyRow[];
 /** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */
@@ -145,6 +150,11 @@ export interface ActionDef<A, H> {
   touches: Touches;
   /** tile= names where something lands, rather than what this action works on. */
   landing?: true;
+  /**
+   * The kind of tile it brings onto the screen and aims at what it was pressed on (`links` opens the backlinks tile): the
+   * way to an action of that tile's scope from anywhere, which a part answering "how do I…" presses first (yo, PIE-1712).
+   */
+  opens?: string;
   /**
    * It works on the tile it is pressed in, as `^W g` or a click on its chip there would: with no tile=, a press made in a
    * reader (a button there, or in the answer tile beside it) names that reader, not the focused tile (Dispatcher.requestIn,
@@ -298,7 +308,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[]; /** The door's own words it takes besides `args` (ArgSpec.doorWord), by name. */ doorWords?: readonly string[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[]; /** The door's own words it takes besides `args` (ArgSpec.doorWord), by name. */ doorWords?: readonly string[]; /** The kind of tile it brings onto the screen (ActionDef.opens). */ opens?: string }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -340,7 +350,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
       // The door's own words are taken, never described as the part's (ArgSpec.doorWord).
       const all = Object.entries((d.args ?? {}) as Record<string, ArgSpec>), doorWords = all.filter(([, a]) => a.doorWord).map(([k]) => k);
       const args = doorWords.length ? Object.fromEntries(all.filter(([, a]) => !a.doorWord)) : d.args as Record<string, ArgSpec>;
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args, ...(doorWords.length ? { doorWords } : {}), scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args, ...(doorWords.length ? { doorWords } : {}), scope: this.scope, touches: d.touches, ...(d.opens ? { opens: d.opens } : {}), replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 

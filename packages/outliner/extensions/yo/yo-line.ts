@@ -5,15 +5,18 @@ export interface ActionRecord {
   name: string;
   summary: string;
   words?: string;
-  keys?: string | readonly ({ keys: string; does?: string } | { via: string })[];
+  keys?: string | readonly ({ keys: string; does?: string; args?: Readonly<Record<string, string | number | boolean>> } | { via: string })[];
   args?: Record<string, { type?: string; optional?: boolean; about?: string; choices?: readonly string[] }>;
+  examples?: readonly { act: string; does?: string }[];
+  /** The kind of tile it brings onto the screen (`links` opens the backlinks tile): the way to that tile's actions. */
+  opens?: string;
   person?: string;
   scope?: string;
   touches?: string;
 }
 export interface Memory { id: string; asked: string; action: string; line: string; kind: string; text: string }
 
-const STOP = new Set("a about again all am an and any are at be button can could do does for from get go going help how i if in into is it its just like make me my of on or please press put run set show so that the them then there this to up use want was way what when where which will with would you your yo".split(" "));
+const STOP = new Set("a about again all am an and any are at be button by can could do does for from get go going help how i if in into is it its just like make me my of on or please press put run set show so that the them then there this to up use want was way what when where which will with would you your yo".split(" "));
 
 /** The words of an ask that carry its meaning: lower case, without the small ones. */
 export function wordsOf(text: string): string[] {
@@ -32,9 +35,17 @@ export function quoteOf(a: ActionRecord, most = 110): string {
   return whole.slice(0, whole.lastIndexOf(" ", most));
 }
 
-/** Its keys, in the keycap spelling its own rows use: a key or a way per part. */
-export function keysOf(a: ActionRecord, most = 3): string {
+/** The key rows that press it with these arguments (backlinks.view step=kind is K), when its rows say (PIE-1712). */
+export function keyRowsFor(a: ActionRecord, given: Readonly<Record<string, string>>): { keys: string; does?: string }[] {
+  if (!a.keys || typeof a.keys === "string" || !Object.keys(given).length) return [];
+  return a.keys.flatMap(row => ("via" in row || !row.args || !Object.keys(row.args).length ? [] : Object.entries(row.args).every(([k, v]) => given[k] === String(v)) ? [row] : []));
+}
+
+/** Its keys, in the keycap spelling its own rows use: a key or a way per part; with arguments its rows name, only the key that presses those, and what it does (`K: by kind`). */
+export function keysOf(a: ActionRecord, most = 3, given: Readonly<Record<string, string>> = {}): string {
   if (!a.keys) return "";
+  const fit = keyRowsFor(a, given);
+  if (fit.length) return fit.map(r => (r.does ? `${r.keys}: ${r.does.split(",", 1)[0]}` : r.keys)).join(" · ");
   if (typeof a.keys === "string") return a.keys.split(";", 1)[0]!.split(/,\s+/).slice(0, most).join(" · ");
   return a.keys.flatMap(row => ("via" in row ? (row.via.includes("::button") ? [] : [row.via]) : [row.keys])).slice(0, most).join(" · ");
 }
@@ -53,6 +64,9 @@ export function labelOf(a: ActionRecord, line = a.name): string {
     const own = Object.entries(argsOf(m[2]!));
     if (own.every(([k, v]) => given[k] === v) && own.length > (best?.fits ?? -1)) best = { label: m[1]!, fits: own.length };
   }
+  // No button of its own for these arguments: the key row that presses them says what it does (`▸ by kind`, PIE-1712).
+  const row = best?.fits ? null : keyRowsFor(a, given)[0];
+  if (row?.does) return `▸ ${row.does.split(",", 1)[0]}`;
   return best?.label ?? `▸ ${a.name.split(".").at(-1)}`;
 }
 
@@ -79,14 +93,29 @@ export const argsWord = (line: string) => Object.entries(argsOf(line)).filter(([
 /** That word back as a line. */
 export const lineOf = (action: string, word = "") => [action, ...word.split(",").filter(Boolean).map(p => p.replace(":", "="))].join(" ");
 
-/** The line that draws the button; a press also tells yo it worked (`ext.yo.remember`). A comment draws no `::` line, so in a thread it's a link, naming the tile asked about. */
-export function buttonLine(a: ActionRecord, press: { line: string; slots: string[] }, asked: string, o: { thread?: boolean; tile?: string } = {}): string {
-  const label = labelOf(a, press.line), slug = slugOf(asked), slots = press.slots.map(s => ` ${s}=`).join("");
+/**
+ * The line that draws the button; a press also tells yo it worked (`ext.yo.remember`). A comment draws no `::` line, so in a
+ * thread it's a link, naming the tile asked about. `before`: the steps that get there first (`links`, which opens the
+ * backlinks tile backlinks.view works in, PIE-1712), pressed in order as one sequence.
+ */
+export function buttonLine(a: ActionRecord, press: { line: string; slots: string[] }, asked: string, o: { thread?: boolean; tile?: string; before?: readonly string[] } = {}): string {
+  const label = labelOf(a, press.line), slug = slugOf(asked), slots = press.slots.map(s => ` ${s}=`).join(""), before = o.before ?? [];
   if (o.thread && !press.slots.length) return `[${label}](act: ${press.line}${o.tile ? ` tile=${o.tile}` : ""})`;
   const word = argsWord(press.line);
-  return slug && !press.slots.length
-    ? `::button{label="${label}" act=["${press.line}", "ext.yo.remember act=${a.name} asked=${slug}${word ? ` args=${word}` : ""}"]}`
+  const steps = [...before, press.line, ...(slug && !press.slots.length ? [`ext.yo.remember act=${a.name} asked=${slug}${word ? ` args=${word}` : ""}`] : [])];
+  return !press.slots.length && steps.length > 1
+    ? `::button{label="${label}" act=[${steps.map(l => `"${l}"`).join(", ")}]}`
     : `::button{label="${label}" act="${press.line}"${slots}}`;
+}
+
+/**
+ * The steps that get to an action's tile from where it was asked (PIE-1712): an action of a tile's own (its scope is a
+ * tile kind) asked from elsewhere is pressed after the action that opens that kind (ActionRecord.opens), when one does.
+ */
+export function pathTo(a: ActionRecord, actions: readonly ActionRecord[], from?: string): string[] {
+  if (!a.scope || a.scope === from) return [];
+  const opener = actions.find(x => x.opens === a.scope && !Object.values(x.args ?? {}).some(arg => !arg.optional));
+  return opener ? [opener.name] : [];
 }
 
 /**
@@ -111,24 +140,34 @@ export function memoryStep(reason: string, outline: string, doing: "read" | "wri
   return doing === "read" ? `memory skipped (${reason})` : `not remembered (${reason})`;
 }
 
-/** The two quoted lines of an answer. */
-export function quoted(a: ActionRecord): string[] {
-  const keys = keysOf(a);
+/** The two quoted lines of an answer: with arguments its keys name, the key for those alone (`keys: K: by kind`). */
+export function quoted(a: ActionRecord, given: Readonly<Record<string, string>> = {}): string[] {
+  const keys = keysOf(a, 3, given);
   return [`\`${a.name}\`: "${quoteOf(a)}"`, keys ? `keys: ${keys}` : `no keys: \`ep0ch act ${a.name}\`, or the button`];
 }
 
-/** The action a button line presses and its label: the first act of one yo drew, as a line or as a thread's link. */
-export function buttonIn(line: string): { label: string; act: string } | null {
-  const m = /::button\{label="([^"]*)" act=(?:\["([^"]*)"|"([^"]*)")/.exec(line);
-  // Its settings button (PIE-1709) is a way to fix yo, never the answer: `do it` doesn't press it.
-  if (m) return (m[2] ?? m[3]) === SETTINGS_ACT ? null : { label: m[1]!, act: m[2] ?? m[3]! };
+/**
+ * The action a button line presses and its label: the act of one yo drew (as a line or as a thread's link), and `steps`,
+ * every line it presses in order but yo's own remember (the way there first, PIE-1712). `act` is the action asked about.
+ */
+export function buttonIn(line: string): { label: string; act: string; steps?: string[] } | null {
+  const m = /::button\{label="([^"]*)" act=(?:\[((?:"[^"]*"(?:,\s*)?)+)\]|"([^"]*)")/.exec(line);
+  if (m) {
+    const all = m[2] !== undefined ? [...m[2].matchAll(/"([^"]*)"/g)].map(x => x[1]!) : [m[3]!];
+    const steps = all.filter(l => !l.startsWith("ext.yo.remember"));
+    const named = /ext\.yo\.remember act=(\S+)/.exec(all.find(l => l.startsWith("ext.yo.remember")) ?? "")?.[1];
+    const act = steps.find(l => l.split(/\s/, 1)[0] === named) ?? steps.at(-1) ?? all[0]!;
+    // Its settings button (PIE-1709) is a way to fix yo, never the answer: `do it` doesn't press it.
+    if (act === SETTINGS_ACT) return null;
+    return { label: m[1]!, act, ...(steps.length > 1 ? { steps } : {}) };
+  }
   const link = /\[([^\]]+)\]\(act: ([^)]+)\)/.exec(line);
   return link && !link[2]!.startsWith("ext.undo") && link[2] !== SETTINGS_ACT ? { label: link[1]!, act: link[2]! } : null;
 }
 const SETTINGS_ACT = "ext.yo.settings";
 
 /** The newest button a yo answer drew in these lines, and its line as written. */
-export function lastButton(lines: readonly string[]): { line: string; label: string; act: string } | null {
+export function lastButton(lines: readonly string[]): { line: string; label: string; act: string; steps?: string[] } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const found = buttonIn(lines[i]!);
     if (found) return { line: lines[i]!, ...found };
@@ -160,7 +199,7 @@ export function asksHow(request: string): boolean {
  * yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note.
  * The button says which line it is (`at`, from 0): the same answer can be written above it word for word (PIE-1632).
  */
-export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; at: number; label: string; act: string } | null } | null {
+export function lastAnswer(lines: readonly string[]): { ask: string; button: { line: string; at: number; label: string; act: string; steps?: string[] } | null } | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!/^>\s*\[!note\][+-]?\s+@yo answered\s*$/.test(lines[i]!)) continue;
     let end = i + 1;
@@ -229,6 +268,15 @@ export type Plan =
   | { kind: "chat"; line: string }
   | { kind: "none"; line: string };
 
+/** An action's arguments as the model reads them (PIE-1712): each name, its choices or what it takes, and an example line, so an ask that names a value ("by kind") fills it. */
+function argsLine(a: ActionRecord): string {
+  const args = Object.entries(a.args ?? {});
+  if (!args.length) return "";
+  const each = args.slice(0, 8).map(([k, v]) => `${k}${v.choices?.length ? ` (${v.choices.join("|")})` : v.about ? ` (${v.about.slice(0, 90)})` : ""}`);
+  const example = a.examples?.find(e => e.act.split(/\s/, 1)[0] === a.name);
+  return ` args: ${each.join("; ")}${example ? ` e.g. ${example.act}` : ""}`;
+}
+
 /** The prompt that picks. */
 export function planPrompt(o: { asked: string; question?: boolean; candidates: readonly ActionRecord[]; docs: readonly string[]; habits: readonly string[]; tile?: string }): string {
   return [
@@ -239,10 +287,10 @@ export function planPrompt(o: { asked: string; question?: boolean; candidates: r
     '{"kind":"chat","line":"<one short line in character>"}  it is banter, not a question',
     '{"kind":"none","line":"<one line: what you do not know>"}  nothing here answers it',
     'An ask "about this tile" means: what is the most useful thing to know here; pick the action that is most useful on that kind of tile, as a quote.',
-    "args only when the ask says the value. Never invent an action. Never answer about building features or the repository: that is kind none.",
+    "args: fill the ones the ask names a value for (\"by kind\" is step=kind where step takes kind), and only those. Never invent an action. Never answer about building features or the repository: that is kind none.",
     ...(o.tile ? [`ASKED FROM: a ${o.tile} tile`] : []),
     ...(o.habits.length ? ["HABITS:", ...o.habits] : []),
-    "ACTIONS:", ...o.candidates.map(a => `${a.name}: ${a.summary.slice(0, 200)}${keysOf(a) ? ` [${keysOf(a)}]` : ""}${Object.keys(a.args ?? {}).length ? ` args: ${Object.keys(a.args!).join(", ")}` : ""}`),
+    "ACTIONS:", ...o.candidates.map(a => `${a.name}: ${a.summary.slice(0, 200)}${keysOf(a) ? ` [${keysOf(a)}]` : ""}${argsLine(a)}`),
     ...(o.docs.length ? ["DOCS:", ...o.docs] : []),
     "ASK:", o.asked,
   ].join("\n");
