@@ -764,12 +764,14 @@ export function docks<I>(n: LNode<I>): Dock<I>[] { return [...(n.t === "dock" ? 
 /**
  * `root` with tiles `kept` in the one dock that keeps work (`keeps`, PIE-1571): a rebuild's running programs it has no place
  * for. What an earlier rebuild kept is in it already, so they join it, the newest the tab in front (PIE-1575); with none
- * yet, a shut dock at the right edge is made for them.
+ * yet, a shut dock at the right edge is made for them, the first of them in front (PIE-1692).
  */
 export function keptInDock<I>(root: LNode<I>, kept: readonly I[]): LNode<I> {
-  const into = docks(root).find(d => d.keeps), tabs = (ids: I[]): LNode<I> => (ids.length > 1 ? { t: "tabs", ids, active: ids.length - 1 } : leaf(ids[0]!));
+  const into = docks(root).find(d => d.keeps);
+  const tabs = (ids: I[], front = 0): LNode<I> => (ids.length > 1 ? { t: "tabs", ids, active: front } : leaf(ids[0]!));
   if (!into) return splitOf("row", [root, { t: "dock", kid: tabs([...kept]), edge: "right", open: false, keeps: true }], [0.7, 0.3]);
-  into.kid = into.kid.t === "leaf" || into.kid.t === "tabs" ? tabs([...leaves(into.kid), ...kept]) : splitOf("col", [into.kid, tabs([...kept])], [0.5, 0.5]);
+  const ids = [...leaves(into.kid), ...kept];
+  into.kid = into.kid.t === "leaf" || into.kid.t === "tabs" ? tabs(ids, ids.length - 1) : splitOf("col", [into.kid, tabs([...kept])], [0.5, 0.5]);
   return root;
 }
 /** The tiles of the dock that keeps work when they're all `root` holds (PIE-1663: a group whose last tile left), else undefined. */

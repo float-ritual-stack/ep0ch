@@ -1036,7 +1036,7 @@ export class App implements Ctx {
     const screens = [...this.stack, ...this.background];
     if (e.ended) {
       INVITES.spendRun(e.ended.run);
-      if (!e.ended.undo) EXT_UNDO.dropWhere(u => u.undo === e.ended!.run); // nothing to undo (PIE-1678): no ctrl+z step left behind
+      if (e.ended.reason === "done" && !e.ended.undo) EXT_UNDO.dropWhere(u => u.undo === e.ended!.run); // done with nothing to undo (PIE-1678); a failed or stopped run keeps its step
       for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.sequence ? "done" : e.ended.reason);
       pressEnded(e.ended.run, e.ended.reason, e.ended.message, () => this.redraw());
       if (e.ended.targetClientId === this.board.clientId) {

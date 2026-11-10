@@ -1147,8 +1147,8 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   "note.move.undo": def({
     ...NOTE_MOVE_UNDO,
     async run({ id }, { list, ctx }, actor) {
-      if (!(list instanceof MessageList)) throw new ActionRefused("this list has no notes to move");
-      return list.move({ id, undo: true }, ctx, actor);
+      if (!(list instanceof MessageList) || !(id ?? list.lastMoved)) throw new ActionRefused(list instanceof MessageList ? "no move made in this list to undo; note.move.undo id=<note> names one" : "this list has no notes to move");
+      return list.move({ id: id ?? list.lastMoved, undo: true }, ctx, actor);
     },
   }),
   "list.select": def({
@@ -1510,7 +1510,7 @@ function mergeOverlays(list: Overlay[]): Overlay[] {
 export class MessageList extends BbsList {
   private readonly rowsView = new RowView();
   private items: Msg[] | null = null;
-  private lastMoved?: string;
+  lastMoved?: string; // the note this list moved last for the person: what its ctrl+z and a bare note.move.undo put back
   private moveDown: { msg: Msg; y: number } | null = null;
   async move(args: MoveArgs & { id?: string; undo?: boolean }, ctx: Ctx, actor: Actor) {
     const selected = this.items?.[this.sel];

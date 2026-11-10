@@ -512,6 +512,17 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     }
   }, 30_000);
 
+  test("a run that failed or was stopped keeps its ctrl+z step; one that ended with nothing to undo drops it (PIE-1678 review)", async () => {
+    const { EXT_UNDO } = await import("../../src/extensions");
+    const ended = (run: string, reason: "done" | "failed" | "stopped") => app.event({ domain: "script", ended: { run, reason, message: "made-up run", written: [], requestedBy: { author: "user" }, undo: false } } as never);
+    for (const [run, reason, kept] of [["run-failed", "failed", true], ["run-stopped", "stopped", true], ["run-nothing", "done", false]] as const) {
+      EXT_UNDO.push({ undo: run, label: "made up", by: "you", context: "note-x" });
+      ended(run, reason);
+      expect(!!EXT_UNDO.last("you", "note-x") && EXT_UNDO.last("you", "note-x")!.undo === run).toBe(kept);
+      EXT_UNDO.dropWhere(u => u.undo === run);
+    }
+  });
+
   test("ctrl+z after an alt press takes back the words and the title they gave; an agent's slot comes back with sources.undo (PIE-1666)", async () => {
     const { note, reader, line } = await pressNote();
     const was = await title();

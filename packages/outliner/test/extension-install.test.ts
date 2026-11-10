@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addExtension } from "../src/extension-install";
+import { addExtension, runExtCommand } from "../src/extension-install";
 import { EXT_FLAGS } from "../src/extension-flags";
 import { ResourceExtensionRuntime } from "../src/resource-extensions";
 import { OutlinerClient } from "../src/client";
@@ -407,17 +407,39 @@ test("ext update <name> looks where remove does; --all still takes every folder"
   expect(existsSync(other)).toBe(true);
 }));
 
+// In process: a spawned CLI per flag (14 of them) took the whole 5 s budget at normal load (PIE-1692). One spawn
+// still shows the real `ep0ch ext` reaches the same parser.
 test("every flag ext remove and ext update list parses, and a flag not listed is refused", withScratch(async (root) => {
   for (const [verb, name] of [["remove", "absent"], ["update", "moon"], ["add", "absent"]] as const) {
     for (const flag of EXT_FLAGS[verb]) {
       const args = [verb, name, `--${flag.name}`, ...(flag.value ? [flag.name === "demo" ? "keep" : join(root, "nowhere")] : [])];
       if (flag.name === "all") args.splice(1, 1);
-      const result = await extFrom(root, root, args);
-      expect(result.output).not.toContain("Unknown option");
+      expect(await extHere(root, args)).not.toContain("Unknown option");
     }
-    expect((await extFrom(root, root, [verb, name, "--no-such-flag"])).output).toContain("Unknown option");
+    expect(await extHere(root, [verb, name, "--no-such-flag"])).toContain("Unknown option");
   }
+  expect((await extFrom(root, root, ["remove", "absent", "--no-such-flag"])).output).toContain("Unknown option");
 }));
+
+/** `ext …` as extFrom runs it, in this process: its output, with no service answering. */
+async function extHere(root: string, args: string[]): Promise<string> {
+  const env = { EP0CH_WS: "", EP0CH_MACHINE: "", EP0CH_OUTLINES: join(root, "outlines"), OUTLINER_EXTENSIONS_DIR: join(root, "user-extensions"),
+    EP0CH_SOCKET: join(root, "absent.sock"), XDG_CONFIG_HOME: join(root, "config") };
+  const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+  const cwd = process.cwd(), log = console.log, error = console.error;
+  const output: string[] = [];
+  Object.assign(process.env, env);
+  process.chdir(root);
+  console.log = console.error = (...parts: unknown[]) => { output.push(parts.join(" ")); };
+  try {
+    await runExtCommand(args, async () => null);
+  } finally {
+    console.log = log; console.error = error;
+    process.chdir(cwd);
+    for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  return output.join("\n");
+}
 
 // PIE-1620, seen on a running scratch host: `ext add --outline-folder` asked the service of the outline this shell names,
 // so the folder's own outline loaded the rule on its watcher's time. A note written in that gap became the rule's baseline

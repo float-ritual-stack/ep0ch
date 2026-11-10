@@ -248,6 +248,13 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     await waitFor(async () => (await board.get(beta.id))?.parentId === alpha.id, "drag reply under row");
     key({ kind: "char", ch: "z", ctrl: true });
     await waitFor(async () => (await board.get(beta.id))?.parentId === parent.id, "undo reply drag");
+    // note.move.undo with no id takes back the list's last move, whichever row is lit (CodeRabbit on PR #1396).
+    list.render(list.ctx!);
+    mouse("down", 30, 5); mouse("drag", 30, 6); mouse("up", 30, 6);
+    await waitFor(async () => (await board.get(beta.id))?.parentId === alpha.id, "drag reply under row again");
+    list.sel = (list.listRows() ?? []).findIndex(r => r.id === alpha.id);
+    await app.dispatch.act({ action: "note.move.undo" }, { kind: "user" });
+    await waitFor(async () => (await board.get(beta.id))?.parentId === parent.id, "note.move.undo with no id undoing the last move");
     app.pop();
   }, 60_000);
 

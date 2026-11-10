@@ -231,8 +231,9 @@ export const COMMENT_DEFS = {
   }),
   "comment.close": def({
     summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)",
-    // Esc is comment.escape's key (PIE-1667): it closes through this action once nothing is unsent, so this says that, not esc again.
-    keys: [{ via: "esc runs comment.escape, which closes the comment this way when nothing is unsent (esc twice puts typed text aside first)" }],
+    // Esc is meant (PIE-1667): in the thread list and the passage picker esc runs this; in a comment being written it runs
+    // comment.escape, which closes through this once nothing is unsent. The rows say which.
+    keys: [{ keys: "esc", does: "in the thread list or the passage picker" }, { via: "esc in a comment being written runs comment.escape, which closes it this way when nothing is unsent (esc twice puts typed text aside first)" }],
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
     examples: [
