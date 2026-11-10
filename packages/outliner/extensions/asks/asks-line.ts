@@ -156,3 +156,11 @@ export function unchangedLines(before: string, after: string): Set<number> {
   }
   return new Set([...kept].filter(i => now[i]));
 }
+
+/**
+ * PIE-1708: a `claude` with no login says so on stdout ("Not logged in · Please run /login", inside its JSON envelope
+ * with --output-format json) and exits 1. The host gives every extension the login `with-secrets` holds; this names the
+ * command that stores one, in place of "exited 1".
+ */
+export const CLAUDE_LOGIN_FIX = "claude isn't logged in where the outline host runs; store its login: with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN";
+export const notLoggedIn = (out: string, err: string) => /\bNot logged in\b/.test(`${out}\n${err}`);

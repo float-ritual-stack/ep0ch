@@ -218,11 +218,11 @@ test("a working reply a stopping service cuts off says so, with what it had writ
   expect(replies.map(r => r.body)).toEqual([`@margin was cut off: the outline service stopped while it worked · ask again with @margin · before that it wrote a note: ((${lantern!.id}|Lantern plugin))`]);
 });
 
-test("an answer past its deadline says so in the thread, with where to raise it; an agent may have up to 2h, anything else 5m (PIE-1452)", async () => {
+test("an answer past its deadline says so in the thread, in the person's words; an agent may have up to 2h, anything else 5m (PIE-1452, PIE-1713)", async () => {
   const { comment, answers } = await setup({ job: 1500, deadline: "1s" });
   const id = await comment("ask", "soil pH", "@margin make a page for each plugin");
   const said = await until("the deadline said", async () => (await answers(id))[0], 15_000);
-  expect(said.body).toBe("@margin couldn't answer: stopped after 1s, its deadline: raise agents/margin/deadline in Marginalia's extension.json (up to 2h)");
+  expect(said.body).toMatch(/^@margin took longer than its 1 s on this \d+-word note and was stopped: ask it about a shorter passage$/);
   const { loadExtensionManifest } = await import("../src/extension-manifest");
   const manifest = (agentDeadline: string, deadline = "2m") => ({ directory: "/made-up/lamp", origin: "user" as const, configRaw: "{}", expectedId: "lamp", idFrom: "the folder's name",
     manifestRaw: JSON.stringify({ contract: 2, id: "lamp", version: 1, name: "Lamp", run: ["true"], deadline, agents: [{ name: "lamp", description: "a lamp", effects: "spend", deadline: agentDeadline }] }) });
