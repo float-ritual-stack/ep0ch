@@ -5,10 +5,10 @@ import type { Screen } from "./app";
 import type { AgentDrawer as Drawer, DrawerRun } from "./drawer";
 import type { Desk } from "./desk/desk";
 import { rawKey } from "./kbd";
-import { asHintEsc, escWordOf, DOOR_ESC, ESC_DRAWER, ESC_DRAWER_KEYS, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
+import { asHintEsc, escByHint, escWordOf, DOOR_ESC, ESC_DRAWER, ESC_DRAWER_KEYS, ESC_KEY, ESC_TAKEN, escNext, escPress, rungOf, type EscRung, type EscSteps } from "./esc-rule";
 import { runningModules } from "./door-modules";
 import { nothingToClose } from "./shell-keys";
-import { keyName } from "./surface/actions";
+import { keyCaption, keyName } from "./surface/actions";
 import { layerEntry } from "./surface/keymap";
 import { scriptBindings } from "./extensions";
 
@@ -24,7 +24,16 @@ export const ESC_SPENT_MS = 600;
 export class DoorEsc {
   constructor(private readonly a: DoorEscHost) {}
   next(): string | null { return escNext(DOOR_ESC, doorEscSteps(this.a)); }
-  press(): void { escPress(DOOR_ESC, doorEscSteps(this.a)); }
+  /**
+   * The key's work. A typed Esc whose next rung closes by another key now (the person's keymap moved `edit.close` to
+   * alt+q) closes nothing there and says where it went, as a moved key does in a line (PIE-1688).
+   */
+  press(): void {
+    const closes = escByHint() ? null : this.next();
+    escPress(DOOR_ESC, doorEscSteps(this.a));
+    const { key, word } = closes ? escWordOf(closes) : { key: "esc", word: "" };
+    if (key !== "esc") this.a.flash(`esc no longer closes ${word}: your keymap gives it ${keyCaption(key)} (? shows the keys)`);
+  }
   /** The key's work, for a click on the hint: what it closed. */
   close(): string | null { const closes = this.next(); asHintEsc(() => this.press()); this.a.redraw(); return closes && escWordOf(closes).word; }
   private shown: string | null = null;

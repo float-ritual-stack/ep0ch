@@ -26,6 +26,26 @@ export function kbdWanted(env: Record<string, string | undefined> = process.env)
   return !(v === "legacy" || v === "off" || v === "0" || v === "no");
 }
 
+/**
+ * ESC and one of these is alt and that key, from a terminal without the protocol (KeyDecoder's legacy read). `[ O P _ ]`
+ * start CSI, SS3, DCS, APC and OSC sequences, so an ESC before one of them keeps that meaning; other punctuation reads as
+ * Esc, then the key.
+ */
+export const LEGACY_ALT = /^[A-NQ-Za-z0-9?/<>{}']$/;
+/**
+ * Why a terminal without the protocol can't send the key named `name` (its one name: `alt+[`, `super+k`, `shift+enter`),
+ * or null when every terminal can: the keys window says it before a rebind lands, so such a key is never offered as free
+ * (PIE-1688). Read from the decoder's own rule (`LEGACY_ALT`), never a list of its own.
+ */
+export function needsKeyReports(name: string): string | null {
+  const only = "reaches the door only from a terminal speaking the Kitty keyboard protocol (Ghostty, kitty, WezTerm)";
+  const alt = /^alt\+(.)$/u.exec(name);
+  if (alt && !LEGACY_ALT.test(alt[1]!)) return `${name} ${only}; any other sends esc, then ${alt[1]}`;
+  if (name.startsWith("super+")) return `${name} (cmd) ${only}; any other never sends it`;
+  if (name === "shift+enter" || name === "ctrl+enter") return `${name} ${only}; any other sends ⏎`;
+  return null;
+}
+
 /** One key report. `mods`: the modifier bits (1 shift, 2 alt, 4 ctrl, 8 super, 64 caps lock, 128 num lock); 0 none. */
 export interface KeyReport {
   code: number; shifted?: number; base?: number; mods: number; event: number; eventType?: true;

@@ -178,7 +178,7 @@ export class PowerBar {
 
   /** Commands, query words and outline triggers share the editor's completer; masked answers never copy. */
   private line(text: string): LineField {
-    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: this.grammar() }, id: "power-bar" });
+    const l = new LineField(text, false, { complete: this.scope === "ask" ? questionCompletion() ?? { grammar: "act" } : { grammar: this.grammar() }, id: "power-bar", drawsNote: true });
     l.completed = item => { if (item.querySuggestion) this.acceptedWhere = item.querySuggestion.where; this.refresh(); };
     l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
     return l;
