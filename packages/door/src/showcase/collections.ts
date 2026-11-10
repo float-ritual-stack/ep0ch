@@ -4,12 +4,13 @@ import { GLASS_SECTION } from "./glass";
 import { PEEK_SECTION } from "./peek";
 import { IN_PLACE_SECTION } from "./in-place";
 import { SAME_KEYS_SECTION } from "./same-keys";
+import { PLAN_PREVIEW_SECTION } from "./plan-preview";
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { leaf, pair } from "../desk/screen-layout";
 import { deskOf, type Section } from "./showcase";
 
 export const COLLECTION_SECTIONS: Section[] = [
-  PEEK_SECTION, GLASS_SECTION, BESIDE_SECTION, IN_PLACE_SECTION, SAME_KEYS_SECTION,
+  PEEK_SECTION, GLASS_SECTION, BESIDE_SECTION, IN_PLACE_SECTION, SAME_KEYS_SECTION, PLAN_PREVIEW_SECTION,
   {
     key: "quiet-collection", need: "read what is waiting, with controls quiet until wanted",
     part: "the collection's own header and footer, ListView's title and pick, and the existing settings card",

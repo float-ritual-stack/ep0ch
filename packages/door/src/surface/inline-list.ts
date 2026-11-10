@@ -6,7 +6,8 @@ import type { LinkTarget } from "../refs";
 
 export const inlineRowKey = (key: number, target: LinkTarget) => `inline:${key}:${target.listRow ? JSON.stringify([target.listRow.row, target.listRow.group]) : [target.block, target.fragment, target.resourceRef, target.url, target.query].join("|")}`;
 
-export type InlineListDraw = (lines: string[], width: number) => string[];
+/** `height`: the window's rows (the frame's whole body for a component drawn whole, PIE-1720); left out, a window over its rows. */
+export type InlineListDraw = (lines: string[], width: number, height?: number) => string[];
 
 /** The reader lends every inline list the same viewport; row targets still belong to its elements. */
 export class InlineList {

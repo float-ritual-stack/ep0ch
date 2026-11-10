@@ -4,9 +4,10 @@
 // re-deriving; Detail's own embed projection (detail-embeds.ts) takes its limits and wording from here.
 import { checklistItems } from "./checklist-items";
 import { codeLineSet, fragmentPresentationText, isFragmentId, resolveFragmentSlice, type FragmentKind } from "./fragments";
-import { embedOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
+import { embedOccurrences, qualifiedReference, queryEmbedQuestion } from "@ep0ch/outline-core/link-syntax";
+import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { blockDisplayTitle } from "./references";
-import type { Block, ChecklistItem } from "./types";
+import type { Block, BlockSearchQuery, ChecklistItem } from "./types";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
 
@@ -128,8 +129,28 @@ export function readFragment(block: Pick<Block, "id" | "text" | "revision">, fra
   };
 }
 
-/** A target to project: `!((blockId))` or `!((blockId^fragmentId))`. */
+/** A target to project: `!((blockId))` or `!((blockId^fragmentId))`, a page's `[[page]]` or a query's `?query` (PIE-1720). */
 export interface TransclusionTarget { blockId: string; fragmentId?: string }
+
+/**
+ * What a read's loader answers for a target: its note, null when there is none, or (a target the service resolves,
+ * PIE-1720) why none is there, said after MISSING TARGET (`no note matches type=plan`).
+ */
+export type EmbedLoad = Block | null | { missing: string };
+const missingWhy = (load: EmbedLoad): load is { missing: string } => !!load && "missing" in load;
+
+/**
+ * The note a query embed shows (`?type=plan sort: day desc`, PIE-1720), asked of `store`: the first its query matches,
+ * in its sort (the newest edited when it names none), `this` the note the embed is read in, tools' bookkeeping left
+ * out as a view leaves it; or why there is none (the service's hint for a key nobody has, else that nothing matches).
+ * Undefined for a target that isn't a query.
+ */
+export function queryEmbedLoad(store: { queryBlocks(q: BlockSearchQuery): { blocks: readonly { id: string }[]; hint?: string }; get(id: string): Block | null }, target: string, host?: string): EmbedLoad | undefined {
+  const question = queryEmbedQuestion(target, host);
+  if (!question) return undefined;
+  const answer = store.queryBlocks({ ...question, machinery: DEFAULT_MACHINERY });
+  return answer.blocks[0] ? store.get(answer.blocks[0].id) : { missing: answer.hint ?? `no note matches ${question.where}` };
+}
 
 /**
  * One projected embed. A ready one names its target block (sent once in `TransclusionRead.blocks`: the
@@ -214,7 +235,7 @@ const refKey = (t: TransclusionTarget) => `${qualifiedReference(t.blockId).targe
  * sibling places is fine. Depth, a document's embed count and the read's budget each fail at the embed
  * that crosses them, never blanking the rest.
  */
-export function readTransclusions(load: (blockId: string) => Block | null, targets: readonly TransclusionTarget[], options: TransclusionOptions = {}): TransclusionRead {
+export function readTransclusions(load: (blockId: string) => EmbedLoad, targets: readonly TransclusionTarget[], options: TransclusionOptions = {}): TransclusionRead {
   const reads = projectTransclusions(targets, options);
   let step = reads.next();
   while (!step.done) {
@@ -225,7 +246,7 @@ export function readTransclusions(load: (blockId: string) => Block | null, targe
 }
 
 /** The host can read another machine without changing projection, cycle or budget rules. */
-export async function readTransclusionsAsync(load: (blockId: string) => Promise<Block | null>, targets: readonly TransclusionTarget[], options: TransclusionOptions = {}): Promise<TransclusionRead> {
+export async function readTransclusionsAsync(load: (blockId: string) => Promise<EmbedLoad>, targets: readonly TransclusionTarget[], options: TransclusionOptions = {}): Promise<TransclusionRead> {
   const reads = projectTransclusions(targets, options);
   let step = reads.next();
   while (!step.done) {
@@ -235,7 +256,7 @@ export async function readTransclusionsAsync(load: (blockId: string) => Promise<
   return step.value;
 }
 
-function* projectTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): Generator<string, TransclusionRead, Block | null> {
+function* projectTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): Generator<string, TransclusionRead, EmbedLoad> {
   if (!Array.isArray(targets)) throw new Error("transclusions.read needs targets: [{blockId, fragmentId?}]");
   if (targets.length > 64) throw new Error("transclusions.read takes at most 64 targets");
   for (const t of targets) {
@@ -250,8 +271,8 @@ function* projectTransclusions(targets: readonly TransclusionTarget[], options: 
   const checklists: Record<string, TransclusionStep[]> = {};
   let bytes = 0;
   let nodes = 0;
-  const cached = new Map<string, Block | null>();
-  function* project(t: TransclusionTarget, depth: number, path: readonly string[]): Generator<string, TransclusionNode, Block | null> {
+  const cached = new Map<string, EmbedLoad>();
+  function* project(t: TransclusionTarget, depth: number, path: readonly string[]): Generator<string, TransclusionNode, EmbedLoad> {
     const base = { blockId: t.blockId, ...(t.fragmentId ? { fragmentId: t.fragmentId } : {}), depth };
     dependencies.add(t.blockId);
     if (path.includes(refKey(t))) {
@@ -261,7 +282,9 @@ function* projectTransclusions(targets: readonly TransclusionTarget[], options: 
     let block: Block | null;
     try {
       if (!cached.has(t.blockId)) cached.set(t.blockId, yield t.blockId);
-      block = cached.get(t.blockId)!;
+      const loaded = cached.get(t.blockId)!;
+      if (missingWhy(loaded)) return { ...base, status: "missing", message: `${TRANSCLUSION_WORDING.missing} · ${loaded.missing}` };
+      block = loaded;
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").slice(0, 240);
       return { ...base, status: "failed", message: TRANSCLUSION_WORDING.failed(message) };
@@ -279,7 +302,7 @@ function* projectTransclusions(targets: readonly TransclusionTarget[], options: 
       bytes += withSteps;
       sent[block.id] = block;
     }
-    // A page embed (`[[page]]`, PIE-1247) is its note: embedding a note above it again is a cycle whichever way it's named.
+    // A page embed (`[[page]]`, PIE-1247) or a query's (`?query`, PIE-1720) is its note: embedding a note above it again is a cycle whichever way it's named.
     const resolvedKey = refKey({ blockId: block.id, ...(t.fragmentId ? { fragmentId: t.fragmentId } : {}) });
     if (block.id !== t.blockId && path.includes(resolvedKey)) return { ...base, status: "cycle", message: TRANSCLUSION_WORDING.cycle };
     const facts = factsOf(block);

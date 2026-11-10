@@ -4,6 +4,7 @@
 
 import { COMPONENT_OPEN, componentAttrs, componentBlocks, type ComponentBlock } from "./component-block";
 import { referencedBlock } from "./link-syntax";
+import { MAX_CONTENT_HEIGHT } from "./media-line";
 
 export type LinkGroupName = "outlinks" | "resources" | "backlinks" | "children" | "matches";
 /**
@@ -36,6 +37,8 @@ export interface LinkBlockSpec {
   groups: LinkGroupName[] | null;
   /** A query in the saved views' grammar: its matches are the `matches` group. */
   query: string | null;
+  /** The matches' order, in the views' sort words (`day desc`, PIE-1720); the service's own order when left out. */
+  sort?: string;
   preview: LinkPreview;
   /**
    * The stage values its group headers and Stage name, in order (`stages: [next, doing, waiting]`, PIE-819), or null
@@ -43,6 +46,11 @@ export interface LinkBlockSpec {
    */
   stages: string[] | null;
   lines?: number;
+  /**
+   * How tall its preview draws (PIE-1720): a number of rows, or `fill` for the previewed note's own length, drawn
+   * whole in the note so the reader's one scroll carries it. Left out, the preview's default.
+   */
+  height?: number | "fill";
   problem?: string;
 }
 
@@ -75,7 +83,8 @@ function groupsFrom(v: string): LinkGroupName[] | string {
  *
  *     ::links                          a block to its `::`: each line inside is `of:` (whose links),
  *     of: ((id))                         `filter:`, `title:`, `groups:`, `query:` or `preview:`, or else the
- *     filter: offer                      filter's words; `---` lines (Comark's YAML fence) are skipped
+ *     filter: offer                      filter's words (`sort:` and `height:` too: the matches' order, the preview's rows); `---`
+ *                                        lines (Comark's YAML fence) are skipped
  *     ::
  *
  *     ::links{query="type=outbox-item status=waiting" preview=right}
@@ -97,9 +106,16 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
       if (/^\d+$/.test(v) && Number.isSafeInteger(Number(v))) spec.lines = Number(v);
       else spec.problem = `lines: needs a non-negative whole number, not ${v}`;
     }
+    else if (k === "height") {
+      const h = v.trim().toLowerCase();
+      if (h === "fill") spec.height = "fill";
+      else if (/^\d+$/.test(h) && Number(h) > 0 && Number(h) <= MAX_CONTENT_HEIGHT) spec.height = Number(h);
+      else spec.problem = `height: is a number of rows or fill, not ${v}`;
+    }
     else if (k === "filter") words.push(v);
     else if (k === "title") spec.title = v;
     else if (k === "query") spec.query = v.trim() || null;
+    else if (k === "sort") { if (v.trim()) spec.sort = v.trim(); }
     else if (k === "preview") preview = v.trim().toLowerCase();
     else if (k === "groups") { const g = groupsFrom(v); if (typeof g === "string") spec.problem = g; else spec.groups = g; }
     else if (k === "stages") { const l = v.replace(/^\s*\[|\]\s*$/g, "").split(",").map((x) => x.trim()).filter(Boolean); spec.stages = l.length ? l : null; }
@@ -107,12 +123,12 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
     return true;
   };
   // Its attributes, in braces on the first line.
-  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, preview, stages, lines)`;
+  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, sort, preview, height, stages, lines)`;
   // Its arguments: `::links ((id))` names whose; anything else is the filter.
   if (rest) { const id = idOf(rest); if (id) spec.of = id; else words.push(rest); }
   for (const line of lines.slice(i + 1, end)) {
     if (/^\s*---\s*$/.test(line)) continue;
-    const kv = /^\s*(of|filter|title|groups|query|preview|stages|lines)\s*:\s*(.*?)\s*$/.exec(line);
+    const kv = /^\s*(of|filter|title|groups|query|sort|preview|height|stages|lines)\s*:\s*(.*?)\s*$/.exec(line);
     if (!kv) { words.push(line.trim()); continue; }
     set(kv[1]!, kv[2]!.replace(/^["']|["']$/g, ""));
   }
@@ -121,6 +137,7 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
   if (preview !== null && !(PREVIEWS as readonly string[]).includes(preview)) spec.problem = `preview: is right, below or none, not ${preview}`;
   spec.preview = (preview as LinkPreview | null) ?? (spec.query ? "right" : "none");
   if (spec.groups?.includes("matches") && !spec.query) spec.problem = "groups: matches lists a query's blocks: add query: (type=outbox-item status=waiting)";
+  if (spec.sort && !spec.query) spec.problem = "sort: orders a query's matches: add query: (type=plan)";
   if (spec.kind !== "links" && (spec.query || spec.groups)) spec.problem = `::${spec.kind} lists its own group; ::links takes query: and groups:`;
   return { spec, end };
 }
