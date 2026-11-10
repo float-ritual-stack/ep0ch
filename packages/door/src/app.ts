@@ -1229,7 +1229,10 @@ export class App implements Ctx {
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => (req.action === "button.press" || req.action === "button.slot") && req.args?.note !== undefined && req.tile === undefined,
-      on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
+      // The newest layout step anywhere, as a reader's host reads it (PIE-1700): a press here that changed the layout (an agent's
+      // note= press) is taken back with its words by sources.undo in a reader, as a reader's own press is.
+      on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {},
+        layoutNewestSeq: () => (tilesOf(this.stack.at(-1)) ?? this.hostLayer.desks()[0])?.layoutNewestSeq() } }) },
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
       open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, reveal),

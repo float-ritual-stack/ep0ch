@@ -105,6 +105,8 @@ export class ScriptRuns {
   private readonly tasks = new Map<string, Promise<string | undefined>>();
   /** A `door.act` run's door steps (PIE-1626): whether any changed something (an answer of `changed: false` changed nothing). */
   private readonly doorMoved = new Map<string, boolean>();
+  /** The answers of runs that ended having changed nothing (PIE-1678): their answer, once ended, carries no undo id (PIE-1700). */
+  private readonly unchanged = new WeakSet<ExtensionActResult>();
 
   async finished(run: string): Promise<string | undefined> {
     try { return await this.tasks.get(run); } finally { this.tasks.delete(run); }
@@ -143,7 +145,12 @@ export class ScriptRuns {
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([task, new Promise<void>(resolve => { timer = setTimeout(resolve, this.answerMs); })]);
     clearTimeout(timer);
-    if (started.state !== "running") return { ...started };
+    if (started.state !== "running") {
+      // Ended with nothing to undo: the answer offers none (its id stays the run's own, for scripts.stop and the record).
+      if (!this.unchanged.has(started)) return { ...started };
+      const { undo: _run, ...answer } = started;
+      return answer;
+    }
     return { ...started, message: `${started.message?.replace(/ working$/, "")} is still running after ${Math.round(this.answerMs / 100) / 10}s · its end is told when it comes; script.stop run=${started.undo} ends it` };
   }
 
@@ -668,7 +675,7 @@ export class ScriptRuns {
         // A press that changed nothing, no note and nothing in the door, has nothing to undo, and says so (PIE-1678).
         const unchanged = sequence !== undefined && reason === "done" && failure === undefined && !this.writes.ranWrites(undo) && !this.doorMoved.get(undo);
         if (!extension.doorActor) this.doorMoved.delete(undo);
-        if (unchanged) message = `${message} · ${NOTHING_TO_UNDO}`;
+        if (unchanged) { message = `${message} · ${NOTHING_TO_UNDO}`; this.unchanged.add(result); }
         try { update(); } finally {
           this.captures.delete(undo);
           this.running.delete(controller);
