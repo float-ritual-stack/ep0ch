@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Four more door paper cuts: a lone kept dock, a render error's advice, yo's drop button, a line anchor's writer (PIE-1663, PIE-1604, PIE-1626, PIE-1661)
+
+- **A group left holding only its kept dock keeps it:** carrying a group's last tile out (`^W a`) used to spill the terminals an undo kept there as plain tiles and lose their dock. They stay in that one dock (open, since it's all the group shows), the next undone terminal joins it, the carry says "the group holds only the dock keeping pty and pty2", and `ctrl+z` puts the tile back beside the shut dock.
+- **A render script's error stands alone:** a render line or tile whose script throws shows its own error. The "use an action script (a button or of=)" advice comes only when it called a write function a render doesn't have (`act`, `place`, a writing tool).
+- **yo's button says what it will do:** a remembered `agent.lift on=false` reads `▼ drop`, from the `::button` the action's own doc gives for those arguments (`agent.lift` now documents a drop button). A press that changed nothing (dropping what wasn't lifted) says "nothing to undo" instead of offering one; `door.act` answers `changed` from the run's record, and `tile.zoom` answers `changed: false` when nothing moved.
+- **A line's anchor says who added it:** `note.copy-ref kind=line` that adds the line's anchor answers `recordedAs` (the line code `fields.anchor` and a step's copy link share), and the note's history names the agent. A copy that adds nothing names no writer.
+- **tune.save of a value already saved writes nothing:** it answers `saved: false, unchanged: true` and says the style note already holds it.
+- **Run:** `ep0ch install --apply`. `door.act` gains an answer field (`changed`); both sides read it as optional, so PROTOCOL isn't set here (loki decides at merge). GRAMMAR doesn't move.
+
 ### Three door paper cuts: a river list's stale pick, docks per undone terminal, an alt press asking the wrong kind (PIE-1540, PIE-1575, PIE-1660)
 
 - **j lets go of a river list's pick:** in a river column, `j` (or `k`, a click on a card, the column's scroll or `esc`) off a `::links` list picked with `]` and PgDn no longer leaves that row drawn picked with its preview on it; the list reads as it did before the walk reached it (its first row lit for its preview), and PgDn scrolls the column.
