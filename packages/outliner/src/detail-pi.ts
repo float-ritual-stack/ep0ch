@@ -1737,7 +1737,7 @@ const customFrame = new DetailPiComponent({
       destinationLabel,
     };
   },
-  helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
+  helpText: () => `${actionKeymap.helpText("detail", activeDetailActionScopes())}  ${composed ? "F6 Tree  " : ""}${readingHelp()}`.trimEnd(), // the mode's own keys first: a narrow footer cut ⌃S save (PIE-1698)
 });
 const preview = new DetailPiPreviewLayout(
   controller.state,
@@ -1758,7 +1758,7 @@ const preview = new DetailPiPreviewLayout(
     splitActive: draftSplitActive,
     focused: () => (!composed || focusedRegion === "detail") && draftSplitFocus === "preview",
     surfaceLabel: currentLabel,
-    helpText: () => `${readingHelp()}${composed ? "F6 Tree  " : ""}${actionKeymap.helpText("detail", activeDetailActionScopes())}`,
+    helpText: () => `${actionKeymap.helpText("detail", activeDetailActionScopes())}  ${composed ? "F6 Tree  " : ""}${readingHelp()}`.trimEnd(), // the mode's own keys first: a narrow footer cut ⌃S save (PIE-1698)
     chooserHelpText: () => controller.destinationChooserHelpText(),
     setRegions: (regions) => controller.setPreviewRegions(regions),
   },
@@ -1771,7 +1771,7 @@ const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdown
   hints: () => ({entries: actionKeymap.hints("detail", detailActionScopes(inspection.state)), menuKey: displayActionChord(actionKeymap.primaryBinding("detail.menu.open"))}),
   destinationLabel: () => destinationDisplay.text,
   surfaceLabel: () => `${readingSurface.focused === "preview" ? "●" : "○"} Preview`,
-  helpText: () => `${readingHelp()}${actionKeymap.helpText("detail", detailActionScopes(inspection.state))}`,
+  helpText: () => `${actionKeymap.helpText("detail", detailActionScopes(inspection.state))}  ${readingHelp()}`.trimEnd(),
   chooserHelpText: () => inspection.destinationChooserHelpText(),
   setRegions: regions => inspection.setPreviewRegions(regions),
 });
