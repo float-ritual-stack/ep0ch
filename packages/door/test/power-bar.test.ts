@@ -281,6 +281,36 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar).toMatchObject({ scope: "actions", query: "" });
   });
 
+  test("a rebind of the erase-word, clear and cut keys works in the power bar's line, and the old keys no longer do (Nov 3 review card 1)", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { reloadKeymap } = await import("../src/surface/keymap");
+    const was = process.env.EP0CH_KEYMAP, file = join(mkdtempSync(join(tmpdir(), "bar-keymap-")), "keybindings.json");
+    process.env.EP0CH_KEYMAP = file;
+    writeFileSync(file, JSON.stringify({ "draft.erase to=word-back": ["alt+e"], "draft.clear": ["alt+z"], "draft.cut": ["alt+q"] }));
+    reloadKeymap();
+    try {
+      key(ctrlK); type("/garden path now");
+      key({ kind: "char", ch: "w", ctrl: true });
+      expect(peek().bar.query).toBe("garden path now");
+      key({ kind: "alt", ch: "e" });
+      await until(() => peek().bar.query === "garden path ", "the word erased by alt+e");
+      key({ kind: "left", shift: true });
+      key({ kind: "left", shift: true });
+      key({ kind: "char", ch: "x", ctrl: true });
+      expect(peek().bar.query).toBe("garden path ");
+      key({ kind: "alt", ch: "q" });
+      await until(() => peek().bar.query === "garden pat", "the selection cut by alt+q");
+      key({ kind: "char", ch: "u", ctrl: true });
+      key({ kind: "char", ch: "z", ctrl: true });
+      key({ kind: "alt", ch: "z" });
+      await until(() => peek().bar.query === "", "the line cleared by alt+z");
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was;
+      reloadKeymap();
+    }
+  });
+
   test("the line selects and deletes text, and esc clears before closing its scope", () => {
     key(ctrlK); type("/garden path");
     key({ kind: "left", shift: true });

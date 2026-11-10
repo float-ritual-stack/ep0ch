@@ -88,7 +88,7 @@ import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepsLoading, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
-import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, sameParty, tidy } from "../edit";
+import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, sameParty, tidy } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, leaveSaid, propertyChange, propertyListOf, unsent, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
 import { baseTextOf, keptName, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentOp } from "../unsent";
@@ -3592,9 +3592,9 @@ export class NoteSurface {
 
   /** The edit: its draft session's keys, clicks, wheel and rows; leaving saves it or keeps it as unsent. */
   private draftMode(s: DraftSession): DraftMode {
-    const d = s.draft;
+    const d = s.draft, self = this;
     return {
-      get keys() { return d.views.raw.preview ? EDIT_PREVIEW_READER_KEYS : undefined; },
+      get keys() { return d.views.raw.preview ? EDIT_PREVIEW_READER_KEYS : [...DRAFT_KEYS, ...draftChordRows(), ...(d === self.draft && !self.replyParent ? NOTE_EDIT_KEYS : [])]; },
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
       escCloses: () => (d.views.raw.preview ? "the preview" : elementEdit(d).on ? "the table edit" : draftEscCloses(d, "the edit")),
@@ -4071,8 +4071,8 @@ export class NoteSurface {
     if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
     // ctrl+o: the composer somewhere else (inline, floating, split, popup: PIE-770); the thread list into its own tile
     // beside the note and back over it (PIE-846).
-    if (s.mode !== "compose" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "o" && host.attachedTile) { void this.runKey("comment.place", { place: s.place === "tile" ? "inline" : "tile" }, host, true); return true; }
-    if (s.mode !== "compose" && s.place === "tile" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "g") { void this.runKey("comment.grip", {}, host, true); return true; }
+    if (s.mode !== "compose" && !s.busy && modeBinding(COMMENT_KEYS, k)?.action === "comment.place" && host.attachedTile) { void this.runKey("comment.place", { place: s.place === "tile" ? "inline" : "tile" }, host, true); return true; }
+    if (s.mode !== "compose" && s.place === "tile" && !s.busy && modeBinding(COMMENT_KEYS, k)?.action === "comment.grip") { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings an inline composer (rows of the note) back into view after the wheel took the note elsewhere. A
     // floating, split or popup one is in view already: the note stays where it was scrolled (PIE-846).
     if (s.mode === "compose" && s.place === "inline") { this.revealComposer = true; this.composerAsked = this.scroll; }
