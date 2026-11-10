@@ -466,6 +466,13 @@ const ManifestV2 = Type.Object(
      * says a problem where extension problems are said. Registered while the extension is served, gone when it stops.
      */
     screens: Type.Optional(Type.Array(Type.Object({ name: Type.String({ pattern: SCREEN_NAME_PATTERN }) }, { additionalProperties: true }), { maxItems: 8 })),
+    /**
+     * Surfaces it attaches beside a note (the door's attachment layer): each a kind named `<id>.<kind>` in the record
+     * (`extensions.list`), with the noun its float and tile are titled with and the render script it ships in `scripts[]`
+     * that draws it (the note beside it is `props.note`). The door accepts the kind as a `target=`
+     * while the extension is served; the five built-in kinds stay the reader's.
+     */
+    attachments: Type.Optional(Type.Array(Type.Object({ kind: ID, noun: Type.String({ minLength: 1, maxLength: 40 }), render: ID }, { additionalProperties: false }), { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
     facetSources: Type.Optional(Type.Array(Type.Object({
@@ -808,10 +815,16 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (screenNames.has(screen.name)) throw new ExtensionLoadError(`extension.json: screens/${index}/name ${screen.name} is declared twice`);
     screenNames.add(screen.name);
   }
+  const attachmentKinds = new Set<string>();
+  for (const [index, attachment] of (manifest.attachments ?? []).entries()) {
+    if (attachmentKinds.has(attachment.kind)) throw new ExtensionLoadError(`extension.json: attachments/${index}/kind ${attachment.kind} is declared twice`);
+    attachmentKinds.add(attachment.kind);
+    if (!shippedScripts.has(attachment.render)) throw new ExtensionLoadError(`extension.json: attachments/${index}/render names ${attachment.render}, which scripts[] doesn't declare`);
+  }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
   // A script that declares nothing is a module (`[mode::module]`): imported by name, run by nothing.
-  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length && !manifest.door && !screenNames.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, screens, components, scripts or a door module");
+  if (!script && !needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length && !manifest.door && !screenNames.size && !attachmentKinds.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, screens, attachments, components, scripts or a door module");
   const scripts = new Set<string>();
   const scriptFiles = new Map<string, string>();
   for (const script of manifest.scripts ?? []) {

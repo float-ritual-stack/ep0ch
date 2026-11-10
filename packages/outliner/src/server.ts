@@ -1,4 +1,4 @@
-import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { CompletionRequests } from "./completion-requests";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
@@ -15,7 +15,7 @@ import { scriptSources, scriptsAt } from "./script-sources";
 import { queueRelease, ScriptRuns } from "./script-runs";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER } from "./block-query";
-import { BUSY_RETRY_MS, refusal, retriesBusy } from "./request-envelope";
+import { BUSY_RETRY_MS, refusalEnvelope, retriesBusy } from "./request-envelope";
 import { readerKey } from "./read-marks";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
@@ -70,18 +70,17 @@ import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
-import { resourceProviderEntries } from "./extension-registry";
 import { directiveProvidersOf, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { ExtensionRules } from "./extension-rules";
 import { NoteRouting } from "./note-routing";
-import { ExtensionCalls, MAX_ACT_DEPTH, wholeTextSpan } from "./extension-calls";
+import { ExtensionCalls, MAX_ACT_DEPTH, wholeTextSpan, type ExtensionActRequest, type ExtensionActResult } from "./extension-calls";
 import { markTriggered } from "./extension-writes";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
 import { ExtensionSchedules } from "./extension-schedule";
 import { AgentRequests } from "./agent-requests";
 import { Yolo } from "./yolo";
 import { yoloTask } from "@ep0ch/outline-core/attribution";
-import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
+import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots, resourceProviderEntries } from "./extension-registry";
 import { ExtensionPages } from "./extension-pages";
 import { addExtension, removeExtension } from "./extension-install";
 import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse, type ExtensionRunStatus } from "./resource-extensions";
@@ -739,7 +738,7 @@ export class OutlinerServer {
     const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
     const lines: string[] = [];
     if (entry) lines.push(...await removeExtension(id, entry.origin === "outline" ? { outlineFolder: this.store.workspaceRoot } : { userFolder: true }));
-    else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id] && !this.extensionPages.hasActiveRules(id)) throw new Error(`No extension ${id} is installed here, and none of its demo notes are left`);
+    else if (!this.extensionPages.demoCount(id) && !this.extensionPages.pages()[id] && !this.extensionPages.hasActiveRules(id)) throw new Refusal("not-found", `No extension ${id} is installed here, and none of its demo notes are left`);
     await this.extensionRegistry.reload();
     // Another copy (the user folder's, shadowed by the outline's) may serve it now: then it's still installed, and its demo stays.
     const still = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed");
@@ -1880,12 +1879,12 @@ export class OutlinerServer {
     if (!region) throw new Error("Composed Open requires sourceRegion: tree or detail");
     this.navigationView({clientId: source.clientId, region});
     const chosen = destination ?? this.navigationLinks.get(JSON.stringify([source.clientId, region]));
-    if (!chosen) throw new Error("No linked destination · use Link destination, Open once, or a new Detail split");
+    if (!chosen) throw new Refusal("unavailable", "No linked destination · use Link destination, Open once, or a new Detail split");
     let target: OutlinerClientRegistration;
     try { target = this.navigationView(chosen, true); }
-    catch { throw new Error("Linked destination closed · choose a destination or open a new Detail split"); }
+    catch { throw new Refusal("unavailable", "Linked destination closed · choose a destination or open a new Detail split"); }
     if (preserveSource && chosen.clientId === source.clientId && region === chosen.region) throw new Error("Choose another destination to preserve this source");
-    if (target.navigationProtection) throw new Error(`Destination is protected: ${target.navigationProtection} · finish or cancel it there`);
+    if (target.navigationProtection) throw new Refusal("conflict", `Destination is protected: ${target.navigationProtection} · finish or cancel it there`);
     return {sourceClientId: source.clientId, targetClientId: chosen.clientId, targetRegion: chosen.region, intent: "open", resolution: destination ? "chosen" : "linked"};
   }
 
@@ -1961,7 +1960,7 @@ export class OutlinerServer {
           await Bun.sleep(BUSY_RETRY_MS);
           continue;
         }
-        return refusal(request.id, error, this.store.sequence);
+        return refusalEnvelope(request.id, error, this.store.sequence);
       }
     }
   }
@@ -1980,7 +1979,7 @@ export class OutlinerServer {
     connection?: WatchConnection,
   ): Promise<OutlinerResponse> {
     if (request.action.startsWith("artifacts.")) {
-      if (this.readOnly && !copyAnswers(request.action)) throw new Error("This outline is read-only.");
+      if (this.readOnly && !copyAnswers(request.action)) throw new Refusal("no-access", "This outline is read-only.");
       const result = request.action === "artifacts.lease" ? this.uploadLease(request)
         : request.action === "artifacts.deploy" ? (request.note ? await deployNote(this.artifacts(), this.store, request.note, request.mutation) : await deployArtifact(this.artifacts(), this.store, request.repo ?? "", request.mutation, request.domain))
         // A repo an artifact line names is answered from the deploy's records (PIE-1060), never read as a file.
@@ -2187,7 +2186,7 @@ export class OutlinerServer {
         const { reading, ...answer } = found;
         return this.answered(request, { ...answer, ...(reading?.usage ? { tokens: reading.usage.input } : {}) });
       }
-      if (this.readOnly) throw new Error("This outline is read-only.");
+      if (this.readOnly) throw new Refusal("no-access", "This outline is read-only.");
       if (request.action === "roadmap.items.attach") {
         const input = request.input;
         if (!input || typeof input.item !== "string" || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.attach needs input: { item: <Work ID or block id>, title, body?, sourceBlockId? }");
@@ -2212,7 +2211,7 @@ export class OutlinerServer {
       const actorId = request.provenance?.actorId;
       if (answer.twins.length && !fileAnyway && request.author === "agent") {
         await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
-        throw new Error(twinRefusal(answer, input.title));
+        throw new Refusal("conflict", twinRefusal(answer, input.title));
       }
       if (!answer.twins.length) await tallyTwins(own, answer);
       const beside = fileAnyway ? answer.twins : [];
@@ -2224,7 +2223,7 @@ export class OutlinerServer {
     if (request.action === "search.picks") return this.answered(request, { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) });
     if (request.action === "search.picked") {
       // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
-      if (this.readOnly) throw new Error("This outline is read-only.");
+      if (this.readOnly) throw new Refusal("no-access", "This outline is read-only.");
       const pick = readSearchPicked(request as unknown as Record<string, unknown>);
       const picks = keepSearchPick(readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)), pick);
       this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
@@ -2235,7 +2234,7 @@ export class OutlinerServer {
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
       // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
-      if (this.readOnly) throw new Error("This outline is read-only.");
+      if (this.readOnly) throw new Refusal("no-access", "This outline is read-only.");
       const keep = readKeep(request.keep);
       const own = this.own;
       // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
@@ -2552,7 +2551,7 @@ export class OutlinerServer {
       try {
         return this.handleOnce(request, subscribedClient);
       } catch (error) {
-        if (!retriesBusy(request, error, attempt, { before: sequence, now: this.store.sequence })) return refusal(request.id, error, this.store.sequence);
+        if (!retriesBusy(request, error, attempt, { before: sequence, now: this.store.sequence })) return refusalEnvelope(request.id, error, this.store.sequence);
         Bun.sleepSync(BUSY_RETRY_MS);
       }
     }
@@ -2994,7 +2993,7 @@ export class OutlinerServer {
           const targetsDetail = target.role === "detail" || region === "detail";
           if (targetsDetail && target.navigationProtection &&
             ("target" in request.command && request.command.target && request.command.command !== "preview")) {
-            throw new Error(`Destination is protected: ${target.navigationProtection}`);
+            throw new Refusal("conflict", `Destination is protected: ${target.navigationProtection}`);
           }
           if (target.role === "composed" && region === "tree" && !["focus", "reveal"].includes(request.command.command)) throw new Error("This command requires the Detail region");
           if ("target" in request.command && request.command.target !== undefined) {
@@ -3541,7 +3540,7 @@ export class OutlinerServer {
       return { id: request.id, ok: true, result, sequence: this.store.sequence };
     } catch (error) {
       if (isSqliteBusy(error)) throw error;
-      return refusal(request.id, error, this.store.sequence);
+      return refusalEnvelope(request.id, error, this.store.sequence);
     }
   }
 
@@ -4134,7 +4133,7 @@ export class OutlinerServer {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
       }
       if (this.readOnly && !copyAnswers(request.action)) {
-        throw new Error(`"${this.outline?.name}" here is a read-only copy: ${String(request.action)} isn't served; write to the outline on its own machine`);
+        throw new Refusal("no-access", `"${this.outline?.name}" here is a read-only copy: ${String(request.action)} isn't served; write to the outline on its own machine`);
       }
       // An extension's own process (PIE-754): its grant makes this request the extension's, attributed ext:<id>.
       const grantToken = (request as { grant?: unknown }).grant;
@@ -4178,7 +4177,7 @@ export class OutlinerServer {
       }
       if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
-      response = refusal(request?.id ?? "invalid", error, attribution ? this.store.sequence : previousSequence);
+      response = refusalEnvelope(request?.id ?? "invalid", error, attribution ? this.store.sequence : previousSequence);
       // Before dispatch there can be no commits, and a failed sequence read must not touch the store again.
       if (!attribution) {
         socket.write(`${JSON.stringify(response)}\n`);

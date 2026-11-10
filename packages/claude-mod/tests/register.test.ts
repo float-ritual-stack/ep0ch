@@ -628,7 +628,7 @@ describe('register', () => {
   test('a Detail beside Claude that is mid-edit is a toast; nothing else is opened', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, run =>
       run.argv.includes('link')
-        ? result(1, '', 'error: Destination is protected: active edit\nBun v1.3.14 (Linux x64)')
+        ? result(1, '', 'error: Destination is protected: active edit\nkind: conflict\nBun v1.3.14 (Linux x64)')
         : succeeding(run))
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')

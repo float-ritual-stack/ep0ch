@@ -9,6 +9,8 @@ import { wKey } from "../../src/desk/wkeys";
 import { keymapPath } from "../../src/surface/keymap";
 import { Draft } from "../../src/edit";
 import { editHint } from "../../src/surface/editor";
+import { draftEscCloses } from "../../src/surface/completer";
+import { escSays } from "../../src/esc-rule";
 import { visible } from "../../src/style";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -63,6 +65,8 @@ describe.skipIf(!outliner)("the keys section", () => {
       expect(draft.key({ kind: "esc" })).toBe("keep");
       expect(draft.key({ kind: "alt", ch: "q" })).toBe("close");
       expect(visible(editHint(new Draft("keys-demo", 0, ""), { save: "save" }))).toContain("alt+q done");
+      // The status bar's way-out names the key too, and the popup's close is that key's.
+      expect(escSays(draftEscCloses(new Draft("keys-demo", 0, ""), "the edit") ?? "")).toBe("alt+q: the edit");
     } finally { await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT); }
     expect(new Draft("keys-demo", 0, "Plum jam").key({ kind: "esc" })).toBe("close");
   });

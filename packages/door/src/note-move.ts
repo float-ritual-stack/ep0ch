@@ -3,7 +3,8 @@ import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { NoteRouteResult } from "@ep0ch/outline-core/protocol";
 import { mutationFor, recordedActorId, recordedAnswer, type Actor, type RecordedAs, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
-import { UndoHistory, partyOf } from "./steps";
+import { partyOf } from "./steps";
+import { NOTE_JOURNAL, undoneSaid, UndoHistory } from "./undo-journal";
 import { moveWithRules, type WriteBoard } from "./mcp-writes";
 import type { BarQuestion } from "./bar/ask";
 
@@ -22,7 +23,7 @@ export interface MoveDone { moved: string; parent: string | null; position: numb
 /** A move made, to put back: where the note was. */
 interface MoveUndo { by: string; context: string; block: string; parent: string | null; position: number; previousRevision: number; at: { revision: number } }
 /** The moves made here, for ctrl+z (`context`: the moved note's id, what the reader or tree shows). */
-export const MOVE_UNDO = new UndoHistory<MoveUndo>();
+export const MOVE_UNDO = new UndoHistory<MoveUndo>(NOTE_JOURNAL, { kind: "move", via: "note.move.undo", label: () => "the move" });
 
 /** The one intent the arguments name, or a refusal that lists what to give. */
 export function intentOf(a: MoveArgs): MoveIntent {
@@ -74,7 +75,7 @@ export async function undoMove(board: WriteBoard, by: Actor, context: string): P
     // Undo restored the place an earlier receipt observed, at the revision just returned.
     MOVE_UNDO.advance(e.block, e.previousRevision, done.revision);
   }
-  return { ...done, said: `put the note back${done.unchanged ? " (it was already there)" : ""}` };
+  return { ...done, said: `${undoneSaid(e)}${done.unchanged ? " (it was already there)" : ""}` };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import {resolveAnnotationPassage, passageResolutionStatus, passageDocumentRepresentation} from "./annotation-passages";
 import {observeDocument} from "./document-provenance";
 import {resourceDocumentObservation} from "./document-resources";
@@ -72,7 +73,6 @@ import type {
   MutationProvenance,
   PdfPageText,
 } from "./types";
-
 const SYSTEM_ANNOTATIONS_ROOT_ID = "7674db6f-6639-4d49-bb63-9ed50cdbba08";
 const TEXT_CODEC = { kind: "codec", codecId: "text-quote", codecVersion: 1 } as const;
 const REFERENCE_CONTEXT_CODEC = { kind: "codec", codecId: "reference-context", codecVersion: 1 } as const;
@@ -396,7 +396,7 @@ export class AnnotationRepository {
             // target is (outline-core passage.ts): found once with that context, it moves; else refused. One that
             // doesn't is refused as stale.
             const context = request.passage && (!!request.passage.prefix || !!request.passage.suffix);
-            if (block.revision !== request.expectedRevision && !context) throw new Error("Comment source revision is stale; read the current block before commenting");
+            if (block.revision !== request.expectedRevision && !context) throw new Refusal("stale-revision", "Comment source revision is stale; read the current block before commenting");
             const stale = block.revision !== request.expectedRevision;
             // At a newer revision the words must be there once with their context: no start, no nearest-of-several.
             const passage = stale && request.passage ? { ...request.passage, start: undefined, near: undefined } : request.passage;
@@ -405,7 +405,7 @@ export class AnnotationRepository {
               target = blockCommentTarget(block, passage);
             } catch (error) {
               // Not found once with its context in the newer text: refused as stale, as one without context is.
-              if (stale) throw new Error(`Comment source revision is stale; read the current block before commenting (${error instanceof Error ? error.message : String(error)})`);
+              if (stale) throw new Refusal("stale-revision", `Comment source revision is stale; read the current block before commenting (${error instanceof Error ? error.message : String(error)})`);
               throw error;
             }
             raw = { target, body: request.body, source: request.source, ...(request.properties ? { properties: request.properties } : {}) };
@@ -1095,7 +1095,7 @@ export class AnnotationRepository {
     // A highlight may take words (it becomes a comment); words once written can be changed, not emptied: Seen puts a thread away.
     if (!body && (record.body || record.parentAnnotationId)) throw new Error(`a ${record.parentAnnotationId ? "reply" : "comment"} can't be emptied by an edit: change its words, or put the thread away with Seen`);
     if (record.block.revision !== expectedRevision) {
-      throw new Error(`revision is stale: the ${record.parentAnnotationId ? "reply" : "comment"} changed since the edit started (it was at ${expectedRevision}, now ${record.block.revision}) · not saved · read it again and edit that`);
+      throw new Refusal("stale-revision", `revision is stale: the ${record.parentAnnotationId ? "reply" : "comment"} changed since the edit started (it was at ${expectedRevision}, now ${record.block.revision}) · not saved · read it again and edit that`);
     }
     if (body === record.body) return record;
     const updated = this.blocks.update(

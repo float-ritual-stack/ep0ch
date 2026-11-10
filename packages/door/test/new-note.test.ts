@@ -58,11 +58,11 @@ describe("a new note the edit never opened on (putAway)", () => {
     expect(trashed).toBe(false);
   });
   test("written between the read and the trash: the service refuses the trash, and it's said as kept", async () => {
-    const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block changed since it was read: n1"); }), note);
+    const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block changed since it was read: n1", "stale-revision"); }), note);
     expect(said).toBe("it was written meanwhile, so it stays (n1)");
   });
   test("a child added between the read and the trash: the service refuses it as not empty, and it's said as kept", async () => {
-    const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block is not empty: it has 1 child now: n1"); }), note);
+    const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block is not empty: it has 1 child now: n1", "conflict"); }), note);
     expect(said).toBe("it was written meanwhile, so it stays (n1)");
   });
   test("the trash failed: what's known, the id and the command to check it, never \"still there, empty\"", async () => {

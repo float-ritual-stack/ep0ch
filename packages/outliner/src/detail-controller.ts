@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
@@ -167,7 +168,6 @@ import type {
   ResolvedBlockReferences,
   VisibleBlockCollection,
 } from "./types";
-
 interface DetailNavigationEntry {
   target: OutlinerNavigationTarget;
 }
@@ -2571,7 +2571,7 @@ export function createDetailController(
       // A comment or reply that didn't land stays open with its text (PIE-761): said, with what to do next.
       if (!written && state.mode.kind === "comment" && state.buffer.text.trim()) {
         state.status = state.mode.draft.kind === "edit"
-          ? /revision is stale/i.test(errorMessage(error))
+          ? refusalKindOf(error) === "stale-revision"
             ? "Not saved · this changed since your edit began · your text stays here; Esc leaves it, then edit again to start from the new words"
             : `Not saved · ${errorMessage(error)} · your text stays here; save tries again`
           : `Not sent · ${errorMessage(error)} · your text stays here; save tries again`;
@@ -3113,10 +3113,10 @@ export function createDetailController(
         break;
       }
       case "preview.activate": {
-        const action = focusedPreviewRegion(state.previewRegions)?.activation;
+        const action = focusedPreviewRegion(state.previewRegions)?.activation; // nothing focused: ⏎ is the backlink drawn ▶ ACTIVE (PIE-1695)
         if (action) await dispatch({ type: "preview.action", action }, viewport);
-        break;
-      }
+        else if (state.backlinks.expanded && selectedBacklinkSource()) await dispatch({ type: "backlinks.open" }, viewport);
+        break; }
       case "checklist.toggle": {
         const control = findChecklistControl(state.previewRegions.regions, state.previewRegions.focusedRegionId ?? "");
         if (!control || state.mode.kind !== "preview" || state.busy) break;

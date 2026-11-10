@@ -1,3 +1,4 @@
+import { BlockQueryError } from "@ep0ch/outline-core/query-expression";
 import { normalizeSort, sortText } from "./block-query";
 // What a producer in a note asks of its Site (PIE-533 S3), answered once for every client: a `::graph-*` figure's
 // question (its query or view, groups, `done:`/`now:` subsets, a stat's per-item counts), a figure block's child
@@ -129,6 +130,8 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 /** A question's own error is its answer; running out of time is the whole request's (`StillCounting`). */
+/** The request field a query refusal names (`sort`, `direction`), for a figure to say on its own line. */
+const fieldOf = (error: unknown) => error instanceof BlockQueryError ? error.field : undefined;
 const own = (error: unknown) => { if (error instanceof StillCounting) throw error; return message(error); };
 
 /** One question, asked: the results, or why not. A view is read as the door's tree reads it. */
@@ -160,7 +163,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
     const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: normalizeSort(sort, direction), ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
     return { blocks: found.blocks, truncated: found.completeness.kind === "truncated", total: found.completeness.kind === "truncated" ? found.completeness.matched : found.blocks.length, ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
   } catch (error) {
-    return { blocks: [], truncated: false, error: sortProblem(own(error), sort, direction) };
+    return { blocks: [], truncated: false, error: sortProblem(own(error), sort, direction, fieldOf(error)) };
   }
 }
 
@@ -293,7 +296,7 @@ function collection(store: ProducerStore, bound: Bound, tools: SiteTools, writte
       ...(found.groups ? { groups: groups(found.groups) } : {}), empty: found.hint ?? "No matching notes",
     }, ...(found.groups ? { groups: found.groups } : {}), ...(found.facets ? { facets: found.facets } : {}),
       ...(found.hint ? { hint: found.hint } : {}), truncated: found.completeness.kind === "truncated" };
-  } catch (error) { return empty(sortProblem(own(error), p.sort, p.direction ?? "desc")); }
+  } catch (error) { return empty(sortProblem(own(error), p.sort, p.direction ?? "desc", fieldOf(error))); }
 }
 
 /** The most cells naming a note one table answers with titles. */

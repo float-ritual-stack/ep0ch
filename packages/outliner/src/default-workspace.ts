@@ -207,6 +207,8 @@ const FEATURE_TOUR_SECTIONS = [
       "",
       "A note's links are one set everywhere: Outlinks (what it references), Resources (`[file::…]`, `[web::…]`, `[jira::…]`) and Backlinks (what references it). In the door, `b` in any reader lists them in a links tile beside the note, and a `::links` line in a note draws the same rows inside it (`::outlinks`, `::resources` and `::backlinks` draw one group; words after the name filter them). Moving onto a Resource shows what the service stores for it; only Enter registers one.",
       "",
+      "A relative `[file::notes.md]` is read from the outline's own folder, `<outlines>/<name>/`, whichever folder a client started in. A `[web::…]` page served as HTML is extracted to Markdown; one served as Markdown or plain text is its own text.",
+      "",
       "Filesystem Resources support preview, edit/save, refresh, external editing and source-backed comments through the service's files. Cached web/PDF text also supports comments. Computed and remote-entity views expose retained representations and revision information, but direct Detail comments on their text or metadata fields are not available yet.",
       "",
       "Opening cached Web content does not fetch the network; refresh is explicit. Provider credentials, Source configuration and capabilities determine available actions. SSH-style file references are application links, not an SSH file provider.",

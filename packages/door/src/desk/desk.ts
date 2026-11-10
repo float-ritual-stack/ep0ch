@@ -1,5 +1,5 @@
 import { Again } from "../arm";
-import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, escRead, type EscRead, type EscRung } from "../esc-rule";
+import { DESK_ESC, DESK_HOME_ESC, escNext, escPress, escRead, escSays, escWordOf, type EscRead, type EscRung } from "../esc-rule";
 import { deskEscFront, deskEscSteps, deskLiftEsc, type DeskEscHost } from "./desk-esc";
 import { returnPlace, mapPlace } from "./return-place";
 import { AGAIN_PART, LEAVE_PART, readerHeldParts, escFoot } from "../hint-parts";
@@ -4386,7 +4386,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
     const t = this.tile(sel), p = this.panes.get(t.id);
     const shown = this.noteOf(t.id);
-    if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`);
+    if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
     if (p instanceof ReaderPane && p.surface.draft) throw new ActionRefused("this reader is editing the note: change its title in the edit");
     const now = await this.ctx.board.get(shown.id);
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
@@ -4685,7 +4685,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       tabs.push({ label: HYPER_CHIP, keep: true, hit: { action: "keys.probe" } });
     }
     // What the next Esc closes (PIE-1614), in place of any part that says Esc again: first, where a float over the row's end doesn't hide it, and kept when the row is narrow.
-    if (closes) tabs.unshift({ label: `esc: ${closes}`, ...(cols >= 40 ? { keep: true } : { short: "esc" }), hit: { action: "esc.close" } });
+    if (closes) tabs.unshift({ label: escSays(closes), ...(cols >= 40 ? { keep: true } : { short: escWordOf(closes).key }), hit: { action: "esc.close" } });
     const row = withStripOwner(tile, cols, () => tabStrip(tabs, { id: "hint", width: cols, overflow: "drop", style: { on: fg(C.white), off: fg(C.grey), key: fg(C.white), sep: " · " } }))[0]!;
     // A click is strip.pick while an App paint records the strip; a desk drawn on its own presses a chip's action
     // itself, and a keyed part's key as typed (the key spots after), as a screen on a stand-in context does.
@@ -6743,7 +6743,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const p = this.panes.get(t.id);
     if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t.name} is a ${p?.kind} tile: view.scrollTo scrolls a reader (an nvim tile's view is the person's own; block.mark line=… points at a line)`);
-    if (!p.msg) throw new ActionRefused(`${t.name} shows no note yet`);
+    if (!p.msg) throw new ActionRefused(`${t.name} shows no note yet`, "not-found");
     if (at.block && !p.msg.id.startsWith(at.block)) throw new ActionRefused(`${t.name} shows ${p.msg.id.slice(0, 8)}, not ${at.block}; open it there first (open id=${at.block} tile=${t.name})`);
     let line = at.line;
     if (line === undefined && at.text) {

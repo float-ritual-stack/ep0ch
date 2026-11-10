@@ -16,6 +16,68 @@ export const BASIC_WEB_MARKDOWN_ADAPTER: ResourceRepresentationAdapter = {
   version: 1,
 };
 
+/**
+ * A page that is already text (Markdown or plain) is its own representation: no extractor touches it. A stored
+ * snapshot's representations carry this adapter, which is how a later refresh knows the snapshot was never HTML.
+ */
+export const WEB_TEXT_ADAPTER: ResourceRepresentationAdapter = {
+  id: "builtin.web-text",
+  version: 1,
+};
+
+/** What a fetched page's body is: HTML, for the extractor, or text, read as it is. */
+export type WebBodyKind = "html" | "text";
+
+/** The adapter that makes a snapshot of this kind's representation: the extractor for HTML, none for text. */
+export function webAdapterFor(kind: WebBodyKind, extractor: WebMarkdownExtractor): ResourceRepresentationAdapter {
+  return kind === "text" ? WEB_TEXT_ADAPTER : extractor.adapter;
+}
+
+/** A snapshot's representation: the text as it is, or the extractor's Markdown of the HTML. */
+export function webMarkdown(kind: WebBodyKind, extractor: WebMarkdownExtractor, snapshot: WebSnapshotInput): string {
+  return kind === "text" ? snapshot.html : extractor.extract(snapshot);
+}
+
+/** Whether a stored representation was made by an adapter in use now (the text one, or this extractor). */
+export function webAdapterCurrent(id: string, version: number, extractor: WebMarkdownExtractor): boolean {
+  return [WEB_TEXT_ADAPTER, extractor.adapter].some((adapter) => adapter.id === id && adapter.version === version);
+}
+
+const HTML_MEDIA_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+// The WHATWG sniffing standard's HTML signatures, after an optional byte-order mark: a Markdown autolink
+// (`<https://…>`) is not one.
+const HTML_SIGNATURE = /^\uFEFF?\s*(?:<!doctype html|<(?:html|head|script|iframe|h1|div|font|table|a|style|title|b|body|br|p)|<!--)[\s>]/i;
+const TEXT_MEDIA_TYPES = new Set(["text/markdown", "text/x-markdown", "text/plain"]);
+
+/** The media types a web Resource asks for and reads, in the Accept header's order. */
+export const WEB_ACCEPT = "text/html,application/xhtml+xml,text/markdown,text/plain;q=0.9";
+
+/**
+ * The kind of a page by its media type (lowercased, no parameters; "" when it named none), or why it can't be read.
+ * With no media type the body decides: one that opens with an HTML signature is HTML, other text is text, a body with control
+ * bytes is not a page this reads.
+ */
+export function webBodyKind(mediaType: string, body: string): WebBodyKind | { readonly refused: string } {
+  if (HTML_MEDIA_TYPES.has(mediaType)) return "html";
+  if (TEXT_MEDIA_TYPES.has(mediaType)) return "text";
+  const unsupported = unsupportedWebMediaType(mediaType);
+  if (unsupported) return { refused: unsupported };
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000e-\u001a\u001c-\u001f]/.test(body.slice(0, 4096))) {
+    return { refused: "Web provider returned no media type, and the page isn't text" };
+  }
+  return HTML_SIGNATURE.test(body) ? "html" : "text";
+}
+
+/**
+ * Why a page of this media type isn't read, said before its body is fetched; null for one that is read, and for none
+ * named (its body decides, in `webBodyKind`).
+ */
+export function unsupportedWebMediaType(mediaType: string): string | null {
+  if (!mediaType || HTML_MEDIA_TYPES.has(mediaType) || TEXT_MEDIA_TYPES.has(mediaType)) return null;
+  return `Web provider returned unsupported media type: ${mediaType} (it reads text/html, text/markdown and text/plain)`;
+}
+
 function decodeHtmlEntities(value: string): string {
   const named: Readonly<Record<string, string>> = {
     amp: "&",

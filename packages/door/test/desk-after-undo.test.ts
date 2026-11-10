@@ -833,7 +833,7 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         expect(shell.running).toBe(true);
         expect(() => d.desk.layoutSpec()).not.toThrow();
         await d.press(ctrl("z"));
-        expect(d.said()).toMatch(/nothing to undo|no step change to undo/);
+        expect(d.said()).toMatch(/nothing to undo|nothing of yours to undo|no step change to undo/);
         // One click on the edge shows the group, with the same shell in it.
         const spot = d.edgeOf(group);
         expect(spot).not.toBeNull();

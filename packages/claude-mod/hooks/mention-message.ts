@@ -1,4 +1,5 @@
 import type { TurnCompleteInput } from 'claude-code'
+export { failureKindOf } from './references'
 
 /**
  * The host-neutral contract `mentions.ingest` takes; `src/mentions-types.ts`

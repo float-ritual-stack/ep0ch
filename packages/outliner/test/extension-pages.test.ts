@@ -18,7 +18,7 @@ import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-interface Listed { hub?: string; pages: Record<string, string>; available: { id: string; name: string; about: ExtensionAbout }[]; about: Record<string, ExtensionAbout>; extensions: { id: string; state: string }[] }
+interface Listed { hub?: string; pages: Record<string, string>; available: { id: string; name: string; install: string; about: ExtensionAbout }[]; about: Record<string, ExtensionAbout>; extensions: { id: string; state: string; serving: boolean; attachments?: { kind: string; noun: string; render: string }[] }[] }
 
 async function setup() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-ext-pages-")));
@@ -45,6 +45,20 @@ async function setup() {
   const children = async (id: string) => (await client.request<Block[]>({ action: "children", parentId: id }));
   return { root, outline, store, client, list, children };
 }
+
+test("the host's record says what serves, how an available extension installs and what surfaces an extension attaches (Nov 3 review card 16)", async () => {
+  const { list, outline } = await setup();
+  cpSync(join(import.meta.dir, "..", "extensions", "beside"), join(outline, "extensions", "beside"), { recursive: true });
+  mkdirSync(join(outline, "extensions", "wrecked"), { recursive: true });
+  writeFileSync(join(outline, "extensions", "wrecked", "extension.json"), "{ not json");
+  const listed = await list();
+  const by = (id: string) => listed.extensions.find((entry) => entry.id === id)!;
+  expect(by("notify")).toMatchObject({ state: "active", serving: true });
+  expect(by("wrecked")).toMatchObject({ state: "failed", serving: false });
+  expect(by("beside").attachments).toEqual([{ kind: "beside.facts", noun: "facts", render: "beside" }]);
+  expect(by("notify").attachments).toBeUndefined();
+  expect(listed.available.find((entry) => entry.id === "moon")!.install).toBe("ep0ch ext add moon");
+});
 
 test("the demo folder: one note per file, nested by folder or parent:, ids from front matter, a bad one said", () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-demo-"));

@@ -1737,6 +1737,19 @@ with no restart. [waiting](../../extensions/waiting) is the first: the main menu
 - **Its tiles** are usually its own kinds (`waiting.list`); a kind it `replaces` keeps a layout saved with the old
   built-in working.
 
+## A surface beside a note
+
+**What it is.** `attachments[]` declares a kind of attached surface (the door's attachment layer: a split, float, popup
+or tile beside a reader's note): `{ "kind": "facts", "noun": "facts", "render": "beside" }` (`render` is a render script the extension ships in `scripts[]`; it is run with the reader's note as `props.note` and the markdown it returns is the surface's rows). `extensions.list` names it `<id>.<kind>`
+(`beside.facts`) on the entry's `attachments`, and while the extension is served the door accepts that name as
+`target=` of `attachment.open`, `attachment.place`, `attachment.move`, `attachment.scroll`, `attachment.close` and `attachment.split`.
+[beside](../../extensions/beside) is the first. The five built-in kinds (comment, sources, list-preview,
+edit-preview, settings) stay the reader's; an extension can't take their names. A `target=` nobody declares is refused
+once, saying which kinds exist.
+
+**The entry also says** `serving` (the host serves it: active, or failed on its last good copy) and, for an available
+extension, `install` (the shell command). Clients show these; they don't work them out from `state`.
+
 ## A door module
 
 **What it is.** A behaviour that answers the pointer and the keys within a frame can't wait on a socket, so it runs in

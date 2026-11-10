@@ -1,3 +1,4 @@
+import { blockNotFound, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { sourceLines } from "@ep0ch/outline-core/code-ranges";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { viewSpec } from "@ep0ch/outline-core/view-spec";
@@ -276,7 +277,7 @@ async function projectRelationView(
     source = await loadBlock(sourceId);
   } catch (error) {
     const message = boundedError(error);
-    const missing = message.startsWith(`Block not found: ${sourceId}`);
+    const missing = refusalKindOf(error) === "not-found";
     return {
       text: `${linkedHeading(
         definition.id,
@@ -330,7 +331,7 @@ async function projectRelationView(
     } catch (error) {
       const message = boundedError(error);
       rows.push(relationReference(
-        message.startsWith(`Block not found: ${targetId}`)
+        refusalKindOf(error) === "not-found"
           ? `- ((${targetId})) · MISSING TARGET`
           : `- ((${targetId})) · TARGET FAILED · ${message}`,
       ));
@@ -396,7 +397,7 @@ async function projectEmbed(
     target = await loadTarget();
   } catch (error) {
     const message = boundedError(error);
-    return message.startsWith(`Block not found: ${blockId}`)
+    return refusalKindOf(error) === "not-found"
       ? explicitFallback(blockId, "missing", TRANSCLUSION_WORDING.missing, fragmentId)
       : explicitFallback(blockId, "failed", TRANSCLUSION_WORDING.failed(message), fragmentId);
   }
@@ -840,7 +841,7 @@ export async function projectDetailRead(
     let pending = targetCache.get(blockId);
     if (!pending) {
       // A page embed whose page isn't there (`targetIds` resolved the others to their notes): missing, as a block's is.
-      pending = embeddedPageAddress(blockId) !== null ? Promise.reject(new Error(`Block not found: ${blockId}`))
+      pending = embeddedPageAddress(blockId) !== null ? Promise.reject(blockNotFound(blockId))
         : requester.request<Block>({ action: "get", blockId });
       targetCache.set(blockId, pending);
     }

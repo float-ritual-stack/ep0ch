@@ -11,6 +11,8 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { C, fg, pad, RESET } from "../style";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
+import { declaredAttachmentKinds, extensionAttachments, type ExtensionAttachmentAt } from "./extension-attachment";
+export { declareAttachmentKinds, declaredAttachment, type DeclaredAttachment } from "./extension-attachment";
 
 /** Where an attachment kind was left: its placement and split, as its state file keeps them. */
 type Kept = { place?: string; split?: AttachedSplit };
@@ -25,10 +27,16 @@ function keptIn(file: string): Kept | null {
   return keptFiles.get(at) ?? null;
 }
 
+/** The reader's own attachments, each with its adapter in note.ts. */
 export const ATTACHMENT_KINDS = ["comment", "sources", "list-preview", "edit-preview", "settings"] as const;
-/** The attachments a reader has, by name: `attachment.split target=`, `placement.menu target=`, a tile's kind. */
-export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
-export const attachmentKindOf = (v: unknown): AttachmentKind | null => (ATTACHMENT_KINDS as readonly unknown[]).includes(v) ? v as AttachmentKind : null;
+/**
+ * The attachments a reader has, by name: `attachment.split target=`, `placement.menu target=`, a tile's kind. The five
+ * built-in ones, and any kind a served extension's record declares (`attachments`, named `<id>.<kind>`).
+ */
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number] | (string & {});
+/** Every kind a reader accepts now: the built-in ones, then the extensions'. */
+export const attachmentKinds = (): string[] => [...new Set<string>([...ATTACHMENT_KINDS, ...declaredAttachmentKinds()])];
+export const attachmentKindOf = (v: unknown): AttachmentKind | null => typeof v === "string" && attachmentKinds().includes(v) ? v : null;
 export const ATTACHMENT_SIDES: readonly AttachedSide[] = ["left", "right", "up", "down"];
 
 /** The room a float is kept in: the reader's cells (its inner frame, offset when it has one). */
@@ -85,6 +93,8 @@ export interface AttachmentDef<H extends AttachmentHost = AttachmentHost, V exte
   readonly persist?: string;
   /** Its own actions, which its keys, clicks and agents use: where it sits and moving its float. */
   readonly actions: { place: string; move: string };
+  /** What those actions also take to know which kind is meant (a declared kind's shared actions take its `target`). */
+  readonly args?: Readonly<Record<string, unknown>>;
   /** The refusal when it isn't open. */
   readonly closed: string;
   /** Where its `[place ▸]` chip is drawn, for the placement menu under it. */
@@ -118,7 +128,10 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
   /** The floats drawn this frame, in paint order: the last is on top. */
   private floats: { target: AttachmentKind; rect: FloatRect }[] = [];
 
-  constructor(defs: readonly AttachmentDef<H, V>[], private look: () => StyleValues | undefined = () => undefined) {
+  /** `asks`: what an extension's surface needs of this reader; it makes the def for a declared kind when first named. */
+  private readonly adopt?: (kind: string) => AttachmentDef<H, V> | null;
+  constructor(defs: readonly AttachmentDef<H, V>[], private look: () => StyleValues | undefined = () => undefined, asks?: ExtensionAttachmentAt) {
+    if (asks) this.adopt = extensionAttachments<H, V>(asks);
     for (const d of defs) this.register(d);
   }
 
@@ -143,9 +156,12 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
     if (!d) throw new ActionRefused(`target is ${[...this.defs.keys()].join(", ")}`);
     return d;
   }
+  /** A `target=` as a kind: the one place an unknown one is refused, with why and what is known. */
   kind(v: unknown): AttachmentKind {
     const k = attachmentKindOf(v);
-    if (!k || !this.defs.has(k)) throw new ActionRefused(`target is ${[...this.defs.keys()].join(", ")}`);
+    if (k && !this.defs.has(k)) { const made = this.adopt?.(k); if (made) this.register(made); }
+    if (!k) throw new ActionRefused(`${JSON.stringify(v)} is no attachment kind: target is ${attachmentKinds().join(", ")} (an installed extension adds its own: its manifest's attachments)`);
+    if (!this.defs.has(k)) throw new ActionRefused(`${k} isn't attached to this reader: target is ${[...this.defs.keys()].join(", ")}`);
     return k;
   }
   /** Its placement while it's open, else null. */
@@ -163,7 +179,7 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
 
   /** Each kind's tile follows its attachment: opened when it goes to a tile, closed when it leaves or ends. */
   sync(host?: H) {
-    for (const d of this.defs.values()) this.tiles[d.kind].sync(d.tileOwner ? d.tileOwner(host) : d.owner(), this.tileHost(d.kind, host));
+    for (const d of this.defs.values()) this.tiles[d.kind]!.sync(d.tileOwner ? d.tileOwner(host) : d.owner(), this.tileHost(d.kind, host));
   }
   tiled(host?: H): boolean { return !!host?.attachedTile; }
   tileHost(kind: AttachmentKind, host?: H): AttachedTileHost | undefined {
@@ -176,7 +192,7 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
     };
   }
   /** Its tile closed (it ended). */
-  close(kind: AttachmentKind, host?: H) { return this.tiles[kind].close(this.tileHost(kind, host)); }
+  close(kind: AttachmentKind, host?: H) { return this.tiles[kind]!.close(this.tileHost(kind, host)); }
 
   /**
    * Where it sits: `place`, or the next one round (with `side`, a tile on that side of its reader; a split takes `side`
@@ -192,7 +208,7 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
     if (want === "tile" && !this.tiled(host)) throw new ActionRefused(`this reader has no tiles round it to put ${d.noun} in · ${d.actions.place} place=split shares the reader`);
     if (want === "split" && side) this.split(kind, side, undefined);
     const was = o.place;
-    await this.tiles[kind].place(o, want, this.tileHost(kind, host), side as AttachedSide | undefined);
+    await this.tiles[kind]!.place(o, want, this.tileHost(kind, host), side as AttachedSide | undefined);
     d.placed?.(want, host, side as AttachedSide | undefined, was);
     this.keep(kind);
     host.redraw();
@@ -210,7 +226,7 @@ export class Attachments<H extends AttachmentHost = AttachmentHost, V extends At
   /** Its split beside the note (`right`) or under it (`down`), and its share of the reader. */
   split(kind: AttachmentKind, direction: string | undefined, share: number | undefined) {
     if (direction !== undefined && direction !== "right" && direction !== "down") throw new ActionRefused("split direction is right or down");
-    const split = this.splits[this.kind(kind)];
+    const split = this.splits[this.kind(kind)]!;
     if (direction) split.direction = direction;
     if (share !== undefined) split.share = Math.max(.15, Math.min(.85, share));
     this.keep(kind);

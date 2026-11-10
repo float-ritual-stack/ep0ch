@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { keyLineWords } from "./secret-keys";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -599,7 +600,7 @@ export async function runExtCommand(args: readonly string[], connect: (outlineFo
         } else {
           // Its demo notes: kept unless --demo remove said otherwise (never silently).
           const done = await client.request<{ lines: string[] }>({ action: "extensions.uninstall", extension: id, demo: values.demo ?? "keep" }, EXTENSION_RUN_WAIT_MS)
-            .catch((error: Error) => ({ lines: /none of its demo notes are left/.test(error.message) ? [] : [`its demo notes: ${error.message}`] }));
+            .catch((error: Error) => ({ lines: refusalKindOf(error) === "not-found" ? [] : [`its demo notes: ${error.message}`] }));
           print(`service: ${id} is gone`);
           for (const line of done.lines) print(line);
         }

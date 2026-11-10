@@ -86,6 +86,8 @@ export class LineField {
   erase(...a: Parameters<Draft["erase"]>) { return this.draft.erase(...a); }
   selectedText(): string | null { return this.draft.selectedText(); }
   binding(k: Key) { return this.draft.binding(k); }
+  closesBy(k: Key): boolean { return this.draft.closesBy(k); }
+  closeKey(): string { return this.draft.closeKey(); }
   snippetKey(k: Key): boolean { return this.draft.snippetKey(k); }
 
   /** The cursor, in UTF-16 units from the line's start. */
