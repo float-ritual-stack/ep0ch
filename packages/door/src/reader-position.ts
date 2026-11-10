@@ -56,6 +56,9 @@ export class PositionRows {
     return Math.max(0, base >= this.leading ? base : Math.ceil((base + this.leading) / 2));
   }
   set top(top: number) {
+    // At the top, the view is the note's top, not its first line of text: what draws above that line at another width (a
+    // whole-note comment's card, folded in when the tile narrows) stays in view (PIE-1572).
+    if (top <= 0) { this.position.view = null; this.waiting = null; return; }
     if (!this.source.length) { this.position.view = null; this.waiting = top > 0 ? top : null; return; }
     this.waiting = null;
     let at = Math.min(Math.max(0, top), this.source.length - 1);

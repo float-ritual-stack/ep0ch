@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { imageSize } from "image-size";
+import { shellPath } from "@ep0ch/outline-core/shell-words";
 import { inResize, resizedWithin } from "./resize";
 import { cacheDir } from "./state";
 import type { Rgb } from "./theme";
@@ -140,9 +141,13 @@ export function onTerminal(key: string, has = true) {
   if (n > 0) sent.set(key, n); else sent.delete(key);
 }
 
-/** `~`, backslash-escaped spaces, and macOS screenshot names (a narrow no-break space before AM/PM). */
+/**
+ * The file `raw` names here: read as a shell reads a path (outline-core's `shellPath`: escapes and quotes, as a
+ * terminal's drop writes them; a media line's path comes already read), `~` as this machine's home, and macOS
+ * screenshot names (a narrow no-break space before AM/PM).
+ */
 export function resolveMediaPath(raw: string): { path: string; exists: boolean } {
-  const p = raw.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " ").replace(/^~(?=\/)/, homedir());
+  const p = shellPath(raw).replace(/^~(?=\/)/, homedir());
   // A macOS screenshot name has a narrow no-break space before AM or PM: found either way round.
   const candidates = [p, p.replace(/ (AM|PM)(?=\.\w+$)/, "\u202f$1"), p.replace(/\u202f/g, " ")];
   for (const c of candidates) { try { statSync(c); return { path: c, exists: true }; } catch { /* next */ } }
@@ -399,7 +404,7 @@ export function media(raw: string, kind: Kind): Media {
   const kept = current(path);
   if (kept) return kept.media;
   // Asked as the note writes it (`~/` is the host's home, not this machine's).
-  if (!exists && fetchMedia && kind === "img") return fetchRemote(raw.trim().replace(/^["']|["']$/g, "").replace(/\\ /g, " "), kind);
+  if (!exists && fetchMedia && kind === "img") return fetchRemote(shellPath(raw), kind);
   const now = Date.now(), key = exists ? contentKey(path) : null;
   if (!key) {
     const m: Media = { state: "error", path, kind, reason: "file not found" };

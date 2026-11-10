@@ -131,6 +131,17 @@ test("a path only on the laptop goes to the hub through the bucket, and its card
   expect(s3.puts.length).toBe(puts);
 });
 
+test("a path written as a terminal's drop writes it (PIE-1656), on another machine, is copied on save and runs", async () => {
+  const page = "<!doctype html><title>Late shift</title><p>made up, with spaces in its name</p>";
+  const path = join(otherDisk, "late shift (copy).html");
+  writeFileSync(path, page);
+  await write(`Late shift\n[artifact::${path.replace(/([ ()])/g, "\\$1")}]`);
+  await (await laptop.open("notes")).server.media.settled();
+  expect(s3.puts).toContain(`sha256/${new Bun.CryptoHasher("sha256").update(page).digest("hex")}`);
+  const info = await show(path, { owner: true });
+  expect(await (await follow(info.frame!)).text()).toBe(page);
+});
+
 test("a name resolves through the hub's one store from the laptop's outline", async () => {
   await hubClient.request({ action: "artifacts.put", name: "orrery", files: { "index.html": "<!doctype html><title>Orrery</title>" } } as never);
   const info = await show("orrery", { owner: true });

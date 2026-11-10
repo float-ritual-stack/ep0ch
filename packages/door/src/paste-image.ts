@@ -4,6 +4,8 @@
 // over an image, so the clipboard is read on this machine: pbpaste's cousins on macOS, wl-paste or xclip on Linux.
 import { createHash } from "node:crypto";
 import { extensionOfBytes } from "@ep0ch/outline-core/file-magic";
+import { artifactKind } from "@ep0ch/outline-core/media-line";
+import { shellWords } from "@ep0ch/outline-core/shell-words";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { basename, extname, isAbsolute, join } from "node:path";
@@ -80,40 +82,27 @@ export function imagePathAt(line: string, col: number): { start: number; end: nu
 }
 
 /** The one image file `text` names (a path dropped on the terminal: quoted or with escaped spaces, `~` too), or null. */
-export function droppedImage(text: string): string | null {
+export const droppedImage = (text: string): string | null => droppedFile(text, isImageName);
+
+/** The one file `text` names, here, that `wanted` takes by its name (an image, or any file a drop turns into a line), or null. */
+function droppedFile(text: string, wanted: (name: string) => boolean = isDropName): string | null {
   const t = text.trim();
-  if (!t || t.includes("\n") || !IMAGE_EXT.has(extname(t.replace(/["']$/, "")).toLowerCase())) return null;
+  if (!t || t.includes("\n")) return null;
   const r = resolveMediaPath(t);
-  if (!r.exists || !isAbsolute(r.path)) return null;
+  if (!r.exists || !isAbsolute(r.path) || !wanted(r.path)) return null;
   try { return statSync(r.path).isFile() ? r.path : null; } catch { return null; }
 }
 
-/** A line of a paste as a shell would read it: its words, quoted or with escaped characters; null with a quote left open. */
-function shellWords(line: string): string[] | null {
-  const words: string[] = [];
-  let word = "", inWord = false, quote = "";
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]!;
-    if (quote) { if (c === quote) quote = ""; else word += c; continue; }
-    if (c === " " || c === "\t") { if (inWord) words.push(word); word = ""; inWord = false; continue; }
-    inWord = true;
-    if (c === "'" || c === '"') quote = c;
-    else if (c === "\\" && i + 1 < line.length) word += line[++i];
-    else word += c;
-  }
-  if (quote) return null;
-  if (inWord) words.push(word);
-  return words;
-}
-
 const isImageName = (name: string) => IMAGE_EXT.has(extname(name).toLowerCase());
+/** A file a drop turns into a line: a picture, or an artifact (a page claude.ai runs: `.html`, `.jsx`, `.svg`, …; PIE-1656). */
+const isDropName = (name: string) => isImageName(name) || !!artifactKind(name);
 const isPathWord = (word: string) => /^(?:\/|~\/)/.test(word);
 const MOST_DROPPED_LINES = 50;
 
 /**
- * The image files a paste names and nothing else, as a drop on a terminal writes them (PIE-1589): paths, quoted or with
- * escaped spaces, several on a line or a line each, or bare names a line each (what macOS's file copy leaves on the
- * clipboard: the folder never reaches the door). Null for any other paste. Reads no file.
+ * The image and artifact files a paste names and nothing else, as a drop on a terminal writes them (PIE-1589, PIE-1656):
+ * paths, quoted or with escaped spaces, several on a line or a line each, or bare names a line each (what macOS's file
+ * copy leaves on the clipboard: the folder never reaches the door). Null for any other paste. Reads no file.
  */
 export function droppedFiles(text: string): string[] | null {
   const lines = text.replace(/\r\n?/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
@@ -122,12 +111,12 @@ export function droppedFiles(text: string): string[] | null {
   for (const line of lines) {
     const words = shellWords(line);
     if (!words) return null;
-    if (words.every(word => isPathWord(word) && isImageName(word))) { files.push(...words); continue; }
-    // One file with spaces its terminal left as they are, unless a word is another file: images mixed with anything stay text.
-    if (words.slice(0, -1).some(isImageName) || words.slice(1).some(word => word.includes("/"))) return null;
+    if (words.every(word => isPathWord(word) && isDropName(word))) { files.push(...words); continue; }
+    // One file with spaces its terminal left as they are, unless a word is another file: files mixed with anything stay text.
+    if (words.slice(0, -1).some(isDropName) || words.slice(1).some(word => word.includes("/"))) return null;
     const whole = words.join(" ");
     // A path, or a name that starts as a file's name does.
-    if (!isImageName(whole) || !(isPathWord(whole) || (/^[\p{L}\p{N}]/u.test(whole) && !whole.includes("/")))) return null;
+    if (!isDropName(whole) || !(isPathWord(whole) || (/^[\p{L}\p{N}]/u.test(whole) && !whole.includes("/")))) return null;
     files.push(whole);
   }
   return files;
@@ -140,13 +129,13 @@ const sameName = (name: string) => name.normalize("NFC").replace(/\u202f/g, " ")
  * that name in `folders`, the first that holds one; else null.
  */
 export function findDropped(file: string, folders: readonly string[]): string | null {
-  if (isPathWord(file)) { const here = droppedImage(file); if (here) return here; }
+  if (isPathWord(file)) { const here = droppedFile(file); if (here) return here; }
   const name = sameName(basename(file));
   for (const folder of folders) {
     let names: string[];
     try { names = readdirSync(folder); } catch { continue; }
     const found = names.find(n => sameName(n) === name);
-    if (found && droppedImage(join(folder, found))) return join(folder, found);
+    if (found && droppedFile(join(folder, found))) return join(folder, found);
   }
   return null;
 }
@@ -172,6 +161,8 @@ export function keepImage(folder: string, image: Buffer | string, now = new Date
 
 /** The media line for a kept picture: brackets in its path are the line's own grammar's to read. */
 export const imageLine = (path: string) => `[img::${path}]`;
+/** The media line for a dropped artifact (PIE-1656): its path as the file's, spaces and all; the line's grammar reads it whole. */
+export const artifactLine = (path: string) => `[artifact::${path}]`;
 
 /** The folders this outline's notes name for dropped files: `[drop-folder::<folder>]` on any note. */
 async function dropFolders(board: Pick<SocketBoard, "request">): Promise<string[]> {
@@ -182,19 +173,19 @@ async function dropFolders(board: Pick<SocketBoard, "request">): Promise<string[
 /** Their one action, in the reader's set beside `draft.image`. */
 export const dropActions = {
   "draft.drop": def({
-    summary: "turn what was just pasted before the cursor into pictures, when it is nothing but image files (PIE-1589): a file dropped on the terminal pastes its path, or on macOS a bare name; each found here (its path, else its name in a folder a note names with [drop-folder::<folder>]) is copied into the outline's folder (media/) and becomes an [img::<path>] line, one undo step that gives the paste back. What it can't find stays as written, and is said. Any other paste stays as it is",
-    keys: "a paste of nothing but image files, in an edit or a comment",
+    summary: "turn what was just pasted before the cursor into lines, when it is nothing but image or artifact files (PIE-1589, PIE-1656): a file dropped on the terminal pastes its path (escaped or quoted), or on macOS a bare name; each found here (its path, else its name in a folder a note names with [drop-folder::<folder>]) becomes a line of its own, one undo step that gives the paste back. A picture is copied into the outline's folder (media/) as an [img::<path>] line; an artifact (.html, .jsx, .svg, …) runs from where it is, as an [artifact::<path>] line naming it with its spaces as they are. What it can't find stays as written, and is said. A path pasted as a value (after [artifact:: or [img::) and any other paste stay as they are",
+    keys: "a paste of nothing but image or artifact files, in an edit or a comment",
     touches: "draft", draft: "type", replay: "ask",
     args: { text: { type: "string", about: "the paste, as it sits before the cursor" } },
     examples: [
       { act: "draft.drop text=\"plot at dusk.png\"", does: "after draft.paste of the same text: finds it in the outline's [drop-folder::] folders and makes it a picture" },
+      { act: "draft.drop text=\"/made/up/night\\ shift.html\"", does: "after draft.paste of the same text: an [artifact::/made/up/night shift.html] line, its card reading the file" },
     ],
     async run({ text }: { text: string }, { surface, host }: On, actor) {
       const d = surface.writingDraft, files = droppedFiles(text);
       if (!d || !files) return { pictures: 0 };
-      const info = await host.ctx.board.info().catch(() => null);
-      // Pictures live in the outline's folder: the words stay, whole, in a draft on an outline elsewhere.
-      if (!info || info.host !== hostname()) { d.status.say(`the outline is on ${info?.host ?? "another machine"}: what you dropped stays as text, and a picture goes into an outline on this machine`); host.redraw(); return { pictures: 0 }; }
+      // A path pasted as a property's value (typed `[artifact::`, then the path) is the person's own line: it stays.
+      if (d.typedInToken(text)) return { pictures: 0 };
       const here = files.map(file => findDropped(file, []));
       // Only a file that isn't where it's named asks the outline where else to look.
       const folders = here.every(Boolean) ? [] : await dropFolders(host.ctx.board).catch(() => [] as string[]);
@@ -202,15 +193,23 @@ export const dropActions = {
       const missing = files.filter((_, i) => !found[i]);
       const lookIn = folders.length ? `isn't in ${folders.join(", ")} or on this machine` : "isn't on this machine: a note carrying [drop-folder::<folder>] says where dropped names are looked up";
       if (missing.length === files.length) { d.status.say(`${missing.join(", ")} ${lookIn}`); host.redraw(); return { pictures: 0, missing }; }
+      // A picture is copied into the outline's folder, so it needs the outline on this machine; an artifact runs from
+      // where it is (the outline's host reads it from the machine that has it, PIE-1644), so its line names that path.
+      const isPicture = (path: string | null) => !!path && isImageName(path);
+      const info = found.some(isPicture) ? await host.ctx.board.info().catch(() => null) : null;
+      const away = found.some(isPicture) && (!info || info.host !== hostname());
+      const awaySaid = `the outline is on ${info?.host ?? "another machine"}: what you dropped stays as text, and a picture goes into an outline on this machine`;
+      if (away && found.every(path => !path || isPicture(path))) { d.status.say(awaySaid); host.redraw(); return { pictures: 0 }; }
       if (surface.writingDraft !== d || d.busy) return { pictures: 0 };
       let lines: string[];
-      try { lines = found.map((path, i) => path ? imageLine(keepImage(info.workspace, path)) : files[i]!); }
+      try { lines = found.map((path, i) => !path || (away && isPicture(path)) ? files[i]! : isPicture(path) ? imageLine(keepImage(info!.workspace, path)) : artifactLine(path)); }
       catch (e) { d.status.say((e as Error).message); host.redraw(); return { pictures: 0 }; }
       if (!d.replaceTyped(text, lines, actor)) return { pictures: 0 };
-      const pictures = files.length - missing.length;
-      d.status.say(`${pictures === 1 ? "a picture" : `${pictures} pictures`} kept in media/ · ctrl+z gives back what you dropped${missing.length ? ` · ${missing.join(", ")} ${lookIn}` : ""}`);
+      const pictures = away ? 0 : found.filter(isPicture).length, artifacts = found.filter(path => path && !isPicture(path)).length;
+      const made = [pictures ? `${pictures === 1 ? "a picture" : `${pictures} pictures`} kept in media/` : "", artifacts ? `${artifacts === 1 ? "an artifact" : `${artifacts} artifacts`}, run from where ${artifacts === 1 ? "it is" : "they are"}` : ""].filter(Boolean).join(" · ");
+      d.status.say(`${made} · ctrl+z gives back what you dropped${away ? ` · ${awaySaid}` : ""}${missing.length ? ` · ${missing.join(", ")} ${lookIn}` : ""}`);
       host.redraw();
-      return { pictures, missing };
+      return { pictures, artifacts, missing };
     },
   }),
 };

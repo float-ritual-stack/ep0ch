@@ -55,3 +55,17 @@ describe("finding it", () => {
     expect(findDropped(join(dir, "gate.jpg"), [])).toBe(join(dir, "gate.jpg"));
   });
 });
+
+describe("an artifact file dropped (PIE-1656)", () => {
+  test("a page claude.ai runs reads as a dropped file, escaped, quoted or bare; a text file stays text", () => {
+    expect(droppedFiles(String.raw`/made/up/LATE\ SHIFT.html `)).toEqual(["/made/up/LATE SHIFT.html"]);
+    expect(droppedFiles(`'/made/up/pulse pad.jsx' /made/up/plot.png`)).toEqual(["/made/up/pulse pad.jsx", "/made/up/plot.png"]);
+    expect(droppedFiles("/made/up/orbit lamp.html")).toEqual(["/made/up/orbit lamp.html"]);
+    expect(droppedFiles("/made/up/notes.txt")).toBeNull();
+  });
+  test("found here by its path, or by its name in the folders named", () => {
+    writeFileSync(join(dir, "LATE SHIFT.html"), "<title>made up</title>");
+    expect(findDropped(join(dir, "LATE SHIFT.html"), [])).toBe(join(dir, "LATE SHIFT.html"));
+    expect(findDropped("/Users/someone/Desktop/LATE SHIFT.html", [dir])).toBe(join(dir, "LATE SHIFT.html"));
+  });
+});

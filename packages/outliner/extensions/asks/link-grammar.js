@@ -1357,6 +1357,49 @@ function artifactReference(value) {
 }
 var isArtifactName = (value) => artifactReference(value) !== null;
 
+// packages/outline-core/src/shell-words.ts
+function read(line, split) {
+  const words = [];
+  let word = "", inWord = false, quote = "";
+  for (let i = 0;i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote)
+        quote = "";
+      else if (quote === '"' && c === "\\" && /["\\$`]/.test(line[i + 1] ?? ""))
+        word += line[++i];
+      else
+        word += c;
+      continue;
+    }
+    if (split && (c === " " || c === "\t")) {
+      if (inWord)
+        words.push(word);
+      word = "";
+      inWord = false;
+      continue;
+    }
+    inWord = true;
+    if (c === "'" || c === '"')
+      quote = c;
+    else if (c === "\\" && i + 1 < line.length)
+      word += line[++i];
+    else
+      word += c;
+  }
+  if (quote)
+    return null;
+  if (inWord)
+    words.push(word);
+  return words;
+}
+function shellPath(value) {
+  const v = value.trim();
+  if (!v.includes("\\") && !/^['"]/.test(v))
+    return v;
+  return read(v, false)?.[0] ?? v;
+}
+
 // packages/outline-core/src/media-line.ts
 var MAX_CONTENT_HEIGHT = 200;
 var CONTENT_SIZE_PROPS = [
@@ -1434,7 +1477,7 @@ function parseMediaLine(line) {
   if (media.length !== 1 || !media[0].value || t.toks.some((x) => !MEDIA_KEY.test(x.key) && !ATTRS.has(x.key.toLowerCase())))
     return null;
   const key = media[0].key.toLowerCase();
-  const spec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0].value, problems: [] };
+  const spec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: shellPath(media[0].value), problems: [] };
   if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path) && !artifactFolderPath(spec.path))
     spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set;
@@ -1540,7 +1583,7 @@ var ARTIFACT_KINDS = {
   ".mmd": "mermaid"
 };
 var ARTIFACT_EXTENSIONS = ".jsx, .tsx, .html, .svg or .mermaid";
-var fileName = (path) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "file";
+var fileName = (path) => path.replace(/\/+$/, "").split("/").pop() || "file";
 function artifactRepoRef(value) {
   const trimmed = value.trim();
   const url = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(.*)$/i.exec(trimmed);
@@ -1656,6 +1699,7 @@ var BASE_HEADING_STYLE = style("", {});
 // packages/outline-core/src/annotation-marks.ts
 var ANNOTATION_EDITED_KEY = "annotation-edited";
 var ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
+var MARK_SHOWS = new Set(["file", "web", "img", "video", "artifact"]);
 
 // packages/outline-core/src/property-parse.ts
 var BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
@@ -2241,7 +2285,7 @@ var FIGURE_COMPONENT_SCHEMAS = FIGURES.map(figure);
 // packages/outline-core/src/write-shape.ts
 var HEADING2 = /^[ \t]{0,3}#{1,6}[ \t]/;
 var isHeadingLine = (line) => HEADING2.test(line);
-var COMMENT_SHOWS = new Set(["file", "web", "img", "video", "artifact"]);
+var BOX_LINE = new RegExp(`^(?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-*+]|\\d+[.)])[ \\t]+${STEP_BOX}[ \\t]*(.*)$`);
 var SINGLE_QUOTED = String.raw`(?:[^'’\n]|(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}]))*`;
 var QUOTATION = new RegExp(String.raw`"[^"\n]*"|“[^”\n]*”|(?<![\p{L}\p{N}])['‘]${SINGLE_QUOTED}\?${SINGLE_QUOTED}['’](?![\p{L}\p{N}])`, "gu");
 export {

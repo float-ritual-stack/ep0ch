@@ -9,7 +9,9 @@ import { readFileSync } from "node:fs";
 import { App } from "../../src/app";
 import type { Desk } from "../../src/desk/desk";
 import { spanBg } from "../../src/surface/margin";
-import { MARGINALIA_FILE, type Seeded } from "../../src/showcase/seed";
+import { MARGINALIA_FILE, MARGINALIA_NOTEBOOK_COMMENT, type Seeded } from "../../src/showcase/seed";
+import { subject } from "../../src/board";
+import { drawNote } from "../../src/notes-cli";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard, USER, mutationFor } from "../../src/socket";
 import { makeTile } from "../../src/desk/tiles";
@@ -158,6 +160,37 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     await act("margin", { mode: "trim" });
     expect(screen()).toContain(whole.body);
     for (const thread of [passage, whole]) await act("thread.toggle", { thread: thread.id, expand: true });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  // PIE-1572, PIE-1596: the notebook is the section's narrow tile; the comment on the whole of it quotes chips. It reads
+  // there in every mode, by a click and through act, and its chips stay words: its title and its count are its own.
+  test("narrow (PIE-1572, PIE-1596): the notebook's whole-note comment reads in its tile in each mode; the chips it quotes stay its words", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    const book = seeded.notes.marginaliaNotebook;
+    const thread = (await board.comments(book.id)).find(t => t.body === MARGINALIA_NOTEBOOK_COMMENT)!;
+    expect(thread.start).toBeNull();
+    const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, args, tile: "notebook" }, { kind: "agent", id: "test-agent" }) as Promise<any>;
+    const tile = () => (stage().layoutGet().tiles as any[]).find(t => t.name === "notebook");
+    await until(() => !!tile() && screen().includes("Sort the beds by"), "the notebook's comment card", 8000);
+    await act("margin", { mode: "full" });
+    await until(() => screen().includes("[bed::north]"), "the card whole, its chips as words");
+    await act("margin", { mode: "off" });
+    await until(() => !screen().includes("Sort the beds by"), "as marks: the card folded to its [+]");
+    await act("thread.toggle", { thread: thread.id, expand: true });
+    await until(() => screen().includes("Sort the beds by"), "its [+] opened");
+    await act("margin", { mode: "trim" });
+    // Its title is its words whole, and its header counts its own three properties, not the two it quotes.
+    const m = (await board.get(thread.id))!;
+    expect(subject(m)).toBe(MARGINALIA_NOTEBOOK_COMMENT);
+    const shown = (await drawNote(board, thread.id, 44, { quiet: 150, max: 4000 }))!.map(l => plain(l).trimEnd());
+    // `ep0ch show` at 44 columns: the title wrapped over its first rows, then the byline.
+    const byline = shown.findIndex(l => l.includes("properties"));
+    expect(shown.slice(0, byline).join(" ").replace(/\s+/g, " ")).toBe(MARGINALIA_NOTEBOOK_COMMENT);
+    expect(shown.some(l => l.includes("i 3 properties"))).toBe(true);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 

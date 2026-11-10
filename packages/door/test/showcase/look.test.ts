@@ -1075,6 +1075,22 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
   }, 30_000);
 
+  test("artifacts (PIE-1656): a file with spaces written as a drop writes it reads and opens, titled whole; a card that can't read its file says the whole reason", async () => {
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
+    await until(() => screen().includes("Orbit lamp pinned"), "the artifacts note", 8000);
+    await app.act({ action: "scroll", args: { to: "end" }, as: "test-agent" });
+    await until(() => screen().includes("night shift lamp.html") && screen().includes("or write its path on the machine that has it"), "the dropped file's card and the missing one's whole reason", 10_000);
+    expect(screen()).not.toContain("shift\\ lamp");
+    const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
+    const at = list.findIndex((m: any) => m.path.endsWith("night shift lamp.html"));
+    expect(at).toBeGreaterThan(0);
+    const night = await board.request("artifacts.show", { name: list[at].path });
+    expect(await app.act({ action: "artifact.open", args: { n: at + 1 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: night.url, launched: false });
+    await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
+  }, 30_000);
+
   test("artifacts: file paths, live and pinned cards open the static URLs by key, mouse and agent action", async () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;

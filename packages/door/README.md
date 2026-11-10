@@ -2243,7 +2243,7 @@ in the lanes comments in the preview.
 | `C`, nothing selected; or a click on `[comment]` after the note's date | write a comment on the whole note (PIE-846, `comment.note`): the box opens at the top of the note, where whole-note threads sit (their card on the margin's first row); everything else is as above |
 | `m` | the note's comment threads: `j k` pick, `r` reply, `e` edit the comment's words, `s` seen, `p` keep, `t` TL;DR (with no model set up for @margin, it says how to set one up; nothing is written), `T` takes the TL;DR away, `C` a new comment |
 | `M`, or a click on the comment count | comments: **shown** (trim) → **full** → **marks**. The byline names the mode and `(M)`. Marks hides every card; returning restores the threads. Kept with the tile across a restart and inherited by a reader opened from it |
-| Click `[–]` / `[+]`, or `⏎` on a comment mark | fold or open that thread. Marks and fold controls live in a fixed left gutter outside padding, margin and measure; a folded whole-note thread also leaves a mark after the title. Its `[Edit]` edits the comment |
+| Click `[–]` / `[+]`, or `⏎` on a comment mark | fold or open that thread. Marks and fold controls live in a fixed left gutter outside padding, margin and measure; a folded whole-note thread also leaves a mark after the title (in the BBS reader, after its header), in every comment mode and at any width (PIE-1572). Its `[Edit]` edits the comment |
 | `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` brings it back, on selected words or the whole note) |
 
 - **Edit after posting (PIE-763):** `e` on a thread in the list, or `[Edit]` on an expanded thread or one of its replies,

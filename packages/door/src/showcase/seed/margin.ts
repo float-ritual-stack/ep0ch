@@ -79,3 +79,9 @@ export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
 export const RECENT_REPLIES = `${recentRepliesView(SEED.recentReplies)}\nEvery reply on a thread you started or wrote in, newest first. Opening a thread (a click on its card or mark, or the web client's link) marks it read; unread:me narrows to the new ones.`;
 
 export const MARGINALIA_NOTEBOOK = `${SEED.marginaliaNotebook} [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]\nEvery highlight, comment and answer, grouped under the note it's on. ep0ch export --view <this note's id> writes them out.`;
+
+/**
+ * A comment on the whole notebook, quoting chips (PIE-1572, PIE-1596): read in the notebook's narrow tile, its words are
+ * its card, its title and nothing else: no chip here sets a property.
+ */
+export const MARGINALIA_NOTEBOOK_COMMENT = "Sort the beds by [bed::north] and [season::spring] before the seed swap; the chips here stay words.";
