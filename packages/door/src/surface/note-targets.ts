@@ -80,3 +80,38 @@ export function bodyTargets(doc: Doc, drawn: readonly Link[], elems: readonly { 
   }
   return hits;
 }
+
+/**
+ * The geometry a host draws a note in, for the targets that sit in its rows (Nov 3 review card 2): `at` maps a doc row to
+ * the host's row (null: not shown, so a reader's scroll window cuts there and a digest shows the whole note), `from`/`to`
+ * the columns of the body (a reader's start at its margin, a digest's at 0: the host adds its inset).
+ */
+export interface RowGeometry { at: (docRow: number) => number | null; from: number; to: number }
+
+/**
+ * The fold heads' targets: every row of a heading folds it (PIE-1349). A host with a gutter (the reader) passes its
+ * cells, `gutter`, and where the disclosure drawn at the heading's words is, `glyphCol` (PIE-1403); a host with none (a
+ * digest) takes the heading's whole row. `foldOf`: the fold point's number (from 1), or null for a heading that has none.
+ */
+export function foldHeadTargets(heads: Doc["heads"], foldOf: (key: string) => number | null, g: RowGeometry, o: { gutter?: [number, number]; glyphCol?: (hostRow: number) => number | null } = {}): Hit[] {
+  const hits: Hit[] = [];
+  for (const h of heads) {
+    const fold = foldOf(h.key);
+    if (fold === null) continue;
+    for (let k = 0; k < (h.rows ?? 1); k++) {
+      const row = g.at(h.row + k);
+      if (row === null) continue;
+      hits.push(o.gutter ? { row, from: o.gutter[0], to: o.gutter[1], fold } : { row, from: g.from, to: h.cols, fold });
+      const col = k === 0 ? o.glyphCol?.(row) : null;
+      if (col !== null && col !== undefined) hits.push({ row, from: col, to: col + 1, fold });
+    }
+  }
+  return hits;
+}
+
+/** An open choice's rows (a step's status, a callout's type: PIE-472): row `i` of `rows` is choice `i`, in the same Hit in every host. */
+export function pickTargets(rows: readonly number[], g: RowGeometry): Hit[] {
+  const hits: Hit[] = [];
+  for (const [i, r] of rows.entries()) { const row = g.at(r); if (row !== null) hits.push({ row, from: g.from, to: g.to, pick: i }); }
+  return hits;
+}

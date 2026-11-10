@@ -12,7 +12,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { agentWords } from "../src/surface/actions";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, until, untilAsync } from "./scratch";
 import { view } from "./river-view";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -165,6 +165,32 @@ describe.skipIf(!outliner)("a river column draws and presses its note as a reade
     return act("column.copy", { source: true }, V().name(col));
   };
 
+  test("a step's status choice has the same rows in a reader and in a column, and a click on one chooses it", async () => {
+    const steps = await create(notes.plot.id, "Thinning\n- [ ] thin the carrots\n- [ ] water the beds");
+    const reader = new NoteSurface();
+    const rh: SurfaceHost = { ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} };
+    reader.show(steps as any, rh);
+    const readerPicks = async () => {
+      await until(() => { reader.render(80, 40, rh); return reader.elems.some(e => e.kind === "task"); }, "the reader's steps");
+      reader.openPicker(reader.elems.find(e => e.kind === "task")!);
+      reader.render(80, 40, rh);
+      return ((reader as any).hits as any[]).filter(h => "pick" in h).map(h => h.pick);
+    };
+    const inReader = await readerPicks();
+    expect(inReader.length).toBeGreaterThan(1);
+    await inColumn(steps.id, async () => {
+      const s = S();
+      await until(() => { rows(80); return s.elems.some((e: any) => e.kind === "task"); }, "the column's steps");
+      s.openPicker(s.elems.find((e: any) => e.kind === "task"));
+      await until(() => rows(80).some(l => l.includes("Mark waiting")), "the choice drawn in the column");
+      const dg = (col as any).digestOf_.dg;
+      expect(dg.targets.filter((t: any) => "pick" in t).map((t: any) => t.pick)).toEqual(inReader);
+      await Bun.sleep(500);
+      click(80, "Mark waiting");
+      await untilAsync(async () => (await board.get(steps.id))!.text.includes("[~] thin the carrots"), "the step marked waiting");
+    });
+  });
+
   test("a callout's ⧉ in a column copies it, as the reader's does, never folds it", async () => {
     await inColumn(notes.tips.id, async () => {
       const asked: string[] = [], s = col.surface as any, runKey = s.runKey.bind(s);
@@ -250,7 +276,7 @@ describe("the one drawing: the reader and the digest index the same header targe
   const linked = { ...note, text: "Sow the leeks\nSee ((51111111-2222-4333-8444-555555555555|the plot)) and [[Beds]].\n\n# Beds\nunder\n\n```\nrows: 3\n```" };
   const draw = {
     reader: (s: NoteSurface, h: SurfaceHost, w: number) => { s.render(w, 40, h); return (s as any).hits as any[]; },
-    river: (s: NoteSurface, h: SurfaceHost, w: number) => { const d = s.digest(linked as any, w, h); return [...d.header.targets, ...d.targets] as any[]; },
+    river: (s: NoteSurface, h: SurfaceHost, w: number) => { const d = s.digest(s.msg as any, w, h); return [...d.header.targets, ...d.targets] as any[]; },
   };
   const linkHits = (hits: any[]) => hits.filter(x => "link" in x && x.elem).map(x => `${x.elem}:${x.link.page ?? x.link.block}`).sort();
 
@@ -277,6 +303,37 @@ describe("the one drawing: the reader and the digest index the same header targe
     expect(s.selectedLink()).toBe(s.elems.find(e => e.key === (s as any).cur)?.link ?? null);
     s.letGo();
     expect(s.selectedLink()).toBeNull();
+  });
+
+  const folded = { ...note, text: "Sow the leeks\nIntro.\n\n# Beds\nunder the heading\n\n## A heading long enough to wrap onto a second row in a narrow column of text\nmore\n\n- [ ] thin them" };
+
+  test.each([44, 160])("a fold head folds from the same rows in the reader and in a river column, at %d columns", w => {
+    const folds = Object.entries(draw).map(([name, f]) => {
+      const s = new NoteSurface(), h = host();
+      s.show(folded as any, h);
+      const hits = f(s, h, w).filter(x => "fold" in x);
+      // Each fold's rows, once: the reader adds a disclosure glyph beside the gutter on a heading's first row.
+      return [name, [...new Set(hits.map(x => `${x.fold}@${x.row}`))].map(x => x.split("@")[0]!).sort()] as const;
+    });
+    expect(folds[0]![1].length).toBeGreaterThanOrEqual(w === 44 ? 3 : 2);   // the long heading takes two rows at 44
+    expect(folds[1]![1]).toEqual(folds[0]![1]);
+  });
+
+  test.each(Object.keys(draw) as (keyof typeof draw)[])("⏎ presses the ::button on the reading line when nothing is current, in the %s", host_ => {
+    const pressed: string[] = [];
+    const s = new NoteSurface(), h = host();
+    const m = { ...note, text: "Water the plot\n\n::button{label=\"Water it\" act=\"tile.zoom reach=column\"}" };
+    s.show(m as any, h);
+    draw[host_](s, h, 80);
+    const b = s.elems.find(e => e.link?.press);
+    expect(b).toBeDefined();
+    (s as any).runKey = (a: string, args: any) => { pressed.push(`${a} n=${args.n}`); return Promise.resolve(); };
+    s.letGo();
+    s.readingLine(2);                     // the reading line is on the button's block
+    draw[host_](s, h, 80);
+    expect(s.buttonAtReading()).toBe(s.elems.find(e => e.link?.press) ?? null);
+    expect(s.key({ kind: "enter" }, h)).toBe(true);
+    expect(pressed).toEqual([`button.press n=${s.elems.findIndex(e => e.link?.press) + 1}`]);
   });
 
   test("moving the position drops a link still waiting to be drawn", () => {

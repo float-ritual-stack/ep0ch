@@ -117,7 +117,7 @@ import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { blockdownHooks, drawIn, embedOnly, linkSink, NO_READER, readableSource, sequenceStart, tagInto } from "./blockdown-context";
 export { embedOnly, readableSource } from "./blockdown-context";
-import { bodyTargets, copyControls, pickTarget } from "./note-targets";
+import { bodyTargets, copyControls, foldHeadTargets, pickTarget, pickTargets, type RowGeometry } from "./note-targets";
 export { COPY_ROWS, pickTarget } from "./note-targets";
 import { ActionRefused, actionSet, def, keyCaption, agentLabel, agentWords, asActor, type ActionSet, type ArgsOf, type ArgsOfSet } from "./actions";
 import { Dispatcher } from "./dispatch";
@@ -2005,10 +2005,8 @@ export class NoteSurface {
       const row = c.row - this.scroll;
       if (row >= 0 && row < room && c.from + bx < w) this.hits.push({ row: top + row, from: c.from + bx, to: Math.min(w, c.to + bx), thread: c.thread, elem: controlKey(c.thread, c.control, c.value) });
     }
-    for (const [i, r] of (picks?.rows ?? []).entries()) {
-      const row = r - this.scroll;
-      if (row >= 0 && row < room) this.hits.push({ row: top + row, from: bx, to: w, pick: i });
-    }
+    const window: RowGeometry = { at: r => { const row = r - this.scroll; return row >= 0 && row < room ? top + row : null; }, from: bx, to: w };
+    this.hits.push(...pickTargets(picks?.rows ?? [], window));
     // A template's figures share one source line, so their container tint uses the figure's drawn bounds;
     // the selected row's own lines are the item band (PIE-969). The ruler wins over an open thread's passage tint.
     const reading = this.readingRows(), framedList = this.framedList(current);
@@ -2082,6 +2080,12 @@ export class NoteSurface {
     placements.unshift(...shade.placements);
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
+    // A fold head's gutter and the disclosure drawn at the heading's words (doc.ts's headingGlyph, PIE-1403) are targets of
+    // the shared builder; the glyph is the first thing drawn at the body's start (indented or not), a ▸ in the words is never one.
+    if (!this.printed) this.hits.push(...foldHeadTargets(doc.heads, key => { const n = this.foldsIn(m).points.findIndex(p => p.key === key); return n < 0 ? null : n + 1; }, window, {
+      gutter: [this.gutterStart, this.gutterStart + 1],
+      glyphCol: row => { let col = 0; for (const c of visible(lines[row] ?? "")) { if (col >= this.bx && c !== " ") return c === "▾" || c === "▸" ? col : null; col += width(c); } return null; },
+    }));
     if (!this.printed) for (const hd of doc.heads) {
       const first = top + hd.row - this.scroll, rows = hd.rows ?? 1;
       if (first + rows <= top || first >= top + room) continue;
@@ -2089,17 +2093,6 @@ export class NoteSurface {
       if (n < 0) continue;
       const folded = this.effectiveFolded(this.foldsIn(m).points[n]!);
       if (first >= top) gutterRows.set(first, dim(folded ? "▸" : "▾"));
-      // A wrapped heading is one heading (PIE-1349): a click on any of its rows folds it.
-      for (let r = Math.max(top, first); r < Math.min(first + rows, top + room); r++) this.hits.push({ row: r, from: this.gutterStart, to: this.gutterStart + 1, fold: n + 1 });
-      // The disclosure drawn at the heading's words (doc.ts's headingGlyph) is a click target as much as the gutter's (PIE-1403).
-      // It is the first thing drawn at the body's start (indented or not); a ▸ in the heading's words is never one.
-      if (first >= top) {
-        let col = 0;
-        for (const c of visible(lines[first] ?? "")) {
-          if (col >= this.bx && c !== " ") { if (c === "▾" || c === "▸") this.hits.push({ row: first, from: col, to: col + 1, fold: n + 1 }); break; }
-          col += width(c);
-        }
-      }
       // What a fold hides is said after its last row.
       const row = first + rows - 1;
       if (row < top || row >= top + room) continue;
@@ -2614,9 +2607,10 @@ export class NoteSurface {
     const headLines = head.map((l, r) => (ruled && r - head.length >= ruled[0] && r - head.length < ruled[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const elemOf = new Map<Link, string>(this.elems.filter(e => e.link).map(e => [e.link!, e.key]));
     const targets: Hit[] = bodyTargets(doc, drawn, this.elems, { at: r => r, dx: () => 0, cols: () => Infinity, bx: 0, w: bw, elemBx: this.bx, top: 0, elemOf: r => { const l = drawn[r.n]; return l ? elemOf.get(l) : undefined; } });
-    for (const [i, row] of (picks?.rows ?? []).entries()) targets.push({ row, from: 0, to: bw, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
+    const whole: RowGeometry = { at: r => r, from: 0, to: bw };
+    targets.push(...pickTargets(picks?.rows ?? [], whole));
     // Every row of a wrapped heading is its disclosure (PIE-1349).
-    for (const h of doc.heads) { const n = points.findIndex(p => p.key === h.key); if (n >= 0) for (let k = 0; k < (h.rows ?? 1); k++) targets.push({ row: h.row + k, from: 0, to: h.cols, fold: n + 1 }); }
+    targets.push(...foldHeadTargets(doc.heads, key => { const n = points.findIndex(p => p.key === key); return n < 0 ? null : n + 1; }, whole));
     const copies = copyControls(lines, doc, { at: r => r, bx: 0, w: bw, now: current ? this.blockOf(current) : null });
     targets.push(...copies);
     const placements = imagePlacements(doc.images, 0, ...cellOf(host));
@@ -4382,17 +4376,17 @@ export class NoteSurface {
    * Otherwise ⏎ isn't the reader's.
    */
   private enterKey(fresh: boolean, host: SurfaceHost): boolean {
-    const e = this.inView();
     if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
+    // The one reading position answers (card 10): the current element, else (nothing current, no link waiting to be
+    // drawn) the ::button on the reading line (j k, PIE-1518): ⏎ presses it, no ] first.
+    const e = this.inView() ?? (this.pendingLink ? null : this.buttonAtReading());
     if (e) {
       if (fresh && !opens(e) && !e.link?.press?.alt) return false;
       void this.activate(e, host, fresh);
       return true;
     }
     // The position is a link selected before its element was laid out (link.select, then ⏎ before a paint): it follows.
-    if (!this.cur && this.pendingLink) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
-    const b = this.buttonAtReading(); // the reading line (j k) on a ::button's block (PIE-1518): ⏎ presses it, no ] first
-    if (b && (!fresh || b.link?.press?.alt)) { void this.activate(b, host, fresh); return true; }
+    if (this.pendingLink) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
     return false;
   }
 
@@ -4936,7 +4930,8 @@ export class NoteSurface {
   }
 
   readingRows(): [number, number] | null {
-    const d = this.drawn;
+    // The reader's rows, or a host's digest (a river column: the whole note, from row 0): one reading position over both.
+    const d = this.drawn ?? (this.digesting && this.digested ? { doc: this.digested.doc, lines: this.digested.lines } : null);
     if (!d) return null;
     const line = this.readingSourceLine();
     const row = d.doc.source.findIndex(s => d.lines[s] === line);
@@ -5064,7 +5059,10 @@ export class NoteSurface {
   }
 
   /** The ::button the reading line is on, in view, with no element current: what ⏎ presses there (PIE-1518). */
-  buttonAtReading() { const d = this.drawn, r = this.readingRows(); return d && r && !this.cur ? buttonIn(this.elems, d.top + Math.max(r[0], d.scroll), d.top + Math.min(r[1], d.scroll + d.room)) : null; }
+  buttonAtReading() {
+    const v = this.drawn ?? (this.digesting ? { top: 0, scroll: 0, room: Infinity } : null), r = this.readingRows();
+    return v && r && !this.cur ? buttonIn(this.elems, v.top + Math.max(r[0], v.scroll), v.top + Math.min(r[1], v.scroll + v.room)) : null;
+  }
   /** The current element while the person can see it (or it's about to be brought into view). */
   inView(): Element | null {
     const e = this.selectedElement(), d = this.drawn;
@@ -6056,8 +6054,10 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
-    // A panel row or a status choice is its mode's (above); with that mode gone, nothing.
-    if ("prop" in h || "pick" in h) return false;
+    // A row of an open choice (a step's status, a callout's type) chooses it: the reader's picker mode takes it first, a
+    // river column's digest (no mode stack of its own) lands here; with the choice gone, nothing. A panel row is its mode's.
+    if ("pick" in h) { if (!this.picker) return false; void this.choose(h.pick, host); return true; }
+    if ("prop" in h) return false;
     // An image itself: it becomes the `[ ]` position, so its keys (+ - ← → H) change it; ⏎ or a click on its caption opens it.
     if ("image" in h) { void this.runKey("element.select", { n: this.elems.findIndex(x => x.key === h.image) + 1 }, host); return true; }
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then

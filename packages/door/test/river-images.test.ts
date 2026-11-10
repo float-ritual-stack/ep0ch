@@ -54,6 +54,33 @@ describe("a digest lays out a note's images when graphics are on", () => {
     expect(dg.lines.join("\n")).not.toContain("graphics");
   });
 
+  test("the picture's caption and cells are press targets in the digest, as in the reader (Nov 3 review card 2)", async () => {
+    await ready();
+    const m = note(text);
+    const r = new NoteSurface(), hr = host(true, true);
+    r.show(m, hr);
+    r.render(80, 40, hr);
+    const reader = ((r as any).hits as any[]).filter(h => ("link" in h && h.link.media) || "image" in h);
+    const d = new NoteSurface(), hd = host(true, true);
+    d.show(m, hd);
+    const dg = d.digest(m, 80, hd);
+    const river = dg.targets.filter((h: any) => ("link" in h && h.link.media) || "image" in h);
+    expect(reader.some(h => "image" in h)).toBe(true);
+    expect(reader.some(h => "link" in h)).toBe(true);
+    const shape = (hits: any[]) => hits.map(h => "image" in h ? `cell:${h.to - h.from}` : "caption").sort();
+    // Same targets, the cells the same width (a caption spans its row, so its width is the host's).
+    expect(shape(river)).toEqual(shape(reader));
+    // The cells lie on the placement's rows, and the caption's row is the line under them, in the digest's own rows.
+    const p = dg.placements[0]!, cells = river.filter((h: any) => "image" in h);
+    expect(cells.every((h: any) => h.row >= p.row && h.row < p.row + p.rows)).toBe(true);
+    const caption = river.find((h: any) => "link" in h)!;
+    expect(plain(dg.lines[caption.row]!)).toContain("seed-tray.png");
+    // A press on the picture makes it the position, as the reader's does.
+    d.pressTarget(cells[0], hd);
+    await until(() => !!(d as any).cur, "the picture is the position");
+    expect(d.elems.find(e => e.key === (d as any).cur)?.link?.media).toBe(PNG);
+  });
+
   test("graphics off: no placements, and the line says why", async () => {
     await ready();
     const m = note(text);
