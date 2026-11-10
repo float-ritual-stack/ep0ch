@@ -854,6 +854,9 @@ export { sessionStart, type SessionKind };
  * moved to another area meanwhile), and if not nothing opens. The property panel opens at once, so the next
  * key is already its. True once the reader holds a session; a refusal rejects, unless they moved on.
  */
+/** Sessions that take text: keys typed (or a paste) while one is still opening go in when it opens (Desk.startSession, PIE-1659). */
+export const TYPED_WHILE_OPENING: ReadonlySet<SessionKind> = new Set<SessionKind>(["edit", "external", "comment", "note", "note-thread", "note-reply"]);
+
 export function startSession(pane: ReaderPane, kind: SessionKind, desk: DeskApi, still: () => boolean): Promise<boolean> {
   return pane.surface.startAsPerson(kind, pane.host(desk), still).then(() => pane.sessionOf() !== null, e => {
     if (!still()) return false;

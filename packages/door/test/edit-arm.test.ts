@@ -123,13 +123,17 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     await Bun.sleep(100);
     expect(rd.surface.draft).toBeNull();
     expect(message()).toContain("not opened: the reader shows another note now");
-    // A paste typed out as keys: its newline lets the arm go, never opens the edit.
+    // A paste (its newline too) lets the arm go and never opens the edit: it is offered in the power bar (PIE-1659).
     rd.surface.show(await board.get(notes.hedge.id), rd.host(desk));
     key(char("e"));
-    key({ kind: "enter", pasted: true });
+    key({ kind: "paste", text: "trim the hedge\n" });
     expect(app.armed()).toBeNull();
     await Bun.sleep(100);
     expect(rd.surface.draft).toBeNull();
+    // Offered: the bar opens with it (Esc clears its line, then puts it away).
+    expect((app.describe() as any).bar?.query).toBe("trim the hedge");
+    for (let i = 0; i < 3 && (app.describe() as any).bar; i++) key({ kind: "esc" });
+    expect((app.describe() as any).bar).toBeUndefined();
   }, 30_000);
 
   test("the window running out lets it go quietly: no question, no colour, nothing opened", async () => {

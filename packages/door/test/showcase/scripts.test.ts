@@ -409,6 +409,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.act({ action: "edit", tile: "notes", as: "test-agent" });
     const draft = ([...stage.panes.values()].find((p: any) => p.editing) as any).surface.draft;
     press({ kind: "enter" });
+    // Into the agent's open edit with e, as the person goes in (a paste's line break is text, never ⏎: PIE-1659).
+    press({ kind: "char", ch: "e" });
     await stage.dispatch.press("draft.place", { line: draft.lines.length }, "notes");
     press({ kind: "paste", text: "\n\nKeep typing here." });
     const target = seeded.notes.scriptTarget.id;
@@ -507,6 +509,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const reader = [...stage.panes.values()].find((p: any) => p.editing) as ReaderPane;
     const draft = reader.surface.draft!;
     press({ kind: "enter" });
+    press({ kind: "char", ch: "e" });   // into the agent's open edit, as the person goes in (PIE-1659)
     press({ kind: "end" });
     press({ kind: "paste", text: "\n\nStill writing this note." });
     expect(draft.text).toContain("Still writing this note.");

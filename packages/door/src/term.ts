@@ -24,7 +24,7 @@ import { paintable } from "./text";
 export type Key =
   | { kind: "modifier"; key: "ctrl"; event: "press" | "release" | "tap" }
   /**
-   * `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. `shift` with `ctrl`: held
+   * `pasted`: it came inside a paste typed out as keys (`pasteKeys`): a draft takes it as it came. `shift` with `ctrl`: held
    * with a ctrl+letter, as only the Kitty keyboard protocol can say (ctrl+shift+z, a draft's redo).
    */
   | { kind: "char"; ch: string; ctrl?: boolean; shift?: true; pasted?: true }
@@ -60,7 +60,7 @@ export type Key =
   | { kind: "alt-left" | "alt-right" | "alt-up" | "alt-down" | "back" | "forward"; shift?: true; ctrl?: true; super?: true }
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down" | "wheel-left" | "wheel-right"; button: number; x: number; y: number; mods?: number }
-  /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
+  /** A paste (bracketed paste, mode 2004): the text as one piece, never typed out as keys; where it lands is src/paste-path.ts's. */
   | { kind: "paste"; text: string }
   /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
   | { kind: "enter" | "tab"; pasted: true };
@@ -111,7 +111,7 @@ export function optionKeysOn(env: Record<string, string | undefined> = process.e
   return !!m && m[1] === "en" && !["GB", "IE"].includes((m[2] ?? "").toUpperCase());
 }
 
-/** A paste typed out as keys, for a screen that doesn't take it whole (App): CRLF is one break. */
+/** A paste typed out as keys, CRLF one break: the form a draft still takes (its tests'). The door hands a paste whole (src/paste-path.ts). */
 export function pasteKeys(text: string): Key[] {
   return [...text.replace(/\r\n?/g, "\n")].map((ch): Key => (ch === "\n" ? { kind: "enter", pasted: true } : ch === "\t" ? { kind: "tab", pasted: true } : { kind: "char", ch, pasted: true }));
 }
@@ -277,6 +277,11 @@ export const acksUsable = (env: Record<string, string | undefined> = process.env
 const LONE_MS = 30;
 /** How long a sequence cut by the reads waits for its rest from a terminal that sends Kitty key reports (PIE-1554). */
 const CUT_MS = 500;
+/**
+ * A paste's start or end marker cut by the reads (`ESC [ 20` here, `0~` in the next, PIE-1659): it waits as long as a
+ * report cut in two does. On LONE_MS it was dropped, and the rest of the paste arrived as keys.
+ */
+const PASTE_MARK_CUT = /^\x1b\[2(?:0[01]?)?$/;
 
 export class KeyDecoder {
   private pending = "";
@@ -304,7 +309,7 @@ export class KeyDecoder {
   private reports = false;
   /** It sent a bare ESC that nothing followed (a legacy Esc after all, as a multiplexer in between may send): a lone ESC is Esc after LONE_MS again. */
   private bareEsc = false;
-  private cutWait(seq: string) { return this.reports && !(seq === "\x1b" && this.bareEsc) ? CUT_MS : LONE_MS; }
+  private cutWait(seq: string) { return (this.reports && !(seq === "\x1b" && this.bareEsc)) || PASTE_MARK_CUT.test(seq) ? CUT_MS : LONE_MS; }
   /** The one wait for the rest of what's pending: more bytes end it (a later wait is the pending's own, never an earlier one's). */
   private cut: ReturnType<typeof setTimeout> | null = null;
   private waitFor(ms: number, then: () => void) { if (this.cut) clearTimeout(this.cut); this.cut = setTimeout(() => { this.cut = null; then(); }, ms); }

@@ -31,7 +31,8 @@ import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./di
 import { AGENT_ACTOR_ID, Offline, USER, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { asTyped, layerEntry } from "./surface/keymap";
-import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref"; import { addressOf } from "./open";
+import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
+import { paste, type PasteDoor } from "./paste-path";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
 import { tileMenu } from "./desk/tile-menu";
 import { doorMarks } from "./desk/marks";
@@ -49,7 +50,7 @@ import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
 import { CLAUDE_SPLIT_ACTIONS, SplitWatch } from "./claude-splits";
 import { realFleetIO } from "./agent-fleet";
-import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileExit, type TileProgram } from "./term";
+import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileExit, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
@@ -1431,6 +1432,8 @@ export class App implements Ctx {
   }
 
   readonly esc = new DoorEsc(this as unknown as DoorEscHost);
+  /** What the paste path asks of the door (src/paste-path.ts): the drawer's desk while the person is in it. */
+  private readonly pasteDoor: PasteDoor = { top: () => this.stack.at(-1), drawer: () => (this.drawer.entered ? this.drawer.desk ?? null : null), press: (a, args) => this.dispatch.press(a, args), key: k => this.key(k), refuse: why => this.refuse(why) };
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
@@ -1468,6 +1471,8 @@ export class App implements Ctx {
     const overlaid = (owner ? this.hostLayer.resolveTile(owner)?.desk : tilesOf(this.keysScreen()))?.overlaid();
     if ((this.strips.engaged || this.bar || !overlaid) && this.strips.input(k, this.overflow, !this.bar && !!this.keysScreen()?.keys?.().typingIn)) return;
     w = this.keyLayers();
+    // A paste lands where the paste path says (src/paste-path.ts, PIE-1659): whole, never typed out as keys.
+    if (k.kind === "paste" && paste(this.pasteDoor, k.text, w)) return;
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
       // ctrl+z on a kept run answer takes the run back: the bar goes, the key goes on to the screen (Esc, then ctrl+z).
@@ -1542,13 +1547,6 @@ export class App implements Ctx {
     if (isBarKey(k) && !raw && !held && !drawerless) { void this.dispatch.press("bar.open"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !raw && (!held || top?.newNoteWhileTyping?.()) && !drawerless) { void this.dispatch.press("note.new"); return; }
-    // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
-    if (k.kind === "paste" && !raw) {
-      // A paste of nothing (only a picture, PIE-592) is ctrl+v, a draft's draft.image; a note's address where nothing types opens the bar on its row (PIE-1401), never its `d` as keys.
-      if (k.text === "") { this.key({ kind: "char", ch: "v", ctrl: true }); return; } else if (!held && !drawerless && addressOf(k.text)) { void this.dispatch.press("bar.open", { query: k.text.trim() }); return; }
-      for (const key of pasteKeys(k.text)) this.key(key);
-      return;
-    }
     // ctrl+c: in a session the person's terminal detaches (nothing ends, nothing is asked); else the door quits, asking first.
     if (k.kind === "char" && k.ctrl && k.ch === "c" && !raw) {
       if (this.detaches) this.logoff();
