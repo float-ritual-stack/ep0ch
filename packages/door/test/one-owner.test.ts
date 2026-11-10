@@ -168,7 +168,7 @@ const FAMILIES: Family[] = [
     // a replay flag, or its own scope for "whose step" is a hydra.
     pattern: /\.decide\(|\.takeBack\(|\.undoDesk\(|\.newestDesk\(|\.pulledDrawer\(|\.pullBack\(|\bsteps\.putBack\(/g,
     allowed: {
-      "desk/desk.ts": { n: 7, why: "commit asks decide; undo asks takeBack, undoDesk, newestDesk and wraps a put-back" },
+      "desk/desk.ts": { n: 8, why: "commit asks decide; undo asks takeBack, undoDesk, newestDesk and wraps a put-back; and layoutNewestSeq reads newestDesk for a press's undo (PIE-1678)" },
       "drawer.ts": { n: 2, why: "the carry that pulled it up, and its undo" },
     },
   },
