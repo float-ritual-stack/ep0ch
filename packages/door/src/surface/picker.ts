@@ -237,9 +237,16 @@ export class ListPicker<T, H> implements Mode<H> {
    * as it was sized.
    */
   private grown(r: Rect, area: Rect, chrome: number): Rect {
-    const items = this.items, room = r.rows - 2 - chrome, w = r.cols - 2;
-    if (!items.length || room < items.length || w < 1) return r;
-    const need = items.reduce((n, it, i) => n + (this.spec.heading?.(it, i, w) != null ? 1 : 0) + this.spec.row(it, i, i === this.sel, w).length, 0);
+    const items = this.items, count = items.length, room = r.rows - 2 - chrome, w = r.cols - 2;
+    if (w < 1) return r;
+    if (!count || room < count) return r;
+    // Each choice's rows, as `lines` draws them: its heading, then its own (more than one when it wraps).
+    let need = 0;
+    items.forEach((it, i) => {
+      if (this.spec.heading?.(it, i, w) != null) need++;
+      const drawn = this.spec.row(it, i, i === this.sel, w);
+      need += drawn.length;
+    });
     const rows = Math.min(r.rows + Math.max(0, need - room), area.rows);
     if (rows <= r.rows) return r;
     return { ...r, rows, row: Math.max(0, Math.min(r.row, area.row + area.rows - rows)) };
