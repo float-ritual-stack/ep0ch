@@ -5,6 +5,7 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { outline, type Route } from "./outline";
+import { failureWords, TRY_PROMPT, triedLine } from "./yo-line";
 import { actPrompt, argsOf, ASKED_HOW, asksHow, buttonLine, doneRow, isGo, keysOf, labelOf, lastAnswer, lastButton, lineOf, lineStart, memoryStep, memoryText, planOf, planPrompt, pressLine, quoted, ranked, recalled, sections, shortReason, stepsFold, wordsOf, type ActionRecord, type Memory, type Plan } from "./yo-line";
 
 interface Config { answer?: string[]; act?: string[]; memory?: { outline?: string; machine?: string }; ep0ch?: string[] }
@@ -90,7 +91,8 @@ async function model(command: string[], which: string, prompt: string): Promise<
   try { proc = Bun.spawn(command, { stdin: new Blob([prompt]), stdout: "pipe", stderr: "pipe" }); }
   catch (error) { throw new Error(`${which} command couldn't start: ${firstLine(error)}`); }
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  if (code !== 0) throw new Error(`${which} command exited ${code}${err.trim() ? `: ${firstLine(err)}` : ""}`);
+  // Why not, in the command's own words (PIE-1709): a `claude` with no login says them on stdout, not stderr.
+  if (code !== 0) { const words = failureWords(out, err); throw new Error(words ? `${which}: ${words} (exited ${code})` : `${which} command exited ${code}`); }
   let parsed = JSON.parse(out.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1")) as Record<string, unknown>;
   let cost = "";
   if (parsed && parsed.type === "result" && typeof parsed.result === "string") {
@@ -98,7 +100,27 @@ async function model(command: string[], which: string, prompt: string): Promise<
     parsed = JSON.parse(parsed.result.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1")) as Record<string, unknown>;
   }
   steps.push(`asked ${which} (${((Date.now() - started) / 1000).toFixed(1)} s${cost})`);
+  lastCost = cost;
   return parsed;
+}
+let lastCost = "";
+
+/**
+ * The settings card's try (PIE-1709): the `answer` or `act` command run once on a short ask, and what came back in a
+ * line, or why not in the command's own words. Nothing is written; the answer is the card's to say.
+ */
+async function tryModel(setting: string) {
+  const which = setting === "act" ? "act" : "answer";
+  const command = which === "act" ? config.act ?? defaults.act.default : config.answer ?? defaults.answer.default;
+  if (!command.length) return ok({ message: which === "act" ? "the act model: none set · yo offers the button and presses nothing itself" : "the answer model: none set · yo quotes its closest match by its words", setting: which, ok: true, none: true });
+  const started = Date.now();
+  try {
+    const said = await model(command, `the ${which} model`, TRY_PROMPT) as { line?: unknown } | null;
+    const line = said && typeof said === "object" && typeof said.line === "string" ? said.line : undefined;
+    return ok({ message: triedLine(which, { ok: true, seconds: (Date.now() - started) / 1000, cost: lastCost, ...(line ? { line } : {}) }), setting: which, ok: true });
+  } catch (error) {
+    return ok({ message: triedLine(which, { ok: false, why: firstLine(error).replace(new RegExp(`^the ${which} model:? (command )?`), "") }), setting: which, ok: false });
+  }
 }
 
 /** The tile the ask was about, from the thread that carried it. */
@@ -243,6 +265,7 @@ async function respond() {
 
 try {
   if (operation === "respond") await respond();
+  else if (operation === "act" && input.action === "try") await tryModel(input.args?.setting ?? "answer");
   else if (operation === "act" && input.action === "remember") {
     await remember((input.args?.asked ?? "").replaceAll("-", " "), lineOf(input.args?.act ?? "", input.args?.args));
     ok({ message: steps.at(-1) ?? "remembered" });

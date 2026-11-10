@@ -273,3 +273,25 @@ test("PIE-1632: after four answers with the same button, do it presses the newes
   expect(lines[fourth - 1]).toBe("@yo can you lift the barrow?");
   expect(lines.slice(fourth).join("\n")).toMatch(/\n> keys: ✦b · \^W Z\n> ✓ yo pressed ▲ lift · [^\n]+\n> > \[!note\]-/);
 }, 60_000);
+
+// PIE-1709: the settings card's try is yo's own action: it runs a model setting once and says its answer, or why not in the
+// command's own words (a `claude` with no login says them on stdout, in its JSON envelope, and exits 1).
+test("try runs a model setting once: its answer, or why not in its own words; an answer that failed says them too", async () => {
+  const t = await setup({ kind: "quote", action: "barrow.lift" });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-yo-try-")));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const refused = join(root, "refused.ts");
+  writeFileSync(refused, `await Bun.stdin.text(); console.log(JSON.stringify({ type: "result", is_error: true, result: "Not logged in · Please run /login" })); process.exit(1);`);
+  const tried = (setting: string) => t.client.request<{ message: string }>({ action: "extensions.act", extension: "yo", extensionAction: "try", args: { setting } } as never);
+  // The made-up answer model answers: said with its time.
+  expect((await tried("answer")).message).toMatch(/^✓ the answer model answered in \d+\.\d s/);
+  // No act model: said, nothing run.
+  await t.client.request({ action: "extensions.configure", extension: "yo", set: { act: [] } } as never);
+  expect((await tried("act")).message).toBe("the act model: none set · yo offers the button and presses nothing itself");
+  // The answer model refusing: its own words, not "exited 1".
+  await t.client.request({ action: "extensions.configure", extension: "yo", set: { answer: [process.execPath, refused] } } as never);
+  expect((await tried("answer")).message).toBe("✗ the answer model: Not logged in · Please run /login (exited 1)");
+  const note = await t.client.request<{ id: string }>({ action: "create", text: "Shed list\n\n@yo how do I lift the barrow", author: "user" } as never);
+  const text = await until("the answer", () => { const x = t.store.require(note.id).text; return x.includes("@yo answered") ? x : null; });
+  expect(text).toContain("closest match by its words (the answer model: Not logged in · Please run /login (exited 1))");
+}, 60_000);

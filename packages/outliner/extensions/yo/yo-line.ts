@@ -267,6 +267,31 @@ export function memoryText(asked: string, pressed: string): string {
   return `${said}: ${line} [yo-memory::answer] [yo-action::${action}] [yo-asked::${said}] [yo-line::${line}]`;
 }
 
+/**
+ * What a model command said when it failed, in its own words (PIE-1709): its stderr's first line, else what its JSON on
+ * stdout carries (`claude --output-format json` says "Not logged in · Please run /login" as the envelope's `result`, with
+ * `is_error`, and exits 1), else stdout's first line; empty when it said nothing at all.
+ */
+export function failureWords(out: string, err: string): string {
+  if (err.trim()) return shortReason(err);
+  const text = out.trim();
+  try {
+    const said = JSON.parse(text) as Record<string, unknown> | null;
+    const words = said && typeof said === "object" ? [said.result, said.error, said.message].find(w => typeof w === "string" && w.trim()) : undefined;
+    if (typeof words === "string") return shortReason(words);
+  } catch { /* not JSON: its first line */ }
+  return text ? shortReason(text) : "";
+}
+
+/** The ask a try sends a model setting (PIE-1709): short, and answered with the JSON every model command here answers with. */
+export const TRY_PROMPT = 'Answer with JSON only: {"line": "<three words saying you are ready>"}.';
+
+/** A try's answer in a line: what came back, its time and cost, or why not. */
+export function triedLine(which: string, r: { ok: true; seconds: number; cost?: string; line?: string } | { ok: false; why: string }): string {
+  if (!r.ok) return `✗ the ${which} model: ${r.why}`;
+  return `✓ the ${which} model answered in ${r.seconds.toFixed(1)} s${r.cost ?? ""}${r.line ? `: "${shortReason(r.line)}"` : ""}`;
+}
+
 /** A refusal in a step's few words: its first line, ended at a sentence when it runs long, never mid-word or inside a code span. */
 export function shortReason(said: string): string {
   const line = said.split("\n", 1)[0]!.trim();

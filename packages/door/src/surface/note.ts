@@ -1840,7 +1840,7 @@ export class NoteSurface {
     );
     if (this.panel?.card) {
       const card = this.panel.card;
-      if (card.place === "inline") head.push(...this.renderSettings(w, Math.max(4, Math.floor((h - head.length) * .6)), head.length, 0).lines);
+      if (card.place === "inline") head.push(...this.renderSettings(w, Math.max(4, card.fills ? h - head.length : Math.floor((h - head.length) * .6)), head.length, 0).lines);
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);

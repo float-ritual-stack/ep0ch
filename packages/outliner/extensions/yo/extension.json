@@ -37,6 +37,9 @@
     "additionalProperties": false
   },
   "actions": [
+    { "id": "try", "label": "Try a model setting", "on": "outline", "effects": "read", "deadline": "90s",
+      "description": "Runs the answer or act command once on a short ask and says what came back, or why not in the command's own words: the settings card's try",
+      "args": [{ "name": "setting", "type": "choice", "label": "Setting", "options": ["answer", "act"], "required": true, "description": "The model setting to try" }] },
     { "id": "remember", "label": "Remember that this answer worked", "on": "outline", "effects": "write", "deadline": "30s",
       "description": "A button yo drew runs this after its action: one memory note in yo's memory outline",
       "args": [{ "name": "act", "type": "text", "label": "Action" }, { "name": "asked", "type": "text", "label": "Asked" }, { "name": "args", "type": "text", "label": "Arguments", "description": "The arguments that worked, as on:false,reach:full" }] }

@@ -6,7 +6,9 @@ import { requesterOf } from "./socket";
 // the values against the schema and writes config.json on the machine that hosts the outline (`extensions.configure`).
 // The only thing here is the mapping from a schema field to an argument and back: the form, the check and the file
 // are the existing parts'.
-import type { ExtensionSecretReference, ExtensionSettingField, ExtensionSettings, ExtensionsConfigureRequest } from "@ep0ch/outline-core/protocol";
+import type { ExtensionSecretReference, ExtensionSettingField, ExtensionSettings, ExtensionsConfigured, ExtensionsConfigureRequest } from "@ep0ch/outline-core/protocol";
+import type { ComponentSchema, PropSchema } from "@ep0ch/outline-core/component-schema";
+import { extensionList } from "./extensions";
 import { commandLine, lineWords } from "@ep0ch/outline-core/component-block";
 import { ActionRefused, asActor, type ActionDef, type ArgSpec } from "./surface/actions";
 import type { Actor } from "./socket";
@@ -140,6 +142,42 @@ export function settingsMarkdown(e: ExtensionEntry, s: ExtensionSettings): strin
   return lines.join("\n");
 }
 
+/**
+ * The settings as the service last answered them: `extensions.list`'s, or a save's answer until the list is read again
+ * (`extensions.configure` answers the settings as written; the list follows a moment later), so the card shows what was saved.
+ */
+const saved = new Map<string, { list: unknown; settings: ExtensionSettings }>();
+export function settingsNow(e: ExtensionEntry): ExtensionSettings | undefined {
+  const s = saved.get(e.id);
+  return s && s.list === extensionList() ? s.settings : e.settings;
+}
+
+/**
+ * Write an extension's settings (PIE-1343, PIE-1709): `given` as the action's arguments name them (`answer='claude -p'`,
+ * `unset=answer`, `secret-token=env:TOKEN`), checked against the schema by the service and written into config.json on
+ * the machine that hosts the outline, as `actor`. The one write the card, the form and an agent's act share.
+ */
+export async function configureExtension(ctx: ExtOn["ctx"], e: ExtensionEntry, s: ExtensionSettings, given: Record<string, unknown>, actor: Actor): Promise<ExtensionsConfigured> {
+  const change = changeOf(s, given);
+  const name = e.name ?? e.id;
+  try {
+    const r = await ctx.board.request("extensions.configure", { extension: e.id, ...change, mutation: requesterOf(actor) });
+    saved.set(e.id, { list: extensionList(), settings: r.settings });
+    return r;
+  } catch (err) {
+    throw new ActionRefused(`${name}'s settings weren't saved: ${oneWords(err instanceof Error ? err.message : String(err))}`);
+  }
+}
+
+/**
+ * The extension's own try for a setting (PIE-1709): an action it declares that takes `setting`, its options the settings it
+ * can try (yo's `try`, for `answer` and `act`). Described by the extension, so the door never knows which settings are models.
+ */
+export function triesOf(e: ExtensionEntry, setting: string): string | undefined {
+  const a = e.actions.find(x => (x.on ?? "block") === "outline" && x.args?.some(arg => arg.name === "setting" && arg.options?.includes(setting)));
+  return a ? `ext.${e.id}.${a.id}` : undefined;
+}
+
 /** `ext.<id>.settings`: the extension's settings as one action (PIE-1343), its arguments its schema's fields. */
 export function settingsAction(e: ExtensionEntry, s: ExtensionSettings): ActionDef<ExtArgs, ExtOn> {
   const name = e.name ?? e.id;
@@ -159,20 +197,72 @@ export function settingsAction(e: ExtensionEntry, s: ExtensionSettings): ActionD
       const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
       const change = changeOf(s, given);
       if (change.config === undefined && change.set === undefined && change.unset === undefined && change.secrets === undefined) {
-        // Nothing given: what they are now, for an agent; a person asking from a key gets the same said.
-        return { id: e.id, settings: s };
+        // Nothing given: a person's press opens the card on its page (PIE-1709), where each setting reads, changes and is
+        // tried; an agent reads what they are now, and the person's keys stay where they are.
+        if (actor.kind === "user" && on.ctx.dispatch) return openSettingsCard(on.ctx as ExtOn["ctx"] & { dispatch: NonNullable<ExtOn["ctx"]["dispatch"]> }, e, actor);
+        return { id: e.id, settings: settingsNow(e) ?? s };
       }
-      const say = asActor(on.ctx, actor);
-      try {
-        const r = await on.ctx.board.request("extensions.configure", { extension: e.id, ...change, mutation: requesterOf(actor) });
-        say.flash(`${name}'s settings saved in ${r.settings.file}${r.error ? ` · but ${oneWords(r.error)}` : ""}`);
-        on.ctx.redraw();
-        return r;
-      } catch (err) {
-        throw new ActionRefused(`${name}'s settings weren't saved: ${oneWords(err instanceof Error ? err.message : String(err))}`);
-      }
+      const r = await configureExtension(on.ctx, e, settingsNow(e) ?? s, given, actor);
+      asActor(on.ctx, actor).flash(`${name}'s settings saved in ${r.settings.file}${r.error ? ` · but ${oneWords(r.error)}` : ""}`);
+      on.ctx.redraw();
+      return r;
     },
   };
 }
 
 const oneWords = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/**
+ * The person's way to an extension's settings (PIE-1709), from its answer, its page or its power bar row: the settings
+ * screen opened at it, its card beside the list. One place decides it; every button names `ext.<id>.settings`.
+ */
+async function openSettingsCard(ctx: ExtOn["ctx"] & { dispatch: NonNullable<ExtOn["ctx"]["dispatch"]> }, e: ExtensionEntry, actor: Actor): Promise<unknown> {
+  return ctx.dispatch.act({ action: "screen.open", args: { name: "settings", target: e.id } }, actor);
+}
+
+/** The extension a page is about: its `[ext.page::<id>]`, written by the service on every extension's page. */
+export function pageExtension(props: readonly { key: string; value: string }[]): ExtensionEntry | undefined {
+  const id = props.find(p => p.key.toLowerCase() === "ext.page")?.value.trim();
+  return id ? extensionList()?.extensions.find(x => x.id === id && x.state !== "shadowed" && settingsNow(x)) : undefined;
+}
+
+/**
+ * The settings card's schema for an extension (PIE-1709): drawn from its configSchema as the service lists it, one
+ * field per setting and per secret (or `config`, whole, when the schema isn't named fields), each its own words. The
+ * card reads it as it reads a component's, so the keys, placements and actions are the card's own.
+ */
+export function extensionCardSchema(e: ExtensionEntry, s: ExtensionSettings): ComponentSchema {
+  const field = (f: ExtensionSettingField): PropSchema => ({
+    key: f.name, where: "note", meaning: f.description ?? f.name,
+    ...(f.type === "boolean" ? { type: "enum", values: [{ value: "true", meaning: "on" }, { value: "false", meaning: "off" }] }
+      : f.choices?.length ? { type: "enum", values: f.choices.map(c => ({ value: String(c), meaning: String(c) })) } : { type: "text" }),
+    ...(f.default !== undefined ? { default: shownValue(f, f.default) } : {}),
+    ...(f.required ? { required: true } : {}),
+  });
+  const props: PropSchema[] = [
+    ...(s.whole ? [{ key: "config", where: "note", type: "text", meaning: "its settings whole, as JSON (its schema isn't named fields)" } satisfies PropSchema] : []),
+    ...s.fields.map(field),
+    ...s.secrets.map((x): PropSchema => ({ key: secretArg(x.name), where: "note", type: "text", meaning: `${x.description ? `${x.description}: ` : ""}where the secret is, never its value: env:NAME, file:~/path, group:GROUP/KEY` })),
+  ];
+  const name = e.name ?? e.id;
+  return { id: `ext-${e.id}-settings`, title: name, group: "extensions", intro: e.description ?? "", where: s.file, props,
+    source: { use: "", note: { title: name, name: "ext.page", value: e.id } }, example: {} } as ComponentSchema;
+}
+
+/** One field of an extension's card: its value as it reads (a command as one shell line), its state, and its try. */
+export interface ExtensionCardField { value: string | null; state: ExtensionSettingField["state"] | "missing" | "set"; tries?: string; secret?: true }
+
+/** Each card field's value and state, in the schema's order (`extensionCardSchema`'s props). */
+export function extensionCardValues(e: ExtensionEntry, s: ExtensionSettings): Map<string, ExtensionCardField> {
+  const out = new Map<string, ExtensionCardField>();
+  if (s.whole) out.set("config", { value: JSON.stringify(s.config), state: Object.keys(s.config).length ? "set" : "default" });
+  for (const f of s.fields) {
+    const tries = triesOf(e, f.name);
+    out.set(f.name, { value: f.value !== undefined ? shownValue(f, f.value) : null, state: f.state, ...(tries ? { tries } : {}) });
+  }
+  for (const x of s.secrets) out.set(secretArg(x.name), { value: x.reference ?? null, state: x.state, secret: true });
+  return out;
+}
+
+/** What `x` (clear) sends for a field: a setting taken out (back to its default), a secret's reference taken out. */
+export const clearOf = (key: string): Record<string, string> => key.startsWith("secret-") ? { [key]: "" } : key === "config" ? { config: "" } : { unset: key };

@@ -61,7 +61,11 @@ test("tidy's settings say its default, and an answer set in them is what the nex
   const file = join(extensions, "tidy", "config.json");
   const before = await settings("tidy");
   expect(before).toMatchObject({ file, exists: false, state: "default" });
-  expect(before!.fields).toEqual([expect.objectContaining({ name: "answer", type: "command", state: "default", default: expect.arrayContaining(["claude", "-p", "--safe-mode", "--model", "haiku"]) })]);
+  expect(before!.fields).toEqual([
+    expect.objectContaining({ name: "answer", type: "command", state: "default", default: expect.arrayContaining(["claude", "-p", "--safe-mode", "--model", "haiku"]) }),
+    // Its agent's deadline (PIE-1709): a setting too, its manifest's the default.
+    expect.objectContaining({ name: "agent.tidy.deadline", type: "string", state: "default", default: "20s" }),
+  ]);
 
   // A value the schema refuses is refused with its words, and nothing is written.
   await expect(configure("tidy", { config: { answer: "claude -p" } })).rejects.toThrow(/config schema in its extension.json refuses it: .*answer/);
@@ -156,4 +160,31 @@ test("settings name a missing value and secret, keep enabled and sources, take s
   expect(unset.settings.secrets[0]).toMatchObject({ state: "missing" });
   expect(unset.settings.secrets[0]!.reference).toBeUndefined();
   expect(JSON.parse(readFileSync(join(folder, "config.json"), "utf8")).secrets).toBeUndefined();
+});
+
+// PIE-1709: an agent's deadline is a setting: config.json's `agents` over the manifest's, refused in words when it isn't a
+// duration, and what the next answer is given.
+test("an agent's deadline is set, refused and put back like any setting, and the agent's next answer gets it", async () => {
+  const { extensions, client, settings, configure } = await setup();
+  await client.request({ action: "extensions.install", extension: "tidy", where: "outline" });
+  const file = join(extensions, "tidy", "config.json");
+  await expect(configure("tidy", { set: { "agent.tidy.deadline": "a while" } })).rejects.toThrow("agent.tidy.deadline is a duration: 30s, 15m or 2h, not \"a while\"");
+  await expect(configure("tidy", { set: { "agent.tidy.deadline": "3h" } })).rejects.toThrow("at most 2h");
+  await expect(configure("tidy", { set: { "agent.weeder.deadline": "1m" } })).rejects.toThrow("tidy has no agent weeder (it has @tidy)");
+  expect(existsSync(file)).toBe(false);
+  const set = await configure("tidy", { set: { "agent.tidy.deadline": "45s" } });
+  expect(set.settings.fields.find((f) => f.name === "agent.tidy.deadline")).toMatchObject({ state: "set", value: "45s", default: "20s" });
+  expect(set.settings.state).toBe("set");
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ agents: { tidy: { deadline: "45s" } } });
+  const { agentDeadlineMs } = await import("../src/extension-manifest");
+  const { readExtensionFolder } = await import("../src/extension-manifest");
+  const loaded = await readExtensionFolder(join(extensions, "tidy"), "outline");
+  expect(agentDeadlineMs(loaded, loaded.manifest.agents![0]!)).toBe(45_000);
+  // Its model setting changes beside it and leaves the deadline be.
+  await configure("tidy", { set: { answer: ["claude", "-p"] } });
+  expect(JSON.parse(readFileSync(file, "utf8")).agents).toEqual({ tidy: { deadline: "45s" } });
+  const back = await configure("tidy", { unset: ["agent.tidy.deadline"] });
+  expect(back.settings.fields.find((f) => f.name === "agent.tidy.deadline")).toMatchObject({ state: "default" });
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ config: { answer: ["claude", "-p"] } });
+  expect((await settings("tidy"))!.fields.map((f) => f.name)).toEqual(["answer", "agent.tidy.deadline"]);
 });
