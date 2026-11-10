@@ -56,7 +56,7 @@ export class AnswerTile implements Pane {
     // the reader is back by the time the close comes round, with no undo step of its own (an undo of the move brings both
     // back). The next ask opens one beside the reader where it is now.
     if (!(reader instanceof ReaderPane)) {
-      if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) { if (desk.letGo) desk.letGo(this); else desk.dismiss?.(this); } }); }
+      if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); }); }
       return { lines: ["The answer's reader has gone."] };
     }
     this.closing = false;

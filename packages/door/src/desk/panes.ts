@@ -88,10 +88,8 @@ export interface DeskApi {
   paneNamed?(name: string): Pane | undefined;
   /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
   writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
-  /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
-  dismiss?(p: Pane): void;
-  /** Close tile `p` whose owner left this desk, with no undo step of its own (the move that left it is the step). */
-  letGo?(p: Pane): void;
+  /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended); `step` false: its owner left this desk, and the move that left it is the undo step (PIE-1716). */
+  dismiss?(p: Pane, step?: boolean): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
   answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
   selectionSource?(p: ReaderPane): Pane | null;
