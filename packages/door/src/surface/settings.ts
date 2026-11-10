@@ -23,9 +23,8 @@ import type { Key } from "../term";
 import { boundComponent, setBinding, type Binding } from "./binding";
 import type { NoteSurface, On, SurfaceHost } from "./note";
 import type { ListHandle } from "./list-view";
-import type { ExtensionSettings } from "@ep0ch/outline-core/protocol";
-import type { ExtensionEntry } from "../extensions";
-import { clearOf, configureExtension, extensionCardSchema, extensionCardValues, pageExtension, settingsNow } from "../extension-settings";
+import { clearOf, extensionOwner, pageExtension, settingsNow, type SettingsOwner } from "../extension-settings";
+import { doorOwner } from "../door-settings";
 import { LineField } from "./line";
 import { DraftSession, type DraftTarget } from "../draft-session";
 import { USER } from "../socket";
@@ -36,8 +35,8 @@ export interface SettingsSubject { note: Msg; binding: Binding; schemas: Compone
    * `note` properties; an extension's page's (`[ext.page::<id>]`, PIE-1709) in that extension's config.json on the host.
    */
   where: "note" | "yaml" | "extension";
-  /** The extension whose settings these are, and what the service says of them now. */
-  ext?: { entry: ExtensionEntry; settings: ExtensionSettings } }
+  /** Whose settings these are when they live outside the note (an extension's, the door's trail's), and what they are now. */
+  ext?: SettingsOwner }
 /**
  * A settings write for ctrl+z (PIE-1513): the note's text before and after, so one key goes back whole, YAML line and all.
  * An extension's setting (`ext`, PIE-1709) keeps the field's value before and after as it reads (null: left out).
@@ -49,17 +48,21 @@ const LIST = { type: "string", optional: true, about: "the view: its list.blocks
 const KEY = { type: "string", about: "the field's key (settings lists them)" } as const;
 const properties = (config: Record<string, unknown>) => Object.entries(config).map(([key, value]) => ({ key, value: Array.isArray(value) ? value.join(", ") : String(value) }));
 
-/** An extension's page as a settings subject (PIE-1709): its card's fields are its configSchema's, its secrets' and its agents'. */
+/**
+ * An extension's page as a settings subject (PIE-1709): its card's fields are its configSchema's, its secrets' and its
+ * agents'. A door page (`door:trail`, PIE-1725) is the door's own settings, its fields its action's arguments.
+ */
 function extensionSubject(note: Msg): SettingsSubject | null {
   const entry = pageExtension(parsePropertyRecords(note.text).filter(p => p.scope === "block"));
   const settings = entry && settingsNow(entry);
-  if (!entry || !settings) return null;
-  const schema = extensionCardSchema(entry, settings), values = extensionCardValues(entry, settings);
+  const owner = entry && settings ? extensionOwner(entry, settings) : doorOwner(note.id);
+  if (!owner) return null;
+  const schema = owner.schema(owner.settings), values = owner.values(owner.settings);
   const fields = schema.props.map((prop, i): SettingField => {
     const v = values.get(prop.key)!;
     return { n: i + 1, prop, value: v.value, section: 0, ext: v };
   });
-  return { note, binding: { block: note.id }, schemas: [schema], fields, where: "extension", ext: { entry, settings } };
+  return { note, binding: { block: note.id }, schemas: [schema], fields, where: "extension", ext: owner };
 }
 
 export function settingsSubject(surface: NoteSurface, note: Msg, named?: string): SettingsSubject {
@@ -90,7 +93,7 @@ export function openSettings(surface: NoteSurface, subject: SettingsSubject, on?
   if (surface.panel.card?.id !== card.id || surface.panel.card?.list !== card.list) { card.place = surface.attachments.keptPlace("settings") ?? card.place; surface.panel.card = card; }
   // An extension's card says the machine its config.json is on (PIE-1709): the one the outline's host runs on.
   surface.panel.card.ext = !!subject.ext;
-  if (subject.ext && on) surface.panel.card.on = on.machine ?? on.host;
+  if (subject.ext && on) surface.panel.card.on = subject.ext.kept ?? on.machine ?? on.host;
   surface.attachedKeys("settings");
   return surface.panel.card;
 }
@@ -216,11 +219,11 @@ function extGiven(subject: SettingsSubject, key: string, raw: string): Record<st
  * on the host holds it), kept for ctrl+z, and said on the card and to an agent's watcher.
  */
 async function extWrite(on: Pick<On, "surface" | "host">, subject: SettingsSubject, key: string, given: Record<string, unknown>, actor: Actor, words?: string) {
-  const { surface, host } = on, { entry } = subject.ext!;
+  const { surface, host } = on, owner = subject.ext!;
   const before = subject.fields.find(f => f.prop.key === key)?.value ?? null;
-  const r = await configureExtension(host.ctx, entry, settingsNow(entry) ?? subject.ext!.settings, given, actor);
-  const after = extensionCardValues(entry, r.settings).get(key)?.value ?? null;
-  SETTINGS_UNDO.push({ block: subject.note.id, before: "", after: "", key, by: partyOf(actor), context: surface.msg?.id ?? subject.note.id, ext: { id: entry.id, before, after } });
+  const r = await owner.write(host.ctx, given, actor);
+  const after = owner.values(r.settings).get(key)?.value ?? null;
+  SETTINGS_UNDO.push({ block: subject.note.id, before: "", after: "", key, by: partyOf(actor), context: surface.msg?.id ?? subject.note.id, ext: { id: owner.id, before, after } });
   const said = `${words ?? (after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`)}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""}`;
   if (surface.panel?.card) surface.panel.card.say(said, r.error ? "problem" : "news");
   host.ctx.flash(said);
@@ -236,9 +239,9 @@ function editInPlace(on: Pick<On, "surface" | "host">, subject: SettingsSubject,
   const field = subject.fields.find(f => f.prop.key === key)!, was = field.value ?? field.prop.default ?? "";
   const input = new LineField(was, false, { complete: false });
   input.enterSaves = true;
-  const name = subject.ext!.entry.name ?? subject.ext!.entry.id;
+  const { name, id } = subject.ext!;
   const target: DraftTarget = {
-    place: `setting:${subject.ext!.entry.id}:${key}`, back: `⏎ on ${key} brings it back`, label: `${subject.ext!.entry.id}-${key}`,
+    place: `setting:${id}:${key}`, back: `⏎ on ${key} brings it back`, label: `${id}-${key}`,
     what: `${name}'s ${key}`, verb: "save", leaveWrites: false, returns: { what: "setting", does: "saves" },
     async submit(s, by, { report }) {
       const text = s.draft.text;
@@ -271,7 +274,7 @@ async function saveSetting(card: NonNullable<NonNullable<NoteSurface["panel"]>["
 
 /** An extension's settings as an agent reads them (PIE-1709): each field's label, value, state, what it does and its try. */
 const describeExt = (subject: SettingsSubject) => ({
-  extension: subject.ext!.entry.id, file: subject.ext!.settings.file, state: subject.ext!.settings.state, ...(subject.ext!.settings.error ? { error: subject.ext!.settings.error } : {}),
+  extension: subject.ext!.id, file: subject.ext!.settings.file, state: subject.ext!.settings.state, ...(subject.ext!.settings.error ? { error: subject.ext!.settings.error } : {}),
   fields: subject.fields.map(f => ({ key: f.prop.key, value: f.value, state: f.ext!.state, meaning: f.prop.meaning, ...(f.prop.default !== undefined ? { default: f.prop.default } : {}),
     ...(f.prop.values ? { choices: f.prop.values.map(v => v.value) } : {}), ...(f.ext!.tries ? { tries: f.ext!.tries } : {}) })),
 });
@@ -419,7 +422,7 @@ export const SETTINGS_DEFS = {
         if (!subject?.ext || !field || field.value !== e.ext.after) { SETTINGS_UNDO.drop(e); const why = `couldn't undo: ${e.key} changed again since`; host.ctx.flash(why); throw new ActionRefused(why); }
         SETTINGS_UNDO.drop(e);
         const back = e.ext.before === null ? clearOf(e.key) : extGiven(subject, e.key, e.ext.before);
-        const r = await configureExtension(host.ctx, subject.ext.entry, subject.ext.settings, back, actor);
+        const r = await subject.ext.write(host.ctx, back, actor);
         const said = undoneSaid(e);
         host.ctx.flash(said); surface.noteAgent(actor, said);
         if (surface.panel?.card) surface.panel.card.note = said;

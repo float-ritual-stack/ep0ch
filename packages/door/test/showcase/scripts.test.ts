@@ -330,8 +330,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => !!extensionList()?.extensions.find(e => e.name === name), "the recording loaded");
     const extension = extensionList()!.extensions.find(e => e.name === name)!;
     (app as any).message = "";
-    await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
-    await until(() => /done · ctrl\+z|Line \d/.test((app as any).message), "the replay ended", 10_000);
+    const ran = await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
+    await until(() => /done · ctrl\+z|Line \d/.test((app as any).message), "the replay ended", 10_000).catch(e => { throw new Error(`${e.message}; the door said: ${(app as any).message}; the run answered ${JSON.stringify(ran)}; script:\n${saved.text}`); });
     return (app as any).message as string;
   };
   /** The comments with these words on the checklist, once both are there: the replayed one arrives through the outline's event. */
@@ -377,12 +377,72 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       await until(() => !notesTile().surface.session, "the threads closed");
       await typeComment(body, "note");
     });
-    const tile = S().stage(S().sel).top.dispatch.tile("notes").id;
-    expect(saved.text).toContain(`threads tile="${tile}"\ncomment.close tile="${tile}"\n`);
-    expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${tile}"`]);
+    // Every step on the note acts on the note (PIE-1725): opening and closing its threads, and the comment.
+    const note = notesTile().surface.describe().showing!.id;
+    expect(saved.text).toContain(`threads tile="${note}"\ncomment.close tile="${note}"\n`);
+    // The comment acts on the note it was written on (PIE-1725); opening and closing the threads act on the tile.
+    expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${notesTile().surface.describe().showing!.id}"`]);
     expect(saved.text).not.toContain("comment.send");
     expect(await replay(saved)).toContain("done · ctrl+z");
     expect(await threadsWith(body)).toBe(2);
+  }, 30_000);
+
+  // PIE-1725: the save flash says "run it from ^K"; typed there, the macro runs, and its comment lands on the note it
+  // was recorded on, never on the script note (which ^K used to open in that tile first).
+  test("PIE-1725: a recorded comment run from ^K by its name lands on the note it was recorded on", async () => {
+    await intoNotes();
+    const body = "Stake the tall peas";
+    (app as any).message = "";
+    const saved = await recordByKeys(() => typeComment(body, "note"));
+    const checklist = notesTile().surface.describe().showing!.id;
+    const name = /\[script::([^\]]+)\]/.exec(saved.text)![1]!;
+    // The flash says where it lands and how to run it.
+    await until(() => /Saved /.test((app as any).message), "the save flashed");
+    expect((app as any).message).toContain(`run it from ^K: ${name}`);
+    expect((app as any).message).toContain("acts on");
+    expect(saved.text).toContain(`Acts on ((${checklist}|`);
+    expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${checklist}"`]);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === name), "the recording loaded");
+    (app as any).message = "";
+    press({ kind: "char", ch: "k", ctrl: true });
+    await until(() => !!(app as any).bar, "the power bar opened");
+    // As a person types it: most of the name the flash said, the rest left to the list.
+    for (const c of name.slice(0, -2)) press({ kind: "char", ch: c });
+    // Once the notes source has answered too (the script's own note is among its rows), as a person sees the list.
+    await until(() => ((app as any).bar?.describe().rows ?? []).some((r: { key: string }) => r.key === saved.id), "the bar listed the script's note");
+    expect((app as any).bar.describe().rows[0]).toMatchObject({ key: expect.stringMatching(/^ext\./), label: name });
+    // One word is as likely a note's title: "seed" lists notes first, though a script (Seed report) begins with it too.
+    const rows = () => ((app as any).bar?.describe().rows ?? []) as { key: string }[];
+    await app.dispatch.press("bar.open", { query: "seed" });
+    await until(() => rows().some(r => !/^(ext\.|line:)/.test(r.key)), "seed listed notes");
+    expect(rows()[0]!.key).not.toMatch(/^(ext\.|line:)/);
+    await app.dispatch.press("bar.open", { query: name.slice(0, -2) });
+    await until(() => ((app as any).bar?.describe().rows ?? []).some((r: { key: string }) => r.key === saved.id), "the bar listed the script's note again");
+    press({ kind: "enter" });
+    await until(() => /done · ctrl\+z|Line \d/.test((app as any).message), "the replay ended", 10_000);
+    expect((app as any).message).toContain("done · ctrl+z");
+    expect(notesTile().surface.describe().showing?.id).toBe(checklist);
+    expect(await threadsWith(body)).toBe(2);
+    // Words that begin two recordings name neither outright: ⏎ never runs whichever one is listed first.
+    const other = await recordByKeys(() => typeComment("Tie the canes", "note"));
+    const second = /\[script::([^\]]+)\]/.exec(other.text)![1]!;
+    await until(() => !!extensionList()?.extensions.find(e => e.name === second), "the second recording loaded");
+    await app.dispatch.press("bar.open", { query: "recorded-comment-note" });
+    await until(() => rows().some(r => r.key === other.id), "the bar listed both");
+    expect(rows()[0]!.key).not.toMatch(/^(ext\.|line:)/);
+    await app.dispatch.press("bar.close");
+  }, 40_000);
+
+  test("PIE-1725: esc out of a stage entered before the recording leaves no section.leave in it", async () => {
+    await intoNotes();
+    const body = "Mulch before the frost";
+    const saved = await recordByKeys(async () => {
+      await typeComment(body, "note");
+      for (let i = 0; i < 4 && S().focus === "stage"; i++) { press({ kind: "esc" }); await Bun.sleep(50); }
+      expect(S().focus).not.toBe("stage");
+    });
+    expect(saved.text).not.toContain("section.leave");
+    expect(await replay(saved)).toContain("done · ctrl+z");
   }, 30_000);
 
   test("PIE-1718: a comment on words selected with the mouse, typed while recording, replays on those words", async () => {
@@ -397,7 +457,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       await until(() => !!notesTile().surface.selection, "the words selected");
       await typeComment(body, "quote");
     });
-    expect(sendsLine(saved.text)).toEqual([`comment quote="seed labels" body="${body}" tile="${S().stage(S().sel).top.dispatch.tile("notes").id}"`]);
+    expect(sendsLine(saved.text)).toEqual([`comment quote="seed labels" body="${body}" tile="${notesTile().surface.describe().showing!.id}"`]);
     expect(saved.text).not.toContain("passage.select");
     expect(await replay(saved)).toContain("done · ctrl+z");
     expect(await threadsWith(body)).toBe(2);
@@ -412,8 +472,10 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.dispatch.act({ action: "host.enter" }, USER);
     try {
       const body = "Netting over the brassicas";
-      const saved = await recordByKeys(() => typeComment(body, "note", r));
-      expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${tile}"`]);
+      // Ended by esc out of the drawer it began in (PIE-1725): that leave isn't in it, so the replay doesn't refuse it.
+      const saved = await recordByKeys(async () => { await typeComment(body, "note", r); press({ kind: "esc" }); await until(() => app.person().keys === "screen", "out of the drawer"); });
+      expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${r.surface.describe().showing!.id}"`]);
+      expect(saved.text).not.toContain("host.leave");
       expect(await replay(saved)).toContain("done · ctrl+z");
       const listed = await app.drawer.desk!.dispatch.act({ action: "threads", tile }, USER) as { threads: { body: string }[] };
       expect(listed.threads.filter(t => t.body === body)).toHaveLength(2);
@@ -422,6 +484,24 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
       // Back where it was, left of the source, as the later tests find it.
       await app.drawer.desk!.dispatch.act({ action: "tile.drawer", tile, args: { on: false, to: stage.dispatch.tile("source").id, where: "left" } }, USER).catch(() => {});
       await app.dispatch.act({ action: "host.leave" }, USER).catch(() => {});
+    }
+  }, 30_000);
+
+  test("PIE-1725: in a group, a recorded comment replays onto its note there", async () => {
+    await intoNotes();
+    const r = notesTile(), stage = S().stage(S().sel).top, note = r.surface.describe().showing!.id;
+    await stage.dispatch.act({ action: "tile.group", args: { with: "source", name: "pair" }, tile: "notes" }, USER);
+    try {
+      await stage.dispatch.act({ action: "tile.focus", tile: "pair/notes" }, USER);
+      const body = "Grouped beds get compost";
+      const saved = await recordByKeys(() => typeComment(body, "note", r));
+      expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${note}"`]);
+      expect(await replay(saved)).toContain("done · ctrl+z");
+      const listed = await stage.dispatch.act({ action: "threads", tile: note }, USER) as { threads: { body: string }[] };
+      expect(listed.threads.filter(t => t.body === body)).toHaveLength(2);
+      await stage.dispatch.act({ action: "comment.close", tile: note }, USER);
+    } finally {
+      await stage.dispatch.act({ action: "tile.group", args: { on: false }, tile: "pair" }, USER).catch(() => {});
     }
   }, 30_000);
 

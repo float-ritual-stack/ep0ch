@@ -327,7 +327,12 @@ const ACTIONS: BarSource = {
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
     const line = actionLine(q, host, scope === "actions" && !found.length);
-    return line ? [line, ...found] : found;
+    // A script the words begin to name (its name or its title, as a save flash says it: "run it from ^K") runs on ⏎, ahead of
+    // its own note, which the notes source lists too (PIE-1725: ⏎ opened the macro's note in the tile it was to act on).
+    // Only one: of several recordings the words begin, ⏎ would run whichever is listed first (each writes).
+    const named = (n => (n.length === 1 ? n : []))(found.filter(r => scriptNamedBy(q, r.data as { action?: string })));
+    const rest = found.filter(r => !named.includes(r)), first = named.map(r => ({ ...r, exact: true as const }));
+    return line ? [line, ...first, ...rest] : [...first, ...rest];
   },
   named: (q, host) => actionLine(q, host),
   preview(row, host) {
@@ -382,6 +387,16 @@ function scriptSaid({ extension: e, action: a }: ReturnType<typeof scriptActions
  * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
  * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
  */
+/**
+ * Whether `q` begins a script's name or its title past its first word (`recorded-comm`, `Recorded: comment`), case and
+ * punctuation aside: one word (`seed`) is still as likely a note's title, so it names no script outright.
+ */
+function scriptNamedBy(q: string, d: { action?: string } | undefined): boolean {
+  const s = d?.action ? scriptActions().find(x => x.action.name === d.action) : undefined;
+  const fold = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), typed = fold(q);
+  return !!s && typed.includes(" ") && [s.extension.name ?? "", s.extension.summary ?? ""].some(t => fold(t).startsWith(typed));
+}
+
 function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   // A note's address pasted (a web link, an ep0ch:// one) is the notes source's to open, never an action that isn't there.
   if (addressOf(q)) return null;

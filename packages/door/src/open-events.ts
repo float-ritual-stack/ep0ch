@@ -2,6 +2,7 @@ import type { DoorEvent, DoorOpen } from "@ep0ch/outline-core/door-open";
 import type { Ctx, ViewEvent, Screen, ViewState } from "./app";
 import { Trail, type Visit } from "./trail";
 import { traceRequests } from "./surface/dispatch";
+import { bindDoorSettings } from "./door-settings";
 
 /** Local landings are immediate; select previews reach the service when the Trail counts them as read. */
 export class OpenEvents {
@@ -11,6 +12,8 @@ export class OpenEvents {
   private stop?: () => void;
   readonly hear = (e: ViewEvent) => { if (e.type === "door.open") this.trail.hear(e as unknown as DoorOpen); };
   start() {
+    // The settings screen's trail card reads and writes this door's trail (PIE-1725).
+    bindDoorSettings(() => this.trail);
     this.stop = traceRequests(r => {
       if (r.actor.kind !== "user" || !r.tile?.id) return;
       const what = (r.action === "reading.step" || /scroll/.test(r.action)) ? "scrolls" : /select|pick|cursor|ruler/.test(r.action) ? "selections" : r.action === "tile.focus" ? "returns" : null;

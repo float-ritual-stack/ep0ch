@@ -100,7 +100,7 @@ export type Replay = "safe" | "ask";
  * A finished step as a macro saw it: the action, its arguments and its answer, and `since`, when the recording began
  * (Date.now()). What it answers is the line saved (its tile is the step's), or null for none (ActionDef.record).
  */
-export interface RecordedStep<A = Record<string, unknown>> { action: string; args: A; out: any; since: number }
+export interface RecordedStep<A = Record<string, unknown>> { action: string; args: A; out: any; since: number; /** Where the person's keys were when it began: the screen, or the drawer (`host`). */ keys?: "screen" | "host" }
 export type RecordStep<A = Record<string, unknown>> = (step: RecordedStep<A>) => { action: string; args?: Record<string, unknown> } | null;
 /**
  * What a `draft` action does to a draft (draftRule): types in it (`type`: a reference put in at the cursor too), leaves

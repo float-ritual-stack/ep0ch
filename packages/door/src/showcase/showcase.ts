@@ -221,9 +221,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "detail", need: "open one addressed block as the whole screen", part: "the detail screen: a ScreenSpec hosting the detail tile's NoteSurface", files: "src/desk/screen-specs.ts, src/desk/builtin-tiles.ts, src/desk/tiles.ts, src/surface/note.ts",
-    stage(n) {
-      return openScreen("detail", { note: n.notebook?.id, persist: false });
-    },
+    stage: n => openScreen("detail", { note: n.notebook?.id, persist: false }),
   },
   {
     key: "scroll", need: "scroll a view: a note's last line up off the bottom edge to the middle, room kept under a draft's cursor", part: "past the end (PIE-622, src/scroll.ts): lastTop and endTop, the one rule every reader (NoteSurface, a river column) and draft (Draft.render, scrollOff) scrolls by; End, G and scroll to=end stop on the edge first, then go on to the middle; reader.overscroll half|none|<rows> sets how far, kept like the theme", files: "src/scroll.ts, src/surface/note.ts, src/edit.ts, src/river/column.ts, src/screens.ts (reader.overscroll)",
@@ -1663,6 +1661,7 @@ export class Showcase implements Screen {
   private sel = 0;
   /** Where the person's keys go: the index of sections, or the section's stage. */
   private focus: "index" | "stage" = "index";
+  /** When the keys last went into a stage: section.leave out of one entered before a recording began records nothing (PIE-1725). */ enteredAt = 0;
   private stages = new Map<number, FramedScreen>();
   private stageRect: Rect = { col: 34, row: 4, cols: 80, rows: 20 };
   private indexW = 34;
@@ -1743,6 +1742,7 @@ export class Showcase implements Screen {
   /** Show section `i` (by key, click or act); the keys go to its stage only when the person asks. */
   pick(i: number, enter = false) {
     this.sel = Math.max(0, Math.min(SECTIONS.length - 1, i));
+    if (enter && this.notes && this.focus !== "stage") this.enteredAt = Date.now();
     this.focus = enter && this.notes ? "stage" : "index";
     this.openStage();
     if (this.focus === "stage") this.stage(this.sel)?.top.enterTiles?.();
@@ -1870,7 +1870,7 @@ export class Showcase implements Screen {
     const f = this.stage(this.sel);
     if (!f?.top.editNew) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no reader to write a new note in`);
     const was = this.focus;
-    this.focus = "stage";
+    this.focus = "stage"; if (was !== "stage") this.enteredAt = Date.now();
     const at = await f.top.editNew(m, how).catch(e => { this.focus = was; throw e; });
     if (!at) this.focus = was;
     return at;
@@ -1963,10 +1963,10 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     summary: "the person's keys back from a section's stage to the index. The person's only, as going in is",
     keys: "esc in the stage once its part has nothing left to close (q where the part leaves)",
     touches: "screen", replay: "safe", person: "the person's keys are theirs: an agent doesn't take them out of a section",
-    args: {},
+    args: {}, record: r => (r.out?.entered < r.since ? null : { action: r.action, args: r.args }),
     run(_, s) {
-      s.pick(s.shown, false);
-      return { section: s.shown + 1, key: SECTIONS[s.shown]!.key, in: s.focusName() === "stage" };
+      const entered = s.enteredAt; s.pick(s.shown, false);
+      return { section: s.shown + 1, key: SECTIONS[s.shown]!.key, in: s.focusName() === "stage", entered };
     },
   }),
   "section": def({

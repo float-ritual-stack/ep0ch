@@ -11,7 +11,7 @@ export interface Visit {
   attention: { first?: number; last?: number; active: number; scrolls: number; selections: number; opens: number; returns: number };
 }
 export interface TrailSettings { days: number; linger: number; read: number; held: number; idle: number }
-const DEFAULTS: TrailSettings = { days: 7, linger: 5, read: 60, held: 300, idle: 60 };
+export const TRAIL_DEFAULTS: TrailSettings = { days: 7, linger: 5, read: 60, held: 300, idle: 60 };
 export const visitDay = (at: number) => { const d = new Date(at); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 export function dayLabel(day: string, now = Date.now()): string {
   if (day === visitDay(now)) return "Today";
@@ -36,7 +36,7 @@ export class Trail {
     const dropped = visits.length - this.visits.length;
     if (dropped) console.warn(`Trail: dropped ${dropped} visits from trail.json without open.at.`);
     this.places = kept?.places ?? {};
-    this.settings = { ...DEFAULTS, ...kept?.settings };
+    this.settings = { ...TRAIL_DEFAULTS, ...kept?.settings };
     this.prune();
   }
   current(tile: string): Visit | undefined { return this.visits.findLast(v => v.open.target.tile === tile && v.left === undefined); }

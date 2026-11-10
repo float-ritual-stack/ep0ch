@@ -1215,7 +1215,7 @@ export class NoteSurface {
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
     if (!isOutlineNote(m)) {
-      this.pathNote = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file";
+      this.pathNote = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : m.id.startsWith("door:") ? "the door's own settings · kept here, not in the outline" : "a file";
       // A Resource's text takes comments (PIE-650): its threads live in the outline, so they are read for it too.
       if (m.resource) void this.loadComments(host);
       return true;
