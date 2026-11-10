@@ -90,6 +90,8 @@ export interface DeskApi {
   writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
   dismiss?(p: Pane): void;
+  /** Close tile `p` whose owner left this desk, with no undo step of its own (the move that left it is the step). */
+  letGo?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
   answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
   selectionSource?(p: ReaderPane): Pane | null;
@@ -675,8 +677,8 @@ export class ReaderPane implements Pane, AttachedOwner {
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       // Where it is now (PIE-1716): the desk's one owner of where a tile is (the host layer's resolveTile) names the desk
-      // holding it after a move into a group or the drawer; still here, this host.
-      current: () => { const at = desk.ctx?.hostLayer?.resolveTile(tileRegistry.idOf(pane))?.desk; return at && at !== desk ? pane.host(at) : h; },
+      // holding it after a move into a group or the drawer; still here, nothing (the host the caller has stands).
+      current: () => { const at = desk.ctx?.hostLayer?.resolveTile(tileRegistry.idOf(pane))?.desk; return at && at !== desk ? pane.host(at) : undefined; },
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       // Its attachments in tiles of their own (PIE-1536): one hand-off for every kind.

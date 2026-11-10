@@ -53,9 +53,10 @@ export class AnswerTile implements Pane {
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
     const reader = desk.paneNamed?.(this.source);
     // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
-    // the reader is back by the time the close comes round. The next ask opens one beside the reader where it is now.
+    // the reader is back by the time the close comes round, with no undo step of its own (an undo of the move brings both
+    // back). The next ask opens one beside the reader where it is now.
     if (!(reader instanceof ReaderPane)) {
-      if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this); }); }
+      if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) { if (desk.letGo) desk.letGo(this); else desk.dismiss?.(this); } }); }
       return { lines: ["The answer's reader has gone."] };
     }
     this.closing = false;

@@ -263,7 +263,7 @@ export interface SurfaceHost {
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
    * none: a comment there is drawn split.
    */
-  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; current?(): SurfaceHost;   // current: this reader's host now, on the desk holding it after a move into a group or the drawer (PIE-1716); a draft asks it each time
+  answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>; current?(): SurfaceHost | undefined;   // current: this reader's host on the desk holding it after a move into a group or the drawer (PIE-1716), else none; a draft asks it each time
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
   attachment?: AttachmentKind;
   hasWiredPreview?(): boolean;

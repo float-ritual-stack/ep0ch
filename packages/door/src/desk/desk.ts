@@ -442,6 +442,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { look, kind: p.kind, title: p.title(), cols: this.contents.get(id)?.cols ?? look.width, box: reader ? reader.surface.boxAt() : null, list: reader ? reader.surface.listAt() : null, ...(reader && shown ? { hero: reader.surface.heroInfo(shown) } : {}) };
   }
   paneNamed(name: string): Pane | undefined { const id = this.idNamed(name); return id === undefined ? undefined : this.panes.get(id); }
+  /** DeskApi.letGo: tile `p`'s owner went from this desk (an answer tile's reader gathered into a group or put in the drawer, PIE-1716): it closes with no step of its own. */
+  letGo(p: Pane) { const id = this.idOf(p); if (id !== undefined) { this.closeId(id, false); this.save(); this.redraw(); } }
   dismiss(p: Pane) {
     const id = [...this.panes].find(([, q]) => q === p)?.[0];
     if (id === undefined) return;
@@ -6861,8 +6863,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** A program or supplied tile that ended is gone; its normal close rules no longer apply. */
-  private closeId(id: number) {
+  /** `step`: false for a close that is the layout catching up (an answer tile whose reader moved away, `letGo`): no undo step of its own, so an undo takes back the change that made it, never bounces on it. */
+  private closeId(id: number, step = true) {
     const r = this.ask({ op: "close", tile: id, gone: true });
+    if (r.ok && !step) this.asked.set(r, { ...this.asked.get(r)!, left: true });
     if (!r.ok || !r.changed) return;
     this.commit(r); this.tileLeaves(id, "end");
   }
