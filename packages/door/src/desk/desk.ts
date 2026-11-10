@@ -5979,6 +5979,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.lastIn.get(c.id ?? h), ids = leaves(c).filter(id => this.panes.has(id));
     return at !== undefined && ids.includes(at) ? at : ids[0];
   }
+  /** Whether the keys are home now (in the home tile, or anywhere in the home container). Esc's rule reads it (desk-esc.ts). */
+  atHome(): boolean {
+    const h = this.spec.home;
+    if (h === undefined) return true;
+    const c = node(this.root, h);
+    return c ? leaves(c).includes(this.focus) : this.idNamed(h) === this.focus;
+  }
   /** The tile last given the keys in each columns container (by its id): its place for Tab and home. */
   private lastIn = new Map<string, number>();
   /** The last tile the keys were in that isn't a float: where an open from a float lands beside. */

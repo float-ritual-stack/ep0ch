@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Dead code gone: the door flags unused declarations, and the one-shot tools that already ran are deleted (PIE-1645)
+
+- **`bun run check` fails on an unused local, parameter or import in the door,** as it already did in the outliner and outline-core. `scripts/health-ratchet.ts` also pins the count of exports nothing reads.
+- **Gone, each already run on pie and float-hub:** the migrations 0001 to 0010 and the schema-6 copy, the brace sweep (`outliner sweep`, and its `ep0ch install --apply` step), the machinery backfill (`ep0ch machinery backfill`), the comment-target repair and the route-to-note-mover rewrite. An old `[type::route]` rule still moves notes and warns on save.
+- **An outline at an older schema, or one missing its instance id,** is refused with the import route (`ep0ch outline import`), with the exact commands.
+- **Run:** `ep0ch install --apply` (no PROTOCOL, GRAMMAR or schema change).
 ### Type an artifact's path or name in any outline and it runs (PIE-1644, PIE-1643)
 
 - **No put, no `--machine`, no store:** write `[artifact::<any path on a machine you use>]` or `[artifact::<name>]` in any outline on any machine and save. It runs in the door's card, on my.ep0ch.sh and through a share.
