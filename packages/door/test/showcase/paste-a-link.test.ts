@@ -1,4 +1,4 @@
-// PIE-1401 / PIE-1316 / PIE-1390 / PIE-1659: the showcase's "Paste a link" section. A note's web link and its ep0ch:// address pasted
+// PIE-1401 / PIE-1316 / PIE-1390 / PIE-1659 / PIE-1675: the showcase's "Paste a link" section. A note's web link and its ep0ch:// address pasted
 // bare are links that open the note; what copy note web link and copy line reference give, pasted by the person into the
 // note and saved, opens it too; another web page goes to the browser. One of the showcase's test files; the seed is made up.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -113,7 +113,9 @@ describe.skipIf(!outliner)("the showcase screen: paste a link", () => {
       await until(() => (app.describe() as any).bar?.query === "dd the shed key x Ana opens at nine", "the power bar offers the paste, its line break a space", 3000);
     } finally { stop(); }
     expect(ran.filter(n => !n.startsWith("bar.") && n !== "screen.list")).toEqual([]);
+    // PIE-1675: the offer isn't the person's typing, so one Esc puts the bar away (not only its line).
     h.press({ kind: "esc" });
+    await until(() => (app.describe() as any).bar === undefined, "one Esc put the offered paste away", 3000);
     const after = (await board.get(seeded.notes.pasteALink.id))!;
     expect({ revision: after.revision, trashed: !!(after as any).effectiveDeletedRootId }).toEqual({ revision: before.revision, trashed: false });
     expect((desk().layoutGet().tiles as any[]).map(t => t.name)).toEqual(tiles);
