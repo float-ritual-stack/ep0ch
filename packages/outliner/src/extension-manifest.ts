@@ -522,6 +522,12 @@ export const FolderConfig = Type.Object(
       { maxItems: 32 },
     )),
     enabled: Type.Optional(Type.Boolean()),
+    /**
+     * Each agent's own settings over its manifest's (PIE-1709): how long it may take to answer, set from the settings
+     * screen (`agent.<name>.deadline`) without touching extension.json, which an update writes over.
+     */
+    agents: Type.Optional(Type.Record(Type.String({ pattern: "^[a-z][a-z0-9-]{0,31}$" }),
+      Type.Object({ deadline: Type.Optional(Duration) }, { additionalProperties: false }), { maxProperties: 16 })),
   },
   { additionalProperties: false },
 );
@@ -575,6 +581,13 @@ export interface LoadedExtension {
   readonly command: readonly string[] | null;
   /** Changes when either file changes; a call whose stamp moved under it is discarded. */
   readonly stamp: string;
+  /** config.json's `agents.<name>.deadline` (PIE-1709), over the manifest's: `agentDeadlineMs` reads both. */
+  readonly agentDeadlines?: Readonly<Record<string, string>>;
+}
+
+/** How long `agent` of `extension` may take to answer: config.json's setting, else its manifest's, else the extension's; undefined: the default. */
+export function agentDeadlineMs(extension: Pick<LoadedExtension, "agentDeadlines" | "manifest">, agent: { name: string; deadline?: string }): number | undefined {
+  return durationMs(extension.agentDeadlines?.[agent.name] ?? agent.deadline) ?? durationMs(extension.manifest.deadline);
 }
 
 /** Why a folder didn't load, in words that name the file and the field. */
@@ -953,6 +966,13 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
   for (const name of Object.keys(folder.secrets ?? {})) {
     if (!manifest.secrets?.[name]) throw new ExtensionLoadError(`config.json: secrets/${name} isn't a secret extension.json declares`);
   }
+  const agentDeadlines: Record<string, string> = {};
+  for (const [name, set] of Object.entries(folder.agents ?? {})) {
+    if (!manifest.agents?.some(a => a.name === name)) throw new ExtensionLoadError(`config.json: agents/${name} isn't an agent extension.json declares${manifest.agents?.length ? ` (it declares ${manifest.agents.map(a => a.name).join(", ")})` : ""}`);
+    if (set.deadline === undefined) continue;
+    if (durationMs(set.deadline)! > MAX_AGENT_DEADLINE_MS) throw new ExtensionLoadError(`config.json: agents/${name}/deadline is longer than 2h`);
+    agentDeadlines[name] = set.deadline;
+  }
   // A manifest secret that names its with-secrets group is found there unless config.json points it elsewhere.
   const credentials: Record<string, CredentialReference> = {};
   for (const [name, declared] of Object.entries(manifest.secrets ?? {})) {
@@ -974,6 +994,7 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
     enabled: folder.enabled !== false,
     command: manifest.run ? resolveArgv(manifest.run) : null,
     stamp: source.stamp ?? createHash("sha256").update(manifestRaw).update("\0").update(configRaw).digest("hex"),
+    ...(Object.keys(agentDeadlines).length ? { agentDeadlines } : {}),
   };
 }
 

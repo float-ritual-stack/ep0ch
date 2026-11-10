@@ -19,7 +19,7 @@ import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-sourc
 /** The wire protocol both sides of this checkout speak. */
 export const PROTOCOL = 320;
 /** Parse/draw rules, independent of whether a write can land correctly. */
-export const GRAMMAR = 48;
+export const GRAMMAR = 49;
 
 /** A stale renderer can keep working; surface this once in the client's own message channel. */
 export function grammarWarning(grammar: number): string | undefined {

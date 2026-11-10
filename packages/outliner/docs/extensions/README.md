@@ -354,8 +354,21 @@ value, never the value), and one state:
 | `missing` | a `required` field is left out, or a secret has no reference or nothing where it points |
 | `failing` | `config.json` doesn't load (the folder's error), or the extension's last call failed after the file last changed (its error) |
 
-- **In the door:** the power bar's extensions (ctrl+k then `&`) puts the state on the extension's row, and a
-  `settings <name>` row beside it previews every field and the file; ⏎ opens the form of `ext.<id>.settings`, an action
+- **In the door, the settings screen** (PIE-1709, `ep0ch --screen settings`, in the screens list): every installed
+  extension with settings on the left, with a search over every setting's name and words, and the chosen one's
+  settings card on the right. Each setting reads its description, its value or its default, and its state; ⏎ types it
+  in place (a command as one shell line, saved as the words config.json wants), `x` or `[↺]` puts it back to its
+  default, `X` or `[↺ all]` every one, and a wrong value is said under the card with the line kept as typed. Its
+  extension's page has a `⚙ settings` button, and the power bar's `settings <name>` row (ctrl+k then `&`) opens it at
+  that extension, as `ext.<id>.settings` with no fields does for the person.
+- **Try:** an action that takes `setting` (`on: "outline"`, its `options` the settings it can try) is that setting's
+  try: the card draws `[try]` beside each, `t` runs it with `setting=<name>`, and its answer's `message` is said under
+  the card (a line starting `✗` as a problem). yo's `try` runs its answer or act command once on a short ask and says
+  the model's own words when it fails ("Not logged in · Please run /login").
+- **An agent's deadline:** each agent of the extension is a setting too, `agent.<name>.deadline` (`30s`, `15m`, `2h`, at
+  most 2h), kept in config.json's `agents` (`{"agents": {"tidy": {"deadline": "45s"}}}`) over the manifest's `deadline`,
+  so an update of extension.json leaves it be.
+- **The form, for an agent:** `ext.<id>.settings` is an action
   whose arguments are the schema's fields (a command field as its words, `secret-<name>` as `env:NAME`, `file:~/path` or
   `group:GROUP/KEY`, sent only when typed), filled with what's set. An agent: `ep0ch act ext.tidy.settings
   answer='claude -p --model sonnet'`; `answer='[]'` sets a command field to none (yo with no model; a JSON list of

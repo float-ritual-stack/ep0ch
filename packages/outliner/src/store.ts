@@ -24,7 +24,7 @@ import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange 
 import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { elementAt, ensureFragmentAnchor, fragmentPresentationText, resolveFragmentSlice } from "./fragments";
-import { readFragment, readTransclusions, type FragmentRead, type TransclusionOptions, type TransclusionRead, type TransclusionTarget } from "./transclusions";
+import { queryEmbedLoad, readFragment, readTransclusions, type FragmentRead, type TransclusionOptions, type TransclusionRead, type TransclusionTarget } from "./transclusions";
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
@@ -1838,7 +1838,7 @@ export class OutlinerStore {
 
   /** Transclusions as readers show them, nested and cycle-safe, from one consistent read. */
   readTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): TransclusionRead {
-    return this.database.transaction(() => readTransclusions(id => this.embedTargetFromCurrentRead(id), targets, options)).deferred();
+    return this.database.transaction(() => readTransclusions(id => queryEmbedLoad(this, id, options.hostBlockId) ?? this.embedTargetFromCurrentRead(id), targets, options)).deferred();
   }
 
   private embedTargetFromCurrentRead(target: string): Block | null {

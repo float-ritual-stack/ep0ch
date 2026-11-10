@@ -89,6 +89,12 @@ export function buttonLine(a: ActionRecord, press: { line: string; slots: string
     : `::button{label="${label}" act="${press.line}"${slots}}`;
 }
 
+/**
+ * The way to yo's settings from an answer that couldn't use its model (PIE-1709): a press opens the door's settings screen
+ * at yo, where its model command reads as one line, changes and is tried. A thread's answer has it as a link.
+ */
+export const settingsButton = (thread = false): string => thread ? "[⚙ yo's settings](act: ext.yo.settings)" : '::button{label="⚙ yo\'s settings" act="ext.yo.settings"}';
+
 /** The row a press leaves: its undo only when the run can take it back, and nothing to undo when it changed nothing (PIE-1626). */
 export function doneRow(label: string, undo: string, reversible: boolean, changed = true): string {
   return `✓ yo pressed ${label} · ${!changed ? "nothing to undo: it was already so" : reversible ? `[undo](act: ext.undo run=${undo})` : "no undo: it changes no note and no layout"}`;
@@ -114,10 +120,12 @@ export function quoted(a: ActionRecord): string[] {
 /** The action a button line presses and its label: the first act of one yo drew, as a line or as a thread's link. */
 export function buttonIn(line: string): { label: string; act: string } | null {
   const m = /::button\{label="([^"]*)" act=(?:\["([^"]*)"|"([^"]*)")/.exec(line);
-  if (m) return { label: m[1]!, act: m[2] ?? m[3]! };
+  // Its settings button (PIE-1709) is a way to fix yo, never the answer: `do it` doesn't press it.
+  if (m) return (m[2] ?? m[3]) === SETTINGS_ACT ? null : { label: m[1]!, act: m[2] ?? m[3]! };
   const link = /\[([^\]]+)\]\(act: ([^)]+)\)/.exec(line);
-  return link && !link[2]!.startsWith("ext.undo") ? { label: link[1]!, act: link[2]! } : null;
+  return link && !link[2]!.startsWith("ext.undo") && link[2] !== SETTINGS_ACT ? { label: link[1]!, act: link[2]! } : null;
 }
+const SETTINGS_ACT = "ext.yo.settings";
 
 /** The newest button a yo answer drew in these lines, and its line as written. */
 export function lastButton(lines: readonly string[]): { line: string; label: string; act: string } | null {
@@ -267,6 +275,31 @@ export function memoryText(asked: string, pressed: string): string {
   return `${said}: ${line} [yo-memory::answer] [yo-action::${action}] [yo-asked::${said}] [yo-line::${line}]`;
 }
 
+/**
+ * What a model command said when it failed, in its own words (PIE-1709): its stderr's first line, else what its JSON on
+ * stdout carries (`claude --output-format json` says "Not logged in · Please run /login" as the envelope's `result`, with
+ * `is_error`, and exits 1), else stdout's first line; empty when it said nothing at all.
+ */
+export function failureWords(out: string, err: string): string {
+  if (err.trim()) return shortReason(err);
+  const text = out.trim();
+  try {
+    const said = JSON.parse(text) as Record<string, unknown> | null;
+    const words = said && typeof said === "object" ? [said.result, said.error, said.message].find(w => typeof w === "string" && w.trim()) : undefined;
+    if (typeof words === "string") return shortReason(words);
+  } catch { /* not JSON: its first line */ }
+  return text ? shortReason(text) : "";
+}
+
+/** The ask a try sends a model setting (PIE-1709): short, and answered with the JSON every model command here answers with. */
+export const TRY_PROMPT = 'Answer with JSON only: {"line": "<three words saying you are ready>"}.';
+
+/** A try's answer in a line: what came back, its time and cost, or why not. */
+export function triedLine(which: string, r: { ok: true; seconds: number; cost?: string; line?: string } | { ok: false; why: string }): string {
+  if (!r.ok) return `✗ the ${which} model: ${r.why}`;
+  return `✓ the ${which} model answered in ${r.seconds.toFixed(1)} s${r.cost ?? ""}${r.line ? `: "${shortReason(r.line)}"` : ""}`;
+}
+
 /** A refusal in a step's few words: its first line, ended at a sentence when it runs long, never mid-word or inside a code span. */
 export function shortReason(said: string): string {
   const line = said.split("\n", 1)[0]!.trim();
@@ -282,6 +315,82 @@ export function shortReason(said: string): string {
 /** The steps under an answer, folded under their count. */
 export function stepsFold(steps: readonly string[]): string[] {
   return steps.length ? [`> [!note]- ${steps.length} step${steps.length === 1 ? "" : "s"}`, ...steps.map(s => `> - ${s}`)] : [];
+}
+
+// ── yo about itself (PIE-1710) ───────────────────────────────────────────────────────────────────────────────────────
+
+/** Whether two words are one slip apart (a letter wrong, missing, extra, or two swapped: "sue" for "use"). */
+export function oneSlip(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 3) return false;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+    d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1);
+  }
+  return d[a.length]![b.length]! <= 1;
+}
+
+/** The words an ask about yo is told by, each read through one slip ("sue" is "use", "seup" is "setup"). */
+const SELF_WORDS = ["use", "using", "work", "works", "set", "setup", "configure", "config", "settings", "setting", "model", "models", "install", "login", "yourself"];
+const GREETING = /^(hi+|hey+|hello|hiya|howdy|sup|yo+|gm|morning|whats? ?(good|up)|what'?s (good|up)|what can (you|u|yo) do|who are (you|u)|what are (you|u)|help)[\s!?.]*$/;
+
+/**
+ * What an ask about yo itself is (PIE-1710), told by its words, before any model: a greeting ("whats good", "hi", "what
+ * can you do"), how to use it ("how do I use yo"), or how to set it up ("how do I set you up", "which model do you use");
+ * null when it's about the door, the actions' business ("how do you split a tile", "can you set the trail to 7 days").
+ * yo has to be what the ask is about: the object of use, set up, configure or install, or the one whose model or
+ * settings are asked. A slip in a word is read through ("how do i sue yo"). An empty ask (ask yo about this tile) is the
+ * tile's, never a greeting.
+ */
+export function selfAsk(asked: string): "greeting" | "use" | "setup" | null {
+  const text = asked.toLowerCase().trim();
+  if (!text) return null;
+  if (GREETING.test(text)) return "greeting";
+  const said = text.split(/[^a-z0-9']+/).filter(Boolean).map(w => SELF_WORDS.find(k => oneSlip(w, k)) ?? w).join(" ");
+  const me = "(?:yo|you|u|yourself)";
+  if (new RegExp(`\\b(?:set|setup|configure|config|install)\\b(?: \\S+)? ${me}\\b`).test(said)) return "setup";
+  if (new RegExp(`\\b(?:your|yo's|yos) (?:settings?|models?|config|setup)\\b`).test(said) || new RegExp(`\\bmodels?\\b(?: \\S+){0,2} (?:do|does|are|is) ${me}\\b|\\b${me}(?:'re| are)? (?:using|on) (?:\\S+ )?models?\\b`).test(said)) return "setup";
+  if (new RegExp(`\\b(?:use|using)\\b(?: \\S+)? ${me}\\b|\\b(?:what|how) (?:do|can|does) ${me} (?:do|work|works)\\b|\\b${me} (?:work|works)\\b`).test(said)) return "use";
+  return null;
+}
+
+/** A section of yo's README by its heading ("What you do"), its bullets' first lines, at most `most`. */
+export function readmeBullets(readme: string, heading: string, most = 3): string[] {
+  const at = readme.indexOf(`\n## ${heading}\n`);
+  if (at < 0) return [];
+  const body = readme.slice(at + heading.length + 5).split(/\n## /, 1)[0]!;
+  return body.split("\n").filter(l => l.startsWith("- ")).slice(0, most).map(l => l.slice(2).trim());
+}
+
+/** The asks yo's README shows (its example's `@yo …` lines), the first `most`, as you'd type them. */
+export const exampleAsks = (readme: string, most = 2): string[] =>
+  [...new Set(readme.split("\n").map(l => /^@yo [^←]+/.exec(l)?.[0]?.trim()).filter((l): l is string => !!l))].slice(0, most);
+
+/** A model command in a few words: its model by name when it says one (`--model haiku`), else its program; none for []. */
+export function modelWords(command: readonly string[]): string {
+  if (!command.length) return "none (it quotes its closest match by its words)";
+  const at = command.indexOf("--model");
+  return at >= 0 && command[at + 1] ? `${command[at + 1]} (${command[0]})` : command[0]!.split("/").pop()!;
+}
+
+/**
+ * yo's answer about itself (PIE-1710): from its own README and settings, never the closest action by its words. A
+ * greeting says what it's for and two asks to try; how to use it, its first moves; how to set it up, its models as they
+ * are and its settings, one press away.
+ */
+export function selfAnswer(kind: "greeting" | "use" | "setup", o: { readme: string; answer: readonly string[]; act: readonly string[]; answerDefault: boolean; memory?: string; thread?: boolean }): string[] {
+  const intro = o.readme.split("\n\n")[1]?.split(/(?<=\.)\s/)[0] ?? "I answer how to do an ep0ch thing, from the actions' own docs.";
+  const tryLines = exampleAsks(o.readme).map(a => `- \`${a}\``);
+  if (kind === "greeting") return [`yo. ${intro}`, "Try:", ...tryLines];
+  if (kind === "use") return [intro, ...readmeBullets(o.readme, "What you do", 3).map(b => `- ${b}`), "Try:", ...tryLines, settingsButton(o.thread)];
+  return [
+    `My answer model: ${modelWords(o.answer)}${o.answerDefault ? ", its default" : ""}.`,
+    `My act model: ${modelWords(o.act)}. My memory: ${o.memory ? `the ${o.memory} outline` : "this outline"}.`,
+    "Change any of them, and try each, in my settings:",
+    settingsButton(o.thread),
+  ];
 }
 
 /**

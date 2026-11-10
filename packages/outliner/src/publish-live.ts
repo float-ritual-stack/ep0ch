@@ -337,7 +337,7 @@ async function drawLinks(host: LiveHost, spec: LinkBlockSpec, note: string): Pro
     has("outlinks") || has("resources") ? host.request<AuthoredLinksSnapshot>({ action: "blocks.authored-links", ownerBlockId: of }) : null,
     has("backlinks") ? host.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: of, limit: 200 } }) : null,
     has("children") ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: CHILDREN, this: of, limit: 1000 }, fields: ["title"] }) : null,
-    spec.query ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: spec.query, this: note, limit: 200 }, fields: ["title"] }).catch((e: Error) => e) : null,
+    spec.query ? host.request<ProjectedBlockCollection>({ action: "blocks.query", query: { where: spec.query, this: note, limit: 200, ...(spec.sort ? { sort: spec.sort } : {}) }, fields: ["title"] }).catch((e: Error) => e) : null,
   ]);
   if (found instanceof Error) {
     return figureFrame("links", title, `<p class="dim">query: <code>${spec.query!.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)}</code></p>`, "live · query not read", found.message);

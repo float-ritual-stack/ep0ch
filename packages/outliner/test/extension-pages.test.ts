@@ -173,7 +173,7 @@ test("an extension not installed says what installing it gives you, in the words
   expect(marginalia).toContain("ext.marginalia.settings");
   expect(marginalia).not.toContain("config.json");
   expect(about("marginalia").adds.join("\n")).not.toContain(join(import.meta.dir, "..", "extensions"));
-  expect(listed.about.notify!.adds.find((line) => line.startsWith("- **Settings:**"))).toContain("config.json");
+  expect(listed.about.notify!.adds.find((line) => line.startsWith("  - **In** "))).toContain("config.json");
 });
 
 test("a note's script describes itself from its note, never from the folder's README (PIE-1549)", async () => {

@@ -692,7 +692,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const lb = linkBlockAt(src, i, componentAt);
     if (lb) {
       const rows = renderLinkBlock({ ...lb.spec, lines: componentLines(i, componentAt.get(i)?.attrs, lb.spec.lines) }, env.note, W, frame, env.tag, env.linkBlocks, componentLines(i, componentAt.get(i)?.attrs));
-      out.push(...(env.inlineList ? env.inlineList(rows, W) : rows));
+      // `height: fill` (PIE-1720): the frame drawn whole, list and preview, so the reader's one scroll carries it; else
+      // the inline list's window over its rows.
+      out.push(...(env.inlineList ? env.inlineList(rows, W, lb.spec.height === "fill" ? Math.max(1, rows.length - 4) : undefined) : rows));
       i = lb.end;
       continue;
     }

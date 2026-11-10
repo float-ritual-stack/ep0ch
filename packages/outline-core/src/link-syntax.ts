@@ -409,10 +409,53 @@ export function embeddedPageAddress(target: string): string | null {
   return target.startsWith("[[") && target.endsWith("]]") && target.length > 4 ? target.slice(2, -2) : null;
 }
 
+/**
+ * A query embed (PIE-1720): `!((query: type=plan day=today))` draws the newest note its query matches, whole, and
+ * follows the query as notes change. `query:` is followed by a space, which no `((outline:id))` holds, so the form never
+ * reads as another outline's block. The query is the saved views' grammar, and a trailing `sort: <field> [asc|desc]`
+ * says which match is first (the views' sort words; `updated desc`, the newest, when none is written). As a
+ * transclusion target it is `?` and what follows `query:`: a block id never starts with `?`, nor a page's `[[`, so the
+ * one target string names a block, a page or a query, and the service answers the query when it reads it.
+ */
+const QUERY_EMBED_HEAD = /!\(\(query:[ \t]+/g;
+const QUERY_SORT = /\s+sort:\s*(\S+(?:\s+(?:asc|desc))?)\s*$/i;
+export const queryEmbedTarget = (query: string) => `?${query.trim()}`;
+
+/** The query and sort a transclusion target names (`?type=plan sort: created`), or null for a block or a page. */
+export function embeddedQuery(target: string): { where: string; sort?: string } | null {
+  if (!target.startsWith("?")) return null;
+  const body = target.slice(1).trim(), sort = QUERY_SORT.exec(body);
+  const where = (sort ? body.slice(0, sort.index) : body).trim();
+  return where ? { where, ...(sort ? { sort: sort[1]!.replace(/\s+/g, " ") } : {}) } : null;
+}
+
+/** What the service asks for a query target: its one first match, `this` the note it is written in. */
+export function queryEmbedQuestion(target: string, host?: string): { where: string; sort: string; limit: 1; this?: string } | null {
+  const q = embeddedQuery(target);
+  return q && { where: q.where, sort: q.sort ?? "updated desc", limit: 1, ...(host ? { this: host } : {}) };
+}
+
+/** A query target as it is written in a note: `!((query: …))`. */
+export const queryEmbedText = (target: string) => `!((query: ${target.slice(1).trim()}))`;
+
+/** The query embeds of `text`: each `!((query: …))`, its parentheses balanced, on one line. */
+function queryEmbedMatches(text: string): EmbedOccurrence[] {
+  if (!text.includes("!((query:")) return [];
+  const out: EmbedOccurrence[] = [];
+  for (const m of text.matchAll(QUERY_EMBED_HEAD)) {
+    if (out.length && m.index < out.at(-1)!.end) continue;
+    const end = referenceEnvelopeEnd(text, m.index + 3, true, m.index + m[0].length);
+    if (end < 0) continue;
+    const target = queryEmbedTarget(text.slice(m.index + m[0].length, end - 2));
+    if (embeddedQuery(target)) out.push({ start: m.index, end, target });
+  }
+  return out;
+}
+
 /** One embed in a line or a note: where it starts (its `!`), what was written, its target and fragment. */
 export interface EmbedOccurrence {
   start: number; end: number;
-  /** `outline:id` for a qualified block embed, else the block id, or the page's `[[page]]`. */
+  /** `outline:id` for a qualified block embed, else the block id, the page's `[[page]]` or a query's `?query`. */
   target: string;
   /** A block embed's id without its outline. */
   blockId?: string;
@@ -420,16 +463,26 @@ export interface EmbedOccurrence {
 }
 
 /**
- * The embeds of `text` in reading order: `!((id))`, `!((id^fragment))`, `![[page]]` and `![[page^fragment]]`, each
- * as one target string (`pageEmbedTarget` for a page). Code is text (`CodeScope`), as for every link.
+ * The embeds of `text` in reading order: `!((id))`, `!((id^fragment))`, `![[page]]`, `![[page^fragment]]` and
+ * `!((query: …))`, each as one target string (`pageEmbedTarget` for a page, `queryEmbedTarget` for a query). A link
+ * written inside a query is the query's words. Code is text (`CodeScope`), as for every link.
  */
 export function embedOccurrences(text: string, code?: CodeScope): EmbedOccurrence[] {
   if (!text.includes("!((") && !text.includes("![[")) return [];
-  return linkOccurrences(text, code).flatMap(l =>
+  const queries = outsideCode(text, queryEmbedMatches(text), codeRangesOf(text, code));
+  const inQuery = (l: { start: number; end: number }) => queries.some(q => overlaps(q, l));
+  const links = linkOccurrences(text, code).filter(l => !inQuery(l)).flatMap(l =>
     l.kind === "block" && l.embed ? [{ start: l.start, end: l.end, target: l.outline ? `${l.outline}:${l.blockId}` : l.blockId, blockId: l.blockId, ...(l.fragmentId ? { fragmentId: l.fragmentId } : {}) }]
     : l.kind === "page" && l.embed ? [{ start: l.start, end: l.end, target: pageEmbedTarget(l.displayAddress), ...(l.fragmentId ? { fragmentId: l.fragmentId } : {}) }]
     : []);
+  return queries.length ? [...links, ...queries].sort((a, b) => a.start - b.start) : links;
 }
+
+/**
+ * Whether the service resolves a transclusion target to a note when it reads it (a page's `[[page]]`, a query's
+ * `?query`), so a projection's note is its `resolvedBlockId`; a block id is its own note.
+ */
+export const resolvedEmbedTarget = (target: string) => embeddedPageAddress(target) !== null || embeddedQuery(target) !== null;
 
 // ── a note's links, in reading order ─────────────────────────────────────────────────────────────────────────
 

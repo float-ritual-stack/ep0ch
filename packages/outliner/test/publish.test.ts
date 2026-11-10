@@ -814,6 +814,20 @@ test("an embed shows the embedded note's text, published or not, and a fragment 
   expect(html).toContain("<blockquote>");
 });
 
+test("a query embed shows the note its query finds, and that note's lock holds (PIE-1720)", async () => {
+  const { store, get } = await setup();
+  store.create("Plan, Mon [type::plan] [day::2026-03-02]\nSharpen the hoe.");
+  store.create("Plan, Tue [type::plan] [day::2026-03-03]\nSoak the lentils.");
+  store.create("Where we are [publish::where]\n!((query: type=plan sort: day desc))");
+  const markdown = await (await get("/p/where")).text();
+  expect(markdown).toContain("> Plan, Tue\n> Soak the lentils.");
+  expect(markdown).not.toContain("Sharpen the hoe");
+  store.create("Plan, Wed [type::plan] [day::2026-03-04] [publish::never]\nThe gate code is 4471.");
+  const locked = await (await get("/p/where")).text();
+  expect(locked).toContain("*locked note*");
+  expect(locked).not.toContain("4471");
+});
+
 test("a [publish::never] note is never published, embedded or linked: its place says locked note", async () => {
   const { store, get } = await setup();
   const vault = store.create("Gate codes [publish::never]\nside gate 4471");

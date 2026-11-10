@@ -6,6 +6,9 @@ import {
   blockReferenceOccurrences,
   embedOccurrences,
   embeddedPageAddress,
+  embeddedQuery,
+  queryEmbedQuestion,
+  queryEmbedText,
   fragmentAnchorMatch,
   linkOccurrences,
   pageAddressReferences,
@@ -143,4 +146,26 @@ test("a bare address is a link where nothing else holds it: a web link, an ep0ch
     ["https://example.org/a_b", "https://example.org/a_b"],
   ]);
   expect(bareAddressOccurrences("see http://").map(a => a.url)).toEqual([]);
+});
+
+test("a query embed names the newest note its query matches, never an outline or a block (PIE-1720)", () => {
+  const line = "Today: !((query: (type=plan OR type=day) AND day=today sort: created desc)) and !((query: type=plan)), not `!((query: type=code))`.";
+  const embeds = embedOccurrences(line, "inline");
+  expect(embeds.map(e => [line.slice(e.start, e.end), e.target, e.blockId])).toEqual([
+    ["!((query: (type=plan OR type=day) AND day=today sort: created desc))", "?(type=plan OR type=day) AND day=today sort: created desc", undefined],
+    ["!((query: type=plan))", "?type=plan", undefined],
+  ]);
+  expect(embeds.map(e => embeddedQuery(e.target))).toEqual([
+    { where: "(type=plan OR type=day) AND day=today", sort: "created desc" },
+    { where: "type=plan" },
+  ]);
+  // What the service asks for it: one note, the newest by updated when no sort is written.
+  expect(queryEmbedQuestion(embeds[1]!.target, "a1b2c3d4-0000-4000-8000-000000000000")).toEqual({ where: "type=plan", sort: "updated desc", limit: 1, this: "a1b2c3d4-0000-4000-8000-000000000000" });
+  expect(queryEmbedText(embeds[0]!.target)).toBe("!((query: (type=plan OR type=day) AND day=today sort: created desc))");
+  // A block id or a page target is no query; an outline-qualified reference stays one.
+  expect(embeddedQuery("a1b2c3d4-0000-4000-8000-000000000000")).toBeNull();
+  expect(embeddedQuery("[[Spring plan]]")).toBeNull();
+  expect(embedOccurrences("!((query:a1b2c3d4-0000-4000-8000-000000000000))").map(e => [e.target, e.blockId])).toEqual([["query:a1b2c3d4-0000-4000-8000-000000000000", "a1b2c3d4-0000-4000-8000-000000000000"]]);
+  // An empty query is text, as a blank label is.
+  expect(embedOccurrences("!((query:  ))")).toEqual([]);
 });

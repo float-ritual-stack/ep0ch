@@ -222,7 +222,7 @@ test("an answer past its deadline says so in the thread, in the person's words; 
   const { comment, answers } = await setup({ job: 1500, deadline: "1s" });
   const id = await comment("ask", "soil pH", "@margin make a page for each plugin");
   const said = await until("the deadline said", async () => (await answers(id))[0], 15_000);
-  expect(said.body).toMatch(/^@margin took longer than its 1 s on this \d+-word note and was stopped: ask it about a shorter passage$/);
+  expect(said.body).toMatch(/^@margin took longer than its 1 s on this \d+-word note and was stopped: ask it about a shorter passage, or give it longer in its settings \(ep0ch act ext\.marginalia\.settings agent\.margin\.deadline=1m\)$/);
   const { loadExtensionManifest } = await import("../src/extension-manifest");
   const manifest = (agentDeadline: string, deadline = "2m") => ({ directory: "/made-up/lamp", origin: "user" as const, configRaw: "{}", expectedId: "lamp", idFrom: "the folder's name",
     manifestRaw: JSON.stringify({ contract: 2, id: "lamp", version: 1, name: "Lamp", run: ["true"], deadline, agents: [{ name: "lamp", description: "a lamp", effects: "spend", deadline: agentDeadline }] }) });

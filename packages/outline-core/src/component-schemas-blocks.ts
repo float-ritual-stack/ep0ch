@@ -30,14 +30,16 @@ function linksComponent(name: (typeof LINK_GROUPS)[number]): ComponentSchema {
       { key: "groups", where: "yaml" as const, type: "list" as const, meaning: "the groups it lists, comma-separated: outlinks, resources, backlinks, children (the notes under it), matches (the query's), or links for every group of the block", samples: ["links", "backlinks,children", "matches"] },
       { key: "query", where: "yaml" as const, type: "query" as const, complete: "query" as const, meaning: "list the blocks this query matches (the saved-view grammar, the service answers it) as a group of its own, `matches`; without `groups:` it is all the list shows", samples: ["type=outbox-item status=waiting", "type=errand stage=open"] },
       { key: "preview", where: "yaml" as const, type: "enum" as const, meaning: "the selected row drawn beside the list (or under it) when the frame has the width; the person's keys stay in the note until ⏎ on the frame goes in", values: enumOf({ right: "beside the list, when it's 70 columns or wider", below: "under the list", none: "no preview" }), default: "right with a query, else none" },
+      { key: "sort", where: "yaml" as const, type: "text" as const, meaning: "the order of a query's matches, in the views' sort words: created, updated, title or any property, then asc or desc; the first is the one previewed", samples: ["day desc", "updated desc", "title"] },
+      { key: "height", where: "yaml" as const, type: "text" as const, meaning: "how many rows the preview draws before `n more rows · ⏎ opens it`, or fill: the previewed note whole, carried by the reader's own scroll (the wheel over it scrolls the note; the keys stay there)", default: "16", samples: ["fill", "24", "8"] },
     ] : []),
   ];
   return {
     id: name, group: "links", title: `${w.title} (::${name})`,
-    intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? ", `groups:`, `query:` and `preview:` lines, or the same keys in braces on its first line (`::links{query=\"type=outbox-item status=waiting\" preview=right}`)" : ""} lines. The service answers the links and the reader lays them out, and the library draws the same list with its own demo data.`,
+    intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? ", `groups:`, `query:`, `sort:`, `preview:` and `height:` lines, or the same keys in braces on its first line (`::links{query=\"type=outbox-item status=waiting\" preview=below height=fill}`)" : ""} lines. The service answers the links and the reader lays them out, and the library draws the same list with its own demo data.`,
     where: `a \`::${name}\` line or block in a note; \`of:\`, \`filter:\` and \`title:\` lines inside a block`,
     props, source: { use: `::${name}\n---\n{{props.yaml}}\n---\n::` }, example: { title: w.title },
-    sweep: ["filter", "title", ...(name === "links" ? ["groups", "preview"] : [])], grids: [], space: ["filter", "title"],
+    sweep: ["filter", "title", ...(name === "links" ? ["groups", "preview", "height"] : [])], grids: [], space: ["filter", "title"],
   };
 }
 
@@ -144,7 +146,7 @@ const ID = "3f2a1c9e-0000-4000-8000-00000000a001";
 const EMBED: ComponentSchema = {
   id: "embed", group: "links",
   title: "Embeds and references",
-  intro: "A note points at another by its id: `((id))` is a reference, `((id|label))` a labelled one, `!((id))` an embed that draws the block in place, `((id^anchor))` a line within it, and `[[Page name]]` a page by its name. The link grammar is outline-core's (link-syntax.ts); the service resolves, indexes and keeps the backlinks. The ids here are made up, so the library draws them as references that don't resolve.",
+  intro: "A note points at another by its id: `((id))` is a reference, `((id|label))` a labelled one, `!((id))` an embed that draws the block in place, `!((query: type=plan))` one that draws the first note a query matches (its `sort:` the views' words, the newest edited when none), `((id^anchor))` a line within it, and `[[Page name]]` a page by its name. The link grammar is outline-core's (link-syntax.ts); the service resolves, indexes and keeps the backlinks. The ids here are made up, so the library draws them as references that don't resolve.",
   where: "anywhere in a note's text; `!` before a reference embeds it",
   props: [{
     key: "form", where: "line", type: "enum", token: "{value}", meaning: "how the link is written",
@@ -152,6 +154,7 @@ const EMBED: ComponentSchema = {
       { value: `((${ID}))`, meaning: "a reference to a block, drawn as its title" },
       { value: `((${ID}|the beds))`, meaning: "a labelled reference: your words, the block behind them" },
       { value: `!((${ID}))`, meaning: "an embed: the block drawn in place" },
+      { value: "!((query: type=plan sort: day desc))", meaning: "a query embed: the first note the query matches (the newest edited when no sort: is written), drawn whole in place and followed as notes change" },
       { value: `((${ID}^watering))`, meaning: "a reference to a line of a block, by its anchor (`^watering` at that line's end)" },
       { value: "[[Moth Garden]]", meaning: "a page, by its name" },
     ],

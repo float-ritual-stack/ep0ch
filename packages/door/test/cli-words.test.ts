@@ -338,3 +338,70 @@ describe("a script run's answer as a shell's exit", () => {
     expect({ code: r.code, err: r.err }).toEqual({ code: 0, err: "" });
   }, 30_000);
 });
+
+// PIE-1709: `ep0ch act ext.yo.settings --ws garden …` (Evan's flag order, Nov 10) answered `arguments are key=value, not
+// "--ws"`. A door command's --ws names the outline whose door it reaches, wherever it is on the line, and is never an argument.
+describe("a door command's --ws anywhere on the line", () => {
+  const run = async (argv: string[]) => {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+    // A tile's own door (EP0CH_CONTROL) and garden's door, each a made-up one that says what it was asked.
+    const other = join(dir, "o.sock");
+    Object.assign(env, { HOME: dir, EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: other, EP0CH_DAEMON: "0" });
+    const { placeFor } = await import("../src/session/place");
+    const was = process.env.EP0CH_STATE;
+    process.env.EP0CH_STATE = env.EP0CH_STATE;
+    const place = placeFor(["--ws", "garden"], env, dir);
+    if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
+    if (!place || "error" in place) throw new Error(`no place for garden: ${JSON.stringify(place)}`);
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(place.dir, { recursive: true });
+    const seen: { door: string; action: string; args: unknown }[] = [];
+    const door = (name: string) => createServer(c => c.on("data", d => { const r = JSON.parse(d.toString().split("\n")[0]!); seen.push({ door: name, action: r.action, args: r.args }); c.end(JSON.stringify({ ok: true, result: { done: true } }) + "\n"); }));
+    const garden = door("garden"), tile = door("tile");
+    await new Promise<void>(r => garden.listen(join(place.dir, "door.sock"), r));
+    await new Promise<void>(r => tile.listen(other, r));
+    try {
+      const p = Bun.spawn([process.execPath, MAIN, ...argv], { cwd: dir, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const code = await p.exited;
+      return { code, err: (await new Response(p.stderr).text()).trim(), seen };
+    } finally { garden.close(); tile.close(); }
+  };
+  const want = { code: 0, err: "", seen: [{ door: "garden", action: "ext.yo.settings", args: { answer: "claude -p" } }] };
+
+  test("after the action, before it, or before act: garden's door, the words only the action's", async () => {
+    expect(await run(["act", "ext.yo.settings", "--ws", "garden", "answer=claude -p", "--as", "gardener"])).toEqual(want);
+    expect(await run(["act", "--ws", "garden", "ext.yo.settings", "answer=claude -p", "--as", "gardener"])).toEqual(want);
+    expect(await run(["--ws", "garden", "act", "ext.yo.settings", "answer=claude -p", "--as", "gardener"])).toEqual(want);
+  }, 30_000);
+
+  test("--ws with no name is refused with what it takes; nothing is asked of any door", async () => {
+    const r = await run(["act", "ext.yo.settings", "answer=claude -p", "--ws"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("--ws needs an outline's name");
+    expect(r.seen).toEqual([]);
+  }, 30_000);
+});
+
+// A test door runs with no session of its own (EP0CH_DAEMON=0): its EP0CH_CONTROL is the outline's door when it says so.
+test("--ws reaches a door that has no session when its own peek names that outline, and no other", async () => {
+  const sock = join(dir, "t.sock"), seen: string[] = [];
+  const server = createServer(c => c.on("data", d => {
+    const r = JSON.parse(d.toString().split("\n")[0]!);
+    seen.push(r.cmd === "peek" ? "peek" : r.action);
+    c.end(JSON.stringify({ ok: true, result: r.cmd === "peek" ? { screen: { outline: "meadow" } } : { done: true } }) + "\n");
+  }));
+  await new Promise<void>(r => server.listen(sock, r));
+  try {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+    Object.assign(env, { HOME: dir, EP0CH_OUTLINES: join(dir, "outlines"), EP0CH_STATE: join(dir, "state-t"), EP0CH_CONTROL: sock, EP0CH_DAEMON: "0" });
+    const run = async (...argv: string[]) => { const p = Bun.spawn([process.execPath, MAIN, ...argv], { cwd: dir, env, stdin: "ignore", stdout: "pipe", stderr: "pipe" }); return { code: await p.exited, err: await new Response(p.stderr).text() }; };
+    expect((await run("act", "tile.zoom", "--ws", "meadow", "--as", "gardener")).code).toBe(0);
+    expect(seen).toEqual(["peek", "tile.zoom"]);
+    const other = await run("act", "tile.zoom", "--ws", "orchard", "--as", "gardener");
+    expect(other.code).toBe(1);
+    expect(other.err).toContain("no door runs on orchard");
+    expect(seen.filter(s => s === "tile.zoom")).toHaveLength(1);
+  } finally { server.close(); }
+}, 30_000);
