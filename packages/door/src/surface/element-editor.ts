@@ -225,7 +225,8 @@ export class ElementEdit {
     if (f && this.draft.lines[e?.start ?? -1] === cell?.head) { this.draft.place(f.line, f.end); return "kept"; }
     this.on = false;
     this.draft.landAtEnd();
-    return e ? "changed" : "gone";
+    // A table left at another number is the one this cell was in, changed: only no table at all is gone (PIE-1578).
+    return es.length ? "changed" : "gone";
   }
   open(_by: Actor) {
     const d = this.draft;

@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Terminals, drafts and pickers keep what you made (PIE-1679, PIE-1578, PIE-1664, PIE-1680, PIE-1684)
+
+- **Leaving a screen keeps its kept dock as one dock:** terminals an undo kept running (in the screen's own dock, or a group's) go into your drawer's kept dock together, not as loose tabs, named as they were wherever that name is free there. The status line says they went "in its kept dock".
+- **A reload's landing line isn't saved unless you use it:** after a reload closes rich edit, the empty line the cursor waits on is left out of a save when nothing was typed on it, so an edit of the title (or an agent's patch) saves only that. With the edited table gone but another left in the note, the line says "the table changed", not "is gone".
+- **A comment's footer names `^R reload`:** while a draft is "changed elsewhere", its reload key leads the footer (a comment, a reply, a comment's edit and a note's edit), so a narrow tile still shows it. A "nothing newer to load" said earlier goes once a change is heard.
+- **The paste offer's Esc after an edit:** type a letter on an offered paste and delete it, and the line is yours: Esc clears it first and a second Esc closes the bar. The kitchen sink's paste-a-link note now says how to recover text typed while an edit or a comment failed to open.
+- **A picker shows every choice on a narrow screen:** a picker sized for its choices grows by the rows a wrapped choice takes (the tile menu's recover typed text at 44 columns draws both), within the screen; a picker sized to scroll keeps its height.
+
 ### An agent's write answers with the note as drawn, and every finding names its lines; a Work ID in a query finds its item (PIE-588, PIE-1682)
 
 - **The note as drawn, in the write's answer:** every create, edit and patch answers with `view`, the part it changed as the door draws it at 44 columns (`viewOf` says which lines), on the claude.ai connector as in Claude Code. The agent tools draw it with the door's own drawing (the gateway in process, the CLI through `ep0ch show --lines`); the mod no longer runs its own `ep0ch show` after a write. A patch into a note someone has open in a draft says why it isn't drawn.

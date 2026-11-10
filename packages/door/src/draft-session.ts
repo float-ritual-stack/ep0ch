@@ -331,11 +331,11 @@ export class DraftSession {
     const held = this.heldKeys, d = this.draft, t = this.target;
     this.heldKeys = []; this.heldBack = new Set();
     if (!held.length) return null;
-    const from = t.verb === "save" ? d.text : "";
+    const from = t.verb === "save" ? d.body : "";
     d.wentOnFrom(from, revision);
     this.replaying = true;
     try { for (const { k, replay } of held) replay(k); } finally { this.replaying = false; }
-    if (d.text === from) return null;
+    if (d.body === from) return null;
     const copy = this.keep(), did = t.verb === "save" ? "saved" : t.verb === "send" ? "sent" : "was created";
     return `${did === "was created" ? "created" : did} · what you typed while it ${did} is kept · ${t.back} · a copy is at ${tidy(copy)}`;
   }
@@ -433,7 +433,8 @@ export class DraftSession {
     if (!this.open) return;
     if (!this.target.reload) { this.status.say("nothing to reload"); this.env.redraw?.(); return; }
     if (this.draft.busy) return;
-    if (!this.status.conflict && !this.status.changedElsewhere) { this.status.say("nothing newer to load"); this.env.redraw?.(); return; }
+    // Said like a reload's line, so a change heard after it retires it too (PIE-1664).
+    if (!this.status.conflict && !this.status.changedElsewhere) { this.reloadSaid = this.status.say("nothing newer to load"); this.env.redraw?.(); return; }
     try { await this.reading(); } finally { this.replayHeld(); }
   }
 
@@ -912,7 +913,7 @@ export function blockTarget(m: Msg, o: {
     async submit(s, by, { asked, away, confirmed, report }) {
       const d = s.draft;
       if (!d.dirty) return { ok: true, said: "nothing changed" };
-      const text = d.text;
+      const text = d.body;
       // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
       // Meanwhile the draft holds still: keys wait, and edit.text / edit.close / edit.reload are refused.
       // A new note being written (PIE-544) has no properties to lose: it's written at once.
@@ -920,7 +921,7 @@ export function blockTarget(m: Msg, o: {
         report.phase("checking");
         const next: PropertyList | null = await o.board.previewPropertyList(text).catch(() => null);
         // Nothing should have changed it, but if the draft closed or its text moved on, this save is off.
-        if (!s.open || d.text !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
+        if (!s.open || d.body !== text) { redraw(); return { ok: false, why: "the draft changed while it was checked" }; }
         const change = next ? propertyChange(d.baseProps, next) : "";
         if (change) {
           // Leaving by a click isn't the second save a property change asks for: it's kept unsent.

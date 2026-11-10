@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Msg } from "../src/board";
 import { CommentSession } from "../src/comment";
-import { cardTarget, DraftSession, noteReplyTarget, type DraftTarget, type ReloadRead } from "../src/draft-session";
+import { blockTarget, cardTarget, DraftSession, noteReplyTarget, type DraftTarget, type ReloadRead } from "../src/draft-session";
 import { EditConflict, Refused, USER } from "../src/socket";
 import { visible } from "../src/style";
 import { composerBox } from "../src/surface/composer";
@@ -278,6 +278,57 @@ describe("the session owns the reload (a fake target)", () => {
       await settled(d);
       expect(rich(d)).toBe(false);
       expect(d.text).toBe("Crops\n\n| tool | shed |\n| --- | --- |\n| rake | two |\nab");
+      expect(d.note).toContain("the table changed");
+      expect(d.note).not.toContain("gone");
+    });
+
+    // PIE-1578: the line a reload's landing adds is pending until something is typed on it.
+    test("the landing line unused: an edit of the title saves only the title's change, no trailing line", async () => {
+      const m = msg("n-land", TABLE, 1);
+      const writes: string[] = [];
+      const board = { update: async (_id: string, text: string) => { writes.push(text); return { ...m, text, revision: 3 }; }, previewPropertyList: async () => [], get: async () => msg("n-land", "Crops\n\nNo table now.", 2) };
+      const s = DraftSession.open(blockTarget(m, { board: board as never }), { text: m.text, base: 1 });
+      const d = s.draft, host = { completer: null, run: (cmd: string) => { if (cmd === "reload") void s.reload(); } };
+      d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks") + 5);
+      elementEdit(d).open(USER);
+      s.changedTo(2);
+      s.key(ctrl("r"), host);
+      await settled(d);
+      expect(d.note).toContain("the table is gone");
+      expect(d.dirty).toBe(false);
+      d.place(0, 5);
+      s.key(char("!"), host);
+      expect((await s.submit()).ok).toBe(true);
+      expect(writes).toEqual(["Crops!\n\nNo table now."]);
+    });
+
+    test("the landing line used: what's typed on it is saved on its own line", async () => {
+      const m = msg("n-land2", TABLE, 1);
+      const writes: string[] = [];
+      const board = { update: async (_id: string, text: string) => { writes.push(text); return { ...m, text, revision: 3 }; }, previewPropertyList: async () => [], get: async () => msg("n-land2", "Crops\n\nNo table now.", 2) };
+      const s = DraftSession.open(blockTarget(m, { board: board as never }), { text: m.text, base: 1 });
+      const d = s.draft, host = { completer: null, run: (cmd: string) => { if (cmd === "reload") void s.reload(); } };
+      d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("leeks") + 5);
+      elementEdit(d).open(USER);
+      s.changedTo(2);
+      s.key(ctrl("r"), host);
+      await settled(d);
+      for (const c of "kale") s.key(char(c), host);
+      s.key({ kind: "enter" }, host);
+      // A line the person made after it is theirs: kept as typed.
+      expect((await s.submit()).ok).toBe(true);
+      expect(writes).toEqual(["Crops\n\nNo table now.\nkale\n"]);
+    });
+
+    test("the edited table removed while another stays: the line says the table changed, not gone", async () => {
+      const TWO = "Crops\n\n| crop | bed |\n| --- | --- |\n| one | leeks |\n\n| tool | shed |\n| --- | --- |\n| rake | two |";
+      const { d, read, press } = changed(TWO);
+      d.place(d.lines.length - 1, d.lines.at(-1)!.indexOf("two") + 3);
+      elementEdit(d).open(USER);
+      press(ctrl("r"));
+      read.open({ loaded: msg("n", "Crops\n\n| crop | bed |\n| --- | --- |\n| one | leeks |", 2) });
+      await settled(d);
+      expect(rich(d)).toBe(false);
       expect(d.note).toContain("the table changed");
       expect(d.note).not.toContain("gone");
     });
@@ -799,8 +850,8 @@ describe("one lifecycle, every host (PIE-1658)", () => {
     await r.change();
     const d = r.d();
     expect({ warned: d.status.changedElsewhere || !!d.status.conflict }).toEqual({ warned: true });
-    // The hint names the reload while there's something to reload.
-    expect(visible(s.hint())).toContain("reload");
+    // The hint names the reload while there's something to reload (a passage's comment finds its quote again).
+    expect(visible(s.hint())).toMatch(/reload|find quote/);
     // The second writer's host is slow: ctrl+r's read waits until it's let go.
     const board = h.ctx.board as { get(id: string): Promise<Msg | null>; comments(id: string): Promise<unknown[]> }, get = board.get, comments = board.comments;
     let letGo!: () => void;
@@ -822,6 +873,24 @@ describe("one lifecycle, every host (PIE-1658)", () => {
     // Cleared once: the same news heard again says nothing new.
     await r.hear();
     expect({ changedElsewhere: d.status.changedElsewhere, conflict: d.status.conflict }).toEqual({ changedElsewhere: false, conflict: null });
+    s.draftSession()?.dispose();
+  });
+
+  // PIE-1664: the warning's key fits a 44-column footer, right after the save, in every host; and "nothing newer to
+  // load" said before the change is no longer the news once the change is heard.
+  for (const [name, open] of Object.entries(hosts)) test(`${name}: ^R reload in a 44-column footer; a stale "nothing newer" goes`, async () => {
+    const r = await open(), { s, h } = r;
+    s.key(ctrl("r"), h);
+    await Bun.sleep(0);
+    const d = r.d();
+    expect(d.note).toBe("nothing newer to load");
+    expect(visible(s.hint())).not.toContain("reload");
+    await r.change();
+    expect(d.status.changedElsewhere || !!d.status.conflict).toBe(true);
+    expect(d.note).not.toContain("nothing newer");
+    // The property panel says ctrl+r on its own last line; the rest name it in the footer.
+    if (name.includes("panel")) expect(s.panel!.foot()).toContain("ctrl+r");
+    else expect(visible(s.hint()).slice(0, 44)).toMatch(/\^R (reload|find quote)/);
     s.draftSession()?.dispose();
   });
 
