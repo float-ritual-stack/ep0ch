@@ -29,8 +29,8 @@ export function askYoSection(parts: { deskOf: typeof deskOf }): Section {
   return {
     key: "ask-yo", need: "ask how to do an ep0ch thing where you are, get the action's own words and a button, have it pressed as yo and undo it (PIE-1585)",
     part: "the yo extension (extensions/yo): an @name agent in tidy's shape whose reply comes from each ActionDef (`ep0ch actions --all`), with the steps folded; `door.act` (ScriptRuns.doorAct), an agent's process asking the door for one action line, attributed to the agent, its run the undo; the ask from a tile (agent.ask about=, tile.ask in the tile menu, a [keys::hyper+y] script note)",
-    files: "outliner/extensions/yo, outliner/src/script-runs.ts (doorAct), src/bar/ask-agent.ts (about), src/desk/tile-actions.ts (tile.ask), src/surface/note.ts (ext.undo run=)",
-    aside: "e, then @yo how do I lift the agent again on a line of its own · @yo do it · the done row's undo · @yo lift · ^W . on the tile: ask yo about this · act: agent.ask to=yo about=tile · this copy has no model, so it says it quotes its closest match",
+    files: "outliner/extensions/yo, outliner/src/script-runs.ts (doorAct), src/bar/ask-agent.ts (about), src/desk/tile-actions.ts (tile.ask), src/surface/note.ts (ext.undo run=, runPress), src/desk/answer-tile.ts (answer.follow presses a button)",
+    aside: "e, then @yo how do I lift the agent again on a line of its own · @yo do it · the done row's undo · @yo lift · e, @yo drop the agent and keep typing: the answer tile beside the line draws its button live, and a click or its number there presses it before you save (PIE-1699) · ^W . on the tile: ask yo about this · act: agent.ask to=yo about=tile · this copy has no model, so it says it quotes its closest match",
     stage(n, show) {
       const reader = new ReaderPane();
       return parts.deskOf({ title: "showcase · ask yo", panes: [reader], names: ["ask"] }, show, [[reader, n.askYo]]);
