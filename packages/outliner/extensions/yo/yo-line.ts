@@ -120,10 +120,12 @@ export function quoted(a: ActionRecord): string[] {
 /** The action a button line presses and its label: the first act of one yo drew, as a line or as a thread's link. */
 export function buttonIn(line: string): { label: string; act: string } | null {
   const m = /::button\{label="([^"]*)" act=(?:\["([^"]*)"|"([^"]*)")/.exec(line);
-  if (m) return { label: m[1]!, act: m[2] ?? m[3]! };
+  // Its settings button (PIE-1709) is a way to fix yo, never the answer: `do it` doesn't press it.
+  if (m) return (m[2] ?? m[3]) === SETTINGS_ACT ? null : { label: m[1]!, act: m[2] ?? m[3]! };
   const link = /\[([^\]]+)\]\(act: ([^)]+)\)/.exec(line);
-  return link && !link[2]!.startsWith("ext.undo") ? { label: link[1]!, act: link[2]! } : null;
+  return link && !link[2]!.startsWith("ext.undo") && link[2] !== SETTINGS_ACT ? { label: link[1]!, act: link[2]! } : null;
 }
+const SETTINGS_ACT = "ext.yo.settings";
 
 /** The newest button a yo answer drew in these lines, and its line as written. */
 export function lastButton(lines: readonly string[]): { line: string; label: string; act: string } | null {

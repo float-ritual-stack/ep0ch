@@ -64,7 +64,7 @@ test("tidy's settings say its default, and an answer set in them is what the nex
   expect(before!.fields).toEqual([
     expect.objectContaining({ name: "answer", type: "command", state: "default", default: expect.arrayContaining(["claude", "-p", "--safe-mode", "--model", "haiku"]) }),
     // Its agent's deadline (PIE-1709): a setting too, its manifest's the default.
-    expect.objectContaining({ name: "agent.tidy.deadline", type: "string", state: "default", default: "20s" }),
+    expect.objectContaining({ name: "agent.tidy.deadline", type: "string", state: "default", default: "5m" }),
   ]);
 
   // A value the schema refuses is refused with its words, and nothing is written.
@@ -173,7 +173,7 @@ test("an agent's deadline is set, refused and put back like any setting, and the
   await expect(configure("tidy", { set: { "agent.weeder.deadline": "1m" } })).rejects.toThrow("tidy has no agent weeder (it has @tidy)");
   expect(existsSync(file)).toBe(false);
   const set = await configure("tidy", { set: { "agent.tidy.deadline": "45s" } });
-  expect(set.settings.fields.find((f) => f.name === "agent.tidy.deadline")).toMatchObject({ state: "set", value: "45s", default: "20s" });
+  expect(set.settings.fields.find((f) => f.name === "agent.tidy.deadline")).toMatchObject({ state: "set", value: "45s", default: "5m" });
   expect(set.settings.state).toBe("set");
   expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ agents: { tidy: { deadline: "45s" } } });
   const { agentDeadlineMs } = await import("../src/extension-manifest");

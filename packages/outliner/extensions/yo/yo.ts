@@ -95,7 +95,7 @@ async function model(command: string[], which: string, prompt: string): Promise<
   // command that stores its login is the fix (PIE-1708).
   if (code !== 0) {
     const words = failureWords(out, err);
-    throw new Error(notLoggedIn(out, err) ? `${which}: ${CLAUDE_LOGIN_FIX}` : words ? `${which}: ${words} (exited ${code})` : `${which} command exited ${code}`);
+    throw new Error(notLoggedIn(out, err) ? `${which} command: ${CLAUDE_LOGIN_FIX}` : words ? `${which}: ${words} (exited ${code})` : `${which} command exited ${code}`);
   }
   let parsed = JSON.parse(out.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, "$1")) as Record<string, unknown>;
   let cost = "";
@@ -123,7 +123,7 @@ async function tryModel(setting: string) {
     const line = said && typeof said === "object" && typeof said.line === "string" ? said.line : undefined;
     return ok({ message: triedLine(which, { ok: true, seconds: (Date.now() - started) / 1000, cost: lastCost, ...(line ? { line } : {}) }), setting: which, ok: true });
   } catch (error) {
-    return ok({ message: triedLine(which, { ok: false, why: firstLine(error).replace(new RegExp(`^the ${which} model:? (command )?`), "") }), setting: which, ok: false });
+    return ok({ message: triedLine(which, { ok: false, why: firstLine(error).replace(new RegExp(`^the ${which} model(?: command)?:? `), "") }), setting: which, ok: false });
   }
 }
 
@@ -251,7 +251,7 @@ async function respond() {
   if (!plan) {
     const best = candidates[0];
     // Its model couldn't answer (or none is set): said, with the way to its settings one press away (PIE-1709).
-    const fix = trouble ? [settingsButton(inThread())] : [];
+    const fix = trouble && trouble !== "no model set" ? [settingsButton(inThread())] : [];
     if (!best) return ok({ message: "nothing here answers it", reply: withSteps([`nothing in the actions' docs answers that${trouble ? ` (${trouble})` : ""}.`, ...fix]) });
     return ok({ message: said(best), reply: withSteps([...quoteAnswer(best, asked, undefined, trouble ? `closest match by its words (${trouble}).` : undefined), ...fix]) });
   }
