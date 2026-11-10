@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Asks leaves a ticket's own lines alone (PIE-1662)
+
+- **A roadmap item's description is never an ask:** its "Evan opens…", "Red first:" and "Done when:" lines got `[maybe-needs::sysop]` chips. Asks now leaves the workboard's notes (a roadmap item, a delivery, a validation plan) out in code, before Jev reads a line.
+- **Chips already on a ticket come off** at its next save (or `ep0ch ext act asks clear --block <PIE-n> --ws pie`).
+
 ### ctrl+r does the same in every draft: a comment and a property's value too (PIE-1658)
 
 - **A comment hears the note move:** a comment on a passage or on the whole note now says "changed elsewhere" when someone else saves the note, as a note's edit does. ctrl+r finds the quote again (or takes the whole note as it is now), keeps what you type during the read, and clears the warning once.
