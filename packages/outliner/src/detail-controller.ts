@@ -587,6 +587,9 @@ export interface DetailState {
   attention: AttentionClientState;
   attentionRevealSourceLine: number | null;
   selectedAnnotationId?: string;
+  /** A thread whose last words were just written (a reply saved, a comment edited): the preview brings its end into
+   * view once, when `sequence` moves (PIE-1703). */
+  annotationReveal?: { readonly threadId: string; readonly sequence: number };
   completion: DetailCompletionState | null;
   status: string;
   busy: boolean;
@@ -807,6 +810,7 @@ export type DetailIntent =
   | { type: "buffer.backspace" }
   | { type: "buffer.delete" }
   | { type: "buffer.move"; direction: TextBufferEditorMoveDirection; extend?: boolean }
+  | { type: "buffer.page"; direction: "up" | "down"; extend?: boolean }
   | { type: "buffer.select-all" }
   | { type: "buffer.copy" }
   | { type: "buffer.undo" }
@@ -2342,6 +2346,12 @@ export function createDetailController(
     return true;
   };
 
+  /** After a save, the thread stays where it was written: selected, open, and its end (the new words) in view. */
+  const revealWrittenThread = (threadId: string): void => {
+    if (!selectAnnotationThread(threadId, true)) return;
+    state.annotationReveal = { threadId, sequence: (state.annotationReveal?.sequence ?? 0) + 1 };
+  };
+
   const readingModeNow = (): DetailReadingMode | null =>
     state.mode.kind === "preview" || state.mode.kind === "file" || state.mode.kind === "annotation" ? state.mode : null;
 
@@ -2513,10 +2523,13 @@ export function createDetailController(
         const body = state.buffer.text.trim();
         if (!body) throw new Error("A comment cannot be edited down to nothing");
         const isReply = state.annotationThreads.some(thread => thread.replies.some(reply => reply.block.id === draft.annotationId));
+        const threadId = state.annotationThreads.find(thread => thread.block.id === draft.annotationId ||
+          thread.replies.some(reply => reply.block.id === draft.annotationId))?.block.id;
         await effects.updateAnnotation({ annotationId: draft.annotationId, expectedRevision: draft.revision, body });
         written = true;
         state.mode = returnTo;
-        await loadAnnotations();
+        await loadAnnotations(loadGeneration, "current-turn");
+        if (threadId) revealWrittenThread(threadId);
         state.status = isReply ? "Reply edited" : "Comment edited";
       } else if (state.mode.kind === "comment" && state.mode.draft.kind === "reply") {
         const draft = state.mode.draft, returnTo = state.mode.returnTo;
@@ -2527,7 +2540,8 @@ export function createDetailController(
         } });
         written = true;
         state.mode = returnTo;
-        await loadAnnotations();
+        await loadAnnotations(loadGeneration, "current-turn");
+        revealWrittenThread(draft.annotationId);
         state.status = "Reply added";
       } else if (state.mode.kind === "comment" && state.mode.draft.kind === "new") {
         const draft = state.mode.draft, returnTo = state.mode.returnTo;
@@ -3689,6 +3703,19 @@ export function createDetailController(
         break;
       case "buffer.move": {
         applyTextBufferEditorCommand(state.buffer, { type: "move", direction: intent.direction, extend: intent.extend ?? false });
+        ensureEditorCursorVisible(viewport);
+        break;
+      }
+      case "buffer.page": {
+        // One page is the editor's drawn height (PIE-1703, the page size PIE-1689 names): the cursor moves by it, in
+        // wrapped rows at its column, and the view moves with it.
+        const layout = editorLayout(viewport);
+        const page = detailVisibleEditorHeight(state, viewport);
+        const delta = intent.direction === "up" ? -page : page;
+        const position = detailEditorPositionAtVisualPoint(layout, state.buffer.lines, layout.cursorRow + delta, layout.cursorColumn);
+        state.buffer.placeCursor(position.row, position.column, intent.extend ?? false);
+        state.completion = null;
+        state.editorVisualOffset = Math.max(0, Math.min(editorMaxOffset(layout, viewport), state.editorVisualOffset + delta));
         ensureEditorCursorVisible(viewport);
         break;
       }

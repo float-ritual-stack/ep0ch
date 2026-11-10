@@ -1213,6 +1213,26 @@ describe("Pi Markdown detail preview", () => {
       layout.scrollView.render(72).map(stripTerminalSequences).join("\n"),
     ).toContain("Check this range.");
   });
+
+  test("outside Herdr a comment's controls and links draw as their labels, never their addresses (PIE-1703)", () => {
+    const raw = "Seed list\nwater the beans\nafter";
+    const detail = state(raw, raw);
+    const start = raw.indexOf("water the beans");
+    const target = textTarget(raw, start, start + "water the beans".length);
+    const root = annotationThread("annotation-1", target, "See [the guide](https://example.com/beans).");
+    detail.annotationThreads = [{ ...root, replies: [{ ...annotationThread("reply-1", target, "Done.", "agent"), parentAnnotationId: root.block.id }] }];
+    const layout = previewLayout(detail);
+    layout.render(72);
+    for (const comment of detail.previewRegions.regions.filter(candidate => candidate.kind === "annotation")) {
+      togglePreviewRegionDisclosure(detail.previewRegions, comment.id);
+    }
+    const visible = layout.render(72).map(stripTerminalSequences).join("\n");
+    expect(visible).toContain("agent: Done.");
+    expect(visible).toContain("Reply");
+    expect(visible).toContain("the guide");
+    expect(visible).not.toContain("pi-outliner");
+    expect(visible).not.toContain("https://example.com/beans");
+  });
   test("comment threads render references and formatting like note text, reachable by keyboard", () => {
     const raw = "Title\n\ntarget phrase\n\nafter";
     const detail = state(raw, raw);

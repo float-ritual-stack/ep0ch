@@ -2247,6 +2247,7 @@ bodies and replies. The annotation document also scrolls through its full eviden
 | `Ctrl+C` or `Command+C` | Explicitly copy the selected authored source through the terminal clipboard |
 | `Ctrl/Command+Z` | Undo the previous edit group |
 | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo |
+| `PgUp` / `PgDn` | Move the cursor a page (the editor's drawn height) up or down, the view with it |
 | `Backspace` / `Delete` | Delete selection or one grapheme |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | Inline reference completion; keep typing to filter, ↑↓ choose, Enter/Tab or click inserts, Escape dismisses suggestions |
 | `Ctrl+W` | Move focus between the wide editor and draft preview |
