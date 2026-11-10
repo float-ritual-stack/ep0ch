@@ -188,7 +188,7 @@ async function go() {
 }
 
 /** What the line says while the person keeps typing: the action and its first keys. */
-const said = (a: ActionRecord) => [a.name, keysOf(a, 2)].filter(Boolean).join(" · ");
+const said = (a: ActionRecord, args: Record<string, string> = {}) => [a.name, keysOf(a, 2, args)].filter(Boolean).join(" · ");
 
 /** Every action's record, once read: the way to an action's tile is another action's (`opens`). */
 let catalogRead: ActionRecord[] = [];
@@ -271,7 +271,7 @@ async function respond() {
   if (remembered) {
     steps.push(`answered from memory: ${hit!.text}`);
     const [quote, keys] = quoted(remembered, argsOf(hit!.line));
-    return ok({ message: `from memory: ${said(remembered)}`, reply: withSteps([`${quote} · ${keys}`, buttonFor(remembered, asked, argsOf(hit!.line))]) });
+    return ok({ message: `from memory: ${said(remembered, argsOf(hit!.line))}`, reply: withSteps([`${quote} · ${keys}`, buttonFor(remembered, asked, argsOf(hit!.line))]) });
   }
 
   const boost = tile ? wordsOf(tile) : [];
@@ -310,7 +310,7 @@ async function respond() {
   const action = candidates.find(a => a.name === (plan as { action: string }).action)!;
   // A question is quoted, whatever the model picked: whether to press is code's (PIE-1629), and only a command presses.
   if (plan.kind === "act" && question) steps.push("the model said press it; it's a question, so code quoted it");
-  if (plan.kind === "quote" || question) return ok({ message: said(action), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? ASKED_HOW : undefined)) });
+  if (plan.kind === "quote" || question) return ok({ message: said(action, plan.args), reply: withSteps(quoteAnswer(action, asked, plan.args, question ? ASKED_HOW : undefined)) });
 
   // An act: code steps up, once, to the model that presses.
   const actCommand = config.act ?? defaults.act.default;

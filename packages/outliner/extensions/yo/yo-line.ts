@@ -239,7 +239,9 @@ export function findAnswer(o: { words: string; where?: string; why?: string; rea
   if (quoteable(o.where)) {
     lines.push(button("▸ open in facets", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`]));
     lines.push(button("▸ edit the query", [open, `facets.edit text='${o.where}' tile=${FOUND_TILE}`]));
-    if (n) lines.push(button("▸ save as a view", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`, `facets.save tile=${FOUND_TILE}`]));
+    // Named by the words that asked for it ("Hub items that are not sent yet"): one press saves it, renamed like any note.
+    const name = `${o.words.charAt(0).toUpperCase()}${o.words.slice(1)}`.slice(0, 80);
+    if (n) lines.push(button("▸ save as a view", [open, `facets.query text='${o.where}' tile=${FOUND_TILE}`, `facets.save ${quoteable(name) ? `name='${name}' ` : ""}tile=${FOUND_TILE}`]));
   }
   return lines;
 }

@@ -305,9 +305,10 @@ describe("showcase: ask yo (PIE-1585)", () => {
     expect(await press("▸ edit the query")).toEqual({ state: "done" });
     expect(found()?.draft?.text).toBe(where);
     await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
-    // Saved, the person is asked its name in the power bar: the press is theirs to finish.
-    const saved = await press("▸ save as a view");
-    expect(saved.state === "done" || /name/.test(saved.why ?? "")).toBe(true);
+    // Saved under the words that asked for it, one press.
+    expect(await press("▸ save as a view")).toEqual({ state: "done" });
+    const views = await h.board.request("blocks.query", { query: { where: "type=virtual-branch", limit: 200 } });
+    expect(views.blocks.map(b => (b.text ?? "").split("\n")[0]).some(t => t.startsWith("Shed items that are not sent"))).toBe(true);
     await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
   }, 90_000);
 
@@ -343,6 +344,41 @@ describe("showcase: ask yo (PIE-1585)", () => {
     const tile = kinds()[0]!;
     expect((stage().pane(tile.name) as unknown as { options: { kind: string | null } }).options.kind).not.toBeNull();
     await h.app.dispatch.act({ action: "tile.close", tile: tile.name }, USER);
+  }, 90_000);
+
+  // PIE-1712, typed: the answer tile beside the line draws the ▸ by kind button while the person types, and pressing it there
+  // opens the note's links and groups them by kind.
+  test("typed in the editor: ▸ by kind in the answer tile opens the links and groups them", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Seed swap, typed\n\nWhere backlinks are grouped by kind while typing.\n");
+    await h.board.createBlock(null, `Swap list [type::plan]\n\nSee ((${own.id})).`);
+    await h.board.createBlock(null, "backlinks by kind: backlinks.view step=kind [yo-memory::answer] [yo-action::backlinks.view] [yo-asked::backlinks by kind] [yo-line::backlinks.view step=kind]");
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const rows = () => stage().layoutGet().tiles as { name: string; kind: string }[];
+    for (const t of rows().filter(t => t.kind === "backlinks")) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo backlinks by kind") h.ch(c);
+    const answer = () => rows().find(t => t.kind === "answer")?.name;
+    const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
+    await until(() => !!answer() && /label="▸ by kind"/.test(draft()?.text ?? ""), "yo's answer with ▸ by kind", 30_000);
+    const tile = () => stage().pane(answer()!) as { links: { press?: unknown }[] };
+    await until(() => tile().links.some(l => l.press), "the button drawn in the answer tile", 8000);
+    const n = tile().links.findIndex(l => l.press) + 1;
+    await h.app.dispatch.act({ action: "answer.follow", tile: answer()!, args: { n } }, USER);
+    await until(() => rows().some(t => t.kind === "backlinks"), "the links opened", 15_000);
+    const links = rows().find(t => t.kind === "backlinks")!.name;
+    await until(() => (stage().pane(links) as unknown as { options: { kind: string | null } }).options.kind !== null, "grouped by kind", 15_000);
+    if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+    await until(() => !draft(), "the edit saved and closed", 8000);
+    await h.app.dispatch.act({ action: "tile.close", tile: links }, USER);
   }, 90_000);
 
   // PIE-1722 (the verifier's gap): a note action yo offers (note.rename's ▸ rename), pressed in the answer tile, renames the
