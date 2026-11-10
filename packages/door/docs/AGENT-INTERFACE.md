@@ -143,6 +143,12 @@ shows. A door older than these fields is still read: what it can't check is `?`,
 
 `as` (or `EP0CH_AGENT` for the CLI) names the agent. It is shown on screen and recorded with what it writes.
 
+**`recordedAs`: who a write was recorded as, one shape on every writing action** (PIE-1406): `{ author, actorId?, says }`.
+`author` is `agent` or `user`, as stored; `actorId` is the id stored with it (none on a block the person made alone);
+`says` is the door's words (`yours`, `an agent (<id>)'s`, `yours, naming <ids>`). `card.create`, `note.trash`,
+`props.edit`, `image.size`, `edit.save`, `note.move`, `tile.type`, `agents.yolo` and the rest answer it, built by
+`recordedAnswer` from `recorded()` (the door's `src/socket.ts`); each action's page lists it under `answer`.
+
 ### `subscribe`: the live feed
 
 The connection stays open, and each change comes down it as one line: `{"event":{"type":…,"at":<ms>,…}}`.

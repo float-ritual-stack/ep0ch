@@ -3238,7 +3238,10 @@ pressed `Ctrl+S` or called `edit.save`:
 
 The edit frame says which before you save (`an agent (claude-7) typed this · it saves as the agent's`,
 `an agent (claude-7) and you typed this · saved as whoever saves it, naming both`), the status bar says
-`recorded as …` whenever that isn't simply the saver, and `edit.save` answers with `recordedAs`.
+`recorded as …` whenever that isn't simply the saver, and `edit.save` answers with `recordedAs`. Every writing
+action answers the same `recordedAs: { author, actorId?, says }` (PIE-1406; [the agent interface](docs/AGENT-INTERFACE.md)
+names it), and so do `tile.type` (the terminal's `peek` keeps who typed last as `typed`) and `agents.yolo`, whose
+take-back the service is told an agent asked for (PIE-1651).
 
 ## On the service platform
 

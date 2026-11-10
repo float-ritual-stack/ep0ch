@@ -1,7 +1,7 @@
 // Actions share the service's atomic move; the door keeps its receipt for local undo.
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { NoteRouteResult } from "@ep0ch/outline-core/protocol";
-import { mutationFor, recordedActorId, type Actor, type SocketBoard } from "./socket";
+import { mutationFor, recordedActorId, recordedAnswer, type Actor, type RecordedAs, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { UndoHistory, partyOf } from "./steps";
 import { moveWithRules, type WriteBoard } from "./mcp-writes";
@@ -17,7 +17,7 @@ export type MoveIntent =
 /** The arguments the actions take (all optional strings and numbers, as `act` gives them), read as one intent. */
 export interface MoveArgs { to?: string; before?: string; after?: string; step?: string; position?: number; revision?: number }
 
-export interface MoveDone { moved: string; parent: string | null; position: number; previousParent: string | null; revision: number; unchanged?: true; said: string }
+export interface MoveDone { moved: string; parent: string | null; position: number; previousParent: string | null; revision: number; unchanged?: true; said: string; recordedAs?: RecordedAs }
 
 /** A move made, to put back: where the note was. */
 interface MoveUndo { by: string; context: string; block: string; parent: string | null; position: number; previousRevision: number; at: { revision: number } }
@@ -61,7 +61,7 @@ export async function moveNote(board: WriteBoard, id: string, intent: MoveIntent
   if (r.outcome === "unchanged") return { moved: id, parent, position: r.position, revision: r.revision, previousParent: parent, unchanged: true, said: plainly(r.said) };
   const before = { parent: r.previousParentId ?? null, position: r.previousPosition };
   if (opts.undoable !== false && before.position >= 0) MOVE_UNDO.push({ by: partyOf(actor), context: id, block: id, previousRevision: revision, at: { revision: r.revision }, ...before });
-  return { moved: id, parent, position: r.position, revision: r.revision, previousParent: before.parent, said: plainly(r.said) };
+  return { moved: id, parent, position: r.position, revision: r.revision, previousParent: before.parent, said: plainly(r.said), recordedAs: recordedAnswer(actor) };
 }
 
 /** Put back the move `by` last made of the note `context`: where it was. Refuses with nothing to undo. */

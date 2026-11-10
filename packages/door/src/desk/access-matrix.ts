@@ -22,6 +22,7 @@ import { RowView } from "../scroll";
 import { applyPlan, gatherMatrix, hostSource, levelText, matrixLines, planChange, type AccessMatrix, type GrantSource, type MatrixCell, type Plan } from "../mcp-access-matrix";
 import { canonicalLocalMachineName } from "../notes-cli";
 import { MCP_ACCESS_LEVELS, type McpAccessLevel } from "@ep0ch/outline-core/protocol";
+import { RECORDED_AS, recordedAnswer } from "../socket";
 
 export const ACCESS_MATRIX_KIND_NAME = "access-matrix";
 
@@ -270,8 +271,10 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     examples: [
       { act: "access.apply", does: "applies the change the tile has planned (the person only)" },
     ],
-    async run(a, { pane, desk }, _actor) {
-      const p = pane as AccessMatrixPane;
+    answer: { ran: { type: "array", about: "the commands that ran" }, plan: { type: "object", about: "the change made (access.plan's)" }, said: { type: "string", about: "what the tile says of it" }, ...RECORDED_AS },
+    // An agent never gets here (personAlways): the dispatcher refuses it, naming the agent, before anything is read.
+    async run(a, { pane, desk }, actor) {
+      const p = pane as AccessMatrixPane, recordedAs = recordedAnswer(actor);
       let plan = p.staged;
       if (a.level !== undefined || !plan) {
         if (a.level === undefined) throw new ActionRefused("nothing is planned · n r p f plan a level for the picked cell, or pass caller, outline and level");
@@ -279,14 +282,14 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
         if ("error" in made) throw new ActionRefused(made.error);
         plan = made;
       }
-      if (!plan.steps.length) { p.staged = null; desk.redraw(); return { ran: [], plan, said: plan.said }; }
+      if (!plan.steps.length) { p.staged = null; desk.redraw(); return { ran: [], plan, said: plan.said, recordedAs }; }
       let ran: string[];
       try { ran = await applyPlan(plan, [sourceOf(desk.ctx)], p.env); }
       catch (e) { throw new ActionRefused(`${(e as Error).message}${plan.steps.length ? ` · by hand: ${plan.steps.map(s => s.command).join(" and ")}` : ""}`); }
       p.staged = null;
       await p.load();
       p.said = `ran ${ran.join(" and ")}`; desk.redraw();
-      return { ran, plan, said: p.said };
+      return { ran, plan, said: p.said, recordedAs };
     },
   }),
   "access.cancel": def({

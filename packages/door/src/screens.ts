@@ -55,7 +55,7 @@ import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { holdsEdit, SHELL_IDLE_MS } from "./whereabouts";
-import { authorName, type Actor, type OutlineEvent } from "./socket";
+import { authorName, RECORDED_AS, recordedAnswer, type Actor, type OutlineEvent } from "./socket";
 import { parseFieldKey, parseStyleValue, type FieldKey } from "@ep0ch/outline-core/style-cascade";
 import { lookFor, tuningOf, UNSET, type TuneTarget } from "./look";
 import { prop } from "./props";
@@ -543,7 +543,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   "agents.yolo": def({
     summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Kept across an update of the same session; off after the door ends or crashes. Turning it on is the person's; an agent may turn it off",
     keys: [{ via: "> agents.yolo in the power bar (ctrl+k)" }, { keys: "click", does: "on the status bar's YOLO turns it off" }],
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: { on: { type: "boolean", about: "whether agents hold the door now" }, ...RECORDED_AS },
     // Handing the door over is the person's alone, on their press too; taking it back (on=false) is anyone's.
     personWith: ({ on }) => (on === false ? null : { always: "yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); an agent takes it back with on=false" }),
     args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle (an agent's says on=false)" } },
@@ -551,12 +551,12 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       { act: "agents.yolo on=true", does: "hands the door to agents, with YOLO on the status bar (the person's to turn on)" },
       { act: "agents.yolo on=false", does: "puts agents back under the person's guards" },
     ],
-    run({ on }, { ctx }, _actor) {
-      const want = on ?? !ctx.agentsYolo;
-      ctx.agentsYolo = want;
+    async run({ on }, { ctx }, actor) {
+      const want = on ?? !ctx.agentsYolo;   // who asked goes to the service with it (setAgentsYolo), and is said
+      if (ctx.setAgentsYolo) await ctx.setAgentsYolo(want, actor); else ctx.agentsYolo = want;
       ctx.flash(want ? "YOLO: agents act with no person guard until you take it back (click YOLO, or agents.yolo on=false)" : "agents are back under the person guards", 8000);
       ctx.redraw();
-      return { on: want };
+      return { on: want, recordedAs: recordedAnswer(actor) };
     },
   }),
   "changes.machinery": def({
@@ -1138,7 +1138,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   "note.move": def({
     summary: "move the selected message, or id=, using the service's revision-checked move",
     keys: modeActionKeys([LIST_MOVE_KEYS], "note.move"),
-    touches: "nothing", replay: "ask",
+    touches: "nothing", replay: "ask", answer: RECORDED_AS,
     args: {
       id: { type: "string", optional: true, about: "the note to move; default selected" },
       undo: { type: "boolean", optional: true, about: "put the last move back" },

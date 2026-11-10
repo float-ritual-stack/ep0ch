@@ -10,7 +10,7 @@ import type { Desk } from "./desk";
 import type { DeskApi } from "./panes";
 import { RESTART_IDLE_MS, type PtyPane } from "./pty";
 import { runsUnder } from "./agent-sessions";
-import type { Actor } from "../socket";
+import { RECORDED_AS, type Actor } from "../socket";
 
 interface On { pane: PtyPane; desk: DeskApi; tile: string }
 
@@ -72,8 +72,9 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
   "tile.type": def({
     words: "send text to the terminal's program, as typed keys",
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there · an nvim tile's socket edits other lines without their cursor", says: r => `typed into ${r.tile}`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there · an nvim tile's socket edits other lines without their cursor", says: r => `typed into ${r.name ?? r.tile}`,
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
+    answer: { chars: { type: "number", about: "how many characters it sent" }, ...RECORDED_AS },
     examples: [
       { act: "tile.type tile=draft text=\"ls -la\\n\"", does: "types ls -la and enter into the program in the draft terminal" },
       { act: "tile.type tile=draft text=\"\\e:w\\n\"", does: "sends escape, :w and enter: an editor there saves its file" },

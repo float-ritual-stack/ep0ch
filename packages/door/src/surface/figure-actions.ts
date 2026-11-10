@@ -5,6 +5,7 @@ import { modeActionKeys, type ModeKey } from "./modes";
 import { resizeHeld } from "../resize";
 import { readContentSize } from "@ep0ch/outline-core/media-line";
 import { DENSITIES, isDensity, type Density } from "../graphs";
+import { RECORDED_AS } from "../socket";
 
 export const FIGURE_SIZE_KEYS: readonly ModeKey[] = keyTable("figure size", "a selected figure in a note", [
   { key: "=", action: "figure.size", label: "fit/full" }, { key: "click", action: "figure.size" },
@@ -101,7 +102,7 @@ export const figureActions = {
   "figure.size": def({
     summary: "set a figure's height in rows or width fit/full in its YAML; with neither, toggle fit/full. One normal edit, ctrl+z undoes",
     keys: `${modeActionKeys([FIGURE_SIZE_KEYS], "figure.size")}, ⏎ on its ↔ control`,
-    touches: "draft", draft: "write", replay: "ask",
+    touches: "draft", draft: "write", replay: "ask", answer: RECORDED_AS,
     args: {
       figure: { type: "string", optional: true, about: "the figure's number or title (figures lists them)" },
       height: { type: "number", optional: true, about: "the rows inside the frame; shift+up/down scrolls them" },

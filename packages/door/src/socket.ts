@@ -450,6 +450,20 @@ export function recorded(actor: Actor = USER, made: "revision" | "new" = "revisi
     says: !shared ? "yours" : actor.kind === "agent" ? `an agent (${actorId})'s` : agent ? `an agent's, naming ${actorId}` : `yours, naming ${actorId}`,
   };
 }
+/**
+ * Who a write was recorded as, as every writing action answers it (PIE-1406): what was stored (`author`, and `actorId`
+ * when one was: a person's new block carries none) and `says`, the words the door says for it. One shape for every
+ * answer, so an agent reads `recordedAs.says` or `recordedAs.actorId` without asking which action it ran.
+ */
+export interface RecordedAs { author: "agent" | "user"; actorId?: string; says: string }
+/** `recordedAs` for a write by `actor` (`recorded`): `made` "new" for a block or comment made now, else a change. */
+export function recordedAnswer(actor: Actor = USER, made: "revision" | "new" = "revision"): RecordedAs {
+  const r = recorded(actor, made);
+  const stored = made === "new" ? { author: r.block.author, actorId: r.block.author === "agent" ? r.block.provenance.actorId : undefined } : r.mutation;
+  return { author: stored.author, ...(stored.actorId ? { actorId: stored.actorId } : {}), says: r.says };
+}
+/** The `recordedAs` field as an action's `answer` describes it (ActionDef.answer): spread into every writing action's. */
+export const RECORDED_AS = { recordedAs: { type: "object", about: "who it was recorded as: author (agent or user), actorId when one was stored, says (the words the door says: yours, an agent (<id>)'s)" } } as const;
 /** The `mutation` a change to a block carries for `actor` (`recorded`). */
 export const mutationFor = (actor: Actor = USER) => recorded(actor).mutation;
 /** How a comment or reply is authored (`recorded`, made `new`): a person's alone carries no actor id, as Detail sends it. */
@@ -1034,8 +1048,8 @@ export class SocketBoard implements Board {
   }
 
   /** Yolo (PIE-973): this door hands the outline's agents the person's permissions in the service too (`on`), or takes them back (any door can). */
-  async setAgentsYolo(on: boolean): Promise<boolean> {
-    return (await this.request("agents.yolo", { clientId: this.clientId, on })).yolo;
+  async setAgentsYolo(on: boolean, actor: Actor = USER): Promise<boolean> {
+    return (await this.request("agents.yolo", { clientId: this.clientId, on, ...(actor.kind === "agent" ? { mutation: mutationFor(actor) } : {}) })).yolo;
   }
 
   /**

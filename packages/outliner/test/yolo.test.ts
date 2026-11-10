@@ -70,13 +70,16 @@ describe("yolo in the service", () => {
     expect(output).toContain("by cowboy · for evan · via yolo");
   });
 
-  test("only a connected door turns it on; an agent can't", async () => {
+  test("only a connected door turns it on; an agent can't, but may take it back", async () => {
     const { client, door } = await service();
     await expect(client.request({ action: "agents.yolo", clientId: "ghost", on: true })).rejects.toThrow("subscribe with that clientId first");
     const mine = await door("door-a");
     await expect(client.request({ action: "agents.yolo", clientId: mine.clientId, on: true, mutation: OTHER })).rejects.toThrow("yolo is the person's to hand over");
     expect((await status(client)).yolo).toBeUndefined();
     expect(await client.request<{ yolo: boolean }>({ action: "agents.yolo", clientId: mine.clientId, on: true })).toEqual({ yolo: true });
+    // Taking it back is anyone's: an agent's on=false, named in its mutation, turns it off (PIE-1651).
+    expect(await client.request<{ yolo: boolean }>({ action: "agents.yolo", clientId: mine.clientId, on: false, mutation: OTHER })).toEqual({ yolo: false });
+    expect((await status(client)).yolo).toBeUndefined();
   });
 
   test("an agent dismisses another agent's proposal with or without yolo; while it is on, the record says so", async () => {

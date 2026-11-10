@@ -52,7 +52,7 @@ import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
-import { USER, type Actor, type OutlineEvent, requesterOf } from "../socket";
+import { recordedAnswer, USER, whoOf, type Actor, type OutlineEvent, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { specTileIds, StepRecord, type DeskSteps, type LayoutEntry } from "./step-record";
@@ -6286,10 +6286,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   // ── terminal tiles: what the terminal kind's actions (PTY_ACTIONS) change on the desk ──
 
-  typeTerminal(name: string, p: PtyPane, text: string, _actor: Actor): TileDone {
+  typeTerminal(name: string, p: PtyPane, text: string, actor: Actor): TileDone & { recordedAs: RecordedAs } {
     if (!p.running) throw new ActionRefused(`${name}'s program isn't running · tile.restart runs it again`);
-    p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
-    return { ...this.tileAnswer(this.tile(name).id), chars: text.length };
+    p.typeAs(text, whoOf(actor));
+    return { ...this.tileAnswer(this.tile(name).id), chars: text.length, recordedAs: recordedAnswer(actor) };
   }
 
   /**
