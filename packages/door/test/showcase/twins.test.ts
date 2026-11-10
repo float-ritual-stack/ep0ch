@@ -31,6 +31,7 @@ describe.skipIf(!outliner)("showcase: twins at filing (PIE-1258)", () => {
     const refused = await h.app.act({ action: "card.create", args: { lane: "Queued", text: "Fix the back gate latch [priority::medium] [arc::garden] [track::allotment]" }, as: "test-agent" }).then(() => null, (e: Error) => e.message);
     expect(refused).toContain("(queued) Fix the back gate latch");
     expect(refused).toContain("card.attach twin=");
+    expect(refused).toContain("In the door: card.create … new=true files it anyway");
     const workId = /(HOME-\d+) \(queued\) Fix the back gate latch/.exec(refused!)![1]!;
     expect(await h.app.act({ action: "card.attach", args: { twin: workId, text: "The latch dropped again\nTwice this week, both in the wind." }, as: "test-agent" })).toMatchObject({ attached: workId });
     expect((await latch())!.text).toMatch(/- \*\*Asked again, \w+ \d+\*\* \(by test-agent\): The latch dropped again\n {2}Twice this week, both in the wind\.$/);

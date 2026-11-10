@@ -557,7 +557,8 @@ export class ExtensionWrites {
         try {
           for (const write of writes) one(write);
         } catch (error) {
-          throw new Error(`${error instanceof Error ? error.message : String(error)}; nothing was written`);
+          const said = `${error instanceof Error ? error.message : String(error)}; nothing was written`;
+          throw error instanceof Refusal ? new Refusal(error.kind, said) : new Error(said);
         }
       },
     };

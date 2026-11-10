@@ -4,11 +4,9 @@
 import { sortProblem } from "@ep0ch/outline-core/figure-live";
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { errorLines, Refusal, REFUSAL_KINDS, refusalKindOf, refusalKindOfStderr, type RefusalKind } from "@ep0ch/outline-core/refusal";
-import { scratchOutline } from "./scratch-outline";
+import { scratchDir, scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { refusalEnvelope } from "../src/request-envelope";
@@ -19,7 +17,7 @@ const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
 async function setup(options: { readOnly?: boolean } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "outliner-kinds-"));
+  const root = scratchDir("outliner-kinds-");
   const paths = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket, undefined, undefined, options);

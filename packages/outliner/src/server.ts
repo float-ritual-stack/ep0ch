@@ -2211,7 +2211,7 @@ export class OutlinerServer {
       const actorId = request.provenance?.actorId;
       if (answer.twins.length && !fileAnyway && request.author === "agent") {
         await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
-        throw new Error(twinRefusal(answer, input.title));
+        throw new Refusal("conflict", twinRefusal(answer, input.title));
       }
       if (!answer.twins.length) await tallyTwins(own, answer);
       const beside = fileAnyway ? answer.twins : [];
