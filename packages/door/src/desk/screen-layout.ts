@@ -1081,7 +1081,8 @@ class Step<I> {
       case "focus": return this.focus(op.tile, !!op.quiet);
       case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
-      case "zoom": return this.zoom(op.tile, op.on, op.reach);
+      // Lifted or zoomed as asked already (PIE-1626): nothing changed, and the answer says so, as a rename to its own name does.
+      case "zoom": { const { lift, zoom } = this.d; this.zoom(op.tile, op.on, op.reach); if (this.d.lift?.tile === lift?.tile && this.d.lift?.reach === lift?.reach && this.d.zoom === zoom) { this.d.changed = false; this.d.answer.changed = false; } return; }
       case "load": return this.load(op.name);
       case "fill": return this.fill(op);
       case "source": return this.source(op.container, op.source);
@@ -2084,14 +2085,8 @@ class Step<I> {
     this.d.answer = { tile: this.name(showing), tabs: set!.ids.map(x => this.name(x)) };
   }
 
-  private zoom(id: I, on: boolean | undefined, reach: ZoomReach = "screen") {
+  private zoom(id: I, on: boolean | undefined, reach: ZoomReach = "screen", lift = this.d.lift) {
     this.present(id);
-    const lift = this.d.lift, zoomed = this.d.zoom;
-    // Lifted or zoomed as asked already (PIE-1626): nothing changed, and the answer says so, as a rename to its own name does.
-    const same = () => this.d.lift?.tile === lift?.tile && this.d.lift?.reach === lift?.reach && this.d.zoom === zoomed;
-    try { this.zoomTo(id, on, reach, lift); } finally { if (same()) { this.d.changed = false; this.d.answer = { ...this.d.answer, changed: false }; } }
-  }
-  private zoomTo(id: I, on: boolean | undefined, reach: ZoomReach, lift: Lift<I> | null) {
     if (this.agent && lift?.by.kind === "user") refuse("the person's lift stays up until they drop it");
     // A spine lifted or zoomed would come up a spine, one column wide: it opens first, and stays open when dropped.
     const unfold = () => { if (this.d.collapsed.has(id)) this.collapse(id, false); };

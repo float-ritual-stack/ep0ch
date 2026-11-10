@@ -772,6 +772,11 @@ export function keptInDock<I>(root: LNode<I>, kept: readonly I[]): LNode<I> {
   into.kid = into.kid.t === "leaf" || into.kid.t === "tabs" ? tabs([...leaves(into.kid), ...kept]) : splitOf("col", [into.kid, tabs([...kept])], [0.5, 0.5]);
   return root;
 }
+/** The tiles of the dock that keeps work when they're all `root` holds (PIE-1663: a group whose last tile left), else undefined. */
+export function keptOnly<I>(root: LNode<I>): I[] | undefined {
+  const into = docks(root).find(d => d.keeps), kept = into ? leaves(into.kid) : [];
+  return kept.length && leaves(root).every(id => kept.includes(id)) ? kept : undefined;
+}
 /** `full` less a row or column for each edge that holds docked tiles: the dock strip drawn there never covers a tile. */
 export function besideDockStrips<I>(root: LNode<I>, full: Rect): Rect {
   const edges = new Set(docks(root).filter(d => leaves(d.kid).length).map(d => d.edge));
