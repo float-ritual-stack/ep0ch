@@ -3206,8 +3206,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A picker is up over this screen (it has the keys). */
   overlaid(): boolean { return !!this.overlays.top(); }
 
-  /** A tile's own key or click (its kind's set, a reader's note actions), as the person, in that tile. */
   tileIdOf(p: Pane): string | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.tileId(id); }
+  /** A tile's own key or click (its kind's set, a reader's note actions), as the person, in that tile. */
   press(p: Pane, set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, quiet: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const id = this.idOf(p);
     return this.dispatch.pressIn(set, name, args, id === undefined ? undefined : this.tileId(id), quiet, given);
