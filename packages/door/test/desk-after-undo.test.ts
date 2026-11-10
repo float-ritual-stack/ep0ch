@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { Desk } from "../src/desk/desk";
+import { Desk, deskSpec } from "../src/desk/desk";
+import { builtin } from "../src/desk/tiles";
 import { docks, leaves } from "../src/desk/layout";
 import { PtyPane } from "../src/desk/pty";
 import { SocketBoard } from "../src/socket";
@@ -32,16 +33,21 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
   });
   afterEach(() => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; rmSync(state, { recursive: true, force: true }); });
 
-  async function door(cols: number, rows: number) {
+  /** `under`: another screen below the one driven, so leaving it (q to the menu, app.pop) is possible. */
+  async function door(cols: number, rows: number, under = false) {
     let key: (k: Key) => void = () => {};
     const term: any = { info: { cols, rows, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, board, Date.now(), () => {});
-    const desk = new Desk(undefined, { layout: "desk" });
+    if (under) app.push(new Desk(undefined, { layout: "desk" }));
+    // Over another screen, the screen driven is one that goes for good when left (a section, a layout): not the desk, which stays.
+    const desk = under ? new Desk({ ...deskSpec(), name: "a-section", title: "a section", saves: undefined, stays: undefined, layout: builtin("desk")! }) : new Desk(undefined, { layout: "desk" });
     app.push(desk);
     const paint = () => (app as any).paint();
     paint();
     const settle = async () => { await Bun.sleep(40); paint(); };
     const press = async (...ks: Key[]) => { for (const k of ks) { key(k); paint(); } await settle(); };
+    /** Keys in one write, as a terminal sends what's typed fast: no frame drawn between them. */
+    const burst = async (...ks: Key[]) => { for (const k of ks) key(k); await settle(); };
     const click = async (x: number, y: number) => { for (const action of ["down", "up"]) key({ kind: "mouse", action, button: 0, x, y } as Key); await settle(); };
     const rect = (name: string) => desk.layoutGet().tiles.find((t: any) => t.name === name)!.rect as { col: number; row: number; cols: number; rows: number };
     const inTile = (name: string) => { const r = rect(name); return click(r.col + 3, r.row + 2); };
@@ -51,7 +57,7 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
     const drawer = () => app.drawer.desk as Desk;
     /** Where its shut dock's edge segment is drawn: the press the desk recorded there. */
     const edgeOf = (name: string) => { const id = (desk as any).idNamed(name); const h = (desk as any).presses.kind("dock").find((x: any) => x.id === id); return h ? { x: h.from, y: h.row } : null; };
-    return { app, desk, press, click, inTile, rect, names, focus, said, paint, drawer, edgeOf, quit: () => { app.quit(); app.drawer.tile?.kill(); } };
+    return { app, desk, press, burst, click, inTile, rect, names, focus, said, paint, drawer, edgeOf, quit: () => { app.quit(); app.drawer.tile?.kill(); } };
   }
 
   for (const [cols, rows] of [[177, 60], [80, 24]] as const) describe(`at ${cols}×${rows}`, () => {
@@ -497,6 +503,84 @@ describe.skipIf(!outliner)("after an undo, by real keys (PIE-1574, PIE-1571)", (
         expect(keeping()).toEqual([2]);
         expect(inner().filter(t => t.name === "pty" || t.name === "pty2").some(t => t.shown)).toBe(false);
         expect((tile.inner.pane("pty") as PtyPane).running && (tile.inner.pane("pty2") as PtyPane).running).toBe(true);
+      } finally { d.quit(); }
+    });
+
+    // PIE-1679: leaving a screen sent the terminals its kept docks held (its own, and a group's) into the drawer as loose
+    // tabs, renamed; they go into the drawer's one kept dock, named as they were where the name is free there.
+    // CodeRabbit on #1393: an empty drawer took the first kept terminal as a plain tile, the next in a dock beside it.
+    for (const empty of [false, true]) test(`a screen left with kept docks, its own and a group's: ${empty ? "an empty" : "the"} drawer keeps their terminals in one dock`, async () => {
+      const d = await door(cols, rows, true);
+      try {
+        if (empty) {
+          const dr = d.drawer();
+          for (const t of dr.layoutGet().tiles as { name: string }[]) await dr.dispatch.act({ action: "tile.close", tile: t.name }, USER).catch(e => console.log("REFUSED", String(e)));
+          expect(dr.layoutGet().tiles).toEqual([]);
+        }
+        await d.inTile("tree");
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (d.desk.pane("pty") as PtyPane | undefined)?.running === true, "the screen's shell runs");
+        await d.press(ctrl("]"), ctrl("z"));
+        expect(d.said()).toContain("kept in a dock");
+        await d.desk.dispatch.act({ action: "tile.group", tile: "replies", args: { name: "hob" } }, USER);
+        await d.inTile("hob");
+        await d.press(ctrl("w"), char("e"));
+        const tile = d.desk.pane("hob") as any;
+        const inGroup: string[] = [];
+        for (let i = 0; i < 2; i++) {
+          const before = new Set(tile.inner.layoutGet().tiles.map((t: any) => t.name));
+          await d.press(ctrl("w"), char("o"), char("s"));
+          await until(() => tile.inner.layoutGet().tiles.some((t: any) => !before.has(t.name) && tile.inner.pane(t.name)?.running === true), "a shell runs in the group");
+          inGroup.push(tile.inner.layoutGet().tiles.find((t: any) => !before.has(t.name)).name);
+          await d.press(ctrl("]"), ctrl("z"));
+          expect(d.said()).toContain("kept in a dock");
+        }
+        const pids = [d.desk.pane("pty") as PtyPane, ...inGroup.map(n => tile.inner.pane(n) as PtyPane)].map(p => p.pid);
+        // Left as a person leaves a changed layout: the second q within 3s goes without saving it.
+        d.app.pop();
+        if (d.app.screens().length === 2) d.app.pop();
+        expect(d.app.screens().length).toBe(1);
+        d.paint();
+        const dd = d.drawer(), tiles = () => dd.layoutGet().tiles as { name: string; container?: string }[];
+        const terminals = tiles().filter(t => dd.pane(t.name) instanceof PtyPane && pids.includes((dd.pane(t.name) as PtyPane).pid));
+        expect(terminals.length).toBe(3);
+        // One dock, the one that keeps work, holds all three, and they still run.
+        const containers = new Set(terminals.map(t => t.container));
+        expect(containers.size).toBe(1);
+        expect([...containers][0]).toMatch(/^d\d+$/);
+        expect(docks((dd as any).root).filter(x => x.keeps).map(x => leaves(x.kid).length)).toEqual([3]);
+        expect(terminals.every(t => (dd.pane(t.name) as PtyPane).running)).toBe(true);
+        // Named as they were where the name is free: the screen's pty and the group's pty2; the group's pty, which
+        // clashes with the screen's, is the one renamed.
+        expect(inGroup).toEqual(["pty", "pty2"]);
+        expect(terminals.map(t => t.name).sort()).toEqual(["pty", "pty2", "pty3"]);
+        expect(d.said()).toContain("in its kept dock");
+        expect(dd.outOfStep()).toEqual([]);
+      } finally { d.quit(); }
+    });
+
+    // CodeRabbit on #1393: leaving asked the drawer about a tab beside its tile with the keys, while the keeping put the
+    // terminal in its kept dock. Where the drawer's screen takes no drops but that tab set does, the leave went ahead and the
+    // terminal ended with the screen; now the leave asks about the place it would land, and is refused, said.
+    test("a screen left with a kept terminal the drawer's kept dock can't take: leaving is refused, the program runs on", async () => {
+      const d = await door(cols, rows, true);
+      try {
+        const dr = d.drawer(), first = dr.layoutGet().focus as string;
+        await dr.dispatch.act({ action: "tile.open", tile: first, args: { kind: "reader", name: "side", where: "right" } }, USER);
+        await dr.dispatch.act({ action: "tile.open", tile: first, args: { kind: "reader", name: "tab2", where: "tabs" } }, USER);
+        await dr.dispatch.act({ action: "layout.policy", tile: first, args: { node: "screen", droppable: false } }, USER);
+        await dr.dispatch.act({ action: "layout.policy", tile: first, args: { droppable: true } }, USER);
+        await d.inTile("tree");
+        await d.press(ctrl("w"), char("o"), char("s"));
+        await until(() => (d.desk.pane("pty") as PtyPane | undefined)?.running === true, "the screen's shell runs");
+        const shell = d.desk.pane("pty") as PtyPane;
+        await d.press(ctrl("]"), ctrl("z"));
+        expect(d.said()).toContain("kept in a dock");
+        d.app.pop();
+        if (d.app.screens().length === 2 && !d.said().includes("couldn't go into your drawer")) d.app.pop();
+        expect(d.said()).toContain("pty couldn't go into your drawer");
+        expect(d.app.screens().length).toBe(2);
+        expect(shell.running).toBe(true);
       } finally { d.quit(); }
     });
 

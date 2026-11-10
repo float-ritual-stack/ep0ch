@@ -231,9 +231,31 @@ export class ListPicker<T, H> implements Mode<H> {
   /** The box it was last drawn in (null before its first draw). */
   drawn(): Rect | null { return this.box; }
 
+  /**
+   * A frame sized to show every choice (a row each, or more) that a choice's wrapped rows overflow grows by them, within
+   * `area`, moving up when it must (PIE-1684): every choice is seen at once. A frame with fewer rows than choices scrolls
+   * as it was sized.
+   */
+  private grown(r: Rect, area: Rect, chrome: number): Rect {
+    const items = this.items, count = items.length, room = r.rows - 2 - chrome, w = r.cols - 2;
+    if (w < 1) return r;
+    if (!count || room < count) return r;
+    // Each choice's rows, as `lines` draws them: its heading, then its own (more than one when it wraps).
+    let need = 0;
+    items.forEach((it, i) => {
+      if (this.spec.heading?.(it, i, w) != null) need++;
+      const drawn = this.spec.row(it, i, i === this.sel, w);
+      need += drawn.length;
+    });
+    const rows = Math.min(r.rows + Math.max(0, need - room), area.rows);
+    if (rows <= r.rows) return r;
+    return { ...r, rows, row: Math.max(0, Math.min(r.row, area.row + area.rows - rows)) };
+  }
+
   /** Drawn in its frame over the screen. */
   draw(canvas: Canvas, area: Rect, values?: StyleValues) {
-    const f = this.spec.frame!(area, this.items.length), r = (this.box = f.rect), w = r.cols - 2, head = f.head ?? [], tail = f.tail ?? [];
+    const f = this.spec.frame!(area, this.items.length), head = f.head ?? [], tail = f.tail ?? [];
+    const r = (this.box = this.grown(f.rect, area, head.length + tail.length)), w = r.cols - 2;
     values = this.spec.look?.(r.cols) ?? values;
     canvas.float(r, f.title, fg(C.dark) + (f.foot ? f.foot + " · " : "") + this.hint(), () => {
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));

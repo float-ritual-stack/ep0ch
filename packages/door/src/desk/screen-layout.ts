@@ -24,7 +24,7 @@ import type { Rect } from "../canvas";
 import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
-  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockBody, chooseDock, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
+  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockBody, chooseDock, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, keptInDock, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, spineEdge, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
@@ -209,7 +209,7 @@ export const lockChipText = (self: LayoutSelf): string => ` ▣ ${self.chip ?? s
 export type At<I = number> = (Place<I>
   | { kind: "in"; key: string; node?: string; index?: number; weight?: number }
   | { kind: "next"; from: I }
-  | { kind: "float"; rect?: Rect; near?: I }) & { restore?: ReturnShell[] };
+  | { kind: "float"; rect?: Rect; near?: I } | { kind: "kept" /* the dock that keeps work: keptInDock (PIE-1679) */ }) & { restore?: ReturnShell[] };
 
 export { besideOrder, type Beside, type Prefers } from "./landing";
 import type { Beside } from "./landing";
@@ -761,7 +761,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
 /** Tree `t` with leaf `id` put at a place: beside a tile, into its tabs, along an outer edge, into a named line, or the next column. */
 function putAt<I>(t: LNode<I>, id: I, at: At<I>): LNode<I> {
   if (!leaves(t).length && at.kind === "edge") t = leaf(id);
-  else if (at.kind === "edge") t = edge(t, id, at.dir);
+  else if (at.kind === "edge" || at.kind === "kept") t = at.kind === "kept" ? keptInDock(t, [id]) : edge(t, id, at.dir);
   else if (at.kind === "tabs") t = tabInto(t, at.target, id, at.index);
   else if (at.kind === "split") t = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
   else if (at.kind === "in") {
@@ -977,9 +977,9 @@ class Step<I> {
       const joins = chain.at(-1)?.t === "tabs" ? chain.slice(0, -1) : chain;
       e = effective([{ by: "screen", policy: this.d.policy }, ...joins.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
       there = this.name(to.target);
-    } else if (to.kind === "edge") {
+    } else if (to.kind === "edge" || to.kind === "kept") {
       e = effective([{ by: "screen", policy: this.d.policy }, ...(this.d.tree.t !== "leaf" ? [{ by: this.d.tree.id ?? this.d.tree.t, policy: this.d.tree.policy }] : [])]);
-      there = `the ${to.dir} edge`;
+      there = to.kind === "kept" ? "the dock that keeps work" : `the ${to.dir} edge`;
     } else if (to.kind === "in") {
       const line = to.node ? nodeById(this.d.tree, to.node) : node(this.d.tree, to.key);
       if (!line) refuse(`there's no ${to.key} in the layout for ${label}`);

@@ -256,6 +256,23 @@ describe.skipIf(!outliner)("pasted text never runs as commands (PIE-1659)", () =
     } finally { d.quit(); }
   }, 20_000);
 
+  test("an offered paste typed on and put back: Esc clears the line first, a second Esc closes (PIE-1680)", async () => {
+    const d = await door();
+    try {
+      await d.onBeans();
+      await d.feed(bracketed(TEXT));
+      await until(() => d.peek().bar?.query === LINE, "the power bar offers the paste", 3000);
+      await d.feed("x");
+      await until(() => d.peek().bar?.query === `${LINE}x`, "a letter typed on the offer", 3000);
+      await d.feed("\x7f");
+      await until(() => d.peek().bar?.query === LINE, "the letter deleted", 3000);
+      await d.feed("\x1b");
+      await until(() => d.peek().bar?.query === "", "Esc cleared the line, the bar still open", 3000);
+      await d.feed("\x1b");
+      await until(() => d.peek().bar === undefined, "a second Esc closed the bar", 3000);
+    } finally { d.quit(); }
+  }, 20_000);
+
   test("a paste into the power bar the person opened: Esc clears the line first, as typing (PIE-1675)", async () => {
     const d = await door();
     try {

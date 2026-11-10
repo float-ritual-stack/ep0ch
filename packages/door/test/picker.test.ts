@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { Canvas } from "../src/canvas";
 import { LineField } from "../src/surface/line";
 import { Modes } from "../src/surface/modes";
-import { ListPicker, pickRows } from "../src/surface/picker";
+import { centred, ListPicker, pickRows } from "../src/surface/picker";
 import { visible, width } from "../src/style";
 import type { Key } from "../src/term";
 
@@ -117,6 +117,26 @@ describe("a list picker", () => {
     expect([input.text, typed, p.sel, said]).toEqual(["jq", 2, 0, []]);
     p.key({ kind: "down" }, null);
     expect(p.sel).toBe(1);
+  });
+
+  // PIE-1684: a frame sized a row a choice (n + 3, as the tile menu's recover typed text is) grows for a choice that
+  // wraps on a narrow screen, so every choice is drawn at once; one sized to scroll keeps its height.
+  test("a frame sized for its choices grows for a row that wraps; every choice is drawn", () => {
+    const items = ["copy typed text", "open comment with typed text"];
+    const p = new ListPicker<string, null>({
+      name: "recover", items: () => items, clickChooses: true,
+      row: (it, _i, on, w) => pickRows(` ${it}`, on, w), choose: () => {},
+      frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover", head: ["the read timed out"] }),
+    });
+    const c = new Canvas(30, 20);
+    p.draw(c, { col: 0, row: 0, cols: 30, rows: 20 });
+    const drawn = c.lines().map(visible).join("\n");
+    expect(drawn).toContain("copy typed text");
+    expect(drawn).toContain("open comment with typed│  \n  │text ");
+    expect(p.drawn()!.rows).toBe(6);
+    const long = picker(20).p, c2 = new Canvas(40, 12);
+    long.draw(c2, { col: 0, row: 0, cols: 40, rows: 12 });
+    expect(long.drawn()!.rows).toBe(8);
   });
 
   test("on a mode stack: the newest takes the keys, and drops away", () => {
