@@ -3516,6 +3516,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (from !== undefined && p.msg) this.placeNote(p.msg, { from, note: p.msg.id, history: true, keep: false }, by);
   }
   layoutUndoSeq(): number | undefined { return this.undoOwner().history.newest()?.seq; }
+  layoutNewestSeq(): number | undefined { return this.steps.newestDesk(this.relatives(), this, null).history.newest()?.seq; }
   /** Whose layout a ctrl+z here takes back: the step record's answer. */
   private undoOwner(): Desk { return this.steps.undoDesk(this, d => d.holder?.desk()); }
   untrash(board: object): boolean {
@@ -4329,7 +4330,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // Tiles that keep this one's name as their source (a preview, a comment beside it, a tune) follow it.
         for (const q of this.panes.values()) q.renamedTile?.(t.name, this.nameOf(t.id));
         p.writtenTitle = this.nameOf(t.id); p.systemTitle = false;          // the title it shows is its name (as the layout kept it: a name the drawer has is numbered), until a title is written on it
-      } else { p.writtenTitle = text || undefined; p.systemTitle = false; }
+      } else if ((text || undefined) !== p.writtenTitle || p.systemTitle) {
+        // A title written on a tile is a step of the layout's one history (PIE-1666), as a rename is: ctrl+z takes it back.
+        const prior = this.settled ?? this.snapshotShape();
+        p.writtenTitle = text || undefined; p.systemTitle = false;
+        if (prior) { this.recordChange(prior.before, actor, "title"); this.settled = this.snapshotShape(); }
+      }
     } else {
       if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<name or title>; text= clears a written title");
       this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename this tile", text: p.writtenTitle ?? t.name, prefilled: true, verbatim: true,

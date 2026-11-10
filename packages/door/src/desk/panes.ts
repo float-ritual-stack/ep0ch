@@ -75,6 +75,8 @@ export interface DeskApi {
   holdReader?(pane: ReaderPane, actor: Actor): void;
   /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
   layoutUndoSeq?(): number | undefined;
+  /** The place in the undo order of the newest change on any of the person's layouts (the screen, the drawer, a group). */
+  layoutNewestSeq?(): number | undefined;
   /** Bring back the note the person trashed last on `board` (note.untrash), for a reader's ctrl+z; false for another outline's board. */
   untrash?(board: object): boolean;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
@@ -641,6 +643,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.retirePeeks ? { retirePeeks: (by: Actor) => desk.retirePeeks!(this, by) } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
+      ...(desk.layoutNewestSeq ? { layoutNewestSeq: () => desk.layoutNewestSeq!() } : {}),
       ...(desk.untrash ? { untrash: (board: object) => desk.untrash!(board) } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): with no wire it replaces
       // its own note (a pinned one opens beside it); alt+⏎ opens beside.

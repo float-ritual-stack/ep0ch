@@ -332,6 +332,8 @@ export interface SurfaceHost {
   ownKeys?: string;
   /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it only when the reader has nothing of its own to undo (PIE-1435). */
   layoutUndoSeq?(): number | undefined;
+  /** The place in the undo order of the newest change on any of the person's layouts here (the screen, the drawer, a group): what `layout.undo anywhere=true` takes back. */
+  layoutNewestSeq?(): number | undefined;
   /**
    * Bring back the note the person trashed last on `board` (the desk's note.untrash): a reader's ctrl+z, when that trash is
    * newer than its own change. False when the desk can't: a reader on another outline's board.
@@ -564,6 +566,12 @@ const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.
 const NO_COMMENT = "no comment is being written here; C on selected words (or passage.act action=comment) opens one";
 /** The thread list's attention keys (PIE-791): s seen, p keep (k is up there), t TL;DR. */
 const ATTENTION_KEYS: Record<string, "thread.seen" | "thread.keep" | "thread.tldr"> = { s: "thread.seen", p: "thread.keep", t: "thread.tldr", T: "thread.tldr" };
+
+/**
+ * Source writes (a slot, a field, a line) for every reader (PIE-1666): one history, as the extensions' and the moves' are, so a
+ * write made where no reader shows the note (a status-bar press, an agent's button.slot note=) is undone by the reader that does.
+ */
+const SOURCE_UNDO = new UndoHistory<LineUndo>();
 
 export class NoteSurface {
   msg: Msg | null = null;
@@ -1131,7 +1139,7 @@ export class NoteSurface {
   private readonly pageOffer = new Again<PageOffer>({ ms: PAGE_OFFER_MS });
   private menuOffset = { col: 0, row: 0 };
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
-  readonly sourceHistory = new UndoHistory<LineUndo>();
+  readonly sourceHistory = SOURCE_UNDO;
   /** Notes whose old edits the person unfolded ([show] on the "1 old edit" chip). */
   private oldUnsentShown = new Set<string>();
   /** The text an edit kept without its own starting text began from, read from the note's history, by edit (null: not kept; absent: being read). */
@@ -4608,16 +4616,25 @@ export class NoteSurface {
     const said = `${button.label}: ${key}=${given}`;
     if (wrote) { host.ctx.flash(`${said}${actor.kind === "user" && !a.run ? " · press it again to use it · ctrl+z takes it back" : ""}`); this.noteAgent(actor, said); }
     host.redraw();
-    const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
-    // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
-    if (actor.kind === "user" && (a.next !== undefined || a.ask || a.run)) {
+    const out: Record<string, unknown> = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: recordedAnswer(actor) };
+    const entry = wrote ? this.sourceHistory.last(partyOf(actor), this.msg?.id ?? m.id) : null;
+    // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this); an agent passes each itself.
+    if (actor.kind === "user" ? a.next !== undefined || a.ask || a.run : a.run) {
       const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
-      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? (a.alt ? again?.altEmpty : again?.empty) ?? [] : [];
+      const left = actor.kind !== "user" ? [] : a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? (a.alt ? again?.altEmpty : again?.empty) ?? [] : [];
       const fail = (e: unknown) => host.ctx.flash(e instanceof Error ? e.message : String(e));
       if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run, !!a.alt).catch(fail);
-      // The last answer of a press runs it, as the press meant (PIE-1392), its alt= for an alt press; a slot still empty is asked by that press.
-      else if (again && a.run && again.act !== null && (a.alt ? again.alt : again.act) && !(a.alt ? again.altEmpty ?? [] : again.empty).includes(key)) {
-        void this.runPress({ act: (a.alt ? again.alt : again.act)!, block: m.id, line, label: again.label }, host, actor, false, undefined, !!a.alt).catch(fail);
+      // The last answer of a press runs it, as the press meant (PIE-1392), its alt= for an alt press; a slot still empty is asked by
+      // that press (an agent is told the line). What it did is taken back with the words by one undo (PIE-1666).
+      else if (again && a.run && again.act !== null && (a.alt ? again.alt : again.act)) {
+        const layoutBefore = host.layoutNewestSeq?.();
+        try {
+          const ran = await this.runPress({ act: (a.alt ? again.alt : again.act)!, block: m.id, line, label: again.label }, host, actor, false, undefined, !!a.alt);
+          out.ran = ran ?? null;
+          const run = (ran as { undo?: unknown } | null)?.undo, layout = host.layoutNewestSeq?.();
+          if (entry && typeof run === "string") { entry.then = { run }; EXT_UNDO.dropWhere(u => u.undo === run); }
+          else if (entry && layout !== undefined && layout !== layoutBefore) entry.then = { layout };
+        } catch (e) { if (actor.kind !== "user") throw e; fail(e); }
       }
     }
     return out;
@@ -7316,16 +7333,33 @@ export class NoteSurface {
   undoSource(host: SurfaceHost, actor: Actor) {
     return this.inTurn(async () => {
       const e = this.msg && this.sourceHistory.last(partyOf(actor), this.msg.id);
+      const then = e?.then;
+      const took = (r: Record<string, unknown>) => then ? this.undoPress(then, host, actor).then(back => ({ ...r, ...back })) : r;
       if (e?.patch) {
         const m = await host.ctx.board.request("drafts.read", { blockId: e.block }), edit = e.edits[0]!;
         await this.patchSource(e.block, m.revision, edit.after, edit.before, e.patch.start, host, actor);
         this.sourceHistory.drop(e);
         if (this.sourcesMode) await this.readSources(this.sourcesMode.panel, host);
-        return { block: e.block, line: edit.line + 1, recordedAs: recordedAnswer(actor) };
+        return took({ block: e.block, line: edit.line + 1, recordedAs: recordedAnswer(actor) });
       }
       const r = await this.undoLines(this.sourceHistory, "source parameter", host, actor);
-      return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) };
+      return took({ block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: recordedAnswer(actor) });
     });
+  }
+
+  /**
+   * What a press finished by a slot's words did, taken back with them (PIE-1666): its run (ext.undo), or the layout step it took
+   * while that is still the newest (layout.undo); a layout changed since is left as it is, and said.
+   */
+  private async undoPress(then: NonNullable<LineUndo["then"]>, host: SurfaceHost, actor: Actor): Promise<Record<string, unknown>> {
+    if ("run" in then) return { undid: await this.undoExtension(host, actor, then.run) };
+    if (host.layoutNewestSeq?.() !== then.layout) { host.ctx.flash("took the words back; the layout changed since, so what the press did stays · ^W B undoes the newest"); return { press: "kept: the layout changed since" }; }
+    // The words are back already: a layout that refuses this actor's undo keeps what the press did, and says why.
+    try { return { undid: await host.ctx.dispatch!.act({ action: "layout.undo", args: { anywhere: true } }, actor) }; } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      asActor(host.ctx, actor).flash(`took the words back; what the press did stays: ${why}`);
+      return { press: `kept: ${why}` };
+    }
   }
 
   private sourcesModeOf(P: SourcesPanel, host: SurfaceHost): SourcesMode {
@@ -8860,7 +8894,11 @@ const IMAGE_STALE: Stale = { flash: "that image's line changed since it was draw
 /** One line of a note rewritten: its index, its text as it was read, and what it became. `picture`: who the line is, so an undo finds it wherever it has moved to. */
 interface LineEdit { line: number; before: string; after: string; picture?: string }
 /** A change of whole lines (a callout's header, an image's layout) for undo. */
-interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string }
+interface LineUndo {
+  patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string;
+  /** What the press this write finished did (PIE-1666): its run's undo, or the layout step it took, taken back with it. */
+  then?: { run: string } | { layout: number };
+}
 
 
 /** A draft's preview pictures as its frame last placed them (PIE-846), cut to the host's rows [`from`, `to`). */
