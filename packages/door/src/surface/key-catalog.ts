@@ -6,6 +6,7 @@
 import { ESCAPE_CHORD } from "../desk/pty";
 import { hyperLabel } from "../hyper";
 import { keyAlternatives } from "../figures/keys";
+import { needsKeyReports } from "../kbd";
 import { allActionSets, chordName, declaredKeys, keyCaption, type ActionDef, type KeyRow } from "./actions";
 import { bindingId, effective, keymapEntries, keyTables, rebindable, type KeymapEntry, type TableRow } from "./keymap";
 import { screenNames } from "../desk/screen-spec";
@@ -16,12 +17,13 @@ const guarded = (does: string, r: TableRow & { when?: readonly string[] }, rows:
   r.when?.length && rows.filter(x => x.key === r.key).length > 1 ? `${does}, when ${r.when.map(g => GUARD_WORDS[g] ?? g).join(" and ")}` : does;
 
 /**
- * The layers a key passes through, first first (App.route, then the desk's key, then its tile's): the hyper layer, the
+ * The layers a key passes through, first first (App.route, then the desk's key, then its tile's): the hyper layer, a door
+ * module's keys (the glass's alt+u: `ActiveModule.key`, asked before the drawer and every screen, a draft's too), the
  * person's keymap, the drawer, the door's keys on every screen, the ^W keys, a mode (an edit, a comment, a panel), the
  * screen's own (its spec's keys, which Desk.boundKey presses before any tile's: the river's x, PIE-1439), then the
  * focused tile's keys. A key a layer takes never reaches the ones under it.
  */
-export const LAYERS = ["hyper", "yours", "drawer", "every screen", "^W", "mode", "screen", "tile"] as const;
+export const LAYERS = ["hyper", "door module", "yours", "drawer", "every screen", "^W", "mode", "screen", "tile"] as const;
 export type Layer = (typeof LAYERS)[number];
 
 /** Where an action set's keys work: its scope's layer. */
@@ -119,7 +121,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
       const yours = keymapEntries().some(e => e.id === id && e.keys.includes(key));
       held.add(`${key} ${r.action}`);
       out.push({
-        key, cap: capOf(key), action: r.action, args, id, scope: t.scope, ...(t.within ? { within: t.within } : {}), layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
+        key, cap: capOf(key), action: r.action, args, id, scope: t.scope, ...(t.within ? { within: t.within } : {}), layer: t.layer ?? (t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope)),
         does: guarded(tableWords(r, summary(r.action)), r, rows), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
         ...(yours ? { yours: true as const } : {}), table,
@@ -264,8 +266,20 @@ export function conflicts(all: readonly Binding[]): Binding[][] {
  */
 const READ_FIRST_IN_HOST: Readonly<Record<string, readonly string[]>> = { bar: ["line", "draft"] };
 const hostFight = (g: readonly Binding[]) => g[0]!.scope in READ_FIRST_IN_HOST && g.length > 1 && !!g[1]!.yours && g[1]!.table !== undefined && READ_FIRST_IN_HOST[g[0]!.scope]!.includes(g[1]!.scope);
+/**
+ * The layers App.route reads before every screen, whatever the person is typing in (the hyper layer, a door module's keys:
+ * the glass's alt+u): a key one of them binds never reaches a table under it, a draft's included. A key the person's keymap
+ * gives a binding under one is a fight (PIE-1688): [the layer's binding, the rebind]. A built-in key under one is the design.
+ */
+const BEFORE_EVERY_SCREEN: ReadonlySet<Layer> = new Set(["hyper", "door module"]);
+const layerFight = (g: readonly Binding[]) => g.length === 2 && BEFORE_EVERY_SCREEN.has(g[0]!.layer) && !!g[1]!.yours && !BEFORE_EVERY_SCREEN.has(g[1]!.layer);
 function hostShadows(all: readonly Binding[]): Binding[][] {
   const out: Binding[][] = [];
+  for (const mine of all) {
+    if (!mine.yours || BEFORE_EVERY_SCREEN.has(mine.layer)) continue;
+    const over = all.find(x => BEFORE_EVERY_SCREEN.has(x.layer) && x.key === mine.key && x.id !== mine.id && together(x, mine));
+    if (over && !out.some(g => g[0] === over && g[1]!.id === mine.id)) out.push([over, mine]);
+  }
   for (const [first, after] of Object.entries(READ_FIRST_IN_HOST)) for (const mine of all) {
     if (!mine.yours || !after.includes(mine.scope) || mine.table === undefined) continue;
     const over = all.find(x => x.scope === first && x.key === mine.key && x.id !== mine.id);
@@ -279,6 +293,7 @@ function hostShadows(all: readonly Binding[]): Binding[][] {
 export function fightOf(g: readonly Binding[]): { wins: string; loses: string[]; why: string } {
   // A host's first-read table (the power bar's keys over the line's): the first of the group runs, the rebind never does there.
   if (hostFight(g)) return { wins: g[0]!.id, loses: g.slice(1).map(b => b.id), why: `the power bar reads its own keys before the line's: ${g[1]!.cap} does nothing there` };
+  if (layerFight(g)) return { wins: g[0]!.id, loses: [g[1]!.id], why: `the ${g[0]!.layer} layer (${g[0]!.scope}) reads ${g[1]!.cap} before every screen: ${g[1]!.id} never gets it` };
   const file = g[0]!.table === undefined;
   const w = file ? g.at(-1)! : g[0]!;
   // A first row that runs only on some tiles wins only there.
@@ -288,14 +303,16 @@ export function fightOf(g: readonly Binding[]): { wins: string; loses: string[];
 
 /**
  * What giving `key` to binding `b` would do, said before it lands: the bindings that have that key in the same scope or
- * layer (they lose it, or keep it under `b`), and the ones over it that keep taking it first. `key` is a one-key name or a ^W chord.
+ * layer (they lose it, or keep it under `b`), the ones over it that keep taking it first, and `sends`: why some terminals
+ * never send it (`needsKeyReports`), or null. `key` is a one-key name or a ^W chord.
  */
-export function rebindEffects(b: Binding, key: string, all: readonly Binding[]): { takes: Binding[]; under: Binding[]; over: Binding[]; problem: string | null } {
+export function rebindEffects(b: Binding, key: string, all: readonly Binding[]): { takes: Binding[]; under: Binding[]; over: Binding[]; problem: string | null; sends: string | null } {
   const name = chordName(key) ?? key;
-  if (b.rebind !== true) return { takes: [], under: [], over: [], problem: b.rebind };
-  if (GESTURES.has(name)) return { takes: [], under: [], over: [], problem: "a mouse gesture isn't a key: clicks stay where they are" };
-  if (b.key && b.key.startsWith("ctrl+w ") !== name.startsWith("ctrl+w ")) return { takes: [], under: [], over: [], problem: b.key.startsWith("ctrl+w ") ? `${b.cap} is a ^W key: press ^W, then the key` : "a ^W chord goes to a ^W key; this one is a key of its own" };
-  if (b.key.startsWith("hyper+") !== name.startsWith("hyper+")) return { takes: [], under: [], over: [], problem: "a hyper chord goes to a hyper chord: hold ⌃⌥⇧⌘ and press the key" };
+  const refused = (problem: string) => ({ takes: [], under: [], over: [], problem, sends: null });
+  if (b.rebind !== true) return refused(b.rebind);
+  if (GESTURES.has(name)) return refused("a mouse gesture isn't a key: clicks stay where they are");
+  if (b.key && b.key.startsWith("ctrl+w ") !== name.startsWith("ctrl+w ")) return refused(b.key.startsWith("ctrl+w ") ? `${b.cap} is a ^W key: press ^W, then the key` : "a ^W chord goes to a ^W key; this one is a key of its own");
+  if (b.key.startsWith("hyper+") !== name.startsWith("hyper+")) return refused("a hyper chord goes to a hyper chord: hold ⌃⌥⇧⌘ and press the key");
   // Only where both can work (PIE-1439): another screen's own key loses nothing, as the rows say.
   const there = all.filter(x => x.key === name && x.id !== b.id && together(x, b));
   // A key given to an action with none is pressed through the App's keymap layer, over the screens' own.
@@ -308,5 +325,7 @@ export function rebindEffects(b: Binding, key: string, all: readonly Binding[]):
     under: there.filter(x => !takes(x) && (b.key ? x.scope !== b.scope : true) && LAYERS.indexOf(x.layer) >= at),
     over: there.filter(x => !takes(x) && (b.key ? x.scope !== b.scope : true) && LAYERS.indexOf(x.layer) < at),
     problem: null,
+    // A key some terminals never send (alt+[ from a legacy one): saved, since the person's may, and said (PIE-1688).
+    sends: needsKeyReports(name.startsWith("ctrl+w ") ? name.slice(7) : name),
   };
 }

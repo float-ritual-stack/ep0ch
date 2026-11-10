@@ -335,6 +335,28 @@ describe.skipIf(!outliner)("the power bar", () => {
     }
   });
 
+  test("a compact question, too narrow to say it, says a moved key on the status bar (PIE-1688, CodeRabbit on #1410)", async () => {
+    const { mkdtempSync, writeFileSync } = require("node:fs");
+    const { tmpdir } = require("node:os");
+    const { reloadKeymap } = require("../src/surface/keymap");
+    const was = process.env.EP0CH_KEYMAP, file = join(mkdtempSync(join(tmpdir(), "bar-keymap-")), "keybindings.json");
+    process.env.EP0CH_KEYMAP = file;
+    writeFileSync(file, JSON.stringify({ "draft.erase to=word-back": ["alt+e"] }));
+    reloadKeymap();
+    try {
+      void askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async () => {});
+      await until(() => peek().bar?.scope === "ask", "the compact question");
+      type("bean row");
+      key({ kind: "char", ch: "w", ctrl: true });
+      expect(peek().bar.query).toBe("bean row");
+      expect(frame().join("\n")).toContain("^W no longer runs draft.erase to=word-back");
+    } finally {
+      closeBar();
+      if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was;
+      reloadKeymap();
+    }
+  });
+
   test("the line selects and deletes text, and esc clears before closing its scope", () => {
     key(ctrlK); type("/garden path");
     key({ kind: "left", shift: true });

@@ -22,5 +22,7 @@ export const lineCompletionHooks: {
   before?: (i: LineField, k: Key) => boolean;
   after?: (i: LineField, k: Key, took: boolean, text: string) => void;
   copy?: (text: string) => void;
+  /** Say a line's words on the status bar (a key the keymap moved, PIE-1688), for a field whose host draws no note of its own. */
+  say?: (text: string) => void;
 } = {};
 
