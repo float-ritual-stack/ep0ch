@@ -503,3 +503,68 @@ test("Jev's dense finding with its ready patch stays the writer's to apply acros
   const again = (await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "The gutter is fine.", replacement: "The gutter is fine and clear." }] })).json.review as Review;
   expect([again.verdict, again.findings.find(f => f.rule === "dense")?.new]).toEqual(["fix", true]);
 });
+
+// PIE-1657: a choice an agent leaves Evan is a box he can tick, never a proposed decision he can only read.
+test("a note whose decision is still proposed is answered fix with boxes at the top, and the patched note ships with its boxes", async () => {
+  const { store, agent } = await setup();
+  const text = [
+    "Which wood for the fence [type::review]",
+    "",
+    "The north posts rotted over winter.",
+    "",
+    "::graph-decision",
+    "---",
+    "title: wood for the north posts",
+    "status: proposed",
+    "---",
+    "- Cedar — lasts twenty years",
+    "- Larch — half the price",
+    "::",
+  ].join("\n");
+  const made = await agent("create", { parent: "root", text });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const review = made.json.review as Review;
+  expect(review.verdict).toBe("fix");
+  const choice = review.findings.find(f => f.rule === "choice")!;
+  expect(choice.rubric).toBe("buried");
+  expect(choice.patch?.length).toBeGreaterThan(0);
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: choice.patch });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const after = store.require(note.id).text;
+  expect(after.split("\n").slice(0, 4)).toEqual(["Which wood for the fence [type::review] [needs::sysop: wood for the north posts]", "", "- [ ] Cedar — lasts twenty years", "- [ ] Larch — half the price"]);
+  expect((patched.json.review as Review).verdict).toBe("ship");
+});
+
+test("with Jev naming a decision figure for the top, the boxes the choice patch put there are never folded back into one", async () => {
+  const sure: Answers = (id, q) => id.startsWith("kit::") ? { type: "choice", choice: Object.keys(q.criteria ?? {}).includes("graph-decision") ? "graph-decision" : Object.keys(q.criteria ?? {})[0], confidence: 0.95, probabilities: {} }
+    : /^structured::/.test(id) ? { type: "noul", noul: 0.95 } : undefined;
+  const { store, agent } = await setup(sure);
+  const text = [
+    "Which wood for the gate [type::review]",
+    "",
+    "The gate posts rotted over winter.",
+    "",
+    "## The options",
+    "",
+    "::graph-decision",
+    "---",
+    "title: wood for the gate posts",
+    "status: proposed",
+    "---",
+    "- Cedar — lasts twenty years",
+    "- Larch — half the price",
+    "- Oak — what the old gate was",
+    "::",
+  ].join("\n");
+  const made = await agent("create", { parent: "root", text });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const choice = (made.json.review as Review).findings.find(f => f.rule === "choice")!;
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: choice.patch });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  const review = patched.json.review as Review;
+  expect(store.require(note.id).text).toContain("- [ ] Oak — what the old gate was");
+  expect(review.findings.filter(f => f.rule === "kit" && f.new)).toEqual([]);
+  expect(review.verdict).toBe("ship");
+});

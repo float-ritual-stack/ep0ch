@@ -77,7 +77,9 @@ test("a question for Evan below the top needs [needs::sysop]; at the top, or mar
   const found = writeShape(buried);
   expect(found.map(f => f.rule)).toEqual(["question"]);
   expect(found[0]!.say).toContain("[needs::sysop");
-  expect(writeShape(`Notes [needs::sysop: table]\n\n${filler}\n\nShould we ask Evan which table to book?`)).toEqual([]);
+  // Marked, it isn't buried; with no box to tick it is a choice he can't answer yet (PIE-1657).
+  expect(writeShape(`Notes [needs::sysop: table]\n\n${filler}\n\nShould we ask Evan which table to book?`).map(f => f.rule)).toEqual(["choice"]);
+  expect(writeShape(`Notes [needs::sysop: table]\n\n- [ ] Which table?\n\n${filler}\n\nShould we ask Evan which table to book?`)).toEqual([]);
   expect(writeShape(`Notes\n\n- [ ] Evan: which table?\n\n${filler}`)).toEqual([]);
   expect(writeShape(`Notes\n\n${filler}\n\nThe table was booked by Evan on Friday.`)).toEqual([]);
 });
@@ -530,4 +532,63 @@ test("a label over a statement is filed; a label over a request isn't, and a not
   const filed = (line: string) => structuralLines(["Notes", "", line]).has(2);
   for (const line of ["Decision:", "- **Decision:**", "Decision: a header picture is set one way", "- **Decision:** a header picture is set one way", "Check: comment.close takes its keys from the tile", "Note to self: please confirm the fence posts", "Note to self: does the fence need posts?"]) expect([line, filed(line)]).toEqual([line, true]);
   for (const line of ["Decision: Evan, please choose cedar or larch", "Check: Evan, please confirm the shed dimensions", "- **Decision:** should the fence be cedar?", "Check: does the shed need a window?"]) expect([line, filed(line)]).toEqual([line, false]);
+});
+
+// PIE-1657: a choice left to Evan is a box he can tick, never a proposed decision he can only read.
+const PROPOSED = [
+  "Fence for the north beds [type::review]",
+  "",
+  "The posts rotted over winter; the fence needs new ones before the beans go in.",
+  "",
+  "::graph-decision",
+  "---",
+  "title: which wood for the posts",
+  "status: proposed",
+  "---",
+  "- Cedar — lasts twenty years",
+  "- Larch — half the price",
+  "- *Pine* — rots in five",
+  "::",
+].join("\n");
+
+test("a proposed decision left to Evan answers fix with one open box per option at the top, and the patched note is answered", () => {
+  const [choice, ...rest] = writeShape(PROPOSED).filter(f => f.rule === "choice");
+  expect(rest).toEqual([]);
+  expect(choice!.say).toContain("- [ ]");
+  expect(choice!.line).toBe(5);
+  const fixed = apply(PROPOSED, choice!.patch!);
+  const lines = fixed.split("\n");
+  expect(lines[0]).toBe("Fence for the north beds [type::review] [needs::sysop: which wood for the posts]");
+  // One box per option still open (the rejected one isn't offered), at the top, where a tick reads first.
+  expect(lines.slice(1, 5)).toEqual(["", "- [ ] Cedar — lasts twenty years", "- [ ] Larch — half the price", ""]);
+  expect(fixed).toContain("::graph-decision");
+  expect(writeShape(fixed).map(f => f.rule)).not.toContain("choice");
+  // Ticked, it is answered: no new box is asked for.
+  expect(writeShape(fixed.replace("- [ ] Larch", "- [x] Larch")).map(f => f.rule)).not.toContain("choice");
+});
+
+test("a decided decision, or an open one whose options are boxes already, is no choice left to tick", () => {
+  expect(writeShape(PROPOSED.replace("status: proposed", "status: decided")).map(f => f.rule)).not.toContain("choice");
+  expect(writeShape(PROPOSED.replace("status: proposed", "status: open")).map(f => f.rule)).toContain("choice");
+  const boxed = PROPOSED.replace("Fence for the north beds [type::review]\n", "Fence for the north beds [type::review] [needs::sysop: the wood]\n\n- [ ] Cedar\n- [ ] Larch\n");
+  expect(writeShape(boxed).map(f => f.rule)).not.toContain("choice");
+});
+
+test("a [needs::sysop: …] with no open box answers fix with its words as a box at the top", () => {
+  const note = "Shed roof [type::review] [needs::sysop: felt or tin for the shed roof]\n\nThe old felt tore in the storm.";
+  const choice = writeShape(note).find(f => f.rule === "choice")!;
+  expect(choice.say).toContain("- [ ]");
+  const fixed = apply(note, choice.patch!);
+  expect(fixed.split("\n").slice(0, 4)).toEqual(["Shed roof [type::review] [needs::sysop: felt or tin for the shed roof]", "", "- [ ] felt or tin for the shed roof", ""]);
+  expect(writeShape(fixed).map(f => f.rule)).not.toContain("choice");
+  // A box anywhere answers it; a bare needs with no words still says what to do, with no patch to guess.
+  expect(writeShape(`${note}\n\n- [ ] Felt, or tin?`).map(f => f.rule)).not.toContain("choice");
+  // A work item whose steps are all done still asks him: only an open box, or one ticked at the top, answers the chip.
+  const item = "PIE-77 — Mend the shed roof [type::roadmap-item] [needs::sysop: run the roof check once]\n\nThe felt tore in the storm.\n\nThe new roll came on Friday.\n\n## Steps\n\n- [x] Buy the felt\n- [x] Cut it to size";
+  expect(writeShape(item).map(f => f.rule)).toContain("choice");
+  expect(apply(item, writeShape(item).find(f => f.rule === "choice")!.patch!)).toContain("\n\n- [ ] run the roof check once\n");
+  const ticked = apply(item, writeShape(item).find(f => f.rule === "choice")!.patch!).replace("- [ ] run", "- [x] run");
+  expect(writeShape(ticked).map(f => f.rule)).not.toContain("choice");
+  const bare = writeShape("Shed roof [needs::sysop]\n\nThe old felt tore.").find(f => f.rule === "choice")!;
+  expect(bare.patch).toBeUndefined();
 });
