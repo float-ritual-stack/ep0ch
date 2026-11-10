@@ -126,6 +126,17 @@ const valuesOf = (p: Property) => p.values ?? (p.value === undefined ? [] : [p.v
 export const isClosed = (properties: readonly Property[] = []) => properties.some(p => DONE.some(([key, value]) => p.key === key && (value === undefined || valuesOf(p).some(v => v.toLowerCase() === value))));
 
 /**
+ * Notes the workboard keeps, whose lines describe the work rather than ask Evan anything (PIE-1662): a roadmap item's
+ * "Evan opens X and can do Y", its "Red first:" and "Done when:" are the ticket, not questions. Decided here, from the
+ * note's own `type`, before Jev or the model reads a line. A question about a ticket goes on a `[needs::sysop: …]` its
+ * writer puts there, which this never touches.
+ */
+const WORKBOARD: readonly string[] = ["roadmap-item", "delivery", "validation-plan"];
+/** The workboard kind a note is, from its properties, or undefined: `settle` leaves it out and `clear` takes its marks off. */
+export const workboardKind = (properties: readonly Property[] = []): string | undefined =>
+  properties.filter(p => p.key === "type").flatMap(valuesOf).map(v => v.toLowerCase()).find(v => WORKBOARD.includes(v));
+
+/**
  * The lines of `after` still there from `before`, by words (chips and a box's mark aside), each occurrence once: common
  * ends first, so the same words written again above or below stay new; a longest common run through the rest.
  */

@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { outline } from "./outline";
 import { confirmPrompt, verdicts } from "./asks-confirm";
-import { aboutLines, chippedLines, declineKey, hashOf, isAnswered, isClosed, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
+import { aboutLines, chippedLines, declineKey, hashOf, isAnswered, isClosed, workboardKind, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
 
 interface Block { id: string; revision: number; text: string; parentId?: string | null; properties?: { key: string; value: string }[] }
 interface Reading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
@@ -105,6 +105,8 @@ async function answeredLines(note: string, text: string): Promise<Set<number>> {
 async function settle(note: string, dry: boolean, sure: boolean): Promise<void> {
   const block = await outline<Block>({ action: "get", blockId: note });
   if (isClosed(block.properties)) return done("left out: the note is closed");
+  const kind = workboardKind(block.properties);
+  if (kind) return done(`left out: a ${kind}'s lines describe the work, they don't ask`);
   const read = await outline<{ revision: number; text: string; jev: string; lines: Reading[] }>({ action: "blocks.asks", blockId: note }, { timeoutMs: 110_000 });
   if (read.jev !== "asked") return done(`not asked: ${read.jev}`);
   const lines = read.text.split("\n");
@@ -168,6 +170,8 @@ async function underInYourSave(note: string): Promise<Map<string, number>> {
 async function clear(note: string): Promise<void> {
   const block = await outline<Block>({ action: "get", blockId: note });
   if (isClosed(block.properties)) return takeOff(block, () => true, "the note is done");
+  const kind = workboardKind(block.properties);
+  if (kind) return takeOff(block, () => true, `a ${kind}'s lines describe the work, they don't ask`);
   const seen = await records(note), person = input.requestedBy?.author === "user";
   // A run starts after its quiet wait and behind others: an agent may have saved since, so a reply is counted in the text you saved.
   const underYours = person ? await underInYourSave(note) : new Map<string, number>();

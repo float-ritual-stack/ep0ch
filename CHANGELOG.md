@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Asks leaves a ticket's own lines alone (PIE-1662)
+
+- **A roadmap item's description is never an ask:** its "Evan opens…", "Red first:" and "Done when:" lines got `[maybe-needs::sysop]` chips. Asks now leaves the workboard's notes (a roadmap item, a delivery, a validation plan) out in code, before Jev reads a line.
+- **Chips already on a ticket come off** at its next save (or `ep0ch ext act asks clear --block <PIE-n> --ws pie`).
+
 ### Paste a note's link into a note and it opens (PIE-1401, PIE-1316, PIE-1390)
 
 - **A bare address is a link.** A note's web link (`https://my.ep0ch.sh/pub/p/HOME-006`) or its `ep0ch://` address pasted on its own into a note is drawn as written and opens that note when clicked (⏎ on it, or `link.follow`); one of this outline's opens as its own note. Any other `https://` page opens in the browser. Code, Markdown links, references and `[key::…]` values are left as they were.
