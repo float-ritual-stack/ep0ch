@@ -1,3 +1,4 @@
+import { refusalEnvelope } from "./refusal-envelope";
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
 import { warmHolds, warmReads } from "./outline-warm";
@@ -930,9 +931,7 @@ export class OutlineHost {
       request = undefined;
     }
     const id = typeof request?.id === "string" ? request.id : "invalid";
-    const fail = (error: unknown) => this.reply(socket, {
-      id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: 0,
-    });
+    const fail = (error: unknown) => this.reply(socket, refusalEnvelope(id, error, 0));
     // Another machine's host speaks this one's protocol, or nothing it asks is answered (the nodes' versions differ).
     if (request && request.relayed !== undefined) {
       const theirs = (request.relayed as { protocol?: unknown } | null)?.protocol;

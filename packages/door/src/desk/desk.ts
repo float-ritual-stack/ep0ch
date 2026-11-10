@@ -4384,7 +4384,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
     const t = this.tile(sel), p = this.panes.get(t.id);
     const shown = this.noteOf(t.id);
-    if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`);
+    if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
     if (p instanceof ReaderPane && p.surface.draft) throw new ActionRefused("this reader is editing the note: change its title in the edit");
     const now = await this.ctx.board.get(shown.id);
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
@@ -6743,7 +6743,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const p = this.panes.get(t.id);
     if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t.name} is a ${p?.kind} tile: view.scrollTo scrolls a reader (an nvim tile's view is the person's own; block.mark line=… points at a line)`);
-    if (!p.msg) throw new ActionRefused(`${t.name} shows no note yet`);
+    if (!p.msg) throw new ActionRefused(`${t.name} shows no note yet`, "not-found");
     if (at.block && !p.msg.id.startsWith(at.block)) throw new ActionRefused(`${t.name} shows ${p.msg.id.slice(0, 8)}, not ${at.block}; open it there first (open id=${at.block} tile=${t.name})`);
     let line = at.line;
     if (line === undefined && at.text) {

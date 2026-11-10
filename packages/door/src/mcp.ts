@@ -1,3 +1,4 @@
+import { refusalKindOf, type RefusalKind } from "@ep0ch/outline-core/refusal";
 // An MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it over stdio,
 // bound to the outline this process can already open; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
 // serves it over streamable HTTP behind OAuth, for this machine's outlines and read-only mirrors of other machines'
@@ -37,7 +38,7 @@ import { proposalOutcomesOn, sharedToolDefinition, sharedToolRefusal, actorOf, s
 type RpcId = string | number | null;
 interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: unknown }
 interface McpContent { type: "text"; text: string }
-interface ToolResult { content: McpContent[]; isError?: boolean }
+interface ToolResult { content: McpContent[]; isError?: boolean; /** With a refusal the host sent: its kind (outline-core refusal.ts), so a client branches on it, not on the words. */ structuredContent?: { kind: RefusalKind } }
 /** `folder`: where a stdio server runs (default: this process's), whose `.ep0ch` may name the caller's persona. */
 interface McpIo { input?: AsyncIterable<string>; write?: (line: string) => void; err?: (line: string) => void; folder?: string; call?: () => string; adopted?: () => string[]; onAdopt?: (name: string) => void; onRelease?: (name: string) => void }
 
@@ -183,7 +184,7 @@ export function boundOutlines(board: Board, admin?: McpOutlineAdmin, lifetime: P
 }
 
 const toolText = (value: unknown, compact = false): ToolResult => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, compact ? undefined : 2) }] });
-const toolError = (message: string): ToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
+const toolError = (message: string, cause?: unknown): ToolResult => ({ isError: true, content: [{ type: "text", text: message }], ...(cause === undefined ? {} : { structuredContent: { kind: refusalKindOf(cause) } }) });
 const objectFields = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 /** The block a tool names: its `uri`, or `ref`. (`id`, `reference` and the other aliases became `ref` in checkToolArgs, which callTool runs first; a call naming two different blocks never gets here.) */
 const refArg = (args: Record<string, unknown>) => stringField(args, "uri") ?? stringField(args, "ref");
@@ -357,7 +358,7 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
     const target = await resourceBoard(outlines, args);
     if ("error" in target) return toolError(target.error);
     try { return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, resource: await readResourceOn(target.board, ref) }); }
-    catch (e) { return toolError((e as Error).message); }
+    catch (e) { return toolError((e as Error).message, e); }
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
   if ("error" in target) return toolError(target.error);
@@ -413,7 +414,7 @@ async function proposalsTool(outlines: McpOutlines, args: Record<string, unknown
     const page = await proposalOutcomesOn(target.board, input, own as never);
     const outcomes = Array.isArray(page.outcomes) ? (page.outcomes as Array<Record<string, unknown>>).map(o => ({ ...o, uri: blockUri(target.board, String(o.proposal)), noteUri: blockUri(target.board, String(o.note)) })) : page.outcomes;
     return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, ...page, outcomes });
-  } catch (e) { return toolError((e as Error).message); }
+  } catch (e) { return toolError((e as Error).message, e); }
 }
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
@@ -981,7 +982,7 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
     const { revoked } = await revokeShares(board, args.all === true ? { all: true } : { id: args.id as string });
     outlines.log?.(`mcp share_revoke: ${actorOf(caller).actorId} (${caller.sub}) ${revoked.map(s => s.id).join(",") || "none"}`);
     return toolText({ revoked: revoked.map(s => s.id), said: revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the links open nothing now (410 on the outline's host; a Cloudflare tunnel is stopped)` : "no share was open" });
-  } catch (e) { return toolError((e as Error).message); }
+  } catch (e) { return toolError((e as Error).message, e); }
 }
 
 /** Where a read of another machine's outline came from: its copy here (`source`, `asOf`, `copy`, `stale`, `note`), as reads say it. */
@@ -1035,7 +1036,7 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
     }
     if (!files || typeof files !== "object" || Array.isArray(files) || Object.values(files).some(v => typeof v !== "string")) return toolError("files maps relative paths to UTF-8 text.");
     return toolText(await board.request("artifacts.put", { name: String(args.name), files: files as Record<string, string> }, 240_000));
-  } catch (error) { return toolError((error as Error).message); }
+  } catch (error) { return toolError((error as Error).message, error); }
 }
 
 /**
@@ -1052,7 +1053,7 @@ async function uploadLease(outlines: McpOutlines, board: Board, args: Record<str
       said: `Run this where the file is, replacing <file> (a code sandbox's attachment is under /mnt/user-data/uploads). Show it in a code block, not as a link:\n\n\`\`\`sh\n${lease.curl}\n\`\`\`\n\n` +
         `One upload, good until ${lease.expiresAt}. The answer says what was installed; the card lands in ${lease.outline}'s note for today${lease.name ? `, as ${lease.name}` : ", named by the page's title"}. A zip is unpacked (one folder inside is fine); a tar works too.`,
     });
-  } catch (error) { return toolError((error as Error).message); }
+  } catch (error) { return toolError((error as Error).message, error); }
 }
 
 /** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
@@ -1162,7 +1163,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
       const about = typeof args.this === "string" ? (await resolveBoardRef(target.board, args.this.trim())).id : undefined;
       const slots = args.slots as Record<string, string> | undefined;
       return toolText(await target.board.request("scripts.run", { blockId: target.id, ...(about ? { this: about } : {}), ...(slots ? { slots } : {}), access: status.level, mutation: { author: "agent", ...actorOf(caller) } }));
-    } catch (error) { return toolError((error as Error).message); }
+    } catch (error) { return toolError((error as Error).message, error); }
   }
   if (params.name === "outline_read") return readRecord(outlines, args, caller, scope);
   if (params.name === "outline_proposals") return proposalsTool(outlines, args, caller);
@@ -1178,7 +1179,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     const refusal = await lokiAccessRefusal(outlines, caller);
     if (refusal) return toolError(refusal);
     try { return toolText(await outlines.admin.host("loki.lease.start", { ttl: args.ttl, by: actorOf(caller).actorId })); }
-    catch (error) { return toolError((error as Error).message); }
+    catch (error) { return toolError((error as Error).message, error); }
   }
   if (["artifact_put", "artifact_list", "artifact_versions", "artifact_upload_lease"].includes(params.name)) return artifactTool(outlines, params.name, args, caller);
   if (params.name === "outline_snapshot") return shareTool(outlines, "outline_snapshot", args, caller);
@@ -1200,7 +1201,7 @@ async function adminTool(outlines: McpOutlines, admin: McpOutlineAdmin, tool: "o
       if (board && !("error" in board)) outlines.adopt!(board as unknown as Board);
     } else outlines.release?.(String(args.name));
     return toolText({ ...done.ok, by: actorLabel(actor.actorId) });
-  } catch (e) { return toolError((e as Error).message); }
+  } catch (e) { return toolError((e as Error).message, e); }
 }
 
 /** The outline a refusal names, as the gate words it: a mirror says whose copy it read. */
@@ -1226,7 +1227,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     try {
       const done = await commentOnResourceOn(target.board, resourceRef, shape.input, actor);
       return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
-    } catch (e) { return toolError((e as Error).message); }
+    } catch (e) { return toolError((e as Error).message, e); }
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline, true, { write: true });
   if ("error" in target) return toolError(target.error);
@@ -1305,7 +1306,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), ...reading.fields, said: `${done.said}${reading.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
-    return toolError((e as Error).message);
+    return toolError((e as Error).message, e);
   }
 }
 

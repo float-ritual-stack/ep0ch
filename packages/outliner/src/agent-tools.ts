@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-core/site-values";
 /**
@@ -1643,7 +1644,7 @@ export async function trashBlock(client: AgentToolsClient, input: { ref: string;
   try {
     await client.request<Block>({ action: "delete", blockId: block.id, expectedRevision: revision, mutation: mutationOf(actor) });
   } catch (e) {
-    if (e instanceof Error && /changed since it was read/.test(e.message)) {
+    if (refusalKindOf(e) === "stale-revision") {
       throw new WorkToolRefusal(`${label(block)} changed while you were trashing it: outline_read it again, and trash it only if it's still the note you mean`);
     }
     throw e;

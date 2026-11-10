@@ -1,3 +1,4 @@
+import { Refusal, blockNotFound } from "@ep0ch/outline-core/refusal";
 import { heldBy } from "./loop-watch";
 import { compareBinary, noteGraphWrites, PROPERTY_COLUMNS, readGraphRowsInSlices } from "./graph-slices";
 import { workIdPrefixesInUse } from "./work-id-prefixes";
@@ -192,7 +193,6 @@ import type {
   WorkspaceSnapshotView,
   LinkTargetFacets,
 } from "./types";
-
 interface BlockRow {
   id: string;
   parent_id: string | null;
@@ -1161,7 +1161,7 @@ export class OutlinerStore {
       if (!began.has(block.id)) began.set(block.id, block.revision);
       let anchor = subject.anchor, anchored = false;
       if (anchor === undefined) {
-        if (subject.revision !== began.get(block.id)) throw new Error(`${subject.blockId} changed since revision ${subject.revision} (it's at ${block.revision}): read it again and name the line`);
+        if (subject.revision !== began.get(block.id)) throw new Refusal("stale-revision", `${subject.blockId} changed since revision ${subject.revision} (it's at ${block.revision}): read it again and name the line`);
         // "Where I am" (`next`): the first part at or after the line.
         const element = elementAt(block.text, subject.line!, subject.next === true);
         if (!element) throw new Error(`line ${subject.line! + 1} of ${subject.blockId} is in no part a quote can take (a figure, a callout, a list item, a paragraph, a heading's section)`);
@@ -2494,7 +2494,7 @@ export class OutlinerStore {
       throw new Error("Block edit requires a positive integer revision");
     }
     const current = this.require(id);
-    if (current.revision !== expectedRevision) throw new Error(`Block changed since editing began: ${id}`);
+    if (current.revision !== expectedRevision) throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
     const owner = this.extensionOwnerFromCurrentRead(id);
     if (owner && owner.extensionId !== this.extensionWriter && text !== current.text) {
       throw new Error(extensionWriteRefusal(owner, current.text, text));
@@ -2518,7 +2518,7 @@ export class OutlinerStore {
     `).run(text, text === current.text ? current.updatedAt : editedAt, id, expectedRevision);
     // The rows this UPDATE matched: `changes()` alone, since Bun's `changes` also counts what a trigger wrote (the graph's notes).
     const matched = (this.database.query("SELECT changes() AS rows").get() as { rows: number }).rows;
-    if (result.changes === 0 || matched !== 1) throw new Error(`Block changed since editing began: ${id}`);
+    if (result.changes === 0 || matched !== 1) throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
     // The text it replaced is kept (PIE-621): a saved note can go back to it.
     if (text !== current.text) {
       const saved = this.textSaved(current);
@@ -2644,7 +2644,7 @@ export class OutlinerStore {
     if (operations.length === 0) throw new Error("Property patch requires at least one operation");
     const existing = this.requireActive(id);
     if (existing.revision !== expectedRevision) {
-      throw new Error(`Block changed since editing began: ${id}`);
+      throw new Refusal("stale-revision", `Block changed since editing began: ${id}`);
     }
     const text = patchPropertyText(existing.text, operations);
     return this.update(id, text, expectedRevision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
@@ -2933,12 +2933,12 @@ export class OutlinerStore {
     this.database.transaction(() => {
       const current = this.requireActive(id);
       if (expectedRevision !== undefined && current.revision !== expectedRevision) {
-        throw new Error(`Block changed since it was read: ${id}`);
+        throw new Refusal("stale-revision", `Block changed since it was read: ${id}`);
       }
       if (ifEmpty) {
         const { children } = this.database.query("SELECT COUNT(*) AS children FROM blocks WHERE parent_id = ? AND effective_deleted_root_id IS NULL").get(id) as { children: number };
         const why = notEmptyWhy(id, current.text, children);
-        if (why) throw new Error(why);
+        if (why) throw new Refusal("conflict", why);
       }
       const subtree = new Set(this.subtreeIdsFromCurrentRead(id));
       if (this.roadmapMembersOfBatches([...subtree]).some(member => !subtree.has(member))) {
@@ -3485,7 +3485,7 @@ export class OutlinerStore {
       const read = query.softMentions ? softMentionRead(this.database, this.getFromCurrentRead(query.targetBlockId), query.limit, this.softLinkSource()) : null;
       const context = this.backlinkContextFromCurrentRead([query.targetBlockId], [], read?.rows);
       const target = context.blocksById.get(query.targetBlockId);
-      if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
+      if (!target) throw blockNotFound(query.targetBlockId);
       return resolveBacklinkRelation({ query, target, ...context, ...(read?.soft ? { soft: read.soft } : {}) });
     }).deferred();
   }
@@ -3869,10 +3869,10 @@ export class OutlinerStore {
     const nextAddress = normalizePageAddress(address);
     return this.database.transaction(() => {
       const block = this.getFromCurrentRead(blockId);
-      if (!block) throw new Error(`Block not found: ${blockId}`);
+      if (!block) throw blockNotFound(blockId);
       if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${blockId}`);
       if (block.revision !== expectedRevision) {
-        throw new Error(`Block changed since editing began: ${blockId}`);
+        throw new Refusal("stale-revision", `Block changed since editing began: ${blockId}`);
       }
       const pageTokens = parsePropertyRecords(block.text).filter(
         (token) => token.scope === "block" && token.key === "page",
@@ -3944,10 +3944,10 @@ export class OutlinerStore {
     const normalized = normalizePageAddress(address);
     return this.database.transaction(() => {
       const block = this.getFromCurrentRead(blockId);
-      if (!block) throw new Error(`Block not found: ${blockId}`);
+      if (!block) throw blockNotFound(blockId);
       if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${blockId}`);
       if (block.revision !== expectedRevision) {
-        throw new Error(`Block changed since editing began: ${blockId}`);
+        throw new Refusal("stale-revision", `Block changed since editing began: ${blockId}`);
       }
       const row = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
       if (!row || row.block_id !== blockId) {
@@ -4021,10 +4021,10 @@ export class OutlinerStore {
     const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
     return this.database.transaction(() => {
       const block = this.getFromCurrentRead(blockId);
-      if (!block) throw new Error(`Block not found: ${blockId}`);
+      if (!block) throw blockNotFound(blockId);
       if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${blockId}`);
       if (block.revision !== expectedRevision) {
-        throw new Error(`Block changed since editing began: ${blockId}`);
+        throw new Refusal("stale-revision", `Block changed since editing began: ${blockId}`);
       }
       const allocator = this.workIdAllocatorFromCurrentRead();
       if (!allocator) {
@@ -4068,7 +4068,7 @@ export class OutlinerStore {
 
   require(id: string): Block {
     const block = this.get(id);
-    if (!block) throw new Error(`Block not found: ${id}`);
+    if (!block) throw blockNotFound(id);
     return block;
   }
 
@@ -4324,7 +4324,7 @@ export class OutlinerStore {
       const now = Date.now();
       const active = (id: string) => { const block = this.getFromCurrentRead(id); return block && !block.effectiveDeletedRootId ? block : undefined; };
       const block = blockId === undefined ? undefined : active(blockId);
-      if (blockId !== undefined && !block) throw new Error(`Block not found in the active workspace: ${blockId}`);
+      if (blockId !== undefined && !block) throw blockNotFound(blockId, " in the active workspace");
       const physicalBlocks = block ? [] : [...this.loadGraph().byId.values()].filter(block => !block.effectiveDeletedRootId);
       const plans = viewIds.map(viewId => {
         const view = writeView(viewId, active(viewId), physicalBlocks);
@@ -4583,7 +4583,7 @@ export class OutlinerStore {
       const query = view.query ? normalizeBlockSearchQuery(view.query) : null;
       if (query?.rankViewId) throw new Error("Workspace snapshot query cannot use rankViewId");
       if (query?.subtreeRootId && !graph.byId.has(query.subtreeRootId)) {
-        throw new Error(`Block not found: ${query.subtreeRootId}`);
+        throw blockNotFound(query.subtreeRootId);
       }
       const matched = this.traverseLoadedGraph(graph, {
         display,
@@ -4699,7 +4699,7 @@ export class OutlinerStore {
   blockContext(blockId: string): SelectionContext {
     return this.database.transaction(() => {
       const selected = this.getFromCurrentRead(blockId);
-      if (!selected) throw new Error(`Block not found: ${blockId}`);
+      if (!selected) throw blockNotFound(blockId);
       return this.contextForBlockFromCurrentRead(selected);
     }).deferred();
   }
@@ -4899,7 +4899,7 @@ export class OutlinerStore {
 
   private setSelectionFromCurrentRead(blockId: string | null): SelectionContext {
     if (blockId !== null && !this.getFromCurrentRead(blockId)) {
-      throw new Error(`Block not found: ${blockId}`);
+      throw blockNotFound(blockId);
     }
     const currentId = this.selectionFromCurrentRead().selected?.id ?? null;
     if (blockId !== currentId) {

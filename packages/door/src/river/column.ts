@@ -859,14 +859,14 @@ export class RiverColumn extends ReaderPane {
   /** `column.note`: the whole note the column shows, copied as the reader copies it (note.copy). */
   copyNote(actor: Actor, desk: DeskApi, source = false) {
     const m = this.noteOf();
-    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
+    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`, "not-found");
     return this.surface.copyNote(this.host(desk), actor, source);
   }
 
   /** `column.block`: a code block, quote or callout of the note the column shows, copied as the reader copies one (block.copy). */
   copyBlock(n: number | undefined, actor: Actor, desk: DeskApi) {
     const m = this.noteOf();
-    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
+    if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`, "not-found");
     return this.surface.copyBlock(n, this.host(desk), actor);
   }
 

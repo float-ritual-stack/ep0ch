@@ -10,6 +10,7 @@
 // Quick capture (`capture.create`) asks for a capture, which only the Inbox rule answers: "the top of the Inbox" is
 // said once, here. A `near` the caller named itself (`nearOnly`: an agent, the CLI) that doesn't resolve is refused,
 // never quietly put in the Inbox; the door's reader names the note the person is in, and that falls back.
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { Block } from "./types";
 import { blockDisplayTitle } from "./references";
@@ -83,7 +84,7 @@ export const PLACEMENT_RULES: readonly PlacementRule[] = [byRoute, underNear, in
 /** Where a new note goes: the first rule that answers. */
 export function placeNewNote(intent: NewNoteIntent, reads: PlacementReads, rules: readonly PlacementRule[] = PLACEMENT_RULES): Placement {
   if (intent.kind === "note" && intent.nearOnly && intent.near && !underNear(intent, reads)) {
-    throw new Error(`No live note ${intent.near} to put the new note under: it's gone, in the trash, or a system note (without a near, the new note goes to the top of the Inbox)`);
+    throw new Refusal("not-found", `No live note ${intent.near} to put the new note under: it's gone, in the trash, or a system note (without a near, the new note goes to the top of the Inbox)`);
   }
   for (const rule of rules) {
     const placed = rule(intent, reads);

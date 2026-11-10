@@ -7439,7 +7439,7 @@ export class NoteSurface {
     try {
       return await board.changeStep(ref.block, ref.step, ref.revision, changeOf(choice), actor);
     } catch (e) {
-      if (!(e instanceof Refused) || ref.step.identity === "unique" || !/location changed/i.test(e.message)) throw e;
+      if (!(e instanceof Refused) || ref.step.identity === "unique" || e.kind !== "moved") throw e;
       const now = await board.request("checklist.query", { blockId: ref.block, query: { limit: 1000, nested: "include" } });
       const same = now.items.filter(i => i.evidence === ref.step.evidence);
       if (same.length !== 1) throw e;
@@ -7648,7 +7648,7 @@ export class NoteSurface {
    */
   async zoomInto(at: { line?: number; anchor?: string }, host: SurfaceHost): Promise<Zoom> {
     const m = this.msg;
-    if (!m || !isOutlineNote(m)) throw new ActionRefused("no note here to zoom into");
+    if (!m || !isOutlineNote(m)) throw new ActionRefused("no note here to zoom into", "not-found");
     if (m.partial) throw new ActionRefused("the note is still being read: zoom again in a moment");
     const holding = this.modes.holding();
     if (holding) throw new ActionRefused(`finish ${holding} first · ${this.holdingHint()}`);
@@ -8482,7 +8482,7 @@ export class NoteSurface {
    */
   passageFor(actor: Actor, quote?: string, near?: number): { target: PassageTarget; note: CommentPassage } {
     const m = this.msg;
-    if (!m || m.revision === undefined) throw new ActionRefused("no note here to act on a passage of");
+    if (!m || m.revision === undefined) throw new ActionRefused("no note here to act on a passage of", "not-found");
     if (m.resource?.uncommentable) throw new ActionRefused(m.resource.uncommentable);
     let from: number, to: number;
     if (quote !== undefined) {
@@ -8744,7 +8744,7 @@ export class NoteSurface {
 
   // ── what the action table reads and asks ─────────────────────────────────────
   requireNote(): Msg {
-    if (!this.msg) throw new ActionRefused("this reader shows no note; open one first");
+    if (!this.msg) throw new ActionRefused("this reader shows no note; open one first", "not-found");
     return this.msg;
   }
 

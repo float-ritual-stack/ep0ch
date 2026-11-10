@@ -1,3 +1,4 @@
+import { blockNotFound } from "@ep0ch/outline-core/refusal";
 import type { Decoration } from "./extension-rules";
 import {
   createContextResolver,
@@ -338,7 +339,7 @@ export function readResourceProjections(
 ): ResourceProjectionReadResult {
   const context = source.blockContext(request.blockId);
   const block = context.selected;
-  if (!block) throw new Error(`Block not found: ${request.blockId}`);
+  if (!block) throw blockNotFound(request.blockId);
   const result = (projections: ResourceProjection[]): ResourceProjectionReadResult =>
     ({ blockId: block.id, revision: block.revision, projections: projections.slice(0, MAX_PROJECTIONS) });
   if (block.text.length > MAX_TEXT_UNITS) return result([]);

@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { resourceAnnotationRepresentation } from "./annotation-representations";
 import { blockCommentSelection } from "./block-comments";
@@ -31,7 +32,7 @@ export function resourceCommentTarget(
   const hash = source.representation.contentHash;
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error("Resource comment requires a positive expectedRevision");
   if (hash !== null && resourceTextRevision(hash) !== expectedRevision) {
-    throw new Error("Comment source revision is stale; the Resource's text changed since it was read");
+    throw new Refusal("stale-revision", "Comment source revision is stale; the Resource's text changed since it was read");
   }
   return { representation: source.representation, ...blockCommentSelection(source.text, passage) };
 }

@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import type { NoteMoveIntent, NoteMoveReceipt } from "@ep0ch/outline-core/protocol";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
@@ -43,7 +44,7 @@ export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveInten
   return store.database.transaction((): Block & NoteMoveReceipt => {
     const block = store.resolveBlockRef(id);
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error("move needs expectedRevision from the note you read");
-    if (block.revision !== expectedRevision) throw new Error(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${expectedRevision}): outline_read it again, and move it only if it's still the note you mean`);
+    if (block.revision !== expectedRevision) throw new Refusal("stale-revision", `${label(block)} changed since you read it (revision ${block.revision} now, you have ${expectedRevision}): outline_read it again, and move it only if it's still the note you mean`);
     const named = (ref: string, role: string): Block => {
       const found = store.lookupBlockRef(ref);
       if (found.kind === "found") return found.block;

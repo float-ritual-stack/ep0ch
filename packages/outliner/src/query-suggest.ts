@@ -1,3 +1,4 @@
+import { refusalEnvelope } from "./refusal-envelope";
 import { randomUUID } from "node:crypto";
 import { clauseText, type Clause } from "@ep0ch/outline-core/query-clauses";
 import { queryDateWords } from "@ep0ch/outline-core/query-date-words";
@@ -20,7 +21,7 @@ export async function querySuggestReply(suggester: QuerySuggester, request: Extr
     if (request.zone !== undefined) new Intl.DateTimeFormat("en", { timeZone: request.zone });
     if (request.outcome && (!request.suggestion || !["accepted", "edited", "ignored"].includes(request.outcome))) throw new Error("query.suggest outcome needs its suggestion and accepted, edited or ignored");
     return { id: request.id, ok: true, result: await suggester.run(request), sequence: sequence() };
-  } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: sequence() }; }
+  } catch (error) { return refusalEnvelope(request.id, error, sequence()); }
 }
 
 /** Scored by scripts/evals/query-suggest.ts: uncertain clauses remain offers, with their runner-up. */

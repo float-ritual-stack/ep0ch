@@ -323,11 +323,11 @@ function fakeOutline() {
     update: async (id: string, text: string, base: number) => { const n = notes.get(id)!; if (n.revision !== base) throw new EditConflict(id, "revision is stale"); const now = msg(id, text, base + 1); notes.set(id, now); return now; },
     updateComment: async (id: string, revision: number, body: string) => {
       const t = [...threads.values()].flat().find(x => x.id === id);
-      if (t.revision !== revision) throw new Refused("revision is stale");
+      if (t.revision !== revision) throw new Refused("revision is stale", "stale-revision");
       Object.assign(t, { body, revision: revision + 1 });
       return { id, revision: revision + 1, body };
     },
-    comment: async (_r: string, id: string, revision: number) => { if (notes.get(id)!.revision !== revision) throw new Refused("revision is stale"); return { id: "c-new" }; },
+    comment: async (_r: string, id: string, revision: number) => { if (notes.get(id)!.revision !== revision) throw new Refused("revision is stale", "stale-revision"); return { id: "c-new" }; },
   };
   const host = (): SurfaceHost => ({ ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
   return {
@@ -550,7 +550,7 @@ describe("a comment on a passage", () => {
   async function refused() {
     const read = gated<Msg>();
     const env: any = {
-      board: { async comment() { throw new Refused("revision is stale"); } },
+      board: { async comment() { throw new Refused("revision is stale", "stale-revision"); } },
       fetch: () => read.answer, setMsg() {}, reloadComments: async () => [], external() {}, flash() {}, redraw() {},
       // ctrl+r's one route: the host's edit.reload, which reloads the session's draft.
       reload() { void s.reload(env); },

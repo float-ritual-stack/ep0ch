@@ -1,3 +1,4 @@
+import { refusalKindOf, type RefusalKind } from "@ep0ch/outline-core/refusal";
 import { publishLoki } from "./publish-loki";
 import { publishUpload } from "./publish-upload";
 import { shortcutResponse } from "./send-to-ep0ch-shortcut";
@@ -868,7 +869,7 @@ const client = createOutlinerClient(paths, { timeoutMs: requestTimeoutMs(process
 let request: RequestInput | null = null;
 let directResult: unknown;
 /** A refusal's runnable fix, said under the service's reason (`new --near` on a note that's gone). */
-let refusalFix: { when: RegExp; command: string } | null = null;
+let refusalFix: { kind: RefusalKind; command: string } | null = null;
 
 switch (command) {
   case "patch-demo": {
@@ -1124,7 +1125,7 @@ switch (command) {
     if (values.near) {
       const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
       const ws = process.env.EP0CH_WS ? `--ws ${quote(process.env.EP0CH_WS)} ` : "";
-      refusalFix = { when: /^No live note /, command: `outliner ${ws}new${values.text ? ` --text ${quote(values.text)}` : ""}` };
+      refusalFix = { kind: "not-found", command: `outliner ${ws}new${values.text ? ` --text ${quote(values.text)}` : ""}` };
     }
     break;
   }
@@ -1476,7 +1477,7 @@ let result: unknown;
 try {
   result = request ? await client.request(request) : directResult;
 } catch (error) {
-  if (refusalFix && error instanceof Error && refusalFix.when.test(error.message)) {
+  if (refusalFix && error instanceof Error && refusalKindOf(error) === refusalFix.kind) {
     console.error(`error: ${error.message}\n  to make it in the Inbox instead: ${refusalFix.command}`);
     process.exit(1);
   }

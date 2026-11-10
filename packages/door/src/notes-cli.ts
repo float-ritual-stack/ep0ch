@@ -34,7 +34,7 @@ import { readMissing } from "./outlines";
 import { sh } from "./setup/links";
 import { summarySegments } from "./props";
 import { projectionsPending, resourceChanged } from "./projection";
-import { previewTitle, SocketBoard, type IndexBlock, type WireParams } from "./socket";
+import { previewTitle, Refused, SocketBoard, type IndexBlock, type WireParams } from "./socket";
 import { matchWords } from "./board";
 import { matchFacts, PROPERTY_QUERY_SCOPES, type PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { readState } from "./state";
@@ -346,7 +346,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   const refused = (e: unknown) => {
     const why = (e as Error).message;
     if (/^Sort /.test(why)) return { error: `--sort ${s.sort}${s.direction ? ` --direction ${s.direction}` : ""}: ${why}` };
-    if (s.under && why.includes(`Block not found: ${s.under}`)) return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
+    if (s.under && e instanceof Refused && e.kind === "not-found") return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
     return { error: `the outline can't read that query: ${why}\n  the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"` };
   };
   if (s.view && s.propertyScope) return { error: `a view reads the chips its own [property-scope::] says; --property-scope goes with --query (ep0ch show ${s.view} --source shows the view's)` };

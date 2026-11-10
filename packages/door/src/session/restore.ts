@@ -1,3 +1,4 @@
+import { ActionRefused } from "@ep0ch/outline-core/action-line";
 // What a session's next daemon restores (PIE-418): after a handoff (`ep0ch session upgrade`) or a daemon that died,
 // the person lands where they were. Most of it was never only in the daemon's memory: each screen saves its layout as
 // it changes (desk.json and the rest), drafts are put aside as unsent on the way out, and the programs live in the
@@ -167,7 +168,7 @@ export async function reopen(steps: readonly Step[], via: (s: Step) => Pick<App[
         break;
       } catch (e) {
         const why = (e as Error).message;
-        if (tries < 50 && /shows no note|no note here|still reading/i.test(why)) { await Bun.sleep(100); continue; }
+        if (tries < 50 && e instanceof ActionRefused && e.kind === "not-found") { await Bun.sleep(100); continue; }
         out.errors.push(`${s.action} in ${s.tile}: ${why}`);   // the note moved on: its text stays put aside
         if (s.action === "tile.focus" || !where) break;
         failed.add(where);

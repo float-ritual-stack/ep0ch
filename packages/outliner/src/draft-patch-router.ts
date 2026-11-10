@@ -1,3 +1,5 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
 import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
@@ -171,7 +173,7 @@ function alongside(write: (() => void) | undefined): void {
 
 /** A refusal by the `edit` policy: nothing was written, and the agent hears why. */
 export class DraftPatchRefusal extends Error {
-  constructor(reason: string) {
+  constructor(reason: string, readonly kind: RefusalKind = "invalid") {
     super(`not applied: ${reason}`);
     this.name = "DraftPatchRefusal";
   }
@@ -349,7 +351,8 @@ export class DraftPatchRouter {
       const changed = revision !== edit.revision ? "changed since you read it" : `could not accept the patch: ${reason}`;
       return `${blockDisplayTitle(block)} ((${block.id})) ${changed} (revision ${edit.revision}, now ${revision})`;
     });
-    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`);
+    const stale = edits.some(edit => (this.holderOf(edit.blockId)?.revision ?? this.deps.store.requireActive(edit.blockId).revision) !== edit.revision);
+    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, stale ? "stale-revision" : "conflict");
   }
 
   /**
@@ -786,7 +789,7 @@ export class DraftPatchRouter {
         const failure = this.checkSaved(edit, options);
         if (failure) throw new Error(failure);
         const block = store.requireActive(edit.blockId);
-        if (!options.force && block.text !== checked.get(edit.blockId)) throw new Error("the note changed while the patch was being checked");
+        if (!options.force && block.text !== checked.get(edit.blockId)) throw new Refusal("stale-revision", "the note changed while the patch was being checked");
         const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
         if (!located.ok) throw new Error(located.reason);
         const rebased = this.rebasedFrom(edit, block.revision, options);
