@@ -8,7 +8,7 @@ export const FULL_START = "\x1b[777;";
 export const FULL_END = "\x1b[778m";
 export const FULL_MARKERS = /\x1b\[(?:777;[01];\d+|778)m/g;
 export interface StripTarget { id: string; n: number; vertical?: boolean }
-interface Full { id: number; source: string; reveal?: string; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab }
+interface Full { id: number; source: string; reveal?: string; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab; say?: boolean }
 const values = new Map<string, Full>();
 const byId = new Map<number, Full>();
 let nextId = 0;
@@ -25,10 +25,10 @@ function revealText(value: Full): string {
   return value.reveal = prefix.length < plain.length ? `${prefix}… (${plain.length - prefix.length} more characters)` : plain;
 }
 
-export function fullValue(sequence: string): { readonly text: string; selected: boolean; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab } | null {
+export function fullValue(sequence: string): { readonly text: string; selected: boolean; lit?: string; strip?: StripTarget; tab?: import("./surface/chip-rows").Tab; say?: boolean } | null {
   const match = /^\x1b\[777;([01]);(\d+)m$/.exec(sequence);
   const value = match && byId.get(Number(match[2]));
-  return value ? { get text() { return revealText(value); }, selected: match![1] === "1", lit: value.lit, strip: value.strip, tab: value.tab } : null;
+  return value ? { get text() { return revealText(value); }, selected: match![1] === "1", lit: value.lit, strip: value.strip, tab: value.tab, say: value.say } : null;
 }
 export function fullPlainText(text: string): string {
   return text.replace(/\x1b\[777;[01];(\d+)m[\s\S]*?\x1b\[778m/g,
@@ -37,11 +37,11 @@ export function fullPlainText(text: string): string {
       return value && value.lit === undefined ? fullPlainText(value.source) : drawn.replace(FULL_MARKERS, "");
     });
 }
-export function fullText(text: string, drawn: string, lit?: string, strip?: StripTarget, tab?: import("./surface/chip-rows").Tab): string {
-  const key = (lit === undefined ? text : `\0lit\0${lit}`) + (strip ? `\0${strip.id}:${strip.n}:${strip.vertical ? "v" : "h"}` : tab ? "\0tab" : "");
+export function fullText(text: string, drawn: string, lit?: string, strip?: StripTarget, tab?: import("./surface/chip-rows").Tab, say?: boolean): string {
+  const key = (lit === undefined ? text : `\0lit\0${lit}`) + (strip ? `\0${strip.id}:${strip.n}:${strip.vertical ? "v" : "h"}` : tab ? "\0tab" : "") + (say ? "\0say" : "");
   let value = values.get(key);
   if (!value) {
-    value = { id: ++nextId, source: text, lit, strip };
+    value = { id: ++nextId, source: text, lit, strip, ...(say ? { say } : {}) };
     values.set(key, value); byId.set(value.id, value);
     // Bound retained source references as screens and completions come and go.
     if (values.size > 1024) {
@@ -58,10 +58,16 @@ export function fullText(text: string, drawn: string, lit?: string, strip?: Stri
  * (not those a float covers) are restyled, wherever the drawing lands.
  */
 export const litText = (drawn: string, lit: string): string => fullText("", drawn, lit);
+/**
+ * `drawn` with `text` to read under the pointer, as `fullText`, and said whole on the rows above the status bar while the
+ * pointer rests on it and it is wider than its cells (PIE-1686): a sentence (a button's refusal) reads at once, where
+ * scrolling it through a button's few cells would not.
+ */
+export const sayText = (text: string, drawn: string): string => fullText(text, drawn, undefined, undefined, undefined, true);
 export const clipText = (text: string, cells: number): string => width(text) > cells ? text.includes(FULL_START) ? headOf(text, cells) : fullText(text, headOf(text, cells)) : text;
 export const selectFullText = (text: string) => text.replaceAll("\x1b[777;0;", "\x1b[777;1;");
 
-interface Cut { text: string; x: number; y: number; end: number; selected: boolean; lit?: string; strip?: StripTarget }
+interface Cut { text: string; x: number; y: number; end: number; selected: boolean; lit?: string; strip?: StripTarget; say?: boolean }
 
 /** Clipping travels with the drawn cells, so composing a float also composes its hit targets. */
 export class Overflow {
@@ -100,6 +106,13 @@ export class Overflow {
     this.pointer = { x, y }; this.chosen = null;
     return Overflow.keyOf(this.cutAt(x, y)) !== this.active;
   }
+  /** The value the last draw read in full when it is one to say whole (sayText) and its cells cut it, else null. */
+  saying(): string | null {
+    const cut = this.shown;
+    if (!cut?.say || cut.lit !== undefined) return null;
+    const text = printable(visible(cut.text), " ").replace(/\s+/g, " ").trim();
+    return width(text) > this.available(cut) ? text : null;
+  }
   /** Where the pointer rests and the value the last draw read in full, for `peek`. */
   describe(): { pointer: { x: number; y: number } | null; reading: { x: number; y: number } | null } {
     return { pointer: this.pointer ? { ...this.pointer } : null, reading: this.shown ? { x: this.shown.x, y: this.shown.y } : null };
@@ -131,7 +144,7 @@ export class Overflow {
       const full = fullValue(part);
       if (full || part === FULL_END) {
         if (open) open.end = x;
-        open = full ? { get text() { return full.text; }, selected: full.selected, lit: full.lit, strip: full.strip, x, y, end: x } : undefined;
+        open = full ? { get text() { return full.text; }, selected: full.selected, lit: full.lit, strip: full.strip, say: full.say, x, y, end: x } : undefined;
         if (open) this.cuts.push(open);
         return "";
       }

@@ -230,7 +230,7 @@ export const COMMENT_DEFS = {
     run: (_, { surface, host }) => surface.commentEscape(host),
   }),
   "comment.close": def({
-    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)",
+    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk). Refused when no comment is open",
     // Esc is meant (PIE-1667): in the thread list and the passage picker esc runs this; in a comment being written it runs
     // comment.escape, which closes through this once nothing is unsent. The rows say which.
     keys: [{ keys: "esc", does: "in the thread list or the passage picker" }, { via: "esc in a comment being written runs comment.escape, which closes it this way when nothing is unsent (esc twice puts typed text aside first)" }],
@@ -242,7 +242,8 @@ export const COMMENT_DEFS = {
     ],
     run({ discard }, { surface, host }) {
       const s = surface.session;
-      if (!s) return { closed: false };
+      // Nothing to close is said, as every action says it did nothing (PIE-1701): an agent that thought one was open learns it wasn't.
+      if (!s) throw new ActionRefused("no comment is open in this reader; C on selected words writes one, m lists the threads");
       if (s.dirty && !discard) throw new ActionRefused("the comment isn't sent; comment.send sends it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
       const r = s.writing?.close(true);
       surface.closeSession(); host.redraw();
