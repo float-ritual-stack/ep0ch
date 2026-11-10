@@ -767,7 +767,7 @@ async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, 
   if (!r) throw new ActionRefused(`no retired look keys on ${note}${line !== undefined ? ` line ${line}` : ""}: ${all.map(x => `${x.note.slice(0, 8)}${x.line !== undefined ? ` line=${x.line + 1}` : ""}`).join(", ")}`);
   const page = t.look.place.page, mig = heroFromRetired(r.keys);
   if (op === "move" && !mig.path) throw new ActionRefused(`${r.where} names no picture (no style.header.image): remove is its fix`);
-  if (op === "move" && !page) throw new ActionRefused(`${pane.source} shows no note to give the picture to`);
+  if (op === "move" && !page) throw new ActionRefused(`${pane.source} shows no note to give the picture to`, "not-found");
   if (op === "move") {
     const own = page && desk.ctx.board ? await refuseAsync(async () => (await board(desk).get(page.id))?.text ?? "") : "";
     const kept = withHeroLine(own, mig.path!, {}).left.find(l => l.startsWith("the picture "));

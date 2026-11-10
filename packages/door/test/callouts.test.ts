@@ -144,4 +144,42 @@ describe.skipIf(!outliner)("changing a callout, against a scratch outline", () =
     s.key({ kind: "char", ch: "z", ctrl: true } as Key, host);
     await waitFor(async () => (await textOf(note.id)).includes("- [ ] fix the step"), "then the step's");
   }, 20_000);
+
+  test("one journal per note: ctrl+z says what it took back and who made it, and note A's undo never touches note B", async () => {
+    const a = await create(["Bench A", "> [!note]- Keys", "> On the hook.", "- [ ] oil the vice"].join("\n"));
+    const b = await create(["Bench B", "> [!tip]- Tools", "> In the box."].join("\n"));
+    const { s, host, render } = reader();
+    s.show((await board.get(a.id))!, host);
+    await until(() => render().join("\n").includes("oil the vice"), "note A");
+    await waitFor(async () => { try { await s.act("task.status", { n: 1, to: "done" }, host, USER); return true; } catch { render(); return false; } }, "A's step");
+    // The agent's change to A between: the person's ctrl+z never takes it; it is labelled with its actor.
+    s.show((await board.get(a.id))!, host); render();
+    await s.act("callout.type", { n: 1, to: "tip" }, host, AGENT);
+    s.show((await board.get(a.id))!, host); render();
+    await s.act("callout.start", { n: 1, folded: false }, host, USER);
+    // Another note's change, made after all of A's: A's undo must pass it by.
+    const other = reader();
+    other.s.show((await board.get(b.id))!, other.host);
+    await until(() => other.render().join("\n").includes("Tools"), "note B");
+    await other.s.act("callout.start", { n: 1, folded: false }, other.host, USER);
+    const undo = async (match: string) => {
+      const before = flashes.length;
+      s.key({ kind: "char", ch: "z", ctrl: true } as Key, host);
+      await until(() => flashes.length > before, `a flash for ${match}`);
+      expect(flashes.at(-1)).toContain(match);
+    };
+    await undo("undid the callout change to > [!tip]+ Keys (made by you)");
+    expect(await textOf(a.id)).toContain("> [!tip]- Keys");   // only the person's start change went back; the agent's type stays
+    await undo('undid "oil the vice" done (made by you)');
+    expect(await textOf(a.id)).toContain("- [ ] oil the vice");
+    expect(await textOf(b.id)).toContain("> [!tip]+ Tools");   // B's change is untouched by A's undos
+    const before = flashes.length;
+    s.key({ kind: "char", ch: "z", ctrl: true } as Key, host);
+    await until(() => flashes.length > before, "nothing left");
+    expect(await textOf(b.id)).toContain("> [!tip]+ Tools");
+    // The agent undoes its own, and the line says whose it was.
+    await s.act("callout.undo", {}, host, AGENT);
+    expect(flashes.at(-1)).toContain("(made by agent:fixture-agent-538)");
+    expect(await textOf(a.id)).toContain("> [!note]- Keys");
+  }, 30_000);
 });

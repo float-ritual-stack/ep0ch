@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 // `outline_new` and `outline_archive` (PIE-679): an agent makes a place of its own for the fleeting things (a link spree, the
 // day's discourse, a burp) so they stop landing in the outlines that drive work. One shared tool path, like the
 // reads and writes: the stdio server and the HTTP gateway both answer these through `McpOutlines.admin`.
@@ -23,7 +24,7 @@ export interface McpOutlineAdmin {
   /** A request to this machine's outline host (`outlines.*`). */
   host<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
   /** A board on one of this machine's outlines (to seed it). */
-  open(name: string): Promise<WriteBoard | { error: string }>;
+  open(name: string): Promise<WriteBoard | { error: string; kind?: RefusalKind }>;
   env?: Record<string, string | undefined>;
   now?: () => number;
 }
@@ -52,7 +53,7 @@ export function similarNames(name: string, taken: readonly string[]): string[] {
   return taken.filter(t => t !== name && (t.includes(name) || name.includes(t) || distance(t, name) <= 2)).slice(0, 5);
 }
 
-type Outcome = { ok: Record<string, unknown> } | { error: string };
+type Outcome = { ok: Record<string, unknown> } | { error: string; kind?: RefusalKind };
 
 const NEW_RULE = "Look first: call list_outlines (and outline_find in the ones that might hold it), and make a new outline only when none fits what you want to keep. ";
 

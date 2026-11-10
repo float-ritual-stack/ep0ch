@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sources";
 import { recordPick } from "@ep0ch/outline-core/completion-source";
 import type { OutlinerStore } from "./store";
@@ -28,7 +29,7 @@ export class CompletionRequests {
       if (outcome !== "ignored" && request.source && (!request.row || typeof request.row.label !== "string" || typeof request.row.insertion !== "string")) throw new Error("completion.picked with a source needs row: { label, insertion }");
       // Only a choice counts for ranking; what became of an extension's rows is told to it, never kept here.
       if (outcome === "accepted") {
-        if (this.readOnly) throw new Error("This outline is read-only.");
+        if (this.readOnly) throw new Refusal("no-access", "This outline is read-only.");
         const next = recordPick(picks, request.key, request.insert!, new Date());
         this.store.writeMetadata(PICKS_METADATA_KEY, JSON.stringify(next));
         result = { picks: next[request.key] };

@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { DEFAULT_MACHINERY, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import {
   BlockQuerySyntaxError,
@@ -427,7 +428,7 @@ export function buildVirtualBranchCreationText(
 ): string {
   const createProperty = config.create;
   if (config.readOnly || !createProperty || !config.createParentId) {
-    throw new Error("Virtual branch is read-only");
+    throw new Refusal("no-access", "Virtual branch is read-only");
   }
 
   const matchingTokens = parsePropertyRecords(text).filter(

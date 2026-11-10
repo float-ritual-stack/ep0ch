@@ -1,3 +1,5 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
 import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
@@ -151,7 +153,7 @@ const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).
 const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.text] : []);
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
-type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean };
+type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean; kind?: RefusalKind };
 
 /** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
 class AlongsideFailure extends Error {
@@ -171,7 +173,7 @@ function alongside(write: (() => void) | undefined): void {
 
 /** A refusal by the `edit` policy: nothing was written, and the agent hears why. */
 export class DraftPatchRefusal extends Error {
-  constructor(reason: string) {
+  constructor(reason: string, readonly kind: RefusalKind = "invalid") {
     super(`not applied: ${reason}`);
     this.name = "DraftPatchRefusal";
   }
@@ -337,19 +339,20 @@ export class DraftPatchRouter {
     }
     const outcome = await this.run(edits, { mutation, mark, output, replyTo: input.replyTo, replyGroup: input.replyGroup, ...sent, ...(input.current === true ? { current: true } : {}) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
-    if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason);
+    if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason, outcome.kind);
     if (input.propose === "on-conflict") return this.propose(outcome.reason, edits, mutation, mark, sent);
-    throw this.patchRefusal(edits, outcome.reason);
+    throw this.patchRefusal(edits, outcome.reason, outcome.kind);
   }
 
-  private patchRefusal(edits: DraftPatchEdit[], reason: string): DraftPatchRefusal {
+  private patchRefusal(edits: DraftPatchEdit[], reason: string, kind?: RefusalKind): DraftPatchRefusal {
     const notes = edits.map(edit => {
       const block = this.deps.store.requireActive(edit.blockId);
       const revision = this.holderOf(edit.blockId)?.revision ?? block.revision;
       const changed = revision !== edit.revision ? "changed since you read it" : `could not accept the patch: ${reason}`;
       return `${blockDisplayTitle(block)} ((${block.id})) ${changed} (revision ${edit.revision}, now ${revision})`;
     });
-    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`);
+    const stale = edits.some(edit => (this.holderOf(edit.blockId)?.revision ?? this.deps.store.requireActive(edit.blockId).revision) !== edit.revision);
+    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, kind ?? (stale ? "stale-revision" : "conflict"));
   }
 
   /**
@@ -369,7 +372,7 @@ export class DraftPatchRouter {
     }
     const outcome = await this.run(edits, { mutation, ...sent, alongside: input.write, told: toldBy(input.group), made: madeBy(input.group) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
-    if (outcome.refused) throw new DraftPatchRefusal(outcome.reason);
+    if (outcome.refused) throw new DraftPatchRefusal(outcome.reason, outcome.kind);
     return this.propose(outcome.reason, edits, mutation, undefined, sent, input.group);
   }
 
@@ -786,7 +789,7 @@ export class DraftPatchRouter {
         const failure = this.checkSaved(edit, options);
         if (failure) throw new Error(failure);
         const block = store.requireActive(edit.blockId);
-        if (!options.force && block.text !== checked.get(edit.blockId)) throw new Error("the note changed while the patch was being checked");
+        if (!options.force && block.text !== checked.get(edit.blockId)) throw new Refusal("stale-revision", "the note changed while the patch was being checked");
         const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
         if (!located.ok) throw new Error(located.reason);
         const rebased = this.rebasedFrom(edit, block.revision, options);
@@ -799,7 +802,7 @@ export class DraftPatchRouter {
       if (isSqliteBusy(error)) throw error;
       // What a write group makes, moves or orders failing is its refusal, never a proposal of it.
       if (error instanceof AlongsideFailure) throw error.cause;
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      return { ok: false, reason: error instanceof Error ? error.message : String(error), ...(error instanceof Refusal ? { kind: error.kind } : {}) };
     }
     const order = new Map(edits.map((edit, index) => [edit.blockId, index]));
     applied.sort((left, right) => order.get(left.blockId)! - order.get(right.blockId)!);

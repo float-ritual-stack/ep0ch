@@ -1,5 +1,6 @@
+import { blockNotFound, type RefusalKind } from "@ep0ch/outline-core/refusal";
 import type { SoftLinkName } from "@ep0ch/outline-core/soft-links";
-import { grammarWarning } from "@ep0ch/outline-core/protocol";
+import { grammarWarning, type OutlinerRequestProblem } from "@ep0ch/outline-core/protocol";
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
@@ -83,7 +84,7 @@ export function hostSend(path: string, action: string, params: Record<string, un
     const timer = setTimeout(() => { s.destroy(); reject(new Error(`${action} timed out`)); }, timeoutMs);
     const lines = new JsonLines(r => {
       clearTimeout(timer); s.destroy();
-      r.ok ? resolve(r.result) : reject(new Refused(r.error ?? `${action} failed`));
+      r.ok ? resolve(r.result) : reject(new Refused(r.error ?? `${action} failed`, r.kind, r.problem));
     });
     s.on("data", d => lines.feed(d));
     s.on("error", e => { clearTimeout(timer); reject(e); });
@@ -360,14 +361,17 @@ export class Offline extends Error {
  * fails (a timeout, a dropped socket) leaves the outcome unknown, which is why comment writes carry a requestId.
  */
 export class Refused extends Error {
-  constructor(message: string) { super(message); this.name = "Refused"; }
+  /** Which kind of refusal, from the envelope's `kind` (outline-core refusal.ts): what a caller branches on, never the words. */
+  constructor(message: string, readonly kind: RefusalKind = "failed", readonly problem?: OutlinerRequestProblem) { super(message); this.name = "Refused"; }
 }
 
 /**
  * A conditional trash (`trash(id, actor, { revision, ifEmpty })`) refused because the block was written since it was
  * read: changed since that revision, or (`ifEmpty`) given text or a child.
  */
-export const changedSinceRead = (e: unknown): e is Refused => e instanceof Refused && /^Block (changed since it was read|is not empty)/.test(e.message);
+export const changedSinceRead = (e: unknown): e is Refused => e instanceof Refused && (e.kind === "stale-revision" || e.kind === "conflict");
+/** The refusal for a note that isn't there, as the host would send it. */
+const blockNotFoundRefused = (id: string): Refused => new Refused(blockNotFound(id).message, "not-found");
 
 /**
  * The door's actor id, per machine (`ep0ch-door:float-box`), so `activity.recent` tells a laptop edit
@@ -512,7 +516,7 @@ export class SocketBoard implements Board {
       this.waiting.delete(r.id); clearTimeout(w.timer);
       // Only an answer is the link back: an ssh forward's local end takes a connection with the far host asleep.
       if (r.ok) this.lostSaid = false;
-      r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed"));
+      r.ok ? w.resolve(r.result) : w.reject(new Refused(r.error ?? "request failed", r.kind, r.problem));
     });
     s.on("data", d => lines.feed(d));
     // Only this connection's requests fail with it: a close that comes after a new connection opened leaves its alone.
@@ -699,7 +703,7 @@ export class SocketBoard implements Board {
       const ctx = await this.request("blocks.context", { blockId: id });
       return ctx.selected ? toMsg(ctx.selected, ctx.children.map(c => c.id)) : null;
     } catch (e) {
-      if (e instanceof Refused && /not found/i.test(e.message)) return null;
+      if (e instanceof Refused && e.kind === "not-found") return null;
       throw e;
     }
   }
@@ -1218,7 +1222,7 @@ export class SocketBoard implements Board {
   /** Note `id` moved under `parentId` (null: the top level) at `position` among its children, first by default (`move`; PIE-883, PIE-943). */
   async move(id: string, parentId: string | null, actor: Actor = USER, position = 0): Promise<void> {
     const revision = (await this.get(id))?.revision;
-    if (revision === undefined) throw new Refused(`Block not found: ${id}`);
+    if (revision === undefined) throw blockNotFoundRefused(id);
     await this.request("move", { blockId: id, parentId, position, expectedRevision: revision, mutation: mutationFor(actor) });
   }
   /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */

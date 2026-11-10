@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 // Orienting from an outline (PIE-674): what an agent arriving cold needs from outline_query, outline_read and
 // outline_find is a few KB of titles, with a body paid for only when it is new. Four moves, none of them a second
 // reader (the service sorts, scopes and answers the query; this file shapes what comes back):
@@ -16,7 +17,7 @@ import { changesSummary, derivedKindOf, type ChangeCounts } from "@ep0ch/outline
 // ── sort ─────────────────────────────────────────────────────────────────────
 
 /** `updated desc`, `-created`, `due`: the service's sort (created, updated or a property key) and its direction. */
-export function parseSort(v: unknown): { field: string; direction: "asc" | "desc" } | { error: string } {
+export function parseSort(v: unknown): { field: string; direction: "asc" | "desc" } | { error: string; kind?: RefusalKind } {
   const bad = (got: unknown) => ({ error: `sort is a field and a direction, "updated desc": the field is created, updated or a property key, the direction asc (the default) or desc; got ${JSON.stringify(got)}.` });
   if (typeof v !== "string") return bad(v);
   const m = /^\s*(-?)([A-Za-z][A-Za-z0-9_.-]*)(?:[\s:]+(asc|desc))?\s*$/i.exec(v);
@@ -31,7 +32,7 @@ export const FIELD_NAMES = ["id", "uri", "title", "revision", "updated", "create
 const PROPERTY_KEY = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
 /** `fields`: "id,title,updated" or a list. id and revision are always in a row (the pair `seen` is made of). */
-export function parseFields(v: unknown): { fields: string[] } | { error: string } {
+export function parseFields(v: unknown): { fields: string[] } | { error: string; kind?: RefusalKind } {
   const names = typeof v === "string" ? v.split(",") : Array.isArray(v) && v.every(x => typeof x === "string") ? (v as string[]).flatMap(x => x.split(",")) : null;
   if (!names) return { error: `fields is the columns of a row, "id,title,updated,actor,path" (or a list), plus any property key; got ${JSON.stringify(v)}.` };
   const fields = [...new Set(names.map(n => n.trim()).filter(Boolean))];
@@ -110,7 +111,7 @@ export function foldIds(ids: readonly string[], index: readonly IndexBlock[]): F
 // ── dedupe ───────────────────────────────────────────────────────────────────
 
 /** `seen`: the "id@revision" pairs the caller already holds. A block at one of them comes back as a stub. */
-export function parseSeen(v: unknown): Set<string> | { error: string } {
+export function parseSeen(v: unknown): Set<string> | { error: string; kind?: RefusalKind } {
   const bad = { error: `seen is a list of "id@revision" strings, the blocks you already hold at that revision (the id and revision of an earlier answer, up to ${SEEN_MAX}); got ${JSON.stringify(v)?.slice(0, 120)}.` };
   if (!Array.isArray(v) || v.length > SEEN_MAX) return bad;
   const out = new Set<string>();

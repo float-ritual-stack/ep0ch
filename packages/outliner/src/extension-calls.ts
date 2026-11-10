@@ -1,3 +1,4 @@
+import { blockNotFound } from "@ep0ch/outline-core/refusal";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
 import { runbookPlan } from "./runbook";
 import { shellLines } from "@ep0ch/outline-core/shell-line";
@@ -1404,7 +1405,7 @@ export class ExtensionCalls {
     if (action.on === "passage") return this.actOnPassage(extension, action, request);
     if (request.passage) throw new Error(`${action.name} acts on ${action.on ?? "a block"}, not a passage`);
     const block = request.blockId ? this.store.get(request.blockId) : null;
-    if (request.blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
+    if (request.blockId && (!block || block.effectiveDeletedRootId)) throw blockNotFound(request.blockId);
     if (!block && (action.on ?? "block") !== "block" && action.on !== "bar" && action.on !== "outline" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
     if (!block && (action.on ?? "block") === "block") throw new Error(`${action.name} acts on a block: pass blockId`);
     const call = block ? this.callFor(block, action, request.line) : undefined;
@@ -1487,7 +1488,7 @@ export class ExtensionCalls {
       return { text: source.text, revision: resourceTextRevision(hash), block: null, resourceId };
     }
     const block = this.store.get(subject);
-    if (!block || block.effectiveDeletedRootId) throw new Error(`Block not found: ${subject}`);
+    if (!block || block.effectiveDeletedRootId) throw blockNotFound(subject);
     return { text: block.text, revision: block.revision, block, resourceId: null };
   }
 
@@ -1518,7 +1519,7 @@ export class ExtensionCalls {
     if (!request.passage) throw new Error(`${action.name} acts on a passage: pass passage { subject, revision, quote, start, end, prefix, suffix } (a selection builds one, or quote= with near=)`);
     const checked = this.checkPassage(request.passage);
     const host = checked.block ?? (request.blockId ? this.store.get(request.blockId) : null);
-    if (request.blockId && !checked.block && (!host || host.effectiveDeletedRootId)) throw new Error(`Block not found: ${request.blockId}`);
+    if (request.blockId && !checked.block && (!host || host.effectiveDeletedRootId)) throw blockNotFound(request.blockId);
     const args = this.resolveArgs(action, request.args, checked.block ?? host);
     const wrote: NonNullable<ExtensionCallFor["wrote"]> = [];
     const answer = await this.runtime.invokeLoaded(extension, "act", {
@@ -1655,7 +1656,7 @@ export class ExtensionCalls {
     const action = this.registry.action(extensionId, actionId);
     if (!action) throw new Error(`No action ${actionId} in ${extensionId} here (outliner ext ls lists them)`);
     const block = blockId ? this.store.get(blockId) : null;
-    if (blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${blockId}`);
+    if (blockId && (!block || block.effectiveDeletedRootId)) throw blockNotFound(blockId);
     // A form whose entries can't land is refused before it is asked (PIE-1442), with the words the fill would use.
     this.formOf(action, block);
     return { extension: extensionId, action: action.id, args: this.argsOn(action, block).map((arg) => {

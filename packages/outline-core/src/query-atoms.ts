@@ -61,6 +61,7 @@ export function withThisAs(expression: string, id: string): string {
 }
 
 export class QueryAtomError extends Error {
+  readonly kind = "invalid" as const;
   constructor(message: string) {
     super(message);
     this.name = "QueryAtomError";

@@ -24,6 +24,7 @@
 // service takes provenance only on an agent's writes). A selection is mapped to its source by publish-passage.ts,
 // found once or refused with why; a comment whose words can't be placed still lands, on the page's own note with the
 // words quoted, so what he wrote is never lost.
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { readFileSync } from "node:fs";
 import { annotationKind, annotationTone, isTldr } from "@ep0ch/outline-core/annotation-marks";
 import { parseActor } from "@ep0ch/outline-core/attribution";
@@ -373,7 +374,7 @@ export class PageMarginalia {
     } catch (error) {
       // The step moved on since the page drew it: the page reads the note again and the reader chooses again.
       const why = error instanceof Error ? error.message : String(error);
-      return [409, { ok: false, error: /changed|missing|location/i.test(why) ? "the step changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
+      return [409, { ok: false, error: ["stale-revision", "moved", "not-found"].includes(refusalKindOf(error)) ? "the step changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
     }
   }
 
@@ -436,7 +437,7 @@ export class PageMarginalia {
       return [200, { ok: true, block, status, changed: true, said: `marked ${statusWord(status)} (${key}::${value})` }];
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
-      return [409, { ok: false, error: /revision|changed/i.test(why) ? "the row's note changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
+      return [409, { ok: false, error: refusalKindOf(error) === "stale-revision" ? "the row's note changed since this page drew it: it's drawn again now, choose again" : why, stale: true }];
     }
   }
 
@@ -758,7 +759,7 @@ export class PageMarginalia {
           const edited = await this.host.request<AnnotationRecord>({ action: "annotations.update", input: { annotationId: mark, expectedRevision: revision, body }, mutation: { author: "user" } });
           return said(200, { ok: true, mark, revision: edited.block.revision, said: "edited" });
         } catch (error) {
-          if (/revision is stale/i.test((error as Error).message)) return refused(409, "it changed since you opened the edit: your words are still in the box · Cancel, then Edit again to start from it as it is now");
+          if (refusalKindOf(error) === "stale-revision") return refused(409, "it changed since you opened the edit: your words are still in the box · Cancel, then Edit again to start from it as it is now");
           throw error;
         }
       }
@@ -848,7 +849,7 @@ export class PageMarginalia {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.host.log(`publish: page write ${action}: ${message}`);
-      return refused(/stale|revision|changed/i.test(message) ? 409 : 422, message);
+      return refused(refusalKindOf(error) === "stale-revision" ? 409 : 422, message);
     }
   }
 

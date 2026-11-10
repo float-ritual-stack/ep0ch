@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { subject } from "./board";
 import { boardFor, type Out } from "./notes-cli";
 import type { Actor } from "./socket";
-import { USER } from "./socket";
+import { Refused, USER } from "./socket";
 
 export const NEW_USAGE = `  ep0ch new <text>… [--near <id>] [--as <agent id>] [--json] [--ws <name>] [--machine <ssh-name>]
                                    a new note, its text the words given (a first line of only [page::x] is
@@ -47,8 +47,8 @@ export async function newCommand(argsIn: string[], io: Out = { out: console.log,
   } catch (e) {
     const why = (e as Error).message;
     const where = [values.ws ? `--ws ${quote(values.ws)}` : "", values.machine ? `--machine ${quote(values.machine)}` : "", values.as ? `--as ${quote(values.as)}` : ""].filter(Boolean).join(" ");
-    const fix = /^No live note /.test(why) ? `\n  in the Inbox instead: ep0ch new ${quote(text)}${where ? ` ${where}` : ""}` : "";
-    io.err(`ep0ch: ${why}${fix}`);
+    const fix = e instanceof Refused && e.kind === "not-found" ? `\n  in the Inbox instead: ep0ch new ${quote(text)}${where ? ` ${where}` : ""}` : "";
+    io.err(`ep0ch: ${why}${fix}${e instanceof Refused ? `\nkind: ${e.kind}` : ""}`);
     return 1;
   } finally { board.close(); }
 }

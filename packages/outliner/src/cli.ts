@@ -1,3 +1,4 @@
+import { errorLines, refusalKindOf, type RefusalKind } from "@ep0ch/outline-core/refusal";
 import { publishLoki } from "./publish-loki";
 import { publishUpload } from "./publish-upload";
 import { shortcutResponse } from "./send-to-ep0ch-shortcut";
@@ -155,7 +156,7 @@ if (process.argv[2] === "import") {
     }
     process.exit(0);
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     process.exit(1);
   }
 }
@@ -176,7 +177,7 @@ if (process.argv[2] === "bound-folder") {
     console.log(JSON.stringify(bound ? { bound: true, ...bound } : { bound: false, folder }));
     process.exit(0);
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     process.exit(1);
   }
 }
@@ -205,7 +206,7 @@ if (process.argv[2] === "door-open") {
       strict: true,
     });
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     process.exit(2);
   }
   const { values, positionals } = parsed;
@@ -231,7 +232,7 @@ if (process.argv[2] === "door-open") {
     if (opened.tileNotFound) console.error(`door-open: no tile ${opened.tileNotFound} in the door; opened by the screen's open rule. \`ep0ch act layout.get\` lists the tiles.`);
     process.exit(0);
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     process.exit(error instanceof DoorUnreachable ? 3 : 1);
   }
 }
@@ -450,7 +451,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     await publisher.stop();
     return 0;
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     return 1;
   }
 }
@@ -528,7 +529,7 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
     }
     return 0;
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     return 1;
   }
 }
@@ -753,7 +754,7 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
         throw new Error(`work expects one of:\n${WORK_USAGE}`);
     }
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     process.exit(1);
   }
 }
@@ -882,7 +883,7 @@ async function runAgentCommand(args: string[]): Promise<number> {
     console.log(JSON.stringify(result));
     return 0;
   } catch (error) {
-    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(errorLines(error));
     return 1;
   }
 }
@@ -892,7 +893,7 @@ const client = createOutlinerClient(paths, { timeoutMs: requestTimeoutMs(process
 let request: RequestInput | null = null;
 let directResult: unknown;
 /** A refusal's runnable fix, said under the service's reason (`new --near` on a note that's gone). */
-let refusalFix: { when: RegExp; command: string } | null = null;
+let refusalFix: { kind: RefusalKind; command: string } | null = null;
 
 switch (command) {
   case "patch-demo": {
@@ -1148,7 +1149,7 @@ switch (command) {
     if (values.near) {
       const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
       const ws = process.env.EP0CH_WS ? `--ws ${quote(process.env.EP0CH_WS)} ` : "";
-      refusalFix = { when: /^No live note /, command: `outliner ${ws}new${values.text ? ` --text ${quote(values.text)}` : ""}` };
+      refusalFix = { kind: "not-found", command: `outliner ${ws}new${values.text ? ` --text ${quote(values.text)}` : ""}` };
     }
     break;
   }
@@ -1500,13 +1501,18 @@ let result: unknown;
 try {
   result = request ? await client.request(request) : directResult;
 } catch (error) {
-  if (refusalFix && error instanceof Error && refusalFix.when.test(error.message)) {
-    console.error(`error: ${error.message}\n  to make it in the Inbox instead: ${refusalFix.command}`);
+  if (refusalFix && error instanceof Error && refusalKindOf(error) === refusalFix.kind) {
+    console.error(`error: ${error.message}\n  to make it in the Inbox instead: ${refusalFix.command}\nkind: ${refusalKindOf(error)}`);
     process.exit(1);
   }
   // Query syntax errors carry a position; print it as data instead of a stack trace.
   if (error instanceof OutlinerRequestError && error.problem) {
-    console.error(JSON.stringify({ error: error.message, problem: error.problem }, null, 2));
+    console.error(JSON.stringify({ error: error.message, kind: error.kind, problem: error.problem }, null, 2));
+    process.exit(1);
+  }
+  // The service refused: its words, then its kind on a line of its own (outline-core refusal.ts), not a stack trace.
+  if (error instanceof OutlinerRequestError) {
+    console.error(errorLines(error));
     process.exit(1);
   }
   throw error;

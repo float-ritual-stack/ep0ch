@@ -1,3 +1,4 @@
+import type { RefusalKind } from "@ep0ch/outline-core/refusal";
 import { meetRules } from "./client-code";
 import { createConnection, type Socket } from "node:net";
 import { requireCompatible } from "./service-compatibility";
@@ -204,12 +205,12 @@ export class OutlinerTimeoutError extends Error {
  * the host's time budget ("still counting"). A reader says so and asks again; it never gives up on the host.
  */
 export function hostBusy(error: unknown): boolean {
-  return error instanceof OutlinerTimeoutError || (error instanceof OutlinerRequestError && error.problem?.code === "still-counting");
+  return error instanceof OutlinerTimeoutError || (error instanceof OutlinerRequestError && error.kind === "busy");
 }
 
 /** A service-rejected request; `problem` carries structured detail when the service provides it. */
 export class OutlinerRequestError extends Error {
-  constructor(message: string, readonly problem?: OutlinerRequestProblem) {
+  constructor(message: string, readonly problem?: OutlinerRequestProblem, readonly kind: RefusalKind = "failed") {
     super(message);
     this.name = "OutlinerRequestError";
   }
@@ -284,7 +285,7 @@ export class OutlinerClient {
       socket.destroy();
       try {
         const response = JSON.parse(buffer.slice(0, newline)) as OutlinerResponse;
-        if (!response.ok) responseReceived.reject(new OutlinerRequestError(response.error, response.problem));
+        if (!response.ok) responseReceived.reject(new OutlinerRequestError(response.error, response.problem, response.kind));
         else responseReceived.resolve(response.result as T);
       } catch (error) {
         responseReceived.reject(error);

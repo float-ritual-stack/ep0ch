@@ -274,7 +274,7 @@ export const ELEMENT_OPEN_DEFS = {
     args: {},
     async run(_, { surface, host, standing }, actor) {
       const m = surface.msg;
-      if (!m) throw new ActionRefused("no note here to show the links of");
+      if (!m) throw new ActionRefused("no note here to show the links of", "not-found");
       if (!isOutlineNote(m)) throw new ActionRefused("a resource or a file isn't a block: it has no links here");
       if (!host.links) throw new ActionRefused("this screen has no room for a links tile · write ::links in a note to list them inline");
       return host.links(actor, standing);

@@ -1,3 +1,4 @@
+import type { RefusalKind } from "./refusal";
 import { lineWords, splitWords } from "./component-block";
 import { interpolate, interpolationSpans, type InterpolationSpan } from "./interpolation";
 
@@ -8,7 +9,7 @@ export interface ActRequest { action: string; tile?: string; args?: Record<strin
 
 /** An action refused before anything happened, with the reason in plain words. */
 export class ActionRefused extends Error {
-  constructor(message: string) { super(message); this.name = "ActionRefused"; }
+  constructor(message: string, readonly kind: RefusalKind = "invalid") { super(message); this.name = "ActionRefused"; }
 }
 
 /**

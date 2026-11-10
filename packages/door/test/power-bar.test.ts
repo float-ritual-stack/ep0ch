@@ -135,7 +135,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.query).toBe('(text~"Runner beans")');
     expect(frame().some(line => line.includes("Runner beans"))).toBe(true);
     await app.dispatch.press("bar.close");
-    const entry = { id: "demo", name: "Demo", state: "active", actions: [] } as any;
+    const entry = { id: "demo", name: "Demo", state: "active", serving: true, actions: [] } as any;
     const action = { id: "run", name: "ext.demo.run", label: "Run demo", args: [{ name: "query", type: "query" }] } as any;
     let ran: Record<string, string> | null = null;
     await askingFirst(app as any, entry, action, undefined, {}, USER, async args => { ran = args; }, false, true);
@@ -305,6 +305,30 @@ describe.skipIf(!outliner)("the power bar", () => {
       key({ kind: "char", ch: "z", ctrl: true });
       key({ kind: "alt", ch: "z" });
       await until(() => peek().bar.query === "", "the line cleared by alt+z");
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was;
+      reloadKeymap();
+    }
+  });
+
+  test("the old erase-word key in the bar does nothing and says where the action went, as a draft does (Nov 3 review card 1)", () => {
+    const { mkdtempSync, writeFileSync } = require("node:fs");
+    const { tmpdir } = require("node:os");
+    const { reloadKeymap } = require("../src/surface/keymap");
+    const was = process.env.EP0CH_KEYMAP, file = join(mkdtempSync(join(tmpdir(), "bar-keymap-")), "keybindings.json");
+    process.env.EP0CH_KEYMAP = file;
+    writeFileSync(file, JSON.stringify({ "draft.erase to=word-back": ["alt+e"] }));
+    reloadKeymap();
+    try {
+      key(ctrlK); type("/garden path now");
+      key({ kind: "char", ch: "w", ctrl: true });
+      expect(peek().bar.query).toBe("garden path now");
+      const said = frame().join("\n");
+      expect(said).toContain("^W no longer runs draft.erase to=word-back");
+      expect(said).toContain("alt+e");
+      // The next key clears it.
+      type("!");
+      expect(frame().join("\n")).not.toContain("no longer runs");
     } finally {
       if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was;
       reloadKeymap();
@@ -693,7 +717,7 @@ describe.skipIf(!outliner)("the power bar", () => {
   });
 
   test("a script's form asks every slot it declares, the needed first and the optional ones left out when empty; a query slot completes (PIE-1473)", async () => {
-    const entry = { id: "demo", name: "Demo", state: "active", actions: [] } as any;
+    const entry = { id: "demo", name: "Demo", state: "active", serving: true, actions: [] } as any;
     const action = { id: "run", name: "ext.demo.run", label: "Run demo", args: [
       { name: "query", type: "query", description: "what to draw" },
       { name: "title", type: "text", required: true },

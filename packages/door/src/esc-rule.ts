@@ -65,3 +65,23 @@ export function escPress<N extends string>(order: readonly N[], steps: EscSteps<
   for (const n of order) { const r = steps[n](); if (r && r.run() !== false) return true; }
   return false;
 }
+
+// ── a rung whose key isn't Esc ──────────────────────────────────────────────────────────────────────────────────
+// A draft's rungs (popup, snippet stops, selection, the put-aside steps) belong to its `edit.close` row, so when the person's
+// keymap moves that row off Esc, Esc is no longer theirs. The rung's word carries the key (`escVia`), through every layer
+// that passes the word on unread, to the hint row, which names it (`escSays`). A click on the hint (`esc.close`, `asHintEsc`)
+// is the key itself: the draft reads that Esc as its bound key.
+const VIA = "␟";
+/** `word` as closed by `key`: Esc's words stay plain. */
+export const escVia = (key: string | null | undefined, word: string): string => (!key || key === "esc" ? word : `${key}${VIA}${word}`);
+/** A rung's word split into the key that closes it (Esc unless it says another) and what it closes. */
+export function escWordOf(closes: string): { key: string; word: string } {
+  const i = closes.indexOf(VIA);
+  return i < 0 ? { key: "esc", word: closes } : { key: closes.slice(0, i), word: closes.slice(i + 1) };
+}
+/** The hint's words for a rung: `esc: the popup`, `alt+q: the edit, put aside`. */
+export const escSays = (closes: string): string => { const { key, word } = escWordOf(closes); return `${key}: ${word}`; };
+let hinted = 0;
+/** Whether the Esc being handled is the hint's click (or `act esc.close`), not the key: a draft reads it as its own close key. */
+export const escByHint = () => hinted > 0;
+export function asHintEsc<T>(f: () => T): T { hinted++; try { return f(); } finally { hinted--; } }

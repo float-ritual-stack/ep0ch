@@ -9,6 +9,7 @@
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { runExit } from "./cli-words";
 import { traceAsk, traceReport, traceText } from "./trace";
 import { referenceConflict, type ToolArgsSpec } from "@ep0ch/outline-core/tool-args";
@@ -176,7 +177,7 @@ export async function startControl(d: ControlDeps, at = servingSocket()): Promis
         sock.on("close", off); sock.on("error", off);
         return;
       }
-      handle(req, d).then(result => reply({ ok: true, result }), e => reply({ ok: false, error: String(e.message ?? e) }));
+      handle(req, d).then(result => reply({ ok: true, result }), e => reply({ ok: false, error: String(e.message ?? e), kind: refusalKindOf(e) }));
     }, () => reply({ ok: false, error: "bad json" }));
     sock.on("data", (chunk: Buffer) => {
       if (lines.feed(chunk, LINE_LIMIT)) return;
@@ -343,8 +344,8 @@ export async function controlClient(args: string[], answered?: { ran?: true }): 
     return cmd === "open" && wantsJson ? 0 : 1;
   }
   if (!r.ok) {
-    if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: r.error }));
-    else console.error(r.error);
+    if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: r.error, ...(r.kind ? { kind: r.kind } : {}) }));
+    else console.error(r.kind ? `${r.error}\nkind: ${r.kind}` : r.error);
     return cmd === "open" && wantsJson ? 0 : 1;
   }
   if (cmd === "trace") console.log(wantsJson ? JSON.stringify(r.result) : traceText(r.result).trimEnd());

@@ -125,7 +125,7 @@ export function gate({ tool, level, where, proposeOnly, top }: GateAsk): GateAns
 }
 
 /** A gate refusal as an error, named as the agent tools name theirs (a refusal, never retried). */
-export const gateRefusal = (why: string): Error => Object.assign(new Error(why), { name: "WorkToolRefusal" });
+export const gateRefusal = (why: string): Error => Object.assign(new Error(why), { name: "WorkToolRefusal", kind: "no-access" as const });
 
 /** What a level's writes become, in a listing's word (`applied`, `proposals`), or null when it takes none: the gate's answer for a patch. */
 export function writesAt(level: McpAccessLevel): "applied" | "proposals" | null {

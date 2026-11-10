@@ -1,5 +1,5 @@
 import { DoorEsc, type DoorEscHost } from "./esc-door";
-import type { EscRead } from "./esc-rule";
+import { escSays, type EscRead } from "./esc-rule";
 import type { Trail } from "./trail";
 import { OpenEvents } from "./open-events";
 import { TRAIL_QUERIES } from "./trail-actions";
@@ -1130,7 +1130,7 @@ export class App implements Ctx {
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
-      escCloses: this.esc.next(),
+      escCloses: ((c) => (c && escSays(c)))(this.esc.next()),
       ...((a => (a ? { armed: { edit: a.what, ms: a.ms } } : {}))(this.armed())), state: s?.describe?.({ full: !!o.full }) ?? null };
   }
 

@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { normalizePropertyFilter } from "./block-query";
 import { createHash, randomBytes } from "node:crypto";
 import { fragmentAnchors } from "./fragments";
@@ -154,7 +155,7 @@ export function updateChecklistText(text: string, revision: number, input: Check
     if (!Number.isSafeInteger(target.start) || target.start < 0) throw new Error("Checklist target.start must be a non-negative integer");
     if (target.expectedRevision === undefined) throw new Error("Checklist target.expectedRevision is required to address an unassigned item; use the revision returned by checklist.query");
     if (target.expectedRevision !== revision) {
-      throw new Error("Checklist location changed; query the current note before addressing an unassigned item");
+      throw new Refusal("moved", "Checklist location changed; query the current note before addressing an unassigned item");
     }
     item = items.find(candidate => candidate.span.start === target.start);
   }

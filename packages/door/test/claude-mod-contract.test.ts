@@ -454,6 +454,27 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(view.why).not.toStartWith("ep0ch: ");
   });
 
+  test("a refused command names its kind on a line of its own, which the mod reads instead of the words", async () => {
+    const { failureKindOf, failureReasonOf } = await mod("mention-message.ts");
+    const { isProtectedDestination } = await mod("references.ts");
+    const missing = "00000000-0000-4000-8000-000000000000";
+    // The Outliner's CLI (what the mod runs for `link`, mentions and reads): a note that isn't there.
+    const p = Bun.spawn(["bun", OUTLINER_CLI, "delete", "--id", missing, "--expected", "1"], {
+      cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3", OUTLINER_WORKSPACE_ROOT: scratch.workspace },
+    });
+    const [stderr, code] = await Promise.all([new Response(p.stderr).text(), p.exited]);
+    expect(code).not.toBe(0);
+    expect(failureKindOf(stderr)).toBe("not-found");
+    expect(failureReasonOf(stderr)).toContain(missing);
+    // `ep0ch new` near a note that isn't live: its reason and its kind.
+    const made = await run(["ep0ch", "new", "Bean row", "--near", missing], { env });
+    expect(made.exitCode).not.toBe(0);
+    expect(failureKindOf(made.stderr)).toBe("not-found");
+    // The mod's protected-destination check follows the kind, so a reworded sentence changes nothing.
+    expect(isProtectedDestination("error: the Detail beside you is mid-edit, reworded\nkind: conflict")).toBe(true);
+    expect(isProtectedDestination("error: Destination is protected: active edit")).toBe(false);
+  });
+
   test("act and peek with no door: refused plainly, with the reason the mod's tools pass on", async () => {
     const { failureReasonOf } = await mod("mention-message.ts");
     for (const argv of [["ep0ch", "peek"], ["ep0ch", "act", "layout.get", "--as", "contract-test"]]) {

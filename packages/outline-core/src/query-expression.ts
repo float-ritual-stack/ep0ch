@@ -25,6 +25,7 @@ export function normalizePropertyQueryScope(value: unknown): PropertyQueryScope 
 
 
 export class BlockQuerySyntaxError extends Error {
+  readonly kind = "invalid" as const;
   /** Request field whose text was parsed, set where a request field is parsed; `index` is within it. */
   field?: string;
 
@@ -367,7 +368,9 @@ const COMPARISONS = new Set<QueryComparison>(["<", "<=", ">", ">="]);
 const DAY_MS = 86_400_000;
 
 export class BlockQueryError extends Error {
-  constructor(message: string) {
+  readonly kind = "invalid" as const;
+  /** The request field that was wrong when the refusal is about one (`sort`, `direction`); rides on `problem.field`. */
+  constructor(message: string, readonly field?: string) {
     super(message);
     this.name = "BlockQueryError";
   }

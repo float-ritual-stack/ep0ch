@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { parseActor } from "@ep0ch/outline-core/attribution";
 import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-core/site-values";
 /**
@@ -1785,7 +1786,7 @@ export async function trashBlock(client: AgentToolsClient, input: { ref: string;
   if (block.effectiveDeletedRootId) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, said: `${label(block)} is already in Trash` };
   if (isSystemNote(block)) throw new WorkToolRefusal(`${label(block)} is ${systemNoteKind(block)}, which the service keeps and finds by its properties: it can't be trashed (move it instead)`);
   if (revision !== block.revision) {
-    throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${revision}): outline_read it again, and trash it only if it's still the note you mean`);
+    throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${revision}): outline_read it again, and trash it only if it's still the note you mean`, "stale-revision");
   }
   // Trashing a parent trashes what is under it: the service needs exactly one Inbox, Trash and Bookmarks note, wherever they are.
   for (const view of ["inbox", "trash", "bookmarks"]) {
@@ -1797,8 +1798,8 @@ export async function trashBlock(client: AgentToolsClient, input: { ref: string;
   try {
     await client.request<Block>({ action: "delete", blockId: block.id, expectedRevision: revision, mutation: mutationOf(actor) });
   } catch (e) {
-    if (e instanceof Error && /changed since it was read/.test(e.message)) {
-      throw new WorkToolRefusal(`${label(block)} changed while you were trashing it: outline_read it again, and trash it only if it's still the note you mean`);
+    if (refusalKindOf(e) === "stale-revision") {
+      throw new WorkToolRefusal(`${label(block)} changed while you were trashing it: outline_read it again, and trash it only if it's still the note you mean`, "stale-revision");
     }
     throw e;
   }

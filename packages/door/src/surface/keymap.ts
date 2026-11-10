@@ -245,7 +245,10 @@ export function keysNow(action: string, keys: Keys | undefined): Keys | undefine
     return left.length ? [{ keys: left.map(keyCaption).join(" "), does: r.does }] : [];
   });
   const yours: KeyRow[] = mine.flatMap(e => e.keys.filter(k => e !== whole || !declared.has(k)).map(k => ({ keys: keyCaption(k), does: Object.keys(e.args).length ? `yours: ${shownLine("", e.args).trim()}` : "yours (keybindings.json)" })));
-  const out = [...yours, ...kept];
+  // Read again (a dispatcher over a dispatcher hands keys it already read back), a row of yours is listed once: the keys it added before are kept rows now.
+  const said = (r: KeyRow) => ("keys" in r ? `${r.keys}\0${r.does}` : "");
+  const have = new Set(kept.map(said));
+  const out = [...yours.filter(r => !have.has(said(r))), ...kept];
   return out.length ? out : undefined;
 }
 /**

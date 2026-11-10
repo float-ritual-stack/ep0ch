@@ -28,6 +28,8 @@
 //
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
 // `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (their `watch` row in actions.ts).
+import { refusalEnvelope } from "./request-envelope";
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { QUERIES_CHANGED, WATCH_LIMITS, type OutlinerResponse, type QueryChange } from "@ep0ch/outline-core/protocol";
 import { stableJson } from "@ep0ch/outline-core/stable-json";
 
@@ -183,10 +185,10 @@ export class QueryWatches {
   ask(connection: WatchConnection, request: Request): OutlinerResponse {
     const key = request.watch;
     if (typeof key !== "string" || !key || key.length > 200) {
-      return { id: request.id, ok: false, error: "watch is a key of 1 to 200 characters the client chooses, like \"links:3f2a\"", sequence: this.options.sequence() };
+      return refusalEnvelope(request.id, new Refusal("invalid", "watch is a key of 1 to 200 characters the client chooses, like \"links:3f2a\""), this.options.sequence());
     }
     if (request.generation !== undefined && (!Number.isSafeInteger(request.generation) || (request.generation as number) < 0)) {
-      return { id: request.id, ok: false, error: "generation is the number a queries.changed event gave for this watch", sequence: this.options.sequence() };
+      return refusalEnvelope(request.id, new Refusal("invalid", "generation is the number a queries.changed event gave for this watch"), this.options.sequence());
     }
     const { id: _id, watch: _watch, generation: _generation, ...question } = request;
     const signature = stableJson(question);
@@ -333,7 +335,7 @@ export class QueryWatches {
         if (!current(slot, watch)) continue;
         const started = performance.now();
         try { response = this.options.answer({ ...watch.request, id: "watch" } as Request); }
-        catch (error) { response = { id: "watch", ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.options.sequence() }; }
+        catch (error) { response = refusalEnvelope("watch", error, this.options.sequence()); }
         this.options.timed?.(performance.now() - started, 1);
         answered.set(watch.signature, response);
       }

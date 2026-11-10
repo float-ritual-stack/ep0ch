@@ -93,8 +93,8 @@ export function figureQuestion(p: Props, group?: string): FigureQuestion | { err
 }
 
 /** A sort the service refused, said as the figure's own line (`sort:` or `direction:`). */
-export function sortProblem(message: string, sort: string, direction: string): string {
-  return /^Sort direction /.test(message) ? `direction: ${direction} · ${message}` : /^Sort /.test(message) ? `sort: ${sort} · ${message}` : message;
+export function sortProblem(message: string, sort: string, direction: string, field?: string): string {
+  return field === "direction" ? `direction: ${direction} · ${message}` : field === "sort" ? `sort: ${sort} · ${message}` : message;
 }
 
 /** A figure that asks per item (`stat` with an item's own `query:` or `view:`). */

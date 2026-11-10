@@ -1138,7 +1138,7 @@ export class Lanes implements SourceModel {
     let made: { workId: string; workQueueId: string; block: Msg };
     try { made = await board.createRoadmapItem(input, actor); }
     catch (e) {
-      if (e instanceof Refused) throw new ActionRefused(e.message.startsWith("not filed:") && !isPerson(actor) ? `${e.message}\nIn the door: card.create … new=true files it anyway; card.attach twin=<Work ID> text=… adds it there.` : e.message);
+      if (e instanceof Refused) throw new ActionRefused(e.kind === "conflict" && !isPerson(actor) ? `${e.message}\nIn the door: card.create … new=true files it anyway; card.attach twin=<Work ID> text=… adds it there.` : e.message, e.kind);
       const found = await this.findItem(input.project, input.title, since).catch(() => null);
       if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
       made = { workId: prop(found, "work-id") ?? "", workQueueId: found.parentId ?? "", block: found };
