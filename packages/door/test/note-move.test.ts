@@ -18,6 +18,17 @@ import { outliner, Scratch, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
 
+test("note.move is one action: every set that mounts it, a reader's and a list's, says one summary and takes one set of arguments (PIE-1672)", async () => {
+  await import("../src/app");
+  const { allActionSets } = await import("../src/surface/actions");
+  for (const name of ["note.move", "note.move.undo"]) {
+    const records = allActionSets().flatMap(s => s.list().filter(a => a.name === name).map(a => ({ scope: s.scope, summary: a.summary, args: Object.keys(a.args).sort().join(" ") })));
+    expect(records.map(r => r.scope).sort()).toEqual(["list", "note"]);
+    expect(new Set(records.map(r => r.summary)).size).toBe(1);
+    expect(new Set(records.map(r => r.args)).size).toBe(1);
+  }
+});
+
 test("the river column loads on its own (a static import cycle through the power bar broke the door's start)", async () => {
   const p = Bun.spawn([process.execPath, "-e", 'await import("./src/river/column.ts")'], { cwd: join(import.meta.dir, ".."), env: { ...process.env, EP0CH_STATE: join(import.meta.dir, "..", ".nonexistent-state") }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   let killed = false;
