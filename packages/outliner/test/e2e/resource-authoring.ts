@@ -126,7 +126,7 @@ function validateFilesystemIdentity(
   );
   assert.deepEqual(
     parseJson(identity.boundary_json, "Resource Source boundary"),
-    { root: session.projectRoot },
+    { root: session.outlineRoot },
   );
 }
 
@@ -187,8 +187,8 @@ async function waitForAuthoredBlock(session: HerdrScenarioSession): Promise<Bloc
 
 export const resourceAuthoringScenario = {
   name: SCENARIO_NAME,
-  async prepare(projectRoot: string): Promise<void> {
-    await writeFile(join(projectRoot, "README.md"), README_CONTENT, "utf8");
+  async prepare(_projectRoot: string, _paths: unknown, outlineRoot: string): Promise<void> {
+    await writeFile(join(outlineRoot, "README.md"), README_CONTENT, "utf8");
   },
   async run(session: HerdrScenarioSession): Promise<void> {
     // Keep the full authored-Resource status visible beside the local Tree Preview.

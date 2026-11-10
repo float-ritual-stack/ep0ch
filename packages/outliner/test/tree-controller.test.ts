@@ -831,6 +831,44 @@ describe("createTreeController", () => {
   });
 
 
+  test("an authored Resource that can't be followed says why on the status line (PIE-1695)", async () => {
+    const owner = block("owner003", { text: "Owner [file::README.md]", displayText: "Owner" });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([owner], owner);
+      if (input.action === "blocks.authored-links") {
+        return {
+          kind: "ready", ownerId: owner.id, ownerTextDigest: authoredTextDigest(owner.text),
+          outlinks: { entries: [], completeness: { kind: "complete" }, invalidCount: 0, diagnostics: [] },
+          resources: {
+            entries: [{
+              kind: "resource", key: JSON.stringify(["filesystem", "README.md"]), label: "README.md",
+              firstSpan: { start: 6, end: owner.text.length }, occurrenceCount: 1,
+              resolution: {
+                kind: "unregistered",
+                reference: { kind: "filesystem", path: "README.md" },
+                reason: "File is not registered: README.md",
+              },
+            }],
+            completeness: { kind: "complete" }, invalidCount: 0, diagnostics: [],
+          },
+        };
+      }
+      if (input.action === "resources.follow-authored") {
+        throw new Error("Filesystem resource is unavailable: ENOENT: no such file or directory, stat '/outlines/garden/README.md'");
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleAction("tree.authored-links.toggle");
+    const row = controller.view().rows.find((entry) => entry.kind === "authored-link" && entry.group === "resources");
+    if (!row) throw new Error("Expected the README row");
+    await controller.handleRowClick(row.rowId);
+    await controller.handleKeypress("", { name: "return", meta: true }, "pass");
+    expect(controller.view().status).toContain("Filesystem resource is unavailable");
+    expect(controller.view().status).toContain("/outlines/garden/README.md");
+  });
+
   test("fuzzy goto previews candidates and reveals the selected block", async () => {
     const first = block("first", { text: "Inbox", displayText: "Inbox" });
     const target = block("40bd0864-913a-4537-9535-8f96e1b63ef7", {
