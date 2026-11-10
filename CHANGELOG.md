@@ -10,6 +10,32 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Type an artifact's path or name in any outline and it runs (PIE-1644, PIE-1643)
+
+- **No put, no `--machine`, no store:** write `[artifact::<any path on a machine you use>]` or `[artifact::<name>]` in any outline on any machine and save. It runs in the door's card, on my.ep0ch.sh and through a share.
+- **How:** saving copies the file or folder to the media bucket beside the note's pictures. A file that isn't on this machine is asked of the machines this host reaches.
+- **A typed `--machine` wins over an inherited `EP0CH_SOCKET`,** so a `sh::` step such as `ep0ch artifact put … --machine float-2` runs instead of refusing.
+- **Run:** `ep0ch install --apply` (PROTOCOL 317, GRAMMAR 44).
+
+### The links tile lists backlinks even when one note can't be read (PIE-1640)
+
+- **One bad note no longer empties the tile:** the tile skips it, names it, and lists the rest.
+- **A property value holding code is not a page name:** a value like ``[title::- `[9:15 AM]` morning-dump]`` is well-formed and no longer breaks the notes that mention its day.
+- **Run:** `ep0ch install --apply` (PROTOCOL 316, GRAMMAR 43).
+
+### On the web, a long press or right-click on a row opens what it can do (PIE-1639)
+
+- **Mark from your phone:** long-press a row or a passage on my.ep0ch.sh (right-click on desktop) for Mark, Comment, Copy, Open and Copy link. A mark shows in your doors at once and in `marked:today`.
+- **Owner only:** a share link's page never offers Mark.
+- **Run:** `ep0ch install --apply` (publisher code).
+
+### Marks and the keys window: three fixes (PIE-1637, PIE-1638, PIE-1642)
+
+- **`alt+'` steps to the next mark without the kitty keyboard protocol** (Herdr, tmux, ssh).
+- **`act block.mark id=` and `block.unmark id=` take a short id.** One that starts two notes' ids is refused and lists them; unmark no longer takes both marks off.
+- **`?` on an empty desk opens the keys window** instead of an error on the status bar.
+- **Run:** `ep0ch install --apply` (door code only).
+
 ### Opening a note on an empty desk opens a reader for it (PIE-1641)
 
 - **No extra step:** pick a note in the power bar on a screen with no reader (the empty desk, home's buttons in its middle) and press ⏎: a new reader shows it, your keys in it. A link, `act open` and an agent's open do the same; an agent's leaves your keys where they are.

@@ -100,7 +100,8 @@ what needs him or what changed; if nothing changed and nothing's wrong, one line
 6. **main's CI:** `gh run list --branch main --limit 3 --json conclusion,name,headSha` in `~/projects/ep0ch`. A failed
    run on main gets fixed (a ticket and an agent, or a small PR), never left red. It gets at most **one** rerun
    (`gh run rerun <id> --failed`); a second red means the diagnosing-bugs method (root cause and a reproduction
-   before any fix), not another rerun.
+   before any fix), not another rerun. That rule is for runs that ran the code. A call that never reached it (a `gh`
+   or `ssh` that timed out, `ssh laptop` with the VPN down, a rate limit) is retried freely.
 
 ## The freshness sweep
 
@@ -207,6 +208,14 @@ tickets and validate sweeps, **ep0ch-recon** for read-only research, **ep0ch-aud
 rules (the gate, the hand-off, scratch-only testing) live in those files, so a brief is the task: the sentence, its
 tickets, what's special, who else is working nearby. Slots are Reorient's checklist. Prefer Sonnet for routine
 agents.
+
+- **A builder is a background session at high effort,** whatever your own session runs at:
+  `cd ~/wt/ep0ch-wt-<topic> && claude --bg -n builder-<topic> --effort high --permission-mode auto "$(cat ~/wt/briefs/<topic>.md)"`.
+  A subagent dies with your session; a background session doesn't (Oct 25: seven builders went with one closed tab).
+- **Say whose it is.** The brief tells the builder the branch is its own and which decisions it makes without asking
+  (the builder definition has the words). Read-only agents (recon, auditor) and the verifier get no such line.
+- **Read the diff, not the report.** Before a merge, `gh pr diff <n>` in a worktree of your own; a builder's summary
+  says what it meant to do. The same for a subagent's findings: open the `path:line` it cites before acting on one.
 
 When the system has drifted, the push-review page in pie has the whole-system review (one auditor per lens).
 

@@ -18,6 +18,12 @@ build all of it, including any shared part it needs that doesn't exist yet. The 
 in the ep0ch-core skill (preloaded). The brief sets the scope; it
 never waives the testing, checkout, process or deploy rules below. If it seems to, ask loki before acting.
 
+**The branch is yours.** Nobody else is writing in your worktree, and loki reads your diff, not your summary of it. So
+decide what the sentence needs and do it: a file outside the ticket's first guess, a shared part that has to change, a
+test that was wrong. Reversible choices are yours to make; say each one in the PR in a line. Ask loki only for what
+the rules below reserve (a deploy, a merge, a real outline) or when two readings of the sentence would build
+different things.
+
 ## Before you write code
 
 1. Read the ticket(s) on the workboard (`ep0ch show --ws pie PIE-n`) and the live "How this workboard works" block
@@ -82,11 +88,17 @@ write the one-off migration script, and put the exact commands per machine in th
 
 Use the diagnosing-bugs skill (preloaded): a reproduction that goes red before any fix, one fix at a time, a test
 that fails before the fix and passes after. Delays reproduce a race, never fix one. A red run is diagnosed, never
-rerun until it passes. After three failed fixes for one
+rerun until it passes. A call that never reached the code is not a red run: a `gh` or `git push` that timed out, an
+`ssh laptop` while the VPN is down, a rate limit. Run those again. After three failed fixes for one
 cause, stop and report it with what you tried. Your report names a root cause per failing test, or "no root cause
 found" with what was checked.
 
 ## Done means
+
+Finish the sentence before you report. A plan, a first slice or "the rest is a follow-up" is not a hand-off: if a
+part is missing, build it; if you truly can't (it needs Evan's hands, or a rule here reserves it), say exactly which
+part and why. Before the report, read your own diff once as a reviewer would and run what you changed. Say what you
+ran and saw, and what you did not check, in those words: a test you didn't run is "not run", never "should pass".
 
 - **The code works,** with tests a person would notice failing. Don't add tests for counts.
 - **Docs and skills that describe the behaviour updated** in the same PR.
