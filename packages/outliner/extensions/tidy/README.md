@@ -35,10 +35,11 @@ Morning plan
 
 - **Install:** `ep0ch ext add tidy`.
 - **The model:** `config.answer` in `config.json` names a command that reads the prompt on stdin and prints the answer.
-  - **Its default:** Haiku through `claude` in safe mode, with a 20-second deadline.
+  - **Its default:** Haiku through `claude` in safe mode, with a 5-minute deadline: a long transcript through a slower model fits (PIE-1713).
     - **What loads:** only the prompt, with no CLAUDE.md, skills, plugins, tools, MCP or settings.
     - **The whole command:** the door's settings row shows it.
     - **What it needs:** a `claude` whose `--help` lists `--safe-mode`; an older one fails the ask and says so.
+    - **Where `claude` can't read its login** (a host under launchd): `with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN` once; with none, the ask says that command.
   - An empty command list turns the model off and says so.
 - **Its answer:** JSON `{ "replacement": "the full rewritten passage", "message": "rewrote 4 items as callouts" }`.
 

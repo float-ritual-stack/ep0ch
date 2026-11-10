@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { outline } from "./outline";
 import { confirmPrompt, verdicts } from "./asks-confirm";
-import { aboutLines, chippedLines, declineKey, hashOf, isAnswered, isClosed, workboardKind, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
+import { aboutLines, chippedLines, CLAUDE_LOGIN_FIX, notLoggedIn, declineKey, hashOf, isAnswered, isClosed, workboardKind, linePatches, linesUnder, marksIn, withMark, withoutMarks, wordsOf, unchangedLines, type Anchor, type Mark } from "./asks-line";
 
 interface Block { id: string; revision: number; text: string; parentId?: string | null; properties?: { key: string; value: string }[] }
 interface Reading { line: number; text: string; noul: number; reads: "yes" | "unsure" | "no"; top: boolean }
@@ -73,6 +73,7 @@ async function confirm(text: string, passed: readonly number[]): Promise<Map<num
   try { proc = Bun.spawn(command, { stdin: new Blob([confirmPrompt(text, passed)]), stdout: "pipe", stderr: "pipe", timeout: MODEL_MS, cwd: import.meta.dir }); }
   catch (e) { throw failed(`${ran} couldn't start (${(e as Error).message})`); }
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  if (code !== 0 && notLoggedIn(out, err)) throw new Error(`The model couldn't confirm, so nothing was written: ${CLAUDE_LOGIN_FIX}`);
   if (code !== 0) throw failed(`${ran} exited ${code}${err.trim() ? `, saying "${err.trim().split("\n")[0]!.slice(0, 120)}"` : ""}`);
   try { return verdicts(out, passed); }
   catch (e) { throw failed(`${ran}: ${(e as Error).message}`); }
