@@ -2965,9 +2965,9 @@ export class NoteSurface {
    * `draft.patch` lands in it), and refuses an agent a second draft of a note someone has open in one.
    */
   startDraft(fresh: Msg, host: SurfaceHost) {
-    const redraw = () => host.redraw();
     // The reader's host when the session calls back, not the one it opened with: the reader may have moved since (PIE-1716).
     const now = () => host.current?.() ?? host;
+    const redraw = () => now().redraw();
     const target = blockTarget(fresh, {
       board: host.ctx.board, isNew: this.newNotes.has(fresh.id),
       saved: (m, by, asked, change) => this.saved(m, by, asked, change, now()),

@@ -334,59 +334,65 @@ describe("showcase: ask yo (PIE-1585)", () => {
     }
   }, 90_000);
 
-  // PIE-1716: an edit opened before its reader moves (gathered into a group, put in the drawer) still opens yo's answer beside
-  // the reader where it is now, and the caret on an ask selects it there: the draft asks for its reader's host each time.
-  for (const move of ["group", "drawer"] as const) test(`an edit open before its reader moves into a ${move}: yo's answer tile follows there`, async () => {
+  // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
+  // asked before and after the move, yo's answer is in one tile beside the reader where it is now, and the caret on an ask
+  // selects it there. The draft asks for its reader's host each time, never the one it opened with.
+  for (const move of ["group", "group with its answer", "drawer"] as const) test(`an edit open while its reader moves (${move}): yo's answer tile follows it`, async () => {
     await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const tag = move.split(" ").length;
     const own = await h.board.createBlock(null, `Ask yo, then move (${move})\n\nWhere the reader moves while the edit is open.\n`);
     await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
     if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
     await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
     await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
-    await h.board.createBlock(null, `fold shed ${move}: tile.fold [yo-memory::answer] [yo-action::tile.fold] [yo-asked::fold shed ${move}] [yo-line::tile.fold]`);
-    await h.board.createBlock(null, `zoom shed ${move}: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::zoom shed ${move}] [yo-line::tile.zoom]`);
+    for (const what of ["fold", "zoom"]) await h.board.createBlock(null, `${what} shed ${tag}: tile.${what} [yo-memory::answer] [yo-action::tile.${what}] [yo-asked::${what} shed ${tag}] [yo-line::tile.${what}]`);
     const stage = () => h.S().stages.get(h.S().sel).top;
     const pane = stage().pane("ask");
     const draft = () => pane.surface.draft as { text: string; row: number } | null;
+    const { AnswerTile } = await import("../../src/desk/answer-tile");
+    // Every desk the door has, a group's own included: where the reader is, and every answer tile anywhere.
+    const desks = () => (h.app as any).hostLayer.everyDesk().flatMap((d: any) => [d, ...d.descend()]).filter((d: any, i: number, all: any[]) => all.indexOf(d) === i);
+    const holder = () => desks().find((d: any) => [...d.panes.values()].includes(pane));
+    const answers = () => desks().flatMap((d: any) => [...d.panes.values()].filter((p: any) => p instanceof AnswerTile).map((p: any) => ({ ask: p.ask as string, beside: d === holder() && d.paneNamed(p.source) === pane })));
+    const shows = (words: string) => { const all = answers(); return all.length === 1 && all[0]!.beside && all[0]!.ask.includes(words); };
     h.ch("e");
     await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
     h.press({ kind: "enter" });
     await until(() => !!draft(), "the edit", 8000);
-    // The reader moves with the edit open (a second tile keeps the stage from going blank when it goes to the drawer).
-    if (move === "drawer" && !stage().pane("spare")) await h.app.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "spare" } }, USER);
-    const where = (move === "group"
-      ? await h.app.dispatch.act({ action: "tile.group", tile: "ask" }, USER)
-      : await h.app.dispatch.act({ action: "tile.drawer", tile: "ask", args: { on: true } }, USER)) as { name?: string; tile?: string };
-    const { AnswerTile } = await import("../../src/desk/answer-tile");
-    const holder = () => (h.app as any).hostLayer.everyDesk().flatMap((d: any) => [d, ...[...d.panes.values()].map((p: any) => p.inner).filter(Boolean)])
-      .find((d: any) => [...d.panes.values()].includes(pane));
-    await until(() => !!holder() && !stage().pane("ask"), `the reader in the ${move} (${where.name})`, 8000);
-    const answers = () => [...holder().panes.values()].filter((p: any) => p instanceof AnswerTile) as { ask: string }[];
+    h.press({ kind: "end", ctrl: true });
+    for (const c of `@yo fold the shed ${tag}`) h.ch(c);
+    await until(() => shows(`fold the shed ${tag}`), "yo's answer tile beside the reader on the stage", 30_000);
+    const answerName = stage().nameOf([...stage().panes].find(([, p]: any) => p instanceof AnswerTile)![0]);
+    // The reader moves with the edit open.
+    let spill: (() => Promise<unknown>) | null = null;
+    if (move === "drawer") {
+      await h.app.dispatch.act({ action: "tile.drawer", tile: "ask", args: { on: true } }, USER);
+      await h.app.dispatch.act({ action: "host.enter" }, USER);
+      spill = () => h.app.dispatch.act({ action: "tile.drawer", tile: holder().tileIdOfPane(pane), args: { on: false } }, USER);
+    } else {
+      const g = await h.app.dispatch.act({ action: "tile.group", tile: "ask", args: move === "group" ? {} : { with: answerName } }, USER) as { name?: string; tile?: string };
+      await h.app.dispatch.act({ action: "tile.focus", tile: holder().tileIdOfPane(pane) }, USER);
+      spill = () => h.app.dispatch.act({ action: "tile.group", tile: g.tile ?? g.name!, args: { on: false } }, USER);
+    }
     try {
-      // The person's keys go to it where it is now (the "waiting on you" list's go: the drawer up, its tab shown).
-      if (move === "drawer") (h.app as any).hostLayer.goTo(pane, USER);
-      else await h.app.dispatch.act({ action: "tile.focus", tile: holder().tileIdOfPane(pane) }, USER);
+      await until(() => !!holder() && holder() !== stage(), `the reader in the ${move}`, 8000);
       h.press({ kind: "end", ctrl: true });
-      for (const c of `@yo fold the shed ${move}`) h.ch(c);
-      await until(() => !!draft()?.text.includes(`@yo fold the shed ${move}`), "the ask typed in the edit", 8000);
-      await until(() => /@yo fold the shed \w+\n> \[!note\]/.test(draft()!.text), "yo's answer in the edit", 30_000);
-      await until(() => answers().some(a => a.ask.includes(`fold the shed ${move}`)), `yo's answer tile beside the reader in the ${move}`, 30_000);
       h.press({ kind: "enter" }); h.press({ kind: "enter" });
-      for (const c of `@yo zoom the shed ${move}`) h.ch(c);
-      await until(() => answers().some(a => a.ask.includes(`zoom the shed ${move}`)), "the answer tile following the new ask", 30_000);
-      // The caret back on the first ask selects it in the answer tile there, with no refusal.
-      const row = draft()!.text.split("\n").findIndex(l => l.startsWith(`@yo fold the shed ${move}`));
+      for (const c of `@yo zoom the shed ${tag}`) h.ch(c);
+      await until(() => !!draft()?.text.includes(`@yo zoom the shed ${tag}`), "the second ask typed in the edit", 8000);
+      await until(() => shows(`zoom the shed ${tag}`), `one answer tile beside the reader in the ${move}, on the new ask`, 30_000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(answers())}`); });
+      // The caret back on the first ask selects it there, with no refusal.
+      const row = draft()!.text.split("\n").findIndex(l => l.startsWith(`@yo fold the shed ${tag}`));
       while (draft()!.row > row) h.press({ kind: "up" });
-      await until(() => answers().some(a => a.ask.includes(`fold the shed ${move}`)), "the first ask selected again", 8000);
+      await until(() => shows(`fold the shed ${tag}`), `the first ask selected again (${JSON.stringify(answers())})`, 8000);
       expect(h.screen()).not.toContain("no reader on the showcase");
-      expect(answers().length).toBe(1);
     } finally {
       if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: holder().tileIdOfPane(pane) }, USER);
       await until(() => !draft(), "the edit saved and closed", 8000);
-      // Back where the section keeps it, for the next test.
-      if (move === "group") await h.app.dispatch.act({ action: "tile.group", tile: where.name ?? where.tile, args: { on: false } }, USER);
-      else await h.app.dispatch.act({ action: "tile.drawer", tile: holder().tileIdOfPane(pane), args: { on: false } }, USER);
+      // Back where the section keeps it, alone, for the next test.
+      await spill?.();
       await until(() => stage().pane("ask") === pane, "the reader back on the stage", 8000);
+      for (const [, p] of [...stage().panes]) if (p instanceof AnswerTile) await h.app.dispatch.act({ action: "tile.close", tile: stage().tileIdOfPane(p) }, USER);
     }
   }, 90_000);
 

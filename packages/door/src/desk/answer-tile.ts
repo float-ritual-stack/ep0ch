@@ -19,6 +19,8 @@ export class AnswerTile implements Pane {
   room = 1;
   links: Link[] = [];
   ranges: LinkRange[] = [];
+  /** Its reader went and a close is on its way (render). */
+  private closing = false;
   constructor(public source: string, public ask: string, public fold?: string) {}
   title() { return this.ask; }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
@@ -50,7 +52,13 @@ export class AnswerTile implements Pane {
   }
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
     const reader = desk.paneNamed?.(this.source);
-    if (!(reader instanceof ReaderPane)) return { lines: ["The answer's reader has closed."] };
+    // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
+    // the reader is back by the time the close comes round. The next ask opens one beside the reader where it is now.
+    if (!(reader instanceof ReaderPane)) {
+      if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this); }); }
+      return { lines: ["The answer's reader has gone."] };
+    }
+    this.closing = false;
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
     const lines = text.split("\n"), fold = this.answer(text);
     this.links = [];
