@@ -308,7 +308,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     // Saved under the words that asked for it, one press.
     expect(await press("▸ save as a view")).toEqual({ state: "done" });
     const views = await h.board.request("blocks.query", { query: { where: "type=virtual-branch", limit: 200 } });
-    expect(views.blocks.map(b => (b.text ?? "").split("\n")[0]).some(t => t.startsWith("Shed items that are not sent"))).toBe(true);
+    expect(views.blocks.map(b => (b.text ?? "").split("\n")[0]).some(t => !!t?.startsWith("Shed items that are not sent"))).toBe(true);
     await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
   }, 90_000);
 
