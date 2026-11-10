@@ -266,6 +266,9 @@ export class CommentSession {
   /** Who started it (the person's C or m, or an agent's passage.select, reply or threads): an agent's isn't the person's keys until they type in it. */
   startedBy: Actor = USER;
 
+  /** When it opened (Date.now()): a macro leaves out a close of a session that was open before it began recording (PIE-1718). */
+  readonly opened = Date.now();
+
   constructor(public msg: Msg, public threads: Comment[], mode: "select" | "threads") {
     this.mode = this.origin = mode;
     if (mode === "select") this.passage = new Passage(msg.text);

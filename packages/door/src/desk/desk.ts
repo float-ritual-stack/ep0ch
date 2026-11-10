@@ -3206,6 +3206,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A picker is up over this screen (it has the keys). */
   overlaid(): boolean { return !!this.overlays.top(); }
 
+  tileIdOf(p: Pane): string | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.tileId(id); }
   /** A tile's own key or click (its kind's set, a reader's note actions), as the person, in that tile. */
   press(p: Pane, set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, quiet: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const id = this.idOf(p);
@@ -6190,7 +6191,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
     return { ...this.tileAnswer(t.id), ...docked(r.answer) };
   }
-
 
   /** A click on this layout's ▣ chip (the hint row's, the drawer's frame): its own layout.lock, wherever the keys are. */
   pressLock(): void { this.run("layout.lock", {}, this.nameOf(this.focus)); }

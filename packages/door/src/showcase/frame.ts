@@ -125,7 +125,7 @@ function frameCtx(f: FramedScreen): Ctx {
     redraw: () => o().redraw(),
     flash: (m, ms, details) => o().flash(m, ms, details),
     refuse: (m, at) => f.refuse(m, at),
-    recordAction: (req, replay, run) => o().recordAction ? o().recordAction!(req, replay, run) : run(),
+    recordAction: (req, replay, run, records) => o().recordAction ? o().recordAction!(req, replay, run, records) : run(),
     pressNow: () => o().pressNow?.() ?? 0,
     get pressAgain() { return o().pressAgain; },
     get esc() { return o().esc; },

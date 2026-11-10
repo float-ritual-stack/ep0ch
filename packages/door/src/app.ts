@@ -337,7 +337,7 @@ export interface Ctx {
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
    */
   person?(): Whereabouts;
-  recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown): unknown;
+  recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown, records?: import("./surface/actions").RecordStep): unknown;
   /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
   press?(name: string, args?: Record<string, unknown>, tile?: string): Promise<unknown>;
   /**
@@ -684,7 +684,7 @@ export class App implements Ctx {
     this.drawer = new AgentDrawer({ statusChip: () => {
       const hit = this.statusBoxes.find(h => h.item.id === "drawer");
       return hit ? { from: hit.from, to: hit.to, row: this.term.info.rows - 1 } : null;
-    }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
+    }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), recording: () => this.recording.active, ctx: () => this });
     this.hover = new Hover(this, this.drawer); this.glass = new FloatLayer(this, this.drawer, this.hover); hostDoorModules(this);
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
@@ -1219,7 +1219,7 @@ export class App implements Ctx {
     focused: () => ({ tile: this.keysScreen()?.keys?.().address ?? undefined, strip: this.bar ? "scopes" : undefined }),
     redraw: () => this.redraw(),
   });
-  recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
+  recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown, records?: import("./surface/actions").RecordStep) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run, records); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this, shellIn: c => { const here = (c as Ctx).screens?.().at(-1); return here ? shellDispatcher(here, c as Ctx) : null; } }, [
     { set: TRAIL_QUERIES, takes: "none", on: () => this },
@@ -1532,9 +1532,8 @@ export class App implements Ctx {
     // table's keys (^W, a mode's) are the table's, which reads the file itself.
     const typedName = k.kind === "mouse" ? null : keyName(k), mine = typedName ? layerEntry(typedName) : undefined;
     if (mine && !raw && !held && this.dispatch.has(mine.action)) { void this.dispatch.press(mine.action, mine.args); return; }
-    if (k.kind === "alt" && k.ch === "Q" && !raw && (this.recording.active || !held)) {
-      void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return;
-    }
+    // alt+Q on any tile but a terminal's, a thread list or an edit holding the keys too: it types nothing (PIE-1718).
+    if (k.kind === "alt" && k.ch === "Q" && !raw) { void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return; }
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !raw) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // alt+y: the tune inspector on the focused tile (tile.tune, PIE-673), on the desk's screens, never in a terminal tile.

@@ -107,6 +107,8 @@ export interface DeskApi {
    * a reader's note actions), in tile `p`. `quiet`: the action says its own refusal.
    */
   press?(p: Pane, set: ActionSet<any, any>, name: string, args?: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: unknown): Promise<unknown>;
+  /** Tile `p`'s door-wide id (the tile= a press records, PIE-1718), while it is one of this screen's. */
+  tileIdOf?(p: Pane): string | undefined;
   /** Tile `p` has the person's focus here (a whole screen in a tile sees the person through it). */
   hasFocus?(p: Pane): boolean;
   /** The person is in tile `p`'s edit, comment or panel (they opened it, or the keys came back to it). */
@@ -678,6 +680,7 @@ export class ReaderPane implements Pane, AttachedOwner {
       // Its attachments in tiles of their own (PIE-1536): one hand-off for every kind.
       ...(desk.attachedTile ? { attachedTile: (kind: AttachmentKind, on: boolean, side?: AttachedSide, keys?: boolean) => desk.attachedTile!(this, kind, on, side, keys), hasAttachedTile: (kind: AttachmentKind) => !!desk.hasAttachedTile?.(this, kind) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
+      ...(desk.tileIdOf ? { tileId: () => desk.tileIdOf!(this) } : {}),
       ...(desk.press ? {
         press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given),
         pressSet: (set: ActionSet<any, any>, name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, set, name, args, quiet, given),
