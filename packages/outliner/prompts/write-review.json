@@ -15,5 +15,9 @@
   "askDecide": "Does `{line}` ask its reader to decide something or do something? `{around}` is where it sits in the note.",
   "askAddressed": "Is `{line}` addressed to Evan, the outline's owner, and not to an agent working through its own checklist? `{around}` is where it sits in the note.",
   "askSettled": "Is what `{line}` asks already answered or decided, by the line itself or by what follows it in `{around}`?",
-  "askRecord": "Does `{line}` report something that already happened, as a log entry or a summary does? `{around}` is where it sits in the note."
+  "askRecord": "Does `{line}` report something that already happened, as a log entry or a summary does? `{around}` is where it sits in the note.",
+  "kind": "What does line `{line}` of the section `{section}` record?",
+  "kindFact": "A fact: something that is true now or happened, reported as it stands (a state, a result, a finding, an event).",
+  "kindDecision": "A decision: a choice someone made or a rule agreed, saying what will be done or kept (\"we chose\", \"X stays\", \"from now on\").",
+  "kindOpen": "Still open: a question, an unknown, a next step or something still being looked into, not settled yet."
 }

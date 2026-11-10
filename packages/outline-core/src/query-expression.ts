@@ -8,6 +8,7 @@ import { firstLineWithoutPropertyTokens } from "./property-parse";
 import { MARKED_ANY, ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "./query-atoms";
 import { isPropertyKey, isWritablePropertyValue, splitPropertyValue, PROPERTY_KEY_SOURCE } from "./property-grammar";
 import { fromWallClock, readBound, readDateBound, readNumber, valueHolds, wallClock } from "./dates";
+import { isTicketKey } from "./work-ids";
 const KEYED_RANGE = new RegExp(`^(${PROPERTY_KEY_SOURCE})(<=|>=|<|>)(.*)$`, "s");
 /** `child:` or a counted `child>=N:` (at least N direct children have the property). */
 const CHILD_COUNT = /^child(?:>=(\d{1,4}))?:/i;
@@ -135,6 +136,9 @@ function parseQuotedValue(raw: string, offset: number): string {
   syntaxError("Unterminated quoted filter value", offset);
 }
 
+/** The property a roadmap item's Work ID is written in: what a bare Work ID in a query matches. */
+export const WORK_ID_KEY = "work-id";
+
 export function parsePropertyFilterClause(
   input: string,
   offset = 0,
@@ -161,6 +165,9 @@ export function parsePropertyFilterClause(
     syntaxError(`Boolean operator ${rawKey} is not supported`, clauseOffset, QUERY_EXAMPLE);
   }
   if (!separator) {
+    // A bare Work ID (`PIE-587`) is its roadmap item, as outline_read resolves one (PIE-1682): `work-id=PIE-587`. A key is
+    // never written in capitals with a number after a dash, so no query that matched by key before changes meaning.
+    if (isTicketKey(rawKey)) return { key: WORK_ID_KEY, value: rawKey };
     if (/\s/.test(clause))
       syntaxError(
         "Property presence filter cannot contain whitespace",
@@ -1128,6 +1135,17 @@ export function bindThis(expression: QueryExpression, thisId: string | undefined
 }
 
 /** Every property key an expression names, under NOT and `child:` too: what a "no notes have <key>" hint checks. */
+/** The Work IDs a question asks for by their item (`work-id=PIE-587`, or a bare `PIE-587`), outside NOT. */
+export function expressionWorkIds(expression: QueryExpression | undefined): string[] {
+  if (!expression) return [];
+  switch (expression.kind) {
+    case "property": return expression.key === WORK_ID_KEY && expression.value !== undefined && !expression.relation ? [expression.value] : [];
+    case "and":
+    case "or": return expression.operands.flatMap(expressionWorkIds);
+    default: return [];
+  }
+}
+
 export function expressionPropertyKeys(expression: QueryExpression | undefined): string[] {
   if (!expression) return [];
   switch (expression.kind) {

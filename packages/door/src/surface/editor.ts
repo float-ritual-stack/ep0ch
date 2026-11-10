@@ -315,12 +315,13 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
     draftKeys([...bound("draft.indent", "next"), ...bound("draft.outdent", "previous"), ...bound("edit.close", "end"), ...bound("draft.undo", "undo")]);
   const last = d.undos.at(-1);
   return draftKeys([
-    ...bound("edit.save", o.save), ...bound("edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
+    // A change elsewhere's key first, beside the warning it answers, so a narrow footer still names it (PIE-1664).
+    ...(o.reload ? bound("edit.reload", o.reload) : []), ...bound("edit.save", o.save), ...bound("edit.close", d.dirty ? "twice puts it aside" : o.close ?? "done"),
     ...(o.follow && d.linkAtCursor() ? bound("edit.follow", "open link") : []),
     ...(last ? bound("draft.undo", `undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}`) : []),
     ...(o.place ? from(COMMENT_KEYS, "comment.place", o.place) : []), ...(o.move ? from(COMMENT_KEYS, "comment.grip", "move") : []),
     ...(d.redos.length ? bound("draft.redo", "redo") : []), ...(d.selection() ? [...bound("draft.copy", "copy"), ...bound("draft.wrap", "wraps", { with: "[" })] : []),
-    ...draftChordRows().map(r => ({ ...r, label: "$EDITOR" })), ...(o.reload ? bound("edit.reload", o.reload) : []),
+    ...draftChordRows().map(r => ({ ...r, label: "$EDITOR" })),
     ...bound("draft.pick", "insert"), ...bound("draft.indent", "indent"), ...bound("draft.outdent", "out"), ...bound("draft.preview", "preview"),
   ]);
 }

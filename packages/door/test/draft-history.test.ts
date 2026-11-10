@@ -13,7 +13,7 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string, shift?: true): Key => ({ kind: "char", ch, ctrl: true, ...(shift ? { shift } : {}) });
 const type = (d: Draft, s: string) => { for (const c of s) d.key(c === "\n" ? { kind: "enter" } : char(c)); };
-/** A paste as the App types it out: every key at once, the draft's step recorded once they're all in. */
+/** A paste as the App hands it on: one `paste` key carrying the whole text, the draft's step recorded once it's in. */
 const paste = async (d: Draft, text: string) => { d.key({ kind: "paste", text }); await Bun.sleep(0); };
 const undo = async (d: Draft) => { d.key(ctrl("z")); await Bun.sleep(0); };
 const redo = async (d: Draft) => { d.key(ctrl("y")); await Bun.sleep(0); };

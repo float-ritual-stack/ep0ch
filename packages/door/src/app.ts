@@ -142,7 +142,7 @@ export interface HostLayer {
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
   keep(moved: MovedTile[]): Pane[];
   /** Why tiles like these couldn't be kept in the drawer now, or null. */
-  keepRefusal(moved: Pick<MovedTile, "name" | "spec">[]): string | null;
+  keepRefusal(moved: Pick<MovedTile, "name" | "spec" | "kept">[]): string | null;
   /** The tile the drawer shows now (not its own tab), or null. */
   shownTab(): string | null;
   /**

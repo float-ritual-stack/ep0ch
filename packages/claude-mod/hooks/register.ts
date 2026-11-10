@@ -146,7 +146,7 @@ import {
 } from './workboard-now'
 import { OWN_PID_ARGV, SPLIT_BLOCK, SPLIT_TIMEOUT_MS, type SessionSplit, splitArgv, splitOf, splitStatus, splitText } from './split-session'
 import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientQuery, orientsFrom, orientText } from './orient-notes'
-import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, viewArgv, viewedNoteOf, withDrawing, withView } from './outline-guide'
+import { DRAW_TIMEOUT_MS, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, viewArgv, viewedNoteOf, withView } from './outline-guide'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
 /** The binding card's state: written here, in this file, as the engine lists what a module reads and writes. */
@@ -716,9 +716,7 @@ export function register(on: On, options: PluginOptions): void {
         // outline_read's view is drawn here, after the read (below): the CLI reads the text.
         const { view: _view, width: _width, ...sent } = command.input
         const written = await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(tool.name === 'outline_read' ? sent : command.input))
-        // A note that now holds a figure comes back drawn (PIE-721), so a figure that doesn't draw is seen in this turn.
-        const drawn = drawnNoteOf(tool.name, written, input)
-        const drawing = drawn ? await $.process.run(drawArgv(drawn), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).then(r => r.exitCode === 0 ? r.stdout : '', () => '') : ''
+        // A write's answer carries its own drawing (`view`, PIE-588): the agent tools draw it, as for the claude.ai connector.
         // outline_read with view: the note as the door draws it, in the answer as `view` (PIE-1272), as the gateway gives it.
         const viewed = viewedNoteOf(tool.name, written, input)
         if (viewed) {
@@ -728,7 +726,7 @@ export function register(on: On, options: PluginOptions): void {
         }
         // A write that became a proposal starts this session's look at what becomes of its proposals.
         if (/"outcome":"proposed"/.test(written)) heardArmed = true
-        return { result: droppedNote(tool, checked.dropped) + withDrawing(written, drawing) }
+        return { result: droppedNote(tool, checked.dropped) + written }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
