@@ -1947,8 +1947,8 @@ tui.addOutlinerInputListener(data => {
     const detailColumn = detailPointer.column - (composed ? composedWidths(processTerminal.columns).detailX : 0);
     if (detailColumn >= 0) {
       const rect = readerGeometry().preview;
-      readingSurface.focused = detailColumn >= rect.x && detailPointer.row >= rect.y ? "preview" : "current";
-      synchronizeLayout?.();
+      const reader = detailColumn >= rect.x && detailPointer.row >= rect.y ? "preview" : "current";
+      if (reader !== readingSurface.focused) { readingSurface.focused = reader; synchronizeLayout?.(); } // a needless re-render voids the drag's copy (PIE-1698)
     }
   }
   if (!composedTree) return detailInputListener(data);
