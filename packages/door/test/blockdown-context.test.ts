@@ -72,3 +72,16 @@ describe("Blockdown contexts", () => {
     expect(out).not.toContain("[TASK]");
   });
 });
+
+describe("drawing a page never reaches the reader's hooks", () => {
+  // home.ts and library/draw.ts draw through blockdown-draw.ts; reaching blockdown-context.ts (the desk, the dispatcher)
+  // from them made an import cycle run tile-kinds.ts before dispatch.ts was ready, and the showcase's seed (the first
+  // thing `try-it.sh --showcase` loads) died with "Cannot access 'nounOf' before initialization".
+  for (const entry of ["src/showcase/seed.ts", "src/library/draw.ts", "src/surface/home.ts"]) {
+    test(`${entry} loads first, in a process of its own`, () => {
+      const run = Bun.spawnSync([process.execPath, "-e", `await import(${JSON.stringify(`${import.meta.dir}/../${entry}`)})`], { stderr: "pipe", stdout: "pipe" });
+      expect(run.stderr.toString()).not.toContain("before initialization");
+      expect(run.exitCode).toBe(0);
+    });
+  }
+});

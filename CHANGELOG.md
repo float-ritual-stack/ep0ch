@@ -16,6 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 - **The hint row names the key that runs:** `editHint` no longer writes a key; the snippet row, the inspector's `esc cancels`, ctrl+o and ctrl+g (`comment.place`, `comment.grip`) and the `[` wrap come from the tables with the keymap applied. An edit's keys (`ctrl+k` the keys window) list the draft's table.
 - **The facets query line** closes on the draft's `edit.close` (rebindable) and its ⏎ is a listed row; its typing was already the line field's.
 - **The line field is an adapter over the edit control** (`LineField` holds a `Draft`, `field.draft`) instead of a subclass of it.
+- **The showcase starts again on this branch:** the home screen and the library drew through the reader's Blockdown module, and that import cycle stopped the showcase's seed loading (`Cannot access 'nounOf' before initialization`). They draw through its light half, `surface/blockdown-draw.ts`.
 - **Run:** `ep0ch install --apply` (no PROTOCOL or GRAMMAR change).
 
 ### The reader's code split by what it does: note.ts from 12,758 lines to about 9,000 (PIE-1376)

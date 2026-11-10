@@ -18,7 +18,7 @@ import { figureDemo, linksDemo, fieldsDemo } from "./demo";
 import { drawProps } from "../figures/props";
 import { buttonRows } from "../surface/button";
 import { presentLinks, type LinkTarget } from "../refs";
-import { drawIn, linkSink } from "../surface/blockdown-context";
+import { drawIn, linkSink } from "../surface/blockdown-draw";
 
 export const PROP_PLACE_WORDS: Record<PropPlace, string> = { line: "on the line", note: "on the declaring note", yaml: "in the YAML" };
 

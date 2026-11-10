@@ -1,4 +1,4 @@
-import { drawPage } from "./blockdown-context";
+import { drawPage } from "./blockdown-draw";
 import { width } from "../style";
 import { buttonRows } from "./button";
 import type { Key } from "../term";
