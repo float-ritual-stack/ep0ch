@@ -9,7 +9,7 @@ import { CommentSession } from "../../comment";
 import { Draft } from "../../edit";
 import { UNSENT_KINDS, type UnsentKind, unsentView } from "../../unsent";
 import { errorDetails } from "../../status-log";
-import { type Actor, recordedAnswer } from "../../socket";
+import { type Actor, type CommentPassage, recordedAnswer } from "../../socket";
 import { type Completer, completerOf } from "../completer";
 import { unsent, type Unsent } from "../../draft-session";
 import type { FoldPoint } from "../../doc";
@@ -145,8 +145,7 @@ export const ROW_ARGS = {
 } as const;
 /** A thread's lifecycle set from the thread list (PIE-791): already so says so; said on screen when an agent did it. */
 export async function attention(on: { surface: NoteSurface; host: SurfaceHost }, actor: Actor, thread: string, to: MarkLifecycle, said: string): Promise<Record<string, unknown>> {
-  const s = await on.surface.ensureSession(on.host, "threads");
-  const i = findThread(s, thread), t = s.threads[i]!;
+  const { s, i, t } = await threadIn(on, thread);
   s.sel = i;
   if (t.lifecycle === to) { on.host.redraw(); return { already: to }; }
   await s.attend(on.surface.env(on.host, actor), to);
@@ -160,6 +159,21 @@ export const findThread = (s: CommentSession, id: string): number => {
   if (i < 0) throw new ActionRefused(`no comment thread ${id} on this note; peek lists them under comments.threads`);
   return i;
 };
+
+/** The thread list on the note (opened when it isn't) and thread `id` in it, by its id or its first 6+ characters. */
+export async function threadIn(on: { surface: NoteSurface; host: SurfaceHost }, id: string): Promise<{ s: CommentSession; i: number; t: CommentSession["threads"][number] }> {
+  const s = await on.surface.ensureSession(on.host, "threads");
+  const i = findThread(s, id);
+  return { s, i, t: s.threads[i]! };
+}
+
+/** A comment sent on note `m` (or its Resource's text) at `revision`, on `passage` or the whole note; then its threads read again. */
+export async function postComment(surface: NoteSurface, host: SurfaceHost, m: Msg, revision: number, text: string, passage: CommentPassage | null, actor: Actor, props?: Record<string, string>) {
+  const id = crypto.randomUUID();
+  const r = m.resource ? await host.ctx.board.commentOnResource(id, m.resource, revision, text, passage, actor, props) : await host.ctx.board.comment(id, m.id, revision, text, passage, actor, props);
+  await surface.loadComments(host);
+  return r;
+}
 
 /** A save, a send: done when the service answered. Throws with the surface's own words when it didn't take. */
 export async function saveDraft(surface: NoteSurface, host: SurfaceHost, actor: Actor) {

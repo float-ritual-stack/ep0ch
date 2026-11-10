@@ -8,7 +8,7 @@ import { RECORDED_AS, recordedAnswer, mutationFor } from "../../socket";
 import { askingFirst, passageActions, runExtensionAction, threadAgents } from "../../extensions";
 import { isOutlineNote } from "../../authored";
 import { modeActionKeys } from "../modes";
-import { movedOn, noteRow, type On, personComments, sendComment, findThread, attention } from "./shared";
+import { movedOn, noteRow, type On, personComments, postComment, sendComment, findThread, attention, threadIn } from "./shared";
 import { readerKeys } from "../reader-keys";
 import { type ActionDef, ActionRefused, asActor, def } from "../actions";
 import { askInBar } from "../../bar/ask";
@@ -111,9 +111,7 @@ export const COMMENT_DEFS = {
       if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to comment on");
       if (body !== undefined && body.trim()) {
         if (m.revision === undefined) throw new ActionRefused("the outline didn't say which revision this note is at");
-        const id = crypto.randomUUID();
-        const r = m.resource ? await host.ctx.board.commentOnResource(id, m.resource, m.revision, body, null, actor) : await host.ctx.board.comment(id, m.id, m.revision, body, null, actor);
-        await surface.loadComments(host);
+        const r = await postComment(surface, host, m, m.revision, body, null, actor);
         asActor(host.ctx, actor).flash("commented on the whole note");
         surface.noteAgent(actor, "commented on the whole note");
         host.redraw();
@@ -150,9 +148,7 @@ export const COMMENT_DEFS = {
       const p = surface.passageFor(actor, quote, near);
       const said = asActor(host.ctx, actor);
       const send = async (text: string, props?: Record<string, string>) => {
-        const id = crypto.randomUUID();
-        const r = m.resource ? await host.ctx.board.commentOnResource(id, m.resource, m.revision!, text, p.note, actor, props) : await host.ctx.board.comment(id, m.id, m.revision!, text, p.note, actor, props);
-        await surface.loadComments(host);
+        const r = await postComment(surface, host, m, m.revision!, text, p.note, actor, props);
         if (actor.kind === "user") surface.selection = null;
         host.redraw();
         return r.id;
@@ -296,8 +292,8 @@ export const THREAD_DEFS = {
     ],
     async run({ thread, body }, on, actor) {
       if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's reply is sent at once");
-      const s = await on.surface.ensureSession(on.host, "threads");
-      const why = s.replyTo(findThread(s, thread), actor);
+      const { s, i } = await threadIn(on, thread);
+      const why = s.replyTo(i, actor);
       if (why) throw new ActionRefused(why);
       // Written by hand: as the Reply control opens it, back to reading once it's sent.
       if (body === undefined) { s.fromReader = true; on.host.redraw(); return { replying: s.target?.kind === "reply" ? s.target.thread.id : thread, restored: !!s.composer?.restored }; }
@@ -322,8 +318,7 @@ export const THREAD_DEFS = {
     async run({ thread, reply, body, observed }, on, actor) {
       if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's edit is saved at once (the words it read are in threads)");
       if (body !== undefined && observed === undefined && actor.kind === "agent") throw new ActionRefused("say observed=: the comment's words as you read them (threads lists them), so an edit made since isn't overwritten");
-      const s = await on.surface.ensureSession(on.host, "threads");
-      const i = findThread(s, thread);
+      const { s, i } = await threadIn(on, thread);
       // Checked before anything opens: the words read are still its words.
       if (observed !== undefined) {
         const th = s.threads[i]!, now = reply === undefined ? th : th.replies.find(x => x.id === reply || (reply.length >= 6 && x.id.startsWith(reply)));
@@ -359,8 +354,7 @@ export const THREAD_DEFS = {
       { act: "thread.seen thread=5b2e8d back=true", does: "brings that earlier thread back into the margin" },
     ],
     async run({ thread, back }, on, actor) {
-      const s = await on.surface.ensureSession(on.host, "threads");
-      const t = s.threads[findThread(s, thread)]!;
+      const { t } = await threadIn(on, thread);
       const to = (back ?? !t.open) ? "open" : "seen";
       return attention(on, actor, thread, to, to === "seen" ? "marked a comment seen" : "brought a comment back");
     },
@@ -375,8 +369,7 @@ export const THREAD_DEFS = {
       { act: "thread.keep thread=5b2e8d keep=false", does: "unkeeps that thread so it can be put away" },
     ],
     async run({ thread, keep }, on, actor) {
-      const s = await on.surface.ensureSession(on.host, "threads");
-      const t = s.threads[findThread(s, thread)]!;
+      const { t } = await threadIn(on, thread);
       const to = (keep ?? t.lifecycle !== "kept") ? "kept" : "open";
       return attention(on, actor, thread, to, to === "kept" ? "kept a comment" : "unkept a comment");
     },
@@ -405,8 +398,7 @@ export const THREAD_DEFS = {
         host.redraw();
         return { removed: true, recordedAs: recordedAnswer(actor) };
       }
-      const s = await surface.ensureSession(host, "threads");
-      const i = findThread(s, thread);
+      const { s, i } = await threadIn({ surface, host }, thread);
       s.sel = i;
       const env = surface.env(host, actor);
       if (body) {
