@@ -191,6 +191,18 @@ for (const [name, code, error] of [
   expect(store.children(note.id)).toEqual([]);
 });
 
+test("a render drawing that throws shows its error alone, without the action-script advice (PIE-1604)", async () => {
+  const { client, create, output, draw } = await setup();
+  create("Boomer [script::boomer] [mode::render]\n```js\nthrow new Error('boom');\n```");
+  const note = create("Draw\nboomer::");
+  await draw(note.id);
+  expect(await until("the thrown error", () => output(note.id)[0])).toContain("boom");
+  const sources = await client.request<import("@ep0ch/outline-core/sources").SourcesAnswer>({ action: "site.sources", blockId: note.id });
+  const problem = sources.sources.find(s => s.name === "boomer")?.problem;
+  expect(problem).toBe("boom");
+  expect(output(note.id).join("\n")).not.toContain("use an action script");
+});
+
 test("a render line is drawn again when its script's code changes, and when a query it ran finds a new match", async () => {
   const { store, create, client, output, draw } = await setup();
   const script = create("Count [script::todo-count] [mode::render]\n```js\nconst open = (await q('status=todo')).blocks.length;\nreturn `open: ${open}`;\n```");

@@ -16,7 +16,7 @@ import type { LoadedExtension, ScriptSource } from "./extension-manifest";
 import type { ExtensionRegistry } from "./extension-registry";
 import type { ExtensionWrites } from "./extension-writes";
 import { planPlace, type PlaceMode } from "./place";
-import { hostApi, type HostApi, type HostStep } from "./host-api";
+import { hostApi, renderTriedToWrite, type HostApi, type HostStep } from "./host-api";
 import { isJsxLanguage, runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { asksMachinery } from "./watch-machinery";
 import { importedNames, linkScript, ScriptLinkError, type LinkedScript } from "./script-link";
@@ -253,7 +253,7 @@ export class ScriptRuns {
       onRead(linked.moduleIds);
       const result = await runScript(linked.code, api, signal, undefined, site.globals, { jsx: isJsxLanguage(source.language), modules: linked.modules });
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
-      if (!result.ok) throw new Error(controller.signal.aborted ? result.error.message : `${result.error.message}\n${RENDER_ERROR}`);
+      if (!result.ok) throw new Error(!controller.signal.aborted && renderTriedToWrite(result.error.message) ? `${result.error.message}\n${RENDER_ERROR}` : result.error.message);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}), ...(machinery ? { machinery: true as const } : {}) };
     } catch (error) {
@@ -587,7 +587,7 @@ export class ScriptRuns {
               site.globals.input = value;
               const answer = await execute(args);
               output.push(...answer.output.filter((o): o is { type: "text"; text: string } => o.type === "text"));
-              if (!answer.ok) throw new Error(`${answer.error.message}${source.render ? `\n${RENDER_ERROR}` : ""}`);
+              if (!answer.ok) throw new Error(`${answer.error.message}${source.render && renderTriedToWrite(answer.error.message) ? `\n${RENDER_ERROR}` : ""}`);
               if (item.kind === "script") value = answer.value;
               trace!.result.table!.push([String(index + 1), spelling, show(before), show(value), item.kind === "act" ? show(actionAnswer) : value === undefined ? "returned nothing" : show(value), effects.join("\n")]);
               trace!.result.rows++;

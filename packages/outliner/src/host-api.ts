@@ -258,6 +258,23 @@ export const SCRIPT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = AGENT_TOO
  */
 export type RenderHostApi = Omit<HostApi, "act" | "place" | "sh" | "fetch" | "components">;
 
+/** The writing tools a render drawing leaves out of `tools`; runScript names them when one is called (PIE-1604). */
+export const RENDER_LEFT_OUT_TOOLS: readonly string[] = SCRIPT_TOOL_DEFINITIONS.filter(d => d.writes).map(d => d.name);
+/** What a render drawing leaves out of an action run's API: the writing tools, and act, place, sh, fetch and components. */
+const RENDER_LEAVES_OUT = new Set<string>([...RENDER_LEFT_OUT_TOOLS, "act", "place", "sh", "fetch", "components"]);
+
+/**
+ * Whether a render drawing failed by calling a function it doesn't have (PIE-1604), in the VM's own words for that
+ * ("act is not defined", "tools.outline_comment is not a function", "No tool outline_edit"). Only then does its error
+ * carry the advice to use an action script; any other thrown error is shown alone.
+ */
+export function renderTriedToWrite(message: string): boolean {
+  for (const match of message.matchAll(/(?:\btools\.)?\b([A-Za-z_$][\w$]*)'? is not (?:defined|a function)|No tool ([\w$]+)/g)) {
+    if (RENDER_LEAVES_OUT.has(match[1] ?? match[2]!)) return true;
+  }
+  return false;
+}
+
 export function hostApi(client: AgentToolsClient, actor: undefined, options: HostApiOptions & { kind: "render" }): RenderHostApi;
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options?: HostApiOptions): HostApi;
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: HostApiOptions = {}): HostApi | RenderHostApi {
