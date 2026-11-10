@@ -344,7 +344,7 @@ test.each([null, "4"])("HTTP PDF enforces the streaming limit with content-lengt
     }).resource;
     const result = await store.resources.refreshWeb(resource.id, true);
     expect(result.pdf).toBeNull();
-    expect(result.pdfError).toBe("PDF response exceeds 8 bytes");
+    expect(result.pdfError).toBe("PDF exceeds 8 bytes");
     expect(receivedChunks).toBe(3);
     expect(cancelled).toBe(true);
     expect(body.locked).toBe(false);
@@ -352,6 +352,23 @@ test.each([null, "4"])("HTTP PDF enforces the streaming limit with content-lengt
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an oversize PDF from a file says what one from the web says (PIE-1690)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pdf-file-limit-"));
+  const path = join(root, "seed-catalogue.pdf");
+  writeFileSync(path, fixturePdf(1));
+  const store = new OutlinerStore(join(root, "db.sqlite"), { maximumPdfBytes: 8 });
+  try {
+    const resource = store.resources.internFilesystem({ path }).resource;
+    await expect(store.resources.refresh(resource.id, true)).rejects.toMatchObject({
+      code: "invalid-input",
+      message: "PDF exceeds 8 bytes",
+    });
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
