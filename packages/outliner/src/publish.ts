@@ -1319,8 +1319,7 @@ export class Publisher {
       const entry = await this.entryAt(slug, index, audience);
       if (!entry) return notFound();
       const view = url.searchParams.get("view");
-      // A browser gets the page, on the tailnet and on the public link alike (PIE-1727); `?view=md` (or anything without
-      // text/html, such as curl) the Markdown.
+      // A browser gets the page, tailnet and public link alike (PIE-1727); `?view=md` (or no text/html: curl) the Markdown.
       const browsing = view === null && accept.includes("text/html");
       return await this.serveEntry(entry, index, browsing ? "html" : view, audience);
     } catch (error) {
