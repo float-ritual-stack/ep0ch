@@ -1,4 +1,5 @@
 import { foldPoints } from "../doc";
+import { wrap } from "../text";
 import { stripQuotes } from "@ep0ch/outline-core/callouts";
 import { ReaderPane, type DeskApi, type Pane } from "./panes";
 import type { TileKind } from "./tile-kinds";
@@ -60,6 +61,21 @@ export class AnswerTile implements Pane {
     const hit = this.ranges.find(r => r.line === y + this.top && x >= r.from && x < r.to);
     if (hit) void desk.press?.(this, ANSWER_ACTIONS, "answer.follow", { n: hit.n + 1 });
   }
+  /** Words in place of an answer, wrapped whole to the tile's width (PIE-1733: cut at one row, its close never showed). */
+  private said(words: string, w: number, h: number) {
+    const lines = wrap(words, w);
+    this.links = []; this.ranges = [];
+    this.total = lines.length; this.room = h;
+    this.top = Math.max(0, Math.min(this.top, this.total - h));
+    return { lines: lines.slice(this.top, this.top + h) };
+  }
+  /** Whether its ask is still in its reader's note (typed or saved): one that's gone isn't kept in a saved layout (PIE-1733). */
+  live(desk: Pick<DeskApi, "paneNamed">): boolean {
+    const reader = desk.paneNamed?.(this.source);
+    return reader instanceof ReaderPane && (reader.surface.draft?.text ?? reader.msg?.text ?? "").split("\n").includes(this.ask);
+  }
+  /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
+  private shownLive: boolean | null = null;
   render(w: number, h: number, _focused: boolean, desk: DeskApi) {
     const reader = desk.paneNamed?.(this.source);
     // Its reader went (closed, or moved into a group or the drawer, PIE-1716): it closes as an attached tile does, unless
@@ -67,14 +83,16 @@ export class AnswerTile implements Pane {
     // back). The next ask opens one beside the reader where it is now.
     if (!(reader instanceof ReaderPane)) {
       if (!this.closing) { this.closing = true; queueMicrotask(() => { if (this.closing && !(desk.paneNamed?.(this.source) instanceof ReaderPane)) desk.dismiss?.(this, false); }); }
-      return { lines: ["The answer's reader has gone."] };
+      return this.said("The answer's reader has gone.", w, h);
     }
     this.closing = false;
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
-    const lines = text.split("\n"), fold = this.answer(text);
+    const lines = text.split("\n"), fold = this.answer(text), live = lines.includes(this.ask);
+    if (this.shownLive !== null && this.shownLive !== live) queueMicrotask(() => desk.keepLayout?.());
+    this.shownLive = live;
     // Its ask is gone from the note (taken out, or the reader gone on to another note): no answer is coming, so it says so
     // and how to close it, never "Waiting for the answer…" (PIE-1731). The tile stays: closing it is the person's.
-    if (!lines.includes(this.ask)) return { lines: [`Its ask is gone from ${reader.msg ? "this note" : "the reader"}: nothing to wait for · x closes this tile`] };
+    if (!live) return this.said(`Its ask is gone from ${reader.msg ? "this note" : "the reader"}: nothing to wait for · x closes this tile`, w, h);
     this.links = [];
     const draft = reader.surface.draft;
     const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));
@@ -143,4 +161,6 @@ export const ANSWER_TILE: TileKind = {
   make: s => new AnswerTile(s.source?.replace(/^tile:/, "") ?? "reader", String(s.state?.ask ?? ""), s.state?.fold as string | undefined),
   // A click on a link or a button presses it; the keys stay in the edit beside it (PIE-1722).
   clickKeepsKeys: (p, x, y) => (p as AnswerTile).hits(x, y),
+  // One whose ask is gone isn't kept: a door opened next would bring back a dead tile to close (PIE-1733).
+  kept: (p, desk) => (p as AnswerTile).live(desk),
 };

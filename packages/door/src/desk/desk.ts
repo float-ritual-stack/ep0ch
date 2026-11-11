@@ -1695,9 +1695,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it would edit a file that's gone and bring nothing back).
    */
   /** Tiles opened into a container (the board's details) are opened, not kept, as a ctrl+e edit tile isn't. */
-  // A comment's own tile (PIE-846) isn't kept either: a handover opens it again with its comment (Screen.reopen).
-  private saved() {
-    const saved = serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof AttachedTilePane || this.openedInto(id) !== undefined; });
+  // A comment's own tile (PIE-846) isn't kept either: a handover opens it again with its comment (Screen.reopen). `kept`: a save (desk.json, a handover) also leaves out what its kind doesn't keep now (PIE-1733).
+  private saved(kept = false) {
+    const saved = serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof AttachedTilePane || this.openedInto(id) !== undefined || (kept && !!p && kindOf(p)?.kept?.(p, this) === false); });
     for (const n of [saved, ...savedNodes(saved.root)]) {
       const to = n.policy?.opensInto, id = to ? this.idNamed(to) : undefined;
       if (id !== undefined) n.policy = { ...n.policy, opensInto: this.tileId(id) };
@@ -1732,7 +1732,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The screen as its save keeps it: the layout, the focus, the open rule, the zoom, the revision and ids, its models' state. */
   savedState(): SavedDesk {
     const models = Object.fromEntries([...this.models].map(([cid, m]) => [this.columnsIn().find(c => c.id === cid)?.key ?? cid, m.save?.()] as const).filter(([, v]) => v !== undefined));
-    return { ...this.saved(), focus: this.panes.has(this.focus) ? this.tileId(this.focus) : 0, rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), ...(this.zoom !== null && this.panes.has(this.zoom) ? { zoom: this.tileId(this.zoom) } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) };
+    return { ...this.saved(true), focus: this.panes.has(this.focus) ? this.tileId(this.focus) : 0, rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), ...(this.zoom !== null && this.panes.has(this.zoom) ? { zoom: this.tileId(this.zoom) } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) };
   }
 
   // ── DeskApi ────────────────────────────────────────────────────────────────

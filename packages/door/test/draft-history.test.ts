@@ -327,6 +327,42 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     expect((await board.get(b.id))!.text).toBe("Jam labels for the plums");   // nothing saved changed
   }, 20_000);
 
+  test("an agent's write after the save: one ctrl+z past it takes back both, said as both; ctrl+y puts both back (PIE-1733)", async () => {
+    const b = await board.request("create", { parentId: null, text: "Bean rows\n@shedbot count them\n> [!note]+ @shedbot answered\n> 3 rows", author: "user" });
+    const a = await open(b.id);
+    a.pane.key({ kind: "end" }, a.d);
+    for (const ch of " beds") a.pane.key(char(ch), a.d);               // a word typed, then
+    a.draft().replace("Bean rows beds");                               // the ask taken out by mistake: a save of two steps
+    a.pane.key(ctrl("s"), a.d);
+    await until(() => !a.pane.editing, "the save");
+    // The agent's write because of it (yo's drop is the service's, as ext:yo; any agent's write is carried the same).
+    const saved = (await board.get(b.id))!;
+    await board.request("update", { blockId: b.id, text: "Bean rows!", expectedRevision: saved.revision!, mutation: { author: "agent", actorId: "shedbot/claude-code@box-a" } });
+    const again = await open(b.id);
+    expect(again.draft().text).toBe("Bean rows!");
+    expect(await DRAFT_ACTIONS.run("draft.undo", {}, again.draft(), USER)).toMatchObject({ asks: expect.stringContaining("your save and shedbot's edit") });
+    const undone = await DRAFT_ACTIONS.run("draft.undo", { past: true }, again.draft(), USER) as { undone: string; redo: number };
+    expect(undone.undone).toContain("undid your save and shedbot's edit");
+    expect(undone.redo).toBe(3);
+    expect(again.draft().text).toBe("Bean rows\n@shedbot count them\n> [!note]+ @shedbot answered\n> 3 rows");   // the save taken back whole
+    const redone = await DRAFT_ACTIONS.run("draft.redo", {}, again.draft(), USER) as { redone: string; left: number };
+    expect(redone).toMatchObject({ redone: "redid your save and shedbot's edit", left: 0 });
+    expect(again.draft().text).toBe("Bean rows!");
+    again.pane.key({ kind: "esc" }, again.d);
+    await until(() => !again.pane.editing, "closed unchanged");
+    // A person's write after the save (another door's) ends the history there: nothing of it is carried past.
+    const c = await board.request("create", { parentId: null, text: "Pea sticks", author: "user" });
+    const first = await open(c.id);
+    first.pane.key({ kind: "end" }, first.d);
+    for (const ch of " cut") first.pane.key(char(ch), first.d);
+    first.pane.key(ctrl("s"), first.d);
+    await until(() => !first.pane.editing, "the save");
+    const mine = (await board.get(c.id))!;
+    await board.request("update", { blockId: c.id, text: "Pea sticks cut short", expectedRevision: mine.revision!, mutation: { author: "user" } });
+    const later = await open(c.id);
+    expect(later.draft().undos).toEqual([]);
+  }, 20_000);
+
   test("at 40 columns the undo ask reads whole, wrapped under the draft's status, never cut (PIE-1431)", async () => {
     const b = await board.request("create", { parentId: null, text: "Fig netting", author: "user" });
     const a = await open(b.id);

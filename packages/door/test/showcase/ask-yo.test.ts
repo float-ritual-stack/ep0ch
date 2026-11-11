@@ -686,6 +686,87 @@ describe("showcase: ask yo (PIE-1585)", () => {
     }
   }, 90_000);
 
+  // PIE-1733, the verifier's walk: an ask deleted by mistake and saved, yo takes its answer out (the agent's write after
+  // the save); one ctrl+z past the save in the reopened edit brings both back, said as such. The answer tile says its ask
+  // is gone whole at a narrow width and isn't kept in the saved layout; a reopened edit folds a saved answer.
+  for (const path of ["draft", "saved"] as const) test(`one undo takes back a deleted ask and yo's removal of its answer (${path} path)`, async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const asked = `zoom back ${path}`, ask = `@yo how do I ${asked}`;
+    await h.board.createBlock(null, `${asked}: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::${asked}] [yo-line::tile.zoom]`);
+    const own = await h.board.createBlock(null, path === "saved" ? `Undo ${path}\n\nkept line\n${ask}\nlast line\n` : `Undo ${path}\n\nkept line\n`);
+    const read = async () => (await h.board.get(own.id))!;
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    type D = { text: string; replace(t: string, by?: unknown): void; hiddenAnswerLines(): Set<number>; status: { line(): string | null } };
+    const draft = () => stage().pane("ask").surface.draft as D | null;
+    const answerTile = () => (stage().layoutGet().tiles as { kind: string; name: string }[]).find(t => t.kind === "answer");
+    const edit = async () => {
+      h.ch("e");
+      await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+      h.press({ kind: "enter" });
+      await until(() => !!draft(), "the edit", 8000);
+    };
+    const save = async () => { h.press({ kind: "char", ch: "s", ctrl: true }); await until(() => !draft(), "saved", 8000); };
+    try {
+      if (path === "draft") {
+        await edit();
+        h.press({ kind: "end", ctrl: true });
+        for (const c of ask) h.ch(c);
+        await until(() => draft()!.text.includes("@yo answered"), "the answer in the edit", 30_000);
+        await save();
+      }
+      await untilAsync(async () => (await read()).text.includes("@yo answered"), "the answer saved", 30_000);
+      // Opened again with the answer saved: folded as the live edit draws it, never its callout's raw lines.
+      await edit();
+      expect(draft()!.text).toContain("@yo answered");
+      expect(draft()!.hiddenAnswerLines().size).toBeGreaterThan(0);
+      expect(h.screen()).not.toContain("::button{");
+      // The ask taken out by mistake and saved: yo takes its answer out after the save, as its own write.
+      let kept = 0;
+      const st = stage(), keep = st.keepLayout.bind(st);
+      st.keepLayout = () => { kept++; keep(); };
+      draft()!.replace(draft()!.text.replace(`${ask}\n`, ""));
+      await save();
+      await untilAsync(async () => !(await read()).text.includes("@yo answered"), "the answer gone with its ask", 10_000);
+      const gone = await read();
+      expect(gone.text).not.toContain(ask);
+      expect(gone.text).toContain("kept line");
+      // Its answer tile says so whole at a narrow width, and the saved layout doesn't keep it.
+      const tile = answerTile();
+      if (tile) {
+        const drawn = (stage().pane(tile.name) as unknown as { render(w: number, h: number, f: boolean, d: unknown): { lines: string[] } }).render(38, 10, false, stage()).lines;
+        expect(drawn.every(l => Bun.stringWidth(l) <= 38)).toBe(true);
+        expect(drawn.join(" ").replace(/\s+/g, " ")).toContain("x closes this tile");
+        expect(JSON.stringify(stage().savedState())).not.toContain('"kind":"answer"');
+        // Saved as it went, so a door opened next doesn't bring the dead tile back.
+        await until(() => kept > 0, "the layout saved when the ask went", 8000);
+        st.keepLayout = keep;
+      }
+      // One ctrl+z past the save in the reopened edit: the ask and its answer back, said as both.
+      await edit();
+      const undone = await h.app.dispatch.act({ action: "draft.undo", tile: "ask", args: { past: true } }, USER) as { undone?: string };
+      expect(undone.undone).toContain("undid your save and yo's removal of its answer");
+      expect(draft()!.text).toContain(`${ask}\n> [!note]`);
+      expect(draft()!.text.split("\n").filter(l => /@yo answered$/.test(l)).length).toBe(1);
+      // Saved again: one answer under the ask, not a second one asked for again.
+      await save();
+      await untilAsync(async () => (await read()).text.includes(ask), "the ask saved back", 8000);
+      await Bun.sleep(1500);
+      const back = (await read()).text;
+      expect(back.split("\n").filter(l => /@yo answered$/.test(l)).length).toBe(1);
+      expect(back).toContain(`${ask}\n> [!note]`);
+    } finally {
+      if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
+      await until(() => !draft(), "the edit closed", 8000);
+      const t = answerTile();
+      if (t) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER).catch(() => {});
+      await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    }
+  }, 120_000);
+
   // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
   // asked before and after the move, yo's answer is in one tile beside the reader where it is now, and the caret on an ask
   // selects it there. The draft asks for its reader's host each time, never the one it opened with.
