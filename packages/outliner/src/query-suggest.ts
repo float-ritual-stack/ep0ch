@@ -57,7 +57,7 @@ const without = (text: string, spans: readonly string[]) => spans.reduce((s, w) 
 const props = (text: string, key: string) => parsePropertyRecords(text).filter(p => p.key === key).map(p => p.value);
 const NEGATION = /^(?:not|without|except)$/i;
 
-interface Candidate { value: string; clause: string; pick?: Clause; widens: boolean }
+interface Candidate { value: string; clause: string; pick?: Clause; widens: boolean; count?: number }
 interface Axis { key: string; candidates: Candidate[] }
 interface Read { answer: QueryWords; reading?: JevReading }
 type Prompt = Awaited<ReturnType<typeof loadQuerySuggestPrompt>>;
@@ -137,7 +137,7 @@ export class QuerySuggester {
     const offered = new Set([...common(here), ...common(f.values)]);
     return { key: f.key, candidates: f.values.filter(v => offered.has(v.value) || hits(v.value)).map(v => {
       const pick: Clause = { key: f.key, value: v.value, mode: "include" };
-      return { value: v.value, clause: clauseText(pick), pick, widens: !inside.has(v.value) };
+      return { value: v.value, clause: clauseText(pick), pick, widens: !inside.has(v.value), count: v.count };
     }).sort((a, b) => Number(a.widens) - Number(b.widens)) };
   }
 
@@ -196,7 +196,42 @@ export class QuerySuggester {
     const wordsAt = (value: string) => { const parts = value.toLowerCase().split(/[-_\s]+/).filter(Boolean).map(singular), at = heard.indexOf(parts[0] ?? ""); return at >= 0 && parts.every((w, i) => heard[at + i] === w) ? { at, size: parts.length } : null; };
     const picked = (axis: Axis) => axis.candidates.find(c => c.value === valueOf(`pick:${axis.key}`, response.answers[`pick:${axis.key}`]?.choice));
     const sayAll = (axis: Axis) => { const c = picked(axis); return c ? wordsAt(c.value)?.size ?? 0 : 0; };
+    // Code reads what the words say outright before Jev's gates (the verifier's walk, PIE-1711): a value the outline has,
+    // said whole ("plans" is type=plan, "not sent" excludes status=sent), is that value. When several keys hold it, Jev's
+    // pick among them, else the key that holds it most. A word naming the key just before it ("tagged garden") goes with it.
+    const decided = new Set<string>(), taken = new Set<number>();
+    const keyWord = (word: string, key: string) => { const w = singular(word), k = key.toLowerCase(); return w === k || w === `${k}ged` || w === `${k}ed` || w === `${k}d`; };
+    const outright = axes.filter(a => a.key !== "by" && a.key !== "view").flatMap(axis => axis.candidates.flatMap(candidate => {
+      const at = wordsAt(candidate.value);
+      return at ? [{ axis, candidate, ...at }] : [];
+    })).sort((a, b) => b.size - a.size || a.at - b.at);
+    for (const hit of outright) {
+      if (decided.has(hit.axis.key) || Array.from({ length: hit.size }, (_, i) => hit.at + i).some(i => taken.has(i))) continue;
+      // Jev gated another key in for these very words (a view named "canopy" over page=canopy): Jev's reading stands.
+      const span = (at: number, size: number) => Array.from({ length: size }, (_, i) => at + i);
+      const claimed = axes.some(a => yes(response.answers[`gate:${a.key}`]) && a.key !== hit.axis.key && (() => { const c = picked(a), w = c ? wordsAt(c.value) : null; return !!w && span(w.at, w.size).some(i => span(hit.at, hit.size).includes(i)) && !outright.some(o => o.axis.key === a.key && o.candidate.value === c!.value && o.at === hit.at); })());
+      if (claimed) continue;
+      const rivals = outright.filter(o => o.at === hit.at && o.size === hit.size && !decided.has(o.axis.key));
+      const jev = rivals.map(o => ({ o, p: picked(o.axis)?.value === o.candidate.value ? response.answers[`pick:${o.axis.key}`]?.probabilities?.[response.answers[`pick:${o.axis.key}`]!.choice!] ?? 0 : 0 }));
+      const best = jev.sort((a, b) => b.p - a.p || (b.o.candidate.count ?? 0) - (a.o.candidate.count ?? 0))[0]!.o;
+      let start = best.at;
+      if (start > 0 && keyWord(tokens[start - 1]!, best.axis.key)) start--;
+      const negative = start > 0 && NEGATION.test(tokens[start - 1]!);
+      if (negative) start--;
+      const from = tokens.slice(start, best.at + best.size);
+      for (let i = start; i < best.at + best.size; i++) taken.add(i);
+      decided.add(best.axis.key);
+      // Jev unsure of this key's value still offers its runner-up, as the Jev path does.
+      const pick = response.answers[`pick:${best.axis.key}`], unsure = !!pick && (pick.confidence ?? 1) < QUERY_SUGGEST_THRESHOLDS.confident;
+      const alternatives = unsure ? Object.entries(pick!.probabilities ?? {}).filter(([id]) => id !== "none" && valueOf(`pick:${best.axis.key}`, id) !== best.candidate.value).sort((a, b) => b[1] - a[1]).slice(0, 1)
+        .flatMap(([id]) => best.axis.candidates.filter(c => c.value === valueOf(`pick:${best.axis.key}`, id)).map(c => negative ? `NOT (${c.clause})` : c.clause)) : [];
+      clauses.push({ clause: negative ? `NOT (${best.candidate.clause})` : best.candidate.clause, from: [from.join(" ")], confidence: unsure ? pick!.confidence ?? 1 : 1, alternatives,
+        ...(best.candidate.pick ? { pick: { ...best.candidate.pick, mode: negative ? "exclude" : "include" } } : {}), ...(best.candidate.widens ? { widens: true as const } : {}) });
+      for (const w of from) used.add(w);
+      used.add(from.join(" "));
+    }
     for (const axis of [...axes].sort((a, b) => sayAll(b) - sayAll(a))) {
+      if (decided.has(axis.key)) continue;
       const pick = response.answers[`pick:${axis.key}`];
       if (!pick?.choice || pick.choice === "none") continue;
       // Every word of a multiword value said in order ("shed items") is evidence enough with Jev's pick; one word needs a sure pick.

@@ -377,9 +377,50 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => rows().some(t => t.kind === "backlinks"), "the links opened", 15_000);
     const links = rows().find(t => t.kind === "backlinks")!.name;
     await until(() => (stage().pane(links) as unknown as { options: { kind: string | null } }).options.kind !== null, "grouped by kind", 15_000);
+    // The links open beside the edit, and the keys stay where the person is writing (loki on #1426).
+    expect(h.app.keysScreen()?.dispatch?.tile("focused")?.name).toBe("ask");
+    for (const c of " and on") h.ch(c);
+    await until(() => draft()?.text.includes(" and on") ?? false, "typing goes on in the edit", 4000);
     if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
     await until(() => !draft(), "the edit saved and closed", 8000);
     await h.app.dispatch.act({ action: "tile.close", tile: links }, USER);
+  }, 90_000);
+
+  // PIE-1712, the verifier's walk on the default desk: a desk with a replies tile (a links tile listing children alone). The
+  // button's links step aims a links tile that lists backlinks, never the replies, and the run says the button's words.
+  test("▸ by kind on a desk with a replies tile groups the note's backlinks, and says ▸ by kind done", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "G\n\nA note others link to.\n");
+    await h.board.createBlock(null, `Planning notes [type::plan]\n\nSee ((${own.id})) and again ((${own.id})).`);
+    await h.board.createBlock(null, "backlinks by kind: backlinks.view step=kind [yo-memory::answer] [yo-action::backlinks.view] [yo-asked::backlinks by kind] [yo-line::backlinks.view step=kind]");
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const rows = () => stage().layoutGet().tiles as { name: string; kind: string }[];
+    for (const t of rows().filter(t => t.kind === "backlinks")) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await h.app.dispatch.act({ action: "tile.open", args: { kind: "backlinks", name: "replies", source: "tile:ask", where: "down" } }, USER);
+    await h.app.dispatch.act({ action: "backlinks.groups", tile: "replies", args: { show: "children" } }, USER);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const read = async () => (await h.board.get(own.id))!;
+    const m = await read();
+    await h.board.update(m.id, `${m.text.trimEnd()}\n\n@yo backlinks by kind\n`, m.revision!, USER);
+    await untilAsync(async () => (await read()).text.includes("@yo answered"), "yo's answer", 30_000);
+    const surface = () => stage().pane("ask").surface;
+    await until(() => surface().describeElements().some((e: { label: string }) => e.label.includes("▸ by kind")), "the button drawn", 8000);
+    const ended: string[] = [], app = h.app as unknown as { showMessage(m: string, ...rest: unknown[]): unknown }, shown = app.showMessage.bind(app);
+    app.showMessage = (m: string, ...rest: unknown[]) => { ended.push(m); return shown(m, ...rest); };
+    await h.app.dispatch.act({ action: "button.press", tile: "ask", args: { label: "▸ by kind" } }, USER);
+    const line = (await read()).text.split("\n").findIndex(l => l.includes('label="▸ by kind"'));
+    await until(() => ["done", "failed"].includes(pressState(own.id, line, "▸ by kind").state ?? ""), "the press settled", 15_000);
+    expect(pressState(own.id, line, "▸ by kind")).toEqual({ state: "done" });
+    // The run says the button's words, never the note's title.
+    await until(() => ended.some(m => m.endsWith("done") || m.includes("done ·")), "the run's end said", 8000).finally(() => { app.showMessage = shown; });
+    expect(ended.find(m => /done/.test(m))).toStartWith("▸ by kind done");
+    const replies = stage().pane("replies") as unknown as { options: { kind: string | null }; groups: string[] };
+    expect(replies.options.kind).toBeNull();
+    const links = rows().find(t => t.kind === "backlinks" && t.name !== "replies")!;
+    expect((stage().pane(links.name) as unknown as { options: { kind: string | null } }).options.kind).not.toBeNull();
+    for (const t of rows().filter(t => t.kind === "backlinks")) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER);
   }, 90_000);
 
   // PIE-1722 (the verifier's gap): a note action yo offers (note.rename's ▸ rename), pressed in the answer tile, renames the
@@ -413,6 +454,47 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
     await until(() => !draft(), "the edit saved and closed", 8000);
     await untilAsync(async () => (await h.board.get(own.id))!.text.startsWith("Seed-swap\n"), "the saved title");
+  }, 90_000);
+
+  // PIE-1722, the verifier's walk: a rename button in the answer tile, clicked while typing: with a title it retitles the edit,
+  // the keys staying in it; with none it asks for the title, holding the edit's, and that retitles the edit.
+  for (const named of [true, false]) test(`typed in the editor: a click on ${named ? "▸ rename text Seeds" : "▸ rename"} in the answer tile renames the edit's note, keys kept`, async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, `Seed note ${named ? "named" : "bare"}\n\nWhere a rename is clicked beside the line.\n`);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const line = named ? "note.rename text=Seeds" : "note.rename";
+    const asked = named ? "call it seeds clicked" : "retitle bare clicked";
+    await h.board.createBlock(null, `${asked}: ${line} [yo-memory::answer] [yo-action::note.rename] [yo-asked::${asked}] [yo-line::${line}]`);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of `@yo ${asked}`) h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
+    const label = named ? "▸ rename text Seeds" : "▸ rename";
+    await until(() => !!answer() && h.screen().includes(label), `yo's answer with ${label}`, 30_000);
+    const lines = h.screen().split("\n"), y = lines.findLastIndex(l => l.includes(label)), x = lines[y]!.lastIndexOf(label) + 1;
+    h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
+    // The keys stay in the edit: the click pressed the button and nothing else.
+    expect(h.app.keysScreen()?.dispatch?.tile("focused")?.name).toBe("ask");
+    if (!named) {
+      await until(() => h.screen().includes("Rename this note"), "the title prompt", 8000);
+      for (let i = 0; i < 20; i++) h.press({ kind: "backspace" });
+      for (const c of "Seeds") h.ch(c);
+      h.press({ kind: "enter" });
+    }
+    await until(() => /^Seeds\n/.test(draft()?.text ?? ""), "the edit's title is Seeds", 15_000);
+    expect(draft()!.text).toContain(`@yo ${asked}`);
+    for (const c of " and on") h.ch(c);
+    await until(() => draft()!.text.includes(" and on"), "typing goes on in the edit", 4000);
+    await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+    await until(() => !draft(), "saved", 8000);
   }, 90_000);
 
   // PIE-1699 (the verifier's repro): a tile-relative button pressed from the answer tile while the keys are there (a click

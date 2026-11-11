@@ -6,6 +6,9 @@ import type { Draft } from "../edit";
 import { ActionRefused } from "../surface/actions";
 import { USER, type Actor } from "../socket";
 
+/** The person's press: their keys or click, or a button they pressed (a script run for them, as ask-agent.ts reads it). */
+export const pressedByPerson = (actor: Actor) => actor.kind === "user" || (actor.kind === "agent" && actor.for === "you" && actor.id.startsWith("script:"));
+
 /**
  * The person's own press (yo's ▸ rename beside the line, a button they pressed: a script run for them, as ask-agent.ts
  * reads it) retitles the first line of their edit as one undo step, saved with the rest: the new title. Their cursor and
@@ -13,7 +16,7 @@ import { USER, type Actor } from "../socket";
  * this one at another revision (`expect`, as note.rename takes them), changes nothing; anyone else's is refused.
  */
 export function renameInEdit(draft: Draft, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): string {
-  const theirs = actor.kind === "user" || (actor.kind === "agent" && actor.for === "you" && actor.id.startsWith("script:"));
+  const theirs = pressedByPerson(actor);
   const title = text?.trim() ?? "";
   if (!theirs || !title || title.includes("\n")) throw new ActionRefused("this reader is editing the note: change its title in the edit");
   if (expect.note !== undefined && expect.note !== draft.blockId) throw new ActionRefused(`this reader is editing another note now; nothing was renamed · ${title}`);

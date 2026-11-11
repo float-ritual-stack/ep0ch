@@ -204,6 +204,11 @@ export interface TileKind {
   press?(p: Pane, k: Key): { action: string; args?: Record<string, unknown> } | null;
   /** Every key is the tile's own now, the desk's included (a whole screen in a tile, in its own edit). */
   takesKeys?(p: Pane): boolean;
+  /**
+   * A click here (tile-local x, y) presses something and leaves the person's keys where they are: an answer tile's button
+   * beside the edit they type in (PIE-1722), so their next keys go on in the edit.
+   */
+  clickKeepsKeys?(p: Pane, x: number, y: number): boolean;
   /** While it takes every key, ^W and the window key after it are still the desk's: the way out by keys (the comment tile). */
   readonly windowKeys?: true;
   /** The dispatcher of a whole screen in the tile (a board's), whose actions it answers there (the board's `card.*`). */

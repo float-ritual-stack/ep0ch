@@ -282,3 +282,42 @@ test("Detail keeps the moved row when the delayed semantic lookup finishes", asy
     expect(buffer.text).toContain(selected);
   } finally { release.resolve(); session.dismiss(); store.delete(rule.id); }
 }, 10_000);
+
+// PIE-1711, the verifier's walk: words that say a value the outline has are that value, read by code before Jev. Jev here
+// is no help at all (every gate no, every pick none): the facets alone answer.
+test("words naming a key or a value the outline has are its filter, with no help from Jev; text only for what nothing names", async () => {
+  const made = [
+    store.create("Bake sale flyer [type::hub-item] [status::draft]", null, "user"),
+    store.create("Allotment rota [type::hub-item] [status::queued]", null, "user"),
+    store.create("Compost notice [type::hub-item] [status::sent]", null, "user"),
+    store.create("Pond cleanup plan [type::plan] [tag::garden]", null, "user"),
+    store.create("Shed paint plan [type::plan] [tag::shed]", null, "user"),
+  ];
+  const previous = { key: process.env.TYPESAFE_API_KEY, endpoint: process.env.OUTLINER_JEV_ENDPOINT };
+  const jev = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(request) {
+    const { questions } = await request.json() as { questions: Record<string, { type: string }> };
+    return Response.json({ answers: Object.fromEntries(Object.entries(questions).map(([id, q]) => [id, q.type === "noul" ? { noul: 0.02 } : { choice: "none", confidence: 0.9, probabilities: { none: 0.9 } }])) });
+  } });
+  process.env.TYPESAFE_API_KEY = "recorded-answer";
+  process.env.OUTLINER_JEV_ENDPOINT = `http://127.0.0.1:${jev.port}`;
+  try {
+    const titles = async (text: string) => {
+      const answer = await client.request<QueryWords>({ action: "query.suggest", text });
+      return { where: answer.where, found: (await query(answer.where)).blocks.map(b => b.text.split(" [")[0]).sort() };
+    };
+    const unsent = await titles("hub items that are not sent yet");
+    expect(unsent.found).toEqual(["Allotment rota", "Bake sale flyer"]);
+    expect(unsent.where).not.toContain("text~");
+    const garden = await titles("the plans tagged garden");
+    expect(garden.found).toEqual(["Pond cleanup plan"]);
+    expect(garden.where).not.toContain("text~");
+    // A word nothing names stays text.
+    expect((await titles("plans about paint")).where).toContain('text~"paint"');
+  } finally {
+    jev.stop(true);
+    for (const note of made) store.delete(note.id);
+    for (const [key, value] of [["TYPESAFE_API_KEY", previous.key], ["OUTLINER_JEV_ENDPOINT", previous.endpoint]]) {
+      if (value === undefined) delete process.env[key!]; else process.env[key!] = value;
+    }
+  }
+});
