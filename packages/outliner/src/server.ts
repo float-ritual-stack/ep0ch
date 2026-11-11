@@ -548,7 +548,7 @@ export class OutlinerServer {
         const error = await this.scriptRuns.finished(result.undo!);
         return { ...result, ...(error !== undefined ? { error } : {}) };
       },
-      readDraft: (blockId) => this.draftPatches.read(blockId),
+      readDraft: (blockId) => this.draftPatches.read(blockId), heldDraft: (blockId) => this.draftHolds.list().some(h => h.blockId === blockId),
       patch: (input) => this.draftPatches.patch(input),
       changed: (blockId, ask) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.agent", sequence: this.store.sequence, blockId, ...(ask ? { ask } : {}),
@@ -3352,7 +3352,7 @@ export class OutlinerServer {
         case "drafts.release": {
           this.stalledHolds.delete(request.holdId);
           const released = this.draftHolds.list().find(hold => hold.holdId === request.holdId);
-          result = wired(action, { released: this.draftHolds.release(request.holdId) }); this.agentRequests.released(request.holdId);
+          result = wired(action, { released: this.draftHolds.release(request.holdId) }); this.agentRequests.released(request.holdId, released?.blockId);
           // The draft closed: a note that waited to route while it was held routes now (PIE-1010).
           if (released) this.routing.draftReleased(released.blockId);
           break;

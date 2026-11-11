@@ -977,3 +977,87 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "not set up here
   await Bun.sleep(400);
   expect(asked()).toEqual(["down find hub items"]);
 });
+
+// PIE-1731, the verifier's walk: a no-answer stays one across a restart (a deploy between the failure and its retype):
+// written again in a live draft afterwards, its line is asked again.
+test("a retry answer is still one after the service restarts: retyped in a draft, it is asked again", async () => {
+  const { store, client, create, writeAgent, restart } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "flaky-restart-")), "flaky.log");
+  await writeAgent("flaky", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "not set up here", retry: true } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  const note = await create("Hub\n@flaky down find hub items");
+  await until("answered once", () => asked().length === 1 && store.agentRequests(note.id).some(r => r.answeredAt));
+  await restart(50, true);
+  const fresh = new OutlinerClient(client.socketPath);
+  const door = await fakeDoor(fresh, "door-after-restart", (await fresh.request<Block>({ action: "get", blockId: note.id } as never)));
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string) => { const n = reads(); door.text = text; await fresh.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  const saved = door.text;
+  await type(saved.replace("@flaky down find hub items", ""));
+  await type(saved);
+  await until("asked again after the restart", () => asked().length === 2);
+});
+
+// PIE-1731, the walk on this branch: an answer this service wrote is still its own after a restart (a deploy). Retyped,
+// its line's new answer takes the old one's place, never stacked above it; deleted and saved, the ask takes it along.
+test("an answer written before a restart is still the agent's: a retype replaces it, a deleted ask takes it", async () => {
+  const { client, create, writeAgent, restart } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "flaky-own-")), "flaky.log"), state = join(log, "..", "up");
+  await writeAgent("flaky", `import { appendFileSync, existsSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+const up = existsSync(${JSON.stringify(state)});
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: up ? "found 2 notes" : "not set up here", ...(up ? {} : { retry: true }) } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  const note = await create("Hub\nfirst\n@flaky find hub items\nlast");
+  await until("the failure", () => asked().length === 1);
+  await until("the failure saved", () => client.request<Block>({ action: "get", blockId: note.id } as never).then(b => b.text.includes("not set up here")));
+  await restart(50, true);
+  writeFileSync(state, "");
+  const fresh = new OutlinerClient(client.socketPath);
+  const read = async () => (await fresh.request<Block>({ action: "get", blockId: note.id } as never));
+  await until("the failure saved", async () => (await read()).text.includes("not set up here"));
+  const door = await fakeDoor(fresh, "door-own", await read());
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string) => { const n = reads(); door.text = text; await fresh.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  const saved = door.text;
+  await type(saved.replace("@flaky find hub items", ""));
+  await type(saved);
+  await until("the retype's answer", () => door.text.includes("found 2 notes"));
+  // One answer under the line: the new one in the old one's place.
+  expect(door.text.split("@flaky answered").length - 1).toBe(1);
+  expect(door.text).not.toContain("not set up here");
+  // Saved with the line deleted after another restart: the answer goes with it.
+  const held = await read();
+  await fresh.request({ action: "update", blockId: note.id, text: door.text, expectedRevision: held.revision, mutation: PERSON });
+  await restart(50, true);
+  const after = new OutlinerClient(client.socketPath), now = await after.request<Block>({ action: "get", blockId: note.id } as never);
+  await after.request({ action: "update", blockId: note.id, text: now.text.replace(/\n@flaky find hub items/, ""), expectedRevision: now.revision, mutation: PERSON });
+  await until("the answer taken with its ask", async () => !(await after.request<Block>({ action: "get", blockId: note.id } as never)).text.includes("@flaky answered"));
+});
+
+// CodeRabbit on #1434: the answers kept across a restart had a cap of 50 per agent and note, so in a note asked more often
+// than that (answers gone since still counted) the oldest answer still there was no longer the agent's after a deploy.
+test("every answer still in a note is the agent's after a restart, however many it has had", async () => {
+  const { store, client, create, writeAgent, restart } = await setup({ quietMs: 50 });
+  await writeAgent("echo", `const request = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "re " + request.input.request } }));`);
+  const note = await create("Many asks\n@echo first item\nlast");
+  const get = () => client.request<Block>({ action: "get", blockId: note.id } as never);
+  await until("the first answer", async () => (await get()).text.includes("re first item"));
+  // Fifty answers this note had since, gone now (deleted by hand, or with their asks).
+  const kept = JSON.parse(store.readMetadata(`agent-answers:${note.id}`) ?? "{}") as Record<string, [string, string][]>;
+  kept.echo = [...kept.echo!, ...Array.from({ length: 50 }, (_, i) => [`gone-${i}`, `key-${i}`] as [string, string])];
+  store.writeMetadata(`agent-answers:${note.id}`, JSON.stringify(kept));
+  const before = await get();
+  await client.request({ action: "update", blockId: note.id, text: `${before.text}\n@echo second item`, expectedRevision: before.revision, mutation: PERSON });
+  await until("the second answer", async () => (await get()).text.includes("re second item"));
+  await restart(50, true);
+  const fresh = new OutlinerClient(client.socketPath), read = () => fresh.request<Block>({ action: "get", blockId: note.id } as never);
+  const now = await read();
+  await fresh.request({ action: "update", blockId: note.id, text: now.text.replace("@echo first item\n", ""), expectedRevision: now.revision, mutation: PERSON });
+  await until("the first answer taken with its ask", async () => !(await read()).text.includes("re first item"));
+});

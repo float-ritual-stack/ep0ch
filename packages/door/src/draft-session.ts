@@ -207,6 +207,9 @@ export class DraftSession {
     if (init.position) {
       if (s.draft.restored !== null) Object.assign(init.position, s.draft.position);
       s.draft.usePosition(init.position);
+      // Opened on an ask line from its start (the reader's cursor there): at the ask's end, where typing or backspacing
+      // works on the ask, never the line above it (PIE-1731).
+      if (s.draft.col === 0 && !s.draft.anchor && /^\s*(?:[-*+]\s+)?@[a-z][a-z0-9-]*(?=$|[\s:,])/.test(s.draft.lines[s.draft.row] ?? "")) s.draft.go("line-end");
     }
     if (target.blockId) {
       registry(env.board).add(s);

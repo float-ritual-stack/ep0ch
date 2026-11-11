@@ -88,6 +88,9 @@ const MAX_WROTE_LINKS = 20;
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
 const ANSWERED: ReadonlySet<string> = new Set(["applied", "proposed", "replied", "nothing"]);
+/** The first line of an answer's fold, as the service writes it; `ANSWER_HEAD` reads it back (and its agent). */
+const answerHead = (agent: string, mark: "+" | "-") => `> [!note]${mark} @${agent} answered`;
+const ANSWER_HEAD = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/;
 
 /**
  * The `@name …` lines in a block's text whose names an extension answers
@@ -153,6 +156,8 @@ export interface AgentRequestDeps {
   script?(request: ExtensionActRequest): Promise<ExtensionActResult & { error?: string }>;
   /** The note as the person sees it: its live draft when a door holds one (`drafts.read`). */
   readDraft(blockId: string): Promise<{ text: string; revision: number; holder?: string }>;
+  /** Whether a door holds a live draft of the note now (`drafts.hold`). */
+  heldDraft?(blockId: string): boolean;
   /** `draft.patch`, routed to the live draft or the saved note. */
   patch(input: DraftPatchInput): Promise<DraftPatchResult>;
   /** A request's state changed: readers repaint the block. */
@@ -277,8 +282,47 @@ export class AgentRequests {
    */
   private readonly written = new Map<string, Map<string, string>>();
 
+  /**
+   * What this service wrote, kept across a restart (PIE-1731: a deploy between an answer and its retype stacked the new
+   * answer over the old): each answer's hash and request by note and agent, in the store's metadata. `hydrate` puts back
+   * into `written` the answers in a note's text that are still as written.
+   */
+  private readonly answers = {
+    key: (blockId: string) => `agent-answers:${blockId}`,
+    hash: (fold: string) => createHash("sha256").update(fold).digest("hex").slice(0, 32),
+    of: (blockId: string): Record<string, [string, string][]> => { try { return JSON.parse(this.store.readMetadata(this.answers.key(blockId)) ?? "{}"); } catch { return {}; } },
+    put: (blockId: string, agent: string, fold: string, requestKey: string, was: string) => {
+      const all = this.answers.of(blockId), gone = was ? this.answers.hash(was) : "";
+      all[agent] = [...(all[agent] ?? []).filter(([h]) => h !== gone), [this.answers.hash(fold), requestKey] as [string, string]];
+      this.store.writeMetadata(this.answers.key(blockId), JSON.stringify(all));
+    },
+    // No cap (CodeRabbit on #1434): one that dropped the oldest dropped answers still in the note. An answer taken out
+    // with its ask is forgotten; one a person deleted by hand stays, a few dozen bytes.
+    forget: (blockId: string, agent: string, fold: string) => {
+      const all = this.answers.of(blockId), gone = this.answers.hash(fold);
+      if (!all[agent]?.some(([h]) => h === gone)) return;
+      all[agent] = all[agent]!.filter(([h]) => h !== gone);
+      this.store.writeMetadata(this.answers.key(blockId), JSON.stringify(all));
+    },
+  };
+  private hydrate(blockId: string, text: string): void {
+    const all = this.answers.of(blockId), lines = text.split("\n");
+    for (let i = 1; i < lines.length; i++) {
+      const agent = ANSWER_HEAD.exec(lines[i]!)?.[1];
+      if (!agent || !all[agent]?.length) continue;
+      let j = i + 1;
+      while (j < lines.length && lines[j]!.startsWith(">")) j++;
+      const fold = `\n${lines.slice(i, j).join("\n")}`, kept = all[agent]!.find(([h]) => h === this.answers.hash(fold));
+      const folds = this.written.get(this.key(blockId, agent)) ?? new Map<string, string>();
+      if (kept && !folds.has(fold)) { folds.set(fold, kept[1]); this.written.set(this.key(blockId, agent), folds); }
+      i = j - 1;
+    }
+  }
+
   /** The answer `agent` wrote that `below` (the text after an ask line) starts with, unchanged, or "". */
   private ownAnswer(blockId: string, agent: string, below: string): string {
+    // Written before a restart: read back from what was kept, for the answer right under the line.
+    if (below.startsWith("\n>")) this.hydrate(blockId, `ask${below}`);
     for (const fold of this.written.get(this.key(blockId, agent))?.keys() ?? []) {
       if (below.startsWith(fold) && (below.length === fold.length || below[fold.length] === "\n")) return fold;
     }
@@ -298,6 +342,7 @@ export class AgentRequests {
     if (was) folds.delete(was);
     folds.set(fold, requestKey);
     this.written.set(key, folds);
+    this.answers.put(blockId, agent, fold, requestKey, was);
     if (!replaced || replaced === requestKey || this.running.has(this.key(blockId, replaced))) return;
     this.removed.delete(this.key(blockId, replaced));
     this.store.pruneAgentRequests(blockId, this.store.agentRequests(blockId).map(row => row.requestKey).filter(k => k !== replaced));
@@ -423,12 +468,29 @@ export class AgentRequests {
   /** `r` pressed while that request was running: one more run after it, for whoever asked. */
   private readonly again = new Map<string, string>();
 
-  /** Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. */
-  private readonly retried = new Set<string>();
+  /**
+   * Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. Kept
+   * in the store's metadata by note, so a restart between the failure and its retype keeps the promise (PIE-1731).
+   */
+  private readonly retried = {
+    key: (blockId: string) => `agent-request-retry:${blockId}`,
+    of: (blockId: string): string[] => { try { return JSON.parse(this.store.readMetadata(this.retried.key(blockId)) ?? "[]") as string[]; } catch { return []; } },
+    write: (blockId: string, keys: readonly string[]) => this.store.writeMetadata(this.retried.key(blockId), JSON.stringify(keys)),
+    add: (blockId: string, requestKey: string) => { const keys = this.retried.of(blockId); if (!keys.includes(requestKey)) this.retried.write(blockId, [...keys, requestKey]); },
+    /** Taken: whether it was one. */
+    take: (blockId: string, requestKey: string): boolean => { const keys = this.retried.of(blockId); if (!keys.includes(requestKey)) return false; this.retried.write(blockId, keys.filter(k => k !== requestKey)); return true; },
+  };
   /** The request keys each live draft (by its hold) held when it was last read (`touched`): a line gone and back is written again. */
   private readonly draftKeys = new Map<string, Set<string>>();
-  /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now. */
-  released(holdId: string): void { this.draftKeys.delete(holdId); }
+  /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now, and an orphan its save left goes. */
+  released(holdId: string, blockId?: string): void {
+    this.draftKeys.delete(holdId);
+    if (!blockId || !this.orphansAfterRelease.delete(blockId)) return;
+    const block = this.store.get(blockId);
+    if (block) void this.dropOrphans(blockId, this.lines(block, null).map(l => l.requestKey)).catch(() => {});
+  }
+  /** Notes whose ask a save took out while a draft of it was still held: its answer is taken out on the release. */
+  private readonly orphansAfterRelease = new Set<string>();
 
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
@@ -463,13 +525,17 @@ export class AgentRequests {
    * there as it was written, as one write of the agent's (undone like any). An answer the person changed is theirs, and
    * stays; a line taken out and put back (an undo) keeps its answer, since its request is there again.
    */
-  private async dropOrphans(blockId: string, keys: readonly string[]): Promise<void> {
+  private async dropOrphans(blockId: string, keys: readonly string[], again = false): Promise<void> {
+    const saved = this.store.get(blockId);
+    if (saved) this.hydrate(blockId, saved.text);
     for (const [at, folds] of this.written) {
       const [noteId, agent] = at.split("\0");
       if (noteId !== blockId || !agent) continue;
       for (const [fold, requestKey] of folds) {
         if (keys.includes(requestKey)) continue;
-        const current = await this.deps.readDraft(blockId).catch(() => null);
+        // The note as this save left it (the door that saved may still be letting go of its draft: a read through it waits
+        // on a draft that is closing, PIE-1731).
+        const block = this.store.get(blockId), current = block ? { text: block.text, revision: block.revision } : null;
         const from = current ? current.text.indexOf(fold) : -1;
         // Still where it was left: no ask line of its agent right above it (a line in other words asked it again).
         // As written, whole: an answer the person typed on (a line after it, on its last line) is theirs now.
@@ -484,8 +550,12 @@ export class AgentRequests {
           this.store.changes.attribution({ action: `ext.${bound.extension.id}.agent.${agent}`, actor }),
           () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
             patches: [{ observed: fold, range: { start: from, end: from + fold.length }, replacement: "" }] }),
-        );
-        if (outcome.outcome === "applied") folds.delete(fold);
+        ).catch(() => null);
+        if (outcome?.outcome === "applied") { folds.delete(fold); this.answers.forget(blockId, agent, fold); }
+        // The door that saved is still letting go of its draft (the save comes before its release): taken out once it has,
+        // or now, when its release came while this was refused.
+        else if (this.deps.heldDraft?.(blockId) ?? true) this.orphansAfterRelease.add(blockId);
+        else if (!again) return this.dropOrphans(blockId, keys, true);
       }
     }
   }
@@ -696,7 +766,7 @@ export class AgentRequests {
     for (const [key, kept] of this.removed) if (now - kept.at > REMOVED_KEPT_MS) this.removed.delete(key);
     for (const row of rows) {
       // Answered ones only: a line that was waiting (an agent wrote it) and a person writes again is theirs, and new.
-      if (keys.includes(row.requestKey) || !ANSWERED.has(row.status) || !this.registry.agent(row.agent) || this.retried.delete(this.key(blockId, row.requestKey))) continue;
+      if (keys.includes(row.requestKey) || !ANSWERED.has(row.status) || !this.registry.agent(row.agent) || this.retried.take(blockId, row.requestKey)) continue;
       if (this.removed.size >= REMOVED_KEPT_MAX) this.removed.delete(this.removed.keys().next().value!);
       this.removed.set(this.key(blockId, row.requestKey), { row, at: now });
     }
@@ -800,7 +870,7 @@ export class AgentRequests {
       const key = this.key(blockId, line.requestKey);
       // A no-answer's line written again (gone from the draft when it was last read, back now) is a new ask, as the save
       // path's withdraw makes it (PIE-1731): its row goes, and it is asked.
-      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.delete(key)) {
+      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.take(blockId, line.requestKey)) {
         rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
         this.store.pruneAgentRequests(blockId, [...rows.keys()]);
       }
@@ -939,7 +1009,7 @@ export class AgentRequests {
         if (!first && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
           throw new Error("the answer changed while streaming; your text was kept");
         }
-        const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
+        const replacement = `${line.text}\n${answerHead(line.agent, "-")}\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
         // Keep an existing quotation outside the answer fold, including while it is edited.
         const separator = first && after.startsWith("\n>") ? "\n" : "";
         const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
@@ -979,7 +1049,7 @@ export class AgentRequests {
       } catch (error) {
         throw new Error(`@${line.agent} answered something the service can't apply: ${message(error)}`);
       }
-      if (respond.retry) this.retried.add(key); else this.retried.delete(key);
+      if (respond.retry) this.retried.add(blockId, requestKey); else this.retried.take(blockId, requestKey);
       // Reworded while it ran: the answer was to a request that isn't there any more.
       if (!stillThere((await this.deps.readDraft(blockId)).text)) return;
       // What it changed, as links under its answer (PIE-1452): the notes its programs wrote as it meanwhile.
@@ -1020,7 +1090,7 @@ export class AgentRequests {
         const from = (requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey)?.end ?? line.end) - line.text.length;
         const below = current.text.slice(from + line.text.length), was = this.ownAnswer(blockId, line.agent, below);
         const observed = line.text + was;
-        const fold = `\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}`;
+        const fold = `\n${answerHead(line.agent, agent.answer === "open" ? "+" : "-")}\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}`;
         // A quotation, or an answer the person changed, right under it stays outside this answer's fold.
         const separator = below.slice(was.length).startsWith("\n>") ? "\n" : "";
         const outcome = await this.store.changes.run(

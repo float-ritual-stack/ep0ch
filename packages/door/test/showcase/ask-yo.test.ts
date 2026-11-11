@@ -640,6 +640,52 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
   }, 90_000);
 
+  // PIE-1731, the verifier's walk: an ask line deleted in the door's edit and saved with ^S takes its answer with it, the
+  // answer written into the edit as it was typed (the draft path) and into the saved note alike.
+  for (const path of ["draft", "saved"] as const) test(`a deleted ask takes its answer on the door's ^S (${path} path)`, async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const asked = `zoom gone ${path}`;
+    await h.board.createBlock(null, `${asked}: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::${asked}] [yo-line::tile.zoom]`);
+    const own = await h.board.createBlock(null, path === "saved" ? `Gone ${path}\n\nkept line\n@yo how do I ${asked}\nlast line\n` : `Gone ${path}\n\nkept line\n`);
+    const read = async () => (await h.board.get(own.id))!;
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const draft = () => stage().pane("ask").surface.draft as { text: string; replace(t: string, by?: unknown): void } | null;
+    const edit = async () => {
+      h.ch("e");
+      await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+      h.press({ kind: "enter" });
+      await until(() => !!draft(), "the edit", 8000);
+    };
+    if (path === "draft") {
+      await edit();
+      h.press({ kind: "end", ctrl: true });
+      for (const c of `@yo how do I ${asked}`) h.ch(c);
+      await until(() => draft()!.text.includes("@yo answered"), "the answer in the edit", 30_000);
+      h.press({ kind: "char", ch: "s", ctrl: true });
+      await until(() => !draft(), "saved", 8000);
+    }
+    await untilAsync(async () => (await read()).text.includes("@yo answered"), "the answer saved", 30_000);
+    // The ask line taken out in the door's edit, as backspacing it whole would, and saved with ^S.
+    await edit();
+    draft()!.replace(draft()!.text.replace(`@yo how do I ${asked}\n`, ""));
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !draft(), "saved again", 8000);
+    await untilAsync(async () => !(await read()).text.includes("@yo answered"), "the answer gone with its ask", 10_000)
+      .catch(async e => { throw new Error(`${e.message}: ${JSON.stringify((await read()).text)}`); });
+    expect((await read()).text).toContain("kept line");
+    // Its answer tile, its ask gone and saved, doesn't wait for an answer that won't come: it says so (the verifier's walk).
+    const tile = (stage().layoutGet().tiles as { kind: string; name: string }[]).find(t => t.kind === "answer");
+    if (tile) {
+      const drawn = (stage().pane(tile.name) as unknown as { render(w: number, h: number, f: boolean, d: unknown): { lines: string[] } }).render(60, 10, false, stage()).lines.join("\n");
+      expect(drawn).not.toContain("Waiting for the answer");
+      expect(drawn).toContain("Its ask is gone");
+    }
+  }, 90_000);
+
   // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
   // asked before and after the move, yo's answer is in one tile beside the reader where it is now, and the caret on an ask
   // selects it there. The draft asks for its reader's host each time, never the one it opened with.

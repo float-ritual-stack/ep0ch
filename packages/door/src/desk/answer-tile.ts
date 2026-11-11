@@ -72,6 +72,9 @@ export class AnswerTile implements Pane {
     this.closing = false;
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
     const lines = text.split("\n"), fold = this.answer(text);
+    // Its ask is gone from the note (taken out, or the reader gone on to another note): no answer is coming, so it says so
+    // and how to close it, never "Waiting for the answer…" (PIE-1731). The tile stays: closing it is the person's.
+    if (!lines.includes(this.ask)) return { lines: [`Its ask is gone from ${reader.msg ? "this note" : "the reader"}: nothing to wait for · x closes this tile`] };
     this.links = [];
     const draft = reader.surface.draft;
     const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));

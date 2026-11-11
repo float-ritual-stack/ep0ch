@@ -745,3 +745,14 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     expect(r.draft).not.toBeNull();
   }, 30_000);
 });
+
+// PIE-1731, the verifier's walk: an edit opened on an ask line (the reader's cursor at its start) puts the cursor at the
+// ask's end, so backspacing or typing works on the ask, never on the line above.
+test("an edit opened on an ask line starts at the ask's end", async () => {
+  const { DraftSession } = await import("../src/draft-session");
+  const position = { cursor: { row: 2, col: 0 }, anchor: null } as never;
+  const s = DraftSession.open({ place: "edit:ask-end", verb: "edit", what: "the edit to Shed", submit: async () => ({ ok: true }) } as never,
+    { text: "Shed\nkept line\n@yo find the shed jobs\n> [!note]+ @yo answered\n> 1 note", base: 1, position });
+  expect([s.draft.row, s.draft.col]).toEqual([2, "@yo find the shed jobs".length]);
+  s.close?.();
+});
