@@ -351,7 +351,8 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(desk.lifted).toBeNull();
     const drawer = (app as any).drawer;
     key({ kind: "hyper", ch: "a" });
-    await until(() => !!drawer.made?.lifted, "the drawer's agent lifted");
+    // The press is the lift and then the keys going into it (PIE-1359): wait for its end, not its first step.
+    await until(() => !!drawer.made?.lifted && drawer.inLifted, "the drawer's agent lifted with the person's keys in it");
     expect(drawer.open).toBe(false);                     // a put-away drawer stays put away (Evan, Oct 26): the lift is tile.zoom's
     expect(drawer.made.lifted.reach).toBe("column");
     expect(drawer.made.liftsPane(drawer.tile)).toBe(true);

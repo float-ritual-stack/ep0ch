@@ -282,7 +282,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const first = await door();
     const note = await board.createBlock(null, "Seed tray instructions");
     try {
-      await first.desk.dispatch.act({ action: "tile.group", args: { with: "replies", name: "bundle" }, tile: "reader" }, USER);
+      // A links tile beside the reader, grouped with it: the desk's replies tile lists children alone, so b never aims it (PIE-1712).
+      await first.desk.dispatch.act({ action: "tile.open", args: { kind: "backlinks", name: "links", source: "tile:reader", where: "down" }, tile: "reader" }, USER);
+      await first.desk.dispatch.act({ action: "tile.group", args: { with: "links", name: "bundle" }, tile: "reader" }, USER);
       first.paint();
       await first.desk.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
       await first.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
@@ -295,7 +297,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(next.app.drawer.tabs().some(t => t.name === "bundle")).toBe(true);
       next.key(char("b"));
 
-      const links = () => (next.pane("bundle") as any)?.inner?.pane("replies");
+      const links = () => (next.pane("bundle") as any)?.inner?.pane("links");
       await until(() => { next.paint(); return links()?.target?.id === note.id && !!links()?.data; }, "the restored grouped links loaded on the first b");
       expect(next.app.drawer.open).toBe(true);
       expect(next.desk.layoutGet().tiles.some(t => t.kind === "backlinks")).toBe(false);
@@ -803,7 +805,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           const type = (s: string) => { const f = sink(); if (!f) throw new Error("no raw sink: the keys aren't the agent's"); f(s); };
           const echoed = (s: string) => until(() => own.text().some(l => l.includes(s)), `${s} reached the agent`);
           d.key({ kind: "hyper", ch: "a" });
-          await until(() => d.app.drawer.desk!.liftsPane(own), "the agent lifted");
+          // The press is the lift and then the keys going into it (PIE-1359): wait for its end, not its first step.
+          await until(() => d.app.drawer.desk!.liftsPane(own) && d.app.drawer.inLifted, "the agent lifted with the person's keys in it");
           d.paint();
           expect(as()).toEqual(before);                                    // the drawer stays as it is (PIE-1336)
           expect(d.app.drawer.entered).toBe(true);
