@@ -141,3 +141,23 @@ test("a render script written or edited through the service draws as written on 
     await server.close();
   }
 }, 30_000);
+
+// CodeRabbit on #1441: a render script under a page that goes to Trash and comes back is read again both times.
+test("a render script under a page sent to Trash stops drawing, and draws again once the page is restored", async () => {
+  const { server, path } = await host();
+  const drawing = door(path);
+  try {
+    const page = await drawing.request({ action: "create", parentId: null, text: "Greenhouse", author: "user" });
+    const made = await drawing.request({ action: "create", parentId: page.result.id, text: "Tray count [script::tray-count] [mode::render]\n```js\nreturn \"nine trays\";\n```", author: "user" });
+    expect(made.ok, made.error).toBe(true);
+    const draw = () => drawing.request({ action: "scripts.render", of: "tray-count", props: {}, deadlineMs: 5000 });
+    expect((await draw()).result.markdown).toContain("nine trays");
+    expect((await drawing.request({ action: "delete", blockId: page.result.id, mutation: { author: "user" } })).ok).toBe(true);
+    expect((await draw()).error).toContain("No script called tray-count");
+    expect((await drawing.request({ action: "trash.restore", blockId: page.result.id, mutation: { author: "user" } })).ok).toBe(true);
+    expect((await draw()).result.markdown).toContain("nine trays");
+  } finally {
+    drawing.socket.destroy();
+    await server.close();
+  }
+}, 30_000);

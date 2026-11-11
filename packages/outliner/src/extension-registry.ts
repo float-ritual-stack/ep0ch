@@ -315,6 +315,8 @@ export class ExtensionRegistry {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private loading: Promise<void> | null = null;
   private again = false;
+  /** The last pass finished: a failed one leaves `current` to read everything again (CodeRabbit on #1441). */
+  private passed = false;
   private signature = "";
   private watching = false;
   private readonly copies = new BuiltInCopies(BUILT_IN_EXTENSIONS);
@@ -335,7 +337,9 @@ export class ExtensionRegistry {
     this.loading = (async () => {
       do {
         this.again = false;
+        this.passed = false;
         await this.loadOnce();
+        this.passed = true;
       } while (this.again);
     })().finally(() => { this.loading = null; });
     return this.loading;
@@ -345,12 +349,13 @@ export class ExtensionRegistry {
    * The registry as of every change it has heard of, without reading every folder and script note again when nothing
    * changed (PIE-1739: a render's own reload was ~150 ms of a ~180 ms `scripts.render` at load 5). While it watches, a
    * folder's change schedules a reload and a script note's change starts one (the server's publishChanges): a reload
-   * under way is waited for, a scheduled one runs now. A registry that doesn't watch reads everything, as `reload` does.
+   * under way is waited for, a scheduled one runs now. A registry that doesn't watch, or whose last pass failed, reads
+   * everything, as `reload` does.
    */
   current(): Promise<void> {
     if (!this.watching) return this.reload();
     if (this.timer) { clearTimeout(this.timer); this.timer = null; return this.reload(); }
-    return this.loading ?? Promise.resolve();
+    return this.loading ?? (this.passed ? Promise.resolve() : this.reload());
   }
 
   private sourceSlot(source: ManifestSource, now: string): Slot {
