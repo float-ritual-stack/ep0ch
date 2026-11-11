@@ -700,7 +700,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
     await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
     const stage = () => h.S().stages.get(h.S().sel).top;
-    type D = { text: string; replace(t: string, by?: unknown): void; hiddenAnswerLines(): Set<number>; status: { line(): string | null } };
+    type D = { text: string; replace(t: string, by?: unknown): void; hiddenAnswerLines(): Set<number>; row: number; col: number; status: { line(): string | null } };
     const draft = () => stage().pane("ask").surface.draft as D | null;
     const answerTile = () => (stage().layoutGet().tiles as { kind: string; name: string }[]).find(t => t.kind === "answer");
     const edit = async () => {
@@ -759,10 +759,23 @@ describe("showcase: ask yo (PIE-1585)", () => {
       }
       // One ctrl+z past the save in the reopened edit: the ask and its answer back, said as both.
       await edit();
+      // PIE-1738: the first ctrl+z asks, saying how long the second has, in two rows of a 44-column reader.
+      const asks = await h.app.dispatch.act({ action: "draft.undo", tile: "ask" }, USER) as { asks?: string };
+      expect(asks.asks).toContain("your save and yo's removal of its answer");
+      const reader = (w: number) => (stage().pane("ask") as unknown as { render(w: number, h: number, f: boolean, d: unknown): { lines: string[] } }).render(w, 30, true, stage()).lines.map(l => Bun.stripANSI(l));
+      const narrow = reader(44), first = narrow.findIndex(l => l.includes("ctrl+z again in 5s"));
+      expect(first).toBeGreaterThan(-1);
+      const askRows = narrow.slice(first, first + 3).map(l => l.replace(/[║│]/g, "").trim());
+      expect(askRows.slice(0, 2).join(" ")).toContain("removal of its answer");
+      expect(askRows[2]).not.toMatch(/answer|revision/);
       const undone = await h.app.dispatch.act({ action: "draft.undo", tile: "ask", args: { past: true } }, USER) as { undone?: string };
       expect(undone.undone).toContain("undid your save and yo's removal of its answer");
       expect(draft()!.text).toContain(`${ask}\n> [!note]`);
       expect(draft()!.text.split("\n").filter(l => /@yo answered$/.test(l)).length).toBe(1);
+      // The undo lands at the end of the ask it brought back, its answer folded under it: no raw callout lines.
+      expect([draft()!.row, draft()!.col]).toEqual([draft()!.text.split("\n").indexOf(ask), ask.length]);
+      expect(draft()!.hiddenAnswerLines().size).toBeGreaterThan(0);
+      for (const w of [44, 177]) expect(reader(w).join("\n")).not.toContain("::button{");
       // Saved again: one answer under the ask, not a second one asked for again.
       await save();
       await untilAsync(async () => (await read()).text.includes(ask), "the ask saved back", 8000);
@@ -783,6 +796,87 @@ describe("showcase: ask yo (PIE-1585)", () => {
       await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
     }
   }, 120_000);
+
+  // PIE-1738, the verifier's friction: a reopened edit on a saved answer, the cursor brought to the end of its ask by the
+  // arrows, End, or a click's draft.place, draws the answer's one fold row (as the live edit does), never its callout's
+  // raw lines; at 44 and at 177 columns. Entering the callout opens it; the answer tile's fold closes and opens it again.
+  test("a saved answer stays folded with the cursor at its ask: one fold row at 44 and 177; entering it opens it", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const asked = "zoom the folded shed", ask = `@yo how do I ${asked}`;
+    await h.board.createBlock(null, `${asked}: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::${asked}] [yo-line::tile.zoom]`);
+    const own = await h.board.createBlock(null, `Folded shed\n\nkept line\n${ask}\nlast line\n`);
+    await untilAsync(async () => (await h.board.get(own.id))!.text.includes("@yo answered"), "yo's answer saved", 30_000);
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    type D = { text: string; lines: string[]; row: number; col: number; hiddenAnswerLines(): Set<number> };
+    const draft = () => stage().pane("ask").surface.draft as D | null;
+    const reader = (w: number) => (stage().pane("ask") as unknown as { render(w: number, h: number, f: boolean, d: unknown): { lines: string[] } }).render(w, 30, true, stage()).lines.map(l => Bun.stripANSI(l));
+    const folded = (how: string) => {
+      const d = draft()!, at = d.lines.indexOf(ask);
+      expect([how, d.row, d.col]).toEqual([how, at, ask.length]);
+      expect([how, d.hiddenAnswerLines().size > 0]).toEqual([how, true]);
+      for (const w of [44, 177]) {
+        const drawn = reader(w).join("\n");
+        expect([how, w, drawn.includes("::button{") || drawn.includes("[!note]")]).toEqual([how, w, false]);
+        // The fold row, under or beside the ask, as the live edit draws its answer's.
+        expect([how, w, /· answered\b/.test(drawn)]).toEqual([how, w, true]);
+      }
+    };
+    try {
+      h.ch("e");
+      await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+      h.press({ kind: "enter" });
+      await until(() => !!draft(), "the edit", 8000);
+      const at = draft()!.lines.indexOf(ask);
+      await h.app.dispatch.act({ action: "draft.place", tile: "ask", args: { line: at + 1, col: ask.length + 1 } }, USER);
+      folded("draft.place at the ask's end");
+      h.press({ kind: "up" });
+      h.press({ kind: "down" });
+      h.press({ kind: "end" });
+      folded("up, down and End onto the ask");
+      // → at the ask's end goes into the callout: entering it opens it.
+      h.press({ kind: "right" });
+      await until(() => draft()!.hiddenAnswerLines().size === 0, "the answer open once the cursor is in it", 8000);
+      expect(reader(177).join("\n")).toContain("[!note]");
+      // The answer tile's fold (its f, or its menu row) closes it, the cursor back on the ask, and opens it again.
+      const tile = (stage().layoutGet().tiles as { kind: string; name: string }[]).find(t => t.kind === "answer");
+      expect(tile).toBeDefined();
+      await h.app.dispatch.act({ action: "answer.fold", tile: tile!.name }, USER);
+      expect(draft()!.hiddenAnswerLines().size).toBeGreaterThan(0);
+      expect(draft()!.row).toBe(at);
+      await h.app.dispatch.act({ action: "answer.fold", tile: tile!.name }, USER);
+      expect(draft()!.hiddenAnswerLines().size).toBe(0);
+      // The fold row is the mouse's way, with no answer tile needed: a click on it shuts the answer, again opens it.
+      const click = async (open: boolean) => {
+        // The ask's progress, beside it or on the row under it (a narrow reader).
+        const rows = h.screen().split("\n"), at0 = rows.findIndex(r => r.includes(`║  ${ask}`)), beside = new RegExp(`${ask} +· `);
+        expect(at0).toBeGreaterThan(-1);
+        const y = beside.test(rows[at0]!) ? at0 : at0 + 1;
+        const x = y === at0 ? rows[y]!.search(beside) + ask.length + 4 : rows[y]!.indexOf("· answered") + 3;
+        expect(x).toBeGreaterThan(2);
+        h.press({ kind: "mouse", action: "down", button: 0, x, y });
+        h.press({ kind: "mouse", action: "up", button: 0, x, y });
+        await until(() => (draft()!.hiddenAnswerLines().size === 0) === open, `a click on the fold row ${open ? "opens" : "shuts"} it`, 8000);
+        expect(draft()!.row).toBe(at);
+      };
+      // Room for the note's rows whatever earlier tests left on the stage: the reader zoomed while it's clicked.
+      await h.app.dispatch.act({ action: "tile.zoom", tile: "ask" }, USER);
+      try {
+        await click(false);
+        await Bun.sleep(500);   // a second click, not a double one (which selects a word)
+        await click(true);
+      } finally { await h.app.dispatch.act({ action: "tile.zoom", tile: "ask" }, USER); }
+    } finally {
+      if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
+      await until(() => !draft(), "the edit closed", 8000);
+      const t = (stage().layoutGet().tiles as { kind: string; name: string }[]).find(t => t.kind === "answer");
+      if (t) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER).catch(() => {});
+      await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    }
+  }, 90_000);
 
   // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
   // asked before and after the move, yo's answer is in one tile beside the reader where it is now, and the caret on an ask

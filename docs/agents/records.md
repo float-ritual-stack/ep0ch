@@ -4,7 +4,7 @@ Run builders with `scripts/builder <ticket> [--model <model>] -- <brief file>` f
 
 The wrapper supplies a command-local `ep0ch mcp` stdio server with the same writer identity and forwards the existing outline environment. It follows the worktree's normal outline selection and changes no global Codex settings. The configuration fields follow [Codex's stdio server contract](https://learn.chatgpt.com/docs/extend/mcp?surface=cli); `-c` applies them to this process.
 
-`ep0ch record deploy` appends machinery notes beneath the existing `[system-view::deploys]` Deploys note, keeping its `[machine::install]` shape. Other record kinds append beneath the outline's Records page. It uses the ordinary outline selection (`--ws`, `EP0CH_WS`, `.ep0ch`), never a hard-coded outline. `ep0ch record --help` lists each kind's fields. It prints JSON with the new note's `id` and any template warnings. Examples (fictional ids):
+`ep0ch record deploy` appends machinery notes beneath the existing `[system-view::deploys]` Deploys note, keeping its `[machine::install]` shape. Other record kinds append beneath the outline's Records page (made with the first record under the outline's Extensions hub, or at its top when it has none: PIE-1738). It uses the ordinary outline selection (`--ws`, `EP0CH_WS`, `.ep0ch`), never a hard-coded outline. `ep0ch record --help` lists each kind's fields. It prints JSON with the new note's `id` and any template warnings. Examples (fictional ids):
 
 ```sh
 ep0ch record run-start --ticket GARDEN-123 --harness codex --branch gate --worktree /tmp/gate --pid 1234 --host garden-box --summary 'Repair the gate'
