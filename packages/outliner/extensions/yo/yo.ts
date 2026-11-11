@@ -218,7 +218,8 @@ async function find(words: string) {
   if (!where) {
     const why = "unavailable" in read ? read.unavailable : "the words weren't read in time";
     steps.push(`no query from the words: ${why}`);
-    return ok({ message: "couldn't read that into a query", reply: withSteps(findAnswer({ words, why, thread: inThread() })) });
+    // No answer, said: the same words are asked again once the line is written again, never served this from memory.
+    return ok({ message: "couldn't read that into a query", reply: withSteps(findAnswer({ words, why, thread: inThread() })), retry: true });
   }
   let found: FoundNotes;
   try {
@@ -308,8 +309,9 @@ async function respond() {
     const best = candidates[0];
     // Its model couldn't answer (or none is set): said, with the way to its settings one press away (PIE-1709).
     const fix = trouble && trouble !== "no model set" ? [settingsButton(inThread())] : [];
-    if (!best) return ok({ message: "nothing here answers it", reply: withSteps([`nothing in the actions' docs answers that${trouble ? ` (${trouble})` : ""}.`, ...fix]) });
-    return ok({ message: said(best), reply: withSteps([...quoteAnswer(best, asked, undefined, trouble ? `closest match by its words (${trouble}).` : undefined), ...fix]) });
+    const retry = fix.length ? { retry: true as const } : {};
+    if (!best) return ok({ message: "nothing here answers it", reply: withSteps([`nothing in the actions' docs answers that${trouble ? ` (${trouble})` : ""}.`, ...fix]), ...retry });
+    return ok({ message: said(best), reply: withSteps([...quoteAnswer(best, asked, undefined, trouble ? `closest match by its words (${trouble}).` : undefined), ...fix]), ...retry });
   }
   if (plan.kind === "chat") return ok({ message: "yo", reply: plan.line });
   if (plan.kind === "none") return ok({ message: "nothing here answers it", reply: withSteps([plan.line]) });

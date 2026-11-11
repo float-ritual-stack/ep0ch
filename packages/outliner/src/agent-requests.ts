@@ -161,6 +161,8 @@ export interface AgentRequestDeps {
 interface RespondValue {
   message?: string;
   reply?: string;
+  /** The answer says what kept it from answering (no model, Jev not set up): shown, never recalled for the same words (PIE-1711). */
+  retry?: true;
   patches: DraftPatchSpan[];
   /** In a thread: the agent's session, kept on the thread (`[<agent>-session::<id>]`) and handed back next time. */
   session?: string;
@@ -190,6 +192,7 @@ function validateRespond(value: unknown): RespondValue {
   return {
     ...(typeof value.session === "string" ? { session: value.session } : {}),
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
+    ...(value.retry === true ? { retry: true as const } : {}),
     ...(typeof value.reply === "string" ? { reply: cleanExtensionText(value.reply, true) } : {}),
     patches: patches.map((patch, index) => {
       if (!isObject(patch) || typeof patch.observed !== "string" || !patch.observed || typeof patch.replacement !== "string") {
@@ -263,23 +266,32 @@ export class AgentRequests {
    * When a line is asked again in other words, only one still there word for word, right under it, gives way (PIE-1585):
    * a line the person added or changed in it, or a quotation under it, is theirs and stays.
    */
-  private readonly written = new Map<string, Set<string>>();
+  private readonly written = new Map<string, Map<string, string>>();
 
   /** The answer `agent` wrote that `below` (the text after an ask line) starts with, unchanged, or "". */
   private ownAnswer(blockId: string, agent: string, below: string): string {
-    for (const fold of this.written.get(this.key(blockId, agent)) ?? []) {
+    for (const fold of this.written.get(this.key(blockId, agent))?.keys() ?? []) {
       if (below.startsWith(fold) && (below.length === fold.length || below[fold.length] === "\n")) return fold;
     }
     return "";
   }
 
-  /** `fold` is what `agent` wrote under a line now, in place of `was` (the answer it replaced, or its last streamed part). */
-  private wroteAnswer(blockId: string, agent: string, fold: string, was = ""): void {
+  /**
+   * `fold` is what `agent` wrote under a line now for `requestKey`, in place of `was` (the answer it replaced, or its last
+   * streamed part). An answer belongs to its ask line (PIE-1711): one that took the place of another request's answer (the
+   * line typed on, or typed back) leaves that request with no answer in the text, so its row goes and the words it was
+   * for are asked again when the line says them again.
+   */
+  private wroteAnswer(blockId: string, agent: string, fold: string, was: string, requestKey: string): void {
     const key = this.key(blockId, agent);
-    const folds = this.written.get(key) ?? new Set<string>();
+    const folds = this.written.get(key) ?? new Map<string, string>();
+    const replaced = was ? folds.get(was) : undefined;
     if (was) folds.delete(was);
-    folds.add(fold);
+    folds.set(fold, requestKey);
     this.written.set(key, folds);
+    if (!replaced || replaced === requestKey || this.running.has(this.key(blockId, replaced))) return;
+    this.removed.delete(this.key(blockId, replaced));
+    this.store.pruneAgentRequests(blockId, this.store.agentRequests(blockId).map(row => row.requestKey).filter(k => k !== replaced));
   }
   /** Each ask running now: its note, the extension answering and the chain it came in (grants' hops, PIE-888). */
   private readonly live = new Map<string, { blockId: string; extensionId: string; chain: InvocationChain }>();
@@ -401,6 +413,9 @@ export class AgentRequests {
 
   /** `r` pressed while that request was running: one more run after it, for whoever asked. */
   private readonly again = new Map<string, string>();
+
+  /** Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. */
+  private readonly retried = new Set<string>();
 
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
@@ -636,7 +651,7 @@ export class AgentRequests {
     for (const [key, kept] of this.removed) if (now - kept.at > REMOVED_KEPT_MS) this.removed.delete(key);
     for (const row of rows) {
       // Answered ones only: a line that was waiting (an agent wrote it) and a person writes again is theirs, and new.
-      if (keys.includes(row.requestKey) || !ANSWERED.has(row.status) || !this.registry.agent(row.agent)) continue;
+      if (keys.includes(row.requestKey) || !ANSWERED.has(row.status) || !this.registry.agent(row.agent) || this.retried.delete(this.key(blockId, row.requestKey))) continue;
       if (this.removed.size >= REMOVED_KEPT_MAX) this.removed.delete(this.removed.keys().next().value!);
       this.removed.set(this.key(blockId, row.requestKey), { row, at: now });
     }
@@ -879,7 +894,7 @@ export class AgentRequests {
             replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement: replacement + separator, range: { start, end: start + replySpan.length } }] }),
         );
         if (outcome.outcome !== "applied") throw new Error(`answer proposed instead: ${outcome.reason}`);
-        this.wroteAnswer(blockId, line.agent, replacement.slice(line.text.length), was);
+        this.wroteAnswer(blockId, line.agent, replacement.slice(line.text.length), was, requestKey);
         replySpan = replacement;
         blocks = streamed.split(/\n\s*\n/).filter(part => part.trim()).length;
         this.deps.changed(blockId, { line: line.text, state: "working", blocks, beside: true });
@@ -909,6 +924,7 @@ export class AgentRequests {
       } catch (error) {
         throw new Error(`@${line.agent} answered something the service can't apply: ${message(error)}`);
       }
+      if (respond.retry) this.retried.add(key); else this.retried.delete(key);
       // Reworded while it ran: the answer was to a request that isn't there any more.
       if (!stillThere((await this.deps.readDraft(blockId)).text)) return;
       // What it changed, as links under its answer (PIE-1452): the notes its programs wrote as it meanwhile.
@@ -957,7 +973,7 @@ export class AgentRequests {
           () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
             replyTo: line.text, patches: [{ observed, range: { start: from, end: from + observed.length }, replacement: line.text + fold + separator }] }),
         );
-        if (outcome.outcome === "applied") this.wroteAnswer(blockId, line.agent, fold, was);
+        if (outcome.outcome === "applied") this.wroteAnswer(blockId, line.agent, fold, was, requestKey);
         answer = outcome.outcome === "applied"
           ? { status: "replied", message: respond.message ?? "answer in the note" }
           : { status: "proposed", message: outcome.reason, proposalId: outcome.proposalId };
