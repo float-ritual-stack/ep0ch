@@ -474,3 +474,43 @@ test("ext add --outline-folder has that folder's outline load the extension befo
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+// PIE-1737: removing an extension took its settings with it, so a reinstall was silently back on its defaults. They are
+// kept beside the folder (as a fork is) and a reinstall takes them back, saying so.
+test("a removed extension's settings come back when it is installed again, and both answers say so (PIE-1737)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-ext-settings-"));
+  const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
+  process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
+  process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-registry.json");
+  const outline = join(root, "outline"), socket = join(root, "outline.sock");
+  mkdirSync(outline);
+  const store = new OutlinerStore(join(root, "outline.sqlite"), { workspaceRoot: outline });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, stateDirectory: join(root, "state") });
+  await server.start();
+  const client = new OutlinerClient(socket);
+  try {
+    await client.request({ action: "extensions.install", extension: "tidy", where: "outline" });
+    const config = join(outline, "extensions", "tidy", "config.json");
+    const settings = `${JSON.stringify({ config: { answer: ["/opt/made-up/model", "--slow"] } }, null, 2)}\n`;
+    writeFileSync(config, settings, { mode: 0o600 });
+    const removed = await client.request<{ lines: string[]; settingsKept?: string }>({ action: "extensions.uninstall", extension: "tidy", demo: "remove" });
+    expect(existsSync(join(outline, "extensions", "tidy"))).toBe(false);
+    const kept = join(outline, "extensions-settings", "tidy.json");
+    expect(removed.settingsKept).toBe(kept);
+    expect(readFileSync(kept, "utf8")).toBe(settings);
+    expect(statSync(kept).mode & 0o077).toBe(0);
+    expect(removed.lines.join("\n")).toContain(`kept its settings in ${kept}`);
+    const back = await client.request<{ lines: string[]; settingsBack?: string }>({ action: "extensions.install", extension: "tidy", where: "outline" });
+    expect(back.settingsBack).toBe(kept);
+    expect(readFileSync(config, "utf8")).toBe(settings);
+    expect(statSync(config).mode & 0o077).toBe(0);
+    expect(existsSync(kept)).toBe(false);
+    expect(back.lines.join("\n")).toContain(`took its settings back from ${kept}`);
+  } finally {
+    await server.close(); store.close();
+    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});

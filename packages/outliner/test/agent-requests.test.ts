@@ -1095,7 +1095,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "re " + request.
 // PIE-1737: R on a slow agent's line answers at once, saying it runs, and the connection that pressed it keeps answering
 // while the agent works: the door sends its next open, undo and read on that one connection.
 test("r on a slow agent answers at once with running, and the same connection keeps answering while it works (PIE-1737)", async () => {
-  const { store, client, create, agentOf, writeAgent, socket } = await setup();
+  const { store, create, agentOf, writeAgent, socket } = await setup();
   await writeAgent("slow", `await Bun.sleep(2500);
 process.stdout.write(JSON.stringify({ ok: true, value: { reply: "took my time" } }));`);
   const note = await create("Seed list\n@slow think it over", "agent");

@@ -1,7 +1,7 @@
 // draft.patch owns attribution, conflict handling and undo.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { codeFenceLines } from "./link-grammar.js";
+import { codeFenceLines, lineStart } from "./link-grammar.js";
 import { CLAUDE_LOGIN_FIX, LIST_ITEM, notLoggedIn, tidyPassage } from "./tidy-line";
 
 interface Request {
@@ -136,7 +136,7 @@ async function respond() {
   if (instruction) message = `${message} · ${whole ? "the whole note above the ask" : `the ${passage.length === 1 ? "1 line" : `${passage.length} lines`} above the ask`}`;
   if (replacement === observed) return { message };
   // Where it was read (PIE-1737): a passage said twice in the note (a transcript's "Okay.") is placed by its range.
-  const at = lines.slice(0, start).reduce((sum, line) => sum + line.length + 1, 0);
+  const at = lineStart(lines, start);
   return { message, patches: [{ observed, replacement, range: { start: at, end: at + observed.length },
     before: lines.slice(0, start).join("\n").slice(-80), after: lines.slice(end + 1).join("\n").slice(0, 80),
   }] };
