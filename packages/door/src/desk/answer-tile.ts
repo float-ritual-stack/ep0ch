@@ -34,7 +34,10 @@ export class AnswerTile implements Pane {
   spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
   answer(text: string) {
     const at = text.split("\n").indexOf(this.ask);
-    return foldPoints(text).find(p => this.fold ? p.key === this.fold : p.line === at + 1);
+    // The fold it was opened on, else the one under its ask: a save can give the same fold another key (PIE-1711, "Waiting for
+    // the answer…" over an answer already in the note).
+    const folds = foldPoints(text);
+    return (this.fold ? folds.find(p => p.key === this.fold) : undefined) ?? folds.find(p => p.line === at + 1);
   }
   key(k: Key, desk: DeskApi) {
     const c = ch(k);

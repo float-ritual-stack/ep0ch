@@ -3652,7 +3652,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A pinned reader's hint row says where the opens aimed at it land instead (PIE-1207).
     for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.opensGo = p.pinned ? this.opensOf(id).short : null;
     // A preview following a list that quotes its selection (the backlinks: where the source mentions the note) says it.
-    for (const [id, p] of this.panes) if (p instanceof PreviewPane && "tile" in p.source) { const source = this.followsOf(id).source; const src = (source === undefined ? this.pane(p.source.tile) : this.panes.get(source)) as { snippet?(): string } | undefined; p.quote = src?.snippet && this.shownNow(p) ? src.snippet() : ""; }
+    for (const [id, p] of this.panes) if (p instanceof PreviewPane && "tile" in p.source) { const source = this.followsOf(id).source; const src = (source === undefined ? this.pane(p.source.tile) : this.panes.get(source)) as { snippet?(): string; subject?(): string | null } | undefined; p.quote = src?.snippet && this.shownNow(p) && (!src.subject || src.subject() === p.msg?.id) ? src.snippet() : ""; } // its title quotes the note it shows, never a selection since (PIE-1711)
     const canvas = new Canvas(cols, rows - 1);
     // A view built on the desk may keep rows above the tiles for its own art (the welcome's logo band).
     const band = this.band();
