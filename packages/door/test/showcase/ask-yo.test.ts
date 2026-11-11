@@ -925,6 +925,43 @@ describe("showcase: ask yo (PIE-1585)", () => {
       h.press({ kind: "up" });
       expect(draft()!.row).toBe(at);
       for (const w of [44, 177]) expect([w, raw(w)]).toEqual([w, false]);
+      // A click while the cursor's answer is open (a press, a repaint, the release): the cursor lands on what was under
+      // the pointer when pressed, and the answer folds once the press is over (Codex on #1442: it shut on the press, the
+      // release met other rows, and a typed X went four lines down). A click on its fold row shuts it, never shut-then-open.
+      // Lines below the one clicked, so a release on rows that moved lands on another of them.
+      h.press({ kind: "end", ctrl: true });
+      for (const l of ["sow the peas", "water the rows", "net the brassicas", "mulch the paths"]) { h.press({ kind: "enter" }); for (const c of l) h.ch(c); }
+      const typedAt = draft()!.lines.indexOf("and the beds are dug");
+      const click = (find: (rows: string[]) => { x: number; y: number }) => {
+        const { x, y } = find(h.screen().split("\n"));
+        h.press({ kind: "mouse", action: "down", button: 0, x, y });
+        h.screen();
+        h.press({ kind: "mouse", action: "up", button: 0, x, y });
+        h.screen();
+      };
+      const intoAnswer = () => {
+        h.press({ kind: "right" });
+        expect(draft()!.hiddenAnswerLines().size).toBe(0);
+      };
+      for (let i = 0; i < 5; i++) h.press({ kind: "up" });
+      h.press({ kind: "end" });
+      expect(draft()!.row).toBe(at);
+      // Room for the open answer and the lines under it whatever earlier tests left on the stage: the reader zoomed.
+      await h.app.dispatch.act({ action: "tile.zoom", tile: "ask" }, USER);
+      intoAnswer();
+      click(rows => { const y = rows.findIndex(r => r.includes("and the beds are dug")); return { x: rows[y]!.indexOf("and the beds") + 2, y }; });
+      expect([draft()!.row, draft()!.col]).toEqual([typedAt, 2]);
+      expect(draft()!.hiddenAnswerLines().size).toBeGreaterThan(0);
+      h.ch("X");
+      expect(draft()!.lines[typedAt]).toBe("anXd the beds are dug");
+      h.press({ kind: "backspace" });
+      h.press({ kind: "up" });
+      h.press({ kind: "end" });
+      expect(draft()!.row).toBe(at);
+      intoAnswer();
+      click(rows => { const y = rows.findIndex(r => r.includes(ask)), x = rows[y]!.indexOf(ask) + ask.length + 4; return { x, y }; });
+      expect([draft()!.row, draft()!.hiddenAnswerLines().size > 0]).toEqual([at, true]);
+      await h.app.dispatch.act({ action: "tile.zoom", tile: "ask" }, USER);
       // The answer tile's f says it folds the answer in the edit; with the edit saved, in the reader (its callout).
       const tile = answerTile();
       expect(tile).toBeDefined();
@@ -932,7 +969,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       expect(hint()).toContain("fold/unfold in the edit");
       h.press({ kind: "char", ch: "s", ctrl: true });
       await until(() => !draft(), "saved", 8000);
-      await untilAsync(async () => (await read()).text.endsWith("and the beds are dug"), "the words saved after the answer", 8000);
+      await untilAsync(async () => /and the beds are dug\n[^]*mulch the paths$/.test((await read()).text), "the words saved after the answer", 8000);
       expect(hint()).toContain("fold/unfold in the reader");
     } finally {
       if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});

@@ -203,6 +203,14 @@ export class Draft {
   enterSaves = false;
   /** The mouse's presses on its text, counted (a double click its word, a triple its line: `selectClicks`). */
   readonly clicks = new Gesture();
+  /**
+   * The answers drawn open when the mouse was pressed (`holdFolds`), kept open until the press is over (`letFoldsGo`, or
+   * any key): a press out of an answer the cursor opened folds it after its release, which so meets the rows it was
+   * pressed on (Codex on #1442: it folded at the press, the release met other rows, and the cursor went four lines down).
+   */
+  private heldOpen: Set<string> | null = null;
+  holdFolds() { this.heldOpen = null; this.heldOpen = new Set(this.answerFolds().filter(p => this.answerOpen(p)).map(p => p.key)); }
+  letFoldsGo() { this.heldOpen = null; }
 
   /**
    * Who changed the text since the draft opened (each once, in the order they first did), and who changed
@@ -642,6 +650,7 @@ export class Draft {
   }
 
   key(k: Key): DraftAction {
+    this.heldOpen = null;
     // What was armed goes with this press, whoever takes the key: what it confirms, if anything, is `was`.
     const was = this.keepsArm(k) ? null : this.status.press();
     if (!this.busy && this.snippetKey(k)) return "keep";
@@ -1476,15 +1485,25 @@ export class Draft {
    * the ask alone opens nothing.
    */
   answerOpen(p: FoldPoint): boolean {
-    if (this.openedFolds.has(p.key)) return true;
+    if (this.openedFolds.has(p.key) || this.heldOpen?.has(p.key)) return true;
     const inside = (row: number) => row >= p.line && row < p.end;
     return inside(this.row) || (!!this.anchor && inside(this.anchor.row));
   }
 
-  /** Open or shut the answer `p` by hand; shut with the cursor in it, the cursor goes back to its ask. True when it is now shut. */
-  toggleAnswer(p: FoldPoint) {
-    if (this.answerOpen(p)) {
-      this.openedFolds.delete(p.key);
+  /**
+   * Open or shut the answer `p` by hand; shut with the cursor in it, the cursor goes back to its ask. True when it is now
+   * shut. An agent never moves the person's cursor or selection (CodeRabbit on #1442): with them in it, its shut is refused.
+   */
+  toggleAnswer(p: FoldPoint, by: Actor = USER) {
+    // As it was drawn when pressed (a click on its fold row comes at the release): the press's hold lets it go.
+    const was = this.answerOpen(p);
+    this.heldOpen?.delete(p.key);
+    if (was) {
+      const had = this.openedFolds.delete(p.key);
+      if (this.answerOpen(p) && by.kind === "agent") {
+        if (had) this.openedFolds.add(p.key);
+        throw new ActionRefused("the person's cursor is in this answer: it folds when they leave it");
+      }
       if (this.answerOpen(p)) this.place(p.line - 1, 0);
     } else this.openedFolds.add(p.key);
     return !this.answerOpen(p);

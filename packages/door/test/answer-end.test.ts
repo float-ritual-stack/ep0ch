@@ -8,6 +8,7 @@ import { Draft } from "../src/edit";
 import { draftView } from "../src/draft-view";
 import { visible } from "../src/style";
 import type { Key } from "../src/term";
+import { wrap } from "../src/text";
 
 const ASK = "@yo which notes are drafts";
 const ANSWER = ["> [!note]+ @yo answered", "> 1 note: `status=draft`", '> ::button{label="▸ save as a view"}'];
@@ -90,6 +91,18 @@ describe("leaving an answer the cursor opened shuts it (PIE-1741)", () => {
     expect(d.hiddenAnswerLines().size).toBeGreaterThan(0);
   });
 
+  test("an agent's fold never moves the person's cursor: with it in the answer, its shut is refused", () => {
+    const d = new Draft("n6a", 3, MID);
+    d.place(3, 2);
+    expect(() => d.toggleAnswer(d.answerFolds()[0]!, { kind: "agent", id: "tidy" })).toThrow(/cursor is in this answer/);
+    expect([d.row, d.col, d.hiddenAnswerLines().size]).toEqual([3, 2, 0]);
+    // Away from it, an agent folds and unfolds it as the person would.
+    d.place(0, 0);
+    expect(d.toggleAnswer(d.answerFolds()[0]!, { kind: "agent", id: "tidy" })).toBe(false);
+    expect(d.toggleAnswer(d.answerFolds()[0]!, { kind: "agent", id: "tidy" })).toBe(true);
+    expect([d.row, d.col]).toEqual([0, 0]);
+  });
+
   test("the cursor in it, shut by hand: shut, the cursor back on its ask", () => {
     const d = new Draft("n6", 3, MID);
     d.place(3, 0);
@@ -112,7 +125,9 @@ describe("a ctrl+z after its window says the window passed (PIE-1741)", () => {
       expect(d.note).toBe("");
       d.key({ kind: "char", ch: "z", ctrl: true });
       expect(d.text).toBe("Sowing");
-      expect(d.note).toMatch(/^too late · ctrl\+z again in 5s undoes your save and yo's removal of its answer$/);
+      expect(d.note).toBe("late · saved · ctrl+z again in 5s undoes your save and yo's removal of its answer");
+      // Two rows of a 44-column reader's 42 cells, the save still said.
+      expect(wrap(d.note, 42).length).toBe(2);
       // Any other key between the window and the press: a fresh ask, nothing to say about a window.
       setSystemTime(new Date(2_000_000 + 2 * AGAIN_MS + 4_000));
       expect(d.note).toBe("");

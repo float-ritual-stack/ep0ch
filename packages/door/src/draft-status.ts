@@ -8,7 +8,7 @@
 //   armed → nothing armed: any other key, a click, a change to the text, a write or reload starting, anything else said
 //   on the line, or its window (esc and ctrl+z 5 s; the chord has none, as bash's hasn't). ctrl+z's says its window
 //   as a countdown ("ctrl+z again in 4s"), drawn again each second (PIE-1738: a slow second press asked again unseen);
-//   its press after the window ran out, nothing else between, asks again and says it came too late (PIE-1741)
+//   its press after the window ran out, nothing else between, asks again and says it came late (PIE-1741)
 import { Again, AGAIN_MS } from "./arm";
 import { C, fg } from "./style";
 
@@ -72,7 +72,9 @@ export class DraftStatus {
     const late = counting && (this.late ?? this.passed) === what ? counting : null;
     this.passed = this.late = null;
     this.arms.arm(what);
-    if (late) counting = seconds => late(seconds).replace(/^[^·]*· /, "too late · ");
+    // Its own words kept whole (`saved ·` says the undo goes past a save: CodeRabbit on #1442), `late ·` before them: with
+    // the longest what it still fits two rows of a 44-column reader.
+    if (late) counting = seconds => `late · ${late(seconds)}`;
     this.counting = counting ?? null;
     this.armWords = this.said = counting ? counting(Math.ceil(this.arms.left() / 1000)) : this.said;
   }

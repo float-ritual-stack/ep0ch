@@ -264,7 +264,7 @@ export const READING_DEFS = {
         const points = draft.answerFolds();
         const p = args.n !== undefined ? points[args.n - 1] : points.find(p => args.text !== undefined ? p.text === args.text : p.line === (args.line ?? draft.row + 2) - 1);
         if (!p) throw new ActionRefused("name an answer fold in the draft by its line or number");
-        const folded = draft.toggleAnswer(p);
+        const folded = draft.toggleAnswer(p, actor);
         host.redraw();
         return { line: p.line + 1, folded };
       }
