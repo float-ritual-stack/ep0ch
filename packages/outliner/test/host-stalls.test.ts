@@ -566,6 +566,7 @@ test("a backfill --into leaves a watching door's ping answered at once (PIE-1413
 test("a connection's whole-outline reads never hold its note read or its save, and a closed connection's queue is dropped", async () => {
   const { root, store, done } = scratch("own-connection");
   const server = new OutlinerServer(store, join(root, "host.sock"));
+  const opened: ReturnType<typeof connect>[] = [];
   try {
     store.database.transaction(() => { for (let i = 0; i < 3000; i++) store.create(`Seed packet ${i} [type::packet] [bed::b${i % 40}]`, null, "user"); })();
     const note = store.create("Shed key [type::note]", null, "user");
@@ -575,6 +576,7 @@ test("a connection's whole-outline reads never hold its note read or its save, a
     const reads = graphReads(store);
     const open = () => {
       const socket = connect(join(root, "host.sock"));
+      opened.push(socket);
       socket.setEncoding("utf8");
       const answered = new Map<string, number>();
       let buffer = "";
@@ -587,6 +589,12 @@ test("a connection's whole-outline reads never hold its note read or its save, a
     };
     // A door: every lane's read sent at once, then its person reads a note and saves it, all on the one connection.
     const door = open();
+    // Warm, as a door is by the time its person saves: the first read of a fresh host builds the outline's graph, and
+    // that one turn is the cold start, not a lane holding the save (the host's own start no longer writes notes that
+    // warmed it, since PIE-1509 made the deploy rule a kit).
+    door.send("warm", { action: "views.read", viewId: views[0], format: "tree" });
+    await until(() => door.answered.has("warm"));
+    door.answered.clear();
     const sent = performance.now();
     for (const [i, viewId] of views.entries()) door.send(`lane-${i}`, { action: "views.read", viewId, format: "tree" });
     door.send("note", { action: "children", blockId: note.id });
@@ -608,6 +616,8 @@ test("a connection's whole-outline reads never hold its note read or its save, a
     expect(after?.text).toBe("Shed key, by the door [type::note]");
     expect(reads() - before).toBeLessThan(views.length / 4);
   } finally {
+    // A connection left open holds server.close() for good: a failed expect above must fail, not time out.
+    for (const socket of opened) socket.destroy();
     await server.close();
     done();
   }

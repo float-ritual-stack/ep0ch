@@ -18,9 +18,9 @@ import { RowView } from "../scroll";
 import { selectedRow, C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { rowLines, rule } from "../text";
 import { type AttachedPlace, type FloatRect } from "./attached";
-import { hintKey, modeHint } from "./modes";
+import { hintKey, modeHint, type ModeKey } from "./modes";
 import { keyCaption } from "./actions";
-import { LINE_KEYS } from "../edit";
+import { DRAFT_KEYS, LINE_KEYS } from "../edit";
 import { SETTINGS_KEYS } from "./attached-keys";
 import { isBlockId } from "@ep0ch/outline-core/addressable-resource";
 import type { ExtensionCardField } from "../extension-settings";
@@ -46,8 +46,15 @@ export const resettable = (fields: readonly SettingField[]): string[] =>
 /** A value being typed in the card, in place (PIE-1709): an extension's setting, one line in the shared editor. */
 export interface CardEdit { key: string; input: LineField; session: DraftSession }
 
-/** The line's clear key as the keymap has it now (ctrl+u: a long command goes in one press, PIE-1725), said while one is typed. */
-const clearKey = (): string => { const row = LINE_KEYS.find(r => r.action === "draft.clear")!, k = hintKey({ ...row, label: row.label ?? "clear" }); return k ? ` · ${keyCaption(k)} clears` : ""; };
+/**
+ * ` · <key> <words>`: `action`'s key in `table` as the keymap has it now, said as what it does here; nothing when unbound. The
+ * card's foot names its keys from the tables they live in (PIE-1293), never typed: the line's clear key (ctrl+u, PIE-1725),
+ * the draft's close, the card's own edit, try and clear.
+ */
+const keySaid = (table: readonly ModeKey[], action: string, words: string): string => {
+  const row = table.find(r => r.action === action), k = row && hintKey({ ...row, label: words });
+  return k ? ` · ${keyCaption(k)} ${words}` : "";
+};
 
 /** A note's block properties, as the card reads them. */
 type Props = readonly { key: string; value: string }[];
@@ -280,7 +287,7 @@ export class SettingsCard {
     const sel = fields[this.sel];
     const edit = sel?.prop.question ? (sel.prop.question.type === "toggle" ? "show or hide choices" : "choose and reorder") : sel?.prop.values ? "choose a value" : "edit the value";
     // An extension's fields each say what they do on the card itself; its foot is what was last said, or the keys.
-    const about = ext ? (this.editing ? `editing ${this.editing.key} · ⏎ saves${clearKey()} · esc keeps the old value` : sel ? `${sel.prop.key} · ⏎ edit${sel.ext?.tries ? " · t try" : ""} · x ${sel.prop.default !== undefined ? "back to its default" : "takes it out"}` : "")
+    const about = ext ? (this.editing ? `editing ${this.editing.key} · enter saves${keySaid(LINE_KEYS, "draft.clear", "clears")}${keySaid(DRAFT_KEYS, "edit.close", "keeps the old value")}` : sel ? `${sel.prop.key}${keySaid(SETTINGS_KEYS, "settings.set", "edit")}${sel.ext?.tries ? keySaid(SETTINGS_KEYS, "settings.try", "try") : ""}${keySaid(SETTINGS_KEYS, "settings.clear", sel.prop.default !== undefined ? "back to its default" : "takes it out")}` : "")
       : sel ? `${sel.prop.key} · ${edit} · ${sel.prop.meaning}` : "";
     const foot = this.trying ? `trying ${this.trying}…` : this.editing ? (this.note || this.editing.session.status.note || about) : this.note || about;
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));

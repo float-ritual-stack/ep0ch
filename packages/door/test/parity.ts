@@ -214,11 +214,21 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     for (const f of restore.splice(0).reverse()) f();
   });
 
+  /** The message log drawn with only the rows it listed: what a key flashed since is the flash's, never the key's (PIE-1732's own row for it). */
+  const asListed = <T>(top: Screen, draw: () => T): T => {
+    if (!(top instanceof StatusMessages)) return draw();
+    const log = top as unknown as { log?: { rows: { id: number }[] }; entries: { id: number }[] }, was = log.log;
+    if (!was) return draw();
+    const listed = new Set(log.entries.map(r => r.id));
+    log.log = { ...was, rows: was.rows.filter(r => listed.has(r.id)) };
+    try { return draw(); } finally { log.log = was; }
+  };
   /**
    * What the door shows (`glance`: only the rows drawn): the screen's rows, and the status bar under them (its `+N ext` and the agent chip
    * take clicks). Of the bar, not what changes by itself: the clock, the uptime, how many changes came in, the
    * agent chip's words (its agent working or not), and the message a key flashes (it runs out on a timer), with its copy
-   * on the focused tile's frame when it was a refusal (PIE-727: Ctx.refuse).
+   * on the focused tile's frame when it was a refusal (PIE-727: Ctx.refuse), and its copy on the message log's own row for what
+   * came since its rows were read (`N new · …`, PIE-1732's logNews).
    */
   const snap = (mask: Set<number>, glance = false): Snap => {
     const top = A().stack.at(-1) as Screen | undefined;
@@ -233,7 +243,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().pace.waiting;
         try {
           const l0 = performance.now();
-          const drawn = app.strips.draw(current ? painted!.lines : top.render(app).lines, cols, rows);
+          const drawn = app.strips.draw(current ? painted!.lines : asListed(top, () => top.render(app)).lines, cols, rows);
           if (!current) { stats.looks++; stats.lookMs += performance.now() - l0; }
           hint = plain(drawn.at(top instanceof MainMenu ? -2 : -1) ?? "");
           lines = drawn.slice(0, rows - 1).map(ageless);

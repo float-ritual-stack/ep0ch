@@ -2,7 +2,7 @@
 // stage cell in the reader steps that job's property and the table redraws; the day note's line reads this.page;
 // uninstalled, the line says how to bring the lens back, and installing by act brings it. Scratch services; made up.
 import { describe, expect, test } from "bun:test";
-import { extensionList, scriptActions } from "../../src/extensions";
+import { ASKED_IN_PLACE, extensionList, scriptActions } from "../../src/extensions";
 import { ReaderPane } from "../../src/desk/panes";
 import { MainMenu } from "../../src/screens";
 import { USER, type Actor } from "../../src/socket";
@@ -136,7 +136,8 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     app.push(new MainMenu());
     try {
       const before = new Set(app.describe().messages.map(row => row.id));
-      await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER);
+      // The door's own word for "asked in place" is door:asked since PIE-1676 (#1404); a bare asked= is a script slot.
+      await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", [ASKED_IN_PLACE]: true } }, USER);
       await until(() => app.describe().messages.some(row => !before.has(row.id) && /open a note/i.test(row.message)), "lens's refusal", 15_000);
     } finally { app.pop(); }
   });
@@ -149,7 +150,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
     await app.dispatch.act({ action: "tile.focus", tile: "jobs" }, USER);
     const before = new Set(app.describe().messages.map(row => row.id));
     // The line lands (lens answers its insert, PIE-1507), and the door says what its drawing found wrong, line kept.
-    await app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER);
+    await app.dispatch.act({ action: "script.run", args: { of: "lens", [ASKED_IN_PLACE]: true } }, USER);
     await until(() => app.describe().messages.some(row => !before.has(row.id) && /needs query=/.test(row.message)), "the missing slot said", 15_000);
     expect((await board.get(note.id))!.text).toContain("lens::");
     expect(app.describe().messages.filter(row => !before.has(row.id)).some(row => /lens done/.test(row.message))).toBe(false);
@@ -168,7 +169,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
       // The person's run answers when it ends (PIE-1507): the line goes in the draft, and a bad line is said at once.
       const said = (words: RegExp) => { const before = new Set(app.describe().messages.map(row => row.id)); return () => until(() => app.describe().messages.some(row => !before.has(row.id) && words.test(row.message)), `${words}`, 15_000); };
       let heard = said(/needs query=/);
-      await app.dispatch.act({ action: "script.run", args: { of: "lens", asked: true } }, USER);
+      await app.dispatch.act({ action: "script.run", args: { of: "lens", [ASKED_IN_PLACE]: true } }, USER);
       await heard();
       const draft = (h.sc.tilesHere()!.pane("jobs") as ReaderPane).surface.draft!;
       expect(draft.text).toContain("lens::");
@@ -177,7 +178,7 @@ describe.skipIf(!outliner)("the showcase screen: the lens", () => {
       await app.dispatch.act({ action: "draft.undo", tile: "jobs" }, USER);
       expect(draft.text).toBe(unsaved);
       heard = said(/ctrl\+z undoes/);
-      await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", asked: true } }, USER);
+      await app.dispatch.act({ action: "script.run", args: { of: "lens", query: "type=job", [ASKED_IN_PLACE]: true } }, USER);
       await heard();
       expect(draft.text).toContain('lens:: query="type=job"');
       h.press({ kind: "char", ch: "z", ctrl: true });

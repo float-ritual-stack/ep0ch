@@ -80,7 +80,8 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       await app.act({ action: "comment.write", tile: "orchard-note", args: { body: "Checked the soil." }, as: "test-agent" });
       await app.act({ action: "comment.send", tile: "orchard-note", as: "test-agent" });
       expect((await foreign.comments(note.id)).some(c => c.body === "Checked the soil.")).toBe(true);
-      await app.act({ action: "comment.close", tile: "orchard-note", as: "test-agent" });
+      // Sending closes the comment box; a close after it says nothing is open (PIE-1701, #1406), never a silent no-op.
+      await expect(app.act({ action: "comment.close", tile: "orchard-note", as: "test-agent" })).rejects.toThrow("no comment is open");
       const saved = JSON.parse(JSON.stringify(d.saved()));
       d.build(saved, true);
       await until(() => d.pane("orchard-note")?.msg?.id === note.id, "restored foreign note");

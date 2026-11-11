@@ -125,7 +125,7 @@ const FAMILIES: Family[] = [
       "app.ts": { n: 17, why: "the owner: keyLayers (person() carries it) and its feeders (overDrawer, programUnder); the raw sink hands bytes to the layer it named (the drawer's or the screen's rawInput); the router's door keys (alt+v, ctrl+n, ^K…) read the top screen's own answer once, after the layer is decided; a gesture's next press (heldAfter); keysScreen, the screen whose strips and menus the keys are on" },
       "whereabouts.ts": { n: 2, why: "screenKeys: a screen without tiles says whether it holds the keys, the answer person() starts from" },
       "desk/desk.ts": { n: 13, why: "programKeys' own walk into the group the person went into, and rawKeys, the desk's own answer the rest read (its keys, hint row, overlays, chordWay)" },
-      "drawer.ts": { n: 4, why: "the drawer's own key handling inside its layer (its tab's terminal): person() already gave it the key" },
+      "drawer.ts": { n: 5, why: "the drawer's own key handling inside its layer (its tab's terminal; alt+Q and the bar key pass a terminal tile's program its key, PIE-1718): person() already gave it the key" },
       "esc-door.ts": { n: 2, why: "the two asks that were the drawer's Esc (whether the screen under it is using the key), moved with it: the App's own Esc steps, for a screen that isn't a desk and the person's binding for Esc; which layer has the key is still keyLayers'" },
       "desk/desk-esc.ts": { n: 1, why: "the desk's own answer (rawKeys, as desk/desk.ts's row): its Esc step for a program says only that the program has the key" },
       "desk/screen-tile.ts": { n: 2, why: "a tile framing a screen asks that screen, inside the desk's own key handling" },

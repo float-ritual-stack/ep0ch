@@ -108,14 +108,16 @@ test("a render script that never ends is cut off at its budget: the loop goes on
   }
 }, 30_000);
 
-test("a render script that fails on its own still says what a render script is for", async () => {
+// PIE-1604 (#1386): the render-vs-action advice is for a render that tried to write; a script that throws on its own
+// says its own words and nothing about writing (script-site.test.ts holds the write case).
+test("a render script that fails on its own says its own error, with no advice about writing", async () => {
   script("broken-sheet", `throw new Error("the hens are out");`);
   const { server, path } = await host();
   const drawing = door(path);
   try {
     const failed = await drawing.request({ action: "scripts.render", of: "broken-sheet", props: {}, deadlineMs: 5000 });
     expect(failed.error).toContain("the hens are out");
-    expect(failed.error).toContain("render scripts draw");
+    expect(failed.error).not.toContain("render scripts draw");
   } finally {
     drawing.socket.destroy();
     await server.close();

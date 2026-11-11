@@ -1,6 +1,6 @@
 # Yo
 
-Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's own doc, with a button. Say `@yo do it` and it presses it for you, attributed to yo, as one undo step. Next time it answers from memory. Ask it to find notes and it answers with them, and the query that found them.
+Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's own doc, with a button. Say `@yo do it` and it presses it for you, attributed to yo, as one undo step, and next time it answers from memory. Ask it to find notes and it answers with them, and the query that found them.
 
 ```text
 @yo how do I lift the agent again
@@ -28,9 +28,11 @@ Ask `@yo` how to do an ep0ch thing and get two lines quoted from the action's ow
 - **Find notes:** `@yo find me all hub items that are not sent yet`, `@yo list the plans tagged garden`, `@yo which notes are drafts`.
   - **The answer:** up to ten notes as links, the query that found them, and how it read each word (`not sent → NOT (status=sent)`).
   - **Its buttons:** open it in a facets tile, put it on that tile's query line to edit, or save it as a view (you name it).
-  - **Where the query comes from:** the outline's own facets, read by the service (`query.suggest`, Jev picking); yo keeps no list of properties. Without Jev it says so and offers your words on the facets query line.
+  - **Where the query comes from:** the outline's own facets, read by the service (`query.suggest`, Jev picking): yo keeps no list of properties.
+  - **Without Jev:** it says so and offers your words on the facets query line.
   - **Nothing found:** the query, and the keys nearest your words.
-  - **Told by its words:** "find", "list", "show me the…", "which notes…" is a find; "how do I find…" is a how-do-I. Code decides, before any model.
+  - **Told by its words:** "find", "list", "show me the…" or "which notes…" is a find, and code decides before any model.
+  - **Not a find:** "how do I find…" is a how-do-I.
 - **Ask about a tile:** `ask yo about this` in a tile's menu, `ask yo` in the power bar, or `✦y` (the key note under this page).
   - **From a shell:** `ep0ch act agent.ask to=yo about=tile`.
   - **Where it lands:** a thread on the note in that tile; a tile with no note, on this page.
