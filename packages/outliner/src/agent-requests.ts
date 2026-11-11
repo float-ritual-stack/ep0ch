@@ -423,8 +423,18 @@ export class AgentRequests {
   /** `r` pressed while that request was running: one more run after it, for whoever asked. */
   private readonly again = new Map<string, string>();
 
-  /** Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. */
-  private readonly retried = new Set<string>();
+  /**
+   * Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. Kept
+   * in the store's metadata by note, so a restart between the failure and its retype keeps the promise (PIE-1731).
+   */
+  private readonly retried = {
+    key: (blockId: string) => `agent-request-retry:${blockId}`,
+    of: (blockId: string): string[] => { try { return JSON.parse(this.store.readMetadata(this.retried.key(blockId)) ?? "[]") as string[]; } catch { return []; } },
+    write: (blockId: string, keys: readonly string[]) => this.store.writeMetadata(this.retried.key(blockId), JSON.stringify(keys)),
+    add: (blockId: string, requestKey: string) => { const keys = this.retried.of(blockId); if (!keys.includes(requestKey)) this.retried.write(blockId, [...keys, requestKey]); },
+    /** Taken: whether it was one. */
+    take: (blockId: string, requestKey: string): boolean => { const keys = this.retried.of(blockId); if (!keys.includes(requestKey)) return false; this.retried.write(blockId, keys.filter(k => k !== requestKey)); return true; },
+  };
   /** The request keys each live draft (by its hold) held when it was last read (`touched`): a line gone and back is written again. */
   private readonly draftKeys = new Map<string, Set<string>>();
   /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now, and an orphan its save left goes. */
@@ -707,7 +717,7 @@ export class AgentRequests {
     for (const [key, kept] of this.removed) if (now - kept.at > REMOVED_KEPT_MS) this.removed.delete(key);
     for (const row of rows) {
       // Answered ones only: a line that was waiting (an agent wrote it) and a person writes again is theirs, and new.
-      if (keys.includes(row.requestKey) || !ANSWERED.has(row.status) || !this.registry.agent(row.agent) || this.retried.delete(this.key(blockId, row.requestKey))) continue;
+      if (keys.includes(row.requestKey) || !ANSWERED.has(row.status) || !this.registry.agent(row.agent) || this.retried.take(blockId, row.requestKey)) continue;
       if (this.removed.size >= REMOVED_KEPT_MAX) this.removed.delete(this.removed.keys().next().value!);
       this.removed.set(this.key(blockId, row.requestKey), { row, at: now });
     }
@@ -811,7 +821,7 @@ export class AgentRequests {
       const key = this.key(blockId, line.requestKey);
       // A no-answer's line written again (gone from the draft when it was last read, back now) is a new ask, as the save
       // path's withdraw makes it (PIE-1731): its row goes, and it is asked.
-      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.delete(key)) {
+      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.take(blockId, line.requestKey)) {
         rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
         this.store.pruneAgentRequests(blockId, [...rows.keys()]);
       }
@@ -990,7 +1000,7 @@ export class AgentRequests {
       } catch (error) {
         throw new Error(`@${line.agent} answered something the service can't apply: ${message(error)}`);
       }
-      if (respond.retry) this.retried.add(key); else this.retried.delete(key);
+      if (respond.retry) this.retried.add(blockId, requestKey); else this.retried.take(blockId, requestKey);
       // Reworded while it ran: the answer was to a request that isn't there any more.
       if (!stillThere((await this.deps.readDraft(blockId)).text)) return;
       // What it changed, as links under its answer (PIE-1452): the notes its programs wrote as it meanwhile.

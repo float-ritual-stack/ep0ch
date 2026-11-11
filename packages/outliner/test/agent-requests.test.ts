@@ -977,3 +977,26 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "not set up here
   await Bun.sleep(400);
   expect(asked()).toEqual(["down find hub items"]);
 });
+
+// PIE-1731, the verifier's walk: a no-answer stays one across a restart (a deploy between the failure and its retype):
+// written again in a live draft afterwards, its line is asked again.
+test("a retry answer is still one after the service restarts: retyped in a draft, it is asked again", async () => {
+  const { store, client, create, writeAgent, restart } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "flaky-restart-")), "flaky.log");
+  await writeAgent("flaky", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "not set up here", retry: true } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  const note = await create("Hub\n@flaky down find hub items");
+  await until("answered once", () => asked().length === 1 && store.agentRequests(note.id).some(r => r.answeredAt));
+  await restart(50, true);
+  const fresh = new OutlinerClient(client.socketPath);
+  const door = await fakeDoor(fresh, "door-after-restart", (await fresh.request<Block>({ action: "get", blockId: note.id } as never)));
+  const reads = () => door.requests.filter(r => r.kind === "read").length;
+  const type = async (text: string) => { const n = reads(); door.text = text; await fresh.request({ action: "drafts.touch", holdId: door.holdId }); await until("the draft read", () => reads() > n); };
+  const saved = door.text;
+  await type(saved.replace("@flaky down find hub items", ""));
+  await type(saved);
+  await until("asked again after the restart", () => asked().length === 2);
+});
