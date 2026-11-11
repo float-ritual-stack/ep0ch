@@ -161,7 +161,7 @@ import {
   type PublisherAddress,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
-import { servedPage } from "./note-page";
+import { answeredPage, servedPage } from "./note-page";
 import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
@@ -2388,7 +2388,7 @@ export class OutlinerServer {
       }
       return this.answered(request, result);
     }
-    if (request.action === "notes.page") return this.answered(request, wired(request.action, await servedPage(this.own, id => this.store.require(id), request.blockId, { outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) })));
+    if (request.action === "notes.page") return answeredPage(request, connection, this.watches, () => this.store.sequence, () => servedPage(this.own, id => this.store.require(id), request.blockId, { outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) }));
     if (request.action === "notes.address") {
       if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
       return this.answered(request, wired(request.action, await this.noteAddress(request.blockId)));
@@ -2595,7 +2595,7 @@ export class OutlinerServer {
           break;
         }
         case "blocks.read":
-          result = wired(action, this.store.readBlocks(request.ids, request.fields));
+          result = wired(action, this.store.readBlocks(request.ids ?? this.store.children(request.under ?? null).map(child => child.id), request.fields));
           break;
         case "blocks.grep":
           result = wired(action, grepBlocks(this.store.liveBlocks(), request));

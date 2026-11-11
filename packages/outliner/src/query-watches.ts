@@ -57,6 +57,8 @@ interface Watch {
   minute?: true;
   /** The question leaves machinery out: a stamped note's change reaches it only through these notes. */
   blind?: ReadonlySet<string>;
+  /** Its answer takes a turn (`askLater`): a pass awaits it instead of asking `answer`. */
+  later?: (request: Request) => Promise<OutlinerResponse>;
 }
 
 const isMinute = (response: OutlinerResponse): boolean =>
@@ -208,6 +210,29 @@ export class QueryWatches {
   }
 
   /**
+   * `ask` for a read whose answer takes a turn (a note's page, which asks the service a question per component):
+   * `later` answers it now and again on each pass that reaches it. The same contract otherwise: generation 0 when
+   * registered, the kept answer when asked again, `queries.changed` when a pass finds it different.
+   */
+  async askLater(connection: WatchConnection, request: Request, later: (request: Request) => Promise<OutlinerResponse>): Promise<OutlinerResponse> {
+    const key = request.watch;
+    if (typeof key !== "string" || !key || key.length > 200) {
+      return refusalEnvelope(request.id, new Refusal("invalid", "watch is a key of 1 to 200 characters the client chooses, like \"links:3f2a\""), this.options.sequence());
+    }
+    const { id: _id, watch: _watch, generation: _generation, ...question } = request;
+    const signature = stableJson(question);
+    const slot = `${this.id(connection)}\0${key}`;
+    const held = this.all.get(slot);
+    if (held && held.signature === signature) return this.reply(request.id, held);
+    const response = await later({ ...question, id: request.id } as Request);
+    if (!response.ok) return response;
+    const watch: Watch = { connection, key, request: question, signature, generation: 0, hash: hashOf(response), response, later };
+    this.all.set(slot, watch);
+    this.bound(connection);
+    return this.reply(request.id, watch);
+  }
+
+  /**
    * The answer to a question being registered: one a connection asked at this sequence moments ago if there is one. Doors
    * reconnecting after a restart all ask the same reads at once; on float-2 three of them queued up to 10 s behind each
    * other's copies of the same reads (PIE-1546). A watched read answers from the outline and the clock alone, so the same
@@ -287,7 +312,15 @@ export class QueryWatches {
     if (!this.options.turn) {
       const started = performance.now();
       const changes = new Map<WatchConnection, QueryChange[]>();
-      for (const watch of this.all.values()) {
+      for (const [slot, watch] of this.all) {
+        if (watch.later) {
+          // Its answer is awaited; told by itself when it comes, if the watch is still the one that asked.
+          if (this.wanted(watch, select, touched, all, plain)) void watch.later({ ...watch.request, id: "watch" } as Request).then(response => {
+            const change = this.all.get(slot) === watch && this.update(watch, response);
+            if (change) this.send(watch.connection, [change]);
+          }, () => {});
+          continue;
+        }
         const change = this.wanted(watch, select, touched, all, plain) && this.update(watch, this.options.answer({ ...watch.request, id: "watch" } as Request));
         if (!change) continue;
         const list = changes.get(watch.connection) ?? [];
@@ -334,9 +367,11 @@ export class QueryWatches {
         // Replaced, dropped or closed while it waited.
         if (!current(slot, watch)) continue;
         const started = performance.now();
-        try { response = this.options.answer({ ...watch.request, id: "watch" } as Request); }
+        try { response = watch.later ? await watch.later({ ...watch.request, id: "watch" } as Request) : this.options.answer({ ...watch.request, id: "watch" } as Request); }
         catch (error) { response = refusalEnvelope("watch", error, this.options.sequence()); }
         this.options.timed?.(performance.now() - started, 1);
+        // Replaced, dropped or closed while its answer was awaited.
+        if (!current(slot, watch)) continue;
         answered.set(watch.signature, response);
       }
       const change = this.update(watch, response);

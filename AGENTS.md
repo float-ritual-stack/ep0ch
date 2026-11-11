@@ -30,9 +30,9 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
 - **packages/door**: ep0ch, the terminal door people call into: screens built from tiles over one note surface. Its
   `docs/UI-GRAMMAR.md` is the glossary and the reuse map.
 - **packages/claude-mod**: the Claude Code mod (outline and workboard tools, reference links, Recent Mentions).
-- **packages/native**: ep0ch as a native window, drawn with Rune (a Rust crate with its own `cargo` build, outside
-  `bun run check`) over a TypeScript bridge that reads the outline through the door's `SocketBoard` and outline-core.
-  Its [README](packages/native/README.md) has the bridge's asks and the headless render recipe.
+- **packages/native**: ep0ch as a native window, drawn with Rune: a Rust crate with its own `cargo` build (outside
+  `bun run check`, bar a one-file resolver) that speaks the host's socket and draws what `notes.page` answers.
+  Its [README](packages/native/README.md) has how it fits and the headless render recipe.
 
 ## Before you build
 

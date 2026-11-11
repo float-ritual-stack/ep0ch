@@ -230,6 +230,8 @@ export const WATCHABLE_ACTIONS = [
   "waiting.list", "callouts.types", "headings.styles", "styles.list",
   // What soft links are drawn with, asked on the first frame after every change (PIE-1606).
   "references.soft-scope",
+  // A list of notes by id or under a note (`under`): what a tree's open folder shows.
+  "blocks.read",
 ] as const;
 
 // The Site read (PIE-533): what a `{{ }}`, a figure, a script or a template reads of the note it sits in. Defined beside the

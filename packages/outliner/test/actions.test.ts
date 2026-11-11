@@ -47,11 +47,11 @@ test("each list main kept is now one column of the table", () => {
     "query.suggest"]));
 });
 
-test("blocks.read is a plain read: main's copy and extension lists both had it, the read-only list didn't", () => {
+test("blocks.read is a read a client may watch: main's copy and extension lists both had it, the read-only list didn't", () => {
   expect(MAIN.read).not.toContain("blocks.read");
   expect(MAIN.copy).toContain("blocks.read");
   expect(MAIN.extensionReads).toContain("blocks.read");
-  expect(ACTIONS["blocks.read"]).toEqual({ read: true });
+  expect(ACTIONS["blocks.read"]).toEqual({ read: true, watch: true });
 });
 
 test("the rows agree with each other", () => {

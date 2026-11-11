@@ -168,7 +168,7 @@ export const ACTIONS = {
   "blocks.grep": { read: true, whole: true },
   "blocks.markRead": { event: (request, { result }) => (result as { marked: number }).marked ? content(request.blocks[0]?.id) : null },
   "blocks.query": { read: true, watch: true, whole: true },
-  "blocks.read": { read: true },
+  "blocks.read": { read: true, watch: true },
   "blocks.records": { read: true, whole: true },
   "blocks.resolve": { read: true },
   "bookmarks.remove": { event: (_, { result }) => content((result as BookmarkRemoveReceipt).record.id) },

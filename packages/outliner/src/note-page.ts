@@ -6,42 +6,76 @@
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
 import { graphKind } from "@ep0ch/outline-core/figure-props";
 import { figureResultsMarkdown } from "@ep0ch/outline-core/figure-results";
-import { headerLine, titleWords } from "@ep0ch/outline-core/header-line";
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
+import { headerLine } from "@ep0ch/outline-core/header-line";
 import { linkBlockAt } from "@ep0ch/outline-core/link-blocks";
-import { proseMarkdown, unlabelledReferences, type NotePage, type PagePart } from "@ep0ch/outline-core/note-page";
+import { pageAddresses, proseMarkdown, unlabelledReferences, type NotePage, type NoteRow, type PagePart } from "@ep0ch/outline-core/note-page";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { siteBlockAt } from "@ep0ch/outline-core/site-blocks";
 import { viewSpec } from "@ep0ch/outline-core/view-spec";
 import { holds, produced, readFigure, readLinks, type LiveHost } from "./publish-live";
+import type { OutlinerResponse } from "@ep0ch/outline-core/protocol";
+import type { QueryWatches, WatchConnection } from "./query-watches";
+import { refusalEnvelope } from "./request-envelope";
+import type { BacklinkCollection } from "./types";
 
 /** Where the page was read: named in a figure's "the rest" command. */
 interface PageAddress { outline?: string | undefined; machine?: string }
 
 /**
- * `notes.page` as the service answers it: the page of the note `blockId` names, read by the service asking itself
- * (`own`) for a reader who sees every note, titled as every list titles it. A note in Trash is refused.
+ * `notes.page`'s envelope: the page, kept as a watched answer on `connection` when the request names a `watch` (ADR
+ * 0004; its answer is awaited, so a pass asks `page` again and says when it changed), else just answered.
+ */
+export function answeredPage(
+  request: { id: string; watch?: unknown; generation?: unknown }, connection: WatchConnection | undefined,
+  watches: QueryWatches, sequence: () => number, page: () => Promise<NotePage>,
+): Promise<OutlinerResponse> {
+  const answer = (id: string): Promise<OutlinerResponse> => page().then(result => ({ id, ok: true as const, result, sequence: sequence() }), error => refusalEnvelope(id, error, sequence()));
+  return connection && request.watch !== undefined ? watches.askLater(connection, request as unknown as Parameters<QueryWatches["askLater"]>[1], asked => answer(asked.id)) : answer(request.id);
+}
+
+type Own = { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> };
+type Listed = { id: string; title?: string; hasChildren?: boolean };
+
+/**
+ * `notes.page` as the service answers it: everything a client draws of the note `blockId` names, read by the service
+ * asking itself (`own`) for a reader who sees every note. One reading of every title: the lists' (`blocks.read`).
+ * A note in Trash is refused.
  */
 export async function servedPage(
-  own: { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> },
-  require: (id: string) => { id: string; text: string; revision: number; effectiveDeletedRootId?: string | null },
+  own: Own, require: (id: string) => { id: string; text: string; revision: number; effectiveDeletedRootId?: string | null },
   blockId: unknown, address: PageAddress,
 ): Promise<NotePage> {
   if (typeof blockId !== "string") throw new Error("notes.page needs blockId");
   const block = require(blockId);
   if (block.effectiveDeletedRootId) throw new Error(`Block ${block.id} is in Trash`);
-  const titles = async (ids: readonly string[]) => new Map(ids.length
-    ? (await own.request<{ blocks: { id: string; title?: string }[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title"] })).blocks.map(b => [b.id, b.title ?? ""] as const)
-    : []);
+  const listed = async (ids: readonly string[]): Promise<Listed[]> => ids.length
+    ? (await own.request<{ blocks: Listed[] }>({ action: "blocks.read", ids: [...new Set(ids)], fields: ["title", "hasChildren"] })).blocks : [];
+  const titles = async (ids: readonly string[]) => new Map((await listed(ids)).map(b => [b.id, b.title ?? ""] as const));
   const host: LiveHost = { request: input => own.request(input as { action: string }), shown: async ids => new Set(ids), titles, href: id => id };
-  const page = await notePage(host, block, address);
-  const title = (await titles([block.id])).get(block.id);
-  return title ? { ...page, title } : page;
+  const [parts, { records }, context, back] = await Promise.all([
+    noteParts(host, block, address),
+    own.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [block.id] }),
+    own.request<{ ancestors: { id: string }[] }>({ action: "blocks.context", blockId: block.id }),
+    own.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: block.id, limit: 50 } }),
+  ]);
+  const record = records[0]!;
+  const row = (b: Listed): NoteRow => ({ id: b.id, title: b.title || "untitled", ...(b.hasChildren ? { hasChildren: true } : {}) });
+  const [self, above, kids] = await Promise.all([listed([block.id]), listed(context.ancestors.map(a => a.id)), listed(record.children)]);
+  const ordered = (ids: readonly string[], rows: Listed[]) => ids.flatMap(id => rows.filter(r => r.id === id).map(row));
+  return {
+    blockId: block.id, revision: block.revision, title: self[0]?.title ?? "", chips: headerLine(block.text).chips.map(c => ({ key: c.key, value: c.value })),
+    properties: record.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))), text: block.text, parts,
+    ancestors: ordered(context.ancestors.map(a => a.id), above), children: ordered(record.children, kids),
+    backlinks: back.sources.filter(s => s.blockId !== block.id).map(s => ({ id: s.blockId, title: s.title || "untitled", ...(s.parentContext ? { context: s.parentContext } : {}) })),
+    updated: record.updated, author: record.actor ?? record.author,
+  };
 }
 
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** The page of `note`, its components answered through `host` (the service's own requests, for a reader who sees every note). */
-async function notePage(host: LiveHost, note: { id: string; text: string; revision: number }, address: PageAddress): Promise<NotePage> {
+/** The body of `note` as parts, its components answered through `host`. */
+async function noteParts(host: LiveHost, note: { id: string; text: string }, address: PageAddress): Promise<PagePart[]> {
   const header = headerLine(note.text);
   const all = note.text.split("\n");
   // The body is every line after the header line; a component is found where it stands in the whole note, as a page finds it.
@@ -49,14 +83,21 @@ async function notePage(host: LiveHost, note: { id: string; text: string; revisi
   const structure = noteStructure(all);
   const byStart = new Map(componentBlocks(all).map(block => [block.start, block]));
   const titles = new Map<string, string>();
-  const ids = unlabelledReferences(all.slice(first).join("\n"));
+  const written = all.slice(first).join("\n");
+  const ids = unlabelledReferences(written);
   if (ids.length) for (const [id, title] of await host.titles(ids)) titles.set(id, title);
+  // A page link is written to the note its page is, when there is one.
+  const pages = new Map<string, string>();
+  await Promise.all(pageAddresses(written).map(async at => {
+    const found = await host.request<{ status: string; block?: { id: string } }>({ action: "pages.resolve", address: at }).catch(() => null);
+    if (found?.status === "resolved" && found.block) pages.set(at, found.block.id);
+  }));
 
   const parts: PagePart[] = [];
   let prose: string[] = [];
   const flush = () => {
     const text = prose.join("\n").replace(/^\n+|\n+$/g, "");
-    if (text.trim()) parts.push({ kind: "prose", markdown: proseMarkdown(text, titles) });
+    if (text.trim()) parts.push({ kind: "prose", markdown: proseMarkdown(text, titles, pages) });
     prose = [];
   };
   for (let i = first; i < all.length; i++) {
@@ -110,7 +151,7 @@ async function notePage(host: LiveHost, note: { id: string; text: string; revisi
           // The same results as Markdown, for a client with no drawing of this kind (a page copy writes these lines).
           const md = read.found || read.error ? figureResultsMarkdown(kind!, read.props, read.found ?? null, { ...(address.outline ? { outline: address.outline } : {}), ...(address.machine ? { machine: address.machine } : {}), note: note.id, at: Date.now() }, read.error || undefined) : null;
           parts.push({ kind: "figure", name: block!.name, figure: kind!, source, props: read.props, ...(typeof read.props.title === "string" ? { title: read.props.title } : {}),
-            ...(md ? { markdown: proseMarkdown(md.lines.join("\n"), titles) } : {}), ...(read.foot ? { status: read.foot } : {}), ...(read.error ? { error: read.error } : {}) });
+            ...(md ? { markdown: proseMarkdown(md.lines.join("\n"), titles, pages) } : {}), ...(read.foot ? { status: read.foot } : {}), ...(read.error ? { error: read.error } : {}) });
         }
       }
     } catch (error) {
@@ -119,5 +160,5 @@ async function notePage(host: LiveHost, note: { id: string; text: string; revisi
     i = end;
   }
   flush();
-  return { blockId: note.id, revision: note.revision, title: titleWords(note.text), chips: header.chips.map(c => ({ key: c.key, value: c.value })), text: note.text, parts };
+  return parts;
 }

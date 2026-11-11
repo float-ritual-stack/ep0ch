@@ -1,202 +1,47 @@
-//! What the window holds and how it changes. The bridge's answers land here as they are: a tree of titles, a page
-//! of parts, rows. The app decides what is open, expanded or being typed; the outline's meaning stays the service's.
+//! What the window holds and how it changes.
+//!
+//! The screen is a function of what is wanted: the open note, the folders unfolded in the tree, the finder's words,
+//! what is being typed. Each wanted thing has a slot named by its key; an answer lands in the slot whose key it
+//! carries, or nowhere. So there is no "is this answer still for what's on screen?" to ask: a slot only ever holds
+//! the answer to what it wants. What changes in the outline arrives the same way: the service says which watched
+//! answer moved (`queries.changed`), and that slot asks again.
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use rune::TextEdit;
 use rune_kit::shell::PaneState;
-use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::bridge::Bridge;
+use crate::client::{Link, PROTOCOL};
+use crate::page::{Facet, NoteRow, Page};
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct TreeRow {
-    pub id: String,
-    pub parent: Option<String>,
-    pub depth: usize,
-    pub title: String,
-    #[serde(rename = "hasChildren", default)]
-    pub has_children: bool,
+/// What's wanted, what was asked for, and the newest answer: `get` is the answer to what's wanted now, or nothing.
+pub struct Slot<K, V> {
+    want: Option<K>,
+    asked: Option<K>,
+    held: Option<(K, V)>,
 }
 
-/// A note in a list: a child, a query's row, a backlink, a search match.
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Row {
-    pub id: String,
-    pub title: String,
-    #[serde(default)]
-    pub context: String,
-    #[serde(default)]
-    pub snippet: String,
-    #[serde(default)]
-    pub props: HashMap<String, String>,
+impl<K: PartialEq + Clone, V> Default for Slot<K, V> {
+    fn default() -> Self { Slot { want: None, asked: None, held: None } }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Chip {
-    pub key: String,
-    pub value: String,
-}
-
-/// One row of a links group or a fields list: what it says, the note it opens (none: it opens nothing), a quiet word after it.
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct PageRow {
-    pub text: String,
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub note: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Group {
-    pub name: String,
-    #[serde(default)]
-    pub rows: Vec<PageRow>,
-    #[serde(default)]
-    pub empty: Option<String>,
-}
-
-/// A view's row as the service lists it: the note, its label, and a cell per column.
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct ListRow {
-    pub id: String,
-    pub label: String,
-    #[serde(default)]
-    pub detail: Option<String>,
-    #[serde(default)]
-    pub cells: Vec<Value>,
-}
-
-impl ListRow {
-    /// A cell's words: it is text, a number, or an object with `text`.
-    pub fn cell(v: &Value) -> String {
-        match v {
-            Value::String(s) => s.clone(),
-            Value::Object(o) => o.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
-            Value::Null => String::new(),
-            other => other.to_string(),
-        }
+impl<K: PartialEq + Clone, V> Slot<K, V> {
+    pub fn want(&mut self, key: Option<K>) { self.want = key }
+    pub fn wanted(&self) -> Option<&K> { self.want.as_ref() }
+    /// The key to ask for, when what's wanted hasn't been asked yet.
+    fn due(&mut self) -> Option<K> {
+        if self.want.is_none() || self.want == self.asked { return None }
+        self.asked = self.want.clone();
+        self.want.clone()
     }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct ListView {
-    #[serde(default)]
-    pub rows: Vec<ListRow>,
-    #[serde(default)]
-    pub headers: Vec<String>,
-    #[serde(default)]
-    pub columns: Vec<String>,
-}
-
-/// What every component part carries (outline-core's note-page.ts): its name and source as written, and the service's word on its answer.
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Frame {
-    pub name: String,
-    #[serde(default)]
-    pub title: Option<String>,
-    pub source: String,
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
-/// A part of a page, as `notes.page` answers it.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Part {
-    Prose { markdown: String },
-    /// A `::graph-*` figure: the props it draws from, answered, and the same results as Markdown.
-    Figure {
-        #[serde(flatten)]
-        frame: Frame,
-        figure: String,
-        #[serde(default)]
-        props: Value,
-        #[serde(default)]
-        markdown: Option<String>,
-    },
-    /// A `::view` or a query-backed table: the view's own list.
-    View {
-        #[serde(flatten)]
-        frame: Frame,
-        view: ListView,
-        #[serde(default)]
-        truncated: bool,
-    },
-    /// A `::links` and its kin, or a `::fields`: named groups of rows.
-    Rows {
-        #[serde(flatten)]
-        frame: Frame,
-        #[serde(default)]
-        groups: Vec<Group>,
-    },
-    /// A component the service answers nothing for: its source.
-    Component {
-        #[serde(flatten)]
-        frame: Frame,
-    },
-}
-
-impl Part {
-    /// Whether this part lists the note `id`: a change to it means the page should be read again.
-    pub fn lists(&self, id: &str) -> bool {
-        match self {
-            Part::View { view, .. } => view.rows.iter().any(|r| r.id == id),
-            Part::Rows { groups, .. } => groups.iter().any(|g| g.rows.iter().any(|r| r.id.as_deref() == Some(id))),
-            _ => false,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Page {
-    pub id: String,
-    pub revision: u64,
-    pub title: String,
-    #[serde(default)]
-    pub path: String,
-    pub text: String,
-    #[serde(default)]
-    pub chips: Vec<Chip>,
-    #[serde(default)]
-    pub properties: Vec<Chip>,
-    #[serde(default)]
-    pub updated: String,
-    #[serde(default)]
-    pub author: String,
-    #[serde(default)]
-    pub parts: Vec<Part>,
-    #[serde(default)]
-    pub children: Vec<Row>,
-    #[serde(default)]
-    pub backlinks: Vec<Row>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Facet {
-    pub key: String,
-    #[serde(default)]
-    pub values: Vec<FacetValue>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct FacetValue {
-    pub value: String,
-    pub count: u64,
-}
-
-/// The note being typed in: its source, and the revision it was read at (what a save names).
-pub struct Draft {
-    pub note: String,
-    pub revision: u64,
-    pub edit: TextEdit,
-    pub saving: bool,
+    /// What's wanted is asked again (the outline changed it, or the connection came back).
+    fn again(&mut self) { self.asked = None }
+    fn land(&mut self, key: K, value: V) { if self.want.as_ref() == Some(&key) { self.held = Some((key, value)) } }
+    /// The answer to what's wanted now.
+    pub fn get(&self) -> Option<&V> { self.held.as_ref().filter(|(key, _)| Some(key) == self.want.as_ref()).map(|(_, value)| value) }
+    /// The newest answer, whatever it answered: what stays on screen, dimmed, while the wanted one is on its way.
+    pub fn last(&self) -> Option<&V> { self.held.as_ref().map(|(_, value)| value) }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -207,405 +52,519 @@ pub enum Finder {
     Query,
 }
 
-pub struct Palette {
-    pub kind: Finder,
-    pub edit: TextEdit,
-    pub asked: String,
-    pub rows: Vec<Row>,
-    pub cursor: usize,
-    pub hint: String,
+/// What a finder's question answered: rows, the facets the matches carry (a query's), and the service's hint or refusal.
+#[derive(Clone, Debug, Default)]
+pub struct Found {
+    pub rows: Vec<NoteRow>,
     pub facets: Vec<Facet>,
-    pub pending: bool,
+    pub hint: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Tone {
-    Info,
-    Problem,
+/// The note being typed in. `base` is the text the service holds at `revision`: a save names that revision, and the
+/// editor has something unsaved exactly when its text differs from `base`.
+pub struct Editing {
+    pub note: String,
+    pub revision: u64,
+    pub base: String,
 }
 
-/// What an ask was for, kept until its answer lands.
+/// One line of the sidebar: a note at its depth in the unfolded tree.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TreeLine {
+    pub depth: usize,
+    pub row: NoteRow,
+}
+
+/// What the window says above the note. `Trashed` carries the note, so its Undo knows what to bring back.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Notice {
+    Info(String),
+    Problem(String),
+    Trashed(String),
+}
+
+/// What an ask was: the slot its answer lands in, or the write it was.
 #[derive(Clone, Debug)]
-enum Pending {
+enum Tag {
     Hello,
-    Tree,
-    Page { note: String },
-    Save { note: String, sent: String },
-    Created,
+    Level(Option<String>),
+    Page(String),
+    Found(Finder, String),
+    Saved { note: String, sent: String },
+    Created { parent: Option<String> },
     Moved,
     Trashed { note: String, parent: Option<String> },
-    Restored,
-    Follow,
-    Found { kind: Finder, asked: String },
+    Restored { note: String },
 }
 
 pub struct App {
-    pub bridge: Bridge,
+    link: Box<dyn Link>,
+    /// Makes the link again after it is lost.
+    connect: Option<Box<dyn Fn() -> Box<dyn Link>>>,
+    /// A headless render steps a virtual clock: each ask waits for its answer, so a frame shows what it asked for.
+    pub blocking: bool,
+    next: u64,
+    asks: HashMap<String, Tag>,
+
     pub outline: String,
     pub machine: String,
-    pub outlines: Vec<String>,
-    pub tree: Vec<TreeRow>,
-    pub expanded: HashSet<String>,
-    /// Indices into `tree` of the rows whose ancestors are all open: what the sidebar lists.
-    pub visible: Vec<usize>,
-    pub selected: Option<String>,
-    pub page: Option<Page>,
-    pub loading: bool,
-    pub back: Vec<String>,
-    pub draft: Option<Draft>,
-    pub palette: Option<Palette>,
-    pub notice: Option<(Tone, String)>,
-    /// The last note put in the Trash here, for the notice's undo.
-    pub trashed: Option<String>,
     pub online: bool,
+
+    /// The notes under each unfolded note (`None`: the top level), as the service lists them.
+    levels: HashMap<Option<String>, Vec<NoteRow>>,
+    asked_levels: HashSet<Option<String>>,
+    pub expanded: HashSet<String>,
+    /// The sidebar's lines: the unfolded tree, in order.
+    pub tree: Vec<TreeLine>,
+
+    pub page: Slot<String, Page>,
+    pub back: Vec<String>,
+
+    /// The editor's text, there whether or not a note is being edited, so a key always has somewhere to land.
+    pub editor: TextEdit,
+    pub editing: Option<Editing>,
+
+    pub finder: Option<Finder>,
+    pub finder_edit: TextEdit,
+    pub found: Slot<(Finder, String), Found>,
+    pub cursor: usize,
+
+    pub notice: Option<Notice>,
     pub sidebar: PaneState,
     pub inspector: PaneState,
-    /// Where a key lands when its field closed in the same frame (a save answered, a palette dismissed).
-    pub sink: TextEdit,
-    pending: HashMap<u64, Pending>,
 }
 
 impl App {
-    pub fn new(bridge: Bridge) -> App {
+    pub fn new(link: Box<dyn Link>, outline: &str) -> App {
         App {
-            bridge,
-            outline: String::new(),
+            link,
+            connect: None,
+            blocking: false,
+            next: 0,
+            asks: HashMap::new(),
+            outline: outline.to_string(),
             machine: String::new(),
-            outlines: Vec::new(),
-            tree: Vec::new(),
-            expanded: HashSet::new(),
-            visible: Vec::new(),
-            selected: None,
-            page: None,
-            loading: true,
-            back: Vec::new(),
-            draft: None,
-            palette: None,
-            notice: None,
-            trashed: None,
             online: true,
+            levels: HashMap::new(),
+            asked_levels: HashSet::new(),
+            expanded: HashSet::new(),
+            tree: Vec::new(),
+            page: Slot::default(),
+            back: Vec::new(),
+            editor: TextEdit::new(""),
+            editing: None,
+            finder: None,
+            finder_edit: TextEdit::new(""),
+            found: Slot::default(),
+            cursor: 0,
+            notice: None,
             sidebar: PaneState::new(280.0).range(180.0, 520.0),
             inspector: PaneState::new(280.0).range(220.0, 440.0),
-            sink: TextEdit::new(""),
-            pending: HashMap::new(),
         }
     }
 
-    fn ask(&mut self, ask: Value, pending: Pending) -> u64 {
-        let id = self.bridge.ask(ask);
-        self.pending.insert(id, pending);
-        id
+    pub fn reconnecting(mut self, connect: Box<dyn Fn() -> Box<dyn Link>>) -> App {
+        self.connect = Some(connect);
+        self
     }
 
-    /// The first asks: who answers, and the tree.
+    pub fn set_waker(&mut self, waker: rune::Waker) { self.link.set_waker(waker) }
+
+    // ── asking ──────────────────────────────────────────────────────────────────────────────────────────────
+
+    fn ask(&mut self, tag: Tag, action: &str, mut request: Value) {
+        self.next += 1;
+        let id = format!("n{}", self.next);
+        request["id"] = json!(id);
+        request["action"] = json!(action);
+        request["outline"] = json!(self.outline);
+        self.link.send(&request);
+        if self.blocking { self.link.wait(&id, Duration::from_secs(20)) }
+        self.asks.insert(id, tag);
+    }
+
+    /// Asks for whatever is wanted and not yet asked: the top level and every unfolded note's children, the open
+    /// note's page, the finder's question. Each is a watched read, so the service says when its answer moves.
+    fn pump(&mut self) {
+        let wanted: Vec<Option<String>> = std::iter::once(None).chain(self.expanded.iter().cloned().map(Some)).collect();
+        for parent in wanted {
+            if self.asked_levels.insert(parent.clone()) { self.ask_level(parent, Read::Watch) }
+        }
+        if let Some(note) = self.page.due() { self.ask_page(note, Read::Watch) }
+        if let Some((kind, words)) = self.found.due() { self.ask_found(kind, words, Read::Watch) }
+    }
+
+    fn ask_level(&mut self, parent: Option<String>, read: Read) {
+        let watch = watched(&format!("tree:{}", parent.as_deref().unwrap_or("")), read);
+        self.ask(Tag::Level(parent.clone()), "blocks.read", merged(json!({ "under": parent, "fields": ["title", "hasChildren"] }), watch));
+    }
+
+    fn ask_page(&mut self, note: String, read: Read) {
+        let watch = watched("page", read);
+        self.ask(Tag::Page(note.clone()), "notes.page", merged(json!({ "blockId": note }), watch));
+    }
+
+    fn ask_found(&mut self, kind: Finder, words: String, read: Read) {
+        let tag = Tag::Found(kind, words.clone());
+        match kind {
+            Finder::Find => self.ask(tag, "tree.search", json!({ "query": words, "limit": 30, "semantic": false })),
+            Finder::Query => {
+                let query = json!({ "query": { "where": words, "limit": 200, "facets": true, "facetValues": 8 }, "fields": ["title", "hasChildren", "timestamps"] });
+                self.ask(tag, "blocks.query", merged(query, watched("found", read)));
+            }
+        }
+    }
+
+    /// The first asks: who answers, then whatever is wanted.
     pub fn start(&mut self) {
-        self.ask(json!({ "op": "hello" }), Pending::Hello);
-        self.ask(json!({ "op": "tree" }), Pending::Tree);
+        self.ask(Tag::Hello, "ping", json!({}));
+        self.pump();
     }
 
-    /// Waits for everything asked so far and lands it: a headless render has no later frame to show it in. True when
-    /// something landed.
+    /// Lands everything asked so far, and what that asked in turn: for a blocking link, whose answers are already here.
     pub fn settle(&mut self) -> bool {
         let mut any = false;
-        for _ in 0..8 {
-            let Some(&id) = self.pending.keys().max() else { break };
-            if !self.bridge.wait(id, Duration::from_secs(20)) { break }
-            any |= self.take();
-        }
+        while self.take() { any = true }
         any
     }
 
-    /// Lands whatever the bridge has said. True when something on screen changed.
+    /// Lands whatever the host has said. True when something landed.
     pub fn take(&mut self) -> bool {
-        let said = self.bridge.drain();
+        let said = self.link.take();
         let any = !said.is_empty();
-        for v in said {
-            match v["id"].as_u64() {
-                Some(id) => {
-                    let Some(pending) = self.pending.remove(&id) else { continue };
-                    if v["ok"] == true { self.answered(pending, v["result"].clone()) } else { self.refused(pending, v["kind"].as_str().unwrap_or("failed"), v["error"].as_str().unwrap_or("refused")) }
-                }
-                None => self.event(&v),
+        for line in said {
+            if let Some(id) = line["id"].as_str() {
+                let Some(tag) = self.asks.remove(id) else { continue };
+                if line["ok"] == true { self.answered(tag, &line["result"]) } else { self.refused(tag, line["kind"].as_str().unwrap_or("failed"), line["error"].as_str().unwrap_or("refused")) }
+            } else if line["event"]["action"] == "queries.changed" {
+                for change in line["event"]["changes"].as_array().into_iter().flatten() { self.changed(change) }
+            } else if line["link"] == "lost" {
+                self.online = false;
+                self.asks.clear();
+                self.notice = Some(Notice::Problem(format!("Offline: {}", line["detail"].as_str().unwrap_or("the connection ended"))));
             }
         }
+        self.pump();
         any
     }
 
-    fn event(&mut self, v: &Value) {
-        match v["event"].as_str().unwrap_or("") {
-            "changed" => {
-                let ids: Vec<&str> = v["ids"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-                if v["structural"] == true { self.ask(json!({ "op": "tree" }), Pending::Tree); }
-                let Some(open) = self.selected.clone() else { return };
-                let shown = self.page.as_ref();
-                // The open note, or one it lists (a child retitled, a query's row), changed: read it again.
-                let touches = ids.iter().any(|id| *id == open || shown.is_some_and(|p| p.children.iter().any(|c| c.id == *id) || p.parts.iter().any(|part| part.lists(id))));
-                if !touches { return }
-                match &self.draft {
-                    // Someone else wrote the note being typed in: the draft stays, and a save will say so.
-                    Some(d) if d.note == open && !d.saving => self.notice = Some((Tone::Info, "This note changed while you were typing. Your text is kept; saving will ask the service to compare.".into())),
-                    Some(_) => {}
-                    None => { self.ask(json!({ "op": "page", "note": open }), Pending::Page { note: open }); }
-                }
-            }
-            "connection" => {
-                self.online = v["state"] == "restored";
-                let detail = v["detail"].as_str().unwrap_or("");
-                self.notice = Some(if self.online { (Tone::Info, format!("Back online: {detail}")) } else { (Tone::Problem, format!("Offline: {detail}")) });
-                if self.online { self.ask(json!({ "op": "tree" }), Pending::Tree); }
-            }
-            "fatal" | "stderr" => {
-                self.online = false;
-                self.loading = false;
-                self.notice = Some((Tone::Problem, v["error"].as_str().unwrap_or("the bridge failed").to_string()));
-            }
-            _ => {}
+    /// A watched answer moved: read it by the generation the service named. One it dropped is asked for afresh.
+    fn changed(&mut self, change: &Value) {
+        let read = if change["dropped"] == true { Read::Watch } else { Read::At(change["generation"].clone()) };
+        match change["key"].as_str().unwrap_or("") {
+            "page" => if let Some(note) = self.page.wanted().cloned() { self.ask_page(note, read) },
+            "found" => if let Some((kind, words)) = self.found.wanted().cloned() { self.ask_found(kind, words, read) },
+            key => if let Some(parent) = key.strip_prefix("tree:") {
+                let parent = (!parent.is_empty()).then(|| parent.to_string());
+                if parent.as_ref().is_none_or(|p| self.expanded.contains(p)) { self.ask_level(parent, read) }
+            },
         }
     }
 
-    fn answered(&mut self, pending: Pending, result: Value) {
-        match pending {
-            Pending::Hello => {
-                self.outline = result["outline"].as_str().unwrap_or("").into();
-                self.machine = result["machine"].as_str().unwrap_or("").into();
-                self.outlines = serde_json::from_value(result["outlines"].clone()).unwrap_or_default();
-            }
-            Pending::Tree => {
-                self.tree = serde_json::from_value(result["rows"].clone()).unwrap_or_default();
-                self.reveal();
-                if self.selected.is_none() {
-                    let first = self.tree.first().map(|r| r.id.clone());
-                    match first { Some(id) => self.open(&id), None => self.loading = false }
+    /// The link is lost: make it again and ask for everything wanted (its watches ended with it). True when it came back.
+    pub fn reconnect(&mut self) -> bool {
+        let Some(connect) = &self.connect else { return false };
+        self.link = connect();
+        self.asks.clear();
+        self.asked_levels.clear();
+        self.page.again();
+        self.found.again();
+        self.online = true;
+        self.notice = Some(Notice::Info("Back online.".into()));
+        self.start();
+        true
+    }
+
+    fn answered(&mut self, tag: Tag, result: &Value) {
+        match tag {
+            Tag::Hello => {
+                let theirs = result["protocolVersion"].as_u64().unwrap_or(0);
+                if theirs != PROTOCOL {
+                    // Refuse, naming the side to update, as every client does.
+                    self.online = false;
+                    let behind = if theirs < PROTOCOL { "the outline host is older: run `ep0ch install --apply`" } else { "this window is older: build it again from the checkout" };
+                    self.notice = Some(Notice::Problem(format!("Protocol {PROTOCOL} here, {theirs} on the host; {behind}.")));
+                    return;
                 }
+                self.machine = result["location"]["machine"].as_str().unwrap_or("").to_string();
             }
-            Pending::Page { note } => {
-                if self.selected.as_deref() != Some(note.as_str()) { return }
-                match serde_json::from_value::<Page>(result) {
-                    Ok(page) => { self.page = Some(page); self.loading = false }
-                    Err(e) => self.problem(format!("couldn't read the page: {e}")),
-                }
+            Tag::Level(parent) => {
+                self.levels.insert(parent, rows(&result["blocks"]));
+                self.unfold();
+                // Nothing open yet: the window opens on the first note.
+                if self.page.wanted().is_none() && let Some(first) = self.tree.first().map(|line| line.row.id.clone()) { self.show(&first) }
             }
-            Pending::Save { note, sent } => {
-                let Ok(page) = serde_json::from_value::<Page>(result) else { return };
-                match &mut self.draft {
-                    // Typed on while the save was out: the editor stays, now on the saved revision, with the newer text.
-                    Some(d) if d.note == note && d.edit.text != sent => {
-                        d.revision = page.revision;
-                        d.saving = false;
-                        self.notice = Some((Tone::Info, format!("Saved revision {} · what you typed since is not saved yet", page.revision)));
+            Tag::Page(note) => match serde_json::from_value::<Page>(result.clone()) {
+                Ok(page) => {
+                    // Its ancestors unfold, so the sidebar shows where it is.
+                    // (Once, when it first comes: a folder folded by hand afterwards stays folded.)
+                    if self.page.wanted() == Some(&note) && self.page.get().is_none() {
+                        self.expanded.extend(page.ancestors.iter().map(|a| a.id.clone()));
+                        self.unfold();
                     }
-                    Some(d) if d.note == note => {
-                        self.draft = None;
-                        self.notice = Some((Tone::Info, format!("Saved · revision {}", page.revision)));
-                    }
-                    _ => {}
+                    self.page.land(note, page);
                 }
-                if self.selected.as_deref() == Some(note.as_str()) { self.page = Some(page) }
-                self.ask(json!({ "op": "tree" }), Pending::Tree);
+                Err(e) => self.notice = Some(Notice::Problem(format!("couldn't read the page: {e}"))),
+            },
+            Tag::Found(kind, words) => {
+                let found = match kind {
+                    Finder::Find => Found { rows: result["matches"].as_array().into_iter().flatten().map(|m| NoteRow { id: text(&m["block"]["id"]), title: text(&m["title"]), has_children: false, context: text(&m["path"]) }).collect(), ..Found::default() },
+                    Finder::Query => Found {
+                        rows: result["blocks"].as_array().into_iter().flatten().map(|b| NoteRow { id: text(&b["id"]), title: text(&b["title"]), has_children: b["hasChildren"] == true, context: day(&text(&b["updatedAt"])) }).collect(),
+                        facets: serde_json::from_value(result["facets"].clone()).unwrap_or_default(),
+                        hint: text(&result["hint"]),
+                    },
+                };
+                self.found.land((kind, words), found);
+                self.cursor = 0;
             }
-            Pending::Created => {
-                self.ask(json!({ "op": "tree" }), Pending::Tree);
-                if let Some(id) = result["id"].as_str() {
-                    let id = id.to_string();
-                    self.open(&id);
-                    // A new note opens to be written.
-                    self.draft = Some(Draft { note: id, revision: 1, edit: focused(""), saving: false });
+            Tag::Saved { note, sent } => {
+                let revision = result["revision"].as_u64().unwrap_or(0);
+                // Saving never ends editing: what the service holds is now what was sent, and the editor goes on.
+                if let Some(e) = self.editing.as_mut().filter(|e| e.note == note) {
+                    e.revision = revision;
+                    e.base = sent;
+                    self.notice = Some(Notice::Info(format!("Saved · revision {revision}")));
                 }
+                self.wrote(&[]);
             }
-            Pending::Moved => {
-                let said = result["said"].as_str().unwrap_or("");
-                if !said.is_empty() { self.notice = Some((Tone::Info, said.to_string())) }
-                self.ask(json!({ "op": "tree" }), Pending::Tree);
-                if let Some(open) = self.selected.clone() { self.ask(json!({ "op": "page", "note": open }), Pending::Page { note: open }); }
+            Tag::Created { parent } => {
+                let (id, revision) = (text(&result["id"]), result["revision"].as_u64().unwrap_or(0));
+                self.wrote(&[parent]);
+                self.show(&id);
+                // A new note opens to be written, at the revision the service made it at.
+                self.editor = focused(&text(&result["text"]));
+                self.editing = Some(Editing { note: id, revision, base: text(&result["text"]) });
             }
-            Pending::Trashed { note, parent } => {
-                self.notice = Some((Tone::Info, "Moved to the Trash.".into()));
-                self.trashed = Some(note);
-                self.ask(json!({ "op": "tree" }), Pending::Tree);
-                match parent { Some(p) => self.open(&p), None => { self.selected = None; self.page = None } }
+            Tag::Moved => {
+                let said = text(&result["said"]);
+                if !said.is_empty() { self.notice = Some(Notice::Info(said)) }
+                self.wrote(&[opt(&result["parentId"]), opt(&result["previousParentId"])]);
             }
-            Pending::Restored => {
-                self.notice = Some((Tone::Info, "Back from the Trash.".into()));
-                if let Some(id) = self.trashed.take() { self.open(&id) }
-                self.ask(json!({ "op": "tree" }), Pending::Tree);
+            Tag::Trashed { note, parent } => {
+                self.notice = Some(Notice::Trashed(note));
+                self.wrote(&[parent.clone()]);
+                match parent { Some(parent) => self.show(&parent), None => self.page.want(None) }
             }
-            Pending::Follow => {
-                if let Some(id) = result["id"].as_str() { let id = id.to_string(); self.open(&id) }
-                else if let Some(url) = result["url"].as_str() { self.notice = Some((Tone::Info, format!("A web link: {url}"))) }
+            Tag::Restored { note } => {
+                self.notice = Some(Notice::Info("Back from the Trash.".into()));
+                self.wrote(&[opt(&result["parentId"])]);
+                self.show(&note);
             }
-            Pending::Found { kind, asked } => {
-                let Some(p) = &mut self.palette else { return };
-                if p.kind != kind || p.edit.text != asked { return }
-                p.rows = serde_json::from_value(result["rows"].clone()).unwrap_or_default();
-                p.facets = serde_json::from_value(result["facets"].clone()).unwrap_or_default();
-                p.hint = result["hint"].as_str().unwrap_or("").into();
-                p.cursor = 0;
-                p.pending = false;
-                p.asked = asked;
-            }
+        }
+    }
+
+    /// This window wrote: what it shows of the open note and of these folders is read now, not when the watch says.
+    fn wrote(&mut self, parents: &[Option<String>]) {
+        if let Some(note) = self.page.wanted().cloned() { self.ask_page(note, Read::Now) }
+        for parent in parents {
+            if parent.as_ref().is_none_or(|p| self.expanded.contains(p)) { self.ask_level(parent.clone(), Read::Now) }
         }
     }
 
     /// A refusal keeps what the person wrote in front of them, with the service's own words.
-    fn refused(&mut self, pending: Pending, kind: &str, error: &str) {
-        match pending {
-            Pending::Save { .. } => {
-                if let Some(d) = &mut self.draft { d.saving = false }
-                let why = if kind == "stale-revision" || kind == "conflict" { "Not saved: the note changed since you opened it. Your text is still here; copy it, cancel to see the new note, then edit again." } else { error };
-                self.notice = Some((Tone::Problem, why.to_string()));
+    fn refused(&mut self, tag: Tag, kind: &str, error: &str) {
+        match tag {
+            Tag::Saved { .. } if kind == "stale-revision" || kind == "conflict" => {
+                self.notice = Some(Notice::Problem("Not saved: the note changed since you opened it. Your text is still here; copy it, discard to see the new note, then edit again.".into()));
             }
-            Pending::Found { kind: finder, asked } => {
-                if let Some(p) = self.palette.as_mut().filter(|p| p.kind == finder && p.edit.text == asked) {
-                    p.pending = false;
-                    p.rows.clear();
-                    p.facets.clear();
-                    p.hint = error.to_string();
-                }
-            }
-            Pending::Page { .. } | Pending::Tree | Pending::Hello => { self.loading = false; self.problem(error.to_string()) }
-            _ => self.problem(error.to_string()),
+            // A question the service can't read answers with its words, where the rows would be.
+            Tag::Found(kind, words) => self.found.land((kind, words), Found { hint: error.to_string(), ..Found::default() }),
+            _ => self.notice = Some(Notice::Problem(error.to_string())),
         }
     }
 
-    fn problem(&mut self, text: String) { self.notice = Some((Tone::Problem, text)) }
-
     // ── the tree ────────────────────────────────────────────────────────────────────────────────────────────
 
-    fn row(&self, id: &str) -> Option<&TreeRow> { self.tree.iter().find(|r| r.id == id) }
-
-    /// Rebuilds the listed rows: a row shows when every ancestor is open. The tree arrives in walk order, so one
-    /// pass with the depth of the nearest closed ancestor does it.
-    pub fn reveal(&mut self) {
-        let mut closed_at: Option<usize> = None;
-        self.visible.clear();
-        for (i, r) in self.tree.iter().enumerate() {
-            if let Some(d) = closed_at { if r.depth > d { continue } closed_at = None }
-            self.visible.push(i);
-            if r.has_children && !self.expanded.contains(&r.id) { closed_at = Some(r.depth) }
+    /// Rebuilds the sidebar's lines: each level's rows, and under an unfolded row its own level once it has come.
+    fn unfold(&mut self) {
+        fn walk(app: &App, parent: &Option<String>, depth: usize, out: &mut Vec<TreeLine>) {
+            for row in app.levels.get(parent).into_iter().flatten() {
+                out.push(TreeLine { depth, row: row.clone() });
+                if app.expanded.contains(&row.id) { walk(app, &Some(row.id.clone()), depth + 1, out) }
+            }
         }
+        let mut out = Vec::new();
+        walk(self, &None, 0, &mut out);
+        self.tree = out;
     }
 
     pub fn toggle(&mut self, id: &str) {
         if !self.expanded.remove(id) { self.expanded.insert(id.to_string()); }
-        self.reveal();
+        // A folded note's level is forgotten, so unfolding it again asks (and watches) afresh.
+        self.asked_levels.retain(|parent| parent.as_ref().is_none_or(|p| self.expanded.contains(p)));
+        self.unfold();
+        self.pump();
     }
 
-    /// Opens a note: its ancestors unfold so the sidebar shows where it is.
+    fn parent_of(&self, id: &str) -> Option<String> {
+        self.levels.iter().find(|(_, rows)| rows.iter().any(|r| r.id == id)).and_then(|(parent, _)| parent.clone())
+    }
+
+    /// The note on screen is `id`.
+    fn show(&mut self, id: &str) {
+        self.page.want(Some(id.to_string()));
+        self.finder = None;
+        self.pump();
+    }
+
+    /// Opens a note, remembering where from. Unsaved text stays where it is: another note won't open over it.
     pub fn open(&mut self, id: &str) {
-        if self.draft.as_ref().is_some_and(|d| d.edit.text != self.page.as_ref().map_or("", |p| p.text.as_str()) && d.note != id) {
-            self.notice = Some((Tone::Problem, "This note has unsaved text. Save it (⌘S) or cancel (Esc) before opening another.".into()));
+        if self.unsaved() && self.editing.as_ref().is_some_and(|e| e.note != id) {
+            self.notice = Some(Notice::Problem("This note has unsaved text. Save it (⌘S) or discard it before opening another.".into()));
             return;
         }
-        self.draft = None;
-        if let Some(from) = self.selected.as_deref().filter(|s| *s != id) { self.back.push(from.to_string()); }
-        let mut at = self.row(id).and_then(|r| r.parent.clone());
-        while let Some(p) = at {
-            at = self.row(&p).and_then(|r| r.parent.clone());
-            self.expanded.insert(p);
-        }
-        self.reveal();
-        self.selected = Some(id.to_string());
-        self.loading = self.page.as_ref().is_none_or(|p| p.id != id);
-        self.palette = None;
-        self.ask(json!({ "op": "page", "note": id }), Pending::Page { note: id.to_string() });
+        if self.editing.as_ref().is_some_and(|e| e.note != id) { self.editing = None }
+        if let Some(from) = self.page.wanted().filter(|from| from.as_str() != id) { self.back.push(from.clone()) }
+        self.show(id);
     }
 
     pub fn go_back(&mut self) {
-        if let Some(id) = self.back.pop() {
-            self.open(&id);
-            self.back.pop();
-        }
+        if let Some(id) = self.back.pop() { self.show(&id) }
     }
 
-    /// A link in prose: the bridge says what it leads to.
-    pub fn follow(&mut self, href: &str) { self.ask(json!({ "op": "follow", "href": href }), Pending::Follow); }
+    /// A link in prose (outline-core's note-page.ts): `ep0ch:b/<id>` is a note; `ep0ch:p/<address>` a page nobody has made yet.
+    pub fn follow(&mut self, href: &str) {
+        if let Some(id) = href.strip_prefix("ep0ch:b/") { self.open(id) }
+        else if href.starts_with("ep0ch:p/") { self.notice = Some(Notice::Info("No note has that page address yet.".into())) }
+        else { self.notice = Some(Notice::Info(format!("A web link: {href}"))) }
+    }
+
+    /// The page to draw: the open note's, or the last one while the open note's is on its way.
+    pub fn shown(&self) -> Option<&Page> { self.page.wanted().and_then(|_| self.page.get().or(self.page.last())) }
+    /// The open note's page hasn't come yet.
+    pub fn loading(&self) -> bool { self.page.wanted().is_some() && self.page.get().is_none() }
 
     // ── writing ─────────────────────────────────────────────────────────────────────────────────────────────
 
+    fn mutation(&self) -> Value { json!({ "author": "user", "actorId": format!("ep0ch-native:{}", self.machine) }) }
+
     pub fn edit(&mut self) {
-        let Some(p) = &self.page else { return };
-        if self.draft.is_none() { self.draft = Some(Draft { note: p.id.clone(), revision: p.revision, edit: focused(&p.text), saving: false }) }
+        let Some(p) = self.page.get() else { return };
+        if self.editing.is_some() { return }
+        self.editing = Some(Editing { note: p.id.clone(), revision: p.revision, base: p.text.clone() });
+        self.editor = focused(&p.text);
     }
 
-    pub fn cancel_edit(&mut self) {
-        self.draft = None;
-        if matches!(&self.notice, Some((Tone::Problem, _))) { self.notice = None }
-        if let Some(open) = self.selected.clone() { self.ask(json!({ "op": "page", "note": open }), Pending::Page { note: open }); }
+    /// The editor holds text the service doesn't.
+    pub fn unsaved(&self) -> bool { self.editing.as_ref().is_some_and(|e| self.editor.text != e.base) }
+
+    /// Leaves the editor. With unsaved text it stays, and says how to keep or drop it: closing never loses words.
+    pub fn done_editing(&mut self) {
+        if self.unsaved() { self.notice = Some(Notice::Problem("Unsaved text. ⌘S saves it; Discard drops it.".into())) }
+        else { self.discard() }
     }
+
+    /// Leaves the editor and drops what it holds unsaved: only ever asked for by name.
+    pub fn discard(&mut self) {
+        self.editing = None;
+        if matches!(self.notice, Some(Notice::Problem(_))) { self.notice = None }
+    }
+
+    /// A save is out for the note being edited.
+    pub fn saving(&self) -> bool { self.asks.values().any(|tag| matches!(tag, Tag::Saved { .. })) }
 
     pub fn save(&mut self) {
-        let Some(d) = &mut self.draft else { return };
-        if d.saving { return }
-        d.saving = true;
-        let ask = json!({ "op": "save", "note": d.note, "revision": d.revision, "text": d.edit.text });
-        let (note, sent) = (d.note.clone(), d.edit.text.clone());
-        self.ask(ask, Pending::Save { note, sent });
+        let Some(e) = &self.editing else { return };
+        if self.saving() { return }
+        let (note, sent, request) = (e.note.clone(), self.editor.text.clone(), json!({ "blockId": e.note, "text": self.editor.text, "expectedRevision": e.revision, "mutation": self.mutation() }));
+        self.ask(Tag::Saved { note, sent }, "update", request);
     }
 
     /// A new note under the open one (or at the top level), opened to be written.
     pub fn new_child(&mut self) {
-        let parent = self.selected.clone();
+        let parent = self.page.wanted().cloned();
         if let Some(p) = &parent { self.expanded.insert(p.clone()); }
-        self.ask(json!({ "op": "create", "parent": parent, "text": "" }), Pending::Created);
+        // A person's new note names no client: the store records who made a block, and a person is "user".
+        self.ask(Tag::Created { parent: parent.clone() }, "create", json!({ "parentId": parent, "text": "", "author": "user" }));
     }
 
     /// `step`: up, down, in or out, as the service's move reads them.
     pub fn step(&mut self, step: &str) {
-        let Some(p) = &self.page else { return };
-        let ask = json!({ "op": "move", "note": p.id, "revision": p.revision, "step": step });
-        self.ask(ask, Pending::Moved);
+        let Some(p) = self.page.get() else { return };
+        let request = json!({ "blockId": p.id, "expectedRevision": p.revision, "step": step, "mutation": self.mutation() });
+        self.ask(Tag::Moved, "move", request);
     }
 
     pub fn trash(&mut self) {
-        let Some(id) = self.selected.clone() else { return };
-        let parent = self.row(&id).and_then(|r| r.parent.clone());
-        self.draft = None;
-        self.ask(json!({ "op": "trash", "note": id }), Pending::Trashed { note: id, parent });
+        let Some(id) = self.page.wanted().cloned() else { return };
+        let parent = self.shown().filter(|p| p.id == id).and_then(|p| p.ancestors.last().map(|a| a.id.clone())).or_else(|| self.parent_of(&id));
+        self.editing = None;
+        let request = json!({ "blockId": id, "mutation": self.mutation() });
+        self.ask(Tag::Trashed { note: id, parent }, "delete", request);
     }
 
     pub fn restore(&mut self) {
-        let Some(id) = self.trashed.clone() else { return };
-        self.ask(json!({ "op": "restore", "note": id }), Pending::Restored);
+        let Some(Notice::Trashed(note)) = self.notice.clone() else { return };
+        self.ask(Tag::Restored { note: note.clone() }, "trash.restore", json!({ "blockId": note }));
     }
 
     // ── finding ─────────────────────────────────────────────────────────────────────────────────────────────
 
     pub fn find(&mut self, kind: Finder, seed: &str) {
-        self.palette = Some(Palette { kind, edit: focused(seed), asked: String::new(), rows: Vec::new(), cursor: 0, hint: String::new(), facets: Vec::new(), pending: false });
-        if !seed.is_empty() || kind == Finder::Query { self.find_changed() }
+        self.finder = Some(kind);
+        self.finder_edit = focused(seed);
+        self.find_changed();
     }
 
-    /// The words changed: ask again. Only the newest answer lands (an older one names other words).
+    /// The words changed: that question is what's wanted now. An answer to older words has no slot to land in.
     pub fn find_changed(&mut self) {
-        let Some(p) = &mut self.palette else { return };
-        let asked = p.edit.text.clone();
-        if asked.trim().is_empty() && p.kind == Finder::Find { p.rows.clear(); p.hint.clear(); return }
-        p.pending = true;
-        let kind = p.kind;
-        let ask = match kind { Finder::Find => json!({ "op": "search", "query": asked }), Finder::Query => json!({ "op": "query", "where": asked }) };
-        self.ask(ask, Pending::Found { kind, asked });
+        let Some(kind) = self.finder else { return };
+        let words = self.finder_edit.text.clone();
+        self.found.want((kind == Finder::Query || !words.trim().is_empty()).then_some((kind, words)));
+        self.pump();
     }
+
+    pub fn finding(&self) -> bool { self.found.wanted().is_some() && self.found.get().is_none() }
 
     pub fn find_move(&mut self, by: isize) {
-        let Some(p) = &mut self.palette else { return };
-        if p.rows.is_empty() { return }
-        p.cursor = (p.cursor as isize + by).rem_euclid(p.rows.len() as isize) as usize;
+        let rows = self.found.get().map_or(0, |f| f.rows.len());
+        if rows > 0 { self.cursor = (self.cursor as isize + by).rem_euclid(rows as isize) as usize }
     }
 
     pub fn find_open(&mut self) {
-        let Some(id) = self.palette.as_ref().and_then(|p| p.rows.get(p.cursor)).map(|r| r.id.clone()) else { return };
-        self.open(&id);
+        if let Some(id) = self.found.get().and_then(|f| f.rows.get(self.cursor)).map(|r| r.id.clone()) { self.open(&id) }
     }
 
     /// A facet value picked: the query gains `key=value`, in the views' grammar.
     pub fn narrow(&mut self, key: &str, value: &str) {
-        let Some(p) = &mut self.palette else { return };
         let term = if value.contains(' ') { format!("{key}=\"{value}\"") } else { format!("{key}={value}") };
-        if p.edit.text.split_whitespace().any(|w| w == term) { return }
-        let text = if p.edit.text.trim().is_empty() { term } else { format!("{} {term}", p.edit.text.trim()) };
-        p.edit = focused(&text);
+        let now = self.finder_edit.text.trim().to_string();
+        if now.split_whitespace().any(|word| word == term) { return }
+        self.finder = Some(Finder::Query);
+        self.finder_edit = focused(&if now.is_empty() { term } else { format!("{now} {term}") });
         self.find_changed();
     }
+}
+
+fn text(v: &Value) -> String { v.as_str().unwrap_or("").to_string() }
+fn opt(v: &Value) -> Option<String> { v.as_str().map(str::to_string) }
+/// An ISO time's day, which is all a list row has room for.
+fn day(iso: &str) -> String { iso.get(..10).unwrap_or(iso).to_string() }
+fn rows(v: &Value) -> Vec<NoteRow> { serde_json::from_value(v.clone()).unwrap_or_default() }
+
+/// How a read is asked for.
+enum Read {
+    /// Answered now and kept as a watched answer: the service says when it moves.
+    Watch,
+    /// The kept answer at the generation a `queries.changed` named.
+    At(Value),
+    /// Answered now and not kept: after this window's own write, when the kept answer is the one from before it.
+    Now,
+}
+
+/// The watch fields a read carries under `key`.
+fn watched(key: &str, read: Read) -> Value {
+    match read {
+        Read::Watch => json!({ "watch": key }),
+        Read::At(generation) => json!({ "watch": key, "generation": generation }),
+        Read::Now => json!({}),
+    }
+}
+
+fn merged(mut request: Value, more: Value) -> Value {
+    if let (Some(into), Some(from)) = (request.as_object_mut(), more.as_object()) { into.extend(from.clone()) }
+    request
 }
 
 /// A field that takes the keyboard when it appears, the caret at its end.

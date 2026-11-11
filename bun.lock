@@ -37,8 +37,6 @@
       "name": "@ep0ch/native",
       "dependencies": {
         "@ep0ch/door": "workspace:*",
-        "@ep0ch/outline-core": "workspace:*",
-        "@ep0ch/outliner": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",

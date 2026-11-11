@@ -1706,7 +1706,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "web.sessions.list" }
   | { id: string; action: "web.sessions.revoke"; sessionId?: string; all?: boolean }
   | ({ id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] } & WatchFields)
-  | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
+  | ({ id: string; action: "blocks.read"; ids?: string[]; /** Instead of `ids`: the notes under this one (null: the top level), in order. */ under?: string | null; fields?: BlockReadField[] } & WatchFields)
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[]; includeTrashed?: boolean }
   | ({ id: string; action: "blocks.grep" } & import("@ep0ch/outline-core/text-search").GrepQuery)
@@ -2447,11 +2447,11 @@ export type OutlinerRequestAction =
    */
   | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean }
   /**
-   * A note as parts a client draws (outline-core's note-page.ts, ADR 0002): its title and chips, then its body in order,
-   * prose as Markdown and each component with the service's answer in it (a figure's props, a view's list, a links
-   * block's groups). For a client that can't run outline-core: it parses no Blockdown. A note in Trash is refused. Reads only.
+   * Everything a client draws of one note (outline-core's note-page.ts, ADR 0002): title, chips, the body as parts with
+   * each component's answer in it, ancestors, children, backlinks. For a client that can't run outline-core. Takes
+   * `watch` (its answer is awaited: `QueryWatches.askLater`). A note in Trash is refused. Reads only.
    */
-  | { id: string; action: "notes.page"; blockId: string }
+  | ({ id: string; action: "notes.page"; blockId: string } & WatchFields)
   /**
    * A share session (`ShareSession`): a short-lived public link to the whole outline, as the tailnet's web client shows
    * it, or with `scope` (a block id) to that note and below only. `open`: the note the link opens on (inside it). `ttl`: `30m`, `1h` (the default), up
