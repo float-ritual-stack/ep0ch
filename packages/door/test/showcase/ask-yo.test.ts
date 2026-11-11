@@ -349,8 +349,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     // Its purpose is typing: the keys go to the line it opens, and the next keys type there.
     expect(await press("▸ edit the query")).toEqual({ state: "done" });
     expect(keys()).toBe("found");
-    // The line holds the query, as e opens it: typing replaces it, the arrows keep it.
-    h.press({ kind: "end" });
+    // The line holds the query with the cursor after it: typing goes on at its end (PIE-1731).
     for (const c of " NOT status=sent") h.ch(c);
     await until(() => facets()?.draft?.text === "type=shed-job NOT status=sent", "typed on the query line", 4000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(facets()?.draft?.text)} / edit ${JSON.stringify(draft()?.text.slice(-40))}`); });
     expect(draft()!.text).not.toContain("status=sent");
