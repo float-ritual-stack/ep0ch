@@ -348,7 +348,11 @@ export class Draft {
    * so a step is a word and the space after it.
    */
   private record(by: Actor, what: string, unit?: PatchUnit, removes = false) {
-    const before = this.seen, after = this.text;
+    // The history is of what a save writes (`body`): a landing line nothing is typed on is in none of its steps, so the
+    // history a save keeps ends on the saved text and the next edit takes it up (PIE-1741: after ctrl+End's line, none).
+    // Words typed on the landing line make it the person's: from then on it is theirs, a line made after it too.
+    if (this.landingRow !== null && this.lines.at(-1) !== "") this.landingRow = null;
+    const before = this.seen, after = this.body;
     if (after === before) return;
     this.seen = after;
     this.redos = [];
@@ -377,7 +381,7 @@ export class Draft {
   /** A paste is all in: one step, said when it's big. */
   private pasted(by: Actor) {
     const before = this.seen;
-    const c = changeOf(before, this.text), text = this.text.slice(c.at, c.at + c.added);
+    const c = changeOf(before, this.body), text = this.body.slice(c.at, c.at + c.added);
     const lines = text ? text.split("\n").length : 0;
     this.record(by, lines > 1 ? `the paste (${lines} lines)` : "the paste");
     if (lines > BIG_PASTE_LINES || Buffer.byteLength(text) > BIG_PASTE_BYTES) this.status.say(`pasted ${lines} line${lines === 1 ? "" : "s"} · ctrl+z undoes`);
@@ -498,7 +502,7 @@ export class Draft {
    * `saved`: ctrl+z stops there first and asks (PIE-1414).
    */
   adopt(steps: Step[], revision: number) {
-    if (this.undos.length || steps.at(-1)?.after !== this.text) return;
+    if (this.undos.length || steps.at(-1)?.after !== this.body) return;
     this.undos = steps.map((s, i) => ({ ...s, open: false, unit: undefined, ...(i === steps.length - 1 ? { saved: revision } : {}) }));
   }
 
@@ -523,17 +527,20 @@ export class Draft {
    * nothing to save, and a save only writes it with words on it.
    */
   landAtEnd() {
-    if (this.lines.at(-1)) { this.lines.push(""); this.seen = this.text; this.landingRow = this.lines.length - 1; }
+    if (this.lines.at(-1)) { this.lines.push(""); this.landingRow = this.lines.length - 1; }
     this.place(this.lines.length - 1, 0);
   }
-  /** `landAtEnd` added the last line: until something is typed on it, it isn't the person's text (PIE-1578). */
+  /**
+   * `landAtEnd` added the last line: until something is typed on it (`record` lets it go), it isn't the person's text
+   * (PIE-1578), whatever is taken out above it (PIE-1741: an ask deleted above it once had the save write it).
+   */
   private landingRow: number | null = null;
   /**
    * The text a save writes: all of it, less the line a reload's landing added while nothing is typed on it (PIE-1578),
    * so an edit elsewhere (a key, an agent's patch) never saves a trailing line nobody wrote.
    */
   get body(): string {
-    return this.landingRow !== null && this.landingRow === this.lines.length - 1 && this.landingRow > 0 && this.lines.at(-1) === "" ? this.lines.slice(0, -1).join("\n") : this.text;
+    return this.landingRow !== null && this.lines.length > 1 && this.lines.at(-1) === "" ? this.lines.slice(0, -1).join("\n") : this.text;
   }
 
   /**
@@ -1399,7 +1406,7 @@ export class Draft {
     // What a save wrote is the body: a landing line nothing was typed on stays pending past it (PIE-1578).
     if (text !== this.body) { this.lines = text.split("\n"); this.landingRow = null; this.place(this.lines.length - 1, Infinity); this.undos = []; this.redos = []; }
     else this.undos = this.undos.map((s, i, all) => ({ ...s, open: false, ...(i === all.length - 1 && at !== undefined ? { saved: at } : {}) }));
-    this.original = text; this.seen = this.text;
+    this.original = text; this.seen = this.body;
     if (at !== undefined) this.base = at;
     this.restored = null; this.writers = []; this.lastWriter = null;
   }

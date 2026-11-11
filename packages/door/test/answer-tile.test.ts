@@ -33,3 +33,11 @@ test("answer.fold's description says what f folds: the answer in the edit, else 
   expect(summary).toContain(FOLD_WHERE.edit);
   expect(summary).toContain(FOLD_WHERE.note);
 });
+
+// PIE-1741 (the walk on #1442): the answer tile's footer is cut to its width, and in a 38-to-44-column tile only `↑/↓
+// scroll …` showed. What f folds comes first, so it reads in the narrowest tile.
+test("the answer tile's hint row says what f folds first, whole in a 38-column tile", async () => {
+  const { fitHint, visible } = await import("../src/style");
+  const tile = new AnswerTile("reader", ask);
+  for (const cols of [38, 44]) expect([cols, visible(fitHint(tile.hint(), cols - 4).text)]).toEqual([cols, expect.stringContaining("f fold/unfold in the reader")]);
+});

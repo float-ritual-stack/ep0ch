@@ -31,10 +31,11 @@ export class AnswerTile implements Pane {
   title() { return this.ask; }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   hint() {
+    // What f folds first: the footer is cut to the tile's width, and a 38-column tile showed only the scroll (PIE-1741).
     return partsHint([
+      { key: "f", action: "answer.fold", label: `fold/unfold ${FOLD_WHERE[this.foldsIn]}` },
       { key: "up", action: "answer.scroll", args: { by: -1 }, label: "scroll", also: "↓" },
       { key: "1", action: "answer.follow", args: { n: 1 }, label: "follow a link or press a button", also: "2–9" },
-      { key: "f", action: "answer.fold", label: `fold/unfold ${FOLD_WHERE[this.foldsIn]}` },
     ]);
   }
   spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
