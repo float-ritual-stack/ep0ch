@@ -265,7 +265,7 @@ export class Draft {
 
   constructor(readonly blockId: string, public base: number, text: string, props: PropertyList = []) {
     this.baseProps = props;
-    this.status.lapsed = () => this.redraw?.();
+    this.status.changed = () => this.redraw?.();
     this.original = text;
     this.seen = text;
     this.lines = text.split("\n");
@@ -380,9 +380,21 @@ export class Draft {
   private jump(to: string, by: Actor, spans?: Edit[] | null) {
     if (by.kind === "agent") this.carry(to, spans);
     else {
-      const c = changeOf(this.text, to);
+      const was = this.text, c = changeOf(was, to);
       this.lines = to.split("\n");
-      const p = this.placeOf(c.at + c.added);
+      let p = this.placeOf(c.at + c.added);
+      // An undo or redo that brought an ask back with its answer lands at the ask's end, the answer folded under it
+      // (PIE-1738): landing inside the callout opened it raw. A change inside a shut answer alone still lands in it.
+      // Not when the change goes on past the answer with words of its own (a paste's text after it, put back by a redo):
+      // the cursor stays after those. What follows the answer there is only what was already in the text (a trailing line
+      // counted in the change because the newline after it differs) or blank.
+      const askEnd = (f: FoldPoint) => this.offsetOf(f.line - 1, this.endOf(f.line - 1));
+      const onlyAnswer = (f: FoldPoint) => {
+        const after = to.slice(Math.min(this.offsetOf(f.end, 0), c.at + c.added), c.at + c.added).trim();
+        return !after || was.slice(c.at, c.at + c.removed).trim().endsWith(after);
+      };
+      const fold = this.answerFolds().findLast(f => !this.openedFolds.has(f.key) && p.row >= f.line && askEnd(f) >= c.at && askEnd(f) <= c.at + c.added && onlyAnswer(f));
+      if (fold) p = { row: fold.line - 1, col: this.endOf(fold.line - 1) };
       this.row = p.row; this.col = p.col;
       this.anchor = null; this.goal = null; this.follow = true;
     }
@@ -406,15 +418,18 @@ export class Draft {
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return { asked: false, said: this.undoPatch(by) };
     if (!s) throw new ActionRefused("nothing to undo in this draft");
     // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it. The ask
-    // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
+    // comes first ("saved · ctrl+z again in 5s undoes", one row at 40 columns, PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     // An agent's write that followed the save (`follows`, PIE-1733: yo taking out the answer of an ask the save deleted)
     // goes back with the step it followed, in one undo: the save and what it led to.
     const chain = this.chainAt(this.undos.length - 1);
     const what = chain.length > 1 ? chainWhat(chain) : s.what;
+    // The line counts the second press's window down (PIE-1738), on two rows of a 44-column reader; what act answers
+    // keeps no seconds, and says the revision the note keeps.
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
-      const said = this.status.say(`saved · ctrl+z again undoes past it · ${what}; revision ${s.saved} stays in its history`);
-      if (by.kind !== "agent") this.status.arm("undo");
+      const said = `saved · ctrl+z again undoes ${what}; revision ${s.saved} stays in its history`;
+      if (by.kind !== "agent") this.status.arm("undo", left => `saved · ctrl+z again in ${left}s undoes ${what}`);
+      else this.status.say(said);
       return { asked: true, said };
     }
     for (const step of chain) {
@@ -1379,17 +1394,23 @@ export class Draft {
   get stillLanded() { return !!this.landed && this.landed.row === this.row && this.landed.col === this.col; }
   /** The column up and down keep to (cells from the row's left), while they repeat. */
   goal: number | null = null;
+  /**
+   * The cursor came onto an ask's line: its answer is shown beside the note. Its fold under the ask stays as it was
+   * (PIE-1738: a saved answer drew its callout's raw lines the moment the cursor reached its ask); entering the callout
+   * opens it (`hiddenAnswerLines`), and the answer tile's fold or fold.toggle opens and shuts it.
+   */
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
     if (!answer && !this.asks.has(this.line)) return;
-    if (answer) this.openedFolds.add(answer.key);
     this.onAskSelected?.(this.line, answer?.key);
   }
 
   /** The status of the ask `line` says; `row`, the line it is on, picks which of the lines saying it (the first when left out). */
   askStatus(line: string, room = Infinity, row?: number): string {
     const nth = row === undefined ? 0 : this.lines.slice(0, row).filter(l => l === line).length;
-    const ask = this.asks.get(Draft.askKey(line, nth));
+    // A saved answer has no progress of its own (the ask was answered before this draft opened): its fold row says what
+    // its callout does, as a live one's progress would (PIE-1738), so a shut answer is never only missing lines.
+    const ask = this.asks.get(Draft.askKey(line, nth)) ?? (row === undefined ? undefined : this.savedAnswer(row));
     if (!ask) return "";
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
@@ -1399,6 +1420,11 @@ export class Draft {
     const short = ` · ${ask.state}${ask.beside ? " · beside ▸" : ""}`;
     const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
     return width(full) <= room ? full : short;
+  }
+
+  /** The answer folded under the ask on line `row`, as an ask's progress reads: answered (how many blocks is the service's to count). */
+  private savedAnswer(row: number): import("@ep0ch/outline-core/protocol").AskProgress | undefined {
+    return this.answerFolds().some(p => p.line === row + 1) ? { line: this.lines[row]!, state: "answered" } : undefined;
   }
 
   answerFolds() {
@@ -1636,7 +1662,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ text }, d, actor) { d.pasteText(text, actor); return { line: d.row + 1, col: d.col + 1, note: d.note || null }; },
   }),
   "draft.undo": def({
-    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back, a step at a time; a save that agents wrote after (yo taking out the answer of an ask it deleted) goes back whole with their writes, in one undo. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
+    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks, its line counting the 5 s window down (ctrl+z again in 4s): ctrl+z again (or past=true) takes saved text back, a step at a time; a save that agents wrote after (yo taking out the answer of an ask it deleted) goes back whole with their writes, in one undo. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
     args: { past: { type: "boolean", optional: true, about: "go past the save: take back text the note already holds (ctrl+z pressed again after it asked)" } },
     personWith: ({ past }) => (past ? { always: "going past a save takes back text the note already holds: only the person does that (their ctrl+z, pressed again after it asks)" } : null),

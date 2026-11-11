@@ -5,6 +5,7 @@
 // draft but `views`, so an agent's patch keeps the person's place by mapping the position alone, never by reading
 // the last render.
 import { landingLine } from "@ep0ch/outline-core/block-insert";
+import type { FoldPoint } from "./doc";
 import type { Draft } from "./edit";
 import type { Completer } from "./surface/completer";
 import type { ElementEdit } from "./surface/element-editor";
@@ -192,6 +193,23 @@ export class RawRows {
     this.top = scrolled(this.top, by, lastTop(this.shown.rows.length, this.shown.h));
     this.d.follow = false;
     this.d.position.top = null;
+  }
+
+  /**
+   * The answer fold whose row is under a cell of the text as last drawn (`x`, `y` from the text's top left): its ask's
+   * progress, on a row of its own or beside the ask's last row (PIE-1738). A click there opens or shuts the answer.
+   */
+  foldAt(x: number, y: number): FoldPoint | null {
+    const rows = this.shown.rows, vi = this.top + Math.max(0, y), r = rows[vi];
+    if (!r || r.drawn) return null;
+    const fold = this.d.answerFolds().find(p => p.line === r.line + 1);
+    if (!fold || !this.d.askStatus(this.d.lines[r.line]!, Infinity, r.line)) return null;
+    if (r.status) return fold;
+    // Beside: on the line's last row of text (as render draws it there), past the text.
+    if (rows[vi + 1]?.line === r.line && !rows[vi + 1]?.drawn) return null;
+    const cw = codePointCells([...this.d.lines[r.line]!]);
+    let at = r.indent; for (let k = r.start; k < r.end; k++) at += cw[k] ?? 1;
+    return x > at ? fold : null;
   }
 
   /** The source place under a cell of the text as last drawn (`x`, `y` from the text's top left). */
