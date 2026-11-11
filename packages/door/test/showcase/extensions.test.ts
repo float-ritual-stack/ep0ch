@@ -35,6 +35,19 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  // PIE-1731: the person's install and remove from the power bar say so on screen when they land.
+  test("installing and removing an extension as the person says so on the status bar", async () => {
+    const said: string[] = [], a = app as unknown as { showMessage(m: string, ...rest: unknown[]): unknown; flash(m: string, ...rest: unknown[]): unknown }, show = a.showMessage.bind(a), flash = a.flash.bind(a);
+    a.showMessage = (m: string, ...rest: unknown[]) => { said.push(m); return show(m, ...rest); };
+    a.flash = (m: string, ...rest: unknown[]) => { said.push(m); return flash(m, ...rest); };
+    try {
+      await app.dispatch.act({ action: "extensions.install", args: { id: "horoscope" } }, USER);
+      expect(said.join(" / ")).toMatch(/installed /);
+      await app.dispatch.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" } }, USER);
+      expect(said.join(" / ")).toMatch(/removed /);
+    } finally { a.showMessage = show; a.flash = flash; }
+  }, 60_000);
+
   test("sysop shows a machine trip and calm updates the page through its real action", async () => {
     await app.act({ action: "section", args: { name: "sysop" }, as: "test-agent" });
     await until(() => screen().includes("kiln") && screen().includes("TEMPO"), "the sysop warning band");
@@ -947,4 +960,5 @@ describe.skipIf(!outliner)("the showcase: the door's own extension folders (PIE-
     expect(() => (h.app as any).bar.commandLine(1)).toThrow(/runs no act line/);
     await h.app.dispatch.press("bar.close", {});
   });
+
 });
