@@ -865,7 +865,7 @@ export class App implements Ctx {
     this.quit();
     return null;
   }
-  private messageWarning = true; private messagePassing = false;   // a passing message (MessageDetails.passing) is never said whole above the bar
+  private messageWarning = true; private messagePassing = false; private messageBackground = false;   // MessageDetails' passing (never said whole above the bar) and background
   readonly messages = new StatusLog();
   private showMessage(msg: string, ms: number, warning: boolean, details: MessageDetails = {}) {
     const meta = { ...messageContext.getStore(), ...details };
@@ -873,7 +873,8 @@ export class App implements Ctx {
     const desk = focus?.startsWith("drawer:") ? this.drawer.desk : tilesOf(this.stack.at(-1));
     const tile = meta.tile === undefined ? desk?.tileOutline().find(t => t.focused) : undefined;
     this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...meta });
-    this.messageWarning = warning; this.message = printable(msg, " "); this.messagePassing = !!details.passing;
+    if (details.background && this.message && !this.messageBackground && Date.now() < this.messageUntil) return;   // background news waits in the log while an answer is up (PIE-1727)
+    this.messageWarning = warning; this.message = printable(msg, " "); this.messagePassing = !!details.passing; this.messageBackground = !!details.background;
     if (details.href) this.message = `\x1b]8;;${new URL(details.href).href}\x1b\\${this.message}${OSC8_CLOSE}`;
     this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
   }
@@ -1163,7 +1164,7 @@ export class App implements Ctx {
       if (problem) r.problems.push(problem);
     }
     const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
-    if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`);
+    if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`, undefined, { background: true });
     if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000, { kind: "warning" });
     if (!this.extensionsSeen) await (await import("./runbook")).recoverRuns(this).catch(e => this.flash(`Run recovery: ${e.message}`, undefined, errorDetails(e)));
     this.extensionsSeen = true;

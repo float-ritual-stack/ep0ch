@@ -19,7 +19,7 @@ export class MacroRecording {
   private recording: { name?: string; near?: string; since: number; keys?: "screen" | "host"; steps: Step[] } | null = null;
   get active() { return this.recording !== null; }
 
-  /** Unnamed, it's named when it stops, after what it did (`recorded-note-open-oct29-151402`): never by its own timestamp alone. */
+  /** Unnamed, it's named when it stops, for what it did (`comment-on-planting-checklist`): never by a timestamp. */
   start(name: string | undefined, near?: string, keys?: "screen" | "host") {
     if (this.saving) throw new ActionRefused("The previous recording is saving; keep working, then macro.record starts the next one");
     if (this.recording) throw new ActionRefused("Already recording; macro.stop saves it first");
@@ -69,21 +69,22 @@ export class MacroRecording {
     const lands = titled.length ? `Acts on ${titled.map(n => `((${n.id}|${n.title.replace(/[|)]/g, " ")}))`).join(", ")}, in whichever tile shows it when it runs.` : "";
     const body = lines.join("\n");
     const actions = [...new Set(lines.map(line => line.split(/\s/)[0]!))];
-    // Its day and second keep two recordings of the same first action apart (a script name binds one script).
-    const at = new Date(), two = (n: number) => String(n).padStart(2, "0");
-    const when = `${at.toLocaleString("en", { month: "short" }).toLowerCase()}${at.getDate()}-${two(at.getHours())}${two(at.getMinutes())}${two(at.getSeconds())}`;
-    const base = recording.name ?? `recorded-${actions[0]!.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}-${when}`;
-    // Two recordings in one second would share a name, and a name runs one script: the second gets -2 (one not loaded yet counts).
+    // Named for what it does (PIE-1727): its actions and the note they land on, `comment-on-planting-checklist`, short
+    // enough to read whole in the flash and to type the start of in ^K. A second of the same takes the next number.
+    const does = whatItDoes(actions, titled.find(n => n.title !== n.id)?.title);
+    // A name an action has (`comment`, a recording of one comment with no note) would never run it: typed, the action wins.
+    const plain = slugOf(does), base = recording.name ?? (ctx.dispatch?.has(plain) ? `recorded-${plain}` : plain);
     let name = base;
     for (let n = 2; !recording.name && (this.names.has(name) || scriptNamed(name).length); n++) name = `${base}-${n}`;
     this.names.add(name);
-    const title = recording.name ?? `Recorded: ${actions.slice(0, 3).join(", ")}${actions.length > 3 ? ` and ${actions.length - 3} more` : ""}`;
+    const title = recording.name ?? `Recorded: ${does.replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim()}`;
     const fence = "`".repeat(Math.max(3, ...[...body.matchAll(/`+/g)].map(m => m[0].length + 1)));
     const text = `${title} [script::${name}] [effects::write]\n${replay}${lands ? ` ${lands}` : ""}\n\n${fence}actions\n${body}\n${fence}`;
     try {
       const saved = await ctx.board.newNote(text, recording.near, USER);
       const on = titled.length ? ` · acts on ${titled.map(n => `“${n.title}”`).join(", ")}` : "";
-      ctx.flash(`Saved ${name} · ${lines.length} action${lines.length === 1 ? "" : "s"}${on} · ((${saved.note.id})) · run it from ^K: ${name}`);
+      // Its name and how to run it first, where a narrow status bar still shows them; the rest after (PIE-1727).
+      ctx.flash(`Saved ${name} · run it from ^K${on} · ${lines.length} action${lines.length === 1 ? "" : "s"} · ((${saved.note.id}))`, 12_000);
       return { block: saved.note.id, actions: lines.length, script: name };
     } catch (error) {
       this.recording = recording;
@@ -92,12 +93,29 @@ export class MacroRecording {
   }
 }
 
+/**
+ * What a recording does, in words (PIE-1727): its actions' first words (`comment`, `threads and comment`), then the note
+ * they land on (`on Planting checklist`); with no note, its actions as named (`tile split then tile focus`).
+ */
+export function whatItDoes(actions: readonly string[], on: string | undefined): string {
+  const words = (list: string[], join: string) => list.length > 2 ? `${list.slice(0, 2).join(join)} and ${list.length - 2} more` : list.join(join);
+  if (on) return `${words([...new Set(actions.map(a => a.split(".")[0]!))], " and ")} on ${on.trim()}`;
+  return words(actions.map(a => a.replace(/\./g, " ")), " then ");
+}
+
+/** A script name from those words: lower case, dashes between, at most 40 characters cut at a dash; never empty. */
+export function slugOf(words: string): string {
+  const slug = words.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const cut = slug.length > 40 ? slug.slice(0, 41).replace(/-[^-]*$/, "") || slug.slice(0, 40) : slug;
+  return cut || "recorded";
+}
+
 export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>()("macros", {
   "macro.record": def({
     summary: "record your actions into an editable script; macro.stop saves it beside the note in front",
     keys: [{ keys: "alt+Q", does: "when not recording" }, { via: "^K then macro.record in the power bar" }, { keys: "click", does: "on the status bar's ⇧⌥Q or its power bar row" }],
     touches: "nothing", replay: "ask", person: "A recording belongs to the person; an agent writes a [script::] block instead",
-    args: { name: { type: "string", optional: true, about: "script name; default: named after what it did when it stops (recorded-note-open-oct29-151402), editable after saving" } },
+    args: { name: { type: "string", optional: true, about: "script name; default: named for what it did when it stops (comment-on-planting-checklist, -2 for a second of the same), editable after saving" } },
     examples: [
       { act: "macro.record", does: "starts recording your actions, named after them when it stops" },
       { act: "macro.record name=seed-swap-setup", does: "starts recording your actions into a script named seed-swap-setup" },

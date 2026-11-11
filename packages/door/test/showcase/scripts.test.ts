@@ -16,6 +16,7 @@ import { DRAFT_LEASE_MS, SocketBoard, USER } from "../../src/socket";
 import { extensionList, scriptBindings } from "../../src/extensions";
 import type { ReaderPane } from "../../src/desk/panes";
 import { outliner, until } from "../scratch";
+import { titleOf as titleOfNote } from "@ep0ch/outline-core/query-expression";
 
 /** `until` for an answer that takes a request. */
 const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000) => {
@@ -294,8 +295,9 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // Named after what it did, never by its own timestamp alone (a row reading "recording-1792… · recording-1792…").
     expect(saved.text.split("\n")[0]).toMatch(/^Recorded: \S/);
     expect(saved.text).toContain(body.replaceAll('"', '\\"').replaceAll("\\ path", "\\\\ path"));
-    await until(() => !!extensionList()?.extensions.find(e => e.name?.startsWith("recorded-")), "the multiline recording loaded");
-    const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recorded-"))!;
+    const named = /\[script::([^\]]+)\]/.exec(saved.text)![1]!;
+    await until(() => !!extensionList()?.extensions.find(e => e.name === named), "the multiline recording loaded");
+    const extension = extensionList()!.extensions.find(e => e.name === named)!;
     await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
     await until(() => (app as any).message.includes("done · ctrl+z"), "the multiline comment replayed");
     // PIE-1717: the replayed `comment` sends its comment, which closes its box, so nothing is left open to close (and
@@ -398,7 +400,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const name = /\[script::([^\]]+)\]/.exec(saved.text)![1]!;
     // The flash says where it lands and how to run it.
     await until(() => /Saved /.test((app as any).message), "the save flashed");
-    expect((app as any).message).toContain(`run it from ^K: ${name}`);
+    expect((app as any).message).toStartWith(`Saved ${name} · run it from ^K`);
     expect((app as any).message).toContain("acts on");
     expect(saved.text).toContain(`Acts on ((${checklist}|`);
     expect(sendsLine(saved.text)).toEqual([`comment.note body="${body}" tile="${checklist}"`]);
@@ -411,11 +413,6 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // Once the notes source has answered too (the script's own note is among its rows), as a person sees the list.
     await until(() => ((app as any).bar?.describe().rows ?? []).some((r: { key: string }) => r.key === saved.id), "the bar listed the script's note");
     expect((app as any).bar.describe().rows[0]).toMatchObject({ key: expect.stringMatching(/^ext\./), label: name });
-    // One word is as likely a note's title: "seed" lists notes first, though a script (Seed report) begins with it too.
-    const rows = () => ((app as any).bar?.describe().rows ?? []) as { key: string }[];
-    await app.dispatch.press("bar.open", { query: "seed" });
-    await until(() => rows().some(r => !/^(ext\.|line:)/.test(r.key)), "seed listed notes");
-    expect(rows()[0]!.key).not.toMatch(/^(ext\.|line:)/);
     await app.dispatch.press("bar.open", { query: name.slice(0, -2) });
     await until(() => ((app as any).bar?.describe().rows ?? []).some((r: { key: string }) => r.key === saved.id), "the bar listed the script's note again");
     press({ kind: "enter" });
@@ -423,15 +420,61 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     expect((app as any).message).toContain("done · ctrl+z");
     expect(notesTile().surface.describe().showing?.id).toBe(checklist);
     expect(await threadsWith(body)).toBe(2);
-    // Words that begin two recordings name neither outright: ⏎ never runs whichever one is listed first.
-    const other = await recordByKeys(() => typeComment("Tie the canes", "note"));
-    const second = /\[script::([^\]]+)\]/.exec(other.text)![1]!;
-    await until(() => !!extensionList()?.extensions.find(e => e.name === second), "the second recording loaded");
-    await app.dispatch.press("bar.open", { query: "recorded-comment-note" });
-    await until(() => rows().some(r => r.key === other.id), "the bar listed both");
-    expect(rows()[0]!.key).not.toMatch(/^(ext\.|line:)/);
     await app.dispatch.press("bar.close");
   }, 40_000);
+
+  // PIE-1727: Evan records his second macro of the day, reads how to run it, types the start of its name in ^K and it
+  // runs; when its note isn't open the refusal says the note's title.
+  test("PIE-1727: the day's second macro is named for what it does, its flash stays, and ^K runs it by the start of its name", async () => {
+    await intoNotes();
+    const checklist = notesTile().surface.describe().showing!.id;
+    const title = titleOfNote((await board.get(checklist))!.text);
+    const first = await recordByKeys(() => typeComment("Water the seedlings", "note"));
+    const one = /\[script::([^\]]+)\]/.exec(first.text)![1]!;
+    await until(() => !!extensionList()?.extensions.find(e => e.name === one), "the first recording loaded");
+    (app as any).message = "";
+    const second = await recordByKeys(() => typeComment("Label the trays", "note"));
+    const two = /\[script::([^\]]+)\]/.exec(second.text)![1]!;
+    // A short name of its own, from what it does: the action and the note it lands on.
+    // (Earlier tests here record comments on the checklist too: each takes the next number.)
+    expect(one).toMatch(/^comment-on-planting-checklist(-\d+)?$/);
+    expect(two).toMatch(/^comment-on-planting-checklist-\d+$/);
+    expect(two).not.toBe(one);
+    expect(second.text.split("\n")[0]).toStartWith("Recorded: comment on Planting checklist");
+    // The flash leads with the name and how to run it, and the reload that loads the recording doesn't replace it.
+    await until(() => /^Saved /.test((app as any).message), "the save flashed");
+    expect((app as any).message).toStartWith(`Saved ${two} · run it from ^K · acts on “${title}”`);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === two), "the second recording loaded");
+    await Bun.sleep(600);
+    expect((app as any).message).toStartWith(`Saved ${two}`);
+    // The start of its name, as typed: the newest recording it begins is first, ahead of the notes it names.
+    const rows = () => ((app as any).bar?.describe().rows ?? []) as { key: string; label?: string }[];
+    press({ kind: "char", ch: "k", ctrl: true });
+    await until(() => !!(app as any).bar, "the power bar opened");
+    for (const c of "comment-on-pl") press({ kind: "char", ch: c });
+    await until(() => rows().some(r => r.key === second.id), "the notes source listed the script's note too");
+    expect(rows()[0]).toMatchObject({ key: expect.stringMatching(/^ext\./), label: two });
+    press({ kind: "enter" });
+    await until(() => /done · ctrl\+z|Line \d/.test((app as any).message), "the replay ended", 10_000);
+    expect((app as any).message).toContain("done · ctrl+z");
+    expect(notesTile().surface.describe().showing?.id).toBe(checklist);
+    expect(await threadsWith("Label the trays")).toBe(2);
+    // Words typed in words, not the name's dashes, find it too; one word is a prefix like any other.
+    await app.dispatch.press("bar.open", { query: "comment on plan" });
+    await until(() => rows().some(r => r.key === second.id), "the bar listed the notes again");
+    expect(rows()[0]).toMatchObject({ key: expect.stringMatching(/^ext\./), label: two });
+    await app.dispatch.press("bar.close");
+    // The checklist not shown: the refusal names it by its title, before the command that opens it.
+    await app.dispatch.act({ action: "open", tile: "notes", args: { id: seeded.notes.scripts.id } }, USER);
+    await until(() => notesTile().surface.describe().showing?.id === seeded.notes.scripts.id, "another note in the tile");
+    try {
+      const said = await replay(first);
+      expect(said).toContain(`shows “${title}”; open it first`);
+      expect(said.indexOf(title)).toBeLessThan(said.indexOf(checklist));
+    } finally {
+      await app.dispatch.act({ action: "open", tile: "notes", args: { id: checklist } }, USER);
+    }
+  }, 60_000);
 
   test("PIE-1725: esc out of a stage entered before the recording leaves no section.leave in it", async () => {
     await intoNotes();

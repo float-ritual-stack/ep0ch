@@ -225,7 +225,7 @@ async function extWrite(on: Pick<On, "surface" | "host">, subject: SettingsSubje
   const after = owner.values(r.settings).get(key)?.value ?? null;
   SETTINGS_UNDO.push({ block: subject.note.id, before: "", after: "", key, by: partyOf(actor), context: surface.msg?.id ?? subject.note.id, ext: { id: owner.id, before, after } });
   const said = `${words ?? (after === null ? `${key} back to its default` : `saved · ${key}: ${printable(after)}`)}${r.error ? ` · but ${r.error.replace(/\s+/g, " ")}` : ""}`;
-  if (surface.panel?.card) surface.panel.card.say(said, r.error ? "problem" : "news");
+  if (surface.panel?.card) surface.panel.card.say(said, r.error ? "problem" : "news", { key, value: after });
   host.ctx.flash(said);
   surface.noteAgent(actor, said);
   host.redraw();
@@ -237,7 +237,8 @@ function editInPlace(on: Pick<On, "surface" | "host">, subject: SettingsSubject,
   const card = on.surface.panel?.card;
   if (!card) throw new ActionRefused(", opens settings first");
   const field = subject.fields.find(f => f.prop.key === key)!, was = field.value ?? field.prop.default ?? "";
-  const input = new LineField(was, false, { complete: false });
+  // None (`[]`, a command set to nothing) has no words to edit: lit, so what's typed replaces it and ⏎ keeps it (PIE-1727).
+  const input = new LineField(was, was.trim() === "[]", { complete: false });
   input.enterSaves = true;
   const { name, id } = subject.ext!;
   const target: DraftTarget = {

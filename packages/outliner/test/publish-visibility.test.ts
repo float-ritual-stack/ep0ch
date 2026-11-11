@@ -66,7 +66,7 @@ async function setup(busy: Busy = () => false) {
     await client.request({ action: "extensions.list", reload: true });
     await client.request({ action: "resources.projection.read", blockId, materialize: true });
   };
-  return { store, client, tailnet, publicly, draw, workspace };
+  return { store, client, publisher, tailnet, publicly, draw, workspace };
 }
 
 test("a render script's output on a page says hidden here when the script read a note the page may not show", async () => {
@@ -461,4 +461,15 @@ test("a host that doesn't answer in time fails the page as busy, and a publisher
     "publish: the outline host is busy (Outliner request timed out after 3000ms); trying again in 1 s",
     "publish: the outline host is busy (Outliner request timed out after 3000ms); trying again in 2 s",
   ]);
+});
+
+test("a browser on the public link gets the page, as on the tailnet; curl and ?view=md the Markdown (PIE-1727)", async () => {
+  const { store, publisher } = await setup();
+  store.create("Compost bays [publish::public:compost-bays]\nTurn the left bay weekly.");
+  const ask = (path: string, accept: string) => publisher.handle(new Request(`http://moth-box.tail0000.ts.net${path}`, { headers: { accept } }), "public");
+  const browser = await ask("/share/p/compost-bays", "text/html,application/xhtml+xml,*/*;q=0.8");
+  expect(browser.headers.get("content-type")).toStartWith("text/html");
+  expect(await browser.text()).toContain("Turn the left bay weekly.");
+  expect((await ask("/share/p/compost-bays", "*/*")).headers.get("content-type")).not.toStartWith("text/html");
+  expect((await ask("/share/p/compost-bays?view=md", "text/html")).headers.get("content-type")).not.toStartWith("text/html");
 });

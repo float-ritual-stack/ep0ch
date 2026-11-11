@@ -1319,8 +1319,9 @@ export class Publisher {
       const entry = await this.entryAt(slug, index, audience);
       if (!entry) return notFound();
       const view = url.searchParams.get("view");
-      // On the tailnet a browser gets the page; `?view=md` (or anything without text/html, such as curl) the Markdown.
-      const browsing = audience === "tailnet" && view === null && accept.includes("text/html");
+      // A browser gets the page, on the tailnet and on the public link alike (PIE-1727); `?view=md` (or anything without
+      // text/html, such as curl) the Markdown.
+      const browsing = view === null && accept.includes("text/html");
       return await this.serveEntry(entry, index, browsing ? "html" : view, audience);
     } catch (error) {
       this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
