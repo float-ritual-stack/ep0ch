@@ -26,7 +26,10 @@ const SAYINGS = [
 ];
 const TRANSCRIPT = Array.from({ length: 150 }, (_, i) => SAYINGS[i % SAYINGS.length]!).join("\n");
 
-async function setup(modelMs: number, deadline?: string, text = `Garden meeting\n\n${TRANSCRIPT}\n@tidy cleanup the transcript`) {
+/** What the stand-in model prints, as JS over `passage`: by default the passage with its ums out. */
+const UMS_OUT = 'JSON.stringify({ replacement: passage.replaceAll("um, ", ""), message: "took the ums out" })';
+
+async function setup(modelMs: number, deadline?: string, text = `Garden meeting\n\n${TRANSCRIPT}\n@tidy cleanup the transcript`, answer = UMS_OUT) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-tidy-long-")));
   const was = Object.fromEntries(["OUTLINER_EXTENSIONS_DIR", "OUTLINER_RESOURCE_EXTENSIONS"].map(k => [k, process.env[k]]));
   Object.assign(process.env, { OUTLINER_EXTENSIONS_DIR: join(root, "user"), OUTLINER_RESOURCE_EXTENSIONS: join(root, "none.json") });
@@ -43,7 +46,7 @@ async function setup(modelMs: number, deadline?: string, text = `Garden meeting\
   writeFileSync(model, `const prompt = await Bun.stdin.text();
 const passage = prompt.slice(prompt.indexOf("PASSAGE:\\n") + 9);
 await Bun.sleep(${modelMs});
-console.log(JSON.stringify({ replacement: passage.replaceAll("um, ", ""), message: "took the ums out" }));`);
+console.log(${answer});`);
   writeFileSync(join(tidy, "config.json"), JSON.stringify({ config: { answer: [process.execPath, model] } }));
   const store = new OutlinerStore(join(root, "o.sqlite"), { workspaceRoot: folder });
   const server = new OutlinerServer(store, join(root, "o.sock"), undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80 });
@@ -97,4 +100,25 @@ test("PIE-1737: a passage said twice is cleaned where it was read, though the no
   const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status !== "running" && r.status !== "waiting"), 30_000);
   expect([row.status, row.message]).toEqual(["applied", "took the ums out · the 1 line above the ask"]);
   expect(store.require(note.id).text).toBe("Garden meeting\n\nOak: um, okay.\n\nWren: um, the beans are in.\n\nOak: okay.\n@tidy take the ums out of this\nWren: and the peas");
+}, 60_000);
+
+// CodeRabbit on #1437: the whole note holds earlier asks and their answers, and a model may drop them. Tidy refuses a
+// rewrite that changes them, so the person's earlier turns stay; and a long model message still fits with its scope.
+test("PIE-1737: a whole-note rewrite that drops an earlier ask or its answer is refused, and the note is left as it was", async () => {
+  const text = "Garden meeting\n\nOak: um, okay.\n@yo what did we decide\n> [!note]- @yo answered\n> beans by Friday\nWren: um, right.\n@tidy clean up the transcript";
+  const dropAsks = 'JSON.stringify({ replacement: passage.split("\\n").filter(l => !l.startsWith("@") && !l.startsWith(">")).join("\\n").replaceAll("um, ", ""), message: "took the ums out" })';
+  const { store, note } = await setup(50, undefined, text, dropAsks);
+  const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status !== "running" && r.status !== "waiting"), 30_000);
+  expect(row.status).toBe("failed");
+  expect(row.message).toContain("the model changed an earlier ask or its answer (@yo what did we decide)");
+  expect(store.require(note.id).text).toBe(text);
+}, 60_000);
+
+test("PIE-1737: a model message near its 500 characters still lands, with what it took said after it", async () => {
+  const long = 'JSON.stringify({ replacement: passage.replaceAll("um, ", ""), message: "took the ums out ".repeat(29) })';
+  const { store, note } = await setup(50, undefined, "Garden meeting\n\nOak: um, okay.\n@tidy clean up the transcript", long);
+  const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status !== "running" && r.status !== "waiting"), 30_000);
+  expect(row.status).toBe("applied");
+  expect(row.message!.length).toBeLessThanOrEqual(500);
+  expect(row.message!.endsWith("… · the whole note above the ask")).toBe(true);
 }, 60_000);

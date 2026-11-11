@@ -1142,3 +1142,20 @@ test("@beside with nothing beside answers on the line only, writing nothing into
   expect(answered.output).toBeUndefined();
   expect(answered).toMatchObject({ summary: "No note is beside this card.", agent: { status: "nothing" } });
 });
+
+// CodeRabbit on #1437: an agent's patch says where it read a passage said twice (its range). The person writes above
+// both copies while it works: the range is carried through their edit to the copy it read, never the nearest look-alike.
+test("a passage said twice is patched where the agent read it, though the person wrote above it meanwhile (PIE-1737)", async () => {
+  const { store, client, create, writeAgent } = await setup();
+  await writeAgent("twice", `const { input } = await Bun.stdin.json();
+const at = input.note.text.lastIndexOf("Oak: okay.");
+await Bun.sleep(1200);
+process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "Oak: okay.", replacement: "OAK: OKAY.", range: { start: at, end: at + 10 } }] } }));`);
+  const note = await create("Notes\nOak: okay.\nOak: okay.\n@twice");
+  await until("running", () => store.agentRequests(note.id)[0]?.status === "running");
+  const now = store.require(note.id);
+  await client.request({ action: "update", blockId: note.id, text: now.text.replace("Notes\n", "Notes\nWren: x\n"), expectedRevision: now.revision, mutation: PERSON });
+  await until("answered", () => !["running", "queued"].includes(store.agentRequests(note.id)[0]?.status ?? "running"));
+  expect(store.agentRequests(note.id)[0]?.status).toBe("applied");
+  expect(store.require(note.id).text).toBe("Notes\nWren: x\nOak: okay.\nOAK: OKAY.\n@twice");
+}, 20_000);

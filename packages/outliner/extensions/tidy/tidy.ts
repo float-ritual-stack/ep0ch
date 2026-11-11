@@ -63,6 +63,27 @@ async function answer(command: string[], prompt: string): Promise<{replacement: 
   return result;
 }
 
+const ASK = /^\s*(?:[-*+]\s+)?@[a-z][a-z0-9-]*(?:\s|$)/;
+
+/**
+ * The earlier asks in a rewritten passage, each with its answer (the `>` lines under it), as they must stay (PIE-1737:
+ * a whole-note rewrite holds them, and a model may drop or reword one). Refuses the rewrite, naming the first that changed.
+ */
+function keepsTurns(passage: string[], replacement: string): void {
+  const out = replacement.split("\n");
+  let from = 0;
+  for (let at = 0; at < passage.length; at++) {
+    if (!ASK.test(passage[at]!)) continue;
+    let end = at + 1;
+    while (end < passage.length && passage[end]!.startsWith(">")) end++;
+    const turn = passage.slice(at, end);
+    const found = out.findIndex((line, i) => i >= from && turn.every((want, k) => out[i + k] === want));
+    if (found < 0) throw new Error(`the model changed an earlier ask or its answer (${passage[at]!.trim()}); nothing was changed`);
+    from = found + turn.length;
+    at = end - 1;
+  }
+}
+
 async function respond() {
   if (request.input.resolution) {
     const command = answerCommand();
@@ -131,9 +152,14 @@ async function respond() {
       "INSTRUCTION:", instruction, "PASSAGE:", observed,
     ].join("\n");
     ({ replacement, message } = await answer(command, prompt));
+    keepsTurns(passage, replacement);
   }
-  // What it took is said on the line whenever the ask has words (PIE-1737): the whole note, or how much above.
-  if (instruction) message = `${message} · ${whole ? "the whole note above the ask" : `the ${passage.length === 1 ? "1 line" : `${passage.length} lines`} above the ask`}`;
+  // What it took is said on the line whenever the ask has words (PIE-1737): the whole note, or how much above. The
+  // service takes a message up to 500 characters: a long one gives up its end, never the scope.
+  if (instruction) {
+    const scope = ` · ${whole ? "the whole note above the ask" : `the ${passage.length === 1 ? "1 line" : `${passage.length} lines`} above the ask`}`;
+    message = `${message.length + scope.length > 500 ? `${message.slice(0, 499 - scope.length)}…` : message}${scope}`;
+  }
   if (replacement === observed) return { message };
   // Where it was read (PIE-1737): a passage said twice in the note (a transcript's "Okay.") is placed by its range.
   const at = lineStart(lines, start);

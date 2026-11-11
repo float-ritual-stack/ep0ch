@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { movedRequests } from "./request-identity";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
-import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { agentDeadlineMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
@@ -134,6 +134,21 @@ const asked = (line: Pick<RequestLine, "text" | "nth">) => ({ line: line.text, .
 function wroteLinks(wrote: readonly { id: string; title: string }[]): string {
   const label = (title: string) => title.replace(/[|()[\]\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) || "a note";
   return `wrote ${wrote.length === 1 ? "a note" : `${wrote.length}${wrote.length === MAX_WROTE_LINKS ? "+" : ""} notes`}: ${wrote.map((w) => `((${w.id}|${label(w.title)}))`).join(", ")}`;
+}
+
+/**
+ * An answer's ranges, read in `read`, carried to where they are in `now` (CodeRabbit on #1437): a person who wrote above
+ * a passage said twice moves it, and the old range would name the nearest look-alike. A span whose passage someone
+ * changed meanwhile loses its range, so it is placed only when its text is there once, or refused.
+ */
+function carried(read: string, now: string, patches: readonly DraftPatchSpan[]): DraftPatchSpan[] {
+  if (read === now) return [...patches];
+  return patches.map((patch) => {
+    if (!patch.range) return patch;
+    const placed = rebaseSpans(read, now, [patch]);
+    const { range: _stale, unit: _unit, ...rest } = patch;
+    return placed.ok ? { ...rest, range: { start: placed.spans[0]!.start, end: placed.spans[0]!.end } } : rest;
+  });
 }
 
 /** How many words a note holds, as a person would count them. */
@@ -613,9 +628,9 @@ export class AgentRequests {
     if (!block) return;
     // Capture precedes the wake decision, including when a loop guard holds the ask.
     const before = created ? new Set<string>() : this.before(blockId, block.text);
-    // A trigger's or a demo's line for the extension's own agent is no ask: it waits for a person's r (PIE-1737: installing
-    // tidy would run its demo's ask through the model).
-    const decided = this.holdWritten(blockId, block.text, actor, before, demo || this.viaTrigger(block.text) ? actor : undefined, requestedBy);
+    // A demo's line for the extension's own agent is held for a person's r (PIE-1737: installing tidy would run its demo's
+    // ask through the model, and an agent's r would too).
+    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined, requestedBy, demo);
     this.wake(blockId, decided.wakes);
     this.remember(blockId, this.shapes(block));
     // Requests whose lines the write took out are withdrawn, as after any save.
@@ -671,7 +686,7 @@ export class AgentRequests {
   }
 
   /** Decide newly written requests once; saved text and live drafts share the same chain and limits. */
-  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
+  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance, demo = false): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
     const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], recorded: [] as string[] };
     const block = this.store.get(blockId);
     if (!block || !this.asksInPlace(block)) return out;
@@ -689,7 +704,8 @@ export class AgentRequests {
       answered.add(line.requestKey);
       // A responder inherits who asked for it, not approval for new asks it invents.
       const personal = !parent && (personAsk(requestedBy) || requestedBy?.invocationRequests?.includes(line.requestKey));
-      const verdict = decide(grants, actor, line.agent, personal ? { ...newChain("user"), origin: "user" } : parent, this.today);
+      const verdict = demo && actor?.actorId === `ext:${bound.extension.id}` ? { wake: false as const, denied: false, why: `${bound.extension.id}'s demo · ask again to send` }
+        : decide(grants, actor, line.agent, personal ? { ...newChain("user"), origin: "user" } : parent, this.today);
       if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by: personal || personAsk(actor) ? "user" : by, chain: verdict.chain, refund: verdict.refund }); continue; }
       out.recorded.push(line.requestKey);
       this.store.putAgentRequest({
@@ -1078,7 +1094,7 @@ export class AgentRequests {
         // doesn't make it a proposal; typing in that passage does.
         const outcome = await this.store.changes.run(
           this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
-          () => this.deps.patch({ blockId, revision: draft.revision, patches: respond.patches, mutation: actor, mark: { text: line.text, blockId }, current: true }),
+          async () => this.deps.patch({ blockId, revision: draft.revision, patches: carried(draft.text, (await this.deps.readDraft(blockId)).text, respond.patches), mutation: actor, mark: { text: line.text, blockId }, current: true }),
         );
         answer = outcome.outcome === "applied"
           ? { status: "applied", message: `${respond.message ?? `applied ${respond.patches.length === 1 ? "an edit" : `${respond.patches.length} edits`}`}${links ? ` · ${links}` : ""}`, reply: respond.reply ?? null }

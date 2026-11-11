@@ -12,6 +12,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, ChangeFeedPage } from "../src/types";
 import type { RuleListEntry } from "../src/extension-rules";
+import { scratchDir } from "./scratch-outline";
 
 test("kept extension rules switch off without warnings on reopen, and reinstall restores their triggers", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-ext-rules-"));
@@ -478,7 +479,8 @@ test("ext add --outline-folder has that folder's outline load the extension befo
 // PIE-1737: removing an extension took its settings with it, so a reinstall was silently back on its defaults. They are
 // kept beside the folder (as a fork is) and a reinstall takes them back, saying so.
 test("a removed extension's settings come back when it is installed again, and both answers say so (PIE-1737)", async () => {
-  const root = mkdtempSync(join(tmpdir(), "outliner-ext-settings-"));
+  // Its socket goes under the root: scratchDir, short under agent-env's long TMPDIR (PIE-1654).
+  const root = scratchDir("outliner-ext-settings-");
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
   process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-registry.json");
@@ -494,7 +496,10 @@ test("a removed extension's settings come back when it is installed again, and b
     const demo = store.children(installed.page!).find(block => block.text.startsWith("Tidy, on a made-up garden meeting"))!;
     expect(demo.text).toContain("\n@tidy clean up the transcript");
     await Bun.sleep(300);
-    expect(store.agentRequests(demo.id).map(row => [row.status, row.requestedBy, row.message])).toEqual([]);
+    expect(store.agentRequests(demo.id).map(row => [row.status, row.message])).toEqual([["waiting", "held: tidy's demo · ask again to send"]]);
+    // An agent's r doesn't send it either (CodeRabbit on #1437): only a person's.
+    const line = demo.text.split("\n").indexOf("@tidy clean up the transcript");
+    await expect(client.request({ action: "resources.projection.refresh", blockId: demo.id, line, mutation: { author: "agent", actorId: "loki" } })).rejects.toThrow("waits for a person's r");
     const config = join(outline, "extensions", "tidy", "config.json");
     const settings = `${JSON.stringify({ config: { answer: ["/opt/made-up/model", "--slow"] } }, null, 2)}\n`;
     writeFileSync(config, settings, { mode: 0o600 });
