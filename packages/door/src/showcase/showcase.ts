@@ -1513,9 +1513,7 @@ export const SECTIONS: Section[] = [
         ctx.flash(`Nothing was filed: ((${n.shed!.id}|the shed note)) is no page; add [page::Shed] to it, or write [form-into::((${n.shed!.id.slice(0, 8)}))]`, 4000, { kind: "refusal" });
         // Its first link is a page nobody has written yet: ] lights the shed note after it (PIE-1455).
         ctx.flash(`Not filed: [[Unwritten seed bed]] has no form yet; ((${n.shed!.id}|the potting shed)) has one`, 4000, { kind: "refusal" });
-        list.enter(ctx); list.reload();
-        // Logged after the rows were read: the log's own row above its hint row says it, r lists it (PIE-1732).
-        ctx.flash("A late frost is due tonight: cover the seedlings before you go");
+        list.enter(ctx); list.reload(); ctx.flash("A late frost is due tonight: cover the seedlings before you go");   // after the rows were read: its own row, r lists it (PIE-1732)
       });
       return list;
     },
