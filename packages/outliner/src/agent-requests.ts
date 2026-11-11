@@ -427,8 +427,15 @@ export class AgentRequests {
   private readonly retried = new Set<string>();
   /** The request keys each live draft (by its hold) held when it was last read (`touched`): a line gone and back is written again. */
   private readonly draftKeys = new Map<string, Set<string>>();
-  /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now. */
-  released(holdId: string): void { this.draftKeys.delete(holdId); }
+  /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now, and an orphan its save left goes. */
+  released(holdId: string, blockId?: string): void {
+    this.draftKeys.delete(holdId);
+    if (!blockId || !this.orphansAfterRelease.delete(blockId)) return;
+    const block = this.store.get(blockId);
+    if (block) void this.dropOrphans(blockId, this.lines(block, null).map(l => l.requestKey)).catch(() => {});
+  }
+  /** Notes whose ask a save took out while a draft of it was still held: its answer is taken out on the release. */
+  private readonly orphansAfterRelease = new Set<string>();
 
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
@@ -469,7 +476,9 @@ export class AgentRequests {
       if (noteId !== blockId || !agent) continue;
       for (const [fold, requestKey] of folds) {
         if (keys.includes(requestKey)) continue;
-        const current = await this.deps.readDraft(blockId).catch(() => null);
+        // The note as this save left it (the door that saved may still be letting go of its draft: a read through it waits
+        // on a draft that is closing, PIE-1731).
+        const block = this.store.get(blockId), current = block ? { text: block.text, revision: block.revision } : null;
         const from = current ? current.text.indexOf(fold) : -1;
         // Still where it was left: no ask line of its agent right above it (a line in other words asked it again).
         // As written, whole: an answer the person typed on (a line after it, on its last line) is theirs now.
@@ -484,8 +493,10 @@ export class AgentRequests {
           this.store.changes.attribution({ action: `ext.${bound.extension.id}.agent.${agent}`, actor }),
           () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
             patches: [{ observed: fold, range: { start: from, end: from + fold.length }, replacement: "" }] }),
-        );
-        if (outcome.outcome === "applied") folds.delete(fold);
+        ).catch(() => null);
+        if (outcome?.outcome === "applied") folds.delete(fold);
+        // The door that saved is still letting go of its draft (the save comes before its release): taken out once it has.
+        else this.orphansAfterRelease.add(blockId);
       }
     }
   }
