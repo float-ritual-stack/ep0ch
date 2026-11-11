@@ -5,7 +5,10 @@ import { afterEach, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
+import { failedWords, longerDeadline } from "../src/agent-requests";
+import type { ExtensionsConfigured } from "@ep0ch/outline-core/protocol";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 
@@ -57,7 +60,8 @@ console.log(${answer});`);
     rmSync(root, { recursive: true, force: true });
   });
   const note: Block = store.create(text, null, "user");
-  return { store, note };
+  const client = new OutlinerClient(join(root, "o.sock"));
+  return { store, note, client };
 }
 
 test("PIE-1713: tidy on a long transcript through a model that takes 30 s finishes, and the ums are gone", async () => {
@@ -122,3 +126,49 @@ test("PIE-1737: a model message near its 500 characters still lands, with what i
   expect(row.message!.length).toBeLessThanOrEqual(500);
   expect(row.message!.endsWith("… · the whole note above the ask")).toBe(true);
 }, 60_000);
+
+// PIE-1740: Evan's tidy missed its deadline once, he ran the one command the stop line named, pressed R, and it missed
+// again: the line said double the old deadline, not the run's own length. The suggestion is now more than double what
+// the run went, in whole minutes, at most an agent's longest; and a refusal after his own save says what he does next.
+test("PIE-1740: a 30 s stop suggests 2m, more than double what it ran; 60 s, 3m; at the longest, nothing longer", () => {
+  expect(longerDeadline(30_000, 30_000)).toBe("2m");
+  expect(longerDeadline(30_000, 31_200)).toBe("2m");
+  expect(longerDeadline(60_000, 60_400)).toBe("3m");
+  expect(longerDeadline(15_000, 0)).toBe("1m");
+  expect(longerDeadline(90 * 60_000, 90 * 60_000)).toBe("2h");
+  expect(longerDeadline(2 * 3_600_000, 2 * 3_600_000)).toBeUndefined();
+  const said = failedWords(new Error("Resource extension: tidy timed out after 2h"), { agent: "tidy", extension: "tidy", deadlineMs: 2 * 3_600_000, tookMs: 2 * 3_600_000, words: 40, by: "user" });
+  expect(said).toBe("@tidy took longer than its 2 h on this 40-word note and was stopped: ask it about a shorter passage (2 h is the longest an agent may take)");
+});
+
+test("PIE-1740: the deadline a stop names fits the run: set it as the line says, ask again, and it lands", async () => {
+  const { store, note, client } = await setup(1_500, "1s", "Garden meeting\n\nOak: um, okay.\n\nWren: um, the beans are in.\n@tidy clean up the transcript");
+  const stop = await until("tidy's stop", () => store.agentRequests(note.id).find(r => r.status === "failed"), 30_000);
+  const longer = /\(ep0ch act ext\.tidy\.settings agent\.tidy\.deadline=(\d+)([mh])\)$/.exec(stop.message ?? "");
+  expect(longer).not.toBeNull();
+  await client.request<ExtensionsConfigured>({ action: "extensions.configure", extension: "tidy", set: { "agent.tidy.deadline": `${longer![1]}${longer![2]}` }, mutation: { author: "user" } });
+  await client.request({ action: "resources.projection.refresh", blockId: note.id, line: 5, mutation: { author: "user" } });
+  const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status === "applied"), 30_000);
+  expect(row.message).toBe("took the ums out · the whole note above the ask");
+  expect(store.require(note.id).text).toBe("Garden meeting\n\nOak: okay.\n\nWren: the beans are in.\n@tidy clean up the transcript");
+}, 60_000);
+
+test("PIE-1740: Evan saves an edit in the passage while tidy runs: the line says nothing was lost and to ask again, and asking again lands", async () => {
+  const { store, note, client } = await setup(1_500, undefined, "Garden meeting\n\nOak: um, okay.\n\nWren: um, the beans are in.\n@tidy clean up the transcript");
+  await until("tidy running", () => store.agentRequests(note.id).find(r => r.status === "running"), 10_000);
+  const now = store.require(note.id);
+  store.update(note.id, now.text.replace("Oak: um, okay.", "Oak: um, okay. Thanks."), now.revision, { author: "user" });
+  const refused = await until("tidy's refusal", () => store.agentRequests(note.id).find(r => r.status === "failed"), 30_000);
+  expect(refused.message).toBe(`the note changed while @tidy worked on it (revision ${now.revision}, now ${now.revision + 1}): nothing was changed, and asking again runs it on the new text`);
+  await client.request({ action: "resources.projection.refresh", blockId: note.id, line: 5, mutation: { author: "user" } });
+  const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status === "applied"), 30_000);
+  expect(row.message).toBe("took the ums out · the whole note above the ask");
+  expect(store.require(note.id).text).toBe("Garden meeting\n\nOak: okay. Thanks.\n\nWren: the beans are in.\n@tidy clean up the transcript");
+}, 60_000);
+
+test("PIE-1740: an agent that asked hears what to send; a person hears that the note changed and to ask again", () => {
+  const stale = Object.assign(new Error("not applied: Garden meeting ((n1)) changed since you read it (revision 5, now 6); read it again and send the patch against the new text."), { name: "DraftPatchRefusal", kind: "stale-revision" });
+  const words = { agent: "tidy", extension: "tidy", deadlineMs: 300_000, tookMs: 2_000, words: 40, read: 5, now: 6 };
+  expect(failedWords(stale, { ...words, by: "agent:loki" })).toBe(stale.message);
+  expect(failedWords(stale, { ...words, by: "user" })).toBe("the note changed while @tidy worked on it (revision 5, now 6): nothing was changed, and asking again runs it on the new text");
+});

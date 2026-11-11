@@ -587,6 +587,8 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   else if (!body.length) said([status, running].filter(Boolean).join(" · "), bad ? C.yellow : C.dark);
   if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${askedBy(p.agent.requestedBy)}` : ""}`, C.dark);
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
+  // A failed ask says the key that asks again (PIE-1740): the service words why, the door names its own key.
+  if (p.kind === "agent" && p.agent?.status === "failed" && !p.fetching) said(`${runAgainKey()} asks again`, C.dark);
   if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · ${runAgainKey()} runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
   // Kept under its line while the note is edited (PIE-957): what it last drew, with no mark and no controls.

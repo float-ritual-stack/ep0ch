@@ -6,7 +6,8 @@ import { movedRequests } from "./request-identity";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
-import { agentDeadlineMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
+import { agentDeadlineMs, DEFAULT_DEADLINE_MS, MAX_AGENT_DEADLINE_MS } from "./extension-manifest";
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
@@ -154,16 +155,59 @@ function carried(read: string, now: string, patches: readonly DraftPatchSpan[]):
 /** How many words a note holds, as a person would count them. */
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
+/** A duration as the stop line says it: `30 s`, `5 min`, `2 h`. */
+const spoken = (ms: number) => ms % 3_600_000 === 0 ? `${ms / 3_600_000} h` : ms % 60_000 === 0 ? `${ms / 60_000} min` : `${Math.round(ms / 1000)} s`;
+
 /**
- * A deadline that ended an agent's answer (PIE-1452, PIE-1713), said in the person's words: what took too long, on
- * how much, and what to ask instead. Undefined when the error was something else.
+ * The longer deadline a stop suggests (PIE-1740): more than double what the run went (its deadline, or longer when it
+ * started late), in whole minutes (`2h` at the hour), so a run that only just missed lands next time, never more than an
+ * agent may take (MAX_AGENT_DEADLINE_MS). Undefined when it already had that long.
  */
-function deadlineHit(error: unknown, agent: string, deadlineMs: number, words: number | undefined, extension: string): string | undefined {
-  if (!/timed out/.test(message(error))) return undefined;
-  const took = deadlineMs % 3_600_000 === 0 ? `${deadlineMs / 3_600_000} h` : deadlineMs % 60_000 === 0 ? `${deadlineMs / 60_000} min` : `${Math.round(deadlineMs / 1000)} s`;
-  const on = words === undefined ? "" : ` on this ${words.toLocaleString("en-US")}-word note`;
-  // Or give it longer (PIE-1709): its deadline is a setting, on the settings screen at its extension.
-  return `@${agent} took longer than its ${took}${on} and was stopped: ask it about a shorter passage, or give it longer in its settings (ep0ch act ext.${extension}.settings agent.${agent}.deadline=${Math.min(120, Math.ceil(deadlineMs / 30_000))}m)`;
+export function longerDeadline(deadlineMs: number, tookMs: number): string | undefined {
+  if (deadlineMs >= MAX_AGENT_DEADLINE_MS) return undefined;
+  const minutes = Math.min(MAX_AGENT_DEADLINE_MS / 60_000, Math.floor((2 * Math.max(deadlineMs, tookMs)) / 60_000) + 1);
+  return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
+}
+
+/** What a failed answer is worded from: who answered, how long it had and took, the note's size, who asked, and the revision it read and the one now. */
+export interface FailedAnswer {
+  readonly agent: string;
+  readonly extension: string;
+  readonly deadlineMs: number;
+  readonly tookMs: number;
+  readonly words?: number;
+  /** Who asked, as the request row says it: `user`, `agent:<actorId>` or `system`. */
+  readonly by: string;
+  readonly read?: number;
+  readonly now?: number;
+}
+
+/**
+ * Why an answer didn't land, in the words of whoever asked (PIE-1740): the one place a failed ask is worded, for a
+ * note's line and a thread's reply alike.
+ * - A deadline says what took too long, on how much, and a longer deadline that fits the run (PIE-1452, PIE-1713, PIE-1709).
+ * - A note changed under the answer tells an agent what draft.patch tells it (read again, send against the new text);
+ *   a person hears that nothing was lost and to ask again, which the door draws with its key.
+ * - Anything else is the error's own words.
+ */
+export function failedWords(error: unknown, w: FailedAnswer): string {
+  const said = message(error);
+  if (/timed out/.test(said)) {
+    const on = w.words === undefined ? "" : ` on this ${w.words.toLocaleString("en-US")}-word note`;
+    const longer = longerDeadline(w.deadlineMs, w.tookMs);
+    // Or give it longer: its deadline is a setting, on the settings screen at its extension.
+    return `@${w.agent} took longer than its ${spoken(w.deadlineMs)}${on} and was stopped: ask it about a shorter passage${longer
+      ? `, or give it longer in its settings (ep0ch act ext.${w.extension}.settings agent.${w.agent}.deadline=${longer})`
+      : ` (${spoken(MAX_AGENT_DEADLINE_MS)} is the longest an agent may take)`}`;
+  }
+  const kind = kindOfPatch(error) ? refusalKindOf(error) : undefined;
+  // Only when the note moved: a patch for text the note never had is the agent's mistake, said in the router's words.
+  const moved = w.read !== undefined && w.now !== undefined ? w.now !== w.read : kind === "stale-revision";
+  if ((kind === "stale-revision" || kind === "conflict") && moved && !w.by.startsWith("agent")) {
+    const at = w.read !== undefined && w.now !== undefined && w.now !== w.read ? ` (revision ${w.read}, now ${w.now})` : "";
+    return `the note changed while @${w.agent} worked on it${at}: nothing was changed, and asking again runs it on the new text`;
+  }
+  return said;
 }
 
 export interface AgentRequestDeps {
@@ -267,6 +311,9 @@ function requester(actor: MutationProvenance | undefined): string {
   if (actor?.author === "agent") return actor.actorId ? `agent:${actor.actorId}` : "agent";
   return actor?.author === "system" ? "system" : "user";
 }
+
+/** A draft.patch refusal: the answer's edit wasn't taken (worded by failedWords). */
+const kindOfPatch = (error: unknown) => error instanceof Error && error.name === "DraftPatchRefusal";
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
@@ -996,10 +1043,11 @@ export class AgentRequests {
     let ticker: ReturnType<typeof setInterval> | undefined;
     const first = setTimeout(() => { tick(); ticker = setInterval(tick, this.deps.progressMs ?? PROGRESS_MS); }, this.deps.workingAfterMs ?? WORKING_AFTER_MS);
     const deadline = agentDeadlineMs(extension, agent) ?? DEFAULT_DEADLINE_MS;
-    let words: number | undefined;
+    let words: number | undefined, read: number | undefined;
     try {
       const draft = await this.deps.readDraft(blockId);
       words = wordCount(draft.text);
+      read = draft.revision;
       // The person changed or removed the line meanwhile: that is a new request (or none), not this one.
       if (!stillThere(draft.text)) return;
       if (extension.script) {
@@ -1136,7 +1184,9 @@ export class AgentRequests {
       }
     } catch (error) {
       const wrote = this.wrote(line.agent, new Date(started).toISOString());
-      answer = { status: "failed", message: `${deadlineHit(error, line.agent, deadline, words, extension.id) ?? message(error)}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
+      const now = kindOfPatch(error) ? (await this.deps.readDraft(blockId).catch(() => null))?.revision : undefined;
+      const said = failedWords(error, { agent: line.agent, extension: extension.id, deadlineMs: deadline, tookMs: this.now - started, words, by: base.requestedBy, ...(read !== undefined ? { read } : {}), ...(now !== undefined ? { now } : {}) });
+      answer = { status: "failed", message: `${said}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
     } finally {
       clearTimeout(first);
       if (ticker) clearInterval(ticker);
@@ -1297,7 +1347,9 @@ export class AgentRequests {
     } catch (error) {
       // Nor is an error: it would become the face.
       if (tldr) return { refused: `@${line.agent} couldn't write the TL;DR: ${message(error)}` };
-      reply = deadlineHit(error, line.agent, deadline, note ? wordCount(note.text) : undefined, extension.id) ?? `@${line.agent} couldn't answer: ${message(error)}`;
+      reply = /timed out/.test(message(error))
+        ? failedWords(error, { agent: line.agent, extension: extension.id, deadlineMs: deadline, tookMs: this.now - started, ...(note ? { words: wordCount(note.text) } : {}), by: "user" })
+        : `@${line.agent} couldn't answer: ${message(error)}`;
     } finally {
       working?.stop();
     }

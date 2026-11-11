@@ -81,7 +81,7 @@ test("tidy's settings say its default, and an answer set in them is what the nex
   const note = await client.request<Block>({ action: "create", text: "Garden\nwater the beans\n@tidy make it a task" });
   await until("@tidy ran the configured answer", () => store.get(note.id)!.text.includes("- [ ] water the beans"));
   const read = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: note.id });
-  expect(read.projections.find((p) => p.kind === "agent")?.summary).toBe("made it a task");
+  expect(read.projections.find((p) => p.kind === "agent")?.summary).toBe("made it a task · the 1 line above the ask");                // PIE-1737 says what it took
 
   // An empty answer was set back: the default again.
   const back = await configure("tidy", { config: {} });
