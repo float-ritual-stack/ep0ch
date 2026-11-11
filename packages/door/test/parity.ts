@@ -186,6 +186,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     reads = cacheReads(board);
     await board.info();
     await scratch.seedShowcase();
+    // PIE-1739: the desk's search line reads as a query once the walk has typed a `<` into it, and from there every key it
+    // types (90 of them) asked the showcase's made-up issues extension for its query words: a `bun` process each, about
+    // 220 ms at load 5, 15 to 20 s of "desk: tree" and "desk: backlinks tile" against their 60 s. Its demo notes stay; the
+    // query words the service answers are still asked. The showcase part keeps it: its sections are the demo.
+    if (part === "desk" || part === "desk-tiles") await board.request("extensions.uninstall", { extension: "issues", demo: "keep" });
     notes = await board.changedSince(0, 20);
     // The door's clock two days on: the seeded notes it lists then read "2d" old, not "9s", "10s" … as they did for the
     // first minute and a half, when the activity tile's ages ticked under the probes (a wider age shifts its row and
@@ -651,6 +656,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       }
     }
     // The address replays last, outside the scenario's budget: they are one more pass over the targeted actions it found, not more keys.
+    // The log says what the budget held (PIE-1739): the totals line below counts the replay too.
+    if (log) require("node:fs").appendFileSync(log, `# ${label}: walked in ${(budget.elapsed() / 1000).toFixed(1)} s of its ${budget.limitMs / 1000} s budget\n`);
     await addressed(label, make, setup, pointed);
   }
 

@@ -367,7 +367,9 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => r.surface.session?.mode === "compose" && r.surface.session?.target?.kind === kind, `the ${kind} composer opened`);
     for (const c of body) press({ kind: "char", ch: c });
     press({ kind: "char", ch: "s", ctrl: true });
-    await until(() => !r.surface.session?.composer, "the comment sent");
+    // Until the reader lets the session go, as the person sees it end (PIE-1739): the composer goes when the send lands,
+    // but the session holds the keys while it asks the outline for the thread, so an esc pressed then never left the drawer.
+    await until(() => !r.surface.session, "the comment sent, and the reader back to reading");
   };
   /** The recorded line that sends a comment, at the tile it was written in. */
   const sendsLine = (text: string) => text.split("\n").filter(l => /^comment(\.note)? /.test(l));
