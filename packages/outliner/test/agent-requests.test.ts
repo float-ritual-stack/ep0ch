@@ -895,3 +895,30 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: down ? "not set 
     expect([words, asked().filter(a => a === words).length]).toEqual([words, words.startsWith("down") ? 2 : 1]);
   }
 });
+
+// PIE-1731, the verifier's walk: in a live draft too, a no-answer's line typed away and typed back is asked again; a real
+// answer's is not.
+test("in a live draft, a retry answer's line retyped is asked again; a real answer's is kept", async () => {
+  const { client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "flaky-draft-")), "flaky.log");
+  await writeAgent("flaky", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+const down = request.input.request.startsWith("down");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: down ? "not set up here" : "found it", ...(down ? { retry: true } : {}) } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  for (const words of ["down find hub items", "up find hub items"]) {
+    const note = await create("Hub\nfirst line");
+    const door = await fakeDoor(client, `door-${words.split(" ")[0]}`, note);
+    const type = async (text: string) => { door.text = text; await client.request({ action: "drafts.touch", holdId: door.holdId }); };
+    await type(`Hub\nfirst line\n@flaky ${words}`);
+    await until(`${words} answered`, () => door.text.includes("@flaky answered"));
+    const answered = door.text;
+    // Backspaced whole, then typed again: two touches.
+    await type(answered.replace(`@flaky ${words}`, ""));
+    await Bun.sleep(150);
+    await type(answered);
+    await Bun.sleep(600);
+    expect([words, asked().filter(a => a === words).length]).toEqual([words, words.startsWith("down") ? 2 : 1]);
+  }
+});

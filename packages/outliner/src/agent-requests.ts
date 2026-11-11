@@ -422,6 +422,8 @@ export class AgentRequests {
 
   /** Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. */
   private readonly retried = new Set<string>();
+  /** The request keys a note's live draft held when it was last read (`touched`): a line gone and back is written again. */
+  private readonly draftKeys = new Map<string, Set<string>>();
 
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
@@ -753,8 +755,16 @@ export class AgentRequests {
     const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
+    const seen = this.draftKeys.get(blockId);
+    this.draftKeys.set(blockId, keys);
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
+      // A no-answer's line written again (gone from the draft when it was last read, back now) is a new ask, as the save
+      // path's withdraw makes it (PIE-1731): its row goes, and it is asked.
+      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.delete(key)) {
+        rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
+        this.store.pruneAgentRequests(blockId, [...rows.keys()]);
+      }
       const row = rows.get(line.requestKey);
       if (row) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
       // The key includes the wording; other lines changing leave its deadline alone.
