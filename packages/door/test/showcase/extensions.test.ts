@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   // PIE-1731: the person's install and remove from the power bar say so on screen when they land.
   test("installing and removing an extension as the person says so on the status bar", async () => {
     // Each message with how long it is shown: long enough to read once the bar has closed.
-    const said: string[] = [], a = app as unknown as { showMessage(m: string, ms: number, ...rest: unknown[]): unknown; flash(m: string, ...rest: unknown[]): unknown }, show = a.showMessage.bind(a), flash = a.flash.bind(a);
+    const said: string[] = [], a = app as unknown as { showMessage(m: string, ms: number, ...rest: unknown[]): unknown }, show = a.showMessage.bind(a);
     a.showMessage = (m: string, ms: number, ...rest: unknown[]) => { said.push(`${m} [${ms}]`); return show(m, ms, ...rest); };
     const bar = () => (app as any).bar as { items: { row: { key: string } }[] };
     // As the person does: the power bar's extensions, its row picked.
