@@ -290,7 +290,10 @@ export class SettingsCard {
     const about = ext ? (this.editing ? `editing ${this.editing.key} · enter saves${keySaid(LINE_KEYS, "draft.clear", "clears")}${keySaid(DRAFT_KEYS, "edit.close", "keeps the old value")}` : sel ? `${sel.prop.key}${keySaid(SETTINGS_KEYS, "settings.set", "edit")}${sel.ext?.tries ? keySaid(SETTINGS_KEYS, "settings.try", "try") : ""}${keySaid(SETTINGS_KEYS, "settings.clear", sel.prop.default !== undefined ? "back to its default" : "takes it out")}` : "")
       : sel ? `${sel.prop.key} · ${edit} · ${sel.prop.meaning}` : "";
     const foot = this.trying ? `trying ${this.trying}…` : this.editing ? (this.note || this.editing.session.status.note || about) : this.note || about;
-    const room = Math.max(1, h - 1 - (foot ? 1 : 0));
+    // An extension's foot is a try's answer or a refusal in the command's own words: wrapped, never cut (PIE-1709), and the
+    // field rows leave room for every row of it (CodeRabbit on #1438: a narrow card cut the keys off its bottom).
+    const footLines = !foot ? [] : ext ? rowLines(foot, w, 3, { hang: 2 }) : [drawEllipsized(foot, w)];
+    const room = Math.max(1, h - 1 - footLines.length);
     // The rows: a section's heading (only with more than one), then its fields.
     const rows: ({ field: SettingField } | { heading: string })[] = [];
     for (const f of fields) {
@@ -316,9 +319,8 @@ export class SettingsCard {
       // The line being typed keeps its own lit cursor and selection: never the selected row's wash over it.
       out.push(r.n - 1 === this.sel && !r.edit ? selectedRow(r.text, w) : pad(r.text, w));
     }
-    // An extension's foot is a try's answer or a refusal in the command's own words: wrapped, never cut (PIE-1709).
     const tone = this.trying || !this.note ? C.dark : this.said.tone === "problem" ? C.lred : C.yellow;
-    if (foot) for (const line of ext ? rowLines(foot, w, 3, { hang: 2 }) : [drawEllipsized(foot, w)]) out.push(fg(tone) + pad(line, w) + RESET);
+    for (const line of footLines) out.push(fg(tone) + pad(line, w) + RESET);
     return out.slice(0, h);
   }
 }

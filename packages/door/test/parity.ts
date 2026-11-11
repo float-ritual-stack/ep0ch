@@ -240,7 +240,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         A().refusedNow = null;
         // The last paint drew this screen, nothing has changed or asked for a paint since, and no refusal copy is on its frame
         // (a probe leaves that out): its rows are the screen's.
-        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().pace.waiting;
+        // The message log is always drawn again: its painted frame may hold its own row for what came since (asListed leaves that out).
+        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().pace.waiting && !(top instanceof StatusMessages);
         try {
           const l0 = performance.now();
           const drawn = app.strips.draw(current ? painted!.lines : asListed(top, () => top.render(app)).lines, cols, rows);
