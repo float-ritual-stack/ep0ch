@@ -1066,7 +1066,10 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h, standing: true }, USER);
     expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
     if (!rich) {
+      // The cursor on the ask leaves its answer shut (PIE-1738); in the answer, it opens; fold.toggle shuts it again.
       await NOTE_ACTIONS.run("draft.place", { line: answerLine - 1, col: 1 }, { surface: e.s, host: e.h, standing: true }, USER);
+      expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
+      await NOTE_ACTIONS.run("draft.place", { line: answerLine, col: 1 }, { surface: e.s, host: e.h, standing: true }, USER);
       expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
       await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h, standing: true }, USER);
       expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");

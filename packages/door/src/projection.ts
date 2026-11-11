@@ -29,7 +29,7 @@ import { regionRows, type RegionBook } from "./output-region";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
 import { buttonText } from "./surface/button";
-import { runAgainKey } from "./surface/reader-keys";
+import { nextElementKey, runAgainKey } from "./surface/reader-keys";
 
 /** The statuses the service sends (the wire contract's). */
 export type { ResourceProjectionStatus } from "@ep0ch/outliner/wire";
@@ -430,6 +430,9 @@ export function forgetProjectionAnswers(): void { caches.clear(); }
  * The projections to draw in note `m`, from the last answer (read again in the background when it may
  * have changed; the reader redraws when it lands). Empty for a note that names no provider, after a failed read, and while the answer is for another revision of the note.
  */
+/** The lines of a note that R runs again (an output, a component, an @name ask): what R and a failed line's hint count. */
+export const linesThatRun = (m: Msg, src: Source | null | undefined): readonly ResourceProjection[] => projectionsOf(m, src).filter(p => p.kind && p.kind !== "data");
+
 export function projectionsOf(m: Msg, src: Source | null | undefined): readonly ResourceProjection[] {
   return readOf(m, src)?.projections ?? [];
 }
@@ -500,6 +503,8 @@ export interface ExtDraw {
   list?(node: ListPrimitive, width: number, run: (act: string) => LinkTarget): string[];
   /** Only what the line last drew, with no controls or hints (PIE-981: it stays under its line while the note is edited). */
   bare?: boolean;
+  /** The note has more than one line that runs: R needs [ ] on this one first. */
+  several?: boolean;
 }
 
 /** A control a render script drew in a note: its words, the action line it runs and the note's line it was drawn under. */
@@ -587,6 +592,8 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   else if (!body.length) said([status, running].filter(Boolean).join(" · "), bad ? C.yellow : C.dark);
   if (p.kind === "agent" && ready && when) said(`answered ${age}${p.agent?.requestedBy ? ` · asked by ${askedBy(p.agent.requestedBy)}` : ""}`, C.dark);
   if (p.reason && (!ready || p.status === "stale")) said(drawnInline(p.reason), bad || p.status === "stale" ? C.yellow : C.dark);
+  // A failed ask says the key that asks again (PIE-1740): the service words why, the door names its own key.
+  if (p.kind === "agent" && p.agent?.status === "failed" && !p.fetching) said(d.several ? `${nextElementKey()} steps onto it, then ${runAgainKey()} asks again` : `${runAgainKey()} asks again`, C.dark);
   if (p.output?.versionChanged && !p.fetching) said(`${drawnInline(p.label ?? extension)} changed since this ran · ${runAgainKey()} runs it again`, C.dark);
   for (const option of p.options.unknown) said(`unknown option ${drawnInline(option)}`, C.yellow);
   // Kept under its line while the note is edited (PIE-957): what it last drew, with no mark and no controls.

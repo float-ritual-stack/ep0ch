@@ -2,23 +2,22 @@
 // `jev-run` rewritten per ask, two writes per settled finding's stamp). Asks are lines of a day file now, the run is
 // written from it at most every 15 minutes, and a pass's stamps are one request. Fictional notes; a scratch service.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { JevAsks, TALLY_EVERY_MS, tallyOf } from "../src/jev-asks";
-import { recordReview, stampSettled, tallyDay, type SuggestionKeep } from "../src/jev-suggestions";
+import { recordQueryWords, recordReview, stampSettled, tallyDay, type SuggestionKeep } from "../src/jev-suggestions";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, ChangeFeedPage } from "../src/types";
-import { scratchOutline } from "./scratch-outline";
+import { scratchDir, scratchOutline } from "./scratch-outline";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
 async function setup() {
-  const root = mkdtempSync(join(tmpdir(), "outliner-jev-asks-"));
+  const root = scratchDir("outliner-jev-asks-");
   const { env: _env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
@@ -94,4 +93,31 @@ test("a pass's settled findings are stamped in one request", async () => {
   const stamped = (await records("review-finding")).filter(f => ids.includes(f.id));
   expect(stamped.map(f => f.outcome)).toEqual(["ignored", "ignored", "ignored"]);
   expect(stamped[0]!.text.split("\n", 1)[0]).toStartWith("fix: the plot list runs on [type::review-finding]");
+});
+
+// PIE-1738: a fresh outline's first Jev find wrote a "Records" page at its top level. Jev's own notes (its Records page,
+// the reviews' page and the rule that reads them) go under the outline's Extensions hub; with no hub, at the top.
+test("Jev's records go under the outline's Extensions hub, not its top level", async () => {
+  const { store, client } = await setup();
+  const hub = store.create("Extensions [page::extensions]");
+  const words = { id: "q1", input: "drafts in the shed", base: "", where: "status=draft", clauses: [{ confidence: 0.9 }], text: [] } as never;
+  await recordQueryWords(client, words, "suggested", "kitty/claude-code@float-box");
+  const find = async (where: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where, machinery: "show" } })).blocks;
+  const [records] = await find("system-records=true");
+  expect(records?.parentId).toBe(hub.id);
+  expect(store.children(null).map(b => b.text.split("\n")[0])).not.toContain("Records [page::Records] [machine::record] [system-records::true]");
+  await recordReview(client, { ...quietReview(1), review: { verdict: "fix", findings: [{ rule: "stacked", rubric: "wall", key: "stacked:2", say: "Three paragraphs in a row", line: 2, passage: "Beans, peas, more beans", new: true, by: "code" }], jev: "asked", next: "" } as never }, new Date("2026-03-04T10:00:00Z"), {}, new JevAsks());
+  for (const where of ["system-view=jev-suggestions", "rule-name=review-records"]) {
+    const [made] = await find(where);
+    expect([where, made?.parentId]).toEqual([where, hub.id]);
+  }
+});
+
+test("with no Extensions hub, Jev's Records page is at the top level, as before", async () => {
+  const { client } = await setup();
+  const words = { id: "q2", input: "sent seed packets", base: "", where: "status=sent", clauses: [{ confidence: 0.9 }], text: [] } as never;
+  await recordQueryWords(client, words, "suggested", "kitty/claude-code@float-box");
+  const [records] = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "system-records=true", machinery: "show" } })).blocks;
+  expect(records).toBeDefined();
+  expect(records!.parentId ?? null).toBeNull();
 });

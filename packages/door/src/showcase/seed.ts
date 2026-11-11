@@ -48,7 +48,7 @@ async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
   await board.request("suggestions.keep", { keep: { kind: "reviewed", at: { note: note.id, revision: note.revision ?? 1, actorId: "moss/claude-code@showcase", source: "write" }, title: SEED.writeReview, review } });
   const [page] = (await board.request("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
   // Beside the note, under the showcase's root, as every seeded note is: the page, the Records page its records went
-  // under, and the rule that reads them (each made at the outline's top, which the tree lists above the showcase).
+  // under, and the rule that reads them (each made under the outline's Extensions hub, or at its top with no hub).
   const made = await Promise.all(["system-view=jev-suggestions", "system-records=true", "rule-name=review-records"].map(async where =>
     (await board.request("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
   // At the end of the root's children: first, they'd push the notes other sections reveal out of the tree's view.
@@ -225,7 +225,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
   await board.request("virtual.occurrences.move", { input: { view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, mutation: mutationFor({ kind: "user" }) });
 
-  notes.asks = await make(notes.root.id, `${SEED.asks}\n\nBare \`@tidy\` fixes list nesting and spacing above. \`@tidy wrap each item in a callout\` rewrites the passage as asked (Haiku by default, or tidy config.answer). It lands as one lit, attributed edit: ctrl+z undoes it. Every ask says what changed or why it could not run.\n\nPress e, go to the end, and write @planter show the seed counts on its own line. Keep typing on the next line. The answer stays folded and its running view opens beside this note. Open the fold to edit or keep the script. Or ask @planter describe the beds: its plain answer streams beside you as you keep writing.\n\n`);
+  notes.asks = await make(notes.root.id, `${SEED.asks}\n\nBare \`@tidy\` fixes list nesting and spacing above. \`@tidy wrap each item in a callout\` rewrites the passage as asked (Haiku by default, or tidy config.answer). It lands as one lit, attributed edit: ctrl+z undoes it. Every ask says what changed or why it could not run.\n\nPress e, go to the end, and write @planter show the seed counts on its own line. Keep typing on the next line. The answer stays folded and its running view opens beside this note, even with the cursor back on the ask. Press → at the ask's end (or f in the answer tile) to open the fold, to edit or keep the script; leave it and it folds again. ctrl+End goes to a line of its own under the last answer. Or ask @planter describe the beds: its plain answer streams beside you as you keep writing.\n\n`);
   if (opts.ticketsConfig) {
     const folder = join(opts.ticketsConfig, "pi-herdr-outliner", "extensions", "showcase-planter");
     mkdirSync(folder, { recursive: true });

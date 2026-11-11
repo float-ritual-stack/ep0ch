@@ -16,7 +16,7 @@ import { listMode, collectionBinding, collectionKey, type ListMode } from "./lis
 import { drawingCaption, drawingControls, drawnImagesOf, headerRef, heroLinkSpans, imageControlLabel, imageRefTo, NotePictures, bandBesidePicture, pictureEdits, pictureRows, pictureRowsOf, pictureSourceOf, placePictures, stepOf, type DrawnImage } from "./picture-rows";
 import { READER_ESC, asHintEsc, escNext, escPress } from "../esc-rule";
 import { passageMenuMode, quietMode, readerEscSteps } from "./reader-esc";
-import { READER_KEYS, READER_SAYS, RESOLVE_KEYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
+import { READER_KEYS, READER_SAYS, RESOLVE_KEYS, ZOOM_KEYS, STEP_KEYS, ELEMENT_STEP_KEYS, SECTION_KEYS, READING_KEYS, nextElementKey, readerBinding, readerKeys, runAgainKey, type ReaderGuard, type ReaderKey } from "./reader-keys";
 import { listAtCursor, loneCollection, rowContainerAt, rowContainerOn, type RowWorld } from "./row-container";
 import { renderPrimitiveList } from "./list-drawing";
 import { renderCollection } from "../collections";
@@ -76,7 +76,7 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { withSchemaParams, drawSources, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
+import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, linesThatRun, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction, PRESSED_VIA } from "../extensions";
 import { printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
@@ -2216,7 +2216,7 @@ export class NoteSurface {
     // An extension's output (PIE-512) is drawn as this reader draws a note's body: its Markdown, inert (no
     // links to follow, no properties), flush with the note's text.
     const extDraw = {
-      note: m.id,
+      note: m.id, several: linesThatRun(m, src).length > 1,
       markdown: (text: string, width: number) => drawIn("extension-text", presentLinks(printableBlock(text), false, null), env, {}, { width }).lines,
       // A view's Blockdown (a section a component lays out) is drawn as the body is: its links are links here.
       blockdown: (text: string, width: number) => drawIn("view", presentLinks(printableBlock(text), false, src, text, drawn), env, {}, { width }).lines,
@@ -4097,7 +4097,7 @@ export class NoteSurface {
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
-    const placed = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
+    const placed = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow, ...(d === this.draft ? { fold: (line: number) => void this.runKey("fold.toggle", { line }, host) } : {}) }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
     if (placed) host.redraw();
     return placed;
   }
@@ -4216,7 +4216,7 @@ export class NoteSurface {
     if (!d) return false;
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
     if (k.action === "down") {
-      const n = d.clicks.press(x, y), placed = this.writePress(d, x, y, false);
+      d.holdFolds(); const n = d.clicks.press(x, y), placed = this.writePress(d, x, y, false);   // what's drawn stays until the release
       this.pointer.hold({ kind: "draft", placed, shift: false, kept: null, selecting: placed && n > 1 ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null });
       host.redraw(); return true;
     }
@@ -4225,7 +4225,7 @@ export class NoteSurface {
       const g = this.pointer.take(), r = d.clicks.release(x, y);
       if (r.click) this.writeClick(d, x, y, host);
       else if (r.copy) void ((g?.kind === "draft" ? g.selecting : null) ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
-      host.redraw();
+      d.letFoldsGo(); host.redraw();
       return true;
     }
     return false;
@@ -4650,10 +4650,10 @@ export class NoteSurface {
     if (at) return at;
     const m = this.msg!;
     // Not read yet: what the note runs isn't known, so nothing is asked of the service on a guess.
-    if (!projectionsLoaded(m, this.src) && mayHaveProjections(m.text)) throw new ActionRefused("reading what this note runs · press again in a moment, or put [ ] on a line first");
-    const runs = projectionsOf(m, this.src).filter(p => p.kind && p.kind !== "data");
+    if (!projectionsLoaded(m, this.src) && mayHaveProjections(m.text)) throw new ActionRefused(`reading what this note runs · press again in a moment, or press ${nextElementKey()} to step onto a line first`);
+    const runs = linesThatRun(m, this.src);
     if (runs.length === 1) return { block: m.id, line: runs[0]!.anchor.line };
-    if (runs.length > 1) throw new ActionRefused(`${this.runsWords(runs)} here: nothing ran · press ${runAgainKey()} with [ ] on one, or click its ${REGION_MARK} mark and its run again`);
+    if (runs.length > 1) throw new ActionRefused(`${this.runsWords(runs)} here: nothing ran · press ${nextElementKey()} to step onto one, then ${runAgainKey()}, or click its ${REGION_MARK} mark and its run again`);
     return { block: m.id };
   }
   /** The lines that run, in the words a refusal names them by: `3 lines run (kids, kids, @tidy)`. */
@@ -8050,7 +8050,7 @@ export class NoteSurface {
       // frame control runs on its release), but the cursor and selection stay where the person left them.
       const d0 = keepCursor ? this.writingDraft : null;
       const kept: KeptCursor | null = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor, follow: d0.follow } : null;
-      const placed = this.modes.press(x, y, host, shift);
+      this.writingDraft?.holdFolds(); const placed = this.modes.press(x, y, host, shift);   // drawn as it is until the release (Draft.holdFolds)
       // The floating box's frame took it (commentMode's press): no cursor moved, and it's a frame's from here.
       if (pointer.frame) return;
       if (kept) putBackCursor(kept);
@@ -8196,8 +8196,8 @@ export class NoteSurface {
           }
           return this.pressEnded(g, r, x, y, host);
         } finally {
-          // The press that brought the keys back to a draft (PIE-812) leaves its cursor where it was, its click run.
-          if (g.kind === "draft" && g.kept) { putBackCursor(g.kept); clicks.forget(); }
+          // The press that brought the keys back (PIE-812) keeps its cursor; answers it held open fold now (Draft.holdFolds).
+          this.writingDraft?.letFoldsGo(); if (g.kind === "draft" && g.kept) { putBackCursor(g.kept); clicks.forget(); }
         }
       case "text": return this.pressEnded(g, r, x, y, host);
     }

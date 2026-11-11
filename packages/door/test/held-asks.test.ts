@@ -43,13 +43,19 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
     desk = new Desk();
     app.push(desk);
     void app.heldAsks.seed(board);
-    await until(() => app.heldAsks.count() === 1, "the held request");
+    // Installing tidy writes its demo note, whose ask is held for r too (PIE-1737: an install never runs the model): the
+    // list holds both, so the wait is for this file's own row by its note, not for a count.
+    await until(() => app.heldAsks.list().some(h => h.blockId === ids.held), "the held request");
   }, 60_000);
 
   afterAll(async () => { app?.heldAsks.stop(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
   test("the service says what is held and why; the door's copy and the status bar's count follow", async () => {
-    expect(app.heldAsks.list()[0]).toMatchObject({ blockId: ids.held, agent: "tidy", request: "", why: "cap: “One wake” is capped at 1/day, and it's used up today · ask again to send", by: "agent:loki", line: 2 });
-    expect(await board.heldAsks()).toHaveLength(1);
+    const held = app.heldAsks.list();
+    expect(held.find(h => h.blockId === ids.held)).toMatchObject({ agent: "tidy", request: "", why: "cap: “One wake” is capped at 1/day, and it's used up today · ask again to send", by: "agent:loki", line: 2 });
+    expect(held.find(h => h.by === "agent:ext:tidy")).toMatchObject({ agent: "tidy", why: "tidy's demo · ask again to send" });
+    const service = await board.heldAsks();
+    expect(service.map(h => h.blockId).sort()).toEqual(held.map(h => h.blockId).sort());
+    expect(app.heldAsks.count()).toBe(service.length);
   }, 60_000);
 });

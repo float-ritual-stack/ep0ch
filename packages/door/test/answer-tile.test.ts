@@ -24,3 +24,20 @@ test("an answer tile beside a reader still reading its note is kept, and not sai
   expect(ANSWER_TILE.kept!(tile, desk)).toBe(true);
   expect(tile.render(40, 6, false, desk).lines.join(" ")).not.toContain("gone");
 });
+
+// PIE-1741: `f` folds the answer where it is (the edit open on its note, else the reader's callout): its description
+// names both in the words the tile's hint row uses (the hint itself is drawn in showcase/ask-yo.test.ts).
+test("answer.fold's description says what f folds: the answer in the edit, else in the note", async () => {
+  const { ANSWER_ACTIONS, FOLD_WHERE } = await import("../src/desk/answer-tile");
+  const summary = ANSWER_ACTIONS.def("answer.fold")!.summary;
+  expect(summary).toContain(FOLD_WHERE.edit);
+  expect(summary).toContain(FOLD_WHERE.note);
+});
+
+// PIE-1741 (the walk on #1442): the answer tile's footer is cut to its width, and in a 38-to-44-column tile only `↑/↓
+// scroll …` showed. What f folds comes first, so it reads in the narrowest tile.
+test("the answer tile's hint row says what f folds first, whole in a 38-column tile", async () => {
+  const { fitHint, visible } = await import("../src/style");
+  const tile = new AnswerTile("reader", ask);
+  for (const cols of [38, 44]) expect([cols, visible(fitHint(tile.hint(), cols - 4).text)]).toEqual([cols, expect.stringContaining("f fold/unfold in the reader")]);
+});

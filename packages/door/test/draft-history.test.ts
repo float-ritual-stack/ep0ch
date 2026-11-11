@@ -212,8 +212,8 @@ describe("a draft's history", () => {
     expect(b.text).toBe("one two");                                    // the saved text stays: ctrl+z says so and asks
     expect(b.note).toContain("saved");
     expect(b.note).toContain("ctrl+z again");
-    // The ask first, whole on the draft's one row in a 40-column tile; what was saved after it (PIE-1428).
-    expect(b.note.split(" · ").slice(0, 2).join(" · ")).toBe("saved · ctrl+z again undoes past it");
+    // The ask first, whole on the draft's one row in a 40-column tile, with its window (PIE-1428, PIE-1738); what after it.
+    expect(b.note).toMatch(/^saved · ctrl\+z again in [1-5]s undoes /);
     type(b, "!");                                                      // anything else lets the question go
     await undo(b);
     expect(b.text).toBe("one two");
@@ -266,6 +266,30 @@ describe("a save and the agents' writes after it (PIE-1733)", () => {
       try { d.undoStep(USER, true); }
       catch (e) { expect((e as Error).message).toContain("nothing to undo"); break; }
     }
+  });
+});
+
+// PIE-1738: an undo or redo that puts back an ask with its answer lands at the ask's end, the answer folded; one that also
+// puts back words after the answer (a paste's) lands after those, where typing goes on.
+describe("where an undo or redo of an answered ask lands (PIE-1738)", () => {
+  const answered = "@yo find the shed jobs\n> [!note]+ @yo answered\n> 1 note: Oil the hinges";
+  test("a paste of an ask and its answer, redone: at the ask's end, its answer folded", async () => {
+    const d = new Draft("n1", 1, "Shed\n");
+    d.place(1, 0);
+    await paste(d, answered);
+    await undo(d);
+    expect(d.text).toBe("Shed\n");
+    await redo(d);
+    expect([d.row, d.col]).toEqual([1, "@yo find the shed jobs".length]);
+    expect(d.hiddenAnswerLines().size).toBeGreaterThan(0);
+  });
+  test("a paste with words after the answer, redone: after those words", async () => {
+    const d = new Draft("n2", 1, "Shed\n");
+    d.place(1, 0);
+    await paste(d, `${answered}\nand then the gate`);
+    await undo(d);
+    await redo(d);
+    expect([d.row, d.col]).toEqual([4, "and then the gate".length]);
   });
 });
 
@@ -348,6 +372,33 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     expect((await board.get(b.id))!.text).toBe("Jam labels for the plums");   // nothing saved changed
   }, 20_000);
 
+  // PIE-1741: ctrl+End's landing line under an answer is no text of the person's: the save writes the note without it, and
+  // the history it keeps ends on what was saved, so a reopened edit takes it up and goes past the agent's write after it.
+  test("after ctrl+End's landing line, the ask deleted and saved: one ctrl+z past the save takes back the save and the agent's drop", async () => {
+    const ask = "@shedbot count them", text = `Pea rows\n${ask}\n> [!note]+ @shedbot answered\n> 3 rows`;
+    const b = await board.request("create", { parentId: null, text, author: "user" });
+    const a = await open(b.id);
+    a.pane.key({ kind: "end", ctrl: true }, a.d);                     // the landing line under the answer
+    expect(a.draft().lines.at(-1)).toBe("");
+    await DRAFT_ACTIONS.run("draft.place", { line: 2 }, a.draft(), USER);   // onto the ask's end (↑ End in a drawn reader)
+    expect(a.draft().lines[a.draft().row]).toBe(ask);
+    for (let i = 0; i < ask.length + 1; i++) a.pane.key({ kind: "backspace" }, a.d);   // the ask taken out, and its line
+    a.pane.key(ctrl("s"), a.d);
+    await until(() => !a.pane.editing, "the save");
+    const saved = (await board.get(b.id))!;
+    expect(saved.text).toBe("Pea rows\n> [!note]+ @shedbot answered\n> 3 rows");   // no landing line saved
+    await board.request("update", { blockId: b.id, text: "Pea rows", expectedRevision: saved.revision!, mutation: { author: "agent", actorId: "shedbot/claude-code@box-a" } });
+    const again = await open(b.id);
+    expect(again.draft().text).toBe("Pea rows");
+    expect(await DRAFT_ACTIONS.run("draft.undo", {}, again.draft(), USER)).toMatchObject({ asks: expect.stringContaining("your save and shedbot's removal of its answer") });
+    const undone = await DRAFT_ACTIONS.run("draft.undo", { past: true }, again.draft(), USER) as { undone: string };
+    expect(undone.undone).toContain("undid your save and shedbot's removal of its answer");
+    expect(again.draft().body).toBe(text);
+    again.pane.key({ kind: "esc" }, again.d);
+    again.pane.key({ kind: "esc" }, again.d);
+    await until(() => !again.pane.editing, "closed");
+  }, 20_000);
+
   test("an agent's write after the save: one ctrl+z past it takes back both, said as both; ctrl+y puts both back (PIE-1733)", async () => {
     const b = await board.request("create", { parentId: null, text: "Bean rows\n@shedbot count them\n> [!note]+ @shedbot answered\n> 3 rows", author: "user" });
     const a = await open(b.id);
@@ -399,10 +450,10 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     const at = rows.findIndex(r => r.startsWith("saved · ctrl+z again"));
     expect(at).toBeGreaterThan(-1);
     expect(rows.every(r => r.length <= 40)).toBe(true);
-    // Its rows, joined, are the whole ask: the revision it keeps included.
+    // Its rows, joined, are the whole ask, its window counted down (PIE-1738).
     const joined = rows.slice(at, at + 4).join(" ").replace(/\s+/g, " ");
     expect(joined).toContain(said.replace(/\s+/g, " "));
-    expect(joined).toMatch(/revision \d+ stays in its history/);
+    expect(joined).toMatch(/ctrl\+z again in [1-5]s undoes/);
   }, 20_000);
 
   test("a saved paste taken back: revision.restore puts the earlier text in the edit (one step), ctrl+s saves it; the CLI lists, prints and restores", async () => {

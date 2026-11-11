@@ -25,14 +25,17 @@ export class AnswerTile implements Pane {
   ranges: LinkRange[] = [];
   /** Its reader went and a close is on its way (render). */
   private closing = false;
+  /** Where `f` folds the answer, as its reader was last drawn: the edit open on the note, else the reader (PIE-1741). */
+  private foldsIn: keyof typeof FOLD_WHERE = "note";
   constructor(public source: string, public ask: string, public fold?: string) {}
   title() { return this.ask; }
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   hint() {
+    // What f folds first: the footer is cut to the tile's width, and a 38-column tile showed only the scroll (PIE-1741).
     return partsHint([
+      { key: "f", action: "answer.fold", label: `fold/unfold ${FOLD_WHERE[this.foldsIn]}` },
       { key: "up", action: "answer.scroll", args: { by: -1 }, label: "scroll", also: "↓" },
       { key: "1", action: "answer.follow", args: { n: 1 }, label: "follow a link or press a button", also: "2–9" },
-      { key: "f", action: "answer.fold", label: "fold/unfold in the note" },
     ]);
   }
   spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
@@ -99,6 +102,7 @@ export class AnswerTile implements Pane {
     if (!live) return this.said(`Its ask is gone from ${reader.msg ? "this note" : "the reader"}: nothing to wait for · x closes this tile`, w, h);
     this.links = [];
     const draft = reader.surface.draft;
+    this.foldsIn = draft ? "edit" : "note";
     const projection = reader.msg && projectionsOf(reader.msg, reader.surface.src).find(p => p.kind === "agent" && p.anchor?.line === lines.indexOf(this.ask));
     const status = draft?.askStatus(this.ask).replace(/^ · /, "") || projection?.summary || projection?.reason;
     // The answer's lines are the note's (as the reader holds it, typed or saved): its buttons press as they do there (PIE-1699).
@@ -116,9 +120,15 @@ export class AnswerTile implements Pane {
 /** A reader with no note and no edit yet: still reading the note it was opened on. */
 const reading = (reader: ReaderPane) => !reader.surface.draft && !reader.msg;
 
-const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
+/**
+ * Where `answer.fold` folds the answer, in the words its description and the tile's hint row both use (PIE-1741): the
+ * answer in the edit open on its note (fold.toggle's draft branch), else the reader's callout.
+ */
+export const FOLD_WHERE = { edit: "in the edit", note: "in the reader" } as const;
+
+export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
   "answer.fold": def({
-    summary: "fold or unfold this answer in its note", keys: "f", touches: "tile", replay: "safe",
+    summary: `fold or unfold this answer: ${FOLD_WHERE.edit} while one is open on its note, else ${FOLD_WHERE.note} (its callout as the note is read)`, keys: "f", touches: "tile", replay: "safe",
     args: {},
     async run(_, { pane, desk }, actor) {
       const reader = desk.paneNamed?.(pane.source);

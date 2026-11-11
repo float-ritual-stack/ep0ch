@@ -11,7 +11,9 @@ import { visible } from "../src/style";
 import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { completionOf } from "../src/surface/completer";
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { reloadKeymap } from "../src/surface/keymap";
 import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
@@ -139,6 +141,26 @@ describe.skipIf(!outliner)("the door draws what the service's terminal target dr
     const mine = words(primitiveLines(view, 100).map(plain).join("\n"));
     expect([...theirs].filter(w => !mine.has(w))).toEqual([]);
   });
+});
+
+// PIE-1740: a failed ask (a missed deadline, a note changed under it) is followed by R; the line says the key, as the
+// keymap has it, under the service's words of why.
+test("a failed ask's line says the key that asks again, and a rebind follows it", () => {
+  const failed: ResourceProjection = { anchor: { kind: "directive", line: 3, start: 0, end: 30 }, options: { unknown: [] }, fields: [], provider: "tidy", label: "Tidy",
+    propertyKey: "@tidy", kind: "agent", key: "@tidy", status: "unavailable", reason: "@tidy took longer than its 30 s and was stopped", fetchError: "x", agent: { name: "tidy", status: "failed" } };
+  const rows = () => extensionRegion(failed, 80, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t] }).rows.map(plain);
+  expect(rows()).toContain("R asks again");
+  expect(rows().indexOf("R asks again")).toBeGreaterThan(rows().findIndex(r => r.includes("was stopped")));
+  const file = join(mkdtempSync(join(tmpdir(), "ext-keys-")), "keybindings.json");
+  writeFileSync(file, JSON.stringify({ "projection.refresh": ["alt+r"] }));
+  process.env.EP0CH_KEYMAP = file;
+  reloadKeymap();
+  try { expect(rows()).toContain("alt+r asks again"); } finally { delete process.env.EP0CH_KEYMAP; reloadKeymap(); }
+  // A note with several lines that run (CodeRabbit on #1440): R needs [ ] on this one, and the line says the key that steps.
+  const several = extensionRegion(failed, 80, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t], several: true }).rows.map(plain);
+  expect(several).toContain("] steps onto it, then R asks again");
+  const answered = extensionRegion({ ...failed, status: "ready", reason: undefined, summary: "tidied 1 line", fetchedAt: "2026-10-01T09:00:00.000Z", agent: { name: "tidy", status: "applied" } }, 80, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t] }).rows.map(plain);
+  expect(answered.some(r => r.includes("asks again"))).toBe(false);
 });
 
 describe.skipIf(!outliner)("parity with Detail's layout for an extension's line", () => {

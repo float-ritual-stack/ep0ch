@@ -12,10 +12,31 @@
 #
 # Anything else is refused with why, and nothing is removed: the root folders themselves, a path with `..`, a ~/wt
 # folder that isn't a worktree, a link pointing out of the roots. A path that is already gone is fine.
+#
+# scripts/scratch-clean --old
+#
+# Sweeps what test runs left in the temp folder, so loki or the nightly can run it (PIE-1742): this user's folders
+# more than a day old named ep0ch-test-state-*, fake-ssh-owner-*, outliner-test-no-user-extensions-*,
+# ep0ch-scratch-*, ep0ch-fold-* or outliner-script-site-*, directly in /tmp, and ep0ch-scratch-* in /tmp/ep0ch-<uid>.
+# A day is longer than any run, so a running test keeps its own. It says how many it removed. Bun reads every folder
+# above a program as it starts it: with 445,000 of them in /tmp, every extension process under /tmp took 200 ms
+# instead of 10. EP0CH_SWEEP_TMP moves /tmp (a test's own).
 set -euo pipefail
 
-[ $# -ge 1 ] || { sed -n '11,11p;2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+[ $# -ge 1 ] || { sed -n '11p;16p;2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 uid=$(id -u)
+if [ "$1" = --old ]; then
+  [ $# = 1 ] || { echo "scratch-clean: --old takes nothing else" >&2; exit 2; }
+  tmp=${EP0CH_SWEEP_TMP:-/tmp}
+  old=()
+  mapfile -d '' old < <(
+    find "$tmp" -mindepth 1 -maxdepth 1 -type d -user "$uid" -mmin +1440 \( -name 'ep0ch-test-state-*' -o -name 'fake-ssh-owner-*' -o -name 'outliner-test-no-user-extensions-*' -o -name 'ep0ch-scratch-*' -o -name 'ep0ch-fold-*' -o -name 'outliner-script-site-*' \) -print0
+    [ ! -d "$tmp/ep0ch-$uid" ] || find "$tmp/ep0ch-$uid" -mindepth 1 -maxdepth 1 -type d -user "$uid" -mmin +1440 -name 'ep0ch-scratch-*' -print0
+  )
+  [ ${#old[@]} = 0 ] || printf '%s\0' "${old[@]}" | xargs -0 rm -rf --
+  echo "scratch-clean: removed ${#old[@]} test folders more than a day old from $tmp"
+  exit 0
+fi
 scratch_roots=("/tmp/claude-$uid" "${EP0CH_AGENT_TMP:-/tmp}/ep0ch-agent-$uid" "/tmp/ep0ch-$uid" "${EP0CH_AGENT_ROOT:-$HOME/.agent-env}")
 wt_root=${EP0CH_WORKTREES:-$HOME/wt}
 status=0
