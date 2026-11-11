@@ -279,8 +279,39 @@ export class AgentRequests {
    */
   private readonly written = new Map<string, Map<string, string>>();
 
+  /**
+   * What this service wrote, kept across a restart (PIE-1731: a deploy between an answer and its retype stacked the new
+   * answer over the old): each answer's hash and request by note and agent, in the store's metadata. `hydrate` puts back
+   * into `written` the answers in a note's text that are still as written.
+   */
+  private readonly answers = {
+    key: (blockId: string) => `agent-answers:${blockId}`,
+    hash: (fold: string) => createHash("sha256").update(fold).digest("hex").slice(0, 32),
+    of: (blockId: string): Record<string, [string, string][]> => { try { return JSON.parse(this.store.readMetadata(this.answers.key(blockId)) ?? "{}"); } catch { return {}; } },
+    put: (blockId: string, agent: string, fold: string, requestKey: string, was: string) => {
+      const all = this.answers.of(blockId), gone = was ? this.answers.hash(was) : "";
+      all[agent] = [...(all[agent] ?? []).filter(([h]) => h !== gone), [this.answers.hash(fold), requestKey] as [string, string]].slice(-50);
+      this.store.writeMetadata(this.answers.key(blockId), JSON.stringify(all));
+    },
+  };
+  private hydrate(blockId: string, text: string): void {
+    const all = this.answers.of(blockId), lines = text.split("\n");
+    for (let i = 1; i < lines.length; i++) {
+      const agent = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/.exec(lines[i]!)?.[1];
+      if (!agent || !all[agent]?.length) continue;
+      let j = i + 1;
+      while (j < lines.length && lines[j]!.startsWith(">")) j++;
+      const fold = `\n${lines.slice(i, j).join("\n")}`, kept = all[agent]!.find(([h]) => h === this.answers.hash(fold));
+      const folds = this.written.get(this.key(blockId, agent)) ?? new Map<string, string>();
+      if (kept && !folds.has(fold)) { folds.set(fold, kept[1]); this.written.set(this.key(blockId, agent), folds); }
+      i = j - 1;
+    }
+  }
+
   /** The answer `agent` wrote that `below` (the text after an ask line) starts with, unchanged, or "". */
   private ownAnswer(blockId: string, agent: string, below: string): string {
+    // Written before a restart: read back from what was kept, for the answer right under the line.
+    if (below.startsWith("\n>")) this.hydrate(blockId, `ask${below}`);
     for (const fold of this.written.get(this.key(blockId, agent))?.keys() ?? []) {
       if (below.startsWith(fold) && (below.length === fold.length || below[fold.length] === "\n")) return fold;
     }
@@ -300,6 +331,7 @@ export class AgentRequests {
     if (was) folds.delete(was);
     folds.set(fold, requestKey);
     this.written.set(key, folds);
+    this.answers.put(blockId, agent, fold, requestKey, was);
     if (!replaced || replaced === requestKey || this.running.has(this.key(blockId, replaced))) return;
     this.removed.delete(this.key(blockId, replaced));
     this.store.pruneAgentRequests(blockId, this.store.agentRequests(blockId).map(row => row.requestKey).filter(k => k !== replaced));
@@ -483,6 +515,8 @@ export class AgentRequests {
    * stays; a line taken out and put back (an undo) keeps its answer, since its request is there again.
    */
   private async dropOrphans(blockId: string, keys: readonly string[], again = false): Promise<void> {
+    const saved = this.store.get(blockId);
+    if (saved) this.hydrate(blockId, saved.text);
     for (const [at, folds] of this.written) {
       const [noteId, agent] = at.split("\0");
       if (noteId !== blockId || !agent) continue;
