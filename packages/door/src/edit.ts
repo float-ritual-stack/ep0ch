@@ -359,7 +359,9 @@ export class Draft {
     }
     if (top) top.open = false;
     this.undos.push({ before, after, by: stripWith(by), what, at: now, caret: c.at + c.added, open: small, word, ...(unit ? { unit } : {}), ...(removes ? { removes: true as const } : {}) });
-    if (this.undos.length > UNDO_KEEP) this.undos.shift();
+    // Past the history's end a save takes the agents' writes that followed it along (CodeRabbit on #1435): undo never
+    // reaches one without the save it came after.
+    if (this.undos.length > UNDO_KEEP) { this.undos.shift(); while (this.undos[0]?.follows) this.undos.shift(); }
   }
 
   /** A paste is all in: one step, said when it's big. */

@@ -745,6 +745,17 @@ describe("showcase: ask yo (PIE-1585)", () => {
         // Saved as it went, so a door opened next doesn't bring the dead tile back.
         await until(() => kept > 0, "the layout saved when the ask went", 8000);
         st.keepLayout = keep;
+        // Gathered with its reader into a group (CodeRabbit on #1435): the layout's own history still holds it, nested,
+        // so an undo of a move brings it back; the save leaves it out.
+        if (path === "draft") {
+          const g = await h.app.dispatch.act({ action: "tile.group", tile: "ask", args: { with: tile.name } }, USER) as { name?: string; tile?: string };
+          const answers = (o: unknown) => JSON.stringify(o).includes('\\"kind\\":\\"answer\\"') || JSON.stringify(o).includes('"kind":"answer"');
+          const nested = [answers(stage().layoutSpec()), answers(stage().savedState())];
+          await h.app.dispatch.act({ action: "tile.group", tile: g.tile ?? g.name!, args: { on: false } }, USER);
+          await until(() => !!stage().pane("ask"), "the reader back on the stage", 8000);
+          await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+          expect(nested).toEqual([true, false]);   // [layout history, the save]
+        }
       }
       // One ctrl+z past the save in the reopened edit: the ask and its answer back, said as both.
       await edit();

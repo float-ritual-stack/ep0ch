@@ -72,6 +72,7 @@ export class AnswerTile implements Pane {
   /** Whether its ask is still in its reader's note (typed or saved): one that's gone isn't kept in a saved layout (PIE-1733). */
   live(desk: Pick<DeskApi, "paneNamed">): boolean {
     const reader = desk.paneNamed?.(this.source);
+    if (reader instanceof ReaderPane && reading(reader)) return true;   // a door just restored: its note isn't read yet
     return reader instanceof ReaderPane && (reader.surface.draft?.text ?? reader.msg?.text ?? "").split("\n").includes(this.ask);
   }
   /** What it last drew its ask as: here, or gone. A change saves the layout, so a door opened next keeps it or not as it is now. */
@@ -86,6 +87,9 @@ export class AnswerTile implements Pane {
       return this.said("The answer's reader has gone.", w, h);
     }
     this.closing = false;
+    // Its reader hasn't read its note yet (a door just restored, CodeRabbit on #1435): nothing is gone, and nothing is
+    // known yet that a save should change.
+    if (reading(reader)) return this.said("Reading its note…", w, h);
     const text = reader.surface.draft?.text ?? reader.msg?.text ?? "";
     const lines = text.split("\n"), fold = this.answer(text), live = lines.includes(this.ask);
     if (this.shownLive !== null && this.shownLive !== live) queueMicrotask(() => desk.keepLayout?.());
@@ -108,6 +112,9 @@ export class AnswerTile implements Pane {
     return { lines: doc.lines.slice(this.top, this.top + h) };
   }
 }
+
+/** A reader with no note and no edit yet: still reading the note it was opened on. */
+const reading = (reader: ReaderPane) => !reader.surface.draft && !reader.msg;
 
 const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
   "answer.fold": def({

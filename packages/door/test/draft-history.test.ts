@@ -1,7 +1,7 @@
 // PIE-621: a draft's one history (undo and redo for every change), its keyboard selection and its copy keys.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS, UNDO_ASK_PAUSE_MS } from "../src/edit";
+import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS, UNDO_ASK_PAUSE_MS, type Step } from "../src/edit";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { editHint } from "../src/surface/editor";
 import { SocketBoard, USER } from "../src/socket";
@@ -245,6 +245,27 @@ describe("a draft's history", () => {
     const e = new Draft("b1", 2, "something else");
     e.adopt(a.undos, 2);
     expect(e.undos).toEqual([]);
+  });
+});
+
+describe("a save and the agents' writes after it (PIE-1733)", () => {
+  // CodeRabbit on #1435: the history's trim (UNDO_KEEP) never keeps an agent's write without the save it followed.
+  test("trimmed from the bottom, a save goes with the agents' writes that followed it: undo never splits them", () => {
+    const shedbot = { kind: "agent" as const, id: "shedbot/claude-code@box-a" };
+    const steps: Step[] = [
+      { before: "Bean rows", after: "Bean rows.", by: USER, what: "typing", at: 0, caret: 10, open: false, saved: 2 },
+      { before: "Bean rows.", after: "Bean rows!", by: shedbot, what: "shedbot's edit", at: 0, caret: 10, open: false, follows: true },
+    ];
+    const d = new Draft("b1", 3, "Bean rows!");
+    d.adopt(steps, 3);
+    d.place(0, 10);
+    for (let i = 0; i < 400 && d.undos.some(x => x.before === "Bean rows"); i++) type(d, " w");
+    expect(d.undos.some(x => x.before === "Bean rows")).toBe(false);   // the save went past the history's end
+    expect(d.undos.some(x => x.follows)).toBe(false);                   // and its agent's write with it
+    for (let i = 0; i < 1000; i++) {
+      try { d.undoStep(USER, true); }
+      catch (e) { expect((e as Error).message).toContain("nothing to undo"); break; }
+    }
   });
 });
 

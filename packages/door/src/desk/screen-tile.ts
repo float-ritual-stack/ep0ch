@@ -104,8 +104,9 @@ export class ScreenTile implements Pane {
     const inner = this.inner, preview = inner?.paneNamed("preview"), tile = preview ? inner!.tileIdOfPane(preview) : undefined;
     if (this.screen === "board" && !this.part && s?.dispatch && tile) await s.dispatch.act({ action: "tile.collapse", tile, args: { on: !on } }, actor).catch(() => {});
   }
-  spec(): Record<string, unknown> {
-    const inner = this.inner?.savedState() ?? this.saved;
+  /** `saving`: for a save (desk.json, a handover), not the layout's own history: its desk's tiles as a save keeps them (PIE-1733). */
+  spec(saving = false): Record<string, unknown> {
+    const inner = this.inner?.savedState(saving) ?? this.saved;
     return {
       ...(this.kind === "screen" && this.screen ? { screen: this.screen } : {}),
       ...(Object.keys(this.args).length ? { args: { ...this.args } } : {}),
