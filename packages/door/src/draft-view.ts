@@ -126,7 +126,8 @@ export class RawRows {
     const room = (i: number, line: string) => {
       const chars = [...line], rows = wrapRows(chars, ww, hangOf(line, ww)), last = rows.at(-1)!;
       wrapped.set(i, { chars, rows });
-      return w - last.indent - width(chars.slice(last.start, last.end).join("")) - (i === d.row ? 1 : 0);
+      // The cursor at the line's end sits on the progress's leading space (render), so it takes no room of its own here.
+      return w - last.indent - width(chars.slice(last.start, last.end).join(""));
     };
     for (const l of sourceLines(d, 0, d.lines.length, ww, room)) {
       const { chars, rows } = wrapped.get(l.i)!;
@@ -314,7 +315,11 @@ export class RawRows {
         s0 = Math.max(r.start, a) - r.start; s1 = Math.min(r.end, b) - r.start;
       }
       const cx = vi === at.vi ? at.cp - r.start : -1;
-      if (cx >= cells.length) cells.push(" ");
+      // The ask's progress beside its last row; the cursor at the line's end sits on its leading space, so the words don't
+      // move as the cursor comes and goes (PIE-1741: "drafts  · answered" at the ask, "drafts · answered" away from it).
+      const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? d.askStatus(d.lines[r.line]!, Infinity, r.line) : "";
+      const onStatus = cx >= cells.length && progress.startsWith(" ");
+      if (cx >= cells.length) { if (!onStatus) cells.push(" "); }
       // The line break is selected too (the selection goes on below this line): one lit cell after its text, so a blank line
       // in the selection, and where each line ends, can be seen. Not past the row's width.
       else if (sel && sel[0].row <= r.line && sel[1].row > r.line && rows[vi + 1]?.line !== r.line && r.indent + width(cells.join("")) < w1) { cells.push(" "); s1 = cells.length; }
@@ -340,11 +345,11 @@ export class RawRows {
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });
-      const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? d.askStatus(d.lines[r.line]!, Infinity, r.line) : "";
       const roomForStatus = Math.max(0, w1 - r.indent - width(cells.join("")));
-      if (progress) line += RESET + fg(C.lmagenta) + d.askStatus(d.lines[r.line]!, roomForStatus, r.line);
+      const status = progress ? d.askStatus(d.lines[r.line]!, roomForStatus, r.line) : "";
+      if (status) line += RESET + (onStatus ? bg(C.lcyan) + fg(C.black) + " " + RESET + fg(C.lmagenta) + status.slice(1) : fg(C.lmagenta) + status);
       const said = glow.find(g => g.last)?.label;
-      const room = w1 - r.indent - width(cells.join("")) - width(progress ? d.askStatus(d.lines[r.line]!, roomForStatus, r.line) : "") - 2;
+      const room = w1 - r.indent - width(cells.join("")) - width(status) - 2;
       out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + drawEllipsized("@" + said, room) + RESET : ""));
     }
     return out;

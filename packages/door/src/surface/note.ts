@@ -4216,7 +4216,7 @@ export class NoteSurface {
     if (!d) return false;
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.writeWheel(d, k.action === "wheel-down" ? 1 : -1, { x, y }); host.redraw(); return true; }
     if (k.action === "down") {
-      const n = d.clicks.press(x, y), placed = this.writePress(d, x, y, false);
+      d.holdFolds(); const n = d.clicks.press(x, y), placed = this.writePress(d, x, y, false);   // what's drawn stays until the release
       this.pointer.hold({ kind: "draft", placed, shift: false, kept: null, selecting: placed && n > 1 ? selectClicks(d, n, (action, args) => this.runKey(action as never, args as never, host)) : null });
       host.redraw(); return true;
     }
@@ -4225,7 +4225,7 @@ export class NoteSurface {
       const g = this.pointer.take(), r = d.clicks.release(x, y);
       if (r.click) this.writeClick(d, x, y, host);
       else if (r.copy) void ((g?.kind === "draft" ? g.selecting : null) ?? Promise.resolve()).then(() => { if (d.selectedText()?.trim()) void this.runKey("draft.copy", {}, host); host.redraw(); });
-      host.redraw();
+      d.letFoldsGo(); host.redraw();
       return true;
     }
     return false;
@@ -8050,7 +8050,7 @@ export class NoteSurface {
       // frame control runs on its release), but the cursor and selection stay where the person left them.
       const d0 = keepCursor ? this.writingDraft : null;
       const kept: KeptCursor | null = d0 ? { d: d0, row: d0.row, col: d0.col, anchor: d0.anchor, follow: d0.follow } : null;
-      const placed = this.modes.press(x, y, host, shift);
+      this.writingDraft?.holdFolds(); const placed = this.modes.press(x, y, host, shift);   // drawn as it is until the release (Draft.holdFolds)
       // The floating box's frame took it (commentMode's press): no cursor moved, and it's a frame's from here.
       if (pointer.frame) return;
       if (kept) putBackCursor(kept);
@@ -8196,8 +8196,8 @@ export class NoteSurface {
           }
           return this.pressEnded(g, r, x, y, host);
         } finally {
-          // The press that brought the keys back to a draft (PIE-812) leaves its cursor where it was, its click run.
-          if (g.kind === "draft" && g.kept) { putBackCursor(g.kept); clicks.forget(); }
+          // The press that brought the keys back (PIE-812) keeps its cursor; answers it held open fold now (Draft.holdFolds).
+          this.writingDraft?.letFoldsGo(); if (g.kind === "draft" && g.kept) { putBackCursor(g.kept); clicks.forget(); }
         }
       case "text": return this.pressEnded(g, r, x, y, host);
     }
