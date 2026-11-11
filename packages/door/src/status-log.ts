@@ -10,8 +10,10 @@ export interface MessageContext { action?: string; tile?: string; note?: string 
 /**
  * `passing`: a status the screen says too (entering a tile: its hint row reads `reader 1 · writing`), shown in the bar as
  * it fits and never said whole above it, where it would cover a tile's own hint row (PIE-1701).
+ * `background`: news of the door's own work that answers no press (an extension reload's "added"): it never replaces a
+ * message still up, which answers something the person did (a save's "run it from ^K", PIE-1727); the log keeps it.
  */
-export interface MessageDetails extends MessageContext { trace?: string; kind?: "status" | "warning" | "refusal" | "error"; stack?: string; href?: string; passing?: boolean }
+export interface MessageDetails extends MessageContext { trace?: string; kind?: "status" | "warning" | "refusal" | "error"; stack?: string; href?: string; passing?: boolean; background?: boolean }
 export interface StatusMessage extends MessageContext { id: string; time: string; kind: NonNullable<MessageDetails["kind"]>; message: string }
 export function errorDetails(error: unknown): MessageDetails {
   return { kind: error instanceof ActionRefused ? "refusal" : "error", stack: error instanceof Error ? error.stack : new Error(String(error)).stack };
@@ -30,7 +32,7 @@ export class StatusLog {
   /** `message` appended unless it is among the latest rows already: a why read under the pointer, past what the rows above the bar hold, is logged once however often it's drawn (alt+M reads it whole). */
   appendOnce(message: string, details: MessageDetails = {}) { const m = printable(message, " ", { lines: true }); if (!this.rows.slice(-20).some(r => r.message === m)) this.append(message, details); }
   append(message: string, details: MessageDetails = {}) {
-    const { stack, passing: _passing, ...meta } = { ...messageContext.getStore(), ...details };
+    const { stack, passing: _passing, background: _background, ...meta } = { ...messageContext.getStore(), ...details };
     const row: StatusMessage = { id: randomUUID(), time: new Date().toISOString(), kind: "status", ...meta, message: printable(message, " ", { lines: true }) };
     this.rows.push(row);
     if (this.rows.length > 500) this.rows.shift();

@@ -368,9 +368,10 @@ A close of threads that were open before you started recording, and a copy of yo
 replayed, they'd find nothing to close or copy; so is the esc out of a showcase section you were in before recording.
 A step on a note (a comment, a reply, its threads, an edit) acts on that note, not on whatever the tile shows when you
 replay it: its line names the note (`comment.note body="…" tile="<note id>"`), the saved script says "Acts on ((…))",
-and replay finds whichever tile shows it (the drawer's and a group's too), or says "open it first". The save flash
-names the note and the script; `^K` and the start of its name (`recorded-comment-no…`) runs it on ⏎ rather than opening
-its note. alt+Q works on any tile but a terminal's (a thread list or an edit holding
+and replay finds whichever tile shows it (the drawer's and a group's too), or says “Planting checklist”, "open it first".
+A recording is named for what it does (`comment-on-planting-checklist`, then `-2` for a second of the same); the save
+flash leads with that name and "run it from ^K", and an extension reload never replaces it. `^K` and any start of its
+name (`comment-on-pl`, or `comment on pl`) runs it on ⏎ rather than opening its note, the newest first. alt+Q works on any tile but a terminal's (a thread list or an edit holding
 the keys too); stopping with nothing recorded saves no script and says so.
 The new `[script::planting]` block contains an `actions` fence using the power bar's action-line grammar.
 Edit it normally, replacing a value with `{{props.tag}}` or another `{{props.slot}}`. Run it from the power bar to fill its

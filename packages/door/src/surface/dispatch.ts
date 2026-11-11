@@ -5,6 +5,7 @@ import { parseTileAddress, type ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { effective, keyNow, keysNow } from "./keymap";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
+import { titleOf } from "@ep0ch/outline-core/query-expression";
 import { actionFailure, messageContext, type MessageDetails } from "../status-log";
 import type { Hint } from "./hint-card";
 // The dispatcher (PIE-514): one per screen host, the one door every action goes through. A screen registers its
@@ -201,12 +202,27 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown, records?: import("./actions").RecordStep): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
+export interface DispatchCtx { agentPointers?: AgentPointers; /** The outline, for a refusal that names a note by its id: said by its title (PIE-1727). */ board?: { get(id: string): Promise<{ text: string; deleted?: boolean } | null | undefined> }; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown, records?: import("./actions").RecordStep): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
   /**
    * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
    * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
    */
   hostLayer?: { resolveTile?(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null; /** Why `sel` names no tile in the host layer (the drawer's program closed, say), with what to run: a refusal says it. */ unnamed?(sel: string): string | null } }
+
+/**
+ * A refusal that names a note by its id (PIE-1727): `words` say it with the name given, the id until its title is read.
+ * `act` answers it with the note's title (`withNoteTitle`), so a script's replay says “Planting checklist”, never a UUID.
+ */
+export function namesNote(id: string, words: (name: string) => string): ActionRefused {
+  return Object.assign(new ActionRefused(words(id)), { note: { id, words } });
+}
+/** The refusal `e` with the note it names said by its title, when it names one and the title can be read; thrown on. */
+export async function withNoteTitle(e: unknown, ctx: DispatchCtx | null | undefined): Promise<never> {
+  const named = e instanceof ActionRefused ? (e as ActionRefused & { note?: { id: string; words: (name: string) => string } }).note : undefined;
+  const m = named && ctx?.board ? await ctx.board.get(named.id).catch(() => null) : null, title = m && !m.deleted ? titleOf(m.text) : null;
+  if (named && title) (e as ActionRefused).message = named.words(`“${title}”`);
+  throw e;
+}
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -655,7 +671,8 @@ export class Dispatcher {
    * reason (thrown, nothing done), and what it did said on the status bar.
    */
   act(req: ActRequest, actor: Actor): Promise<unknown> {
-    return messageContext.run({ ...messageContext.getStore(), action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, () => { try { return Promise.resolve(this.run(req, actor)); } catch (e) { return Promise.reject(e); } });
+    const titled = (e: unknown) => withNoteTitle(e, this.host.ctx?.());
+    return messageContext.run({ ...messageContext.getStore(), action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, () => { try { return Promise.resolve(this.run(req, actor)).catch(titled); } catch (e) { return titled(e); } });
   }
 
   bindings(): readonly KeyBinding[] {
@@ -1068,7 +1085,7 @@ export class Dispatcher {
       if (!hit) {
         const other = this.named(sel, tiles);
         if (other) throw new ActionRefused(`${other.t.name} is ${kindNoun(other.t)}: ${req.action} is for ${noun(req.action)}${can.length ? `; here: ${can.map(t => t.name).join(", ")}` : ""}`);
-        if (BLOCK.test(sel)) throw new ActionRefused(`no ${noun(req.action).replace(/^an? /, "")} shows ${sel}; open it first (open id=${sel})`);
+        if (BLOCK.test(sel)) throw namesNote(sel, name => `no ${noun(req.action).replace(/^an? /, "")} shows ${name}; open it first (open id=${sel})`);
         throw this.noTile(sel, can.length ? can : tiles, actor);
       }
     }

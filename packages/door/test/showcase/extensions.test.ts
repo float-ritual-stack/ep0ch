@@ -879,6 +879,53 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     for (let i = 0; i < 4 && top().name === "settings"; i++) { await app.dispatch.press("screen.back", {}); await Bun.sleep(100); }
     await until(() => top().name !== "settings", "back from the settings screen");
   }, 60_000);
+  test("PIE-1727: an agent's change clears the card's stale saved foot; yo's [] answer is lit, so a command typed replaces it", async () => {
+    const top = () => app.screens().at(-1) as any;
+    const drawn = () => (top().render(app).lines as string[]).map(l => l.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
+    const card = () => top().paneNamed("card") as ReaderPane;
+    const inCard = () => (top() as Desk).isIn(card());
+    await app.dispatch.press("screen.open", { name: "settings" });
+    await until(() => top().name === "settings", "the settings screen", 8000);
+    const listed = await app.dispatch.act({ action: "settings.index.filter", tile: "index", args: { text: "", done: true } }, USER) as { rows: { label: string }[] };
+    await app.dispatch.act({ action: "settings.index.select", tile: "index", args: { n: listed.rows.findIndex(r => r.label === "trail") + 2 } }, USER);
+    await until(() => drawn().includes("settings · Trail"), "the trail's card", 8000);
+    try {
+      await app.dispatch.act({ action: "settings.set", tile: "card", args: { key: "days", value: "14" } }, USER);
+      await until(() => drawn().includes("saved · days: 14"), "the card said the save", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      // Another writer's change: the card shows 21, and its foot no longer says the person's 14 was saved.
+      await app.act({ action: "trail.settings", args: { days: 21 }, as: "test-agent" });
+      await until(() => app.trail.settings.days === 21 && /days\s+21/.test(drawn()), "the card shows 21", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      expect(drawn()).not.toContain("saved · days: 14");
+      // Every setting back at once, then another writer changes one that isn't the first: that report goes too.
+      await app.dispatch.act({ action: "settings.set", tile: "card", args: { key: "linger", value: "9" } }, USER);
+      await app.dispatch.act({ action: "settings.reset", tile: "card" }, USER);
+      await until(() => drawn().includes("every setting back to its default"), "the card said the reset", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      await app.act({ action: "trail.settings", args: { linger: 11 }, as: "test-agent" });
+      await until(() => /linger\s+11/.test(drawn()), "the card shows linger 11", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      expect(drawn()).not.toContain("every setting back to its default");
+    } finally { app.trail.configure({ days: 7, linger: 5 }); }
+    // yo's answer set to none (`[]`, PIE-1705): ⏎ opens it lit, and a command typed replaces it whole.
+    await app.dispatch.press("ext.yo.settings", {});
+    await until(() => drawn().includes("settings · Yo") && inCard(), "yo's card has the keys", 8000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    const fields = async () => ((await app.dispatch.act({ action: "settings", tile: "card" }, { kind: "agent", id: "test-agent" })) as { fields: { key: string; value: string | null; state: string }[] }).fields;
+    const was = (await fields()).find(f => f.key === "answer")!;
+    await app.act({ action: "ext.yo.settings", args: { answer: "[]" }, as: "test-agent" });
+    await until(() => /answer\s+\[\]/.test(drawn()), "the answer reads []", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+    try {
+      const at = (await fields()).findIndex(f => f.key === "answer");
+      await app.dispatch.act({ action: "settings.pick", tile: "card", args: { n: at + 1 } }, USER);
+      press({ kind: "enter" });
+      await until(() => drawn().includes("editing answer"), "answer being typed", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      ch("e"); ch("c"); ch("h"); ch("o");
+      press({ kind: "enter" });
+      await until(() => drawn().includes("saved · answer"), "the answer saved", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      expect((await fields()).find(f => f.key === "answer")!.value).toBe("echo");
+    } finally {
+      await app.act({ action: "ext.yo.settings", args: was.state === "default" ? { unset: "answer" } : { answer: was.value ?? "" }, as: "test-agent" });
+    }
+    for (let i = 0; i < 4 && top().name === "settings"; i++) { await app.dispatch.press("screen.back", {}); await Bun.sleep(100); }
+    await until(() => top().name !== "settings", "back from the settings screen");
+  }, 60_000);
 });
 
 describe.skipIf(!outliner)("the showcase: the door's own extension folders (PIE-1537)", () => {
