@@ -11,6 +11,8 @@ interface Request {
 }
 
 const request = (await Bun.stdin.json()) as Request;
+/** An ask for the whole note: "clean up the transcript", "tidy the whole note", "fix this note". */
+const WHOLE = /\b(?:the|this)\s+(?:whole\s+|entire\s+)?(?:transcript|note)\b/i;
 const ok = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 
 function listStart(lines: string[], fenced: readonly number[], from: number, to: number): number | null {
@@ -85,12 +87,18 @@ async function respond() {
   const fenced = codeFenceLines(lines);
   const instruction = request.input.request.trim();
   const all = /^all$/i.test(instruction);
-  if (all) start = 1;
+  // "The transcript", "the note" (PIE-1737): the whole note above the ask, blank lines between turns and all, through the
+  // model. `all` alone is the whole note formatted, with no model.
+  const whole = all || WHOLE.test(instruction);
+  if (whole) {
+    start = 1;
+    while (start < end && !lines[start]!.trim()) start++;
+  }
   else while (start > 1 && lines[start - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[start - 1]!)) start--;
   start = Math.max(start, 1);
-  if (!all) start = listStart(lines, fenced, start, end) ?? start;
+  if (!whole) start = listStart(lines, fenced, start, end) ?? start;
   // Blank lines and continuation paragraphs belong to the list; an earlier ask is a boundary.
-  if (!all && (LIST_ITEM.test(lines[start] ?? "") || /^\s+\S/.test(lines[start] ?? ""))) {
+  if (!whole && (LIST_ITEM.test(lines[start] ?? "") || /^\s+\S/.test(lines[start] ?? ""))) {
     let scan = start;
     while (scan > 1 && !lines[scan - 1]!.trim()) {
       let previous = scan - 1;
@@ -119,13 +127,17 @@ async function respond() {
     if (!command.length) return { message: `no model: config.answer in ${CONFIG} is empty; set it to a prompt-on-stdin command` };
     const prompt = [
       'Rewrite the Blockdown passage following the instruction. Return ONLY JSON: {"replacement":"the full rewritten passage","message":"short, specific account of what changed, e.g. rewrote 4 items as callouts"}.',
-      "Keep facts, references, links, anchors and properties unless the instruction asks to remove them. Callouts use > [!note] Title followed by > body lines. Do not include the instruction, any ask lines, or an enclosing code fence. If no edit is needed, return the original passage and say why.",
+      "Keep facts, references, links, anchors and properties unless the instruction asks to remove them. Callouts use > [!note] Title followed by > body lines. Do not add the instruction, any ask line, or an enclosing code fence; a line in the passage that starts with @name, and a quoted > [!note] answer under one, stay exactly as written. If no edit is needed, return the original passage and say why.",
       "INSTRUCTION:", instruction, "PASSAGE:", observed,
     ].join("\n");
     ({ replacement, message } = await answer(command, prompt));
   }
+  // What it took is said on the line whenever the ask has words (PIE-1737): the whole note, or how much above.
+  if (instruction) message = `${message} · ${whole ? "the whole note above the ask" : `the ${passage.length === 1 ? "1 line" : `${passage.length} lines`} above the ask`}`;
   if (replacement === observed) return { message };
-  return { message, patches: [{ observed, replacement,
+  // Where it was read (PIE-1737): a passage said twice in the note (a transcript's "Okay.") is placed by its range.
+  const at = lines.slice(0, start).reduce((sum, line) => sum + line.length + 1, 0);
+  return { message, patches: [{ observed, replacement, range: { start: at, end: at + observed.length },
     before: lines.slice(0, start).join("\n").slice(-80), after: lines.slice(end + 1).join("\n").slice(0, 80),
   }] };
 }

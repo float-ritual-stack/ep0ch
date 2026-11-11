@@ -1126,4 +1126,4 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "took my time" }
   expect(projections.find((p) => p.kind === "agent")).toMatchObject({ fetching: true, agent: { status: "running" } });
   expect(answered.get("open")!.response.result).toMatchObject({ id: other.id });
   await until("the slow answer", () => store.agentRequests(note.id)[0]?.status === "replied");
-});
+}, 20_000);

@@ -26,7 +26,7 @@ const SAYINGS = [
 ];
 const TRANSCRIPT = Array.from({ length: 150 }, (_, i) => SAYINGS[i % SAYINGS.length]!).join("\n");
 
-async function setup(modelMs: number, deadline?: string) {
+async function setup(modelMs: number, deadline?: string, text = `Garden meeting\n\n${TRANSCRIPT}\n@tidy cleanup the transcript`) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-tidy-long-")));
   const was = Object.fromEntries(["OUTLINER_EXTENSIONS_DIR", "OUTLINER_RESOURCE_EXTENSIONS"].map(k => [k, process.env[k]]));
   Object.assign(process.env, { OUTLINER_EXTENSIONS_DIR: join(root, "user"), OUTLINER_RESOURCE_EXTENSIONS: join(root, "none.json") });
@@ -53,14 +53,14 @@ console.log(JSON.stringify({ replacement: passage.replaceAll("um, ", ""), messag
     for (const [k, v] of Object.entries(was)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     rmSync(root, { recursive: true, force: true });
   });
-  const note: Block = store.create(`Garden meeting\n\n${TRANSCRIPT}\n@tidy cleanup the transcript`, null, "user");
+  const note: Block = store.create(text, null, "user");
   return { store, note };
 }
 
 test("PIE-1713: tidy on a long transcript through a model that takes 30 s finishes, and the ums are gone", async () => {
   const { store, note } = await setup(30_000);
   const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status !== "running" && r.status !== "waiting"), 90_000);
-  expect([row.status, row.message]).toEqual(["applied", "took the ums out"]);
+  expect([row.status, row.message]).toEqual(["applied", "took the ums out · the whole note above the ask"]);
   const text = store.require(note.id).text;
   expect(text).not.toContain("um, ");
   expect(text).toContain("Wren: so the seed order went out on Tuesday and, the beans should land");
@@ -73,4 +73,28 @@ test("PIE-1713: a tidy that runs past its deadline says so in the person's words
   expect(row.message).toBe(`@tidy took longer than its 1 s on this ${words.toLocaleString("en-US")}-word note and was stopped: ask it about a shorter passage, or give it longer in its settings (ep0ch act ext.tidy.settings agent.tidy.deadline=1m)`);
   expect(row.message).not.toContain("extension.json");
   expect(store.require(note.id).text).toContain("um, ");
+}, 60_000);
+
+// PIE-1737: a real transcript has blank lines between turns and says some things twice. "The transcript" is the whole
+// note above the ask, and the line says so; a passage said twice is placed where tidy read it, a save meanwhile or not.
+test("PIE-1737: 'clean up the transcript' takes the whole note, blank lines and repeated turns included, and says so", async () => {
+  const turns = [...SAYINGS, SAYINGS[0]!, "Oak: um, okay.", "Wren: um, okay."];
+  const { store, note } = await setup(200, undefined, `Garden meeting\n\n${turns.join("\n\n")}\n@tidy clean up the transcript`);
+  const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status !== "running" && r.status !== "waiting"), 30_000);
+  expect(row.status).toBe("applied");
+  expect(row.message).toBe("took the ums out · the whole note above the ask");
+  const text = store.require(note.id).text;
+  expect(text).not.toContain("um, ");
+  expect(text).toContain("Garden meeting\n\nWren: so the seed order went out");
+  expect(text.endsWith("Oak: okay.\n\nWren: okay.\n@tidy clean up the transcript")).toBe(true);
+}, 60_000);
+
+test("PIE-1737: a passage said twice is cleaned where it was read, though the note was saved while tidy ran", async () => {
+  const { store, note } = await setup(1_500, undefined, "Garden meeting\n\nOak: um, okay.\n\nWren: um, the beans are in.\n\nOak: um, okay.\n@tidy take the ums out of this");
+  await until("tidy running", () => store.agentRequests(note.id).find(r => r.status === "running"), 10_000);
+  const now = store.require(note.id);
+  store.update(note.id, `${now.text}\nWren: and the peas`, now.revision, { author: "user" });
+  const row = await until("tidy's answer", () => store.agentRequests(note.id).find(r => r.status !== "running" && r.status !== "waiting"), 30_000);
+  expect([row.status, row.message]).toEqual(["applied", "took the ums out · the 1 line above the ask"]);
+  expect(store.require(note.id).text).toBe("Garden meeting\n\nOak: um, okay.\n\nWren: um, the beans are in.\n\nOak: okay.\n@tidy take the ums out of this\nWren: and the peas");
 }, 60_000);
