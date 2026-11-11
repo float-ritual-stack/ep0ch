@@ -88,6 +88,9 @@ const MAX_WROTE_LINKS = 20;
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
 const ANSWERED: ReadonlySet<string> = new Set(["applied", "proposed", "replied", "nothing"]);
+/** The first line of an answer's fold, as the service writes it; `ANSWER_HEAD` reads it back (and its agent). */
+const answerHead = (agent: string, mark: "+" | "-") => `> [!note]${mark} @${agent} answered`;
+const ANSWER_HEAD = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/;
 
 /**
  * The `@name …` lines in a block's text whose names an extension answers
@@ -297,7 +300,7 @@ export class AgentRequests {
   private hydrate(blockId: string, text: string): void {
     const all = this.answers.of(blockId), lines = text.split("\n");
     for (let i = 1; i < lines.length; i++) {
-      const agent = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/.exec(lines[i]!)?.[1];
+      const agent = ANSWER_HEAD.exec(lines[i]!)?.[1];
       if (!agent || !all[agent]?.length) continue;
       let j = i + 1;
       while (j < lines.length && lines[j]!.startsWith(">")) j++;
@@ -998,7 +1001,7 @@ export class AgentRequests {
         if (!first && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
           throw new Error("the answer changed while streaming; your text was kept");
         }
-        const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
+        const replacement = `${line.text}\n${answerHead(line.agent, "-")}\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
         // Keep an existing quotation outside the answer fold, including while it is edited.
         const separator = first && after.startsWith("\n>") ? "\n" : "";
         const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
@@ -1079,7 +1082,7 @@ export class AgentRequests {
         const from = (requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey)?.end ?? line.end) - line.text.length;
         const below = current.text.slice(from + line.text.length), was = this.ownAnswer(blockId, line.agent, below);
         const observed = line.text + was;
-        const fold = `\n> [!note]${agent.answer === "open" ? "+" : "-"} @${line.agent} answered\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}`;
+        const fold = `\n${answerHead(line.agent, agent.answer === "open" ? "+" : "-")}\n${body.split("\n").map(l => (l ? `> ${l}` : ">")).join("\n")}`;
         // A quotation, or an answer the person changed, right under it stays outside this answer's fold.
         const separator = below.slice(was.length).startsWith("\n>") ? "\n" : "";
         const outcome = await this.store.changes.run(
