@@ -156,6 +156,9 @@ test("a failed ask's line says the key that asks again, and a rebind follows it"
   process.env.EP0CH_KEYMAP = file;
   reloadKeymap();
   try { expect(rows()).toContain("alt+r asks again"); } finally { delete process.env.EP0CH_KEYMAP; reloadKeymap(); }
+  // A note with several lines that run (CodeRabbit on #1440): R needs [ ] on this one, and the line says the key that steps.
+  const several = extensionRegion(failed, 80, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t], several: true }).rows.map(plain);
+  expect(several).toContain("] steps onto it, then R asks again");
   const answered = extensionRegion({ ...failed, status: "ready", reason: undefined, summary: "tidied 1 line", fetchedAt: "2026-10-01T09:00:00.000Z", agent: { name: "tidy", status: "applied" } }, 80, Date.parse("2026-10-01T10:00:00.000Z"), undefined, { note: "n1", markdown: t => [t] }).rows.map(plain);
   expect(answered.some(r => r.includes("asks again"))).toBe(false);
 });

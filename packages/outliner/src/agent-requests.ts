@@ -180,6 +180,8 @@ export interface FailedAnswer {
   readonly by: string;
   readonly read?: number;
   readonly now?: number;
+  /** Part of a streamed answer is already in the note (CodeRabbit on #1440): it stays, so "nothing was changed" isn't true. */
+  readonly partial?: boolean;
 }
 
 /**
@@ -205,7 +207,9 @@ export function failedWords(error: unknown, w: FailedAnswer): string {
   const moved = w.read !== undefined && w.now !== undefined ? w.now !== w.read : kind === "stale-revision";
   if ((kind === "stale-revision" || kind === "conflict") && moved && !w.by.startsWith("agent")) {
     const at = w.read !== undefined && w.now !== undefined && w.now !== w.read ? ` (revision ${w.read}, now ${w.now})` : "";
-    return `the note changed while @${w.agent} worked on it${at}: nothing was changed, and asking again runs it on the new text`;
+    return w.partial
+      ? `the note changed while @${w.agent} was writing its answer${at}: what it wrote so far is in the note, and asking again runs it on the new text`
+      : `the note changed while @${w.agent} worked on it${at}: nothing was changed, and asking again runs it on the new text`;
   }
   return said;
 }
@@ -1185,7 +1189,7 @@ export class AgentRequests {
     } catch (error) {
       const wrote = this.wrote(line.agent, new Date(started).toISOString());
       const now = kindOfPatch(error) ? (await this.deps.readDraft(blockId).catch(() => null))?.revision : undefined;
-      const said = failedWords(error, { agent: line.agent, extension: extension.id, deadlineMs: deadline, tookMs: this.now - started, words, by: base.requestedBy, ...(read !== undefined ? { read } : {}), ...(now !== undefined ? { now } : {}) });
+      const said = failedWords(error, { agent: line.agent, extension: extension.id, deadlineMs: deadline, tookMs: this.now - started, words, by: base.requestedBy, ...(read !== undefined ? { read } : {}), ...(now !== undefined ? { now } : {}), ...(replySpan !== line.text ? { partial: true } : {}) });
       answer = { status: "failed", message: `${said}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
     } finally {
       clearTimeout(first);

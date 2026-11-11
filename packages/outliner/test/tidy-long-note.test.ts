@@ -171,4 +171,6 @@ test("PIE-1740: an agent that asked hears what to send; a person hears that the 
   const words = { agent: "tidy", extension: "tidy", deadlineMs: 300_000, tookMs: 2_000, words: 40, read: 5, now: 6 };
   expect(failedWords(stale, { ...words, by: "agent:loki" })).toBe(stale.message);
   expect(failedWords(stale, { ...words, by: "user" })).toBe("the note changed while @tidy worked on it (revision 5, now 6): nothing was changed, and asking again runs it on the new text");
+  // A streamed answer that got part of the way in (CodeRabbit on #1440): what it wrote stays, and the line says so.
+  expect(failedWords(stale, { ...words, by: "user", partial: true })).toBe("the note changed while @tidy was writing its answer (revision 5, now 6): what it wrote so far is in the note, and asking again runs it on the new text");
 });
