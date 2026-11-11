@@ -2502,6 +2502,12 @@ Buttons resolve actions through the reader, screen, host layer and door, as a ke
 
 Every status flash is kept in the session's **message log**. Click the status line or press `alt+M` (`status.log`); `r` refreshes the rows; `/` searches the whole message, action and tile, Enter returns to its note or tile, and PgUp/PgDn or the wheel reads long rows. A message's links read by their labels and open on a click, or by keys as a reader's do: `[`/`]` light one in the selected message and Enter opens it (`status.element`, `status.link`); a `[key::value]` or a code span in it stays as written, so a fix reads as what to type. The session keeps the last 500 messages in memory and writes `messages.jsonl` in its own folder, rotating at 1 MiB to `messages.jsonl.1`. Error stacks are in the file only. `ep0ch log --ws <name>` prints both files as JSON lines; `--follow` tails new messages. `ep0ch peek` includes the in-memory messages.
 
+A message the status bar cuts is said whole beside it, never over what you're using (PIE-1732): over a screen, above its
+hint row, in up to four rows, the last ending `… more ⇧⌥M` (the key the keymap gives `status.log`, so a rebind shows
+there); with ^K open, in the rows the bar leaves free (in its own message row when none are), where ⇧⌥M or a click puts
+the bar away and opens the log; over the log, nowhere: a message that comes while it's open reads on its own row above
+the hint row, and `r` lists it. The log names a tile as the door does (`1`, `notes`), never by its raw id.
+
 The [adapter contract](docs/UI-GRAMMAR.md#rich-component-editing-pie-593) explains the door-side extension seam.
 
 ### Extensions in a note

@@ -25,8 +25,9 @@ import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
-import { balanceStyles, C, center, chip, extractLinks, fg, glyphWidth, graphemes, pad, paint, RESET, selectedRow, visible, width } from "./style";
+import { balanceStyles, C, center, chip, extractLinks, fg, fitHint, glyphWidth, graphemes, pad, paint, RESET, selectedRow, visible, width } from "./style";
 import { presentLinks, type LinkTarget } from "./refs";
+import { logNews, missingWords } from "./status-whole";
 import { openAddress, readTarget } from "./desk/outline-boards";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
@@ -133,13 +134,13 @@ class Pointer {
 function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key, number?])[], opts: { centre?: boolean; x?: number } = {}): string {
   const text = parts.map(q => (typeof q === "string" ? q : q[0])).join("");
   let x = opts.centre ? Math.max(0, Math.floor((w - width(paint(text))) / 2)) : opts.x ?? 0;
-  const out = " ".repeat(x) + paint(text);
+  const fit = fitHint(" ".repeat(x) + paint(text), w), end = fit.cut ? fit.at : Infinity;   // cut at a word with …, a key past it no click (PIE-1732)
   for (const q of parts) {
     const n = width(paint(typeof q === "string" ? q : q[0]));
-    if (typeof q !== "string") p.spot({ y, x0: x, x1: x + n, key: q[1], index: q[2] });
+    if (typeof q !== "string" && x + n <= end) p.spot({ y, x0: x, x1: x + n, key: q[1], index: q[2] });
     x += n;
   }
-  return out;
+  return fit.text;
 }
 
 
@@ -515,7 +516,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",
-    keys: [{ keys: "alt+M", does: "on every screen" }, { keys: "click", does: "on the status line, or on the message said whole above it (its \"… more alt+M\" when it's longer than four rows)" }],
+    keys: [{ keys: "alt+M", does: "on every screen" }, { keys: "click", does: "on the status line, or on the message said whole beside it (its \"… more ⇧⌥M\", the key this action has now, when it's longer than four rows); with ^K open the bar goes first" }],
     touches: "screen", host: true, replay: "safe",
     args: {},
     run(_, { ctx }) {
@@ -1323,13 +1324,9 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
   }),
 });
 
-/** Why a lit link in the log leads nowhere: the service found nothing at its address (PIE-1455). */
-function missingWords(to: LinkTarget): string {
-  return to.page !== undefined ? `no note is [[${to.page}]] yet` : `nothing answers at ${to.label ?? to.block ?? "that link"}`;
-}
-
 export class StatusMessages extends BbsList {
   readonly title = "message log";
+  readonly readsMessages = true as const;   // a message the status bar cuts reads here, never over its rows (PIE-1732)
   hostMode() { return "none" as const; }
   query = new LineField("", false, { complete: false });
   searching = false;
@@ -1348,7 +1345,7 @@ export class StatusMessages extends BbsList {
     this.view.reveal();
   }
   resetScroll() { this.sel = 0; this.view.reset(); }
-  private rows(): StatusMessage[] { return this.entries.filter(r => matchesSearchText(this.query.text, [r.message, r.kind, r.action ?? "", r.tile ?? ""])); }
+  private rows(): StatusMessage[] { return this.entries.filter(r => matchesSearchText(this.query.text, [r.message, r.kind, r.action ?? "", r.tileName ?? "", r.tile ?? ""])); }
   listRows(): ListRow[] { return this.rows().map((r, i) => ({ ...r, n: i + 1, title: r.message, ...(r.note ? { id: r.note } : {}) })); }
   async openRow(i: number, ctx: Ctx, actor: Actor) {
     const r = this.rows()[i]!;
@@ -1447,16 +1444,18 @@ export class StatusMessages extends BbsList {
     this.query.drawnAt(2, 1, w - 2);
     // Each message as a reader draws its words (PIE-1453): a labelled reference by its label, a link that a click opens.
     const drawn = rows.flatMap((r, i) => [
-      ...rowLines(`${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}`, w - 1, Infinity),
+      ...rowLines(`${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + (r.tileName ?? r.tile) : ""}`, w - 1, Infinity),
       // A cell short of the width: the lit row draws its bar before it, and a full row would lose its last letter.
       ...balanceStyles(this.drawn(r, ctx).split("\n").flatMap(line => rowLines(line, w - 1, Infinity))),
     ].map(text => ({ text, i })));
     const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
     // The lit link's row is what must show (a tall message's link past the fold), else the whole message as it fits.
     const lit = this.litLink(), litRow = lit < 0 ? -1 : drawn.findIndex(r => r.i === this.sel && extractLinks([r.text]).ranges.some(g => g.n === lit));
-    const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), litRow >= 0 ? [litRow, litRow] : [first, last]);
+    // A message logged after its rows were read gets the log's own row above the hint row, never one over them (PIE-1732).
+    const news = logNews((this.log ?? ctx.messages)?.rows ?? [], this.entries, w), shown = Math.max(1, h - lines.length - 1 - (news ? 1 : 0));
+    const top = this.view.place(this.sel, drawn.length, shown, litRow >= 0 ? [litRow, litRow] : [first, last]);
     this.linkBoxes = [];
-    for (const r of drawn.slice(top, top + h - lines.length - 1)) {
+    for (const r of drawn.slice(top, top + shown)) {
       this.ptr.row(lines.length, r.i, w);
       // Its link marks in a reader's colours (colourInline), then each link's cells for a click.
       const { lines: [plain], ranges } = extractLinks([colourInline(r.text, C.grey, true, true)]);
@@ -1466,7 +1465,8 @@ export class StatusMessages extends BbsList {
       const on = r.i === this.sel ? ranges.find(g => g.n === lit) : undefined;
       lines.push(r.i === this.sel ? selectedRow(on ? litCells(visible(plain!), on.from, on.to) : visible(plain!), w) : plain! + RESET);
     }
-    while (lines.length < h - 1) lines.push("");
+    while (lines.length < h - 1 - (news ? 1 : 0)) lines.push("");
+    if (news) { this.ptr.spot({ y: lines.length, x0: 0, x1: w, key: char("r") }); lines.push(news); }
     const litTo = lit >= 0 ? this.links.get(rows[this.sel]?.id ?? "")?.[lit] : undefined;
     lines.push(hotLine(this.ptr, lines.length, w, [litTo?.missing ? `|08[ ] link, ${missingWords(litTo)}, ` : lit >= 0 ? "|08[ ] link, enter opens it, " : "|08/ search, [ ] link, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
     return { lines };

@@ -537,6 +537,23 @@ export function keyCaption(name: string): string {
   }).join(" ");
 }
 
+const GLYPHS: [string, string][] = [["ctrl", "⌃"], ["shift", "⇧"], ["alt", "⌥"], ["super", "⌘"]];
+/**
+ * A key as the status line says it (its ⇧⌥Q): `alt+M` is ⇧⌥M (a capital is shift held), `alt+m` ⌥m, `ctrl+k` ^K,
+ * `enter` ⏎. For a person's eyes only: unlike keyCaption's, these are never read back as names (PIE-1732).
+ */
+export function keySymbols(name: string): string {
+  return name.split(" ").map(k => {
+    const ctrl = /^ctrl\+(.)$/u.exec(k);
+    if (ctrl) return `^${ctrl[1]!.toUpperCase()}`;
+    const mod = /^((?:(?:alt|shift|ctrl|super)\+)+)(.+)$/.exec(k);
+    if (!mod) return SHOWN[k] ?? k;
+    const held = new Set(mod[1]!.split("+")), key = mod[2]!;
+    if (/^\p{Lu}$/u.test(key)) held.add("shift");
+    return GLYPHS.filter(([m]) => held.has(m)).map(([, g]) => g).join("") + (SHOWN[key] ?? key);
+  }).join(" ");
+}
+
 /** One word as key names (`1-9` is nine, `Tab/1-9` ten, `↑↓` two), or null when the word isn't a key. */
 function wordKeys(w: string): string[] | null {
   if (!w) return null;

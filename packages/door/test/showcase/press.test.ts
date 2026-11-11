@@ -142,6 +142,15 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     } finally { if (app.screens().at(-1)?.title === "message log") app.pop(); }
   });
 
+  test("a message logged after the log's rows were read reads on its own row, and r lists it (PIE-1732)", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
+    await until(() => /\d+ new · /.test(screen()), "the log's own row for a newer message");
+    // Into the section (tab), then r, the log's own key.
+    press({ kind: "tab" });
+    press({ kind: "char", ch: "r" });
+    await until(() => !/\d+ new · /.test(screen()) && screen().includes("A late frost is due tonight"), "r lists it");
+  });
+
   test("a message in the log names a note by its label, as a reader does, and status.link opens it (PIE-1453)", async () => {
     await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
     await until(() => screen().includes("the shed note"), "the refusal drawn with its label");
