@@ -13,7 +13,7 @@ Morning plan
 
 - **Pick it:** in the door, type `@` at the start of a line to see the agents, `@tidy` among them (PIE-592).
   - Choosing it writes `@tidy ` and you go on typing.
-- **Format:** bare `@tidy` or `@tidy all` runs the formatter once the line has been quiet for a moment.
+- **Format:** bare `@tidy` or `@tidy all` runs the formatter once you leave the line (or save) and it has been quiet for a moment.
   - It sets bullets as `-`, one space after list markers and `#`, no runs of spaces, no trailing spaces, and two spaces per nesting level.
   - Links, references, properties and code are never touched; `all` never includes the title.
 - **Rewrite:** `@tidy <instruction>` rewrites the paragraph or list above, such as `@tidy remove the cruft and wrap each item in a callout`.

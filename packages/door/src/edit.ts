@@ -171,7 +171,13 @@ export class Draft {
   /** Every view of this draft (src/draft-view.ts): its raw rows, a line field's one row, rich cells, the popup. */
   readonly views: DraftViews = new DraftViews(this);
   get row() { return this.position.cursor.row; }
-  set row(value: number) { this.position.cursor.row = value; }
+  set row(value: number) {
+    this.position.cursor.row = value;
+    // The cursor left the line the person last typed on: the service hears it, so an ask written there is sent (PIE-1743).
+    if (this.typedOn !== null && value !== this.typedOn) { this.typedOn = null; this.onPersonTyped?.(); }
+  }
+  /** The line the person last typed on, until the cursor leaves it (PIE-1743). */
+  private typedOn: number | null = null;
   get col() { return this.position.cursor.col; }
   set col(value: number) { this.position.cursor.col = value; }
   usePosition(position: ReaderPosition) {
@@ -320,8 +326,9 @@ export class Draft {
   get busy() { return this.status.busy; }
 
   /**
-   * The person changed the text (never an agent's patch): the reader holding this draft tells the service, so a
-   * request line they write here (`@tidy …`) runs once quiet, before any save (`drafts.touch`).
+   * The person changed the text (never an agent's patch), or the cursor left the line they typed on: the reader holding
+   * this draft tells the service, so a request line they write here (`@tidy …`) runs before any save (`drafts.touch`),
+   * once quiet and once the cursor is off it (the read answers the cursor's line, PIE-1743).
    */
   onPersonTyped: (() => void) | null = null;
   /** Its host draws it again (its session's): when an armed key's say lapses. */
@@ -334,7 +341,7 @@ export class Draft {
   }
 
   private markWriter(who: Actor) {
-    if (who.kind === "user") this.onPersonTyped?.();
+    if (who.kind === "user") { this.typedOn = this.row; this.onPersonTyped?.(); }
     const { with: _, ...me } = who;
     this.lastWriter = me as Actor;
     if (!this.writers.some(w => sameParty(w, who))) this.writers.push(me as Actor);

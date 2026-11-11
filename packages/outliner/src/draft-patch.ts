@@ -144,7 +144,8 @@ export type DraftHolderRequest =
   | { kind: "revert"; requestId: string; holdId: string; blockId: string; targetClientId: string; patchId: string };
 
 export type DraftHolderAnswer =
-  | { text: string; revision: number }
+  /** `cursorLine`: the line of `text` the person's cursor is on (PIE-1743), so an ask being written waits for them. */
+  | { text: string; revision: number; cursorLine?: number }
   | { applied: true; inverse?: { before: string; text: string; revision: number } }
   | { applied: false; reason: string }
   | { reverted: boolean };

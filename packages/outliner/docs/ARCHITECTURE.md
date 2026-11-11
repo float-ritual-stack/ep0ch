@@ -1781,7 +1781,11 @@ person's line runs once per wording; a line an agent or an import wrote waits fo
 `R` (Detail's `r`), so agents can't loop; that key asks again, recording who pressed it as
 `requestedBy`. One guard in `DraftPatchRouter` refuses any agent's patch that
 writes or rewords an `@name` line, whoever routes it. A door holding the live
-draft calls `drafts.touch`, so a request typed there runs before any save. At
+draft calls `drafts.touch`, so a request typed there runs before any save; the
+door's read of the draft names the cursor's line, and a request on it waits until
+the cursor leaves it or the draft is saved (PIE-1743). A line a save took out and
+put back is recalled only when its answer came back with it (an undo); written
+back by hand, it is asked again, and its line never reads the old answer. At
 start the service takes a baseline of older notes' `@name` lines (they stay
 old) and marks requests a restart cut off as `failed`. Every write is
 `author: agent`, `actorId: ext:<id>`.

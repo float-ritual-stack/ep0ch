@@ -42,7 +42,10 @@ import { isAnnotationBlock } from "./annotations";
  * loop). A request runs once per text; changing the line is a new request, and
  * `r` asks again (on the note, `r` asks the requests not answered yet). A door
  * that says when the person types in a draft it holds (`drafts.touch`) gets a
- * request run while they write, before any save. Every write is `author: agent`, `actorId: ext:<id>`, under
+ * request run while they write, before any save; one on the line the person's
+ * cursor is on waits until the cursor leaves it or the draft is saved (PIE-1743).
+ * A line written back by hand is a new ask; one an undo puts back with its answer
+ * keeps that answer. Every write is `author: agent`, `actorId: ext:<id>`, under
  * `ext.<id>.agent.<name>` in the change feed.
  */
 
@@ -86,10 +89,12 @@ const PROGRESS_MS = 60_000;
 export const WORKING_MARK = "⋯ working";
 /** How many of the notes an answer wrote its reply links. */
 const MAX_WROTE_LINKS = 20;
-/** How long a removed request line's answer is kept, so undoing the removal doesn't ask again. */
+/** How long a removed request line's answer is kept, so undoing the removal (the line and its answer back) doesn't ask again. */
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
 const ANSWERED = ANSWERED_ASK_STATES;
+/** What an ask on the line the person's cursor is on says while it waits for them (PIE-1743). */
+export const AT_CURSOR = "asks once you leave the line or save";
 /** The first line of an answer's fold, as the service writes it; `ANSWER_HEAD` reads it back (and its agent). */
 const answerHead = (agent: string, mark: "+" | "-") => `> [!note]${mark} @${agent} answered`;
 const ANSWER_HEAD = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/;
@@ -556,13 +561,29 @@ export class AgentRequests {
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
 
-  private recall(blockId: string, requestKey: string): AgentRequestRow | null {
-    const key = this.key(blockId, requestKey);
+  /**
+   * A line a save took out is back in `text`: its row returns when its answer came back with it, as an undo puts both
+   * back. Written back by hand, with nothing of its answer under it, it is a new ask (PIE-1743: "write the line again to
+   * ask again"), and its old row is gone, so its line never says that answer.
+   */
+  private recall(blockId: string, line: RequestLine, text: string): AgentRequestRow | null {
+    const key = this.key(blockId, line.requestKey);
     const kept = this.removed.get(key);
     if (!kept) return null;
     this.removed.delete(key);
-    return this.now - kept.at <= REMOVED_KEPT_MS ? kept.row : null;
+    return this.now - kept.at <= REMOVED_KEPT_MS && this.answerUnder(blockId, line, text) ? kept.row : null;
   }
+
+  /** Whether the answer this service wrote for `line`'s agent is right under it in `text`, as it was written. */
+  private answerUnder(blockId: string, line: RequestLine, text: string): boolean {
+    return this.ownAnswer(blockId, line.agent, text.slice(line.end)) !== "";
+  }
+
+  /**
+   * Asks a draft has on the line its cursor is on, not asked yet (PIE-1743): the next read with the cursor elsewhere, or
+   * a save, asks them, though the saved note had the line (its row was dropped for a retype).
+   */
+  private readonly atCursor = new Set<string>();
 
   /**
    * The request lines a block already had, as its baseline keeps them. A baseline written before PIE-1722 keyed the same
@@ -659,6 +680,7 @@ export class AgentRequests {
 
   private schedule(blockId: string, requestKey: string): void {
     const key = this.key(blockId, requestKey);
+    this.atCursor.delete(key);
     const previous = this.timers.get(key);
     if (previous) clearTimeout(previous);
     const timer = setTimeout(() => {
@@ -877,9 +899,11 @@ export class AgentRequests {
         // The key includes the wording: typing elsewhere must not postpone this ask.
         continue;
       }
-      if (before.has(line.requestKey) || answered.has(line.requestKey)) continue;
-      // Taken out and put back (an undo): what it had is what it has, nothing is asked again.
-      const kept = this.recall(blockId, line.requestKey);
+      // An ask the draft held at the cursor is sent by the save, though the note had its words before (PIE-1743).
+      const pending = this.atCursor.has(key);
+      if (!pending && (before.has(line.requestKey) || answered.has(line.requestKey))) continue;
+      // Taken out and put back with its answer (an undo): what it had is what it has, nothing is asked again.
+      const kept = pending ? null : this.recall(blockId, line, block.text);
       if (kept) {
         this.store.putAgentRequest(kept);
         continue;
@@ -904,9 +928,10 @@ export class AgentRequests {
    * A person typed in a draft a door holds (`drafts.touch`; `text` is the draft as the door has it). A request
    * line the draft has and the saved note never had runs once the draft has been quiet, as a save's would: the
    * person goes on typing and the answer lands in the draft. The rows it leaves keep a later save from asking
-   * again.
+   * again. `cursorLine`, the line the person's cursor is on when the door says (PIE-1743): an ask there is being
+   * written and waits until the cursor leaves it or the draft is saved; lines the person isn't on keep the quiet.
    */
-  touched(blockId: string, text: string, holdId?: string): void {
+  touched(blockId: string, text: string, holdId?: string, cursorLine?: number): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (block && !block.effectiveDeletedRootId && isAnnotationBlock(block)) return this.notInThreads(blockId, text);
@@ -926,6 +951,7 @@ export class AgentRequests {
         this.timers.delete(key);
       }
     }
+    for (const key of this.atCursor) if (key.startsWith(`${blockId}\0`) && !keys.has(key.slice(blockId.length + 1))) this.atCursor.delete(key);
     const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
@@ -934,20 +960,31 @@ export class AgentRequests {
     if (holdId) this.draftKeys.set(holdId, keys);
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
-      // A no-answer's line written again (gone from the draft when it was last read, back now) is a new ask, as the save
-      // path's withdraw makes it (PIE-1731): its row goes, and it is asked.
-      if (rows.has(line.requestKey) && seen && !seen.has(line.requestKey) && this.retried.take(blockId, line.requestKey)) {
+      // A line written again (gone from the draft when it was last read, back now) is a new ask, as the save path makes
+      // it: a no-answer's (PIE-1731), and an answer's whose answer didn't come back with it (PIE-1743: typed back by hand,
+      // not an undo). Its row goes, and it is asked.
+      const had = rows.get(line.requestKey);
+      if (had && seen && !seen.has(line.requestKey) && !this.running.has(key) && (this.retried.take(blockId, line.requestKey)
+        || ((ANSWERED.has(had.status) || had.status === "failed") && !this.answerUnder(blockId, line, text)))) {
         rows.delete(line.requestKey); answered.delete(line.requestKey); before.delete(line.requestKey);
         this.store.pruneAgentRequests(blockId, [...rows.keys()]);
+        this.atCursor.add(key);
       }
       const row = rows.get(line.requestKey);
       if (row) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
       // The key includes the wording; other lines changing leave its deadline alone.
       if (this.timers.has(key)) continue;
-      if (before.has(line.requestKey) || answered.has(line.requestKey) || this.running.has(key)) continue;
-      const kept = this.recall(blockId, line.requestKey);
+      const pending = this.atCursor.has(key);
+      if (this.running.has(key) || (!pending && (before.has(line.requestKey) || answered.has(line.requestKey)))) continue;
+      const kept = pending ? null : this.recall(blockId, line, text);
       if (kept) {
         this.store.putAgentRequest(kept);
+        continue;
+      }
+      // Being written: the cursor is on it. It waits for the person, saying how it goes (PIE-1743).
+      if (cursorLine === line.line) {
+        this.atCursor.add(key);
+        this.deps.changed(blockId, { ...asked(line), state: "queued", warning: AT_CURSOR });
         continue;
       }
       this.deps.changed(blockId, { ...asked(line), state: "queued" });
@@ -1004,6 +1041,7 @@ export class AgentRequests {
   private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain, onRunning?: () => void): Promise<void> {
     const key = this.key(blockId, requestKey);
     if (this.stopped) return;
+    this.atCursor.delete(key);
     if (this.running.has(key)) {
       if (askedBy) this.again.set(key, askedBy);
       return;
@@ -1523,6 +1561,12 @@ export class AgentRequests {
         if (row.status === "running") return { ...base, status: "not-run" as const, fetching: true, reason: row.message ?? `@${candidate.agent} is working on it` };
         if (row.status === "waiting") return { ...base, status: "not-run" as const, reason: row.message ?? `waits for a person to ask @${candidate.agent}` };
         if (row.status === "failed") return { ...base, status: "unavailable" as const, reason: row.message ?? "it failed", fetchError: row.message ?? "it failed" };
+        // Its answer was in the note and is gone from under the line (taken out by hand): the line says so, never the
+        // answer it no longer has (PIE-1743). A note held in a draft may have it there, not saved yet.
+        if (row.status === "replied" && !this.deps.heldDraft?.(blockId) && this.answers.of(blockId)[candidate.agent]?.some(([, k]) => k === candidate.requestKey)
+          && !this.answerUnder(blockId, candidate, block.text)) {
+          return { ...base, status: "not-run" as const, reason: `@${candidate.agent}'s answer was taken out · ask again for a new one` };
+        }
         const at = row.answeredAt ?? row.requestedAt;
         return {
           ...base,

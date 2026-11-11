@@ -825,6 +825,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     e.type("the  vice   and the clamps");
     e.d.newline(false); e.s.render(50, 12, e.h);
     e.type("@tidy");
+    // Off the line it was written on: an ask being typed waits for the person (PIE-1743).
+    e.d.newline(false); e.s.render(50, 12, e.h);
     const saved = (await board.get(e.id))!.text;
     await until(() => e.d.text.includes("the vice and the clamps"), "@tidy's answer in the draft", 20_000);
     expect(e.d.writers.map(actorIdOf)).toContain("ext:tidy");

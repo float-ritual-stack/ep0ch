@@ -3358,12 +3358,13 @@ export class OutlinerServer {
           break;
         }
         case "drafts.touch": {
-          // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet.
+          // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet and the
+          // cursor is off it (the door's read names the cursor's line, PIE-1743).
           // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
           const hold = this.draftHolds.list().find(candidate => candidate.holdId === request.holdId);
           if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
           void this.askHolder(hold, { kind: "read" }).then(answer => {
-            if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId); // a read landing after its hold ended is nobody's
+            if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId, typeof answer.cursorLine === "number" ? answer.cursorLine : undefined); // a read landing after its hold ended is nobody's
           }).catch(() => {});
           result = wired(action, { touched: true });
           break;

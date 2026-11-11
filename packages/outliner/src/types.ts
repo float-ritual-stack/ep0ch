@@ -2215,7 +2215,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "drafts.release"; holdId: string }
   /**
    * The person typed in the draft a hold keeps (capability `drafts.touch`): the service reads the draft from the
-   * holding door and runs a request line written there once it is quiet. Answers `{ touched: true }` at once.
+   * holding door and runs a request line written there once it is quiet and the cursor is off its line (PIE-1743). Answers `{ touched: true }` at once.
    */
   | { id: string; action: "drafts.touch"; holdId: string }
   /** The holding door's answer to a `draft` event; never queued behind the request waiting for it. */
