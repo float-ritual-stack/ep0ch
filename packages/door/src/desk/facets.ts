@@ -1,3 +1,4 @@
+import { pressedByPerson } from "./rename-in-edit";
 import { lineEscCloses } from "../surface/completer";
 import { escVia } from "../esc-rule";
 import { buttonText } from "../surface/button";
@@ -6,7 +7,7 @@ import { DRAFT_KEYS } from "../edit";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import "../trail-facets";
 import { facetSource, facetSources, onFacetSources, sourceAnswer, type SourceRow } from "../facet-sources";
-import type { FacetNotes } from "../socket";
+import { USER, type FacetNotes } from "../socket";
 // Facets keep the selection and its presentation; a source owns the answer. Notes ask the service, while
 // visits and extension rows use the same pure query grammar and counter through the source contract.
 import { weekday } from "@ep0ch/outline-core/figure-props";
@@ -992,7 +993,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     person: "the query line is the person's; agents ask query.suggest and apply with facets.query",
     args: { text: { type: "string", optional: true, about: "words to put on the query line; left out edits the selection" } },
     examples: [{ act: "facets.edit tile=facets", does: "opens the current selection for words or grammar" }],
-    run({ text }, { pane, desk }) { const p = pane as FacetsPane; p.editQuery(desk, text); return { text: p.draft!.text }; },
+    // Its purpose is typing: pressed by the person (their key, or a button they pressed), the keys go to the line (PIE-1711).
+    run({ text }, { pane, desk }, actor) { const p = pane as FacetsPane; p.editQuery(desk, text); if (pressedByPerson(actor)) desk.focusPane?.(p, USER); return { text: p.draft!.text }; },
   }),
   "facets.query": def({
     summary: "set the selection as text in the views' grammar (`project=x/* type=meeting #yomama NOT week=3`): it replaces the picks; the service evaluates it and the facets and notes follow. Empty clears. The person types it with e",

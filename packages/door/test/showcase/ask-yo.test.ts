@@ -313,6 +313,53 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
   }, 90_000);
 
+  // PIE-1711, the verifier's re-walk: one rule for a yo button pressed while typing. A press whose purpose is typing takes the
+  // keys to the line it opens (▸ edit the query); one that shows something (▸ open in facets) opens it beside, keys in the edit.
+  test("pressed while typing: open in facets leaves the keys in the edit; edit the query takes them to its line", async () => {
+    const { findAnswer } = await import("../../../outliner/extensions/yo/yo-line");
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const job = await h.board.createBlock(null, "Shed rota [type::shed-job] [status::queued]");
+    const lines = findAnswer({ words: "shed jobs", where: "type=shed-job", found: { notes: [{ id: job.id, title: "Shed rota" }], more: false } });
+    const answer = await h.board.createBlock(null, ["Shed jobs, answered", "", "@yo find the shed jobs", "> [!note]+ @yo answered", ...lines.map(l => `> ${l}`), ""].join("\n"));
+    const own = await h.board.createBlock(null, "Typing a find\n\nWhere the person is typing.\n");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const keys = () => h.app.keysScreen()?.dispatch?.tile("focused")?.name;
+    const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
+    const facets = () => stage().pane("found") as unknown as { draft: { text: string } | null; query(): string | null } | undefined;
+    const press = async (label: string) => {
+      await h.app.dispatch.act({ action: "button.press", args: { note: answer.id, label } }, USER);
+      const line = (await h.board.get(answer.id))!.text.split("\n").findIndex(l => l.includes(`label="${label}"`));
+      await until(() => ["done", "failed"].includes(pressState(answer.id, line, label).state ?? ""), `${label} settled`, 15_000);
+      return pressState(answer.id, line, label);
+    };
+    // Shows something: it opens beside, the keys stay where the person writes.
+    expect(await press("▸ open in facets")).toEqual({ state: "done" });
+    expect(facets()?.query()).toContain("shed-job");
+    expect(keys()).toBe("ask");
+    h.ch("x");
+    await until(() => draft()?.text.includes("x") ?? false, "typing goes on in the edit", 4000);
+    // Its purpose is typing: the keys go to the line it opens, and the next keys type there.
+    expect(await press("▸ edit the query")).toEqual({ state: "done" });
+    expect(keys()).toBe("found");
+    // The line holds the query, as e opens it: typing replaces it, the arrows keep it.
+    h.press({ kind: "end" });
+    for (const c of " NOT status=sent") h.ch(c);
+    await until(() => facets()?.draft?.text === "type=shed-job NOT status=sent", "typed on the query line", 4000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(facets()?.draft?.text)} / edit ${JSON.stringify(draft()?.text.slice(-40))}`); });
+    expect(draft()!.text).not.toContain("status=sent");
+    h.press({ kind: "esc" });
+    await h.app.dispatch.act({ action: "tile.close", tile: "found" }, USER).catch(() => {});
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
+  }, 90_000);
+
   // PIE-1712: an answer fits the ask. backlinks.view with step=kind names its one key, K, and its button says it: ▸ by kind. Asked
   // from a reader, where no backlinks tile is open, the button opens the note's links first (`links`), then groups them.
   test("asked how to see backlinks by kind: K alone, ▸ by kind, and a press opens the links and groups them", async () => {
