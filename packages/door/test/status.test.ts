@@ -190,7 +190,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
             await force();
             click("REC stop");
             await until(() => !app.recording.active, "the recording chip stops recording");
-            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved ")), "the recording is saved");
+            // Only an esc and the chip's own clicks were pressed while it recorded: since PIE-1718 (#1420) that saves no
+            // script and says so, where it once saved an empty "Recorded: nothing yet" (PIE-1728).
+            await until(() => app.messages.rows.some(m => /^(Saved |Nothing recorded)/.test(m.message)), "the stop said what it saved");
           }
           if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
           while (app.screens().length > 1) app.pop();
