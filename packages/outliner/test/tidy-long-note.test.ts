@@ -70,7 +70,7 @@ test("PIE-1713: a tidy that runs past its deadline says so in the person's words
   const { store, note } = await setup(5_000, "1s");
   const words = store.require(note.id).text.split(/\s+/).filter(Boolean).length;
   const row = await until("tidy's stop", () => store.agentRequests(note.id).find(r => r.status === "failed"), 30_000);
-  expect(row.message).toBe(`@tidy took longer than its 1 s on this ${words.toLocaleString("en-US")}-word note and was stopped: ask it about a shorter passage`);
+  expect(row.message).toBe(`@tidy took longer than its 1 s on this ${words.toLocaleString("en-US")}-word note and was stopped: ask it about a shorter passage, or give it longer in its settings (ep0ch act ext.tidy.settings agent.tidy.deadline=1m)`);
   expect(row.message).not.toContain("extension.json");
   expect(store.require(note.id).text).toContain("um, ");
 }, 60_000);
