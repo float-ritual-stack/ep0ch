@@ -34,8 +34,8 @@ export interface PickerSpec<T, H> {
   items(): readonly T[];
   /** At most this many choices in the visible window, even when more terminal rows fit. */
   maxItems?: number;
-  /** An item's rows, `w` cells wide; `on`: the cursor is on it (`pickRow` lights it). */
-  row(it: T, i: number, on: boolean, w: number): string[];
+  /** An item's rows, `w` cells wide; `on`: the cursor is on it (`pickRow` lights it); `rows`: the list's height as it's drawn now. */
+  row(it: T, i: number, on: boolean, w: number, rows: number): string[];
   choose(it: T, i: number, host: H): void;
   /** It stays open after a choice (the policy panel, the steps). */
   stays?: boolean;
@@ -195,7 +195,7 @@ export class ListPicker<T, H> implements Mode<H> {
         const head = this.spec.heading?.(it, i, w);
         if (i === this.sel) first = rows.length;
         if (head != null) rows.push({ text: head, i, inert: true });
-        for (const text of this.spec.row(it, i, i === this.sel, w)) rows.push({ text, i });
+        for (const text of this.spec.row(it, i, i === this.sel, w, h)) rows.push({ text, i });
         if (i === this.sel) last = rows.length - 1;
       });
       return { rows, first, last };
@@ -246,7 +246,7 @@ export class ListPicker<T, H> implements Mode<H> {
     let need = 0;
     items.forEach((it, i) => {
       if (this.spec.heading?.(it, i, w) != null) need++;
-      const drawn = this.spec.row(it, i, i === this.sel, w);
+      const drawn = this.spec.row(it, i, i === this.sel, w, room);
       need += drawn.length;
     });
     const rows = Math.min(r.rows + Math.max(0, need - room), area.rows);
@@ -293,8 +293,8 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
   });
 }
 
-/** A row in the picker's colours: lit when the cursor is on it, else in `ink`. */
-export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey) => on ? floatSelectedRow(text, w) : fg(ink) + pad(text, w) + RESET;
+/** A row in the picker's colours: lit when the cursor is on it (`still`: never scrolled by itself), else in `ink`. */
+export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey, still = false) => on ? floatSelectedRow(text, w, still) : fg(ink) + pad(text, w) + RESET;
 
 export const pickRows = (text: string, on: boolean, w: number, ink: number = C.grey) => rowLines(text, w - (on && !text.startsWith(" ") ? 1 : 0)).map(line => pickRow(line, on, w, ink));
 
