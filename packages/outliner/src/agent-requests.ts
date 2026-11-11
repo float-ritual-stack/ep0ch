@@ -153,6 +153,8 @@ export interface AgentRequestDeps {
   script?(request: ExtensionActRequest): Promise<ExtensionActResult & { error?: string }>;
   /** The note as the person sees it: its live draft when a door holds one (`drafts.read`). */
   readDraft(blockId: string): Promise<{ text: string; revision: number; holder?: string }>;
+  /** Whether a door holds a live draft of the note now (`drafts.hold`). */
+  heldDraft?(blockId: string): boolean;
   /** `draft.patch`, routed to the live draft or the saved note. */
   patch(input: DraftPatchInput): Promise<DraftPatchResult>;
   /** A request's state changed: readers repaint the block. */
@@ -480,7 +482,7 @@ export class AgentRequests {
    * there as it was written, as one write of the agent's (undone like any). An answer the person changed is theirs, and
    * stays; a line taken out and put back (an undo) keeps its answer, since its request is there again.
    */
-  private async dropOrphans(blockId: string, keys: readonly string[]): Promise<void> {
+  private async dropOrphans(blockId: string, keys: readonly string[], again = false): Promise<void> {
     for (const [at, folds] of this.written) {
       const [noteId, agent] = at.split("\0");
       if (noteId !== blockId || !agent) continue;
@@ -505,8 +507,10 @@ export class AgentRequests {
             patches: [{ observed: fold, range: { start: from, end: from + fold.length }, replacement: "" }] }),
         ).catch(() => null);
         if (outcome?.outcome === "applied") folds.delete(fold);
-        // The door that saved is still letting go of its draft (the save comes before its release): taken out once it has.
-        else this.orphansAfterRelease.add(blockId);
+        // The door that saved is still letting go of its draft (the save comes before its release): taken out once it has,
+        // or now, when its release came while this was refused.
+        else if (this.deps.heldDraft?.(blockId) ?? true) this.orphansAfterRelease.add(blockId);
+        else if (!again) return this.dropOrphans(blockId, keys, true);
       }
     }
   }

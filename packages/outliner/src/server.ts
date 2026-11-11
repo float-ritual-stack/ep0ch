@@ -548,7 +548,7 @@ export class OutlinerServer {
         const error = await this.scriptRuns.finished(result.undo!);
         return { ...result, ...(error !== undefined ? { error } : {}) };
       },
-      readDraft: (blockId) => this.draftPatches.read(blockId),
+      readDraft: (blockId) => this.draftPatches.read(blockId), heldDraft: (blockId) => this.draftHolds.list().some(h => h.blockId === blockId),
       patch: (input) => this.draftPatches.patch(input),
       changed: (blockId, ask) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.agent", sequence: this.store.sequence, blockId, ...(ask ? { ask } : {}),

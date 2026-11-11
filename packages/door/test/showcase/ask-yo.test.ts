@@ -677,6 +677,9 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await untilAsync(async () => !(await read()).text.includes("@yo answered"), "the answer gone with its ask", 10_000)
       .catch(async e => { throw new Error(`${e.message}: ${JSON.stringify((await read()).text)}`); });
     expect((await read()).text).toContain("kept line");
+    // Its answer tile, its ask gone and saved, doesn't wait for an answer that won't come: it closes (the verifier's walk).
+    await until(() => !(stage().layoutGet().tiles as { kind: string }[]).some(t => t.kind === "answer"), "the answer tile closed with its ask", 8000)
+      .catch(e => { throw new Error(`${e.message}: ${h.screen().split("\n").filter(l => /Waiting/.test(l)).join(" / ")}`); });
   }, 90_000);
 
   // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
