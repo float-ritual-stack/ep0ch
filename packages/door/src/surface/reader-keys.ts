@@ -184,10 +184,15 @@ export const READER_OWN_KEYS: { has(key: string): boolean } = {
   has: key => readerRows().some(row => row.key === (key === " " ? "space" : key)) || key in READER_SAYS || "vVyYhl".includes(key),
 };
 
-/** The key that runs `action` in a reader, the keymap applied, as words on screen name it. */
-const keyOfAction = (action: string): string => keyCaption((effective(READER_KEYS).find(row => row.action === action) ?? READER_KEYS.find(row => row.action === action)!).key);
+/** The key that runs `action` (with `by`, when a row names one) in a reader, the keymap applied, as words on screen name it. */
+const keyOfAction = (action: string, by?: number): string => {
+  const is = (row: ReaderKey) => row.action === action && (by === undefined || row.args?.by === by);
+  return keyCaption((effective(READER_KEYS).find(is) ?? READER_KEYS.find(is)!).key);
+};
 /** The key that fetches or runs again: what an age line, a run-again control and a refusal name. */
 export const runAgainKey = (): string => keyOfAction("projection.refresh");
+/** The key that puts [ ] on the next element (PIE-1740): what a refusal that needs a position says to press. */
+export const nextElementKey = (): string => keyOfAction("element.select", 1);
 /** The key that writes a reply: what a reply put aside says brings it back. */
 export const replyKey = (): string => keyOfAction("note.reply");
 

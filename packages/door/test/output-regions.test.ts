@@ -10,6 +10,7 @@ import { SHADE } from "../src/embeds";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { bindExtensions } from "../src/extensions";
 import { forgetProjectionAnswers } from "../src/projection";
+import { reloadKeymap } from "../src/surface/keymap";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -261,6 +262,26 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       expect(flashes.find(f => /2 lines run/.test(f))).toMatch(/Horoscope|horoscope/);
       expect(flashes.find(f => /2 lines run/.test(f))).toContain("nothing ran");
       expect(refreshes).toEqual([]);
+    }, 40_000);
+
+    // PIE-1740: j and k never reach a line's [ ] position, only ] does; the refusal says which key, as the keymap has it.
+    test("the refusal names the key that steps onto a line, and a rebind follows it", async () => {
+      const { s } = await reader("Omens\nhoroscope:: virgo\n\nSome prose.\n\nfancy-horror:: virgo", /Virgo, \d{4}/);
+      s.letGo();
+      flashes.length = 0;
+      s.key(char("R"), host);
+      await until(() => flashes.some(f => /2 lines run/.test(f)), "the refusal said", 5000);
+      expect(flashes.find(f => /2 lines run/.test(f))).toContain("press ] to step onto one, then R");
+      const file = join(scratch.root, "keybindings.json");
+      await Bun.write(file, JSON.stringify({ "element.select by=1": ["n"], "projection.refresh": ["alt+r"] }));
+      process.env.EP0CH_KEYMAP = file;
+      reloadKeymap();
+      try {
+        flashes.length = 0;
+        s.key({ kind: "alt", ch: "r" }, host);
+        await until(() => flashes.some(f => /2 lines run/.test(f)), "the refusal said after the rebind", 5000);
+        expect(flashes.find(f => /2 lines run/.test(f))).toContain("press n to step onto one, then alt+r");
+      } finally { delete process.env.EP0CH_KEYMAP; reloadKeymap(); }
     }, 40_000);
 
     test("with [ ] on one of them R runs that line only; a note with one such line runs it with no position", async () => {
