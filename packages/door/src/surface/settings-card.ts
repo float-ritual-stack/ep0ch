@@ -293,7 +293,7 @@ export class SettingsCard {
     // An extension's foot is a try's answer or a refusal in the command's own words: wrapped, never cut (PIE-1709), and the
     // field rows leave room for every row of it (CodeRabbit on #1438: a narrow card cut the keys off its bottom).
     const footLines = !foot ? [] : ext ? rowLines(foot, w, 3, { hang: 2 }) : [drawEllipsized(foot, w)];
-    const room = Math.max(1, h - 1 - footLines.length);
+    const footRows = footLines.length, room = Math.max(1, h - 1 - footRows);
     // The rows: a section's heading (only with more than one), then its fields.
     const rows: ({ field: SettingField } | { heading: string })[] = [];
     for (const f of fields) {

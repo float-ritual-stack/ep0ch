@@ -214,6 +214,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     for (const f of restore.splice(0).reverse()) f();
   });
 
+  const isLog = (s: Screen): boolean => s instanceof StatusMessages;
   /** The message log drawn with only the rows it listed: what a key flashed since is the flash's, never the key's (PIE-1732's own row for it). */
   const asListed = <T>(top: Screen, draw: () => T): T => {
     if (!(top instanceof StatusMessages)) return draw();
@@ -241,7 +242,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         // The last paint drew this screen, nothing has changed or asked for a paint since, and no refusal copy is on its frame
         // (a probe leaves that out): its rows are the screen's.
         // The message log is always drawn again: its painted frame may hold its own row for what came since (asListed leaves that out).
-        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().pace.waiting && !(top instanceof StatusMessages);
+        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().pace.waiting && !isLog(top);
         try {
           const l0 = performance.now();
           const drawn = app.strips.draw(current ? painted!.lines : asListed(top, () => top.render(app)).lines, cols, rows);
