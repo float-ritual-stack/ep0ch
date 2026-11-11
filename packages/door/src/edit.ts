@@ -350,8 +350,10 @@ export class Draft {
   private record(by: Actor, what: string, unit?: PatchUnit, removes = false) {
     // The history is of what a save writes (`body`): a landing line nothing is typed on is in none of its steps, so the
     // history a save keeps ends on the saved text and the next edit takes it up (PIE-1741: after ctrl+End's line, none).
-    // Words typed on the landing line make it the person's: from then on it is theirs, a line made after it too.
-    if (this.landingRow !== null && this.lines.at(-1) !== "") this.landingRow = null;
+    // Words written on the landing line (typed or pasted there: CodeRabbit on #1444), or the line taken out, make it the
+    // person's: from then on it is theirs, a line made after it too. A change above it, or one only taking text out,
+    // leaves it pending (`seen` and the line are what was there).
+    if (this.landingRow !== null) { const was = `${this.seen}\n`, c = changeOf(was, this.text); if ((c.added > 0 && c.at + c.removed >= was.length) || this.lines.at(-1) !== "") this.landingRow = null; }
     const before = this.seen, after = this.body;
     if (after === before) return;
     this.seen = after;
@@ -413,7 +415,8 @@ export class Draft {
       this.row = p.row; this.col = p.col;
       this.anchor = null; this.goal = null; this.follow = true;
     }
-    this.seen = to;
+    // A snapshot never holds the landing line: what it puts in is all text (CodeRabbit on #1444).
+    this.seen = to; this.landingRow = null;
     this.flashes = [];
     this.status.letGo();
     this.markWriter(by);

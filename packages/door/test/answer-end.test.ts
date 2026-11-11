@@ -37,6 +37,30 @@ describe("ctrl+End under an answer that ends the note (PIE-1741)", () => {
     expect(raw(d, w)).toBe(false);
   });
 
+  test("a paste on the landing line is the person's, a line break at its end too (CodeRabbit on #1444)", async () => {
+    const d = new Draft("n1p", 3, LAST);
+    d.land("doc-start");
+    d.key({ kind: "end", ctrl: true });
+    d.key({ kind: "paste", text: "and the beds\n" });
+    await Bun.sleep(0);
+    expect(d.body).toBe(`${LAST}\nand the beds\n`);
+    expect(d.undos.at(-1)?.after).toBe(d.body);
+  });
+
+  test("an undo that puts a trailing line back keeps it, and redo still works (CodeRabbit on #1444)", async () => {
+    const d = new Draft("n1u", 3, "Garden\n");
+    d.place(1, 0);
+    d.key({ kind: "backspace" });
+    expect(d.text).toBe("Garden");
+    d.landAtEnd();                                                    // a reload's landing line
+    d.key({ kind: "char", ch: "z", ctrl: true });
+    await Bun.sleep(0);
+    expect([d.text, d.body]).toEqual(["Garden\n", "Garden\n"]);
+    d.key({ kind: "char", ch: "y", ctrl: true });
+    await Bun.sleep(0);
+    expect(d.body).toBe("Garden");
+  });
+
   test("an answer opened by hand: ctrl+End goes to its end, inside it", () => {
     const d = new Draft("n2", 3, LAST);
     d.land("doc-start");
