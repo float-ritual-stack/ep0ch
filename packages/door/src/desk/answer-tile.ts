@@ -25,7 +25,7 @@ export class AnswerTile implements Pane {
   ranges: LinkRange[] = [];
   /** Its reader went and a close is on its way (render). */
   private closing = false;
-  /** Where `f` folds the answer, as its reader was last drawn: the edit open on the note, else the note (PIE-1741). */
+  /** Where `f` folds the answer, as its reader was last drawn: the edit open on the note, else the reader (PIE-1741). */
   private foldsIn: keyof typeof FOLD_WHERE = "note";
   constructor(public source: string, public ask: string, public fold?: string) {}
   title() { return this.ask; }
@@ -123,11 +123,11 @@ const reading = (reader: ReaderPane) => !reader.surface.draft && !reader.msg;
  * Where `answer.fold` folds the answer, in the words its description and the tile's hint row both use (PIE-1741): the
  * answer in the edit open on its note (fold.toggle's draft branch), else the reader's callout.
  */
-export const FOLD_WHERE = { edit: "in the edit", note: "in the note" } as const;
+export const FOLD_WHERE = { edit: "in the edit", note: "in the reader" } as const;
 
 export const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
   "answer.fold": def({
-    summary: `fold or unfold this answer: ${FOLD_WHERE.edit} while one is open on its note, else ${FOLD_WHERE.note} as its reader shows it`, keys: "f", touches: "tile", replay: "safe",
+    summary: `fold or unfold this answer: ${FOLD_WHERE.edit} while one is open on its note, else ${FOLD_WHERE.note} (its callout as the note is read)`, keys: "f", touches: "tile", replay: "safe",
     args: {},
     async run(_, { pane, desk }, actor) {
       const reader = desk.paneNamed?.(pane.source);

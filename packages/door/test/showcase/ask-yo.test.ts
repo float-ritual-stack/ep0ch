@@ -925,7 +925,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       h.press({ kind: "up" });
       expect(draft()!.row).toBe(at);
       for (const w of [44, 177]) expect([w, raw(w)]).toEqual([w, false]);
-      // The answer tile's f says it folds the answer in the edit; with the edit saved, in the note.
+      // The answer tile's f says it folds the answer in the edit; with the edit saved, in the reader (its callout).
       const tile = answerTile();
       expect(tile).toBeDefined();
       const hint = () => { h.screen(); return Bun.stripANSI((stage().pane(tile!.name) as unknown as { hint(): string }).hint()); };
@@ -933,7 +933,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       h.press({ kind: "char", ch: "s", ctrl: true });
       await until(() => !draft(), "saved", 8000);
       await untilAsync(async () => (await read()).text.endsWith("and the beds are dug"), "the words saved after the answer", 8000);
-      expect(hint()).toContain("fold/unfold in the note");
+      expect(hint()).toContain("fold/unfold in the reader");
     } finally {
       if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
       await until(() => !draft(), "the edit closed", 8000);

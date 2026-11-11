@@ -25,6 +25,7 @@ import type { Key } from "./term";
 import { escByHint } from "./esc-rule";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { ANSWERED_ASK_STATES } from "@ep0ch/outline-core/ask-states";
 import { nextGraphemeEnd, previousGraphemeStart, wordEndAfter, wordEraseStart, wordStartBefore } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
 import type { ModeKey } from "./surface/modes";
@@ -1428,7 +1429,7 @@ export class Draft {
     // never the progress one door kept from watching it land (`· found 1 note · beside ▸`) or the service replays at the
     // first key. An answer landing while this draft is open says its own progress; asked again, under way, it does too.
     const key = Draft.askKey(line, nth), live = this.asks.get(key), saved = row === undefined ? undefined : this.savedAnswer(row);
-    const ask = saved && (!live || (this.answeredAtOpen().has(key) && !STILL_ASKING.has(live.state))) ? saved : live ?? saved;
+    const ask = saved && (!live || (this.answeredAtOpen().has(key) && (ANSWERED_ASK_STATES.has(live.state) || live.state === "answered"))) ? saved : live ?? saved;
     if (!ask) return "";
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
@@ -1497,8 +1498,6 @@ export class Draft {
   }
 }
 
-/** An ask's progress that isn't an answer yet (agent-requests.ts's states): under way, held, or nobody to answer it. */
-const STILL_ASKING = new Set(["queued", "working", "waiting", "unanswered", "nothing"]);
 
 /** The keys that select with shift held (`Draft.key`). */
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);

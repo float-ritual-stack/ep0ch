@@ -127,12 +127,15 @@ describe("an answered ask's row reads one way (PIE-1741)", () => {
   const MID = ["Garden notes", ASK, ...ANSWER, "and the beds are dug"].join("\n");
   test("the door that watched it land and a fresh door say the same", () => {
     const fresh = new Draft("n8", 3, MID), watched = new Draft("n8", 3, MID);
-    watched.progress({ line: ASK, state: "answered", warning: "found 1 note", blocks: 1, beside: true });
+    watched.progress({ line: ASK, state: "applied", warning: "found 1 note", blocks: 1, beside: true });
     expect(watched.askStatus(ASK, Infinity, 1)).toBe(fresh.askStatus(ASK, Infinity, 1));
     expect(fresh.askStatus(ASK, Infinity, 1)).toBe(" · answered");
     // Still under way (asked again), its progress speaks.
     watched.progress({ line: ASK, state: "working", blocks: 2, beside: true });
     expect(watched.askStatus(ASK, Infinity, 1)).toContain("working");
+    // Asked again and failed: it says so over the old answer.
+    watched.progress({ line: ASK, state: "failed", warning: "@yo took too long" });
+    expect(watched.askStatus(ASK, Infinity, 1)).toContain("took too long");
   });
 
   for (const w of [44, 177]) test(`the row is the same words with the cursor at the ask's end or elsewhere, at ${w}`, () => {

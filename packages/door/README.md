@@ -79,7 +79,7 @@ the ask. Clicking or moving the caret onto the ask selects the answer beside the
 `· answered` in every door, once its answer is in (PIE-1738, PIE-1741). → at the ask's end goes into the answer and opens it; the cursor leaving
 shuts it again, while one opened by hand (a click on that row, `f`) stays open until shut the same way. ctrl+End under an answer that ends
 the note goes to a line of its own after it, the answer still folded, and what you type goes there. In the answer tile, `f` opens or closes
-the fold (in the edit while one is open, else in the note; its hint row says which), ↑/↓ or the wheel scrolls, and a click or 1–9 follows a link or presses a button. A button pressed there acts as it does in
+the fold (in the edit while one is open, else the reader's callout; its hint row says which), ↑/↓ or the wheel scrolls, and a click or 1–9 follows a link or presses a button. A button pressed there acts as it does in
 the note: a tile-relative one (`tile.agent`, `tile.title` with no `tile=`) acts on the reader you're typing in, never the answer tile. The paired tile leaves the editor's keys alone.
 Gather the reader into a group or put it in the drawer with the edit still open, and the next ask (or the caret on one) opens
 the answer beside it there; one left behind on the screen it moved from closes, as a comment's tile does when its reader goes. The `asks` showcase demonstrates this with `@planter`.

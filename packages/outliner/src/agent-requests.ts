@@ -13,6 +13,7 @@ import type { ExtensionRegistry } from "./extension-registry";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
 import type { HeldAsk } from "@ep0ch/outline-core/protocol";
+import { ANSWERED_ASK_STATES } from "@ep0ch/outline-core/ask-states";
 import { decide, newChain, parseGrant, personAsk, type InvocationChain, type InvocationGrant } from "./invocation-grants";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
@@ -88,7 +89,7 @@ const MAX_WROTE_LINKS = 20;
 /** How long a removed request line's answer is kept, so undoing the removal doesn't ask again. */
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
-const ANSWERED: ReadonlySet<string> = new Set(["applied", "proposed", "replied", "nothing"]);
+const ANSWERED = ANSWERED_ASK_STATES;
 /** The first line of an answer's fold, as the service writes it; `ANSWER_HEAD` reads it back (and its agent). */
 const answerHead = (agent: string, mark: "+" | "-") => `> [!note]${mark} @${agent} answered`;
 const ANSWER_HEAD = /^>\s*\[!note\][+-]?\s+@([a-z][a-z0-9-]*)\s+answered\s*$/;
