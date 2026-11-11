@@ -2,11 +2,12 @@
 // scrolls (the lit row reads in full by itself, PIE-1140), and what's typed gets the line before the count does.
 import { describe, expect, test } from "bun:test";
 import { PowerBar } from "../src/bar/bar";
+import { ListPicker } from "../src/surface/picker";
 import { Overflow } from "../src/overflow";
 import { visible } from "../src/style";
 
 const row = { key: "page:glyphs", label: "Glyphs", detail: "draws a glyph beside every note that names a moon phase, a planet or a tarot card", chip: "rule", oneLine: true };
-const rowText = (on: boolean, w: number, r: object = row, previewUp = false, room = -1) => (PowerBar.prototype as any).rowText.call({ previewUp, picker: { view: { room } } }, { source: { id: "extensions" }, row: r }, on, w) as string[];
+const rowText = (on: boolean, w: number, r: object = row, previewUp = false, rows = 5) => (PowerBar.prototype as any).rowText.call({ previewUp }, { source: { id: "extensions" }, row: r }, on, w, rows) as string[];
 
 describe("the power bar at 44 and 40 columns", () => {
   for (const w of [42, 38]) test(`a lit row's name stays put while its detail scrolls (${w} cells)`, () => {
@@ -69,5 +70,19 @@ describe("the power bar at 44 and 40 columns", () => {
     const first = at(0);
     expect(first[1]).toEndWith("…");
     for (const now of [1500, 3000, 6000]) expect(at(now)).toEqual(first);
+  });
+
+  // CodeRabbit on #1429: the lit row was sized from the height the list was placed in last time. A bar that gets
+  // shorter (the pane resized to 44×13, a preview put under the list) drew the lit row for the old height, its last
+  // lines clipped with no mark. Sized from the height being drawn, it's cut at its end, marked.
+  test("a lit row sized for a list that got shorter is cut at its end, in the height drawn now", () => {
+    const items = [{ source: { id: "actions" }, row: long }];
+    const self = { previewUp: false };
+    const picker = new ListPicker({ name: "bar", items: () => items, row: (it, _i, on, w, rows) => (PowerBar.prototype as any).rowText.call(self, it, on, w, rows), choose() {} });
+    picker.lines(42, 12);
+    const shown = picker.lines(42, 3).map(l => visible(l).trimEnd());
+    expect(shown.length).toBeLessThanOrEqual(3);
+    expect(shown[0]).toStartWith(" tile.open · open a new tile");
+    expect(shown.at(-1)).toEndWith("…");
   });
 });

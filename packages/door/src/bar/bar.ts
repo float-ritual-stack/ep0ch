@@ -147,7 +147,7 @@ export class PowerBar {
       stays: true,
       name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (!this.compact() && it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
-      row: (it, _i, on, w) => this.rowText(it, on, w),
+      row: (it, _i, on, w, rows) => this.rowText(it, on, w, rows),
       // ⏎, a double click and a second click on a row (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
       choose: (_it, i) => this.pick(i + 1, this.alt),
       closed: () => { clearPrivateForm(); this.close(); },
@@ -518,8 +518,8 @@ export class PowerBar {
     this.litKey = keep;
   }
 
-  /** A row: its indent and mark, its words, then dim what it is and its key, as wide as the list. */
-  private rowText(it: BarItem, on: boolean, w: number): string[] {
+  /** A row: its indent and mark, its words, then dim what it is and its key, as wide as the list (`rows` high, as drawn now). */
+  private rowText(it: BarItem, on: boolean, w: number, rows: number): string[] {
     const r = it.row, head = ` ${"  ".repeat(Math.min(6, r.depth ?? 0))}${r.mark ? `${r.mark} ` : ""}`;
     const said = r.refused || r.subtitle || r.detail || "", detail = said ? ` · ${said}` : "";
     // Its kind at the right (an extension's: rule, script), once the words keep room to read (CHIP_ROOM columns).
@@ -533,7 +533,8 @@ export class PowerBar {
     // A row that wraps, lit, wraps whole as far as the list has rows (a heading's left above it; unlit, its two lines),
     // and none of its lines scrolls by itself (PIE-1729): the marquee on its last line read as a cut at that line's start
     // ("ecorded: comment on …" at 44 columns). One still too long is cut at its end; the pointer or alt+? reads it whole.
-    const list = this.picker.view.room, lit = list < 0 ? 4 : Math.max(2, list - 1);
+    // The height is this draw's, never the last one's: a bar that got shorter clipped it unmarked (CodeRabbit, #1429).
+    const lit = Math.max(2, rows - 1);
     const lines = r.oneLine && said && width(named) < room && width(head + r.label + detail) > room ? [named + cut(said, room - width(named))]
       : rowLines(head + r.label + detail, room, r.oneLine ? 1 : on ? lit : undefined, { hang: width(head) });
     const wraps = lines.length > 1;

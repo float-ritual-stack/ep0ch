@@ -13,7 +13,7 @@ scroll when long, and keep the whole value when shortening is unavoidable. All s
 `drawEllipsized`, `rowLines` or `fitHint`, never a local slice and ellipsis. Keep status messages whole until
 `App.flash`, so `status.list` and the message log retain them. `App.showMessage` is the one owner of what the status
 line shows: news of the door's own work (`MessageDetails.background`, an extension reload's "added") never replaces a
-message still up, and waits in the log (PIE-1727). A message stays up at least its reading time (`readingMs`, `src/status-log.ts`: a 150-character refusal about 12 s, at 177 columns as at 44), and one the bar cuts reads whole above it at every width (PIE-1729). A refusal that names a note by its id is thrown with `namesNote`
+message still up, and waits in the log (PIE-1727). A message stays up at least its reading time (`readingMs`, `src/status-log.ts`: a 150-character refusal about 12 s, at 177 columns as at 44), and one the bar cuts is said above it at every width, in up to four rows: a longer one ends its fourth with "… more alt+M", and the message log has the rest (`withWhole`, PIE-1453, PIE-1729). A refusal that names a note by its id is thrown with `namesNote`
 (`src/surface/dispatch.ts`), and `act` answers it with the note's title (`withNoteTitle`), never a bare UUID. The final composed frame owns reveal placement,
 including text inside floats: hover or keyboard selection shows the full value; Alt+? cycles clipped values.
 The one-line reveal scrolls if it is itself wider than the screen. Reading it never changes a click's action.
