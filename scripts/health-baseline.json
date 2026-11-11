@@ -340,6 +340,11 @@
         "packages/outliner/src/resource-extensions.ts:ExtensionProcessEnv",
         "packages/outliner/src/wire.ts:WireClosed"
       ]
+    },
+    "error-words": {
+      "sites": [
+        "packages/claude-mod/hooks/register.ts:513ad8df3bde10ec"
+      ]
     }
   },
   "files": {
@@ -357,7 +362,7 @@
     "packages/outliner/src/publish.ts": 3360,
     "packages/outliner/src/resource-catalog.ts": 4286,
     "packages/outliner/src/server.ts": 4272,
-    "packages/outliner/src/store.ts": 6138,
+    "packages/outliner/src/store.ts": 6137,
     "packages/outliner/src/tree-controller.ts": 3180,
     "packages/outliner/src/types.ts": 2712
   }

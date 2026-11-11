@@ -1,4 +1,4 @@
-import { Refusal } from "@ep0ch/outline-core/refusal";
+import { Refusal, refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { CompletionRequests } from "./completion-requests";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
@@ -3361,7 +3361,7 @@ export class OutlinerServer {
           // The person typed in the draft this hold keeps: a request line they wrote there runs once quiet and off the cursor's line.
           // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
           const hold = this.draftHolds.list().find(candidate => candidate.holdId === request.holdId);
-          if (!hold) throw new Error("This draft hold has expired or was released; hold the draft again");
+          if (!hold) throw new Refusal("not-found", "This draft hold has expired or was released; hold the draft again");
           void this.askHolder(hold, { kind: "read" }).then(answer => {
             if ("text" in answer && typeof answer.text === "string" && this.draftHolds.list().some(h => h.holdId === hold.holdId)) this.agentRequests.touched(hold.blockId, answer.text, hold.holdId, typeof answer.cursorLine === "number" ? answer.cursorLine : undefined); // a read landing after its hold ended is nobody's
           }).catch(() => {});
@@ -3897,7 +3897,7 @@ export class OutlinerServer {
     // Tests toss by hand, so what each toss carried is theirs to check.
     if (process.env.EP0CH_ECHONET_ARRIVAL_TOSS === "0") return;
     void this.extensionSchedules.runNow("echonet", "action:toss").catch((error: unknown) => {
-      if (attempt < 3 && /running now/.test(error instanceof Error ? error.message : String(error))) setTimeout(() => this.tossOnArrival(attempt + 1), 20_000).unref?.();
+      if (attempt < 3 && refusalKindOf(error) === "busy") setTimeout(() => this.tossOnArrival(attempt + 1), 20_000).unref?.();
     });
   }
 

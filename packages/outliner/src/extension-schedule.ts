@@ -1,3 +1,4 @@
+import { Refusal } from "@ep0ch/outline-core/refusal";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ExtensionSchedule, LoadedExtension } from "./extension-manifest";
@@ -279,7 +280,7 @@ export class ExtensionSchedules {
     }
     if (this.isRunning(entry)) {
       const elsewhere = this.holder(entry) !== this ? this.holder(entry).options.outline?.() : undefined;
-      throw new Error(`${extensionId}'s ${entryName} is running now${elsewhere ? ` (in ${elsewhere})` : ""}; it runs once at a time`);
+      throw new Refusal("busy", `${extensionId}'s ${entryName} is running now${elsewhere ? ` (in ${elsewhere})` : ""}; it runs once at a time`);
     }
     return this.runOne(entry);
   }

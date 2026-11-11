@@ -18,6 +18,7 @@
  * Views have no group-by, so day › project › session is the tree itself, and project › session › day is a view per
  * project (sorted by its last touch, its session and day shown on each row).
  */
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -171,7 +172,7 @@ export async function touchFile(client: AgentToolsClient, input: TouchFileInput,
     const updated = await client.request<Block>({ action: "update", blockId: existing.id, text, expectedRevision: existing.revision, mutation: mutationOf(actor) });
     return { id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, created: false, touches, ...sum, ...(snapshot ? { snapshot } : {}) };
   } catch (error) {
-    if (attempt >= 4 || !/revision/i.test(error instanceof Error ? error.message : String(error))) throw error;
+    if (attempt >= 4 || refusalKindOf(error) !== "stale-revision") throw error;
   }
   }
 

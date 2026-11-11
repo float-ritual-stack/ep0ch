@@ -832,10 +832,21 @@ export class OutlinerStore {
     parentId: string | null = null,
     author: BlockAuthor = "user",
     provenance?: BlockProvenance,
-    place: { id?: string; position?: number; requestId?: string } = {},
+    place: { id?: string; position?: number; requestId?: string; freePage?: true } = {},
   ): Block & { deduplicated?: true } {
     return createRequestedBlock(this.database, place.requestId, { text, parentId, position: place.position, id: place.id, author },
-      () => this.createAt(text, parentId, author, provenance, this.createdTime(), place.position, place.id), id => this.require(id));
+      () => this.createAt(place.freePage ? this.freePageFromCurrentRead(text)?.text ?? text : text, parentId, author, provenance, this.createdTime(), place.position, place.id), id => this.require(id));
+  }
+
+  /** Its one `[page::x]` as the next free `x-2`, `x-3`… when another live note holds `x` (a restore's, `freePage`'s); else null. */
+  private freePageFromCurrentRead(text: string, self?: string): { text: string; from: string; to: string } | null {
+    const tokens = parsePropertyRecords(text).filter((token) => token.scope === "block" && token.key === "page");
+    const desired = tokens.length === 1 ? tryNormalizePageAddress(tokens[0]!.value) : null;
+    const owner = desired && this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+    if (!desired || !owner || owner.block_id === self || (owner.kind !== "work-id" && this.inTrashFromCurrentRead(owner.block_id))) return null;
+    let to = "";
+    for (let n = 2; ; n++) { to = `${desired.displayAddress}-${n}`; const c = tryNormalizePageAddress(to); if (c && !this.pageAddressRowFromCurrentRead(c.normalizedAddress)) break; }
+    return { text: patchPropertyText(text, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: to }]), from: desired.displayAddress, to };
   }
 
   /** The last creation time `createdTime` gave; read from the outline the first time, so a reopened store goes on from it. */
@@ -3005,24 +3016,12 @@ export class OutlinerStore {
   private renameTakenPageFromCurrentRead(blockId: string, editedAt: string, provenance?: ReturnType<typeof normalizeMutationProvenance>): PageRename | null {
     const block = this.getFromCurrentRead(blockId);
     if (!block || block.effectiveDeletedRootId) return null;
-    const tokens = parsePropertyRecords(block.text).filter((token) => token.scope === "block" && token.key === "page");
-    if (tokens.length !== 1) return null;
-    const desired = tryNormalizePageAddress(tokens[0]!.value);
-    if (!desired) return null;
-    const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
-    // Free, its own, or held by another note in Trash (which gives it up to this one, as to any live note): kept.
-    if (!owner || owner.block_id === blockId || (owner.kind !== "work-id" && this.inTrashFromCurrentRead(owner.block_id))) return null;
-    let free = "";
-    for (let n = 2; ; n++) {
-      free = `${desired.displayAddress}-${n}`;
-      const candidate = tryNormalizePageAddress(free);
-      if (candidate && !this.pageAddressRowFromCurrentRead(candidate.normalizedAddress)) break;
-    }
-    const text = patchPropertyText(block.text, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: free }]);
-    this.writeBlockText(blockId, text, block.revision, editedAt);
-    this.replacePropertyIndex(blockId, parsePropertyRecords(text));
+    const free = this.freePageFromCurrentRead(block.text, blockId);
+    if (!free) return null;
+    this.writeBlockText(blockId, free.text, block.revision, editedAt);
+    this.replacePropertyIndex(blockId, parsePropertyRecords(free.text));
     if (provenance) this.recordActivity(blockId, provenance, "properties", editedAt);
-    return { blockId, from: desired.displayAddress, to: free };
+    return { blockId, from: free.from, to: free.to };
   }
 
   purge(id: string, confirmation: string): void {

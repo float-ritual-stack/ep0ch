@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { requesterOf } from "./socket";
 import { setAnsweringAgents } from "./answering-agents";
 import { extensionFacetSource, registerFacetSource, unregisterFacetSource } from "./facet-sources";
@@ -514,7 +515,7 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`, undefined, errorDetails(e));
     ctx.redraw();
     // A field the note's form asks for (PIE-828) isn't one of the action's own arguments: `act` takes it in with=.
-    if (a.fieldsFrom === "block" && e instanceof Error && / needs [a-z][a-z0-9_-]*=/.test(e.message)) throw new ActionRefused(`${e.message} · give the note's fields as with='{"<field>":"<value>"}'`);
+    if (a.fieldsFrom === "block" && e instanceof Error && refusalKindOf(e) === "invalid") throw new ActionRefused(`${e.message} · give the note's fields as with='{"<field>":"<value>"}'`);
     throw e;
   }
 }

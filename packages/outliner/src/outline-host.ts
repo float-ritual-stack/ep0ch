@@ -1,3 +1,4 @@
+import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { refusalEnvelope } from "./request-envelope";
 import { OutlineLinks } from "./outline-links";
 import { heldBy } from "./loop-watch";
@@ -586,7 +587,7 @@ export class OutlineHost {
     let release: () => void;
     try { release = acquireWorkspaceOwnership(real); }
     catch (error) {
-      if (!(error instanceof Error && error.message.startsWith("Outliner workspace is already owned"))) throw error;
+      if (refusalKindOf(error) !== "conflict") throw error;
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
     let started = false;

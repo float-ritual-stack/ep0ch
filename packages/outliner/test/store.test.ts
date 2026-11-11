@@ -2329,6 +2329,19 @@ Second paragraph`;
     expect(store.resolvePageAddress("2031-04-02-2").status).toBe("missing");
   });
 
+  test("a create with freePage takes the next free name a live note doesn't hold, and a name Trash holds as asked (PIE-1752)", () => {
+    const store = makeStore();
+    store.create("Mine [page::extensions]");
+    store.create("Also mine [page::extensions-2]");
+    expect(() => store.create("Hub [page::extensions]")).toThrow("is already the page of");
+    const hub = store.create("Hub [page::extensions]", null, "agent", undefined, { freePage: true });
+    expect(hub.text).toBe("Hub [page::extensions-3]");
+    expect(store.resolvePageAddress("extensions-3").block?.id).toBe(hub.id);
+    const binned = store.create("Old [page::lantern]");
+    store.delete(binned.id);
+    expect(store.create("New [page::lantern]", null, "agent", undefined, { freePage: true }).text).toBe("New [page::lantern]");
+  });
+
   test("a text rename takes a name an owner in Trash held, and that owner keeps its address across a restore when free", () => {
     const store = makeStore();
     const page = store.create("Lantern notes [page::Lantern]");
