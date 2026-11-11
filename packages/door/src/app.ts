@@ -1482,10 +1482,10 @@ export class App implements Ctx {
     if (k.kind === "paste" && paste(this.pasteDoor, k.text, w)) return;
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
-      // The key its "… more" names (the keymap's for status.log) and a click on the message said whole outside the bar
-      // read it in the log, as they do with the bar shut: the bar goes first, the log is under it (PIE-1732).
+      // While a message is said whole, the key its "… more" names and a click on it read it in the log, as with the bar
+      // shut: bar.close first (a question's form cleared as Esc clears it), the log under it (PIE-1732).
       const clicked = k.kind === "mouse" && k.action === "down" && k.y >= this.whole.top && k.y < this.whole.top + this.whole.rows;
-      if (clicked || opensLog(k.kind === "mouse" ? null : keyName(k))) { this.bar?.close(); this.bar = null; this.redraw(); void this.dispatch.press("status.log"); return; }
+      if (clicked || (this.whole.rows || this.bar?.doorMessage) && opensLog(k.kind === "mouse" ? null : keyName(k))) { void this.dispatch.press("bar.close").then(() => this.dispatch.press("status.log")); return; }
       // ctrl+z on a kept run answer takes the run back: the bar goes, the key goes on to the screen (Esc, then ctrl+z).
       if (this.bar && !this.bar.ended() && this.bar.takesBackRun(k)) { this.bar.close(); this.bar = null; this.redraw(); this.route(k, this.keyLayers()); return; }
       if (!this.bar!.ended()) this.bar!.key(k, this);
@@ -1837,7 +1837,6 @@ export class App implements Ctx {
         placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
       }
     }
-    if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     const bar = this.statusBar(s, cols);   // first: what it cuts short is said whole, and where (PIE-1732)
     // What the bar cuts short (a refusal at 40 columns) is said whole while it's up (PIE-1428), in up to four rows, the
     // last ending "… more ⇧⌥M" (the keymap's key for status.log); a click on it or that key opens the log (PIE-1453).
@@ -1854,6 +1853,7 @@ export class App implements Ctx {
       lines = overBar(lines, b, lookFor(this, { screen: s.title }, cols).values);
       placements = uncover(placements, r);
     }
+    if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     this.whole = { top: 0, rows: 0 };
     if (whole && place && place !== "inside") { const w = withWhole(lines, whole, cols, this.messageWarning, place); lines = w.lines; this.whole = { top: w.top, rows: w.rows }; }
     lines.push(bar);

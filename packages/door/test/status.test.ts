@@ -676,13 +676,20 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         await until(() => !(app as any).bar && app.screens().at(-1)?.title === "message log", `${how}: the log, the bar put away`);
         app.pop();
       }
+      // With no message said whole, ⇧⌥M is the bar's: it stays open, its line kept.
+      app.flash("");
+      await openBar();
+      press({ kind: "alt", ch: "M" });
+      await Bun.sleep(50);
+      expect((app as any).bar, "the bar stays with no message up").toBeTruthy();
+      expect(app.screens().at(-1)?.title).not.toBe("message log");
     } finally { if ((app as any).bar) await app.dispatch.act({ action: "bar.close" }, USER); size.rows = 40; size.cols = 220; app.flash(""); }
   });
 
-  test("the message log at 44×13 isn't covered: a message it lists reads in it; one that comes after reads on its own row; its hint row ends … (PIE-1732)", async () => {
+  for (const rows of [13, 20]) test(`the message log at 44×${rows} isn't covered: a message it lists reads in it; one that comes after reads on its own row; its hint row ends … (PIE-1732)`, async () => {
     try {
       app.video = "kitty";
-      size.cols = 44; size.rows = 13;
+      size.cols = 44; size.rows = rows;
       app.flash(longSaid, 60_000, { kind: "refusal" });
       await app.dispatch.act({ action: "status.log" }, USER);
       const log = app.screens().at(-1)!;
