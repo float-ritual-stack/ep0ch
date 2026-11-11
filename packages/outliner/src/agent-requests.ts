@@ -607,13 +607,15 @@ export class AgentRequests {
    * nothing, but the `@name` lines it holds now are what the next save is compared with: a line an
    * extension's write left is never taken for one the person's next save added.
    */
-  observe(blockId: string, actor?: MutationProvenance, created = false, requestedBy?: MutationProvenance): void {
+  observe(blockId: string, actor?: MutationProvenance, created = false, requestedBy?: MutationProvenance, demo = false): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (!block) return;
     // Capture precedes the wake decision, including when a loop guard holds the ask.
     const before = created ? new Set<string>() : this.before(blockId, block.text);
-    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined, requestedBy);
+    // A trigger's or a demo's line for the extension's own agent is no ask: it waits for a person's r (PIE-1737: installing
+    // tidy would run its demo's ask through the model).
+    const decided = this.holdWritten(blockId, block.text, actor, before, demo || this.viaTrigger(block.text) ? actor : undefined, requestedBy);
     this.wake(blockId, decided.wakes);
     this.remember(blockId, this.shapes(block));
     // Requests whose lines the write took out are withdrawn, as after any save.

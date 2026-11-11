@@ -489,7 +489,12 @@ test("a removed extension's settings come back when it is installed again, and b
   await server.start();
   const client = new OutlinerClient(socket);
   try {
-    await client.request({ action: "extensions.install", extension: "tidy", where: "outline" });
+    const installed = await client.request<{ page?: string }>({ action: "extensions.install", extension: "tidy", where: "outline" });
+    // Its demo's ask was written by the extension: it waits for a person's R, never spending a model call on install.
+    const demo = store.children(installed.page!).find(block => block.text.startsWith("Tidy, on a made-up garden meeting"))!;
+    expect(demo.text).toContain("\n@tidy clean up the transcript");
+    await Bun.sleep(300);
+    expect(store.agentRequests(demo.id).map(row => [row.status, row.requestedBy, row.message])).toEqual([]);
     const config = join(outline, "extensions", "tidy", "config.json");
     const settings = `${JSON.stringify({ config: { answer: ["/opt/made-up/model", "--slow"] } }, null, 2)}\n`;
     writeFileSync(config, settings, { mode: 0o600 });

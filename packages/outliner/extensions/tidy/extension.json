@@ -4,6 +4,7 @@
   "version": 1,
   "name": "Tidy",
   "description": "Ask @tidy to format the passage above, or to rewrite it as you say.",
+  "demo": "demo",
   "run": [
     "bun",
     "tidy.ts"
