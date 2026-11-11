@@ -52,7 +52,7 @@ import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
-import { pressedByPerson, renameInEdit } from "./rename-in-edit";
+import { pressedByPerson, renameInEdit, shows } from "./rename-in-edit";
 import { recordedAnswer, USER, whoOf, type Actor, type OutlineEvent, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
@@ -2470,7 +2470,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const note = m ?? reader?.msg ?? null;
     if (!note) throw new ActionRefused("nothing in that reader to find backlinks for");
     if (reader) { L.source = this.reference(reader) ?? L.source; boundSource.set(L, reader); }
-    const stays = !!reader?.editing && actor.kind === "agent" && actor.for === "you"; this.revealPane(L, actor, !stays); // a button they pressed while typing: shown beside, keys in the edit
+    const stays = !!reader?.editing && shows(actor); this.revealPane(L, actor, !stays); // a button they pressed while typing: shown beside, keys in the edit
     const d = dockOf(this.root, lid);
     if (d && !d.open) this.apply({ op: "slide", tile: lid, open: true }, actor);
     if (this.focus !== lid && !stays) { this.keysTo(lid, actor); this.entered.clear(); }
@@ -2488,7 +2488,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * ^W o p do), both by the actor: the layout's rules apply, so a locked screen says so.
    */
   async openLinks(r: Pane, actor: Actor, person: boolean, ancestor?: Msg): Promise<Record<string, unknown>> {
-    const rid = this.idOf(r), writing = r instanceof ReaderPane && r.editing && actor.kind === "agent" && actor.for === "you"; // a button they pressed while typing: the keys stay in the edit
+    const rid = this.idOf(r), writing = r instanceof ReaderPane && r.editing && shows(actor); // a button they pressed while typing: the keys stay in the edit
     const m = ancestor ?? (r instanceof ReaderPane ? r.msg : null);
     if (rid === undefined || !m) throw new ActionRefused("that reader isn't on this screen");
     // The screen's list `b` aims (a kind with `aim`: the links tile), one on screen first.
@@ -3652,7 +3652,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A pinned reader's hint row says where the opens aimed at it land instead (PIE-1207).
     for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.opensGo = p.pinned ? this.opensOf(id).short : null;
     // A preview following a list that quotes its selection (the backlinks: where the source mentions the note) says it.
-    for (const [id, p] of this.panes) if (p instanceof PreviewPane && "tile" in p.source) { const source = this.followsOf(id).source; const src = (source === undefined ? this.pane(p.source.tile) : this.panes.get(source)) as { snippet?(): string } | undefined; p.quote = src?.snippet && this.shownNow(p) ? src.snippet() : ""; }
+    for (const [id, p] of this.panes) if (p instanceof PreviewPane && "tile" in p.source) { const source = this.followsOf(id).source; const src = (source === undefined ? this.pane(p.source.tile) : this.panes.get(source)) as { snippet?(): string; subject?(): string | null } | undefined; p.quote = src?.snippet && this.shownNow(p) && (!src.subject || src.subject() === p.msg?.id) ? src.snippet() : ""; } // its title quotes the note it shows, never a selection since (PIE-1711)
     const canvas = new Canvas(cols, rows - 1);
     // A view built on the desk may keep rows above the tiles for its own art (the welcome's logo band).
     const band = this.band();
@@ -5663,7 +5663,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
     spec = canonSpec({ ...spec, ...(!empty ? { openedFrom: this.tileId(base.id), ...k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) } : {}) });
     const source = spec.selectFrom ? this.selectSource(spec.selectFrom) : undefined;
-    const { unnamed, ...asked } = also;
+    const { unnamed, ...given0 } = also, asked = shows(actor) && this.keys().typingIn ? { ...given0, keys: false as const } : given0; // a press that shows something leaves the keys where the person writes (PIE-1711)
     // Beside a tile, the layout's one rule says where (PIE-1559): a side asked for is that side (`there`), and none named
     // is beside it or below it, else a float (`beside`), for the person and an agent alike.
     const lands: Lands | null = typeof where !== "string" ? where : isDir(where) ? { prefers: unnamed ? "beside" : "there", dir: where } : null;

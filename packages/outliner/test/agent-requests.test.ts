@@ -521,6 +521,38 @@ test("in a live draft too: the same words typed above an answered ask are asked,
   expect(door.text.split("@count tally\n> [!note]").length - 1).toBe(2);
 });
 
+// PIE-1711, the verifier's re-walk: an answer belongs to its ask line. Typed on, then typed back, the line's answer is for the
+// words it says now, never one left from a keystroke since undone; and that line never swallows the same words asked anew.
+test("an ask typed on and back is answered for what it says now; the same words on a new line are answered too", async () => {
+  const { store, client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "echo-")), "echo.log");
+  await writeAgent("echo", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + request.input.request } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  const note = await create("Hub\nfirst line");
+  const door = await fakeDoor(client, "door-retype", note);
+  const type = async (text: string) => { door.text = text; await client.request({ action: "drafts.touch", holdId: door.holdId }); };
+  await type("Hub\nfirst line\n@echo hub items not sent");
+  await until("the first answer", () => door.text.includes("> for: hub items not sent"));
+  // Typed on: the answer follows the words.
+  await type(door.text.replace("@echo hub items not sent\n", "@echo hub items not sent AND\n"));
+  await until("the answer to the longer words", () => door.text.includes("> for: hub items not sent AND"));
+  // Typed back: the answer is for the words again, and only one answer is under the line.
+  await type(door.text.replace("@echo hub items not sent AND\n", "@echo hub items not sent\n"));
+  await until("the answer for the words as they are", () => door.text.includes("> for: hub items not sent\n") || door.text.endsWith("> for: hub items not sent"), );
+  expect(door.text).not.toContain("not sent AND");
+  expect(door.text.split("@echo answered").length - 1).toBe(1);
+  // The same words again on a new line: answered, under it.
+  await type(`${door.text}\n@echo hub items not sent`);
+  await until("the new line answered", () => door.text.split("@echo answered").length - 1 === 2);
+  expect(door.text.trimEnd()).toMatch(/@echo hub items not sent\n> \[!note\][-+] @echo answered\n> for: hub items not sent$/);
+  expect(store.agentRequests(note.id).length).toBeGreaterThanOrEqual(2);
+  // Asked once per wording it said, and once more for the new line: never twice for a line that already had its answer.
+  expect(asked()).toEqual(["hub items not sent", "hub items not sent AND", "hub items not sent", "hub items not sent"]);
+});
+
 test("an outline a host opens gets the same start: old @name lines baselined, cut-off requests failed (B5, B17 hosted)", async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-agents-hosted-")));
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });
@@ -838,3 +870,28 @@ process.exit(0);`);
     expect(unhandled.map(String)).toEqual([]);
   } finally { process.off("unhandledRejection", catcher); }
 }, 20_000);
+
+// PIE-1711, the verifier's re-walk: an answer that says what kept it from answering (no model, Jev not set up) is never
+// recalled for the same words: taken out and written again, the line is asked again.
+test("an answer marked retry is asked again when its line is taken out and written back; a real answer is recalled", async () => {
+  const { store, client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "flaky-")), "flaky.log");
+  await writeAgent("flaky", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+const down = request.input.request.startsWith("down");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: down ? "not set up here" : "found it", ...(down ? { retry: true } : {}) } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  for (const words of ["down find hub items", "up find hub items"]) {
+    const note = await create(`Hub\n@flaky ${words}`);
+    await until(`${words} answered`, () => asked().filter(a => a === words).length === 1 && store.agentRequests(note.id).some(r => r.answeredAt));
+    let current = store.get(note.id)!;
+    const answered = current.text;
+    // Taken out, then written back as it was (an undo would do the same).
+    await client.request({ action: "update", blockId: note.id, text: "Hub", expectedRevision: current.revision, mutation: PERSON });
+    current = store.get(note.id)!;
+    await client.request({ action: "update", blockId: note.id, text: answered, expectedRevision: current.revision, mutation: PERSON });
+    await Bun.sleep(600);
+    expect([words, asked().filter(a => a === words).length]).toEqual([words, words.startsWith("down") ? 2 : 1]);
+  }
+});

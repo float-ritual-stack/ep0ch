@@ -11,6 +11,9 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { projectionsOf } from "../projection";
 import { tileRegistry } from "./tile-registry";
 
+/** An agent's answer callout, as the service writes it under an ask line: `> [!note]+ @yo answered`. */
+const ANSWER_FOLD = /^>\s*\[!note\][+-]?\s+@[a-z][a-z0-9-]*\s+answered\s*$/;
+
 /** The same draft viewed beside its editor; no copied answer buffer or save path. */
 export class AnswerTile implements Pane {
   readonly kind = "answer";
@@ -33,8 +36,13 @@ export class AnswerTile implements Pane {
   }
   spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
   answer(text: string) {
-    const at = text.split("\n").indexOf(this.ask);
-    return foldPoints(text).find(p => this.fold ? p.key === this.fold : p.line === at + 1);
+    const lines = text.split("\n"), folds = foldPoints(text);
+    // Its ask's answer and nothing else: the agent's answer callout right under a line saying the ask (a heading or a
+    // callout of the person's there, or the ask gone, is no answer: CodeRabbit on #1428).
+    const answers = (p: { line: number }) => p.line > 0 && lines[p.line - 1] === this.ask && ANSWER_FOLD.test(lines[p.line] ?? "");
+    // The fold it was opened on (one of several lines saying the ask), else the one under its first: a save can give the
+    // same fold another key (PIE-1711, "Waiting for the answer…" over an answer already in the note).
+    return (this.fold ? folds.find(p => p.key === this.fold && answers(p)) : undefined) ?? folds.find(p => answers(p) && p.line === lines.indexOf(this.ask) + 1);
   }
   key(k: Key, desk: DeskApi) {
     const c = ch(k);

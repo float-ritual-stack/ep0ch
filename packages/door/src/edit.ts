@@ -166,7 +166,12 @@ export class Draft {
     this.position = position;
     this.follow = false;
   }
+  /** Each ask's progress, by its line's text and which line saying it (`askKey`): two lines in the same words are two asks (PIE-1722). */
   readonly asks = new Map<string, import("@ep0ch/outline-core/protocol").AskProgress>();
+  /** An ask's place in `asks`: its text, and its `nth` (from 0) among the lines saying it exactly. */
+  static askKey(line: string, nth = 0) { return nth ? `${line}\u0000${nth}` : line; }
+  /** Take an ask's progress, as the service sends it. */
+  progress(ask: import("@ep0ch/outline-core/protocol").AskProgress) { this.asks.set(Draft.askKey(ask.line, ask.nth), ask); }
   onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
   private openedFolds = new Set<string>();
@@ -984,7 +989,8 @@ export class Draft {
         }
       }
     }
-    if (p.replyTo && !p.replyGroup) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
+    // Said at once, for the first line saying it when none has said more (which of them it is, the service's progress says).
+    if (p.replyTo && !p.replyGroup && !this.asks.has(p.replyTo)) this.asks.set(p.replyTo, { line: p.replyTo, state: "replied", blocks: 1, beside: true });
     this.record(USER, "a change");
     const prior = p.replyGroup ? this.undos.find(step => step.unit?.group === p.replyGroup && sameParty(step.by, by)) : undefined;
     const rebased: { step: Step; before: string; after: string }[] = [];
@@ -1333,8 +1339,10 @@ export class Draft {
     this.onAskSelected?.(this.line, answer?.key);
   }
 
-  askStatus(line: string, room = Infinity): string {
-    const ask = this.asks.get(line);
+  /** The status of the ask `line` says; `row`, the line it is on, picks which of the lines saying it (the first when left out). */
+  askStatus(line: string, room = Infinity, row?: number): string {
+    const nth = row === undefined ? 0 : this.lines.slice(0, row).filter(l => l === line).length;
+    const ask = this.asks.get(Draft.askKey(line, nth));
     if (!ask) return "";
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.

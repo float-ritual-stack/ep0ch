@@ -10,6 +10,13 @@ import { USER, type Actor } from "../socket";
 export const pressedByPerson = (actor: Actor) => actor.kind === "user" || (actor.kind === "agent" && actor.for === "you" && actor.id.startsWith("script:"));
 
 /**
+ * The one rule for a button the person pressed while they type (PIE-1711): a step that shows something (a tile it opens,
+ * the links it aims) leaves the keys where they write; a step whose purpose is typing (facets.edit's query line) takes
+ * them to the line it opens. This says the first: a run on their press, not their own key.
+ */
+export const shows = (actor: Actor) => actor.kind === "agent" && actor.for === "you" && actor.id.startsWith("script:");
+
+/**
  * The person's own press (yo's ▸ rename beside the line, a button they pressed: a script run for them, as ask-agent.ts
  * reads it) retitles the first line of their edit as one undo step, saved with the rest: the new title. Their cursor and
  * selection stay on what they had (the draft's own patch maps them). A press that read the title of another note, or of

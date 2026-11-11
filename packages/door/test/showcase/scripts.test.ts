@@ -255,8 +255,11 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     // What the ask says when it doesn't land: its status and the draft's text.
     await until(() => d.text.includes("> [!note] Apples"), "the instructed rewrite in the live draft", 8000)
       .catch(e => { throw new Error(`${e.message}: ${JSON.stringify({ status: d.askStatus(instruction), yo: d.askStatus("@tidy yo"), text: d.text })}`); });
-    await until(() => d.askStatus(instruction).includes("rewrote 2 items as callouts") && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 8000)
-      .catch(e => { throw new Error(`${e.message}: ${JSON.stringify({ status: d.askStatus(instruction), yo: d.askStatus("@tidy yo") })}`); });
+    // The same words on two lines are two asks (PIE-1722), each with its own outcome: one patches the passage, the other
+    // finds it changed and says so. Each line's status is its own ask's, never the other's.
+    const both = () => { const at = d.lines.indexOf(instruction); return [d.askStatus(instruction, Infinity, at), d.askStatus(instruction, Infinity, at + 1)]; };
+    await until(() => both().some(s => s.includes("rewrote 2 items as callouts")) && both().some(s => s.includes("not applied")) && d.askStatus("@tidy yo").includes("answer command exited 2"), "every ask's outcome", 8000)
+      .catch(e => { throw new Error(`${e.message}: ${JSON.stringify(both())}`); });
     expect(d.text).toContain("- cherries\n@tidy earlier\nFruit to wrap:\n");
     expect(d.text).toContain(instruction + "\n" + instruction);
     expect((await board.get(d.blockId))!.text).toBe("");
@@ -265,7 +268,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     screen();
     const opened = await stage.dispatch.press("ask.beside", { ask: instruction }, tile) as { tile: string };
     const answer = stage.pane(opened.tile);
-    expect(answer?.render(100, 10, false, stage).lines.map(plain).join("\n")).toContain("rewrote 2 items as callouts");
+    expect(answer?.render(100, 10, false, stage).lines.map(plain).join("\n")).toMatch(/rewrote 2 items as callouts|not applied/);
     await stage.dispatch.press("draft.undo", {}, tile);
     expect(d.text).toBe(source);
     await stage.dispatch.press("edit.close", { discard: true }, tile);
