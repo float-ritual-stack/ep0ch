@@ -36,7 +36,7 @@ describe("each arm: the second press does what the first said", () => {
     const d = new Draft("n1", 1, "Sowing");
     d.undos = [{ what: "typing", before: "Sow", after: "Sowing", at: 0, caret: 6, by: USER, open: false, saved: 3 } as never];
     d.key(ctrl("z"));
-    expect(d.note).toContain("ctrl+z again undoes past it");
+    expect(d.note).toContain("ctrl+z again in 5s undoes typing");
     expect(d.text).toBe("Sowing");
     d.key(ctrl("z"));                                       // no pause: key repeat asks again
     expect(d.text).toBe("Sowing");
@@ -74,7 +74,7 @@ describe("any other key lets it go, and the line stops saying it", () => {
     setSystemTime(new Date(1_000_000 + UNDO_ASK_PAUSE_MS));
     d.key(ctrl("z"));
     expect(d.text).toBe("Sowing");
-    expect(d.note).toContain("ctrl+z again undoes past it");
+    expect(d.note).toContain("ctrl+z again in 5s undoes typing");
   });
 
   test("a snippet's tab between two escs is a key too", () => {

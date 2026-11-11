@@ -26,7 +26,7 @@ import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { editHunks } from "@ep0ch/outline-core/edit-merge";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
 import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
-import { chips, chipValue, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
+import { chips, chipValue, systemHome, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
 import { LOOPS_SECTION } from "./work-jev";
 import { JevAsks, tallyOf, type JevAsk } from "./jev-asks";
 import type { AnnotationThread, Block, MutationProvenance, VisibleBlockCollection } from "./types";
@@ -376,13 +376,13 @@ export function upgradeSuggestionsPage(text: string): string {
 
 async function suggestionsPage(client: SuggestionClient): Promise<void> {
   const has = await read(client, "system-view=jev-suggestions OR page=jevs-suggestions", 1);
-  if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+  if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: await systemHome(board(client)), author: JEV.author, provenance: JEV.provenance } as RequestInput);
   else {
     const page = has[0]!, text = upgradeSuggestionsPage(page.text);
     // An upgrade that can't be made now (the page changed meanwhile) is never why a record is lost: the next review tries again.
     if (text !== page.text) await client.request({ action: "update", blockId: page.id, text, expectedRevision: page.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } } as RequestInput).catch(() => undefined);
   }
-  if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+  if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: await systemHome(board(client)), author: JEV.author, provenance: JEV.provenance } as RequestInput);
 }
 
 /** Jev was asked and said nothing (`quiet`, with its reading), or couldn't be asked (`unavailable`): counted on the day's run. Never throws. */

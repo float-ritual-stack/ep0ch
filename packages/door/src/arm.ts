@@ -58,6 +58,7 @@ export const disarms = (k: Key) => !(k.kind === "mouse" && (k.action === "up" ||
 //   take(what) / press() holding → idle, saying whether this press confirms: past its pause, inside its window
 //   clear()              holding → idle (any other key, or a change the first press didn't see)
 //   the window out       holding → idle, by itself or at the first read after it (`lapsed` says so, once, when someone draws it)
+//   each tick (`tick`)   holding → holding, its owner told, so a window said as a countdown is drawn again (`left`)
 // Each owner keeps its own window, pause and words: the edit's esc twice, ctrl+x ctrl+e and ctrl+z at a save
 // (DraftStatus), a comment's ctrl+s twice, the look tuner's X X and R R, the door's quit, ctrl+], ^W x, an armed edit, a
 // [[page]] offered, a prefix's panel after its pause. A yes/no with rows is confirmPicker (surface/picker.ts): the safe
@@ -81,6 +82,8 @@ export interface AgainRule<T> {
   lapsed?(what: T): void;
   /** The pause passed while it still waits: for an owner that draws something then. */
   ripe?(what: T): void;
+  /** Every `ms` while it waits (its own timers, so a clear stops it): for an owner that draws what's left (PIE-1738). */
+  tick?: { ms: number; then(what: T): void };
 }
 
 /** One press waiting for its second. */
@@ -99,6 +102,8 @@ export class Again<T = true> {
     const h = this.held = { what, at: now }, elapsed = Date.now() - now, ms = this.window(what), pause = this.pause(what), { lapsed, ripe } = this.rule;
     if (lapsed && Number.isFinite(ms)) this.after(Math.max(0, ms - elapsed), () => { if (this.held === h) { this.clear(); lapsed(what); } });
     if (ripe && pause > 0 && pause > elapsed) this.after(pause - elapsed + 5, () => { if (this.held === h) ripe(what); });
+    const tick = this.rule.tick;
+    if (tick && tick.ms > 0) { const next = () => this.after(tick.ms, () => { if (this.held === h) { tick.then(what); next(); } }); next(); }
   }
   /**
    * The window ran out: let it go and say so, once. Its timer does this on time; on a busy machine the timer is late, and
@@ -126,6 +131,8 @@ export class Again<T = true> {
     return confirms;
   }
   private inTime(h: { what: T; at: number }, now: number) { const e = now - h.at; return e >= this.pause(h.what) && e < this.window(h.what); }
+  /** How long the window has left, in ms (0 when nothing waits; Infinity for a window with no end). */
+  left(now = Date.now()): number { this.lapse(now); const h = this.held; return h ? Math.max(0, this.window(h.what) - (now - h.at)) : 0; }
   /** What waits for its second press now, or null. */
   armed(now = Date.now()): T | null { this.lapse(now); return this.held?.what ?? null; }
   /** What waits and has waited its pause, or null. */

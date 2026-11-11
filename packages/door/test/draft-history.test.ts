@@ -212,8 +212,8 @@ describe("a draft's history", () => {
     expect(b.text).toBe("one two");                                    // the saved text stays: ctrl+z says so and asks
     expect(b.note).toContain("saved");
     expect(b.note).toContain("ctrl+z again");
-    // The ask first, whole on the draft's one row in a 40-column tile; what was saved after it (PIE-1428).
-    expect(b.note.split(" · ").slice(0, 2).join(" · ")).toBe("saved · ctrl+z again undoes past it");
+    // The ask first, whole on the draft's one row in a 40-column tile, with its window (PIE-1428, PIE-1738); what after it.
+    expect(b.note).toMatch(/^saved · ctrl\+z again in [1-5]s undoes /);
     type(b, "!");                                                      // anything else lets the question go
     await undo(b);
     expect(b.text).toBe("one two");
@@ -399,10 +399,10 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     const at = rows.findIndex(r => r.startsWith("saved · ctrl+z again"));
     expect(at).toBeGreaterThan(-1);
     expect(rows.every(r => r.length <= 40)).toBe(true);
-    // Its rows, joined, are the whole ask: the revision it keeps included.
+    // Its rows, joined, are the whole ask, its window counted down (PIE-1738).
     const joined = rows.slice(at, at + 4).join(" ").replace(/\s+/g, " ");
     expect(joined).toContain(said.replace(/\s+/g, " "));
-    expect(joined).toMatch(/revision \d+ stays in its history/);
+    expect(joined).toMatch(/ctrl\+z again in [1-5]s undoes/);
   }, 20_000);
 
   test("a saved paste taken back: revision.restore puts the earlier text in the edit (one step), ctrl+s saves it; the CLI lists, prints and restores", async () => {

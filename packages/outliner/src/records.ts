@@ -80,10 +80,19 @@ async function findNote(board: RecordWriter, where: string): Promise<Note | unde
   return (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0];
 }
 
-/** The outline's Records page, made on the first record. */
+/**
+ * Where the service's own pages go when it first makes one (the Records page, Jev's reviews page and its rule): under
+ * the outline's Extensions hub, which extension-pages.ts writes, never at the outline's top (PIE-1738: a fresh outline's
+ * first Jev find wrote "Records" there). An outline with no hub yet (no extension installed) has them at the top.
+ */
+export async function systemHome(board: RecordWriter): Promise<string | null> {
+  return (await findNote(board, "page=extensions"))?.id ?? null;
+}
+
+/** The outline's Records page, made on the first record. One made already stays where it is. */
 export async function recordsRoot(board: RecordWriter, who: RecordWho): Promise<Note> {
   return await findNote(board, "system-records=true")
-    ?? await board.request<Note>("create", { text: "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
+    ?? await board.request<Note>("create", { text: "Records [page::Records] [machine::record] [system-records::true]", parentId: await systemHome(board), ...who });
 }
 
 /**
