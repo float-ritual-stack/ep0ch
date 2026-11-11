@@ -327,9 +327,10 @@ describe("the facets tile's query line is the one line field with the draft's ke
     rebind({ "draft.erase to=word-back": ["alt+e"], "draft.clear": ["alt+k"] });
     try {
       const pane = new FacetsPane();
+      // Words given to the line (a button's ▸ edit the query) are typed on at their end (PIE-1731).
       pane.editQuery(desk, "seed beans");
       pane.key({ kind: "char", ch: "!" }, desk);
-      expect(pane.draft!.text).toBe("!");
+      expect(pane.draft!.text).toBe("seed beans!");
       pane.draft!.set("seed beans");
       pane.key(ctrl("w"), desk);
       expect(pane.draft!.text).toBe("seed beans");

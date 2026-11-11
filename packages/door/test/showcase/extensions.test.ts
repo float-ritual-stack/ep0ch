@@ -35,6 +35,28 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  // PIE-1731: the person's install and remove from the power bar say so on screen when they land.
+  test("installing and removing an extension as the person says so on the status bar", async () => {
+    // Each message with how long it is shown: long enough to read once the bar has closed.
+    const said: string[] = [], a = app as unknown as { showMessage(m: string, ms: number, ...rest: unknown[]): unknown }, show = a.showMessage.bind(a);
+    a.showMessage = (m: string, ms: number, ...rest: unknown[]) => { said.push(`${m} [${ms}]`); return show(m, ms, ...rest); };
+    const bar = () => (app as any).bar as { items: { row: { key: string } }[] };
+    // As the person does: the power bar's extensions, its row picked.
+    const pick = async (key: string, query: string) => {
+      await app.dispatch.act({ action: "bar.open", args: { scope: "extensions", query } }, USER);
+      await until(() => !!bar()?.items?.some(i => i.row.key === key), `the ${key} row`, 8000).catch(e => { throw new Error(`${e.message}: ${bar()?.items?.map(i => i.row.key).join(", ")}`); });
+      said.length = 0;
+      await app.dispatch.act({ action: "bar.pick", args: { n: bar().items.findIndex(i => i.row.key === key) + 1 } }, USER);
+    };
+    try {
+      await pick("install:horoscope", "horoscope");
+      await until(() => said.some(m => / installed · its page and demo notes are under Extensions \[(\d+)\]$/.test(m) && Number(/\[(\d+)\]$/.exec(m)![1]) >= 10_000), "the install said, for ten seconds", 15_000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(said)}`); });
+      await (app as any).loadExtensions(true);
+      await pick("remove:horoscope:keep", "horoscope");
+      await until(() => said.some(m => / removed\b.*\[(\d+)\]$/.test(m) && Number(/\[(\d+)\]$/.exec(m)![1]) >= 10_000), "the removal said, for ten seconds", 15_000).catch(e => { throw new Error(`${e.message}: ${JSON.stringify(said)}`); });
+    } finally { a.showMessage = show; }
+  }, 60_000);
+
   test("sysop shows a machine trip and calm updates the page through its real action", async () => {
     await app.act({ action: "section", args: { name: "sysop" }, as: "test-agent" });
     await until(() => screen().includes("kiln") && screen().includes("TEMPO"), "the sysop warning band");
@@ -947,4 +969,5 @@ describe.skipIf(!outliner)("the showcase: the door's own extension folders (PIE-
     expect(() => (h.app as any).bar.commandLine(1)).toThrow(/runs no act line/);
     await h.app.dispatch.press("bar.close", {});
   });
+
 });

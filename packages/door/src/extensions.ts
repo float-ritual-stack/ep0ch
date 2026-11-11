@@ -309,7 +309,8 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       say.flash(`installing ${nameOf(id)}…`);
       try {
         const r = await on.ctx.board.request("extensions.install", { extension: id, mutation: requesterOf(actor) });
-        say.flash(r.error ? `${nameOf(id)} is installed but ${r.state ?? "failed"}: ${oneLine(r.error)}` : `${nameOf(id)} installed · its page and demo notes are under Extensions${r.rulesEnabled ? ` · ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}`);
+        // Said long enough to read once the power bar closes (PIE-1731: four seconds went by unseen).
+        say.flash(r.error ? `${nameOf(id)} is installed but ${r.state ?? "failed"}: ${oneLine(r.error)}` : `${nameOf(id)} installed · its page and demo notes are under Extensions${r.rulesEnabled ? ` · ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}`, LANDED_MS);
         on.ctx.redraw();
         return r;
       } catch (e) {
@@ -335,7 +336,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       const say = asActor(on.ctx, actor);
       try {
         const r = await on.ctx.board.request("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
-        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo notes kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}`);
+        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo notes kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}`, LANDED_MS);
         on.ctx.redraw();
         return r;
       } catch (e) {
@@ -417,6 +418,9 @@ const takeFailedSteps = (run: string | undefined): string[] | undefined => {
  * Run an extension's action through the service (`extensions.act`) and say what it did. Its writes are the
  * extension's (`ext:<id>`), whoever asked; an agent's run is said as the agent's on the status bar.
  */
+/** How long an install or a removal the person asked for is said: past the bar closing and a glance back. */
+const LANDED_MS = 10_000;
+
 export function connectScriptActions(ctx: ExtOn["ctx"]): void {
   ctx.board.scriptAction = call => {
     if (!ctx.dispatch) return Promise.reject(new Error("The door dispatcher is unavailable"));
