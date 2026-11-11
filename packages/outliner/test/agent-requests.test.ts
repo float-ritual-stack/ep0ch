@@ -922,3 +922,25 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: down ? "not set 
     expect([words, asked().filter(a => a === words).length]).toEqual([words, words.startsWith("down") ? 2 : 1]);
   }
 });
+
+// PIE-1731, the verifier's walk: an ask line deleted and saved takes its answer with it, as the agent's write; an answer
+// the person changed is theirs and stays.
+test("a deleted ask takes its answer with it on save; an answer the person changed stays", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  await counted("count");
+  for (const changed of [false, true]) {
+    const note = await create(`Shelf ${changed}\nfirst\n@count tally\nlast`);
+    await until("answered", () => store.get(note.id)!.text.includes("@count answered"));
+    let current = store.get(note.id)!;
+    const without = current.text.replace("@count tally\n", "");
+    await client.request({ action: "update", blockId: note.id, text: changed ? without.replace("> noted", "> noted, and kept by me") : without, expectedRevision: current.revision, mutation: PERSON });
+    await Bun.sleep(600);
+    current = store.get(note.id)!;
+    if (changed) expect(current.text).toContain("@count answered");
+    else {
+      expect(current.text).toBe(`Shelf ${changed}\nfirst\nlast`);
+      // Taken out as the agent's write: its revision is the agent's, undone like any.
+      expect(store.revisions(note.id).revisions.find(r => r.revision === current.revision)?.author).toBe("agent");
+    }
+  }
+});

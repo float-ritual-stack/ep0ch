@@ -121,6 +121,9 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
   return found;
 }
 
+/** A save the person made (their keys, or a run they asked for as theirs). */
+const byPersonSave = (actor: MutationProvenance | undefined) => actor?.author === "user";
+
 /** The line an ask's progress is for: its text, and which of the lines saying it exactly (PIE-1722), when not the first. */
 const asked = (line: Pick<RequestLine, "text" | "nth">) => ({ line: line.text, ...(line.nth ? { nth: line.nth } : {}) });
 
@@ -453,6 +456,38 @@ export class AgentRequests {
     return out;
   }
 
+  /**
+   * A person's save took an ask line out (PIE-1731): the answer this service wrote under it goes too, when it is still
+   * there as it was written, as one write of the agent's (undone like any). An answer the person changed is theirs, and
+   * stays; a line taken out and put back (an undo) keeps its answer, since its request is there again.
+   */
+  private async dropOrphans(blockId: string, keys: readonly string[]): Promise<void> {
+    for (const [at, folds] of this.written) {
+      const [noteId, agent] = at.split("\0");
+      if (noteId !== blockId || !agent) continue;
+      for (const [fold, requestKey] of folds) {
+        if (keys.includes(requestKey)) continue;
+        const current = await this.deps.readDraft(blockId).catch(() => null);
+        const from = current ? current.text.indexOf(fold) : -1;
+        // Still where it was left: no ask line of its agent right above it (a line in other words asked it again).
+        // As written, whole: an answer the person typed on (a line after it, on its last line) is theirs now.
+        const after = current ? current.text[from + fold.length] : undefined;
+        if (!current || from < 0 || current.text.indexOf(fold, from + 1) >= 0 || (after !== undefined && after !== "\n")) continue;
+        const above = current.text.slice(0, from).split("\n").at(-1) ?? "";
+        if (requestLines(above, null).some(l => l.agent === agent)) continue;
+        const bound = this.registry.agent(agent);
+        if (!bound) continue;
+        const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(bound.extension.id) };
+        const outcome = await this.store.changes.run(
+          this.store.changes.attribution({ action: `ext.${bound.extension.id}.agent.${agent}`, actor }),
+          () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
+            patches: [{ observed: fold, range: { start: from, end: from + fold.length }, replacement: "" }] }),
+        );
+        if (outcome.outcome === "applied") folds.delete(fold);
+      }
+    }
+  }
+
   /** The text a block had before its newest revision, when the store still has it. */
   private previousText(block: Block): string | null {
     if (block.revision <= 1) return null;
@@ -692,6 +727,7 @@ export class AgentRequests {
     const rows = this.store.agentRequests(blockId);
     // A request still waiting for quiet that the note no longer has is withdrawn; rows follow the text.
     const known = this.withdraw(blockId, keys);
+    if (byPersonSave(actor)) void this.dropOrphans(blockId, keys).catch(() => {});
     // Most saves: no request lines, nothing known, nothing waiting. No event either.
     if (!lines.length && !known) return;
     const answered = new Set(rows.map((row) => row.requestKey));
