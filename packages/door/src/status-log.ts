@@ -5,6 +5,17 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSy
 import { join } from "node:path";
 import { outlineState } from "./state";
 import { printable } from "./text";
+import { referenceWords } from "./refs";
+import { width } from "./style";
+
+/**
+ * How long a message stays up so a person can read it, at any width (PIE-1729): a moment to look, then about 14
+ * characters a second, at most 30 s (the message log keeps it after). `App.showMessage` keeps each message at least
+ * this long; a short one keeps its caller's time.
+ */
+export function readingMs(text: string): number {
+  return Math.min(30_000, 1500 + width(referenceWords(printable(text, " "))) * 70);
+}
 
 export interface MessageContext { action?: string; tile?: string; note?: string }
 /**

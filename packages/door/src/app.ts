@@ -14,7 +14,7 @@ import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
 import { outlinesDir } from "./discover";
 import { actionFailure, errorDetails } from "./status-log";
-import { StatusLog, messageContext, type MessageDetails } from "./status-log";
+import { StatusLog, messageContext, readingMs, type MessageDetails } from "./status-log";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
@@ -876,7 +876,7 @@ export class App implements Ctx {
     if (details.background && this.message && !this.messageBackground && Date.now() < this.messageUntil) return;   // background news waits in the log while an answer is up (PIE-1727)
     this.messageWarning = warning; this.message = printable(msg, " "); this.messagePassing = !!details.passing; this.messageBackground = !!details.background;
     if (details.href) this.message = `\x1b]8;;${new URL(details.href).href}\x1b\\${this.message}${OSC8_CLOSE}`;
-    this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
+    this.messageUntil = Date.now() + Math.max(ms, readingMs(msg)); this.flashes++; this.redraw();   // never gone before it can be read (PIE-1729)
   }
   /** A message in the status bar: untrusted text stays plain; an explicit href supplies its clickable destination. */
   flash(msg: string, ms = 4000, details: MessageDetails = {}) { this.showMessage(fullPlainText(msg), ms, true, details); }
@@ -928,7 +928,7 @@ export class App implements Ctx {
     if (p === null) return;
     this.pressAgain.pressed(p, k);
     const r = this.refusedNow;
-    if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + 4000; }
+    if (r?.loud && this.message === r.text) { if (p !== r.press) this.message = ""; else this.messageUntil = Date.now() + Math.max(4000, readingMs(r.text)); }
     this.refusedNow = null;
     if (this.heldAfter && this.gesture.length && this.gesture.length < 4) this.gesture.push(p);
     else { this.gesture = [p]; this.gestures++; }

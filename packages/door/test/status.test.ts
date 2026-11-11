@@ -3,6 +3,7 @@ import { describe, expect, test, spyOn } from "bun:test";
 import xterm from "@xterm/headless";
 import { rowBytes } from "../src/term";
 import { App } from "../src/app";
+import { readingMs } from "../src/status-log";
 import { visible, width } from "../src/style";
 import { setTheme, theme } from "../src/theme";
 
@@ -108,6 +109,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     for (const note of await board.byProp("status-bar", "true")) await board.trash(note.id, USER);
     await app.loadExtensions();
     app.drawer.active = false;
+    // The glass's chip (kept on the bar) back to its default, off (◇×): a test that clicks it left it on (◇), a cell
+    // narrower, and a later one measured its room against that (PIE-1729: red run alone).
+    await app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, USER);
     app.video = initialVideo;
     setTheme(savedTheme);
     size.cols = 220;
@@ -564,14 +568,44 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   test("at 44 columns a short flash is whole; one the bar truly has no room for is cut and still whole above it and through status.bar.items (PIE-1598)", async () => {
     size.cols = 44;
     try {
-      app.flash("back to the door");
-      expect(bar()).toContain("back to the door");
+      // On the bar as a door starts (the glass off, ◇×, as afterEach leaves it), whatever ran before: 15 cells for it.
+      await app.dispatch.act({ action: "glass.mode", args: { set: "off" } }, USER);
+      app.flash("left the pty");
+      expect(bar()).toContain("left the pty");
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toMatchObject({ text: "left the pty", cut: false });
       const said = "the shed is locked until the frost has gone and the key is back on its hook";
       app.flash(said, 60_000, { kind: "refusal" });
       await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l).trim()).join(" ").replace(/\s+/g, " ").includes(said); }, "the whole sentence above the bar");
       expect(bar()).not.toContain(said);
       expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).message).toMatchObject({ text: said, cut: true });
     } finally { size.cols = 220; app.flash(""); }
+  });
+
+  test("a refusal the bar cuts reads whole above it at 177 as at 44, and stays as long as its length takes to read (PIE-1729)", async () => {
+    // A replayed recording whose note isn't open: the bar has room for its start only, at either width.
+    const said = "Line 1 (comment.note): no reader shows Compost bays; open it first (open id=0e8b63e9-9b37-4925-b47b-5cc15809a70a) · check the script and run it again";
+    const above = () => { app.flush(); return painted.slice(-8, -1).map(l => visible(l).trim()).join(" ").replace(/\s+/g, " "); };
+    const start = Date.now();
+    const clock = spyOn(Date, "now");
+    try {
+      for (const cols of [177, 44]) {
+        size.cols = cols;
+        clock.mockImplementation(() => start);
+        app.refuse(said);
+        expect(above(), `whole above the bar at ${cols}`).toContain(said);
+        expect(bar(), `cut on the bar at ${cols}`).not.toContain("run it again");
+        // Past the 4 s a refusal is given, it's still up: about 12 s for its 155 characters.
+        clock.mockImplementation(() => start + 8000);
+        (app as any).tick();
+        expect(above(), `still up at 8 s, ${cols}`).toContain("run it again");
+        clock.mockImplementation(() => start + readingMs(said) + 1);
+        (app as any).tick();
+        expect(above(), `gone once read, ${cols}`).not.toContain("run it again");
+        expect(bar()).not.toContain("Line 1");
+      }
+      // A short one keeps its own time: the reading time only lengthens what needs it.
+      expect(readingMs("back to the door")).toBeLessThan(4000);
+    } finally { clock.mockRestore(); size.cols = 220; app.flash(""); }
   });
 
   test("at 44 columns a message the bar cuts reads from its start, cut at its end, and stays so (PIE-1707)", async () => {
