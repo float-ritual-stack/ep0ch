@@ -216,6 +216,47 @@ describe("the window running out", () => {
   });
 });
 
+// PIE-1738: the undo's second press has a window, and the line says how much of it is left, second by second.
+describe("ctrl+z at a save says its window as a countdown", () => {
+  test("5s, then 4s, then 1s; gone when it runs out, and a ctrl+z after that asks again from 5s", () => {
+    setSystemTime(new Date(1_000_000));
+    const d = new Draft("n1", 1, "Sowing");
+    d.undos = [{ what: "typing", before: "Sow", after: "Sowing", at: 0, caret: 6, by: USER, open: false, saved: 3 } as never];
+    d.key(ctrl("z"));
+    expect(d.note).toBe("saved · ctrl+z again in 5s undoes typing");
+    setSystemTime(new Date(1_000_000 + 1_200));
+    expect(d.note).toBe("saved · ctrl+z again in 4s undoes typing");
+    setSystemTime(new Date(1_000_000 + 4_100));
+    expect(d.note).toBe("saved · ctrl+z again in 1s undoes typing");
+    setSystemTime(new Date(1_000_000 + AGAIN_MS));
+    expect(d.note).toBe("");
+    d.key(ctrl("z"));
+    expect(d.text).toBe("Sowing");
+    expect(d.note).toBe("saved · ctrl+z again in 5s undoes typing");
+  });
+
+  test("what act answers stays the same while the line counts down: no seconds in it, and the revision it keeps", () => {
+    setSystemTime(new Date(1_000_000));
+    const d = new Draft("n1", 1, "Sowing");
+    d.undos = [{ what: "typing", before: "Sow", after: "Sowing", at: 0, caret: 6, by: USER, open: false, saved: 3 } as never];
+    const r = d.undoStep(USER);
+    expect(r).toEqual({ asked: true, said: "saved · ctrl+z again undoes typing; revision 3 stays in its history" });
+  });
+
+  test("a waiting press ticks while it waits, so its owner draws the count; a clear stops it", async () => {
+    let ticks = 0;
+    const a = new Again<string>({ ms: 60, tick: { ms: 10, then: () => { ticks++; } } });
+    a.arm("undo");
+    await Bun.sleep(35);
+    expect(ticks).toBeGreaterThanOrEqual(2);
+    a.clear();
+    const at = ticks;
+    await Bun.sleep(30);
+    expect(ticks).toBe(at);
+    expect(a.left()).toBe(0);
+  });
+});
+
 describe("Again states its rule", () => {
   test("each `what` its own window and pause: too soon lets go, in the window confirms", () => {
     const a = new Again<"soon" | "any">({ ms: w => (w === "soon" ? 100 : Infinity), pause: w => (w === "soon" ? 10 : 0) });
