@@ -1,7 +1,8 @@
 // CodeRabbit on #1428: the answer tile shows its ask's answer, and nothing else: a note with its ask gone, or a heading
 // under the ask, has no answer to show.
 import { expect, test } from "bun:test";
-import { AnswerTile } from "../src/desk/answer-tile";
+import { AnswerTile, ANSWER_TILE } from "../src/desk/answer-tile";
+import { ReaderPane, type DeskApi } from "../src/desk/panes";
 
 const ask = "@yo find the shed jobs";
 
@@ -13,4 +14,13 @@ test("the answer tile finds the answer under its ask, never another fold", () =>
   // A heading or a callout of the person's under the ask: not its answer.
   expect(tile.answer(["Shed", ask, "## Jobs", "- paint"].join("\n"))).toBeUndefined();
   expect(tile.answer(["Shed", ask, "> [!tip] mine", "> words"].join("\n"))).toBeUndefined();
+});
+
+// CodeRabbit on #1435: a reader still reading its note (a door just restored) has no text yet: its answer tile isn't
+// said gone, and a save then keeps it.
+test("an answer tile beside a reader still reading its note is kept, and not said gone", () => {
+  const reader = new ReaderPane(), tile = new AnswerTile("reader", ask);
+  const desk = { paneNamed: (n: string) => (n === "reader" ? reader : undefined), redraw() {} } as unknown as DeskApi;
+  expect(ANSWER_TILE.kept!(tile, desk)).toBe(true);
+  expect(tile.render(40, 6, false, desk).lines.join(" ")).not.toContain("gone");
 });

@@ -55,8 +55,19 @@ interface PatchUnit { group?: string; patchIds?: string[]; patchId: string; by: 
  * `unit`: the agent patch it was, so undoing it takes it off the draft's patches too; with `removes`, the patch it took
  * back (an agent's own undo), so undoing that puts the patch back among them. `saved`: the revision a save wrote, on the last step
  * before it in a history carried over (`adopt`); ctrl+z stops there and asks before taking saved text back (PIE-1414).
+ * `follows`: an agent's write that came right after the step before it was saved (`followHistory`, PIE-1733), undone
+ * and redone with it as one.
  */
-export interface Step { before: string; after: string; by: Actor; what: string; at: number; caret: number; open: boolean; word?: boolean; unit?: PatchUnit; removes?: true; saved?: number }
+export interface Step { before: string; after: string; by: Actor; what: string; at: number; caret: number; open: boolean; word?: boolean; unit?: PatchUnit; removes?: true; saved?: number; follows?: true }
+
+/**
+ * A save and the agents' writes that followed it (newest first, as one undo takes them): "your save and yo's removal of
+ * its answer".
+ */
+const chainWhat = (chain: readonly Step[]): string => {
+  const save = chain.filter(x => !x.follows), after = chain.filter(x => x.follows).reverse().map(x => x.what);
+  return [save.every(x => x.by.kind === "agent" && sameParty(x.by, save[0]!.by)) ? `${patchLabel(save[0]!.by)}'s save` : "your save", ...after].join(" and ");
+};
 /** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
 export interface PatchFlash { start: number; end: number; label: string; until: number }
 /** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
@@ -348,7 +359,9 @@ export class Draft {
     }
     if (top) top.open = false;
     this.undos.push({ before, after, by: stripWith(by), what, at: now, caret: c.at + c.added, open: small, word, ...(unit ? { unit } : {}), ...(removes ? { removes: true as const } : {}) });
-    if (this.undos.length > UNDO_KEEP) this.undos.shift();
+    // Past the history's end a save takes the agents' writes that followed it along (CodeRabbit on #1435): undo never
+    // reaches one without the save it came after.
+    if (this.undos.length > UNDO_KEEP) { this.undos.shift(); while (this.undos[0]?.follows) this.undos.shift(); }
   }
 
   /** A paste is all in: one step, said when it's big. */
@@ -395,18 +408,41 @@ export class Draft {
     // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it. The ask
     // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
+    // An agent's write that followed the save (`follows`, PIE-1733: yo taking out the answer of an ask the save deleted)
+    // goes back with the step it followed, in one undo: the save and what it led to.
+    const chain = this.chainAt(this.undos.length - 1);
+    const what = chain.length > 1 ? chainWhat(chain) : s.what;
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
-      const said = this.status.say(`saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history`);
+      const said = this.status.say(`saved · ctrl+z again undoes past it · ${what}; revision ${s.saved} stays in its history`);
       if (by.kind !== "agent") this.status.arm("undo");
       return { asked: true, said };
     }
-    this.undos.pop();
-    s.open = false;
-    this.jump(s.before, by, editsOf(s, true));
-    if (s.unit) this.patches = s.removes ? [...this.patches, s.unit] : this.patches.filter(u => u !== s.unit && !s.unit?.patchIds?.includes(u.patchId));
-    this.redos.push(s);
-    return { asked: false, said: this.status.say(`undid ${s.what === "typing" ? "typing" : s.what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes`) };
+    for (const step of chain) {
+      this.undos.pop();
+      step.open = false;
+      if (step.unit) this.patches = step.removes ? [...this.patches, step.unit] : this.patches.filter(u => u !== step.unit && !step.unit?.patchIds?.includes(u.patchId));
+      this.redos.push(step);
+    }
+    const first = chain.at(-1)!;
+    if (chain.length > 1) this.redoChains.set(first, chain.length);
+    this.jump(first.before, by, chain.length > 1 ? null : editsOf(s, true));
+    return { asked: false, said: this.status.say(`undid ${what}${this.undos.length ? "" : " · the draft is as it started"} · ctrl+y redoes`) };
   }
+
+  /**
+   * The steps one undo takes from `i` down (newest first): the step; or, when it `follows` a save, the agents' writes after
+   * that save and the whole save, every step of it back to the save before (its `saved` mark) or the history's start:
+   * an ask deleted in two keys comes back whole with its answer, never its answer under an empty line (PIE-1733).
+   */
+  private chainAt(i: number): Step[] {
+    const chain: Step[] = [];
+    for (; i >= 0 && this.undos[i]!.follows; i--) chain.push(this.undos[i]!);
+    if (!chain.length) return i >= 0 ? [this.undos[i]!] : [];
+    for (let first = true; i >= 0 && (first || this.undos[i]!.saved === undefined); i--, first = false) chain.push(this.undos[i]!);
+    return chain;
+  }
+  /** A step undone as part of a whole save (`chainAt`), at the top of the redos: how many ctrl+y puts back with it. */
+  private redoChains = new WeakMap<Step, number>();
 
   /** ctrl+y (ctrl+shift+z): the last step undo took back, put back. An agent puts back only its own. */
   redo(by: Actor): string {
@@ -414,11 +450,17 @@ export class Draft {
     const s = this.redos.at(-1);
     if (!s) throw new ActionRefused("nothing to redo in this draft");
     if (by.kind === "agent" && !sameParty(s.by, by)) throw new ActionRefused("the next redo is someone else's change; an agent redoes only its own");
-    this.redos.pop();
-    this.jump(s.after, by, editsOf(s, false));
-    if (s.unit) this.patches = s.removes ? this.patches.filter(u => u !== s.unit && !s.unit?.patchIds?.includes(u.patchId)) : [...this.patches, s.unit];
-    this.undos.push(s);
-    return this.status.say(`redid ${s.what}`);
+    // A save undone whole with the agents' writes after it (PIE-1733) is put back whole, as one undo took it back.
+    const chain = this.redos.slice(-(this.redoChains.get(s) ?? 1)).reverse();
+    this.redoChains.delete(s);
+    for (const step of chain) {
+      this.redos.pop();
+      if (step.unit) this.patches = step.removes ? this.patches.filter(u => u !== step.unit && !step.unit?.patchIds?.includes(u.patchId)) : [...this.patches, step.unit];
+      this.undos.push(step);
+    }
+    const last = chain.at(-1)!;
+    this.jump(last.after, by, chain.length > 1 ? null : editsOf(s, false));
+    return this.status.say(`redid ${chain.length > 1 ? chainWhat([...chain].reverse()) : s.what}`);
   }
 
   /** What ctrl+z would take back now, for the keys line: `typing`, `the paste (340 lines)`, `tidy's edit`. */
@@ -1174,6 +1216,11 @@ export class Draft {
 
   /** The cursor goes `to`; `extend` keeps or starts a selection from where it was. */
   go(to: DraftGo, extend = false) { const p = this.landing(to); this.place(p.row, p.col, extend); }
+  /**
+   * Where the draft opens, `to` on its line: a landing, not the person's move, so an answer under an ask it lands on stays
+   * folded as the live edit draws it (PIE-1733: a reopened edit on an answered ask drew its callout's raw lines).
+   */
+  land(to: DraftGo) { const p = this.landing(to); this.place(p.row, p.col, false, false); }
 
   /** The word under the cursor, its line (again: the next line too) or the whole text selected. */
   selectWhat(what: "word" | "line" | "all") {
@@ -1271,14 +1318,14 @@ export class Draft {
   clip(text: string) { lineCompletionHooks.copy?.(text); }
 
   /** Put the cursor at line `row`, column `col` (UTF-16, clamped); `extend` keeps or starts a selection. */
-  place(row: number, col: number, extend = false) {
+  place(row: number, col: number, extend = false, select = true) {
     this.follow = true;
     const r = Math.max(0, Math.min(this.lines.length - 1, row));
     if (extend) this.anchor ??= { row: this.row, col: this.col };
     else this.anchor = null;
     this.row = r;
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
-    this.selectAsk();
+    if (select) this.selectAsk();
     // Back on where it started, nothing is selected: no anchor for esc to let go. A drag going on starts from the same place.
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col) this.anchor = null;
     this.goal = null;
@@ -1589,7 +1636,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ text }, d, actor) { d.pasteText(text, actor); return { line: d.row + 1, col: d.col + 1, note: d.note || null }; },
   }),
   "draft.undo": def({
-    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
+    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back, a step at a time; a save that agents wrote after (yo taking out the answer of an ask it deleted) goes back whole with their writes, in one undo. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
     args: { past: { type: "boolean", optional: true, about: "go past the save: take back text the note already holds (ctrl+z pressed again after it asked)" } },
     personWith: ({ past }) => (past ? { always: "going past a save takes back text the note already holds: only the person does that (their ctrl+z, pressed again after it asks)" } : null),
@@ -1604,7 +1651,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
   }),
   "draft.redo": def({
     words: "put back what you undid",
-    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo", says: "put back the change you undid" }, { via: "ctrl+shift+z (redo)" }],
+    summary: "put back what draft.undo took back, in order (a save it took back whole with the agents' writes after it goes back whole); any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo", says: "put back the change you undid" }, { via: "ctrl+shift+z (redo)" }],
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.redo(actor); return { redone: said, left: d.redos.length }; },

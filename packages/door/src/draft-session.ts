@@ -27,6 +27,7 @@ import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
 import { heldBack, MARK_THEM } from "./whereabouts";
+import { textAt } from "./desk/what-changed";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
 
@@ -209,7 +210,7 @@ export class DraftSession {
       s.draft.usePosition(init.position);
       // Opened on an ask line from its start (the reader's cursor there): at the ask's end, where typing or backspacing
       // works on the ask, never the line above it (PIE-1731).
-      if (s.draft.col === 0 && !s.draft.anchor && /^\s*(?:[-*+]\s+)?@[a-z][a-z0-9-]*(?=$|[\s:,])/.test(s.draft.lines[s.draft.row] ?? "")) s.draft.go("line-end");
+      if (s.draft.col === 0 && !s.draft.anchor && /^\s*(?:[-*+]\s+)?@[a-z][a-z0-9-]*(?=$|[\s:,])/.test(s.draft.lines[s.draft.row] ?? "")) s.draft.land("line-end");
     }
     if (target.blockId) {
       registry(env.board).add(s);
@@ -1219,6 +1220,47 @@ function keepHistory(place: string, revision: number, steps: Step[]) {
   histories.delete(place);
   histories.set(place, { revision, steps: [...steps] });
   for (const k of histories.keys()) { if (histories.size <= HISTORY_PLACES) break; histories.delete(k); }
+}
+
+/**
+ * The history kept at an edit's place, carried through the agents' writes that came straight after its save (PIE-1733:
+ * Evan deletes an ask and saves, yo takes its answer out): each a step of its own, the agent's, marked as following
+ * the step before it, so the next edit opened on the note as they left it takes the history up and one ctrl+z past the
+ * save takes back the save and what the agents did because of it together. Only an unbroken run of agents' revisions
+ * right after the save is carried: a person's write after it (another door's) ends the history there, as it always has.
+ */
+export async function followHistory(blockId: string, revision: number, board: Pick<SocketBoard, "get" | "revisions" | "revisionText">): Promise<void> {
+  const place = `edit:${blockId}`, h = histories.get(place);
+  if (!h || h.revision >= revision) return;
+  const list = await board.revisions(blockId).catch(() => null);
+  if (!list) return;
+  const after: { by: Actor; revision: number }[] = [];
+  for (let r = h.revision + 1; r <= revision; r++) {
+    const e = list.revisions.find(x => x.revision === r);
+    if (!e || e.author !== "agent" || !e.actorId) return;
+    after.push({ by: { kind: "agent", id: e.actorId }, revision: r });
+  }
+  const texts = new Map<number, string>();
+  try { for (const r of [h.revision, ...after.map(a => a.revision)]) texts.set(r, await textAt(board, list, r)); } catch { return; }
+  if (texts.get(h.revision) !== h.steps.at(-1)?.after) return;
+  // Taken up only if nothing else was kept here while the revisions were read (an edit saved again meanwhile).
+  if (histories.get(place) !== h) return;
+  const steps = after.map(({ by, revision: r }) => {
+    const before = texts.get(r - 1)!, text = texts.get(r)!;
+    return { before, after: text, by, what: agentWriteWhat(by, before, text), at: Date.now(), caret: text.length, open: false, follows: true as const };
+  });
+  // The save's own last step keeps its revision (`saved`): one undo past the agents' writes takes back that save whole.
+  keepHistory(place, revision, [...h.steps.slice(0, -1), { ...h.steps.at(-1)!, saved: h.revision }, ...steps]);
+}
+
+/** An agent's write as its undo step says it: taking its answer out, writing one, or an edit. */
+function agentWriteWhat(by: Actor, before: string, after: string): string {
+  // An extension's write is its name's (`ext:yo` is yo, as its `@yo` lines say it).
+  const id = actorIdOf(by), name = isExtensionWriter(id) ? id.slice("ext:".length) : actorName(id) || id;
+  const head = new RegExp(`^>\\s*\\[!note\\][+-]?\\s+@${name.replace(/[^\w-]/g, "")}\\s+answered\\s*$`);
+  const answers = (t: string) => t.split("\n").filter(l => head.test(l)).length;
+  const was = answers(before), now = answers(after);
+  return now < was ? `${name}'s removal of its answer` : now > was ? `${name}'s answer` : `${name}'s edit`;
 }
 
 /** How long after strays are dropped ctrl+z brings them back (ms). */
