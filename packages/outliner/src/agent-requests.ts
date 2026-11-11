@@ -919,12 +919,19 @@ export class AgentRequests {
       this.timers.delete(this.key(blockId, requestKey));
     }
     const by = requester(actor);
-    await Promise.all(asked.map((requestKey) => this.run(blockId, requestKey, by)));
+    // Each run goes on by itself (PIE-1737): this answers once every one is running (its row says so), never when it
+    // has answered, so the connection that pressed r keeps answering the door's opens, undos and reads meanwhile.
+    await Promise.all(asked.map((requestKey) => new Promise<void>((started) => {
+      void this.run(blockId, requestKey, by, undefined, started).catch(() => {}).finally(started);
+    })));
     return asked.length > 0;
   }
 
-  /** `askedBy`: who pressed `r` (absent when a save or a draft's quiet ran it). */
-  private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain): Promise<void> {
+  /**
+   * `askedBy`: who pressed `r` (absent when a save or a draft's quiet ran it). `onRunning` is called once its row says
+   * running (or it ends without running): what `refresh` answers on.
+   */
+  private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain, onRunning?: () => void): Promise<void> {
     const key = this.key(blockId, requestKey);
     if (this.stopped) return;
     if (this.running.has(key)) {
@@ -955,6 +962,7 @@ export class AgentRequests {
     this.live.set(key, { blockId, extensionId: extension.id, chain: chain ?? newChain(line.agent) });
     this.store.putAgentRequest({ ...base, status: "running" });
     this.deps.changed(blockId, { ...asked(line), state: "working" });
+    onRunning?.();
     let streamed = "", replySpan = line.text;
     const replyGroup = crypto.randomUUID();
     let blocks = 0;
