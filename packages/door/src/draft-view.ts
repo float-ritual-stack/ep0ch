@@ -319,7 +319,7 @@ export class RawRows {
       // move as the cursor comes and goes (PIE-1741: "drafts  · answered" at the ask, "drafts · answered" away from it).
       const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? d.askStatus(d.lines[r.line]!, Infinity, r.line) : "";
       const onStatus = cx >= cells.length && progress.startsWith(" ");
-      if (cx >= cells.length && !onStatus) cells.push(" ");
+      if (cx >= cells.length) { if (!onStatus) cells.push(" "); }
       // The line break is selected too (the selection goes on below this line): one lit cell after its text, so a blank line
       // in the selection, and where each line ends, can be seen. Not past the row's width.
       else if (sel && sel[0].row <= r.line && sel[1].row > r.line && rows[vi + 1]?.line !== r.line && r.indent + width(cells.join("")) < w1) { cells.push(" "); s1 = cells.length; }
