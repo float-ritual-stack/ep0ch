@@ -50,7 +50,9 @@ async function setup(o: { hostDelayMs?: number } = {}) {
   cleanups.push(async () => { fake.stop(true); await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
   const cliEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/^(HERDR_|OUTLINER_|EP0CH_)/.test(k)) cliEnv[k] = v;
-  Object.assign(cliEnv, env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
+  // PIE-1739: the CLI's answer carries the note drawn by a second `ep0ch show` process unless the preload's
+  // OUTLINER_WRITE_VIEW=off reaches it (stripped with the rest of OUTLINER_*): these writes are about their records.
+  Object.assign(cliEnv, env, { OUTLINER_WRITE_VIEW: "off", OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
   const agent = async (operation: string, input: unknown, actor = "loki/claude-code@float-box") => {
     const child = Bun.spawn(["bun", "src/cli.ts", "agent", operation, "--stdin", "--actor", actor, "--session", "s-9"], {
       cwd: join(import.meta.dir, ".."), env: cliEnv, stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe",

@@ -275,7 +275,9 @@ export class ScriptRuns {
 
   /** A formatter is an ordinary script called through the existing read-only renderer. */
   async format(input: { of: string; blockId?: string; line?: number; props: Record<string, string[]>; deadlineMs: number }) {
-    await this.registry.reload();
+    // Every note's attachments and every service tile draw through here: the registry as it stands, never a fresh read of
+    // every folder per drawing (PIE-1739).
+    await this.registry.current();
     const entries = scriptsAt(this.store, this.registry.list().extensions, input).filter(e => e.script);
     const entry = entries.find(e => e.name === input.of);
     if (!entry) {

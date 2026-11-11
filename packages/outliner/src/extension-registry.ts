@@ -341,6 +341,18 @@ export class ExtensionRegistry {
     return this.loading;
   }
 
+  /**
+   * The registry as of every change it has heard of, without reading every folder and script note again when nothing
+   * changed (PIE-1739: a render's own reload was ~150 ms of a ~180 ms `scripts.render` at load 5). While it watches, a
+   * folder's change schedules a reload and a script note's change starts one (the server's publishChanges): a reload
+   * under way is waited for, a scheduled one runs now. A registry that doesn't watch reads everything, as `reload` does.
+   */
+  current(): Promise<void> {
+    if (!this.watching) return this.reload();
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; return this.reload(); }
+    return this.loading ?? Promise.resolve();
+  }
+
   private sourceSlot(source: ManifestSource, now: string): Slot {
     const identity = { script: source.script, name: source.scriptName };
     try {

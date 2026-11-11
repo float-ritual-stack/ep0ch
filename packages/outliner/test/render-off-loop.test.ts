@@ -123,3 +123,21 @@ test("a render script that fails on its own says its own error, with no advice a
     await server.close();
   }
 }, 30_000);
+
+// PIE-1739: a drawing reads the registry as it stands rather than every folder and script note again; what changed since
+// still draws at once. A script note written, then edited, through the service is drawn as written the moment after.
+test("a render script written or edited through the service draws as written on the next drawing", async () => {
+  const { server, path } = await host();
+  const drawing = door(path);
+  try {
+    const made = await drawing.request({ action: "create", parentId: null, text: "Seed count [script::seed-count] [mode::render]\n```js\nreturn \"twelve trays\";\n```", author: "user" });
+    expect(made.ok, made.error).toBe(true);
+    expect((await drawing.request({ action: "scripts.render", of: "seed-count", props: {}, deadlineMs: 5000 })).result.markdown).toContain("twelve trays");
+    const edited = await drawing.request({ action: "update", blockId: made.result.id, expectedRevision: made.result.revision, text: "Seed count [script::seed-count] [mode::render]\n```js\nreturn \"fourteen trays\";\n```", mutation: { author: "user" } });
+    expect(edited.ok, edited.error).toBe(true);
+    expect((await drawing.request({ action: "scripts.render", of: "seed-count", props: {}, deadlineMs: 5000 })).result.markdown).toContain("fourteen trays");
+  } finally {
+    drawing.socket.destroy();
+    await server.close();
+  }
+}, 30_000);
