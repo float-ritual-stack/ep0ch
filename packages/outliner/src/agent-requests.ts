@@ -293,7 +293,15 @@ export class AgentRequests {
     of: (blockId: string): Record<string, [string, string][]> => { try { return JSON.parse(this.store.readMetadata(this.answers.key(blockId)) ?? "{}"); } catch { return {}; } },
     put: (blockId: string, agent: string, fold: string, requestKey: string, was: string) => {
       const all = this.answers.of(blockId), gone = was ? this.answers.hash(was) : "";
-      all[agent] = [...(all[agent] ?? []).filter(([h]) => h !== gone), [this.answers.hash(fold), requestKey] as [string, string]].slice(-50);
+      all[agent] = [...(all[agent] ?? []).filter(([h]) => h !== gone), [this.answers.hash(fold), requestKey] as [string, string]];
+      this.store.writeMetadata(this.answers.key(blockId), JSON.stringify(all));
+    },
+    // No cap (CodeRabbit on #1434): one that dropped the oldest dropped answers still in the note. An answer taken out
+    // with its ask is forgotten; one a person deleted by hand stays, a few dozen bytes.
+    forget: (blockId: string, agent: string, fold: string) => {
+      const all = this.answers.of(blockId), gone = this.answers.hash(fold);
+      if (!all[agent]?.some(([h]) => h === gone)) return;
+      all[agent] = all[agent]!.filter(([h]) => h !== gone);
       this.store.writeMetadata(this.answers.key(blockId), JSON.stringify(all));
     },
   };
@@ -543,7 +551,7 @@ export class AgentRequests {
           () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
             patches: [{ observed: fold, range: { start: from, end: from + fold.length }, replacement: "" }] }),
         ).catch(() => null);
-        if (outcome?.outcome === "applied") folds.delete(fold);
+        if (outcome?.outcome === "applied") { folds.delete(fold); this.answers.forget(blockId, agent, fold); }
         // The door that saved is still letting go of its draft (the save comes before its release): taken out once it has,
         // or now, when its release came while this was refused.
         else if (this.deps.heldDraft?.(blockId) ?? true) this.orphansAfterRelease.add(blockId);

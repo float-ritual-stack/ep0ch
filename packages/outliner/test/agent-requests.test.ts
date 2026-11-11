@@ -1038,3 +1038,26 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: up ? "found 2 no
   await after.request({ action: "update", blockId: note.id, text: now.text.replace(/\n@flaky find hub items/, ""), expectedRevision: now.revision, mutation: PERSON });
   await until("the answer taken with its ask", async () => !(await after.request<Block>({ action: "get", blockId: note.id } as never)).text.includes("@flaky answered"));
 });
+
+// CodeRabbit on #1434: the answers kept across a restart had a cap of 50 per agent and note, so in a note asked more often
+// than that (answers gone since still counted) the oldest answer still there was no longer the agent's after a deploy.
+test("every answer still in a note is the agent's after a restart, however many it has had", async () => {
+  const { store, client, create, writeAgent, restart } = await setup({ quietMs: 50 });
+  await writeAgent("echo", `const request = await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "re " + request.input.request } }));`);
+  const note = await create("Many asks\n@echo first item\nlast");
+  const get = () => client.request<Block>({ action: "get", blockId: note.id } as never);
+  await until("the first answer", async () => (await get()).text.includes("re first item"));
+  // Fifty answers this note had since, gone now (deleted by hand, or with their asks).
+  const kept = JSON.parse(store.readMetadata(`agent-answers:${note.id}`) ?? "{}") as Record<string, [string, string][]>;
+  kept.echo = [...kept.echo!, ...Array.from({ length: 50 }, (_, i) => [`gone-${i}`, `key-${i}`] as [string, string])];
+  store.writeMetadata(`agent-answers:${note.id}`, JSON.stringify(kept));
+  const before = await get();
+  await client.request({ action: "update", blockId: note.id, text: `${before.text}\n@echo second item`, expectedRevision: before.revision, mutation: PERSON });
+  await until("the second answer", async () => (await get()).text.includes("re second item"));
+  await restart(50, true);
+  const fresh = new OutlinerClient(client.socketPath), read = () => fresh.request<Block>({ action: "get", blockId: note.id } as never);
+  const now = await read();
+  await fresh.request({ action: "update", blockId: note.id, text: now.text.replace("@echo first item\n", ""), expectedRevision: now.revision, mutation: PERSON });
+  await until("the first answer taken with its ask", async () => !(await read()).text.includes("re first item"));
+});
