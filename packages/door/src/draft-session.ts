@@ -210,7 +210,7 @@ export class DraftSession {
     }
     if (target.blockId) {
       registry(env.board).add(s);
-      s.hold = env.board?.holdDraft?.(target.blockId, s.draft.base, r => s.answer(r), ask => { s.draft.asks.set(ask.line, ask); env.redraw?.(); }) ?? null;
+      s.hold = env.board?.holdDraft?.(target.blockId, s.draft.base, r => s.answer(r), ask => { s.draft.progress(ask); env.redraw?.(); }) ?? null;
       // The person's typing reaches the service (drafts.touch): an @name line they write runs before any save.
       s.draft.onPersonTyped = () => { if (!s.ended) s.hold?.touched?.(); };
     }

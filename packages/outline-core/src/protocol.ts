@@ -814,7 +814,11 @@ export interface CompletionPickedRequest {
 export type CompletionOutcome = "accepted" | "edited" | "ignored";
 
 /** Progress for an ask in a held draft; the line stays authored text. */
-export interface AskProgress { line: string; state: string; blocks?: number; beside?: boolean; warning?: string }
+/**
+ * An ask's progress, for the line that says `line`. `nth`: which of the lines saying it word for word (from 0; left out, the
+ * first): two lines in the same words are two asks (PIE-1722), each with its own outcome.
+ */
+export interface AskProgress { line: string; nth?: number; state: string; blocks?: number; beside?: boolean; warning?: string }
 
 /** Current non-deleted blocks, measured in Unicode characters; p90 uses nearest rank. */
 export interface BlockSizeSummary { blocks: number; characters: number; median: number; p90: number }

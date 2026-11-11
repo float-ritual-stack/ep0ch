@@ -64,6 +64,8 @@ export interface RequestLine {
   readonly requestKey: string;
   /** The key of these words' first line: what a baseline written before PIE-1722 keyed every repeat by. */
   readonly wordsKey: string;
+  /** Which of the lines written exactly so it is (from 0): what an ask's progress names it by, beside its text. */
+  readonly nth: number;
 }
 
 const REQUEST = /^([ \t]*(?:[-*+][ \t]+)?)@([a-z][a-z0-9-]{0,31})(?=$|[\s:,])[:,]?[ \t]*(.*)$/;
@@ -96,7 +98,7 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
   const literal = scanPropertyLiteralRanges(text);
   const found: RequestLine[] = [];
   // The same words asked again further down are a request of their own (PIE-1722): the first keeps the plain key.
-  const seen = new Map<string, number>();
+  const seen = new Map<string, number>(), same = new Map<string, number>();
   let offset = 0;
   text.split("\n").forEach((raw, line) => {
     const start = offset;
@@ -109,14 +111,18 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
     if (literal.some((range) => range.start <= at && at < range.end)) return;
     const request = match[3]!.trim(), words = `${match[2]}\0${request}`, again = seen.get(words) ?? 0;
     seen.set(words, again + 1);
-    const wordsKey = createHash("sha256").update(words).digest("hex").slice(0, 32);
+    const wordsKey = createHash("sha256").update(words).digest("hex").slice(0, 32), nth = same.get(content) ?? 0;
+    same.set(content, nth + 1);
     found.push({
-      agent: match[2]!, request, text: content, line, start: at, end: start + content.length, wordsKey,
+      agent: match[2]!, request, text: content, line, start: at, end: start + content.length, wordsKey, nth,
       requestKey: again ? createHash("sha256").update(`${words}\0${again}`).digest("hex").slice(0, 32) : wordsKey,
     });
   });
   return found;
 }
+
+/** The line an ask's progress is for: its text, and which of the lines saying it exactly (PIE-1722), when not the first. */
+const asked = (line: Pick<RequestLine, "text" | "nth">) => ({ line: line.text, ...(line.nth ? { nth: line.nth } : {}) });
 
 /** The notes an answer wrote, as links: `wrote 2 notes: ((id|Title)), ((id|Title))`. */
 function wroteLinks(wrote: readonly { id: string; title: string }[]): string {
@@ -583,7 +589,7 @@ export class AgentRequests {
         blockId, requestKey: line.requestKey, agent: line.agent, extensionId: bound.extension.id, request: line.request,
         status: verdict.denied ? "nothing" : "waiting", message: `${verdict.denied ? "" : "held: "}${verdict.why}`, requestedBy: by, requestedAt: new Date(this.now).toISOString(),
       });
-      this.deps.changed(blockId, { line: line.text, state: verdict.denied ? "nothing" : "waiting", warning: `${verdict.denied ? "" : "held: "}${verdict.why}` });
+      this.deps.changed(blockId, { ...asked(line), state: verdict.denied ? "nothing" : "waiting", warning: `${verdict.denied ? "" : "held: "}${verdict.why}` });
     }
     if (out.recorded.length) this.deps.changed(blockId);
     return out;
@@ -731,7 +737,7 @@ export class AgentRequests {
     if (!block || !this.asksInPlace(block)) return;
     const names = this.registry.agentNames();
     for (const line of requestLines(text, null)) {
-      if (!names.has(line.agent)) this.deps.changed(blockId, { line: line.text, state: "unanswered", warning: this.unanswered(line.agent) });
+      if (!names.has(line.agent)) this.deps.changed(blockId, { ...asked(line), state: "unanswered", warning: this.unanswered(line.agent) });
     }
     this.follow(blockId, block.text, text);
     const lines = requestLines(text, names);
@@ -750,7 +756,7 @@ export class AgentRequests {
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
       const row = rows.get(line.requestKey);
-      if (row) this.deps.changed(blockId, { line: line.text, state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
+      if (row) this.deps.changed(blockId, { ...asked(line), state: row.status, ...(row.message ? { warning: row.message } : {}), ...(row.status === "replied" ? { beside: true } : {}) });
       // The key includes the wording; other lines changing leave its deadline alone.
       if (this.timers.has(key)) continue;
       if (before.has(line.requestKey) || answered.has(line.requestKey) || this.running.has(key)) continue;
@@ -759,7 +765,7 @@ export class AgentRequests {
         this.store.putAgentRequest(kept);
         continue;
       }
-      this.deps.changed(blockId, { line: line.text, state: "queued" });
+      this.deps.changed(blockId, { ...asked(line), state: "queued" });
       this.schedule(blockId, line.requestKey);
     }
   }
@@ -833,7 +839,7 @@ export class AgentRequests {
     this.running.add(key);
     this.live.set(key, { blockId, extensionId: extension.id, chain: chain ?? newChain(line.agent) });
     this.store.putAgentRequest({ ...base, status: "running" });
-    this.deps.changed(blockId, { line: line.text, state: "working" });
+    this.deps.changed(blockId, { ...asked(line), state: "working" });
     let streamed = "", replySpan = line.text;
     const replyGroup = crypto.randomUUID();
     let blocks = 0;
@@ -844,7 +850,7 @@ export class AgentRequests {
       if (this.stopped || !this.running.has(key)) return;
       const said = this.progress(line.agent, started);
       this.store.putAgentRequest({ ...base, status: "running", message: said });
-      this.deps.changed(blockId, { line: line.text, state: "working", warning: said, ...(blocks ? { blocks, beside: true } : {}) });
+      this.deps.changed(blockId, { ...asked(line), state: "working", warning: said, ...(blocks ? { blocks, beside: true } : {}) });
     };
     let ticker: ReturnType<typeof setInterval> | undefined;
     const first = setTimeout(() => { tick(); ticker = setInterval(tick, this.deps.progressMs ?? PROGRESS_MS); }, this.deps.workingAfterMs ?? WORKING_AFTER_MS);
@@ -897,7 +903,7 @@ export class AgentRequests {
         this.wroteAnswer(blockId, line.agent, replacement.slice(line.text.length), was, requestKey);
         replySpan = replacement;
         blocks = streamed.split(/\n\s*\n/).filter(part => part.trim()).length;
-        this.deps.changed(blockId, { line: line.text, state: "working", blocks, beside: true });
+        this.deps.changed(blockId, { ...asked(line), state: "working", blocks, beside: true });
       };
       const result = await this.runtime.invokeLoaded(extension, "respond", {
         agent: line.agent,
@@ -996,7 +1002,7 @@ export class AgentRequests {
       // Different whitespace, or an identical ask twice, shares one run but every visible line gets its outcome.
       const text = await this.deps.readDraft(blockId).catch(() => null);
       const marks = text ? requestLines(text.text, this.registry.agentNames()).filter(l => l.requestKey === requestKey) : [line];
-      for (const mark of marks) this.deps.changed(blockId, { line: mark.text, state: answer?.status ?? "withdrawn",
+      for (const mark of marks) this.deps.changed(blockId, { ...asked(mark), state: answer?.status ?? "withdrawn",
         ...(answer?.message ? { warning: answer.message } : {}), ...(answer?.status === "replied" ? { blocks: blocks || 1, beside: true } : {}) });
       const again = this.again.get(key);
       if (again) {
@@ -1039,7 +1045,7 @@ export class AgentRequests {
       const warning = this.registry.agent(line.agent)
         ? `@${line.agent} answers in notes, not in comment threads · agents that answer here: ${here}`
         : `no agent answers @${line.agent} · agents that answer in comment threads: ${here}`;
-      this.deps.changed(blockId, { line: line.text, state: "unanswered", warning });
+      this.deps.changed(blockId, { ...asked(line), state: "unanswered", warning });
     }
   }
 
@@ -1065,7 +1071,7 @@ export class AgentRequests {
     const request = TLDR_REQUEST, gen = this.tldrGen.get(rootId) ?? 0;
     // Taken away (annotations.tldr remove) while it was being written: it isn't posted.
     const still = () => (this.tldrGen.get(rootId) ?? 0) === gen;
-    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}`, wordsKey: `tldr:${rootId}` }, { kind: [TLDR_KIND] }, still);
+    const turn = this.queueTurn(rootId, rootId, { agent: name, request, text: `@${name} ${request}`, line: 0, start: 0, end: 0, requestKey: `tldr:${rootId}`, wordsKey: `tldr:${rootId}`, nth: 0 }, { kind: [TLDR_KIND] }, still);
     const done = await Promise.race([turn, Bun.sleep(wait).then(() => undefined)]);
     if (done && "refused" in done) throw new Error(done.refused);
     return name;

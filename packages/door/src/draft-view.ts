@@ -66,7 +66,7 @@ export function sourceLines(d: Draft, from: number, to: number, w: number, room:
   const hidden = d.hiddenAnswerLines(), out: SourceLine[] = [];
   for (let i = from; i < to; i++) {
     if (hidden.has(i)) continue;
-    const line = d.lines[i]!, r = room(i, line), status = d.askStatus(line, r);
+    const line = d.lines[i]!, r = room(i, line), status = d.askStatus(line, r, i);
     out.push({ i, line, status, beside: !!status && width(status) <= r, kept: d.views.raw.kept?.(i, w) ?? [] });
   }
   return out;
@@ -322,11 +322,11 @@ export class RawRows {
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });
-      const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? d.askStatus(d.lines[r.line]!) : "";
+      const progress = rows[vi + 1]?.line !== r.line || rows[vi + 1]?.drawn ? d.askStatus(d.lines[r.line]!, Infinity, r.line) : "";
       const roomForStatus = Math.max(0, w1 - r.indent - width(cells.join("")));
-      if (progress) line += RESET + fg(C.lmagenta) + d.askStatus(d.lines[r.line]!, roomForStatus);
+      if (progress) line += RESET + fg(C.lmagenta) + d.askStatus(d.lines[r.line]!, roomForStatus, r.line);
       const said = glow.find(g => g.last)?.label;
-      const room = w1 - r.indent - width(cells.join("")) - width(progress ? d.askStatus(d.lines[r.line]!, roomForStatus) : "") - 2;
+      const room = w1 - r.indent - width(cells.join("")) - width(progress ? d.askStatus(d.lines[r.line]!, roomForStatus, r.line) : "") - 2;
       out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + drawEllipsized("@" + said, room) + RESET : ""));
     }
     return out;
