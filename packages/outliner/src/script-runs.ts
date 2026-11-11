@@ -440,7 +440,8 @@ export class ScriptRuns {
     };
     if (source.blockId && this.store.get(source.blockId)?.properties.some(p => p.key === "results" && p.value === "keep")) keep();
     const title = source.blockId ? firstLineWithoutPropertyTokens(this.store.get(source.blockId)?.text ?? "")?.trim() : undefined;
-    let message = `${title || extension.name} done`;
+    // A button's run is said by its words ("▸ by kind done"), never the title of the note it's in (PIE-1712).
+    let message = `${(extension.id.startsWith("button:") ? extension.name : title) || extension.name} done`;
     // Its words are the run's to change as it goes: the answer (`answered`) is what stands when it ends.
     const result: { -readonly [K in keyof ExtensionActResult]: ExtensionActResult[K] } = { extension: extension.id, action: "run", message: `${extension.name} working`, state: "running", written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: asked ? (asked.author === "user" ? "you" : asked.actorId) : actor.actorId ?? actor.author };
     let returned: string | undefined;

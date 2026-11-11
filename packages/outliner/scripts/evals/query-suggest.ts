@@ -22,6 +22,7 @@ const fixtures = [
   ["Rare", "Rare [stage::ready] [tag::lunar-kiln] [project::studio]\nA kiln firing.", "user"],
   ["Flyer", "Flyer [type::hub-item] [status::draft]\nThe seed swap flyer.", "user"],
   ["Notice", "Notice [type::hub-item] [status::sent]\nThe compost notice.", "user"],
+  ["Pond plan", "Pond plan [type::plan] [tag::garden]\nClear the reeds.", "user"],
 ] as const;
 const cases = [
   { text: "things heron merged about trellises", wants: ["Trellis"] },
@@ -39,6 +40,8 @@ const cases = [
   { text: "hub items that are not sent yet", wants: ["Flyer"] },
   { text: "all the hub items", wants: ["Flyer", "Notice"] },
   { text: "my ready notes", wants: ["Fence", "Rare"] },
+  // The verifier's walk: the README's own example.
+  { text: "the plans tagged garden", wants: ["Pond plan"] },
   { text: "which invoice is paid", wants: [], none: true },
   { text: "sort my dinner by tastiness", wants: [], none: true },
 ];

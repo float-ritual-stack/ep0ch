@@ -52,7 +52,7 @@ import { outlineChanged } from "../search-schedule";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
-import { renameInEdit } from "./rename-in-edit";
+import { pressedByPerson, renameInEdit } from "./rename-in-edit";
 import { recordedAnswer, USER, whoOf, type Actor, type OutlineEvent, type RecordedAs, requesterOf } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
@@ -2470,10 +2470,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const note = m ?? reader?.msg ?? null;
     if (!note) throw new ActionRefused("nothing in that reader to find backlinks for");
     if (reader) { L.source = this.reference(reader) ?? L.source; boundSource.set(L, reader); }
-    this.revealPane(L, actor, true);
+    const stays = !!reader?.editing && actor.kind === "agent" && actor.for === "you"; this.revealPane(L, actor, !stays); // a button they pressed while typing: shown beside, keys in the edit
     const d = dockOf(this.root, lid);
     if (d && !d.open) this.apply({ op: "slide", tile: lid, open: true }, actor);
-    if (this.focus !== lid) { this.keysTo(lid, actor); this.entered.clear(); }
+    if (this.focus !== lid && !stays) { this.keysTo(lid, actor); this.entered.clear(); }
     this.redraw();
     await L.show(note, this);
     // Another note's links: a new selection, shown where it goes before this answers (PIE-1628; the keys alone show nothing).
@@ -2488,13 +2488,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * ^W o p do), both by the actor: the layout's rules apply, so a locked screen says so.
    */
   async openLinks(r: Pane, actor: Actor, person: boolean, ancestor?: Msg): Promise<Record<string, unknown>> {
-    const rid = this.idOf(r);
+    const rid = this.idOf(r), writing = r instanceof ReaderPane && r.editing && actor.kind === "agent" && actor.for === "you"; // a button they pressed while typing: the keys stay in the edit
     const m = ancestor ?? (r instanceof ReaderPane ? r.msg : null);
     if (rid === undefined || !m) throw new ActionRefused("that reader isn't on this screen");
     // The screen's list `b` aims (a kind with `aim`: the links tile), one on screen first.
     const lists = this.relatives().flatMap(d => [...d.panes.values()].flatMap(p => {
-      const list = kindOf(p)?.aim?.(p);
-      return list ? [{ desk: d, list }] : [];
+      const list = kindOf(p)?.aim?.(p), groups = (list as { groups?: readonly string[] } | undefined)?.groups; // a thread's replies (children alone) aren't the links tile (PIE-1712)
+      return list && (!groups || groups.includes("backlinks")) ? [{ desk: d, list }] : [];
     }));
     const found = lists.find(({ desk, list }) => desk.shownNow(list)) ?? lists[0];
     let L = found?.list;
@@ -2504,8 +2504,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const kind = tileKinds().find(k => k.aim);
       if (!kind) throw new ActionRefused("no kind of tile lists a note's links here");
       const at = this.nameOf(rid);
-      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor, ancestor ? { keys: false } : {});
-      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor, ancestor ? { keys: false } : {});
+      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor, ancestor || writing ? { keys: false } : {});
+      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor, ancestor || writing ? { keys: false } : {});
       const made = this.panes.get(this.idNamed(list.tile)!)!;
       L = kind.aim!(made);
       opened = true;
@@ -4388,14 +4388,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
     const t = this.tile(sel), p = this.panes.get(t.id), shown = this.noteOf(t.id);
     if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`, "not-found");
-    const inEdit = p instanceof ReaderPane && p.surface.draft ? renameInEdit(p.surface.draft, text, actor, expect) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
-    const now = await this.ctx.board.get(shown.id);
+    const draft = p instanceof ReaderPane ? p.surface.draft : null, inEdit = draft && text !== undefined ? renameInEdit(draft, text, actor, expect) : null; if (inEdit) { this.redraw(); return { ...this.tileAnswer(t.id), note: shown.id, title: inEdit, inEdit: true, recordedAs: recordedAnswer(actor) }; }
+    const now = draft ? { ...shown, text: draft.text, revision: draft.base } : await this.ctx.board.get(shown.id); // in their edit, its title is the edit's (PIE-1722)
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
     // What the prompt (or an agent) read: the same note, at the same revision, or nothing is written.
     if (expect.note !== undefined && expect.note !== now.id) throw new ActionRefused(`${t.name} shows another note now; nothing was renamed · ${text ?? ""}`.trimEnd());
     if (expect.revision !== undefined && expect.revision !== now.revision) throw new ActionRefused(`the note changed since its title was read (revision ${expect.revision}, now ${now.revision}); nothing was renamed · ${text ?? ""}`.trimEnd());
     if (text === undefined) {
-      if (actor.kind !== "user") throw new ActionRefused("note.rename needs text=<the note's new title>");
+      if (!pressedByPerson(actor)) throw new ActionRefused("note.rename needs text=<the note's new title>");
       this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename this note", text: titleWords(now.text), prefilled: true,
         doing: t => `⏎ renames the note to “${t}” · its properties and body stay`, // says, not a hint row
         done: (title, d) => { d.run("note.rename", { text: title, note: now.id, revision: now.revision }, d.tileId(t.id)); },
@@ -8083,7 +8083,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return this.redraw();
       }
       // A press that gives a tile the keys: a list's row is only selected by it, never opened (RowView.press).
-      const focusing = id !== this.focus;
+      const at = this.inBody(id, r, k.x, k.y) ? this.local(id, r, k.x, k.y) : null, held = this.panes.get(id), focusing = id !== this.focus && !(at && held && kindOf(held)?.clickKeepsKeys?.(held, at.x, at.y));
       if (focusing) this.run("tile.focus", {}, this.nameOf(id));
       // Inside the frame only: its border (and the scroll thumb drawn on it) isn't the pane's.
       if (this.inBody(id, r, k.x, k.y)) {

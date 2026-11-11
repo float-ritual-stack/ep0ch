@@ -153,9 +153,10 @@ export function quoted(a: ActionRecord, given: Readonly<Record<string, string>> 
  * every line it presses in order but yo's own remember (the way there first, PIE-1712). `act` is the action asked about.
  */
 export function buttonIn(line: string): { label: string; act: string; steps?: string[]; forget?: true } | null {
-  const m = /::button\{label="([^"]*)" act=(?:\[((?:"[^"]*"(?:,\s*)?)+)\]|"([^"]*)")/.exec(line);
+  // A step is "…" or '…' (a find's, whose backslashes are its act line's own, PIE-1711).
+  const m = /::button\{label="([^"]*)" act=(?:\[((?:(?:"(?:[^"\\]|\\.)*"|'[^']*')(?:,\s*)?)+)\]|"([^"]*)")/.exec(line);
   if (m) {
-    const all = m[2] !== undefined ? [...m[2].matchAll(/"([^"]*)"/g)].map(x => x[1]!) : [m[3]!];
+    const all = m[2] !== undefined ? [...m[2].matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map(x => x[2] ?? x[1]!.replace(/\\(.)/g, "$1")) : [m[3]!];
     const steps = all.filter(l => !l.startsWith("ext.yo.remember"));
     const named = /ext\.yo\.remember act=(\S+)/.exec(all.find(l => l.startsWith("ext.yo.remember")) ?? "")?.[1];
     const act = steps.find(l => l.split(/\s/, 1)[0] === named) ?? steps.at(-1) ?? all[0]!;
@@ -212,7 +213,7 @@ export function findAsk(asked: string): string | null {
 }
 
 /** The notes a find found (PIE-1711), as the service answered: at most ten, whether there are more, its hint on a key nobody has. */
-export interface FoundNotes { notes: { id: string; title: string }[]; more: boolean; hint?: string; refused?: string; nearest?: string[] }
+export interface FoundNotes { notes: { id: string; title: string }[]; more: boolean; hint?: string; refused?: string; nearest?: string[]; nearestToWords?: boolean }
 
 /** Whether every parenthesis in a query closes one opened before it, in order. */
 function balanced(q: string): boolean {
@@ -231,33 +232,48 @@ export const FOUND_TILE = "found";
  */
 export function findAnswer(o: { words: string; where?: string; why?: string; read?: readonly { clause: string; from: readonly string[]; widens?: true }[]; found?: FoundNotes; thread?: boolean }): string[] {
   // A thread draws a button as a link, and a link ends at its first ")": one with parentheses in it carries no query.
-  const quoteable = (q: string) => !q.includes("'") && !q.includes('"') && !q.includes("\n") && !(o.thread && /[()]/.test(q));
-  const button = (label: string, steps: string[]) => o.thread ? `[${label}](act: ${steps.at(-1)})` : `::button{label="${label}" act=[${steps.map(l => `"${l}"`).join(", ")}]}`;
+  // Its steps go in single quotes, where a backslash is the act line's own (its escaped #tag stays no tag of the note);
+  // a query with an apostrophe as well as a #tag has no such spelling, and gets no buttons.
+  const carried = (q: string) => !q.includes("\n") && !(o.thread && /[()]/.test(q)) && !(q.includes("'") && q.includes("#"));
+  const item = (l: string) => (l.includes("'") ? `"${l.replace(/[\\"]/g, c => `\\${c}`)}"` : `'${l}'`);
+  const button = (label: string, steps: string[]) => o.thread ? `[${label}](act: ${steps.at(-1)})` : `::button{label="${label}" act=[${steps.map(item).join(", ")}]}`;
   const open = `tile.open kind=facets name=${FOUND_TILE}`;
   if (!o.where) {
-    const lines = [`I couldn't read "${o.words}" into a query (${o.why ?? "no answer"}).`];
-    if (quoteable(o.words)) lines.push(button("▸ type it in facets", [open, `facets.edit text='${o.words}' tile=${FOUND_TILE}`]));
+    const lines = [`I couldn't read \`${o.words.replace(/`/g, "'")}\` into a query (${o.why ?? "no answer"}).`];
+    if (carried(o.words)) lines.push(button("▸ type it in facets", [open, `facets.edit text=${actWord(o.words)} tile=${FOUND_TILE}`]));
     return lines;
   }
   const f = o.found ?? { notes: [], more: false }, n = f.notes.length;
   // The service wraps a whole query in parentheses ((type=x NOT status=sent)): the same query without them reads plainer.
   const where = o.where.startsWith("(") && o.where.endsWith(")") && balanced(o.where.slice(1, -1)) ? o.where.slice(1, -1) : o.where;
-  const lines = [n ? `${n}${f.more ? "+" : ""} note${n === 1 ? "" : "s"}: \`${where}\`` : `no notes: \`${where}\``];
+  // Every query yo writes is code (a span here, an escaped word in a button): a #tag or a ((…)) in it is never read as the
+  // note's own tag or link (PIE-1711: a find added [tag::garden] to the note that asked it).
+  const lines = [n ? `${n}${f.more ? "+" : ""} note${n === 1 ? "" : "s"}: ${code(where)}` : `no notes: ${code(where)}`];
   for (const note of f.notes) lines.push(`- ((${note.id}|${note.title.replace(/[|)]/g, " ").trim()}))`);
-  const read = (o.read ?? []).map(c => `${c.from.join(" ")} → ${c.clause}${c.widens ? " (the whole outline)" : ""}`);
+  const read = (o.read ?? []).map(c => `${c.from.join(" ").replace(/[#[\]()`]/g, "")} → ${code(c.clause)}${c.widens ? " (the whole outline)" : ""}`);
   if (read.length) lines.push(`read: ${read.join(" · ")}`);
-  if (f.refused) lines.push(`the outline refused it: ${f.refused}`);
-  if (f.hint) lines.push(f.hint);
-  if (!n && f.nearest?.length) lines.push(`keys here nearest the words: ${f.nearest.join(" · ")}`);
-  if (quoteable(where)) {
-    lines.push(button("▸ open in facets", [open, `facets.query text='${where}' tile=${FOUND_TILE}`]));
-    lines.push(button("▸ edit the query", [open, `facets.edit text='${where}' tile=${FOUND_TILE}`]));
+  if (f.refused) lines.push(`the outline refused it: ${code(f.refused)}`);
+  if (f.hint) lines.push(f.hint.replace(/#/g, ""));
+  if (!n && f.nearest?.length) lines.push(`${f.nearestToWords ? "keys here nearest the words" : "keys here"}: ${f.nearest.join(" · ")}`);
+  if (carried(where)) {
+    lines.push(button("▸ open in facets", [open, `facets.query text=${actWord(where)} tile=${FOUND_TILE}`]));
+    lines.push(button("▸ edit the query", [open, `facets.edit text=${actWord(where)} tile=${FOUND_TILE}`]));
     // Named by the words that asked for it ("Hub items that are not sent yet"): one press saves it, renamed like any note.
     const name = `${o.words.charAt(0).toUpperCase()}${o.words.slice(1)}`.slice(0, 80);
-    if (n) lines.push(button("▸ save as a view", [open, `facets.query text='${where}' tile=${FOUND_TILE}`, `facets.save ${quoteable(name) ? `name='${name}' ` : ""}tile=${FOUND_TILE}`]));
+    // A name the step can't carry whole (as the query is checked) is left out: facets.save asks for one.
+    if (n) lines.push(button("▸ save as a view", [open, `facets.query text=${actWord(where)} tile=${FOUND_TILE}`, `facets.save ${carried(name) ? `name=${actWord(name)} ` : ""}tile=${FOUND_TILE}`]));
   }
   return lines;
 }
+
+/** A query as a code span, its backticks made plain: inside it nothing is a tag, a property or a link. */
+const code = (q: string) => `\`${q.replace(/`/g, "'")}\``;
+
+/**
+ * A value as one word of an action line, every character that could end it or be read as the note's own (a space, a quote,
+ * a #tag's #, a link's parentheses or brackets) escaped: the line reads it back whole, and the note's scanners see none.
+ */
+export const actWord = (value: string) => value.replace(/[\\\s#"'()[\]]/g, c => `\\${c}`);
 
 /**
  * yo's newest answer above: what it answered and the button in it, never a button written anywhere else in the note.
@@ -515,3 +531,6 @@ export function selfAnswer(kind: "greeting" | "use" | "setup", o: { readme: stri
  */
 export const CLAUDE_LOGIN_FIX = "claude isn't logged in where the outline host runs; store its login: with-secrets --add claude CLAUDE_CODE_OAUTH_TOKEN";
 export const notLoggedIn = (out: string, err: string) => /\bNot logged in\b/.test(`${out}\n${err}`);
+
+/** The door's refusals of an agent's press because the person is typing or editing there: the press is theirs to make. */
+export const YOURS_WHILE_TYPING = /\b(?:is editing|is typing|typing in|editing the note|at the keys|their draft|open in a draft|the person's (?:draft|edit))\b/i;
