@@ -518,6 +518,8 @@ function matchedWhere(matches: readonly PropertyMatch[]): string | undefined {
 
 /** How long `show` waits for what a reader reads after the note (link titles, embeds, steps, projections) to stop arriving. */
 const SETTLE = { quiet: 250, max: 3000 };
+/** How often the quiet spell looks for an arrival. */
+const SETTLE_STEP = 10;
 
 /**
  * The note drawn by the note surface at `width`, once what it reads besides the note has arrived (each render may ask
@@ -552,13 +554,23 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
     if (loaded && "error" in loaded) throw new Error(loaded.error);
     surface.show(m, host);
     surface.render(width, tall, host);
+    // The figures' answers, then a quiet spell for what else the reader reads (link titles, embeds, steps): drawn again as
+    // each arrives, and done once `quiet` ms pass after the last with nothing new. The spell runs from the last arrival,
+    // not from each draw: a plain note's reads all land in its first few ms, and it once waited a second spell for nothing
+    // (PIE-1735: every agent write draws through show).
+    let calm = Date.now();
     while (Date.now() < end) {
-      arrived = false;
-      // The figures' answers, then a quiet spell for what else the reader reads (link titles, embeds, steps).
+      const asked = Date.now();
       await liveSettled(Math.max(0, end - Date.now()));
-      await Bun.sleep(settle.quiet);
-      if (!arrived && !projectionsPending(board)) break;
-      surface.render(width, tall, host);
+      // It waited on an answer (a cold render script, a figure): the spell starts once that answer is in.
+      if (Date.now() - asked > SETTLE_STEP) calm = Date.now();
+      if (arrived) { arrived = false; surface.render(width, tall, host); calm = Date.now(); continue; }
+      if (Date.now() - calm >= settle.quiet) {
+        if (!projectionsPending(board)) break;
+        // A projection still asking (a cold render script): drawn again each spell, as a reader's frame would ask it on.
+        surface.render(width, tall, host); calm = Date.now();
+      }
+      await Bun.sleep(Math.min(SETTLE_STEP, Math.max(1, end - Date.now())));
     }
     // The last draw while the connection is still this outline's.
     drawn = surface.render(width, tall, host).lines;

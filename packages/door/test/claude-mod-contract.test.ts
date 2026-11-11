@@ -544,7 +544,10 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       const lines = await run(["ep0ch", "peek", "text"], { env });
       expect(lines.stdout).toBe(whole.text.join("\n") + "\n");
       expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
-      expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
+      // The same section either way; the door is live, so it may have painted again between the two asks (frames only grows).
+      const first = JSON.parse(speed.stdout), again = JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout);
+      expect({ ...again, frames: 0 }).toEqual({ ...first, frames: 0 });
+      expect(again.frames).toBeGreaterThanOrEqual(first.frames);
       // The layout is in brief, as layout.get gives it; --full (or full=true) has each tile whole (PIE-1447).
       expect(whole.layout.brief).toContain("full=true");
       const fullLayout = JSON.parse((await run(["ep0ch", "peek", "layout", "--full"], { env })).stdout);

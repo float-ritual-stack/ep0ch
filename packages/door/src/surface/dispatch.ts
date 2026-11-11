@@ -976,7 +976,8 @@ export class Dispatcher {
     if (this.claimedOutright(req)) return req;
     if (req.tile) {
       const hit = this.resolve(req.tile);
-      if (hit) return { ...req, tile: hit.tile.id ?? hit.tile.name };
+      // A block id stays one: the dispatcher of the tiles that show it ranks them as the actor asks (its pointer, byBlock).
+      if (hit) return BLOCK.test(req.tile) ? req : { ...req, tile: hit.tile.id ?? hit.tile.name };
       if (this.host.resolveTile) return req;
     }
     const sel = req.tile;
@@ -999,7 +1000,9 @@ export class Dispatcher {
     if (!req.tile) return null;
     const hit = this.resolve(req.tile);
     if (!hit || hit.dispatch.host.pointerScope === this.host.pointerScope) return null;
-    const request = (r: ActRequest) => ({ ...r, tile: hit.tile.id ?? hit.tile.name });
+    // A block id goes on as written, for that dispatcher to rank its tiles by the actor's pointer (agent focus): the host
+    // layer's find (PIE-1725's shownBy) knows no actor, so the tile it found is only where to hand the request.
+    const request = (r: ActRequest) => ({ ...r, tile: BLOCK.test(req.tile!) ? req.tile : hit.tile.id ?? hit.tile.name });
     if (hit.dispatch.owner(request(req))) return { delegate: () => hit.dispatch, request, listed: false };
     // An action the tile's screen doesn't answer (the App's note.new, keys.open, screen.back) runs here as its key does,
     // with no tile=: a hint segment's click names the tile it was drawn in (PIE-1293).

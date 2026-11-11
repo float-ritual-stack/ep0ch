@@ -72,7 +72,7 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     h.app.flash = flash;
   }, 60_000);
 
-  test("a refused ask keeps its line in the bar, editable, with why (no note in front)", async () => {
+  test("a refused ask says why, and ↑ brings its line back to fix (no note in front)", async () => {
     // Out of the stage: the section list has the keys, so no note is in front of the person.
     for (let i = 0; i < 3 && (bar() || (h.app as any).noteInFront() !== null); i++) { press({ kind: "esc" }); await Bun.sleep(100); }
     await until(() => !bar() && (h.app as any).noteInFront() === null, "no note in front", 8000);
@@ -88,8 +88,12 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     press({ kind: "enter" });
     await until(() => (h.app as any).barRuns?.some((r: { refused: boolean }) => r.refused), "the refusal said", 8000);
     expect(bar()).toBeTruthy();
-    expect(bar().query).toBe("@wren sort these");
+    // A refused line leaves the bar's line empty, its why under "this session", and ↑ brings it back to fix (PIE-1701, #1406).
+    expect(bar().query).toBe("");
+    expect((h.app as any).barRuns.at(-1)).toMatchObject({ line: "@wren sort these", refused: true });
     expect((h.app as any).barRuns.at(-1).answer).toContain("the ask goes as a comment on a note");
+    press({ kind: "up" });
+    await until(() => bar().query === "@wren sort these", "the refused line back to fix", 4000);
     press({ kind: "esc" }); press({ kind: "esc" });
     await until(() => !bar(), "the bar put away", 4000);
   }, 30_000);

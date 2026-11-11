@@ -138,7 +138,9 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
     expect(answer.outcome).toBe("applied");
     expect(answer.components).toEqual(["graph-stat"]);
     expect(answer.warnings).toEqual(["the ::graph-stats on line 2 isn't a component: did you mean ::graph-stat?"]);
-    expect(answer.said).toContain("; 1 to fix before you call this done (warnings): saved as written, fix it now; next: ");
+    // PIE-588 (#1395): a write answers with the part it wrote as the door draws it (`view`), and said points at it.
+    expect(answer.said).toContain("; 1 to fix before you call this done (warnings): saved as written, fix it now; the part you wrote is in view, as the door draws it; next: ");
+    expect(answer.view).toBeTruthy();
     expect(answer.next).toContain("ep0ch show");
     expect((await board.get(answer.detail.id))?.text).toBe(written);
   });
