@@ -1634,7 +1634,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ text }, d, actor) { d.pasteText(text, actor); return { line: d.row + 1, col: d.col + 1, note: d.note || null }; },
   }),
   "draft.undo": def({
-    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
+    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back, a step at a time; a save that agents wrote after (yo taking out the answer of an ask it deleted) goes back whole with their writes, in one undo. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
     args: { past: { type: "boolean", optional: true, about: "go past the save: take back text the note already holds (ctrl+z pressed again after it asked)" } },
     personWith: ({ past }) => (past ? { always: "going past a save takes back text the note already holds: only the person does that (their ctrl+z, pressed again after it asks)" } : null),
@@ -1649,7 +1649,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
   }),
   "draft.redo": def({
     words: "put back what you undid",
-    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo", says: "put back the change you undid" }, { via: "ctrl+shift+z (redo)" }],
+    summary: "put back what draft.undo took back, in order (a save it took back whole with the agents' writes after it goes back whole); any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo", says: "put back the change you undid" }, { via: "ctrl+shift+z (redo)" }],
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.redo(actor); return { redone: said, left: d.redos.length }; },

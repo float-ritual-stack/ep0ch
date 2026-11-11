@@ -949,6 +949,29 @@ test("a deleted ask takes its answer with it on save; an answer the person chang
   }
 });
 
+// PIE-1733: an ask and its answer put back by the person's undo (the text as it was before the ask went) are the agent's
+// again: the ask taken out once more takes its answer with it.
+test("an answer put back with its ask by an undo is still the agent's: the ask taken out again takes it", async () => {
+  const { store, client, create, counted } = await setup({ quietMs: 50 });
+  await counted("count");
+  const note = await create("Shelf undo\nfirst\n@count tally\nlast");
+  await until("answered", () => store.get(note.id)!.text.includes("@count answered"));
+  const answered = store.get(note.id)!.text;
+  const take = async () => {
+    const current = store.get(note.id)!;
+    await client.request({ action: "update", blockId: note.id, text: current.text.replace("@count tally\n", ""), expectedRevision: current.revision, mutation: PERSON });
+    await until("the answer gone with its ask", () => !store.get(note.id)!.text.includes("@count answered"));
+  };
+  await take();
+  // The undo: the person writes the note back as it was, ask and answer.
+  const now = store.get(note.id)!;
+  await client.request({ action: "update", blockId: note.id, text: answered, expectedRevision: now.revision, mutation: PERSON });
+  await Bun.sleep(400);
+  expect(store.get(note.id)!.text).toBe(answered);
+  await take();
+  expect(store.get(note.id)!.text).toBe("Shelf undo\nfirst\nlast");
+}, 20_000);
+
 // CodeRabbit on #1431: a draft's last-read lines are that draft's (its hold's). A no-answer's line taken out in one draft
 // closed unsaved is no rewrite in the next draft of the note: the saved line, unchanged, is not asked again on its first touch.
 test("a draft's snapshot is its own hold's: a draft closed unsaved doesn't make the next one re-ask an unchanged line", async () => {

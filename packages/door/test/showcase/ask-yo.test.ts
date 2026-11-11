@@ -736,6 +736,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
       expect(gone.text).toContain("kept line");
       // Its answer tile says so whole at a narrow width, and the saved layout doesn't keep it.
       const tile = answerTile();
+      if (path === "draft") expect(tile).toBeDefined();
       if (tile) {
         const drawn = (stage().pane(tile.name) as unknown as { render(w: number, h: number, f: boolean, d: unknown): { lines: string[] } }).render(38, 10, false, stage()).lines;
         expect(drawn.every(l => Bun.stringWidth(l) <= 38)).toBe(true);
@@ -758,6 +759,11 @@ describe("showcase: ask yo (PIE-1585)", () => {
       const back = (await read()).text;
       expect(back.split("\n").filter(l => /@yo answered$/.test(l)).length).toBe(1);
       expect(back).toContain(`${ask}\n> [!note]`);
+      // The answer put back is still yo's: the ask taken out again takes it again.
+      await edit();
+      draft()!.replace(draft()!.text.replace(`${ask}\n`, ""));
+      await save();
+      await untilAsync(async () => !(await read()).text.includes("@yo answered"), "the answer gone with its ask again", 10_000);
     } finally {
       if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
       await until(() => !draft(), "the edit closed", 8000);
