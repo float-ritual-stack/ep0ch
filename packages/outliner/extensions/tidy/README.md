@@ -24,7 +24,9 @@ Morning plan
   - With an instruction it also says what it took: `· the whole note above the ask`, or `· the 3 lines above the ask`.
 - **Ask again:** press `R` on the line (Detail's `r`).
   - It answers at once and the line says `running · working…`; the door keeps reading and opening notes while it runs.
-- **Typing in that passage?** The edit becomes a proposal beside the note, drawn under the line; apply or dismiss it.
+- **Typing in that passage?** While your draft is open, tidy's edit becomes a proposal beside the note, drawn under the line; apply or dismiss it.
+  - **An edit you saved there while it ran** isn't overwritten: nothing is changed, the line says the note changed while @tidy worked on it, and `R` runs it again on the new text (PIE-1740).
+- **Missed its deadline?** The line names the command that gives it longer, more than double what this run went (`ep0ch act ext.tidy.settings agent.tidy.deadline=2m` after a 30 s stop); run it and press `R` (PIE-1740).
 
 ## Good to know
 

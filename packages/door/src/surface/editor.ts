@@ -252,7 +252,7 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; attach?: () => void; fileNew?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0, preview = true): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; attach?: () => void; fileNew?: () => void; follow?: (to?: LinkTarget) => void; fold?: (line: number) => void }, mods = 0, preview = true): boolean {
   const f = draftView(d).frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
@@ -278,6 +278,10 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
   // A press starts in the text (a click beside a box drawn over the note is the note's); a drag goes on wherever it is.
   if (!extend && (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols)) return false;
+  // An answer's fold row (its ask's progress): the click opens or shuts the answer (fold.toggle), the cursor stays (PIE-1738).
+  // A host that can't toggle that draft's answers (a comment's: fold.toggle acts on the note's) leaves it a placement.
+  const fold = extend || !on?.fold ? null : draftView(d).foldAt(x - f.col, y - f.row);
+  if (fold) { on!.fold!(fold.line + 1); return true; }
   const p = draftView(d).posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
   void DRAFT_ACTIONS.run("draft.place", { line: p.row + 1, col: p.col + 1, extend }, d, actor);
   return true;
