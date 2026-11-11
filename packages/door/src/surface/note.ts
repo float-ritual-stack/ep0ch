@@ -89,7 +89,7 @@ import { changeOf, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, stepsLoadi
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, DRAFT_KEYS, draftChordRows, sameParty, tidy } from "../edit";
-import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, leaveSaid, propertyChange, propertyListOf, unsent, type Ended, type LeaveResult, type Unsent } from "../draft-session";
+import { agentRefusal, blockTarget, followHistory, noteReplyTarget, recordAs, DraftSession, hasStrays, leaveSaid, propertyChange, propertyListOf, unsent, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
 import { baseTextOf, keptName, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentOp } from "../unsent";
 import { verdictWords } from "../unsent-compare";
@@ -2936,7 +2936,7 @@ export class NoteSurface {
     const m = this.msg;
     if (!m || this.editing) return;
     let fresh: Msg | null;
-    try { fresh = await host.ctx.board.get(m.id); }
+    try { fresh = await host.ctx.board.get(m.id); if (fresh?.revision !== undefined) await followHistory(fresh.id, fresh.revision, host.ctx.board); } // the last edit's history, through what agents wrote because of its save (PIE-1733)
     catch (e) {
       // The first thing said when the tether drops is that it dropped, not something about revisions.
       const why = e instanceof Offline ? "offline · the edit will work when the outline is back" : `can't edit: ${(e as Error).message}`;

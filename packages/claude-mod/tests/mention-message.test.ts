@@ -3,6 +3,7 @@ import { describe, expect, test, tier } from 'claude-code/testing'
 import {
   boundWorkspaceOf,
   effectiveWorkspaces,
+  failureKindOf,
   failureReasonOf,
   mentionsModeOf,
   namedWorkspaceOf,
@@ -46,7 +47,7 @@ describe('mention-message', () => {
   })
 
   test('a CLI failure names its kind on a line of its own, and the words never decide it', async () => {
-    const { failureKindOf } = await import('../hooks/mention-message')
+    // failureKindOf is imported above: claude plugin test refuses a dynamic import() of a hooks module (#1397 used one).
     expect(failureKindOf('error: some reworded sentence\nkind: conflict\nBun v1.3.14 (Linux x64)')).toBe('conflict')
     expect(failureKindOf('error: Destination is protected: active edit')).toBeUndefined()
     expect(failureKindOf('')).toBeUndefined()

@@ -1,4 +1,5 @@
 import {editHunks} from "./edit-merge";
+import type {RefusalKind} from "./refusal";
 /**
  * The compare of `draft.patch` (PIE-501): where a patch's observed text is in a
  * note's text now, and what the text and a position become once it is applied.
@@ -48,7 +49,15 @@ export interface LocatedSpan {
 
 export type LocatedSpans =
   | { ok: true; spans: LocatedSpan[] }
-  | { ok: false; index: number; reason: string };
+  | { ok: false; index: number; reason: string; kind?: SpanRefusal };
+
+/**
+ * Why a span can't be placed, as a kind (PIE-1737): `stale-revision`, the text it names changed or went (read it
+ * again); `ambiguous`, it is there more than once and nothing says which (send its range). Anything else is the
+ * caller's to classify.
+ */
+export type SpanRefusal = Extract<RefusalKind, "stale-revision" | "ambiguous">;
+type SpanMiss = { reason: string; kind?: SpanRefusal };
 
 /** A range in `unit` as UTF-16 offsets of `text`; null when it doesn't fall on characters of the text. */
 export function utf16Range(text: string, range: DraftPatchRange, unit: DraftPatchUnit = "utf16"): DraftPatchRange | null {
@@ -94,7 +103,7 @@ function nearest(candidates: number[], to: number, within: number): { at: number
  * or failing that the nearest copy within `DRAFT_PATCH_NEAR` of its start; without
  * one, its only copy.
  */
-export function locateSpan(text: string, span: DraftPatchSpan): { start: number; end: number } | { reason: string } {
+export function locateSpan(text: string, span: DraftPatchSpan): { start: number; end: number } | SpanMiss {
   if (!span.observed) {
     if (!span.range) return { start: text.length, end: text.length };
     const at = utf16Range(text, span.range, span.unit);
@@ -103,15 +112,15 @@ export function locateSpan(text: string, span: DraftPatchSpan): { start: number;
   const found = occurrences(text, span.observed);
   if (!span.range) {
     if (found.length === 1) return { start: found[0]!, end: found[0]! + span.observed.length };
-    return { reason: found.length ? "the observed text is in the note more than once; give its range" : "the observed text isn't there any more" };
+    return found.length ? { reason: "the observed text is in the note more than once; give its range", kind: "ambiguous" } : { reason: "the observed text isn't there any more", kind: "stale-revision" };
   }
   const hint = utf16Range(text, span.range, span.unit);
   if (hint && text.slice(hint.start, hint.end) === span.observed) return hint;
   const hintStart = hint?.start ?? Math.min(text.length, span.range.start);
   const near = nearest(found, hintStart, DRAFT_PATCH_NEAR);
   if (near && "at" in near) return { start: near.at, end: near.at + span.observed.length };
-  if (near) return { reason: "the observed text is near its range more than once" };
-  return { reason: found.length ? "the observed text has moved away from its range" : "the observed text isn't there any more" };
+  if (near) return { reason: "the observed text is near its range more than once", kind: "ambiguous" };
+  return { reason: found.length ? "the observed text has moved away from its range" : "the observed text isn't there any more", kind: "stale-revision" };
 }
 
 /**
@@ -122,7 +131,7 @@ export function locateSpan(text: string, span: DraftPatchSpan): { start: number;
  * person's newer text, which the proposal doesn't show, so it is refused rather
  * than replaced (PIE-510).
  */
-export function locateSpanForced(text: string, span: DraftPatchSpan): { start: number; end: number } | { reason: string } {
+export function locateSpanForced(text: string, span: DraftPatchSpan): { start: number; end: number } | SpanMiss {
   if (!span.observed) return { start: text.length, end: text.length };
   const found = occurrences(text, span.observed);
   if (!found.length) return { reason: "the passage changed since it was proposed; read the proposal and edit it by hand" };
@@ -130,7 +139,7 @@ export function locateSpanForced(text: string, span: DraftPatchSpan): { start: n
   const beside = found.filter(at => contextFits(text, at, at + span.observed.length, span));
   const near = nearest(beside.length ? beside : found, hintStart, Infinity);
   if (near && "at" in near) return { start: near.at, end: near.at + span.observed.length };
-  return { reason: "the passage is in the note more than once, and which one was meant isn't clear; edit it by hand" };
+  return { reason: "the passage is in the note more than once, and which one was meant isn't clear; edit it by hand", kind: "ambiguous" };
 }
 
 /** Whether the context a proposal kept (or the part of it nearest the passage) is beside `[start, end)`. */
@@ -155,7 +164,7 @@ export function locateSpans(text: string, spans: readonly DraftPatchSpan[], forc
   const located: LocatedSpan[] = [];
   for (const [index, span] of spans.entries()) {
     const at = force ? locateSpanForced(text, span) : locateSpan(text, span);
-    if ("reason" in at) return { ok: false, index, reason: at.reason };
+    if ("reason" in at) return { ok: false, index, reason: at.reason, ...(at.kind ? { kind: at.kind } : {}) };
     located.push({ start: at.start, end: at.end, replacement: span.replacement });
   }
   const ordered = [...located].sort((left, right) => left.start - right.start);
@@ -170,9 +179,9 @@ export function locateSpans(text: string, spans: readonly DraftPatchSpan[], forc
 /**
  * A patch read at `base`, placed in `current` (a rebase, as git does it): the spans are located in the text the
  * writer saw, and each carries over when the newer text left that passage alone. A span lands where it moved to
- * only when its observed text is still there, once. It is refused (and the patch with it) when someone rewrote any
- * of its passage since, when two spans of the patch overlap, or when its observed text is now in the note more than
- * once. Spans that sit together with a hunk of someone else's edit are an overlap: nothing is merged silently.
+ * only when its observed text is still there, once, or (a span with a range) still where the hunks carry its range.
+ * It is refused (and the patch with it) when someone rewrote any of its passage since, when two spans of the patch
+ * overlap, or when a span with no range has its observed text in the note more than once now. Spans that sit together with a hunk of someone else's edit are an overlap: nothing is merged silently.
  */
 export function rebaseSpans(base: string, current: string, spans: readonly DraftPatchSpan[]): LocatedSpans {
   const seen = locateSpans(base, spans);
@@ -183,13 +192,14 @@ export function rebaseSpans(base: string, current: string, spans: readonly Draft
   for (const [index, span] of spans.entries()) {
     const at = locateSpan(base, span) as { start: number; end: number };
     const touched = hunks.some(hunk => (at.start < hunk.end && hunk.start < at.end) || (hunk.start === hunk.end && at.start < hunk.start && hunk.start < at.end));
-    if (touched) return { ok: false, index, reason: "someone changed that passage since it was read" };
+    if (touched) return { ok: false, index, reason: "someone changed that passage since it was read", kind: "stale-revision" };
     let delta = 0;
     for (const hunk of hunks) if (hunk.end <= at.start) delta += hunk.text.length - (hunk.end - hunk.start);
     const start = at.start + delta;
     const end = start + span.observed.length;
-    if (current.slice(start, end) !== span.observed) return { ok: false, index, reason: "the observed text isn't there any more" };
-    if (occurrences(current, span.observed).length > 1) return { ok: false, index, reason: "the observed text is in the note more than once now; give its range" };
+    if (current.slice(start, end) !== span.observed) return { ok: false, index, reason: "the observed text isn't there any more", kind: "stale-revision" };
+    // With a range it was read at one place, carried here by the hunks (PIE-1737): a second copy elsewhere is no doubt.
+    if (!span.range && occurrences(current, span.observed).length > 1) return { ok: false, index, reason: "the observed text is in the note more than once now; give its range", kind: "ambiguous" };
     located.push({ start, end, replacement: span.replacement });
   }
   return locateOrdered(located);

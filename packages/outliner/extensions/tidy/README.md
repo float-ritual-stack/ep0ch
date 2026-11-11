@@ -18,13 +18,19 @@ Morning plan
   - Links, references, properties and code are never touched; `all` never includes the title.
 - **Rewrite:** `@tidy <instruction>` rewrites the paragraph or list above, such as `@tidy remove the cruft and wrap each item in a callout`.
   - It returns one patch, not a chat answer.
+- **The whole note:** an instruction that names `the transcript` or `the note` (`@tidy clean up the transcript`) takes everything above the ask, blank lines between turns included (PIE-1737).
+  - Earlier `@name` lines and their answers in it stay as written.
 - **See what it did:** the line shows a result such as `formatted 2 lines`, or `nothing to tidy above`.
-- **Ask again:** press `r` on the line.
+  - With an instruction it also says what it took: `· the whole note above the ask`, or `· the 3 lines above the ask`.
+- **Ask again:** press `R` on the line (Detail's `r`).
+  - It answers at once and the line says `running · working…`; the door keeps reading and opening notes while it runs.
 - **Typing in that passage?** The edit becomes a proposal beside the note, drawn under the line; apply or dismiss it.
 
 ## Good to know
 
 - **Agents can't set each other off.** A `@tidy` line an agent wrote lands held (`held: <agent> may not wake @tidy · ask again to send`) until a person asks again (the door's `R`, Detail's `r`).
+- **A passage said twice is fine.** Tidy sends where it read the passage (its range), so a turn the transcript repeats is cleaned where it was asked, even when the note was saved meanwhile.
+- **Its demo** (written under its page when it's installed) is a made-up transcript whose ask waits for your `R`.
 - **Counts are real.** The formatter's message names actual changes, such as `fixed nesting in 3 items, trimmed 1 line`.
 - **Repeated asks share one run,** and each spelling of the line gets the result.
 - **Edits are attributed:** `author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in the change feed.
@@ -33,7 +39,8 @@ Morning plan
 
 ## Setup
 
-- **Install:** `ep0ch ext add tidy`.
+- **Install:** `ep0ch ext add tidy`, or the power bar's install row (`ctrl+k` then `&tidy`).
+- **Remove keeps its settings:** `config.json` waits in `extensions-settings/tidy.json` beside the extensions folder, and installing it again takes it back (the status line says so).
 - **The model:** `config.answer` in `config.json` names a command that reads the prompt on stdin and prints the answer.
   - **Its default:** Haiku through `claude` in safe mode, with a 5-minute deadline: a long transcript through a slower model fits (PIE-1713).
     - **What loads:** only the prompt, with no CLAUDE.md, skills, plugins, tools, MCP or settings.

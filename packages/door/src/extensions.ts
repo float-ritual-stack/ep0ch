@@ -299,7 +299,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
     summary: "install one of the repo's extensions (extensions.list's available, as ep0ch ext add <id>): the service copies it in for every outline its host serves, loads it, and writes its page under the outline's Extensions hub, its README and what it adds, with its demo notes under it (once, as ext:<id>). Answers the page",
     keys: "⏎ or a click on its install row in the power bar's extensions (ctrl+k then &)",
     touches: "nothing", replay: "ask",
-    says: (r: ExtensionInstalled) => `installed ${nameOf(r.id)}${r.rulesEnabled ? `, ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}${r.page ? `: its page is ${r.page}` : ""}`,
+    says: (r: ExtensionInstalled) => `installed ${nameOf(r.id)}${r.settingsBack ? ", its settings from before back" : ""}${r.rulesEnabled ? `, ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}${r.page ? `: its page is ${r.page}` : ""}`,
     args: { id: { type: "string", about: "the extension's id, such as moon (extensions.list's available)" } },
     examples: [
       { act: "extensions.install id=moon", does: "installs the moon extension and writes its page under the Extensions hub" },
@@ -310,7 +310,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       try {
         const r = await on.ctx.board.request("extensions.install", { extension: id, mutation: requesterOf(actor) });
         // Said long enough to read once the power bar closes (PIE-1731: four seconds went by unseen).
-        say.flash(r.error ? `${nameOf(id)} is installed but ${r.state ?? "failed"}: ${oneLine(r.error)}` : `${nameOf(id)} installed · its page and demo notes are under Extensions${r.rulesEnabled ? ` · ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}`, LANDED_MS);
+        say.flash(r.error ? `${nameOf(id)} is installed but ${r.state ?? "failed"}: ${oneLine(r.error)}` : `${nameOf(id)} installed · its page and demo notes are under Extensions${r.settingsBack ? " · your settings from before are back" : ""}${r.rulesEnabled ? ` · ${r.rulesEnabled} ${r.rulesEnabled === 1 ? "rule" : "rules"} switched back on` : ""}`, LANDED_MS);
         on.ctx.redraw();
         return r;
       } catch (e) {
@@ -319,10 +319,10 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
     },
   }),
   "extensions.uninstall": def({
-    summary: "remove an installed extension (as ep0ch ext remove <id>): its folder goes, and its handlers, actions and tiles with it; its demo notes stay (demo=keep) or go to Trash (demo=remove: the ones nobody changed, the rest are kept and named). demo= has no default: they never go silently. Its page stays while something is under it",
+    summary: "remove an installed extension (as ep0ch ext remove <id>): its folder goes, and its handlers, actions and tiles with it; its demo notes stay (demo=keep) or go to Trash (demo=remove: the ones nobody changed, the rest are kept and named). demo= has no default: they never go silently. Its page stays while something is under it. Its settings (config.json) are kept beside the folder, and installing it again takes them back",
     keys: "⏎ or a click on one of its remove rows in the power bar's extensions (ctrl+k then &, then its name)",
     touches: "nothing", replay: "ask",
-    says: (r: ExtensionUninstalled) => `removed ${nameOf(r.id)}${r.demo.trashed ? `, ${r.demo.trashed} demo notes to Trash` : r.demo.left ? `, its ${r.demo.left} demo notes kept` : ""}${r.rulesDisabled ? `, ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}`,
+    says: (r: ExtensionUninstalled) => `removed ${nameOf(r.id)}${r.demo.trashed ? `, ${r.demo.trashed} demo notes to Trash` : r.demo.left ? `, its ${r.demo.left} demo notes kept` : ""}${r.rulesDisabled ? `, ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}${r.settingsKept ? ", its settings kept for a reinstall" : ""}`,
     args: {
       id: { type: "string", about: "the installed extension's id" },
       demo: { type: "string", about: "keep (its demo notes stay under its page) or remove (to Trash, except what someone changed)" },
@@ -336,7 +336,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       const say = asActor(on.ctx, actor);
       try {
         const r = await on.ctx.board.request("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
-        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo notes kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}`, LANDED_MS);
+        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo ${r.demo.left === 1 ? "note" : "notes"} kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}${r.settingsKept ? " · its settings kept for a reinstall" : ""}`, LANDED_MS);
         on.ctx.redraw();
         return r;
       } catch (e) {

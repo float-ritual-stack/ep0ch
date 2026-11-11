@@ -156,7 +156,8 @@ async function setup(plan: unknown, options: { claude?: { login?: string } } = {
   writeFileSync(join(yo, "config.json"), JSON.stringify({ config: { ...(options.claude ? {} : { answer: [process.execPath, fakeModel], act: [process.execPath, act] }), memory: {}, ep0ch: [process.execPath, fakeCli] } }));
   const store = new OutlinerStore(join(root, "o.sqlite"), { workspaceRoot: folder });
   const socket = join(root, "o.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0 });
+  // An ask is heard after 80 ms of quiet, as the other agent-request tests have it, not the 1.5 s a person typing gets (PIE-1735).
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80 });
   await server.start();
   const client = new OutlinerClient(socket);
   cleanups.push(async () => {

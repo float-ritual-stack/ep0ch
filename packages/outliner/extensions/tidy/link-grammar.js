@@ -798,6 +798,8 @@ function sourceLines(text) {
     lines.push({ start: 0, end: 0, contentEnd: 0 });
   return lines;
 }
+var lineStart = (text, line) => (typeof text === "string" ? text.split(`
+`) : text).slice(0, line).reduce((n, l) => n + l.length + 1, 0);
 var YAML_FENCE_LINE = /^ {0,3}---[ \t]*$/;
 function structuralLiteralLines(lines, yaml = true) {
   const spans = [];
@@ -962,5 +964,6 @@ var FRAGMENT_ANCHOR_PATTERN = new RegExp(String.raw`(?:^|\s)\^(${FRAGMENT_ID_SOU
 export {
   FRAGMENT_ID_SOURCE,
   blockReferenceOccurrences,
-  codeFenceLines
+  codeFenceLines,
+  lineStart
 };

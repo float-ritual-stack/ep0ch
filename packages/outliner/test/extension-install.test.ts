@@ -12,6 +12,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, ChangeFeedPage } from "../src/types";
 import type { RuleListEntry } from "../src/extension-rules";
+import { scratchDir } from "./scratch-outline";
 
 test("kept extension rules switch off without warnings on reopen, and reinstall restores their triggers", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-ext-rules-"));
@@ -474,3 +475,52 @@ test("ext add --outline-folder has that folder's outline load the extension befo
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+// PIE-1737: removing an extension took its settings with it, so a reinstall was silently back on its defaults. They are
+// kept beside the folder (as a fork is) and a reinstall takes them back, saying so.
+test("a removed extension's settings come back when it is installed again, and both answers say so (PIE-1737)", async () => {
+  // Its socket goes under the root: scratchDir, short under agent-env's long TMPDIR (PIE-1654).
+  const root = scratchDir("outliner-ext-settings-");
+  const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
+  process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
+  process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-registry.json");
+  const outline = join(root, "outline"), socket = join(root, "outline.sock");
+  mkdirSync(outline);
+  const store = new OutlinerStore(join(root, "outline.sqlite"), { workspaceRoot: outline });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, stateDirectory: join(root, "state") });
+  await server.start();
+  const client = new OutlinerClient(socket);
+  try {
+    const installed = await client.request<{ page?: string }>({ action: "extensions.install", extension: "tidy", where: "outline" });
+    // Its demo's ask was written by the extension: it waits for a person's R, never spending a model call on install.
+    const demo = store.children(installed.page!).find(block => block.text.startsWith("Tidy, on a made-up garden meeting"))!;
+    expect(demo.text).toContain("\n@tidy clean up the transcript");
+    await Bun.sleep(300);
+    expect(store.agentRequests(demo.id).map(row => [row.status, row.message])).toEqual([["waiting", "held: tidy's demo · ask again to send"]]);
+    // An agent's r doesn't send it either (CodeRabbit on #1437): only a person's.
+    const line = demo.text.split("\n").indexOf("@tidy clean up the transcript");
+    await expect(client.request({ action: "resources.projection.refresh", blockId: demo.id, line, mutation: { author: "agent", actorId: "loki" } })).rejects.toThrow("waits for a person's r");
+    const config = join(outline, "extensions", "tidy", "config.json");
+    const settings = `${JSON.stringify({ config: { answer: ["/opt/made-up/model", "--slow"] } }, null, 2)}\n`;
+    writeFileSync(config, settings, { mode: 0o600 });
+    const removed = await client.request<{ lines: string[]; settingsKept?: string }>({ action: "extensions.uninstall", extension: "tidy", demo: "remove" });
+    expect(existsSync(join(outline, "extensions", "tidy"))).toBe(false);
+    const kept = join(outline, "extensions-settings", "tidy.json");
+    expect(removed.settingsKept).toBe(kept);
+    expect(readFileSync(kept, "utf8")).toBe(settings);
+    expect(statSync(kept).mode & 0o077).toBe(0);
+    expect(removed.lines.join("\n")).toContain(`kept its settings in ${kept}`);
+    const back = await client.request<{ lines: string[]; settingsBack?: string }>({ action: "extensions.install", extension: "tidy", where: "outline" });
+    expect(back.settingsBack).toBe(kept);
+    expect(readFileSync(config, "utf8")).toBe(settings);
+    expect(statSync(config).mode & 0o077).toBe(0);
+    expect(existsSync(kept)).toBe(false);
+    expect(back.lines.join("\n")).toContain(`took its settings back from ${kept}`);
+  } finally {
+    await server.close(); store.close();
+    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});

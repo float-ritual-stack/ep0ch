@@ -143,3 +143,34 @@ test("an extension's card offers [↺ all] only for settings reset would put bac
   expect(resettable(one.fields)).toEqual(["beds"]);
   expect(one.drawn).toContain("[↺ all]");
 });
+
+// PIE-1293's gate on the card (nightly-1111): its foot names each key from the table it lives in, never typed, so the
+// selected field's row says the card's own keys and what clearing it does.
+test("an extension's card foot names the card's keys from its key table", async () => {
+  const { SettingsCard } = await import("../src/surface/settings-card");
+  const { extensionCardSchema, extensionCardValues } = await import("../src/extension-settings");
+  const entry = { id: "planter", name: "Planter", actions: [] } as never;
+  const settings = { file: "/made-up/planter/config.json", exists: true, state: "set", config: {}, fields: [{ name: "beds", type: "string", default: "3", value: "5", state: "set" }], secrets: [] };
+  const schema = extensionCardSchema(entry, settings as never), values = extensionCardValues(entry, settings as never);
+  const fields = schema.props.map((prop, i) => ({ n: i + 1, prop, value: values.get(prop.key)!.value, section: 0, ext: values.get(prop.key)! }));
+  const drawn = new SettingsCard([schema]).draw(fields, 100, 20, 0, 0).join("\n").replace(/\x1b\[[\d;]*m/g, "");
+  expect(drawn).toContain("beds · ⏎ edit · x back to its default");
+});
+
+// CodeRabbit on #1438: an extension's foot wraps (up to three rows) at a narrow width; the field rows leave it room, so
+// the keys it names are never cut off the card's bottom.
+test("an extension's card at 44 columns keeps its whole wrapped foot under a full list", async () => {
+  const { SettingsCard } = await import("../src/surface/settings-card");
+  const { extensionCardSchema, extensionCardValues } = await import("../src/extension-settings");
+  const entry = { id: "planter", name: "Planter", actions: [] } as never;
+  const many = Array.from({ length: 12 }, (_, i) => ({ name: `bed-${i}`, type: "string", default: "3", value: "5", state: "set" }));
+  const settings = { file: "/made-up/planter/config.json", exists: true, state: "set", config: {}, fields: many, secrets: [] };
+  const schema = extensionCardSchema(entry, settings as never), values = extensionCardValues(entry, settings as never);
+  const fields = schema.props.map((prop, i) => ({ n: i + 1, prop, value: values.get(prop.key)!.value, section: 0, ext: values.get(prop.key)! }));
+  const card = new SettingsCard([schema]);
+  // What was last said is the foot too: a refusal in the command's own words, three rows at this width.
+  card.say("the bed count is refused: beds takes a whole number from one to twelve, and the shed has room for ten", "problem");
+  const lines = card.draw(fields, 44, 10, 0, 0).map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+  expect(lines.length).toBeLessThanOrEqual(10);
+  expect(lines.join(" ").replace(/\s+/g, " ")).toContain("room for ten");
+});

@@ -72,8 +72,8 @@ export function panelMode(surface: NoteSurface, P: PropertyPanel, key: (k: Key, 
       },
       leaveRefusal: () => {
         const f = P.field;
-        if (P.card?.editing?.input.draft.dirty) return "finish the setting first · ⏎ saves · esc keeps the old value";
-        return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; // says, not a hint row
+        const setting = !!P.card?.editing?.input.draft.dirty, value = !!f && f.input.text !== f.row.value;
+        return setting ? "finish the setting first · ⏎ saves · esc keeps the old value" : value ? "finish the property value first · ⏎ saves · esc cancels" : null; // says, not a hint row
       },
       unsaved: () => (!!P.field && P.field.input.text !== P.field.row.value) || !!P.card?.editing?.input.draft.dirty,
       hint: () => (P.card ? P.card.hint() : P.hint()),

@@ -209,6 +209,11 @@ export interface TileKind {
    * beside the edit they type in (PIE-1722), so their next keys go on in the edit.
    */
   clickKeepsKeys?(p: Pane, x: number, y: number): boolean;
+  /**
+   * Whether a screen's save keeps it now (false: left out of desk.json and the handover, kept in the live layout and its
+   * undo): an answer tile whose ask is gone (PIE-1733). Left out: always kept.
+   */
+  kept?(p: Pane, desk: DeskApi): boolean;
   /** While it takes every key, ^W and the window key after it are still the desk's: the way out by keys (the comment tile). */
   readonly windowKeys?: true;
   /** The dispatcher of a whole screen in the tile (a board's), whose actions it answers there (the board's `card.*`). */

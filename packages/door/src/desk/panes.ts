@@ -296,8 +296,8 @@ export interface Pane {
   follow?(m: Msg | null, desk: DeskApi): void;
   /** The terminal tile it follows is on file `path` now (nvim changed buffer). */
   followFile?(path: string | null | undefined, desk: DeskApi): void;
-  /** What the tile needs to be built again (a layout saved by name): its note, command, source. */
-  spec?(): Record<string, unknown>;
+  /** What the tile needs to be built again (a layout saved by name): its note, command, source. `saving`: for a save, not the layout's own history (PIE-1733). */
+  spec?(saving?: boolean): Record<string, unknown>;
   /** This tile's own look (PIE-675, the tune inspector's "this tile"): field key → value, saved in its tile spec as `look`. */
   instanceLook?: Record<string, string>;
   writtenTitle?: string;

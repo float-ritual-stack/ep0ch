@@ -56,7 +56,9 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     // Another run keeps it (no reseed)…
     const again = await run();
     expect(again.exitCode).toBe(0);
-    expect(again.stdout.toString()).not.toContain("seeded");
+    // PIE-1714 (#1419): --prepare says "prepared: the seeded showcase at …" each run; a reseed says "seeded the showcase".
+    expect(again.stdout.toString()).not.toContain("seeded the showcase");
+    expect(again.stdout.toString()).toContain("prepared:");
     svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
     expect((await loadShowcase(board))!.notes.whiteboard!.text).toContain("Buy more lemons.");
     board.close(); await svc.stop();

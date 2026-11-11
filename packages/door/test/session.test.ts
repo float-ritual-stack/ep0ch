@@ -34,6 +34,7 @@ import { createServer } from "node:net";
 import { USER } from "../src/socket";
 import { localPtys, usePtyBackend } from "../src/desk/pty-backend";
 import { mouseBytes, PtyPane } from "../src/desk/pty";
+import { ReaderPane } from "../src/desk/panes";
 import { outliner, Scratch, ScratchHost, scratchRoot, until } from "./scratch";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
@@ -1348,7 +1349,8 @@ describe("the terminal host", () => {
 
 describe("the checkpoint and the restore", () => {
   /** An App enough for a restore: a stack, the actions' replay declarations, a dispatcher that records what it's asked. */
-  function stubApp(refuse: (s: { action: string; tile?: string; args: Record<string, unknown> }) => string | null = () => null, answer: (s: { action: string; tile?: string }) => unknown = () => ({})) {
+  // `refuse`: why the step is refused, as the door says it: words (a plain refusal) or the door's own refusal, its kind with it.
+  function stubApp(refuse: (s: { action: string; tile?: string; args: Record<string, unknown> }) => string | Error | null = () => null, answer: (s: { action: string; tile?: string }) => unknown = () => ({})) {
     const stack: any[] = [], ran: { action: string; tile?: string; args: Record<string, unknown> }[] = [];
     const declared: Record<string, "safe" | "ask"> = { "screen.open": "safe", "screen.back": "safe", "screen.shell": "ask", open: "safe", edit: "ask" };
     const app = {
@@ -1357,7 +1359,7 @@ describe("the checkpoint and the restore", () => {
         list: () => ({ actions: Object.entries(declared).map(([name, replay]) => ({ name, replay })) }),
         act: async (req: { action: string; tile?: string; args: Record<string, unknown> }, as?: { kind: string; id?: string }) => {
           const no = refuse(req);
-          if (no) throw new Error(no);
+          if (no) throw typeof no === "string" ? new Error(no) : no;
           ran.push({ action: req.action, ...(req.tile ? { tile: req.tile } : {}), args: req.args, ...(as && as.kind !== "user" ? { as } : {}) });
           if (req.action === "screen.open") stack.push({ title: String(req.args.name), name: req.args.name });
           if (req.action === "screen.back") stack.pop();
@@ -1378,7 +1380,10 @@ describe("the checkpoint and the restore", () => {
 
   test("a restore runs the replay-safe steps through the dispatcher, holds the rest, and reopens the edit once its note is read", async () => {
     let noteRead = false;
-    const { app, ran } = stubApp(req => (req.action === "edit" && !noteRead ? "this reader shows no note; open one first" : null));
+    // PIE-1734: a reader still reading its note refuses the edit as the door's reader does (requireNote: not-found, the
+    // kind reopen waits on since #1397), not by its words.
+    const notYet = (() => { try { new ReaderPane().surface.requireNote(); } catch (e) { return e as Error; } throw new Error("an empty reader shows a note"); })();
+    const { app, ran } = stubApp(req => (req.action === "edit" && !noteRead ? notYet : null));
     setTimeout(() => { noteRead = true; }, 250);
     const c: Checkpoint = {
       v: 2, at: 0, menu: true,
