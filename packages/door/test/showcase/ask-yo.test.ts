@@ -360,34 +360,6 @@ describe("showcase: ask yo (PIE-1585)", () => {
     if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER);
   }, 90_000);
 
-  // PIE-1711, the verifier's re-walk: saved, the answer tile beside the note still shows the answer that is in the note.
-  test("after ^S the answer tile shows the answer in the note, not waiting for it", async () => {
-    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
-    const own = await h.board.createBlock(null, "Saved with its answer\n\nWhere an ask is saved.\n");
-    await h.board.createBlock(null, "zoom saved tile: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::zoom saved tile] [yo-line::tile.zoom]");
-    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
-    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
-    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
-    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
-    h.ch("e");
-    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
-    h.press({ kind: "enter" });
-    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
-    h.press({ kind: "end", ctrl: true });
-    for (const c of "@yo zoom the saved tile") h.ch(c);
-    const stage = () => h.S().stages.get(h.S().sel).top;
-    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
-    await until(() => !!answer() && h.screen().includes("tile.zoom"), "the answer beside the line", 30_000);
-    h.press({ kind: "char", ch: "s", ctrl: true });
-    await untilAsync(async () => (await h.board.get(own.id))!.text.includes("@yo answered"), "saved with its answer", 8000);
-    await Bun.sleep(300);
-    if (answer()) {
-      expect(h.screen()).not.toContain("Waiting for the answer");
-      expect(h.screen()).toContain("tile.zoom");
-      await h.app.dispatch.act({ action: "tile.close", tile: answer()! }, USER);
-    }
-  }, 90_000);
-
   // PIE-1712: an answer fits the ask. backlinks.view with step=kind names its one key, K, and its button says it: ▸ by kind. Asked
   // from a reader, where no backlinks tile is open, the button opens the note's links first (`links`), then groups them.
   test("asked how to see backlinks by kind: K alone, ▸ by kind, and a press opens the links and groups them", async () => {
@@ -488,7 +460,7 @@ describe("showcase: ask yo (PIE-1585)", () => {
     await h.board.update(m.id, `${m.text.trimEnd()}\n\n@yo backlinks by kind\n`, m.revision!, USER);
     await untilAsync(async () => (await read()).text.includes("@yo answered"), "yo's answer", 30_000);
     const surface = () => stage().pane("ask").surface;
-    await until(() => surface().describeElements().some((e: { label: string }) => e.label.includes("▸ by kind")), "the button drawn", 8000);
+    await until(() => surface().describeElements().some((e: { label: string }) => e.label.includes("▸ by kind")), "the button drawn", 8000).catch(async e => { throw new Error(`${e.message}: ${(await read()).text.slice(-600)}`); });
     const ended: string[] = [], app = h.app as unknown as { showMessage(m: string, ...rest: unknown[]): unknown }, shown = app.showMessage.bind(app);
     app.showMessage = (m: string, ...rest: unknown[]) => { ended.push(m); return shown(m, ...rest); };
     await h.app.dispatch.act({ action: "button.press", tile: "ask", args: { label: "▸ by kind" } }, USER);
@@ -634,6 +606,39 @@ describe("showcase: ask yo (PIE-1585)", () => {
       for (const t of ["ask", answer()].filter(Boolean)) await h.app.dispatch.act({ action: "tile.agent", tile: t!, args: { policy: "inherit" } }, USER);
       await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
     }
+  }, 90_000);
+
+  // PIE-1711, the verifier's re-walk: saved, the answer tile beside the note still shows the answer that is in the note.
+  test("after ^S the answer tile shows the answer in the note, not waiting for it", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const own = await h.board.createBlock(null, "Saved with its answer\n\nWhere an ask is saved.\n");
+    await h.board.createBlock(null, "zoom saved tile: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::zoom saved tile] [yo-line::tile.zoom]");
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    h.ch("e");
+    await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+    h.press({ kind: "enter" });
+    await until(() => h.screen().includes("editing ·"), "the edit", 8000);
+    h.press({ kind: "end", ctrl: true });
+    for (const c of "@yo zoom the saved tile") h.ch(c);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const answer = () => (stage().layoutGet().tiles as { name: string; kind: string }[]).find(t => t.kind === "answer")?.name;
+    await until(() => !!answer() && h.screen().includes("tile.zoom"), "the answer beside the line", 30_000);
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await untilAsync(async () => (await h.board.get(own.id))!.text.includes("@yo answered"), "saved with its answer", 8000);
+    await Bun.sleep(300);
+    if (answer()) {
+      expect(h.screen()).not.toContain("Waiting for the answer");
+      expect(h.screen()).toContain("tile.zoom");
+      await h.app.dispatch.act({ action: "tile.close", tile: answer()! }, USER);
+    }
+    // Left as the next test finds the stage: no edit open, the keys on the reader.
+    const draft = () => stage().pane("ask").surface.draft as { text: string } | null;
+    if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
+    await until(() => !draft(), "the edit closed", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
   }, 90_000);
 
   // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
@@ -834,4 +839,5 @@ describe("showcase: ask yo (PIE-1585)", () => {
       await dd.dispatch.act({ action: "tile.close", tile: "ask" }, USER).catch(() => {});
     }
   }, 90_000);
+
 });

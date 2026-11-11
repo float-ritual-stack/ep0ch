@@ -549,6 +549,8 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "for: " + reques
   await until("the new line answered", () => door.text.split("@echo answered").length - 1 === 2);
   expect(door.text.trimEnd()).toMatch(/@echo hub items not sent\n> \[!note\][-+] @echo answered\n> for: hub items not sent$/);
   expect(store.agentRequests(note.id).length).toBeGreaterThanOrEqual(2);
+  // Asked once per wording it said, and once more for the new line: never twice for a line that already had its answer.
+  expect(asked()).toEqual(["hub items not sent", "hub items not sent AND", "hub items not sent", "hub items not sent"]);
 });
 
 test("an outline a host opens gets the same start: old @name lines baselined, cut-off requests failed (B5, B17 hosted)", async () => {
