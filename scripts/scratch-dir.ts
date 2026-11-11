@@ -52,19 +52,34 @@ const SCRATCH_BASE_MAX = 24;
  * never one whose process runs or that has no `pid` file.
  */
 export function scratchDir(prefix: string): string {
-  const uid = process.getuid?.(), space = pidSpace(), base = scratchRoot();
+  return ownedDir(scratchRoot(), prefix, "pid");
+}
+
+/**
+ * A temp dir in the temp folder itself (`$TMPDIR`), owned as `scratchDir`'s are, its owner in `.owner`: a test preload's
+ * folder (the door's state dir, the fake ssh's owner file). `bun test` (1.4) never fires `exit`, and a preload's
+ * `afterAll` runs before the last repetition's tests under --rerun-each, so neither can remove it: the next run does,
+ * once this process is gone (PIE-1742: every test process had left two in /tmp, 445,000 by Nov 11).
+ */
+export function ownedTempDir(prefix: string): string {
+  return ownedDir(tmpdir(), prefix, ".owner");
+}
+
+/** `prefix…` in `base`, its owner written in `marker`; the dirs of that prefix whose owner is gone are removed first. */
+function ownedDir(base: string, prefix: string, marker: string): string {
+  const uid = process.getuid?.(), space = pidSpace();
   for (const name of readdirSync(base)) {
     if (!name.startsWith(prefix)) continue;
     const dir = join(base, name);
     try {
       const st = lstatSync(dir);
       if (!st.isDirectory() || (uid !== undefined && st.uid !== uid)) continue;
-      const [id, ns = ""] = readFileSync(join(dir, "pid"), "utf8").trim().split("\n");
+      const [id, ns = ""] = readFileSync(join(dir, marker), "utf8").trim().split("\n");
       const pid = Number(id);
       if (ns === space && Number.isInteger(pid) && pid > 0 && pid !== process.pid && !alive(pid)) rmSync(dir, { recursive: true, force: true });
-    } catch { /* no pid file, or gone already: left alone */ }
+    } catch { /* no owner file, or gone already: left alone */ }
   }
   const dir = mkdtempSync(join(base, prefix));
-  writeFileSync(join(dir, "pid"), `${process.pid}\n${space}`);
+  writeFileSync(join(dir, marker), `${process.pid}\n${space}`);
   return dir;
 }
