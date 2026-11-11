@@ -17,7 +17,8 @@ export function readingMs(text: string): number {
   return Math.min(30_000, 1500 + width(referenceWords(printable(text, " "))) * 70);
 }
 
-export interface MessageContext { action?: string; tile?: string; note?: string }
+/** `tile` is the tile's id, what a return to it (enter in the log) addresses; `tileName` its name, what the log says (PIE-1732: never a raw id). */
+export interface MessageContext { action?: string; tile?: string; tileName?: string; note?: string }
 /**
  * `passing`: a status the screen says too (entering a tile: its hint row reads `reader 1 · writing`), shown in the bar as
  * it fits and never said whole above it, where it would cover a tile's own hint row (PIE-1701).

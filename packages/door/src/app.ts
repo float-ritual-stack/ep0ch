@@ -44,7 +44,7 @@ import { SHELL_ACTIONS, shellDispatcher } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
-import { BOLD, C, chip, fg, headOf, pad, RESET, splitVisible, tailFrom, UNBOLD, width } from "./style";
+import { BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { isBarKey } from "./shell-keys";
 import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
@@ -80,6 +80,7 @@ import { hyperBinding, hyperLabel, hyperOn, HYPER_KEYS } from "./hyper";
 import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
+import { keyShown, opensLog, wholePlace, withWhole } from "./status-whole";
 import { tilesOf } from "./bar/sources";
 import type { ListPicker } from "./surface/picker";
 import { StripControls, STRIP_ACTIONS } from "./surface/strip-controls";
@@ -366,6 +367,8 @@ export interface Screen {
   openArgs?(): Record<string, unknown> | null;
   /** A screen that isn't a desk: what its next Esc closes, in the hint's words (esc-rule.ts): in front of a drawer, or (`front` false) past it. */
   escNext?(front: boolean): EscRead;
+  /** The screen lists the door's messages itself (the message log): one the status bar cuts is said there, never over its rows (PIE-1732). */
+  readonly readsMessages?: true;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
   /** False: the key is not this screen's and the holder may take it (a reader framed in a tile gives ctrl+z on to the desk's layout undo, PIE-1470). */
@@ -871,8 +874,10 @@ export class App implements Ctx {
     const meta = { ...messageContext.getStore(), ...details };
     const focus = this.person().focus;
     const desk = focus?.startsWith("drawer:") ? this.drawer.desk : tilesOf(this.stack.at(-1));
-    const tile = meta.tile === undefined ? desk?.tileOutline().find(t => t.focused) : undefined;
-    this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...meta });
+    const tiles = desk?.tileOutline(), tile = meta.tile === undefined ? tiles?.find(t => t.focused) : undefined;
+    // The log names a tile as the door does (`1`, `notes`), never by its raw id; the id stays for enter's return (PIE-1732).
+    const named = tile ?? tiles?.find(t => t.id === meta.tile || t.name === meta.tile);
+    this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...(named ? { tileName: named.name } : {}), ...meta });
     if (details.background && this.message && !this.messageBackground && Date.now() < this.messageUntil) return;   // background news waits in the log while an answer is up (PIE-1727)
     this.messageWarning = warning; this.message = printable(msg, " "); this.messagePassing = !!details.passing; this.messageBackground = !!details.background;
     if (details.href) this.message = `\x1b]8;;${new URL(details.href).href}\x1b\\${this.message}${OSC8_CLOSE}`;
@@ -1477,6 +1482,10 @@ export class App implements Ctx {
     if (k.kind === "paste" && paste(this.pasteDoor, k.text, w)) return;
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (w.over === "bar") {
+      // While a message is said whole, the key its "… more" names and a click on it read it in the log, as with the bar
+      // shut: bar.close first (a question's form cleared as Esc clears it), the log under it (PIE-1732).
+      const clicked = k.kind === "mouse" && k.action === "down" && k.y >= this.whole.top && k.y < this.whole.top + this.whole.rows;
+      if (clicked || (this.whole.rows || this.bar?.doorMessage) && opensLog(k.kind === "mouse" ? null : keyName(k))) { void this.dispatch.press("bar.close").then(() => this.dispatch.press("status.log")); return; }
       // ctrl+z on a kept run answer takes the run back: the bar goes, the key goes on to the screen (Esc, then ctrl+z).
       if (this.bar && !this.bar.ended() && this.bar.takesBackRun(k)) { this.bar.close(); this.bar = null; this.redraw(); this.route(k, this.keyLayers()); return; }
       if (!this.bar!.ended()) this.bar!.key(k, this);
@@ -1828,26 +1837,32 @@ export class App implements Ctx {
         placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
       }
     }
+    const bar = this.statusBar(s, cols);   // first: what it cuts short is said whole, and where (PIE-1732)
+    // What the bar cuts short (a refusal at 40 columns) is said whole while it's up (PIE-1428), in up to four rows, the
+    // last ending "… more ⇧⌥M" (the keymap's key for status.log); a click on it or that key opens the log (PIE-1453).
+    const whole = this.messageSaid?.cut && this.message && !this.messagePassing ? referenceWords(this.message) : "";
+    // Over the screen, above its own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays.
+    // With the power bar open, outside its rows; with none free, in its own message row; over the log, nowhere (wholePlace).
+    const at = Math.max(1, Math.min(chromeAt, lines.length));
+    const held = this.bar?.place(cols, rows - 1) ?? null;
+    const place = wholePlace({ lines: lines.length, at, held, reads: !!s.readsMessages });
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {
+      this.bar.doorMessage = whole && place === "inside" ? { text: whole, warning: this.messageWarning } : null;
       const b = this.bar.draw(cols, rows - 1), r = b.rect;
       lines = overBar(lines, b, lookFor(this, { screen: s.title }, cols).values);
       placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
-    const bar = this.statusBar(s, cols);
-    // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
-    // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
-    const whole = this.messageSaid?.cut && this.message && !this.messagePassing ? referenceWords(this.message) : "";
-    // Above the screen's own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays there to click.
-    const at = Math.max(1, Math.min(chromeAt, lines.length));
-    if (whole) lines = [...withWhole(lines.slice(0, at), whole, cols, this.messageWarning), ...lines.slice(at)];
-    const said = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length, at) : 0;
-    this.whole = { top: at - said, rows: said };
+    this.whole = { top: 0, rows: 0 };
+    if (whole && place && place !== "inside") { const w = withWhole(lines, whole, cols, this.messageWarning, place); lines = w.lines; this.whole = { top: w.top, rows: w.rows }; }
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(this.strips.draw(lines, cols, rows), cols, Date.now());
-    const saying = this.overflow.saying(); if (saying) { readable.lines = [...withWhole(readable.lines.slice(0, at), saying, cols, true), ...readable.lines.slice(at)]; if (wrap(printable(saying, " "), Math.max(1, cols - 2)).length > 4) this.messages.appendOnce(saying, { kind: "refusal" }); }   // a button's why under the pointer, said whole (PIE-1686)
+    // A button's why under the pointer, said whole where a message is (PIE-1686); past its rows, the log has it once.
+    const saying = this.overflow.saying();
+    if (saying && place && place !== "inside") readable.lines = [...withWhole(readable.lines.slice(0, -1), saying, cols, true, place).lines, ...readable.lines.slice(-1)];
+    if (saying && wrap(printable(saying, " "), Math.max(1, cols - 2)).length > (place && place !== "inside" ? place.rows : 0)) this.messages.appendOnce(saying, { kind: "refusal" });
     if (readable.overlay) placements = uncover(placements, readable.overlay);
     this.display.show(readable.lines, placements);
     this.speed.frame();
@@ -1873,7 +1888,7 @@ export class App implements Ctx {
     const items: StatusItem[] = [
       { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", click: { action: "status.log" } },
       { id: "power", text: `${fg(C.yellow)}^K`, place: "left", keep: true, ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
-      { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
+      { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : keyShown("macro.record", "alt+Q") ?? "REC"}`, place: "left", ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
       { id: "screen", text: s?.title ?? "", place: "left", click: { action: "status.log" } },
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" }, ...(this.machine ? { short: doorLocation(this).short } : {}) },
       right("docks", this.screenDesk()?.dockChoices().length ? "docks" : "", "strip.more", { strip: `${this.screenDesk()?.name}:docks` }),
@@ -1956,22 +1971,6 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
   const out = [...lines];
   const line = out[row] ?? "";
   out[row] = headOf(line, at) + RESET + chip(ok ? C.cyan : C.red) + pad(t, w) + RESET + tailFrom(line, at + w);
-  return out;
-}
-
-/** What withWhole puts at the end of its last row when the message is longer than its rows (PIE-1453): a click or alt+M reads it whole. */
-export const WHOLE_MORE = "… more alt+M";
-/**
- * A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. One
- * longer than that ends its fourth row with WHOLE_MORE: the message log (status.log) draws it whole.
- */
-export function withWhole(lines: string[], text: string, cols: number, warning = false): string[] {
-  const room = Math.max(1, cols - 2), all = wrap(printable(text, " "), room), rows = all.slice(0, 4), out = [...lines];
-  if (all.length > rows.length) {
-    const more = ` ${WHOLE_MORE}`, last = rows.length - 1;
-    rows[last] = splitVisible(rows[last]!, Math.max(0, room - width(more)))[0].trimEnd() + more;
-  }
-  rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
   return out;
 }
 

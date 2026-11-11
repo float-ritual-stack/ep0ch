@@ -456,6 +456,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
 
   test("at 44 columns a hovered button's why past four rows says … more, and the message log has it whole (PIE-1686, review)", async () => {
     size.cols = 44;
+    app.video = "kitty";   // Unicode as written: the CRT's VGA font draws ⇧⌥M as ↑+M
     const why = "this button can't run here: " + Array.from({ length: 12 }, (_, i) => `the bed ${i + 1} has no tile of its own`).join(", ") + ", and the last word is compost";
     const screen = { title: "buttons", render: () => ({ lines: ["", ` ${buttonRows("Turn the compost", { state: "disabled", why })[0]}`, ...Array(37).fill("")] }), key() {} };
     app.push(screen as any);
@@ -464,7 +465,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       const y = painted.findIndex(l => visible(l).includes("Turn the compost")), x = visible(painted[y]!).indexOf("Turn");
       await app.dispatch.press("text.hover", { x: x + 2, y });
       (app as any).paint();
-      expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).toContain("more alt+M");
+      expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).toContain("more ⇧⌥M");
       // The rest is in the message log (alt+M, or a click on the rows), whole, once however long the pointer rests.
       await app.dispatch.press("text.hover", { x: x + 3, y });
       (app as any).paint();
@@ -475,11 +476,12 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   test("at 44 columns a refusal past four rows says … more; a click opens the log, which draws it whole with its label, and the label opens (PIE-1453)", async () => {
     const inbox = await board.createBlock(null, "Inbox");
     size.cols = 44;
+    app.video = "kitty";
     try {
       const said = `2 notes are titled Bird list, in ((${inbox.id}|in Inbox)) and in a garden note, but none is a page: add [page::Bird list] to one, or name the page this form writes into with [form-into::…]; did you mean [[Bird lists]]?`;
       app.flash(said, 60_000, { kind: "refusal" });
       // Above the desk's hint row (PIE-1456): the bar is the last row, the hint row the one above it.
-      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-3) ?? "").trimEnd()); }, "… more at the end of the fourth row");
+      await until(() => { app.flush(); return / more ⇧⌥M$/.test(visible(painted.at(-3) ?? "").trimEnd()); }, "… more at the end of the fourth row");
       const band = painted.slice(-6, -2).map(l => visible(l));
       expect(band.join(" ")).toContain("in Inbox");
       expect(band.join(" ")).not.toContain(inbox.id);
@@ -606,6 +608,129 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       // A short one keeps its own time: the reading time only lengthens what needs it.
       expect(readingMs("back to the door")).toBeLessThan(4000);
     } finally { clock.mockRestore(); size.cols = 220; app.flash(""); }
+  });
+
+  // PIE-1732: the whole message was laid over everything else (withWhole after overBar), so at 44×13 it covered the
+  // open bar's lit row and its foot, and the log's own rows. A message reads where nothing it covers is in use.
+  const longSaid = "an agent (a-probe) · open refused: notes has the person's keys; opening a note there would move what they're reading · name another reader with tile=, or open one of its own with tile.open kind=reader";
+  const frozen = () => { const start = Date.now(); return spyOn(Date, "now").mockImplementation(() => start); };
+  const barRows = () => { const r = (app as any).bar.rect; return { top: r.row as number, end: r.row + r.rows + 1 as number }; };
+  // Unicode as written (⇧⌥M, …): under kitty+crt the VGA font draws them as their lookalikes (↑+M, ·).
+  const openBar = async () => {
+    app.video = "kitty";
+    await app.dispatch.act({ action: "bar.open", args: { query: "tile.open", scope: "actions" } }, USER);
+    await (app as any).bar.settled();
+    (app as any).paint();
+  };
+
+  test("with ^K open at 44×13 and 44×20, a long message covers neither the lit row nor the bar's foot, and its more names ⇧⌥M (PIE-1732)", async () => {
+    const clock = frozen();
+    try {
+      for (const rows of [13, 20]) {
+        size.cols = 44; size.rows = rows;
+        await openBar();
+        const { top, end } = barRows();
+        const before = painted.slice(top, end).map(l => visible(l));
+        expect(before.join(" "), `the bar's foot at 44×${rows}`).toContain("esc clear/close");
+        app.flash(longSaid, 60_000, { kind: "refusal" });
+        (app as any).paint();
+        expect(painted.slice(top, end).map(l => visible(l)), `the bar as it was at 44×${rows}`).toEqual(before);
+        const outside = painted.slice(0, -1).map(l => visible(l)).filter((_, y) => y < top || y >= end).join(" ");
+        expect(outside, `the message outside the bar at 44×${rows}`).toContain("an agent (a-probe)");
+        expect(outside, `its more at 44×${rows}`).toContain("… more ⇧⌥M");
+        await app.dispatch.act({ action: "bar.close" }, USER);
+        app.flash("");
+      }
+    } finally { clock.mockRestore(); if ((app as any).bar) await app.dispatch.act({ action: "bar.close" }, USER); size.rows = 40; size.cols = 220; app.flash(""); }
+  });
+
+  test("with ^K open at 44×10, no row is free outside the bar: the message reads in the bar's own row, its foot kept (PIE-1732)", async () => {
+    const clock = frozen();
+    try {
+      size.cols = 44; size.rows = 10;
+      await openBar();
+      const { top, end } = barRows();
+      expect(end, "the bar fills every row above the status bar").toBe(size.rows - 1);
+      app.flash(longSaid, 60_000, { kind: "refusal" });
+      (app as any).paint();
+      const inBar = painted.slice(top, end).map(l => visible(l));
+      const row = inBar.findIndex(l => l.includes("an agent (a-probe)"));
+      expect(row, "the message's row in the bar").toBeGreaterThan(0);
+      expect(inBar[row], "cut to one row, naming the key").toContain("… more ⇧⌥M");
+      expect(inBar.slice(row + 1).join(" "), "the foot under it").toContain("esc clear/close");
+    } finally { clock.mockRestore(); if ((app as any).bar) await app.dispatch.act({ action: "bar.close" }, USER); size.rows = 40; size.cols = 220; app.flash(""); }
+  });
+
+  test("with ^K open, ⇧⌥M and a click on the message outside the bar put the bar away and open the log (PIE-1732)", async () => {
+    try {
+      size.cols = 44; size.rows = 20;
+      for (const how of ["key", "click"] as const) {
+        await openBar();
+        app.flash(longSaid, 60_000, { kind: "refusal" });
+        (app as any).paint();
+        const { top, end } = barRows();
+        const y = painted.slice(0, -1).findIndex((l, y) => (y < top || y >= end) && visible(l).includes("an agent"));
+        expect(y, how).toBeGreaterThanOrEqual(0);
+        if (how === "key") press({ kind: "alt", ch: "M" });
+        else press({ kind: "mouse", action: "down", button: 0, x: 4, y });
+        await until(() => !(app as any).bar && app.screens().at(-1)?.title === "message log", `${how}: the log, the bar put away`);
+        app.pop();
+      }
+      // With no message said whole, ⇧⌥M is the bar's: it stays open, its line kept.
+      app.flash("");
+      await openBar();
+      press({ kind: "alt", ch: "M" });
+      await Bun.sleep(50);
+      expect((app as any).bar, "the bar stays with no message up").toBeTruthy();
+      expect(app.screens().at(-1)?.title).not.toBe("message log");
+    } finally { if ((app as any).bar) await app.dispatch.act({ action: "bar.close" }, USER); size.rows = 40; size.cols = 220; app.flash(""); }
+  });
+
+  for (const rows of [13, 20]) test(`the message log at 44×${rows} isn't covered: a message it lists reads in it; one that comes after reads on its own row; its hint row ends … (PIE-1732)`, async () => {
+    try {
+      app.video = "kitty";
+      size.cols = 44; size.rows = rows;
+      app.flash(longSaid, 60_000, { kind: "refusal" });
+      await app.dispatch.act({ action: "status.log" }, USER);
+      const log = app.screens().at(-1)!;
+      (app as any).paint();
+      const own = log.render(app).lines.map(l => visible(l));
+      const drawn = painted.slice(0, -1).map(l => visible(l));
+      expect(drawn, "the log's rows as it draws them").toEqual(own.slice(0, drawn.length));
+      expect(drawn.at(-1)!.trimEnd(), "its hint row, cut with …").toEndWith("…");
+      expect(drawn.at(-1)).toStartWith("/ search");
+      expect(drawn.join(" "), "a tile by its name, never its raw id").not.toMatch(/\| t-[0-9a-f]{8}-/);
+      const later = "the shed is locked until the frost has gone and the key is back on its hook by the water butt";
+      app.flash(later, 60_000, { kind: "refusal" });
+      (app as any).paint();
+      const now = painted.slice(0, -1).map(l => visible(l));
+      expect(now.at(-1), "the hint row stays").toStartWith("/ search");
+      const news = now.at(-2)!;
+      expect(news, "the log's own row says the new message").toContain("the shed is locked");
+      expect(now.join(" ")).not.toContain("more ⇧⌥M");
+      press({ kind: "char", ch: "r" });
+      await until(() => { (app as any).paint(); return !visible(painted.at(-3) ?? "").includes("1 new"); }, "r lists it");
+    } finally { while (app.screens().length > 1) app.pop(); size.rows = 40; size.cols = 220; app.flash(""); }
+  });
+
+  test("the more names the key the keymap gives the log (PIE-1732)", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { reloadKeymap } = await import("../src/surface/keymap");
+    const was = process.env.EP0CH_KEYMAP, file = join(mkdtempSync(join(tmpdir(), "log-keymap-")), "keybindings.json");
+    process.env.EP0CH_KEYMAP = file;
+    writeFileSync(file, JSON.stringify({ "status.log": ["alt+L"] }));
+    reloadKeymap();
+    try {
+      size.cols = 44;
+      app.video = "kitty";
+      app.flash(longSaid, 60_000, { kind: "refusal" });
+      await until(() => { app.flush(); return painted.slice(-7, -1).some(l => visible(l).includes("… more ⇧⌥L")); }, "the rebound key in the more");
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_KEYMAP; else process.env.EP0CH_KEYMAP = was;
+      reloadKeymap();
+      size.cols = 220; app.flash("");
+    }
   });
 
   test("at 44 columns a message the bar cuts reads from its start, cut at its end, and stays so (PIE-1707)", async () => {

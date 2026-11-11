@@ -32,6 +32,7 @@ import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../sur
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
 import { previewPlace } from "./list-preview";
+import { wholeLines, wholeRow } from "../status-whole";
 import { C, chip, dim, drawEllipsized, ellipsize, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
@@ -587,7 +588,9 @@ export class PowerBar {
     const verdictRows = below ? wrap(verdict, w - 2).slice(0, 2).map(l => paint(" |08") + l) : [];
     const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, ...verdictRows];
     head.push(fg(C.blue) + "─".repeat(w) + RESET);
-    const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
+    // The door's message, when no row outside the bar is free for it (wholePlace, PIE-1732): one row, its more naming the log's key.
+    const message = this.doorMessage ? [wholeRow(wholeLines(this.doorMessage.text, w - 2, 1)[0]!, w, this.doorMessage.warning)] : [];
+    const tail = [...(said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : []), ...message];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
     const hint = this.scope ? barSource(this.scope)?.about ?? "" : none ? "no matches" : this.query.trim() ? "" : "nothing open yet";
@@ -704,12 +707,28 @@ export class PowerBar {
     return true;
   }
 
-  /** Drawn over a screen `cols` by `rows`: where, and its rows. */
-  draw(cols: number, rows: number): { rect: Rect; lines: string[] } {
+  /**
+   * The door's message said whole in the bar's own row, under its list (PIE-1732): set by the App when the bar leaves no
+   * row free outside it (wholePlace), so the message never covers the lit row or the foot.
+   */
+  doorMessage: { text: string; warning: boolean } | null = null;
+
+  /** Where it's drawn over a screen `cols` by `rows`, its shadow's row and column included: what `draw` answers as its rect. */
+  place(cols: number, rows: number): Rect {
+    const r = this.frameRect(cols, rows);
+    return { ...r, cols: r.cols + 1, rows: r.rows + 1 };
+  }
+  private frameRect(cols: number, rows: number): Rect {
     if (this.query !== this.listedFor && !this.done) this.refresh();
     const compact = this.compact();
     const height = compact ? (compact.choice ? Math.min(this.items.length, 6) : 0) + 3 : 0;
-    const r = (this.rect = compact ? { col: 1, row: Math.max(0, rows - height - 1), cols: Math.min(cols - 3, Math.max(48, width(compact.title) + 24)), rows: height } : barRect(cols, rows));
+    return compact ? { col: 1, row: Math.max(0, rows - height - 1), cols: Math.min(cols - 3, Math.max(48, width(compact.title) + 24)), rows: height } : barRect(cols, rows);
+  }
+
+  /** Drawn over a screen `cols` by `rows`: where, and its rows. */
+  draw(cols: number, rows: number): { rect: Rect; lines: string[] } {
+    const r = (this.rect = this.frameRect(cols, rows));
+    const compact = this.compact();
     const canvas = new Canvas(r.cols + 1, r.rows + 1);
     const completion = completerOf(this.input);
     if (completion) completion.drawn = null;
