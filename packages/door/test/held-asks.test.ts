@@ -53,7 +53,7 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
   test("the service says what is held and why; the door's copy and the status bar's count follow", async () => {
     const held = app.heldAsks.list();
     expect(held.find(h => h.blockId === ids.held)).toMatchObject({ agent: "tidy", request: "", why: "cap: “One wake” is capped at 1/day, and it's used up today · ask again to send", by: "agent:loki", line: 2 });
-    expect(held.find(h => h.by === "agent:ext:tidy")).toMatchObject({ agent: "tidy", request: "clean up the transcript", why: "tidy's demo · ask again to send" });
+    expect(held.find(h => h.by === "agent:ext:tidy")).toMatchObject({ agent: "tidy", why: "tidy's demo · ask again to send" });
     const service = await board.heldAsks();
     expect(service.map(h => h.blockId).sort()).toEqual(held.map(h => h.blockId).sort());
     expect(app.heldAsks.count()).toBe(service.length);

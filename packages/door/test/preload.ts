@@ -124,12 +124,13 @@ plugin({
     });
   },
 });
+// Then the run's own temp folders, whatever the check above says: the state dir and the fake ssh's owner file. Every test
+// process had left both in the temp dir (445,000 in float-box's /tmp by Nov 11), and bun reads each folder above a
+// program's own as it starts it: an extension's process under /tmp took 200 ms instead of 10, each key typed in the
+// power bar's query line (PIE-1742).
 afterAll(async () => {
-  if (last) await between(last, true);
-  if (said.length) throw new Error(`test files left state behind for the files after them (test/preload.ts):\n${said.join("\n")}`);
+  try {
+    if (last) await between(last, true);
+    if (said.length) throw new Error(`test files left state behind for the files after them (test/preload.ts):\n${said.join("\n")}`);
+  } finally { removeStateDir(); removeFakeSshOwner(); }
 });
-
-// The run's own temp folders, last: the state dir above and the fake ssh's owner file. Every test process had left both in
-// the temp dir (445,000 in float-box's /tmp by Nov 11), and bun reads each folder above a program's own as it starts it:
-// an extension's process under /tmp took 200 ms instead of 10, each key typed in the power bar's query line (PIE-1742).
-afterAll(() => { removeStateDir(); removeFakeSshOwner(); });
