@@ -7,7 +7,7 @@ use rune::{Cx, El, Icon, Key, KeyEvent, ScrollSpec, TextStyle, Tx, col, el, row,
 use rune_kit::shell::{Sidebar, SidebarRow, SplitView, Toolbar};
 use rune_kit::{Badge, BadgeVariant, Button, ButtonVariant, Dialog, IconButton, IconButtonVariant, Kit, Markdown, TextArea, TextInput, glyphs};
 
-use crate::model::{App, Finder, Page, Part, Row, Tone};
+use crate::model::{App, Finder, Frame, ListRow, Page, Part, Row, Tone};
 
 static PLUS: Icon = Icon { name: "ep0ch-plus", view: 16.0, body: r#"<path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"# };
 static BACK: Icon = Icon { name: "ep0ch-back", view: 16.0, body: r#"<path d="M9.5 3.5L5 8L9.5 12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"# };
@@ -161,35 +161,92 @@ fn prose(markdown: &str, k: &Kit) -> El {
     Markdown::new(markdown).selectable(true).tasks_read_only().on_link_tx(|s: &mut App, href: &str, _| s.follow(href)).build(k)
 }
 
-fn component(i: usize, part: &Part, k: &Kit) -> El {
-    let Part::Component { name, title, source, query, columns, rows, more, error, results } = part else { return el() };
+/// A row that opens a note when it names one, and is plain words when it doesn't.
+fn page_row(text: &str, id: Option<&str>, trailing: Vec<String>, quiet: Option<&str>, key: String, k: &Kit) -> El {
     let c = &k.c;
-    let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(name.clone()).variant(BadgeVariant::Accent).build(k));
-    if let Some(t) = title { head = head.child(text(t.clone()).font(k.ty.ui_medium).color(c.text_base)) }
-    if let Some(q) = query {
+    let mut line = row().w_full().gap(8.0).center_y().child(text_el(text, k.ty.ui, if id.is_some() { c.text_base } else { c.text_muted }).truncate().grow(1.0));
+    for cell in trailing.into_iter().filter(|cell| !cell.is_empty()) { line = line.child(Badge::new(cell).variant(BadgeVariant::Subtle).build(k)) }
+    if let Some(q) = quiet { line = line.child(text_el(q, k.ty.small, c.text_faint).truncate()) }
+    let line = line.px(10.0).py(6.0).radius(k.radius.sm).key(key);
+    match id {
+        Some(id) => {
+            let id = id.to_string();
+            k.interactive(line).role("link").focusable(true).on_press(move |s: &mut App| s.open(&id))
+        }
+        None => line,
+    }
+}
+
+fn text_el(words: &str, font: TextStyle, color: rune::Color) -> El { text(words.to_string()).font(font).color(color) }
+
+/// A `graph-stat` from its answered props: a tile per item, the number large over its label.
+fn stat_tiles(props: &serde_json::Value, k: &Kit) -> Option<El> {
+    let items = props.get("items")?.as_array()?;
+    let words = |v: Option<&serde_json::Value>| match v { Some(serde_json::Value::String(s)) => s.clone(), Some(serde_json::Value::Null) | None => String::new(), Some(other) => other.to_string() };
+    let tiles = items.iter().fold(row().w_full().gap(8.0).flex_wrap(), |tiles, item| {
+        let accent = item.get("accent").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        tiles.child(
+            col().min_w(120.0).grow(1.0).padding(12.0).gap(2.0).radius(k.radius.md).fill(k.c.layer_02).border(1.0, if accent { k.c.border_focus } else { k.c.border_muted })
+                .child(text(words(item.get("value"))).font(sized(k.ty.body_medium, 24.0, 30.0)).color(if accent { k.c.text_accent } else { k.c.text_base }))
+                .child(text(words(item.get("label"))).font(k.ty.small).color(k.c.text_muted).wrap()),
+        )
+    });
+    (!items.is_empty()).then_some(tiles)
+}
+
+/// A component as the service answered it. One it has no answer for, or this window no drawing for, shows as it was written: never hidden.
+fn component(i: usize, part: &Part, k: &Kit) -> El {
+    let c = &k.c;
+    let (frame, body): (&Frame, Vec<El>) = match part {
+        Part::Prose { .. } => return el(),
+        Part::Figure { frame, figure, props, markdown } => (frame, match (figure.as_str(), markdown) {
+            ("stat", _) if stat_tiles(props, k).is_some() => vec![stat_tiles(props, k).unwrap_or_else(el)],
+            (_, Some(md)) => vec![prose(md, k)],
+            _ => vec![text_el(&frame.source, k.ty.mono, c.text_muted).wrap()],
+        }),
+        Part::View { frame, view, truncated } => {
+            let mut rows: Vec<El> = Vec::new();
+            let headers = if view.headers.is_empty() { &view.columns } else { &view.headers };
+            if !headers.is_empty() && !view.rows.is_empty() {
+                rows.push(text_el(&headers.join(" · "), k.ty.text_xsmall_medium, c.text_faint).px(10.0));
+            }
+            rows.extend(view.rows.iter().map(|r| page_row(&r.label, Some(&r.id), r.cells.iter().map(ListRow::cell).collect(), r.detail.as_deref(), format!("part/{i}/{}", r.id), k)));
+            if view.rows.is_empty() { rows.push(text_el("No notes match.", k.ty.small, c.text_faint)) }
+            if *truncated { rows.push(text_el("More match than are shown: open the query for all of them.", k.ty.small, c.text_faint)) }
+            (frame, rows)
+        }
+        Part::Rows { frame, groups } => {
+            let mut rows: Vec<El> = Vec::new();
+            for (g, group) in groups.iter().enumerate() {
+                if groups.len() > 1 { rows.push(section(&group.name, k).px(10.0)) }
+                if group.rows.is_empty() { rows.push(text_el(group.empty.as_deref().unwrap_or("nothing here yet"), k.ty.small, c.text_faint).px(10.0)) }
+                rows.extend(group.rows.iter().enumerate().map(|(n, r)| {
+                    let key = r.id.as_ref().map_or(format!("part/{i}/{g}/{n}"), |id| format!("part/{i}/{id}"));
+                    page_row(&r.text, r.id.as_deref(), Vec::new(), r.note.as_deref(), key, k)
+                }));
+            }
+            (frame, rows)
+        }
+        Part::Component { frame } => (frame, vec![text_el(&frame.source, k.ty.mono, c.text_muted).wrap()]),
+    };
+    let mut head = row().w_full().gap(8.0).center_y().child(Badge::new(frame.name.clone()).variant(BadgeVariant::Accent).build(k));
+    if let Some(t) = &frame.title { head = head.child(text_el(t, k.ty.ui_medium, c.text_base)) }
+    head = head.child(el().grow(1.0));
+    if let Some(q) = &frame.query {
         let q2 = q.clone();
-        head = head.child(el().grow(1.0)).child(
-            k.interactive(text(q.clone()).font(k.ty.mono).color(c.text_muted).truncate())
+        head = head.child(
+            k.interactive(text_el(q, k.ty.mono, c.text_muted).truncate())
                 .key(format!("part/{i}/query"))
                 .help("Open this query")
                 .on_press(move |s: &mut App| s.find(Finder::Query, &q2)),
         );
+    } else if let Some(status) = &frame.status {
+        head = head.child(text_el(status, k.ty.small, c.text_faint));
     }
-    let mut card = col().key(format!("part/{i}")).w_full().padding(12.0).gap(8.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_muted).child(head);
-    if let Some(e) = error {
-        return card.child(text(e.clone()).font(k.ty.small).color(c.danger.fg).wrap());
-    }
-    match (rows, results) {
-        (Some(rows), _) if rows.is_empty() => card = card.child(text("No notes match.").font(k.ty.small).color(c.text_faint)),
-        (Some(rows), _) => {
-            card = rows.iter().fold(card, |card, r| card.child(link_row(r, columns, &format!("part/{i}"), k)));
-            if *more { card = card.child(text("More match than are shown: open the query for all of them.").font(k.ty.small).color(c.text_faint)) }
-        }
-        (None, Some(md)) => card = card.child(prose(md, k)),
-        // A component this window doesn't draw yet is shown as it was written, never hidden.
-        (None, None) => card = card.child(text(source.clone()).font(k.ty.mono).color(c.text_muted).wrap()),
-    }
-    card
+    let mut card = col().key(format!("part/{i}")).w_full().padding(12.0).gap(6.0).radius(k.radius.md).fill(c.layer_01).border(1.0, c.border_muted).child(head);
+    // The service's words on what is wrong, with whatever it could still answer under them.
+    if let Some(e) = &frame.error { card = card.child(text_el(e, k.ty.small, c.danger.fg).wrap()) }
+    body.into_iter().fold(card, |card, part| card.child(part))
 }
 
 fn note(s: &App, page: &Page, k: &Kit) -> El {

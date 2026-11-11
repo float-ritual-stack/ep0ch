@@ -39,28 +39,119 @@ pub struct Chip {
     pub value: String,
 }
 
+/// One row of a links group or a fields list: what it says, the note it opens (none: it opens nothing), a quiet word after it.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PageRow {
+    pub text: String,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Group {
+    pub name: String,
+    #[serde(default)]
+    pub rows: Vec<PageRow>,
+    #[serde(default)]
+    pub empty: Option<String>,
+}
+
+/// A view's row as the service lists it: the note, its label, and a cell per column.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ListRow {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+    #[serde(default)]
+    pub cells: Vec<Value>,
+}
+
+impl ListRow {
+    /// A cell's words: it is text, a number, or an object with `text`.
+    pub fn cell(v: &Value) -> String {
+        match v {
+            Value::String(s) => s.clone(),
+            Value::Object(o) => o.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+            Value::Null => String::new(),
+            other => other.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ListView {
+    #[serde(default)]
+    pub rows: Vec<ListRow>,
+    #[serde(default)]
+    pub headers: Vec<String>,
+    #[serde(default)]
+    pub columns: Vec<String>,
+}
+
+/// What every component part carries (outline-core's note-page.ts): its name and source as written, and the service's word on its answer.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Frame {
+    pub name: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub source: String,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// A part of a page, as `notes.page` answers it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Part {
     Prose { markdown: String },
-    Component {
-        name: String,
+    /// A `::graph-*` figure: the props it draws from, answered, and the same results as Markdown.
+    Figure {
+        #[serde(flatten)]
+        frame: Frame,
+        figure: String,
         #[serde(default)]
-        title: Option<String>,
-        source: String,
+        props: Value,
         #[serde(default)]
-        query: Option<String>,
-        #[serde(default)]
-        columns: Vec<String>,
-        #[serde(default)]
-        rows: Option<Vec<Row>>,
-        #[serde(default)]
-        more: bool,
-        #[serde(default)]
-        error: Option<String>,
-        #[serde(default)]
-        results: Option<String>,
+        markdown: Option<String>,
     },
+    /// A `::view` or a query-backed table: the view's own list.
+    View {
+        #[serde(flatten)]
+        frame: Frame,
+        view: ListView,
+        #[serde(default)]
+        truncated: bool,
+    },
+    /// A `::links` and its kin, or a `::fields`: named groups of rows.
+    Rows {
+        #[serde(flatten)]
+        frame: Frame,
+        #[serde(default)]
+        groups: Vec<Group>,
+    },
+    /// A component the service answers nothing for: its source.
+    Component {
+        #[serde(flatten)]
+        frame: Frame,
+    },
+}
+
+impl Part {
+    /// Whether this part lists the note `id`: a change to it means the page should be read again.
+    pub fn lists(&self, id: &str) -> bool {
+        match self {
+            Part::View { view, .. } => view.rows.iter().any(|r| r.id == id),
+            Part::Rows { groups, .. } => groups.iter().any(|g| g.rows.iter().any(|r| r.id.as_deref() == Some(id))),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -248,7 +339,7 @@ impl App {
                 let Some(open) = self.selected.clone() else { return };
                 let shown = self.page.as_ref();
                 // The open note, or one it lists (a child retitled, a query's row), changed: read it again.
-                let touches = ids.iter().any(|id| *id == open || shown.is_some_and(|p| p.children.iter().any(|c| c.id == *id) || p.parts.iter().any(|part| matches!(part, Part::Component { rows: Some(rows), .. } if rows.iter().any(|r| r.id == *id)))));
+                let touches = ids.iter().any(|id| *id == open || shown.is_some_and(|p| p.children.iter().any(|c| c.id == *id) || p.parts.iter().any(|part| part.lists(id))));
                 if !touches { return }
                 match &self.draft {
                     // Someone else wrote the note being typed in: the draft stays, and a save will say so.

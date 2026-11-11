@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { Scratch } from "@ep0ch/door/test/scratch";
 import { SocketBoard } from "@ep0ch/door/src/socket";
-import type { Page, Part, Row } from "../bridge/page";
+import type { PagePart } from "@ep0ch/outline-core/note-page";
+import type { Page, Row } from "../bridge/page";
 
 type Said = { id?: number; ok?: boolean; result?: any; error?: string; kind?: string; event?: string; ids?: string[] };
 
@@ -77,7 +78,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await bridge?.close(); await scratch.dispose(); });
 
-const component = (p: Page, title: string) => p.parts.find((part): part is Extract<Part, { kind: "component" }> => part.kind === "component" && part.title === title)!;
+const rows = (p: Page, title: string) => p.parts.find((part): part is Extract<PagePart, { kind: "rows" }> => part.kind === "rows" && part.title === title)!;
 
 test("hello names the outline and the host's outlines", async () => {
   const hello = await bridge.result("hello");
@@ -98,7 +99,7 @@ test("a page is the title, the chips and the body in parts the app can draw", as
   expect(page.chips).toEqual([{ key: "type", value: "plan" }]);
   expect(page.text.startsWith("Plan for Saturday [type::plan]\n")).toBe(true);
 
-  const prose = page.parts.filter(p => p.kind === "prose").map(p => p.markdown);
+  const prose = page.parts.flatMap(p => p.kind === "prose" ? [p.markdown] : []);
   // References read as Markdown links: an unlabelled one by its note's title, a labelled one by its label, a page by its name.
   expect(prose[0]).toContain(`[Shed](ep0ch:b/${shed})`);
   expect(prose[0]).toContain(`[the onions](ep0ch:b/${onions})`);
@@ -110,14 +111,15 @@ test("a page is the title, the chips and the body in parts the app can draw", as
   expect(prose.join("\n")).not.toContain("[!tip]");
 });
 
-test("a query-backed component arrives answered; one the service can't read arrives with the service's words", async () => {
+test("the page's parts are the service's (notes.page): a component arrives answered, or with the service's words", async () => {
   const page = await bridge.result<Page>("page", { note: plan });
-  const plot = component(page, "On the plot");
-  expect(plot.name).toBe("links");
-  expect(plot.query).toBe("type=chore area=plot");
-  expect(plot.rows!.map((r: Row) => r.title).sort()).toEqual(["Lift the onions", "Water the beans"]);
-  const bad = component(page, "Not chores");
-  expect(bad.rows).toBeUndefined();
+  expect(page.parts.map(p => p.kind)).toEqual(["prose", "rows", "prose", "rows"]);
+  const plot = rows(page, "On the plot");
+  expect(plot).toMatchObject({ name: "links", query: "type=chore area=plot" });
+  expect(plot.groups.flatMap(g => g.rows.map(r => r.text)).sort()).toEqual(["Lift the onions", "Water the beans"]);
+  expect(plot.groups[0]!.rows.every(r => typeof r.id === "string")).toBe(true);
+  const bad = rows(page, "Not chores");
+  expect(bad.groups).toEqual([]);
   expect(bad.error).toMatch(/NOT/);
   // Its source is still there to show.
   expect(bad.source).toContain("::links{");
@@ -186,3 +188,4 @@ test("find ranks notes by words; a query answers rows with the facets they carry
   expect(typo.rows).toEqual([]);
   expect(typo.hint).toContain("type");
 });
+

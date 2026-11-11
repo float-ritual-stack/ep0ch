@@ -240,6 +240,7 @@ export interface WireAnswers {
   "notes.address": NoteAddress;
   "notes.create": { placement: NotePlacement; } | NewNoteReceipt;
   "notes.render": RenderedNote;
+  "notes.page": import("@ep0ch/outline-core/note-page").NotePage;
   "notes.route": NoteRouteRun;
   "outlines.archive": HostedOutlineArchival;
   "outlines.attach": HostedOutlineAttachment;

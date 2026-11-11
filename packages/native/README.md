@@ -29,7 +29,7 @@ Linux builds need `libxkbcommon-dev` and `libwayland-dev`; a machine with no GPU
 | Do | How |
 |---|---|
 | Walk the outline | The sidebar's tree: a press opens a note, a press on the open note folds or unfolds it |
-| Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::view` and query-backed `::graph-table` as rows that open; `::graph-*` figures with the service's results |
+| Read a note | Prose as Markdown, links that open, callouts, code; `::links`, `::fields`, `::view` and query-backed `::graph-table` as rows that open; `::graph-stat` as tiles and the other figures with the service's results |
 | Follow anything | A link, a child, a backlink, a row in a component; ⌘[ goes back |
 | Write | ⌘E opens the note's Blockdown source, ⌘S saves at the revision it read, Esc cancels |
 | Make, move, bin | ⌘N a note under the open one; ⌥↑ ⌥↓ ⌥→ ⌥← move it up, down, in, out; ⌘⌫ to the Trash (the notice has Undo) |
@@ -47,24 +47,26 @@ open over unsaved text.
 ## How it fits
 
 ```text
-src/ (Rust, Rune)            bridge/ (TypeScript, bun)                 the outline host
-  view.rs   draws      ◀──── page.ts   a note as parts          ◀────  blocks.records, blocks.query,
-  model.rs  state      ────▶ main.ts   one JSON line per ask    ────▶  tree.index, update, move, …
-  bridge.rs the link         (the door's SocketBoard, outline-core)    events
+src/ (Rust, Rune)            bridge/ (TypeScript, bun)            the outline host
+  view.rs   draws      ◀──── page.ts   the page, its children ◀── notes.page: a note as parts
+  model.rs  state      ────▶ main.ts   one JSON line per ask  ──▶ blocks.query, update, move, …
+  bridge.rs the link         (the door's SocketBoard)             events
 ```
 
-- **The bridge is the thin host.** It reaches the outline through the door's `SocketBoard` (which outline, a
-  machine's forward, the protocol check, reconnects, the change feed) and parses with outline-core
-  (`headerLine`, `linkOccurrences`, `componentBlocks`, `viewSpec`, `calloutBlocks`). The service answers every
-  query, search, facet, backlink and refusal.
-- **A page is parts** (`bridge/page.ts`): prose as Markdown, the render target `rune-kit`'s `Markdown` draws, with
-  Blockdown links written as Markdown links; and components, each with its rows (a query's answer), its results
-  (a figure's, as the door's page copy gives them) or its source as written. A component the window doesn't draw
-  yet shows its source; nothing is hidden.
+- **The service answers a note as parts** (`notes.page`, outline-core's `note-page.ts`): the title and chips, prose
+  as Markdown with Blockdown links written as Markdown links, and each component with its answer in it: a figure's
+  props and its results as Markdown, a view's list, a links block's groups. It walks the note as a published page
+  does and asks the same questions; where a page writes HTML, it hands over data.
 - **The app holds no grammar.** `model.rs` is what's open, folded and being typed; `view.rs` is `rune-kit`'s
-  shell (`SplitView`, `Sidebar`, `Toolbar`), `Markdown`, `TextArea`, `Dialog` and `Badge`.
-- **Properties are open.** Chips, facets and component columns are whatever keys the notes carry; no key is named
-  in the app or the bridge.
+  shell (`SplitView`, `Sidebar`, `Toolbar`), `Markdown`, `TextArea`, `Dialog` and `Badge`. A `graph-stat` is drawn
+  as tiles from its props; a figure kind with no drawing here shows the service's Markdown for it; a component the
+  service answers nothing for shows its source. Nothing is hidden.
+- **The bridge is transport.** It reaches the outline through the door's `SocketBoard` (which outline, a machine's
+  forward, the protocol check, reconnects, the change feed) and adds what the window shows around a page: its
+  children and backlinks. It parses nothing. With `notes.page` on the wire, the app could speak the socket itself;
+  the bridge stays for the forward and reconnect logic it would otherwise write again.
+- **Properties are open.** Chips, facets and columns are whatever keys the notes carry; no key is named in the app
+  or the bridge.
 
 The bridge speaks one JSON object a line. Asks: `hello`, `tree`, `page`, `follow`, `save`, `create`, `move`,
 `trash`, `restore`, `search`, `query`. Events: `ready`, `changed`, `connection`, `fatal`.
@@ -92,7 +94,8 @@ A script taps by key (`find`, `edit`, `save`, `tree/<id>`, `child/<id>`, `part/<
 - Editing is the whole note's source in one text area: no per-block outliner editing, completions or live drafts
   an agent can patch (`drafts.hold`).
 - Comments, proposals, revisions and marks aren't shown.
-- `::view` layouts other than rows, images, embeds, buttons and templates show their source.
+- Figure kinds other than `stat` draw as the service's Markdown, not as native widgets; a view draws as rows
+  whatever its layout; images, embeds, buttons and templates show their source.
 - Switching outlines from inside the window; the outline is named when it starts.
 - Rune is pre-release and pinned by rev in `Cargo.toml`. Windows builds also need Rune's `wgpu-hal` patch
   (its README, "Add it").

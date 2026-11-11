@@ -1018,17 +1018,7 @@ export interface NotePublication {
   permalink?: string;
 }
 
-/** A note rendered as its published page renders it (`notes.render`, PIE-767). */
-export interface RenderedNote {
-  blockId: string;
-  /** Its title as the page shows it. */
-  title: string;
-  format: "markdown" | "html";
-  /** The Markdown, or the HTML article (no page, styles or scripts around it). */
-  text: string;
-  /** Whether it is published itself (rendering doesn't need it to be). */
-  published: boolean;
-}
+export type { RenderedNote } from "@ep0ch/outline-core/note-page";
 
 /**
  * A note's address (`notes.address`, PIE-767): the outline and this host's machine name (what an `ep0ch://` URI names),
@@ -2456,6 +2446,12 @@ export type OutlinerRequestAction =
    * `marks` draws its open highlights and margin notes in the HTML. A `[publish::never]` note is refused. Reads only.
    */
   | { id: string; action: "notes.render"; blockId: string; format: "markdown" | "html"; audience?: "tailnet" | "public"; marks?: boolean }
+  /**
+   * A note as parts a client draws (outline-core's note-page.ts, ADR 0002): its title and chips, then its body in order,
+   * prose as Markdown and each component with the service's answer in it (a figure's props, a view's list, a links
+   * block's groups). For a client that can't run outline-core: it parses no Blockdown. A note in Trash is refused. Reads only.
+   */
+  | { id: string; action: "notes.page"; blockId: string }
   /**
    * A share session (`ShareSession`): a short-lived public link to the whole outline, as the tailnet's web client shows
    * it, or with `scope` (a block id) to that note and below only. `open`: the note the link opens on (inside it). `ttl`: `30m`, `1h` (the default), up

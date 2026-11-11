@@ -19,8 +19,13 @@ fn page(id: &str, title: &str, revision: u64) -> Value {
         "updated": "2026-03-01T09:30:00.000Z", "author": "user",
         "parts": [
             { "kind": "prose", "markdown": "Before the rain. See [the shed](ep0ch:b/shed)." },
-            { "kind": "component", "name": "links", "title": "On the plot", "source": "::links{query=\"type=chore\"}\n::", "query": "type=chore",
-              "rows": [{ "id": "beans", "title": "Water the beans", "props": { "type": "chore" } }] },
+            { "kind": "rows", "name": "links", "title": "On the plot", "source": "::links{query=\"type=chore\"}\n::", "query": "type=chore", "status": "live · 1 match",
+              "groups": [{ "name": "Matches", "rows": [{ "text": "Water the beans", "id": "beans" }] }] },
+            { "kind": "figure", "name": "graph-stat", "figure": "stat", "title": "Chores", "source": "::graph-stat\n::", "status": "live",
+              "props": { "items": [{ "label": "to do", "value": "2" }, { "label": "done", "value": "5", "accent": true }] } },
+            { "kind": "view", "name": "view", "title": "Every chore", "source": "::view\n::", "view": { "type": "list", "headers": ["state"],
+              "rows": [{ "id": "fork", "label": "Take the fork", "cells": ["todo", { "text": "plot" }] }] } },
+            { "kind": "component", "name": "button", "source": "::button{label=\"Sweep\"}" },
         ],
         "children": [{ "id": "fork", "title": "Take the fork" }],
         "backlinks": [{ "id": "plan", "title": "Plan for Saturday", "context": "Plot" }],
@@ -215,7 +220,7 @@ fn press(rt: &mut Runtime<App>, key: &str) {
 fn the_note_draws_its_parts_and_a_row_in_a_component_opens_its_note() {
     let (app, _) = outline(ok());
     let mut rt = window(app);
-    for key in ["tree/plot", "tree/shed", "note-title", "part/0", "part/1", "child/fork", "backlink/plan", "edit"] {
+    for key in ["tree/plot", "tree/shed", "note-title", "part/0", "part/1", "part/2", "part/3", "part/3/fork", "part/4", "child/fork", "backlink/plan", "edit"] {
         assert!(rt.find(key).is_some(), "{key} is on screen");
     }
     assert!(rt.find("tree/onions").is_none(), "a folded row isn't built");

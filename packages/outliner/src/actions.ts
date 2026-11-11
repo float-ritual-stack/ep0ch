@@ -281,6 +281,7 @@ export const ACTIONS = {
   "navigation.state": {},
   "notes.address": { ext: "read", async: true },
   "notes.create": { event: (_, { result }) => content((result as NewNoteReceipt).block.id) },
+  "notes.page": { async: true },
   "notes.render": { ext: "read", async: true },
   "notes.route": {},
   "outline.snapshot": { copy: true, async: true },

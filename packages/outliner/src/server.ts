@@ -159,9 +159,9 @@ import {
   type PageAddressCollection,
   type NoteAddress,
   type PublisherAddress,
-  type RenderedNote,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
+import { servedPage } from "./note-page";
 import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { canonicalLocalMachineName, dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { putPacket, readBulletin, takePackets } from "./echonet-mail";
@@ -2388,20 +2388,18 @@ export class OutlinerServer {
       }
       return this.answered(request, result);
     }
-    if (request.action === "notes.address" || request.action === "notes.render") {
-      let result: NoteAddress | RenderedNote;
-      if (request.action === "notes.address") {
-        if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
-        result = wired(request.action, await this.noteAddress(request.blockId));
-      } else {
-        if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
-        if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
-        if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
-        result = wired(request.action, await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
-          ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
-        }));
-      }
-      return this.answered(request, result);
+    if (request.action === "notes.page") return this.answered(request, wired(request.action, await servedPage(this.own, id => this.store.require(id), request.blockId, { outline: this.outline?.name, machine: localMachineName(this.outlinesFolder) })));
+    if (request.action === "notes.address") {
+      if (request.blockId !== undefined && typeof request.blockId !== "string") throw new Error("notes.address takes blockId: a block id, or none for the outline and machine alone");
+      return this.answered(request, wired(request.action, await this.noteAddress(request.blockId)));
+    }
+    if (request.action === "notes.render") {
+      if (typeof request.blockId !== "string") throw new Error("notes.render needs blockId");
+      if (request.format !== "markdown" && request.format !== "html") throw new Error("notes.render's format is markdown or html");
+      if (request.audience !== undefined && request.audience !== "tailnet" && request.audience !== "public") throw new Error("notes.render's audience is tailnet (the default) or public");
+      return this.answered(request, wired(request.action, await this.inServicePublisher().renderNote(this.store.require(request.blockId).id, request.format, {
+        ...(request.audience ? { audience: request.audience } : {}), ...(request.marks === true ? { marks: true } : {}),
+      })));
     }
     if (
       request.action !== "resources.open" &&
