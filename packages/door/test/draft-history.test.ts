@@ -372,6 +372,33 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     expect((await board.get(b.id))!.text).toBe("Jam labels for the plums");   // nothing saved changed
   }, 20_000);
 
+  // PIE-1741: ctrl+End's landing line under an answer is no text of the person's: the save writes the note without it, and
+  // the history it keeps ends on what was saved, so a reopened edit takes it up and goes past the agent's write after it.
+  test("after ctrl+End's landing line, the ask deleted and saved: one ctrl+z past the save takes back the save and the agent's drop", async () => {
+    const ask = "@shedbot count them", text = `Pea rows\n${ask}\n> [!note]+ @shedbot answered\n> 3 rows`;
+    const b = await board.request("create", { parentId: null, text, author: "user" });
+    const a = await open(b.id);
+    a.pane.key({ kind: "end", ctrl: true }, a.d);                     // the landing line under the answer
+    expect(a.draft().lines.at(-1)).toBe("");
+    await DRAFT_ACTIONS.run("draft.place", { line: 2 }, a.draft(), USER);   // onto the ask's end (↑ End in a drawn reader)
+    expect(a.draft().lines[a.draft().row]).toBe(ask);
+    for (let i = 0; i < ask.length + 1; i++) a.pane.key({ kind: "backspace" }, a.d);   // the ask taken out, and its line
+    a.pane.key(ctrl("s"), a.d);
+    await until(() => !a.pane.editing, "the save");
+    const saved = (await board.get(b.id))!;
+    expect(saved.text).toBe("Pea rows\n> [!note]+ @shedbot answered\n> 3 rows");   // no landing line saved
+    await board.request("update", { blockId: b.id, text: "Pea rows", expectedRevision: saved.revision!, mutation: { author: "agent", actorId: "shedbot/claude-code@box-a" } });
+    const again = await open(b.id);
+    expect(again.draft().text).toBe("Pea rows");
+    expect(await DRAFT_ACTIONS.run("draft.undo", {}, again.draft(), USER)).toMatchObject({ asks: expect.stringContaining("your save and shedbot's removal of its answer") });
+    const undone = await DRAFT_ACTIONS.run("draft.undo", { past: true }, again.draft(), USER) as { undone: string };
+    expect(undone.undone).toContain("undid your save and shedbot's removal of its answer");
+    expect(again.draft().body).toBe(text);
+    again.pane.key({ kind: "esc" }, again.d);
+    again.pane.key({ kind: "esc" }, again.d);
+    await until(() => !again.pane.editing, "closed");
+  }, 20_000);
+
   test("an agent's write after the save: one ctrl+z past it takes back both, said as both; ctrl+y puts both back (PIE-1733)", async () => {
     const b = await board.request("create", { parentId: null, text: "Bean rows\n@shedbot count them\n> [!note]+ @shedbot answered\n> 3 rows", author: "user" });
     const a = await open(b.id);
