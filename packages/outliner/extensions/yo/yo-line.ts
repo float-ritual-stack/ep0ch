@@ -240,6 +240,8 @@ export function findAnswer(o: { words: string; where?: string; why?: string; rea
   const open = `tile.open kind=facets name=${FOUND_TILE}`;
   if (!o.where) {
     const lines = [`I couldn't read \`${o.words.replace(/`/g, "'")}\` into a query (${o.why ?? "no answer"}).`];
+    // When it looks again (PIE-1731): written again, the line is asked again; a key just stored is read within a minute.
+    lines.push(/not configured/i.test(o.why ?? "") ? "Write the line again to ask again: a key stored now is found within a minute." : "Write the line again to ask again.");
     if (carried(o.words)) lines.push(button("▸ type it in facets", [open, `facets.edit text=${actWord(o.words)} tile=${FOUND_TILE}`]));
     return lines;
   }

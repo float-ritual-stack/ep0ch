@@ -165,8 +165,10 @@ export class FacetsPane implements Pane, AttachedOwner {
     const state = this.draft && lineCompleter(this.draft)?.shown;
     return state?.items[state.index]?.querySuggestion?.clauses.flatMap(c => c.pick ? [c.pick] : []) ?? (this.query() === this.wordPicksWhere ? this.wordPicks : []);
   }
-  editQuery(desk: DeskApi, text = this.query()) {
-    const draft = new LineField(text, true, { complete: { grammar: "query", where: this.query() } });
+  /** `given`: words put on the line to go on typing after (a button's ▸ edit the query, PIE-1731), the cursor at their end; else the selection, a suggestion typing replaces. */
+  editQuery(desk: DeskApi, given?: string) {
+    const text = given ?? this.query();
+    const draft = new LineField(text, given === undefined, { complete: { grammar: "query", where: this.query() } });
     draft.completed = item => {
       if (!item.querySuggestion) return;
       this.wordPicks = item.querySuggestion.clauses.flatMap(c => c.pick ? [c.pick] : []);
@@ -991,7 +993,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "type words or the views' grammar on where:; after a pause Tab or a click accepts the ghost, Esc drops it, right shows why",
     keys: "e", touches: "draft", draft: "type", replay: "safe",
     person: "the query line is the person's; agents ask query.suggest and apply with facets.query",
-    args: { text: { type: "string", optional: true, about: "words to put on the query line; left out edits the selection" } },
+    args: { text: { type: "string", optional: true, about: "words to put on the query line, the cursor after them to type on; left out edits the selection, a suggestion typing replaces" } },
     examples: [{ act: "facets.edit tile=facets", does: "opens the current selection for words or grammar" }],
     // Its purpose is typing: pressed by the person (their key, or a button they pressed), the keys go to the line (PIE-1711).
     run({ text }, { pane, desk }, actor) { const p = pane as FacetsPane; p.editQuery(desk, text); if (pressedByPerson(actor)) desk.focusPane?.(p, USER); return { text: p.draft!.text }; },
