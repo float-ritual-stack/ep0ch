@@ -445,7 +445,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await until(() => /^Saved /.test((app as any).message), "the save flashed");
     expect((app as any).message).toStartWith(`Saved ${two} · run it from ^K · acts on “${title}”`);
     await until(() => !!extensionList()?.extensions.find(e => e.name === two), "the second recording loaded");
-    await Bun.sleep(600);
+    // The reload came (its "added" is in the message log), and the bar still says the save.
+    await until(() => app.messages.rows.some(m => m.message.includes(`${two} added`)), "the reload said the recording was added");
     expect((app as any).message).toStartWith(`Saved ${two}`);
     // The start of its name, as typed: the newest recording it begins is first, ahead of the notes it names.
     const rows = () => ((app as any).bar?.describe().rows ?? []) as { key: string; label?: string }[];

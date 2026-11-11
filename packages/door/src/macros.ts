@@ -84,7 +84,7 @@ export class MacroRecording {
       const saved = await ctx.board.newNote(text, recording.near, USER);
       const on = titled.length ? ` · acts on ${titled.map(n => `“${n.title}”`).join(", ")}` : "";
       // Its name and how to run it first, where a narrow status bar still shows them; the rest after (PIE-1727).
-      ctx.flash(`Saved ${name} · run it from ^K${on} · ${lines.length} action${lines.length === 1 ? "" : "s"} · ((${saved.note.id}))`, 12_000);
+      ctx.flash(`Saved ${name} · run it from ^K${on} · ${lines.length} action${lines.length === 1 ? "" : "s"} · ((${saved.note.id}|its script))`, 12_000);
       return { block: saved.note.id, actions: lines.length, script: name };
     } catch (error) {
       this.recording = recording;
