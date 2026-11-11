@@ -33,6 +33,18 @@
         "typescript": "^5.6.0",
       },
     },
+    "packages/native": {
+      "name": "@ep0ch/native",
+      "dependencies": {
+        "@ep0ch/door": "workspace:*",
+        "@ep0ch/outline-core": "workspace:*",
+        "@ep0ch/outliner": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.6.0",
+      },
+    },
     "packages/outline-core": {
       "name": "@ep0ch/outline-core",
       "devDependencies": {
@@ -154,6 +166,8 @@
     "@ep0ch/claude-mod": ["@ep0ch/claude-mod@workspace:packages/claude-mod"],
 
     "@ep0ch/door": ["@ep0ch/door@workspace:packages/door"],
+
+    "@ep0ch/native": ["@ep0ch/native@workspace:packages/native"],
 
     "@ep0ch/outline-core": ["@ep0ch/outline-core@workspace:packages/outline-core"],
 
@@ -505,9 +519,12 @@
 
     "@earendil-works/pi-protocol/typebox": ["typebox@1.3.7", "", {}, "sha512-meKuifc33Pccx0O6PdIzYMq3Og8zvP4TIi/a+Bw3AEMZMxOD0+RHGQvpglEe6Zdy3wZ8nqn/j95h8LUZLk/6Hg=="],
 
+    "@ep0ch/native/@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
+
     "happy-dom/entities": ["entities@7.0.1", "", {}, "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="],
 
     "p-retry/retry": ["retry@0.13.1", "", {}, "sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg=="],
 
+    "@ep0ch/native/@types/bun/bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
   }
 }

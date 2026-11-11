@@ -1,0 +1,20 @@
+{
+  "name": "@ep0ch/native",
+  "private": true,
+  "type": "module",
+  "description": "ep0ch as a native window: a Rust app drawn with Rune (src/, Cargo.toml) over a small bridge (bridge/) that reads the outline through the door's SocketBoard and outline-core and hands the app pages as JSON. The app draws; the bridge and the service parse.",
+  "scripts": {
+    "bridge": "bun bridge/main.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ep0ch/door": "workspace:*",
+    "@ep0ch/outline-core": "workspace:*",
+    "@ep0ch/outliner": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}

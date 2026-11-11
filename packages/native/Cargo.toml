@@ -1,0 +1,28 @@
+[package]
+name = "ep0ch-native"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "ep0ch as a native window, drawn with Rune over the bridge in bridge/."
+publish = false
+
+[[bin]]
+name = "ep0ch-native"
+path = "src/main.rs"
+
+# Rune is pre-release: pin a rev of its `dev` branch (never rewritten) and move it on purpose.
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "cb0c11812013dcccc6d45793b23dcdc3897736d0" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "cb0c11812013dcccc6d45793b23dcdc3897736d0", features = ["markdown"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Its own workspace: the repository's packages are bun's, and cargo should never look above this folder.
+[workspace]
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 1
