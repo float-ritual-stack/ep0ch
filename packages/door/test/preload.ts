@@ -1,14 +1,14 @@
 // Tests never write the person's door state: anything that falls back to XDG_STATE_HOME (a draft put
-// aside, a copy of refused text) lands in a temp dir for this run, removed when the run ends. Tests that
+// aside, a copy of refused text) lands in a temp dir for this run, taken away by a later run once this one is gone. Tests that
 // set EP0CH_STATE still win. The person's own EP0CH_* settings (a landing, a now page, the daily agent) are
 // cleared too (and Claude's config dir moved), so the suite runs the same from any shell; EP0CH_OUTLINER, which names the checkout the tests
 // start scratch services from, stays, and so does EP0CH_TEST_SLACK, the run's own setting for its waits (test/scratch.ts).
 import { plugin } from "bun";
 import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { removeFakeSshOwner } from "../../../scripts/fake-ssh-owner";
+import "../../../scripts/fake-ssh-owner";
+import { ownedTempDir } from "../../../scripts/scratch-dir";
 import "../../../scripts/host-free-guard";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER" && k !== "EP0CH_TEST_SLACK") delete process.env[k];
@@ -48,7 +48,9 @@ process.env.EP0CH_MOTION = "off";
 // so the suite draws the same art on every machine, a fresh clone included.
 process.env.EP0CH_PACKS = join(import.meta.dir, "fixtures/packs");
 
-const dir = mkdtempSync(join(tmpdir(), "ep0ch-test-state-"));
+// Owned as a scratch dir is (PIE-1742): `bun test` (1.4) never fires `exit`, and a preload's afterAll runs before the last
+// repetition under --rerun-each, so the next run takes it, once this process is gone.
+const dir = ownedTempDir("ep0ch-test-state-");
 process.env.XDG_STATE_HOME = dir;
 // Home discovery must never read the person's tailnet; a discovery test puts its own peers first on PATH.
 writeFileSync(join(dir, "tailscale"), '#!/bin/sh\nprintf \'{"Peer":{}}\\n\'\n', { mode: 0o755 });
@@ -57,9 +59,6 @@ process.env.PATH = `${dir}:${process.env.PATH}`;
 // person's: an empty Claude config here, and no plugin dirs from the shell.
 process.env.CLAUDE_CONFIG_DIR = join(dir, "claude");
 delete process.env.CLAUDE_CODE_PLUGIN_DIRS;
-// Removed once the run's last file is done (the last hook of this file, below): `bun test` (1.4) never fires `exit`, so
-// a handler there left this folder in the temp dir after every run (PIE-1742).
-const removeStateDir = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* a temp dir */ } };
 
 // An App a test file leaves running keeps ticking (and painting against that file's boards) while the next files run:
 // a stub board without some method then throws "between tests" in an unrelated file, and the whole suite exits 1 with
@@ -124,13 +123,7 @@ plugin({
     });
   },
 });
-// Then the run's own temp folders, whatever the check above says: the state dir and the fake ssh's owner file. Every test
-// process had left both in the temp dir (445,000 in float-box's /tmp by Nov 11), and bun reads each folder above a
-// program's own as it starts it: an extension's process under /tmp took 200 ms instead of 10, each key typed in the
-// power bar's query line (PIE-1742).
 afterAll(async () => {
-  try {
-    if (last) await between(last, true);
-    if (said.length) throw new Error(`test files left state behind for the files after them (test/preload.ts):\n${said.join("\n")}`);
-  } finally { removeStateDir(); removeFakeSshOwner(); }
+  if (last) await between(last, true);
+  if (said.length) throw new Error(`test files left state behind for the files after them (test/preload.ts):\n${said.join("\n")}`);
 });
