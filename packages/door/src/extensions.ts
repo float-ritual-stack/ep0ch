@@ -336,7 +336,7 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       const say = asActor(on.ctx, actor);
       try {
         const r = await on.ctx.board.request("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
-        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo notes kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}${r.settingsKept ? " · its settings kept for a reinstall" : ""}`, LANDED_MS);
+        say.flash(`${nameOf(id)} removed${r.demo.trashed ? ` · ${r.demo.trashed} demo ${r.demo.trashed === 1 ? "note" : "notes"} to Trash` : r.demo.left ? ` · its ${r.demo.left} demo ${r.demo.left === 1 ? "note" : "notes"} kept` : ""}${r.demo.kept.length ? ` · kept ${r.demo.kept.length} you changed` : ""}${r.rulesDisabled ? ` · ${r.rulesDisabled} ${r.rulesDisabled === 1 ? "rule" : "rules"} switched off` : ""}${r.settingsKept ? " · its settings kept for a reinstall" : ""}`, LANDED_MS);
         on.ctx.redraw();
         return r;
       } catch (e) {
