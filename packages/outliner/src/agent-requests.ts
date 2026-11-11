@@ -425,8 +425,10 @@ export class AgentRequests {
 
   /** Requests whose answer was no answer (RespondValue.retry): written again, they are asked again, never recalled. */
   private readonly retried = new Set<string>();
-  /** The request keys a note's live draft held when it was last read (`touched`): a line gone and back is written again. */
+  /** The request keys each live draft (by its hold) held when it was last read (`touched`): a line gone and back is written again. */
   private readonly draftKeys = new Map<string, Set<string>>();
+  /** A draft's hold ended (released, or it lapsed): what it last held is nobody's now. */
+  released(holdId: string): void { this.draftKeys.delete(holdId); }
 
   /** Rows of request lines a save took out lately: undoing the removal brings the answer back instead of asking again. */
   private readonly removed = new Map<string, { row: AgentRequestRow; at: number }>();
@@ -768,7 +770,7 @@ export class AgentRequests {
    * person goes on typing and the answer lands in the draft. The rows it leaves keep a later save from asking
    * again.
    */
-  touched(blockId: string, text: string): void {
+  touched(blockId: string, text: string, holdId?: string): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (block && !block.effectiveDeletedRootId && isAnnotationBlock(block)) return this.notInThreads(blockId, text);
@@ -791,8 +793,9 @@ export class AgentRequests {
     const before = this.before(blockId, text);
     const rows = new Map(this.store.agentRequests(blockId).map(row => [row.requestKey, row]));
     const answered = new Set(rows.keys());
-    const seen = this.draftKeys.get(blockId);
-    this.draftKeys.set(blockId, keys);
+    // The lines this draft (its hold) held when it was last read: another draft of the note has its own (CodeRabbit on #1431).
+    const seen = holdId ? this.draftKeys.get(holdId) : undefined;
+    if (holdId) this.draftKeys.set(holdId, keys);
     for (const line of lines) {
       const key = this.key(blockId, line.requestKey);
       // A no-answer's line written again (gone from the draft when it was last read, back now) is a new ask, as the save

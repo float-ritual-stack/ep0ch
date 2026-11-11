@@ -914,12 +914,16 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: down ? "not set 
     await type(`Hub\nfirst line\n@flaky ${words}`);
     await until(`${words} answered`, () => door.text.includes("@flaky answered"));
     const answered = door.text;
-    // Backspaced whole, then typed again: two touches.
+    // Backspaced whole, then typed again: two touches, the first read before the second is sent.
+    const reads = () => door.requests.filter(r => r.kind === "read").length;
+    let before = reads();
     await type(answered.replace(`@flaky ${words}`, ""));
-    await Bun.sleep(150);
+    await until("the backspaced draft read", () => reads() > before);
+    before = reads();
     await type(answered);
-    await Bun.sleep(600);
-    expect([words, asked().filter(a => a === words).length]).toEqual([words, words.startsWith("down") ? 2 : 1]);
+    await until("the retyped draft read", () => reads() > before);
+    if (words.startsWith("down")) await until("the no-answer asked again", () => asked().filter(a => a === words).length === 2);
+    else { await Bun.sleep(400); expect(asked().filter(a => a === words).length).toBe(1); }
   }
 });
 
@@ -943,4 +947,33 @@ test("a deleted ask takes its answer with it on save; an answer the person chang
       expect(store.revisions(note.id).revisions.find(r => r.revision === current.revision)?.author).toBe("agent");
     }
   }
+});
+
+// CodeRabbit on #1431: a draft's last-read lines are that draft's (its hold's). A no-answer's line taken out in one draft
+// closed unsaved is no rewrite in the next draft of the note: the saved line, unchanged, is not asked again on its first touch.
+test("a draft's snapshot is its own hold's: a draft closed unsaved doesn't make the next one re-ask an unchanged line", async () => {
+  const { client, create, writeAgent } = await setup({ quietMs: 50 });
+  const log = join(mkdtempSync(join(tmpdir(), "flaky-holds-")), "flaky.log");
+  await writeAgent("flaky", `import { appendFileSync } from "node:fs";
+const request = await Bun.stdin.json();
+appendFileSync(${JSON.stringify(log)}, request.input.request + "\\n");
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "not set up here", retry: true } }));`);
+  const asked = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  const note = await create("Hub\n@flaky down find hub items");
+  await until("answered once", () => asked().length === 1);
+  const first = await fakeDoor(client, "door-first", (await client.request<Block>({ action: "get", blockId: note.id } as never)));
+  const reads = (d: { requests: { kind: string }[] }) => d.requests.filter(r => r.kind === "read").length;
+  // The first draft takes the line out, then closes without saving.
+  let n = reads(first);
+  first.text = first.text.replace("@flaky down find hub items", "");
+  await client.request({ action: "drafts.touch", holdId: first.holdId });
+  await until("the first draft read", () => reads(first) > n);
+  await client.request({ action: "drafts.release", holdId: first.holdId });
+  // The next draft opens on the saved note, the line as it was: its first touch asks nothing.
+  const next = await fakeDoor(client, "door-next", (await client.request<Block>({ action: "get", blockId: note.id } as never)));
+  n = reads(next);
+  await client.request({ action: "drafts.touch", holdId: next.holdId });
+  await until("the next draft read", () => reads(next) > n);
+  await Bun.sleep(400);
+  expect(asked()).toEqual(["down find hub items"]);
 });
