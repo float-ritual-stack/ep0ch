@@ -260,7 +260,8 @@ export function findAnswer(o: { words: string; where?: string; why?: string; rea
     lines.push(button("▸ edit the query", [open, `facets.edit text=${actWord(where)} tile=${FOUND_TILE}`]));
     // Named by the words that asked for it ("Hub items that are not sent yet"): one press saves it, renamed like any note.
     const name = `${o.words.charAt(0).toUpperCase()}${o.words.slice(1)}`.slice(0, 80);
-    if (n) lines.push(button("▸ save as a view", [open, `facets.query text=${actWord(where)} tile=${FOUND_TILE}`, `facets.save name=${actWord(name)} tile=${FOUND_TILE}`]));
+    // A name the step can't carry whole (as the query is checked) is left out: facets.save asks for one.
+    if (n) lines.push(button("▸ save as a view", [open, `facets.query text=${actWord(where)} tile=${FOUND_TILE}`, `facets.save ${carried(name) ? `name=${actWord(name)} ` : ""}tile=${FOUND_TILE}`]));
   }
   return lines;
 }

@@ -585,3 +585,29 @@ test("a command refused because the person is editing the note is said as theirs
     expect([said, YOURS_WHILE_TYPING.test(said)]).toEqual([said, true]);
   expect(YOURS_WHILE_TYPING.test("no tile is called compost-heap")).toBe(false);
 });
+
+// CodeRabbit on #1426: the view's name comes from the asker's words, so it is checked as the query is: a name a link or a
+// step can't carry whole (a parenthesis in a thread, an apostrophe beside a #tag) saves under no name of its own.
+test("the save button's view name is carried whole, or left for facets.save to ask", async () => {
+  const { findAnswer } = await import("../extensions/yo/yo-line");
+  const { linkOccurrences } = await import("@ep0ch/outline-core/link-syntax");
+  const { parsePropertyRecords } = await import("@ep0ch/outline-core/property-parse");
+  const { buttonCallsOf } = await import("@ep0ch/outline-core/button-call");
+  const { actRequestOf, lineWords } = await import("@ep0ch/outline-core/action-line");
+  const found = { notes: [{ id: "n1", title: "Pond plan" }], more: false };
+  const saveOf = (lines: string[]) => {
+    const acts = lines.flatMap(l => linkOccurrences(l).flatMap(o => o.kind === "markdown" ? [o.url.replace(/^act:\s*/, "")] : []));
+    return acts.find(a => a.startsWith("facets.save"));
+  };
+  // In a thread, a parenthesis in the words: the link would end there.
+  const thread = saveOf(findAnswer({ words: "plans (garden ones)", where: "type=plan", found, thread: true }))!;
+  expect([actRequestOf(lineWords(thread)).args?.name, actRequestOf(lineWords(thread)).tile]).toEqual([undefined, "found"]);
+  // In a note, an apostrophe beside a #tag: no spelling keeps the tag out of the note.
+  const lines = findAnswer({ words: "evan's #garden plans", where: "type=plan", found });
+  expect(parsePropertyRecords(["Shed", ...lines.map(l => `> ${l}`)].join("\n"))).toEqual([]);
+  const save = buttonCallsOf(["Shed", ...lines.map(l => `> ${l}`)].join("\n")).find(c => c.label === "▸ save as a view")!;
+  expect(actRequestOf(lineWords(save.steps.at(-1)!.source)).args?.name).toBeUndefined();
+  // Plain words are its name.
+  const plain = buttonCallsOf(findAnswer({ words: "garden plans", where: "type=plan", found }).join("\n")).find(c => c.label === "▸ save as a view")!;
+  expect(actRequestOf(lineWords(plain.steps.at(-1)!.source)).args?.name).toBe("Garden plans");
+});
