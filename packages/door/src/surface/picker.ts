@@ -293,8 +293,8 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
   });
 }
 
-/** A row in the picker's colours: lit when the cursor is on it, else in `ink`. */
-export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey) => on ? floatSelectedRow(text, w) : fg(ink) + pad(text, w) + RESET;
+/** A row in the picker's colours: lit when the cursor is on it (`still`: never scrolled by itself), else in `ink`. */
+export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey, still = false) => on ? floatSelectedRow(text, w, still) : fg(ink) + pad(text, w) + RESET;
 
 export const pickRows = (text: string, on: boolean, w: number, ink: number = C.grey) => rowLines(text, w - (on && !text.startsWith(" ") ? 1 : 0)).map(line => pickRow(line, on, w, ink));
 

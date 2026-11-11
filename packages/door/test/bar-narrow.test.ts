@@ -6,7 +6,7 @@ import { Overflow } from "../src/overflow";
 import { visible } from "../src/style";
 
 const row = { key: "page:glyphs", label: "Glyphs", detail: "draws a glyph beside every note that names a moon phase, a planet or a tarot card", chip: "rule", oneLine: true };
-const rowText = (on: boolean, w: number, r: object = row, previewUp = false) => (PowerBar.prototype as any).rowText.call({ previewUp, picker: { view: { room: -1 } } }, { source: { id: "extensions" }, row: r }, on, w) as string[];
+const rowText = (on: boolean, w: number, r: object = row, previewUp = false, room = -1) => (PowerBar.prototype as any).rowText.call({ previewUp, picker: { view: { room } } }, { source: { id: "extensions" }, row: r }, on, w) as string[];
 
 describe("the power bar at 44 and 40 columns", () => {
   for (const w of [42, 38]) test(`a lit row's name stays put while its detail scrolls (${w} cells)`, () => {
@@ -55,5 +55,19 @@ describe("the power bar at 44 and 40 columns", () => {
     expect(unlit).toHaveLength(2);
     expect(unlit.map(l => visible(l).trim()).join(" ")).toContain("Recorded: comment on Compost bays");
     expect(visible(unlit[1]!).trimEnd()).toEndWith("…");
+  });
+
+  // In a short bar (44×13: a list of three rows) the lit row gets two lines and is still cut: its last line stays put,
+  // cut at its end, never scrolled from its start.
+  const long = { key: "action:tile.open", label: "tile.open", detail: "open a new tile beside the one you're in, or as a tab in it: a screen, a tree, a reader, a preview, a terminal, a query, a board, a river" };
+  for (const w of [42, 38]) test(`a lit row longer than the list's rows keeps its lines' first letters (${w} cells)`, () => {
+    const lines = rowText(true, w, long, false, 3);
+    expect(lines).toHaveLength(2);
+    const o = new Overflow();
+    o.keys();
+    const at = (now: number) => o.draw(lines, w, now).lines.map(l => visible(l).trimEnd());
+    const first = at(0);
+    expect(first[1]).toEndWith("…");
+    for (const now of [1500, 3000, 6000]) expect(at(now)).toEqual(first);
   });
 });

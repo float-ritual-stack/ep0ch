@@ -35,9 +35,11 @@ export function selectedRow(text: string, cols: number, keys = true, idle: "idle
   return style + (keys ? itemBar() : " ") + style + (cols > 1 ? (keys ? selectFullText(pad(body, cols - 1)) : pad(body, cols - 1)) : "").split(RESET).join(RESET + style) + RESET;
 }
 /** A float's selected row is one solid dark accent band, including its key caption. */
-export function floatSelectedRow(text: string, cols: number): string {
+export function floatSelectedRow(text: string, cols: number, still = false): string {
   const style = selected();
-  return style + selectFullText(pad(text, cols)).split(RESET).join(RESET + style) + RESET;
+  // `still`: lit, but not the value the Overflow pass scrolls by itself (a wrapped row's cut last line, PIE-1729): the
+  // pointer and alt+? still read it whole.
+  return style + (still ? pad(text, cols) : selectFullText(pad(text, cols))).split(RESET).join(RESET + style) + RESET;
 }
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
 export const CHIP_MAX_LUMINANCE = 0.3;

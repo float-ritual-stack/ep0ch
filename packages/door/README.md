@@ -2141,8 +2141,9 @@ the window. Agents read and change it through the window's actions (`keys.find`,
 `ctrl+k` (or `cmd+k` where the terminal sends it, or a click on `^K` at the status bar's left) opens one palette over
 whatever screen is shown and your drawer: a list on the left, what the lit row is on the right (a note drawn as a reader
 draws it, a terminal's screen, an action's page), its scopes along the top.
-A row too long for its two lines wraps whole while it's lit (a recording's name, then what it does, at 44 columns),
-so it keeps every letter; unlit, it's cut at its end (PIE-1729).
+A row too long for its two lines wraps whole while it's lit, as far as the list has rows (a recording's name, then
+what it does, at 44 columns), and none of its lines scrolls by itself, so each keeps its first letter; one still too
+long is cut at its end, and the pointer or alt+? reads it whole (PIE-1729).
 
 **An action's page** (PIE-1032) is its one line, its keys as keycaps, one or two real `ep0ch act` lines with what each
 does (`safe` on one an agent may run as it is), its arguments as a properties table, then the rest of what it says.

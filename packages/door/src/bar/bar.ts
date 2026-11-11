@@ -530,14 +530,15 @@ export class PowerBar {
     // end and stays so: the preview reads it whole, and a scroll would rest on its last words, mid-word (PIE-1705).
     const room = w - width(cap), named = head + r.label + " · ";
     const cut = on && this.previewUp ? ellipsize : drawEllipsized;
-    // A row that wraps, lit, wraps whole (PIE-1729): the marquee scrolling its last line read as a cut at that line's start
-    // ("ecorded: comment on …" at 44 columns). As many lines as the list has rows (a heading's left above it); unlit,
-    // the list's two lines, cut at the end.
+    // A row that wraps, lit, wraps whole as far as the list has rows (a heading's left above it; unlit, its two lines),
+    // and none of its lines scrolls by itself (PIE-1729): the marquee on its last line read as a cut at that line's start
+    // ("ecorded: comment on …" at 44 columns). One still too long is cut at its end; the pointer or alt+? reads it whole.
     const list = this.picker.view.room, lit = list < 0 ? 4 : Math.max(2, list - 1);
     const lines = r.oneLine && said && width(named) < room && width(head + r.label + detail) > room ? [named + cut(said, room - width(named))]
       : rowLines(head + r.label + detail, room, r.oneLine ? 1 : on ? lit : undefined, { hang: width(head) });
+    const wraps = lines.length > 1;
     return lines.map((line, i) =>
-      pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
+      pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey, wraps) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
   }
 
   /** Its frame over `a`: the scopes, the line, the rows and (wide enough) the lit row's preview. */
