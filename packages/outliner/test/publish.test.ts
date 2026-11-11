@@ -991,7 +991,8 @@ test("a public note is served to anyone with the link, at its slug and its id, w
   // A public note is still published on the tailnet, at the same slug.
   expect((await get("/pub/p/moth-walk")).status).toBe(200);
   const html = await (await share("/share/p/moth-walk?view=html")).text();
-  expect(html).toContain('href="/share/p/moth-walk"');
+  // Its raw link asks for the Markdown by name: a browser on the bare path gets the page (PIE-1727).
+  expect(html).toContain('href="/share/p/moth-walk?view=md">raw');
   expect(html).not.toContain("index");
 });
 
@@ -1216,7 +1217,7 @@ test("a custom public domain: its links come from --public-url and its Host is a
   const text = await (await publisher.handle(new Request("http://127.0.0.1/index.txt"))).text();
   expect(text).toContain("https://share.moth-garden.example/s/p/moth-walk");
   // Links inside a public page stay relative to the mount.
-  expect(await (await at("share.moth-garden.example", "/s/p/moth-walk?view=html")).text()).toContain('href="/s/p/moth-walk"');
+  expect(await (await at("share.moth-garden.example", "/s/p/moth-walk?view=html")).text()).toContain('href="/s/p/moth-walk?view=md">raw');
 });
 
 test("the public listener binds loopback or one of this machine's own addresses, never every interface", () => {

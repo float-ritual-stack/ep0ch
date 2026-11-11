@@ -1319,7 +1319,7 @@ export class Publisher {
       const entry = await this.entryAt(slug, index, audience);
       if (!entry) return notFound();
       const view = url.searchParams.get("view");
-      // A browser gets the page, tailnet and public link alike (PIE-1727); `?view=md` (or no text/html: curl) the Markdown.
+      // A browser gets the page, tailnet and public link alike (PIE-1727); `?view=md` (a page's raw link; or curl) the Markdown.
       const browsing = view === null && accept.includes("text/html");
       return await this.serveEntry(entry, index, browsing ? "html" : view, audience);
     } catch (error) {
@@ -2094,7 +2094,7 @@ export class Publisher {
     const href = (path: string) => escapeHtml(`${this.basePathFor(audience)}${path}`);
     // The public listener has no index to link to.
     const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
-    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${timeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { skin, sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
+    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${timeHtml(entry.updatedAt)} · <a href="${href(entry.type === "markdown" || entry.type === "block" ? `${entry.path}?view=md` : entry.path)}">raw</a></footer>`, nav, { skin, sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
   }
 
   /**

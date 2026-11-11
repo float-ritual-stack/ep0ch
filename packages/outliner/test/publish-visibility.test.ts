@@ -467,9 +467,20 @@ test("a browser on the public link gets the page, as on the tailnet; curl and ?v
   const { store, publisher } = await setup();
   store.create("Compost bays [publish::public:compost-bays]\nTurn the left bay weekly.");
   const ask = (path: string, accept: string) => publisher.handle(new Request(`http://moth-box.tail0000.ts.net${path}`, { headers: { accept } }), "public");
-  const browser = await ask("/share/p/compost-bays", "text/html,application/xhtml+xml,*/*;q=0.8");
+  const html = "text/html,application/xhtml+xml,*/*;q=0.8";
+  const browser = await ask("/share/p/compost-bays", html);
   expect(browser.headers.get("content-type")).toStartWith("text/html");
-  expect(await browser.text()).toContain("Turn the left bay weekly.");
-  expect((await ask("/share/p/compost-bays", "*/*")).headers.get("content-type")).not.toStartWith("text/html");
-  expect((await ask("/share/p/compost-bays?view=md", "text/html")).headers.get("content-type")).not.toStartWith("text/html");
+  const page = await browser.text();
+  expect(page).toContain("Turn the left bay weekly.");
+  const markdown = async (response: Response) => {
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toStartWith("text/markdown");
+    expect(await response.text()).toContain("Turn the left bay weekly.");
+  };
+  await markdown(await ask("/share/p/compost-bays", "*/*"));
+  await markdown(await ask("/share/p/compost-bays?view=md", "text/html"));
+  // The page's raw link, followed by that browser, is the Markdown Evan shares, not the page again.
+  const raw = /<a href="([^"]+)">raw<\/a>/.exec(page)?.[1]?.replaceAll("&amp;", "&");
+  expect(raw).toBeDefined();
+  await markdown(await ask(raw!, html));
 });

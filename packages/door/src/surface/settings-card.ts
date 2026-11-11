@@ -205,15 +205,15 @@ export class SettingsCard {
   sel = 0;
   view = new RowView();
   /** What the card says under its fields (a save, an undo) and its tone: a problem is red, news yellow (PIE-1293: said by whoever writes it, never guessed from its words). */
-  private said: { text: string; tone: "news" | "problem"; of?: { key: string; value: string | null } } = { text: "", tone: "news" };
+  private said: { text: string; tone: "news" | "problem"; of?: readonly { key: string; value: string | null }[] } = { text: "", tone: "news" };
   get note(): string { return this.said.text; }
   set note(text: string) { this.said = { text, tone: "news" }; }
-  /** Say `text` under the fields, as news or as a problem; `of`: the value it reports, so it goes once another writer changes it (PIE-1727). */
-  say(text: string, tone: "news" | "problem" = "news", of?: { key: string; value: string | null }) { this.said = { text, tone, ...(of ? { of } : {}) }; }
+  /** Say `text` under the fields, as news or as a problem; `of`: the values it reports (a reset-all's every one), so it goes once another writer changes one (PIE-1727). */
+  say(text: string, tone: "news" | "problem" = "news", of?: readonly { key: string; value: string | null }[]) { this.said = { text, tone, ...(of ? { of } : {}) }; }
   /** A report of a value the fields no longer hold (an agent's write since) is stale: the card says its keys again. */
   private stale(fields: readonly SettingField[]) {
-    const of = this.said.of, now = of && fields.find(f => f.prop.key === of.key);
-    if (of && now && now.value !== of.value) this.said = { text: "", tone: "news" };
+    const gone = this.said.of?.some(of => { const now = fields.find(f => f.prop.key === of.key); return !!now && now.value !== of.value; });
+    if (gone) this.said = { text: "", tone: "news" };
   }
   /** Where the last render drew each field (`y` in its lines), for clicks; `tries`: the row is that field's `[try]` (from `x0` to `x1`). */
   at: { y: number; n: number; tries?: { x0: number; x1: number }; reset?: { x0: number; x1: number } }[] = [];

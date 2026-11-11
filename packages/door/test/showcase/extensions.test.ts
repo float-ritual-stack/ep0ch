@@ -896,7 +896,14 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       await app.act({ action: "trail.settings", args: { days: 21 }, as: "test-agent" });
       await until(() => app.trail.settings.days === 21 && /days\s+21/.test(drawn()), "the card shows 21", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
       expect(drawn()).not.toContain("saved · days: 14");
-    } finally { app.trail.configure({ days: 7 }); }
+      // Every setting back at once, then another writer changes one that isn't the first: that report goes too.
+      await app.dispatch.act({ action: "settings.set", tile: "card", args: { key: "linger", value: "9" } }, USER);
+      await app.dispatch.act({ action: "settings.reset", tile: "card" }, USER);
+      await until(() => drawn().includes("every setting back to its default"), "the card said the reset", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      await app.act({ action: "trail.settings", args: { linger: 11 }, as: "test-agent" });
+      await until(() => /linger\s+11/.test(drawn()), "the card shows linger 11", 5000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
+      expect(drawn()).not.toContain("every setting back to its default");
+    } finally { app.trail.configure({ days: 7, linger: 5 }); }
     // yo's answer set to none (`[]`, PIE-1705): ⏎ opens it lit, and a command typed replaces it whole.
     await app.dispatch.press("ext.yo.settings", {});
     await until(() => drawn().includes("settings · Yo") && inCard(), "yo's card has the keys", 8000).catch(e => { throw new Error(`${e.message}\n${drawn()}`); });
