@@ -8,7 +8,7 @@ import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import "../../../scripts/fake-ssh-owner";
+import { removeFakeSshOwner } from "../../../scripts/fake-ssh-owner";
 import "../../../scripts/host-free-guard";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER" && k !== "EP0CH_TEST_SLACK") delete process.env[k];
@@ -57,7 +57,9 @@ process.env.PATH = `${dir}:${process.env.PATH}`;
 // person's: an empty Claude config here, and no plugin dirs from the shell.
 process.env.CLAUDE_CONFIG_DIR = join(dir, "claude");
 delete process.env.CLAUDE_CODE_PLUGIN_DIRS;
-process.on("exit", () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* a temp dir */ } });
+// Removed once the run's last file is done (the last hook of this file, below): `bun test` (1.4) never fires `exit`, so
+// a handler there left this folder in the temp dir after every run (PIE-1742).
+const removeStateDir = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* a temp dir */ } };
 
 // An App a test file leaves running keeps ticking (and painting against that file's boards) while the next files run:
 // a stub board without some method then throws "between tests" in an unrelated file, and the whole suite exits 1 with
@@ -126,3 +128,8 @@ afterAll(async () => {
   if (last) await between(last, true);
   if (said.length) throw new Error(`test files left state behind for the files after them (test/preload.ts):\n${said.join("\n")}`);
 });
+
+// The run's own temp folders, last: the state dir above and the fake ssh's owner file. Every test process had left both in
+// the temp dir (445,000 in float-box's /tmp by Nov 11), and bun reads each folder above a program's own as it starts it:
+// an extension's process under /tmp took 200 ms instead of 10, each key typed in the power bar's query line (PIE-1742).
+afterAll(() => { removeStateDir(); removeFakeSshOwner(); });
