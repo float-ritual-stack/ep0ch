@@ -1045,9 +1045,11 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
  *   it was written as, which the references, `::use` calls and scripts are read against.
  * - `had`: the text before a patch, when only the warnings this write brought in are news (PIE-761): a warning the
  *   note already had isn't this write's.
+ * - `comment`: the words are a comment's or a reply's (a new one, or an edit with `before`, its words until now): the
+ *   house rules are measured on them as a margin comment is read (PIE-1270, PIE-1745), here for every comment write.
  */
 type WriteAnswer = { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; view?: string[]; viewOf?: string; viewError?: string; next?: string };
-async function warned(client: AgentToolsClient, text: string, o: { near?: string; self?: string; gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }; had?: string; undrawn?: string } = {}): Promise<WriteAnswer> {
+async function warned(client: AgentToolsClient, text: string, o: { near?: string; self?: string; gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }; had?: string; undrawn?: string; comment?: { before?: string } } = {}): Promise<WriteAnswer> {
   const { near, self = near, gate } = o;
   const [{ warnings, components }, review, rows, had] = await Promise.all([
     writtenReading(client, text, near, self),
@@ -1055,7 +1057,8 @@ async function warned(client: AgentToolsClient, text: string, o: { near?: string
     gate && near ? figureRowReport(client, near, text, gate.before) : null,
     o.had === undefined ? null : referenceWarningsFor(client, o.had, near, self).then(w => new Set(w)),
   ]);
-  const all = [...(had ? warnings.filter(w => !had.has(w)) : warnings), ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
+  const shape = o.comment ? shapeWarnings(text, o.comment.before, { kind: "comment" }) : [];
+  const all = [...(had ? warnings.filter(w => !had.has(w)) : warnings), ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? []), ...shape];
   // The part written, as the door draws it (PIE-588): every create, edit and patch of a note's words, a fix's result too.
   const drawing = gate && near ? await drawnWrite(client, near, text, gate.before, review, o.undrawn) : null;
   const next = near ? review?.next ?? shapeNext(near) : undefined;
@@ -1272,8 +1275,7 @@ export async function commentOn(
   // A kind nobody else's thread has (a typo of one that's in use?): kept, as anything written is, and said (PIE-871).
   const kind = input.properties?.kind;
   const said = typeof kind === "string" ? await newKindWarning(client, kind.trim()) : null;
-  // The house rules, measured on the body (PIE-1270): a margin comment is read as quickly as a note, so a wall in it is told too.
-  const warnings = [...(result.warnings ?? []), ...(said ? [said] : []), ...shapeWarnings(body, undefined, { kind: "comment" })];
+  const warnings = [...(result.warnings ?? []), ...(said ? [said] : [])];
   return { ...result, ...(warnings.length ? { warnings } : {}), ...(result.blockId ? { next: shapeNext(result.blockId) } : {}) };
 }
 
@@ -1316,7 +1318,7 @@ async function commentOnBlock(client: AgentToolsClient, input: Parameters<typeof
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no comment");
-  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, { near: block.id, self: record.block.id })) });
+  return commentResult(record, { blockId: block.id, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, body, { near: block.id, self: record.block.id, comment: {} })) });
 }
 
 /**
@@ -1358,7 +1360,7 @@ async function commentOnResource(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no comment");
-  return commentResult(record, { resourceId, ...(receipt.deduplicated ? { deduplicated: true } : {}) });
+  return commentResult(record, { resourceId, ...(receipt.deduplicated ? { deduplicated: true } : {}), ...(await warned(client, input.body, { self: record.block.id, comment: {} })) });
 }
 
 function threadId(thread: string): string {
@@ -1384,10 +1386,8 @@ export async function replyTo(
   });
   const record = receipt.annotations[0];
   if (!record) throw new Error("The service recorded no reply");
-  const read = await warned(client, body, { self: record.block.id });
-  // The house rules on a reply's words, as on a comment's (PIE-1270, PIE-1589).
-  const warnings = [...(read.warnings ?? []), ...shapeWarnings(body, undefined, { kind: "comment" })];
-  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...read, ...(warnings.length ? { warnings } : {}) }), thread: annotationId, reply: record.block.id };
+  const read = await warned(client, body, { self: record.block.id, comment: {} });
+  return { ...commentResult(record, { ...(receipt.deduplicated ? { deduplicated: true } : {}), ...read }), thread: annotationId, reply: record.block.id };
 }
 
 /**
@@ -1410,7 +1410,7 @@ export async function editComment(
     input: { annotationId, expectedRevision: input.revision ?? now.block.revision, body },
     mutation: mutationOf(actor),
   });
-  return { ...commentResult(record, await warned(client, body, { self: record.block.id })), mark: record.block.id, revision: record.block.revision, edited: record.edited ?? "" };
+  return { ...commentResult(record, await warned(client, body, { self: record.block.id, comment: { before: now.body } })), mark: record.block.id, revision: record.block.revision, edited: record.edited ?? "" };
 }
 
 /** Resolves (or reopens) a comment thread, as the agent. */
