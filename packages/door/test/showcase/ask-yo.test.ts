@@ -849,6 +849,26 @@ describe("showcase: ask yo (PIE-1585)", () => {
       expect(draft()!.row).toBe(at);
       await h.app.dispatch.act({ action: "answer.fold", tile: tile!.name }, USER);
       expect(draft()!.hiddenAnswerLines().size).toBe(0);
+      // The fold row is the mouse's way, with no answer tile needed: a click on it shuts the answer, again opens it.
+      const click = async (open: boolean) => {
+        // The ask's progress, beside it or on the row under it (a narrow reader).
+        const rows = h.screen().split("\n"), at0 = rows.findIndex(r => r.includes(`║  ${ask}`)), beside = new RegExp(`${ask} +· `);
+        expect(at0).toBeGreaterThan(-1);
+        const y = beside.test(rows[at0]!) ? at0 : at0 + 1;
+        const x = y === at0 ? rows[y]!.search(beside) + ask.length + 4 : rows[y]!.indexOf("· answered") + 3;
+        expect(x).toBeGreaterThan(2);
+        h.press({ kind: "mouse", action: "down", button: 0, x, y });
+        h.press({ kind: "mouse", action: "up", button: 0, x, y });
+        await until(() => (draft()!.hiddenAnswerLines().size === 0) === open, `a click on the fold row ${open ? "opens" : "shuts"} it`, 8000);
+        expect(draft()!.row).toBe(at);
+      };
+      // Room for the note's rows whatever earlier tests left on the stage: the reader zoomed while it's clicked.
+      await h.app.dispatch.act({ action: "tile.zoom", tile: "ask" }, USER);
+      try {
+        await click(false);
+        await Bun.sleep(500);   // a second click, not a double one (which selects a word)
+        await click(true);
+      } finally { await h.app.dispatch.act({ action: "tile.zoom", tile: "ask" }, USER); }
     } finally {
       if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
       await until(() => !draft(), "the edit closed", 8000);

@@ -411,7 +411,7 @@ export class Draft {
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return { asked: false, said: this.undoPatch(by) };
     if (!s) throw new ActionRefused("nothing to undo in this draft");
     // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it. The ask
-    // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
+    // comes first ("saved · ctrl+z again in 5s undoes", one row at 40 columns, PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     // An agent's write that followed the save (`follows`, PIE-1733: yo taking out the answer of an ask the save deleted)
     // goes back with the step it followed, in one undo: the save and what it led to.
@@ -1415,9 +1415,9 @@ export class Draft {
     return width(full) <= room ? full : short;
   }
 
-  /** The answer folded under the ask on line `row`, as an ask's progress reads: answered, one block. */
+  /** The answer folded under the ask on line `row`, as an ask's progress reads: answered (how many blocks is the service's to count). */
   private savedAnswer(row: number): import("@ep0ch/outline-core/protocol").AskProgress | undefined {
-    return this.answerFolds().some(p => p.line === row + 1) ? { line: this.lines[row]!, state: "answered", blocks: 1 } : undefined;
+    return this.answerFolds().some(p => p.line === row + 1) ? { line: this.lines[row]!, state: "answered" } : undefined;
   }
 
   answerFolds() {

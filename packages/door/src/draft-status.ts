@@ -1,7 +1,7 @@
 // The one status line of a draft (PIE-1560): what is happening to it (checking its properties, saving, creating), what
 // went wrong (a conflict, changed elsewhere), where a refused draft was copied, and the last thing said. Its draft
 // session owns it (src/draft-session.ts) and is its writer: target adapters report a phase and an outcome, never a
-// field, and every word anyone says on the line goes through `say`. A draft with no session (a line field, a test's)
+// field, and every word anyone says on the line goes through `say` (an arm's countdown, `arm`'s `counting`, redraws its own). A draft with no session (a line field, a test's)
 // has one of its own. The draft's press-agains are here too (PIE-1616), one arm at a time, since its words are on this line:
 //   nothing armed → discard (esc on unsaved text) · undo (ctrl+z at a save) · chord (ctrl+x), the line saying what's next
 //   armed → the second press: esc puts it aside, ctrl+z after a pause goes past the save, ctrl+e opens $EDITOR, a attaches

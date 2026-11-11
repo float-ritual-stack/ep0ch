@@ -4097,7 +4097,7 @@ export class NoteSurface {
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
-    const placed = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
+    const placed = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow, fold: line => void this.runKey("fold.toggle", { line }, host) }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
     if (placed) host.redraw();
     return placed;
   }
