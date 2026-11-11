@@ -857,6 +857,8 @@ attachment Detail shows:
   `.sh`, `.yaml`, `.sql` and other common languages): plain text;
 - no attachment (or one that is refused, below): the block rendered from its
   text and its subtree as markdown, with `?view=html` for the rendered page.
+  A browser (`Accept: text/html`) gets the rendered page with no `?view=`,
+  on the tailnet and the public link alike; `?view=md` asks for the markdown.
 
 `?view=source` returns a React, SVG or mermaid artifact's source as plain text.
 

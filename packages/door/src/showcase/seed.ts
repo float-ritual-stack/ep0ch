@@ -261,7 +261,7 @@ if (request.input.request === "describe the beds") {
     "## Nearby",
     "- **Seed count** (below) runs from `@seed-count` in a note, or from a rule with `[rule-on::script:seed-count]`.",
     "- **Recording:** alt+Q starts and stops recording what you do as an editable script; a `{tag}` in a line makes the power bar ask for it.",
-    "- **A comment in a recording:** C on the checklist, type a comment, ^S: the recording saves it as one line with your words (`comment.note body=\"…\"`), so its replay posts it again, on the checklist (its line names the note), wherever the checklist is open. ^K and the start of its name runs it.",
+    "- **A comment in a recording:** C on the checklist, type a comment, ^S: the recording saves it as one line with your words (`comment.note body=\"…\"`), so its replay posts it again, on the checklist (its line names the note), wherever the checklist is open. It is named for what it does (`comment-on-planting-checklist`, a second one `-2`): ^K and the start of its name (`comment on pl`) runs the newest; with the checklist closed, the replay names “Planting checklist” and says open it first.",
     "```ts",
     "const dispatcher = await act('layout.get');",
     // The tile showing the checklist, by its note's id (a tile= answers to the block it shows): a press from this note's own

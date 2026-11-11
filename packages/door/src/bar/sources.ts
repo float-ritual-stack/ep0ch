@@ -327,10 +327,12 @@ const ACTIONS: BarSource = {
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
     const line = actionLine(q, host, scope === "actions" && !found.length);
-    // A script the words begin to name (its name or its title, as a save flash says it: "run it from ^K") runs on ⏎, ahead of
-    // its own note, which the notes source lists too (PIE-1725: ⏎ opened the macro's note in the tile it was to act on).
-    // Only one: of several recordings the words begin, ⏎ would run whichever is listed first (each writes).
-    const named = (n => (n.length === 1 ? n : []))(found.filter(r => scriptNamedBy(q, r.data as { action?: string })));
+    // A script the words begin to name (any prefix of its name, as a save flash says it: "run it from ^K"; scriptNamedBy) runs
+    // on ⏎, ahead of its own note, which the notes source lists too (PIE-1725, PIE-1727: ⏎ opened the macro's note in the
+    // tile it was to act on). Several: the name the words begin before a title, then the newest of a name's numbers
+    // (`…-3` before `…-2`, the day's second recording first), each row showing the name ⏎ runs.
+    const named = found.map(r => ({ r, by: scriptNamedBy(q, r.data as { action?: string }) })).filter((x): x is { r: BarRow; by: ScriptMatch } => !!x.by)
+      .sort((a, b) => a.by.rank - b.by.rank || b.by.n - a.by.n).map(x => x.r);
     const rest = found.filter(r => !named.includes(r)), first = named.map(r => ({ ...r, exact: true as const }));
     return line ? [line, ...first, ...rest] : [...first, ...rest];
   },
@@ -387,14 +389,21 @@ function scriptSaid({ extension: e, action: a }: ReturnType<typeof scriptActions
  * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
  * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
  */
+/** How a script's row is named by what's typed: by its name (rank 0) or its title (1), and its name's number (`-2`: 2). */
+interface ScriptMatch { rank: number; n: number }
 /**
- * Whether `q` begins a script's name or its title past its first word (`recorded-comm`, `Recorded: comment`), case and
- * punctuation aside: one word (`seed`) is still as likely a note's title, so it names no script outright.
+ * Whether the words typed begin a script's name (PIE-1727): any prefix of three letters or more, dashes and spaces alike
+ * (`comment on pl` begins `comment-on-planting-checklist`); shorter is a word being typed, not a name. Its title only
+ * past its first word (`Recorded: comment`): every recording's title begins "Recorded", so `rec` names none of them.
+ * `n`: its number when it is a second of the same (`…-2` beside a `…`), so the newest comes first.
  */
-function scriptNamedBy(q: string, d: { action?: string } | undefined): boolean {
+function scriptNamedBy(q: string, d: { action?: string } | undefined): ScriptMatch | null {
   const s = d?.action ? scriptActions().find(x => x.action.name === d.action) : undefined;
   const fold = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), typed = fold(q);
-  return !!s && typed.includes(" ") && [s.extension.name ?? "", s.extension.summary ?? ""].some(t => fold(t).startsWith(typed));
+  if (!s || typed.replace(/ /g, "").length < 3) return null;
+  const name = s.extension.name ?? "", of = /^(.+)-(\d+)$/.exec(name);
+  const rank = fold(name).startsWith(typed) ? 0 : typed.includes(" ") && fold(s.extension.summary ?? "").startsWith(typed) ? 1 : -1;
+  return rank < 0 ? null : { rank, n: of && scriptNamed(of[1]!).length ? Number(of[2]) : 1 };
 }
 
 function actionLine(q: string, host: BarHost, command = false): BarRow | null {
