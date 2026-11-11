@@ -7,7 +7,8 @@
 //   armed → the second press: esc puts it aside, ctrl+z after a pause goes past the save, ctrl+e opens $EDITOR, a attaches
 //   armed → nothing armed: any other key, a click, a change to the text, a write or reload starting, anything else said
 //   on the line, or its window (esc and ctrl+z 5 s; the chord has none, as bash's hasn't). ctrl+z's says its window
-//   as a countdown ("ctrl+z again in 4s"), drawn again each second (PIE-1738: a slow second press asked again unseen)
+//   as a countdown ("ctrl+z again in 4s"), drawn again each second (PIE-1738: a slow second press asked again unseen);
+//   its press after the window ran out, nothing else between, asks again and says it came too late (PIE-1741)
 import { Again, AGAIN_MS } from "./arm";
 import { C, fg } from "./style";
 
@@ -33,7 +34,7 @@ export class DraftStatus {
   private readonly arms = new Again<DraftArm>({
     ms: what => (what === "chord" ? Infinity : AGAIN_MS),
     pause: what => (what === "undo" ? UNDO_ASK_PAUSE_MS : 0),
-    lapsed: () => { this.letGo(); this.changed?.(); },
+    lapsed: what => { this.release(); this.passed = what; this.changed?.(); },
     // A window said as a countdown is drawn again each second, so the count on screen is the one a key would meet.
     tick: { ms: 1000, then: () => { if (this.counting) this.changed?.(); } },
   });
@@ -41,18 +42,25 @@ export class DraftStatus {
   private armWords: string | null = null;
   /** The armed words for the seconds left in their window (PIE-1738: "ctrl+z again in 4s …"), drawn at each read. */
   private counting: ((seconds: number) => string) | null = null;
+  /**
+   * What ran out of its window just now (PIE-1741), until anything else is said or pressed; `late`, what had when this
+   * key was pressed. The next press of a countdown's key, nothing between, comes too late, and its ask says so.
+   */
+  private passed: DraftArm | null = null;
+  private late: DraftArm | null = null;
   private said = "";
   /** The line changed by itself (an arm's window ran out, or its countdown moved on): its host draws it again. */
   changed: (() => void) | null = null;
 
   /** The last thing said on the line ("" for nothing). */
   get note(): string {
-    if (this.armWords !== null && this.arms.armed() === null) this.letGo();
+    if (this.armWords !== null && this.arms.armed() === null) this.release();
     if (this.counting && this.armWords !== null && this.said === this.armWords) this.said = this.armWords = this.counting(Math.ceil(this.arms.left() / 1000));
     return this.said;
   }
   /** Say `text` on the line (the one way anything is): it stays until the next thing said. Returns it. An arm is never held unseen: other words let it go. */
   say(text: string): string {
+    this.passed = this.late = null;
     if (this.armWords !== null && text !== this.armWords) { this.arms.clear(); this.armWords = null; }
     return (this.said = text);
   }
@@ -61,16 +69,21 @@ export class DraftStatus {
    * `counting` says it with the seconds its window has left instead, counted down on the line (an undo at a save).
    */
   arm(what: DraftArm, counting?: (seconds: number) => string) {
+    const late = counting && (this.late ?? this.passed) === what ? counting : null;
+    this.passed = this.late = null;
     this.arms.arm(what);
+    if (late) counting = seconds => late(seconds).replace(/^[^·]*· /, "too late · ");
     this.counting = counting ?? null;
     this.armWords = this.said = counting ? counting(Math.ceil(this.arms.left() / 1000)) : this.said;
   }
   /** What's armed now, or null. */
   armed(): DraftArm | null { return this.arms.armed(); }
   /** A press that can confirm it: what it confirms (past its pause, inside its window), or null. The arm and its words go either way. */
-  press(): DraftArm | null { const was = this.arms.press(); this.letGo(); return was; }
+  press(): DraftArm | null { const was = this.arms.press(); this.late = this.passed; this.letGo(); return was; }
   /** The one reset: nothing is armed, and the line stops saying so. */
-  letGo() {
+  letGo() { this.release(); this.passed = null; }
+  /** Nothing armed, the line no longer saying so; what just ran out of its window (`passed`) stays known. */
+  private release() {
     this.arms.clear();
     this.counting = null;
     if (this.armWords !== null && this.said === this.armWords) this.said = "";

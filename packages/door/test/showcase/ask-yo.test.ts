@@ -878,6 +878,71 @@ describe("showcase: ask yo (PIE-1585)", () => {
     }
   }, 90_000);
 
+  // PIE-1741: writing after a saved answer that ends the note, as Evan does: ctrl+End lands on a line of its own after
+  // it, the answer still one folded row, at 44 and 177; leaving an answer the cursor opened shuts it; the answer tile's
+  // f says on its hint row what it folds.
+  test("ctrl+End after an answer that ends the note writes on a new line under it; leaving the answer shuts it", async () => {
+    await h.app.act({ action: "section", args: { name: "ask-yo" }, as: "test-agent" }).catch((e: Error) => { if (!/is in section \d+ \(ask-yo\)/.test(e.message)) throw e; });
+    const asked = "zoom the last shed", ask = `@yo how do I ${asked}`;
+    await h.board.createBlock(null, `${asked}: tile.zoom [yo-memory::answer] [yo-action::tile.zoom] [yo-asked::${asked}] [yo-line::tile.zoom]`);
+    const own = await h.board.createBlock(null, `Last shed\n\nkept line\n${ask}`);
+    const read = async () => (await h.board.get(own.id))!;
+    await untilAsync(async () => (await read()).text.includes("@yo answered"), "yo's answer saved", 30_000);
+    expect((await read()).text.trimEnd().split("\n").at(-1)).toMatch(/^>/);   // the answer is the last thing in the note
+    await h.app.dispatch.act({ action: "open", tile: "ask", args: { id: own.id } }, USER);
+    if (h.screen().includes("⏎ → l tab try it")) h.press({ kind: "enter" });
+    await until(() => !h.screen().includes("⏎ → l tab try it"), "the keys in the stage", 8000);
+    await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    type D = { text: string; lines: string[]; row: number; col: number; dirty: boolean; hiddenAnswerLines(): Set<number> };
+    const draft = () => stage().pane("ask").surface.draft as D | null;
+    const reader = (w: number) => (stage().pane("ask") as unknown as { render(w: number, h: number, f: boolean, d: unknown): { lines: string[] } }).render(w, 30, true, stage()).lines.map(l => Bun.stripANSI(l)).join("\n");
+    const raw = (w: number) => /::button\{|\[!note\]/.test(reader(w));
+    const answerTile = () => (stage().layoutGet().tiles as { kind: string; name: string }[]).find(t => t.kind === "answer");
+    try {
+      h.ch("e");
+      await until(() => h.screen().includes("opens it"), "the armed edit", 8000);
+      h.press({ kind: "enter" });
+      await until(() => !!draft(), "the edit", 8000);
+      const n = draft()!.lines.length;
+      h.press({ kind: "end", ctrl: true });
+      expect([draft()!.row, draft()!.col, draft()!.lines.length]).toEqual([n, 0, n + 1]);
+      expect(draft()!.dirty).toBe(false);
+      for (const w of [44, 177]) {
+        expect([w, raw(w)]).toEqual([w, false]);
+        expect([w, reader(w).includes("· answered")]).toEqual([w, true]);
+      }
+      for (const c of "and the beds are dug") h.ch(c);
+      expect(draft()!.text).toMatch(/\n>[^\n]*\nand the beds are dug$/);
+      for (const w of [44, 177]) expect([w, raw(w)]).toEqual([w, false]);
+      // Up onto the ask (the folded answer is one row), → into the answer opens it, ↑ out shuts it again.
+      const at = draft()!.lines.indexOf(ask);
+      h.press({ kind: "up" });
+      h.press({ kind: "end" });
+      expect(draft()!.row).toBe(at);
+      h.press({ kind: "right" });
+      expect(raw(177)).toBe(true);
+      h.press({ kind: "up" });
+      expect(draft()!.row).toBe(at);
+      for (const w of [44, 177]) expect([w, raw(w)]).toEqual([w, false]);
+      // The answer tile's f says it folds the answer in the edit; with the edit saved, in the note.
+      const tile = answerTile();
+      expect(tile).toBeDefined();
+      const hint = () => { h.screen(); return Bun.stripANSI((stage().pane(tile!.name) as unknown as { hint(): string }).hint()); };
+      expect(hint()).toContain("fold/unfold in the edit");
+      h.press({ kind: "char", ch: "s", ctrl: true });
+      await until(() => !draft(), "saved", 8000);
+      await untilAsync(async () => (await read()).text.endsWith("and the beds are dug"), "the words saved after the answer", 8000);
+      expect(hint()).toContain("fold/unfold in the note");
+    } finally {
+      if (draft()) await h.app.dispatch.act({ action: "edit.save", tile: "ask" }, USER).catch(() => {});
+      await until(() => !draft(), "the edit closed", 8000);
+      const t = answerTile();
+      if (t) await h.app.dispatch.act({ action: "tile.close", tile: t.name }, USER).catch(() => {});
+      await h.app.dispatch.act({ action: "tile.focus", tile: "ask" }, USER);
+    }
+  }, 90_000);
+
   // PIE-1716: an edit open while its reader moves (gathered into a group alone or with its answer tile, put in the drawer):
   // asked before and after the move, yo's answer is in one tile beside the reader where it is now, and the caret on an ask
   // selects it there. The draft asks for its reader's host each time, never the one it opened with.

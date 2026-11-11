@@ -24,3 +24,12 @@ test("an answer tile beside a reader still reading its note is kept, and not sai
   expect(ANSWER_TILE.kept!(tile, desk)).toBe(true);
   expect(tile.render(40, 6, false, desk).lines.join(" ")).not.toContain("gone");
 });
+
+// PIE-1741: `f` folds the answer where it is (the edit open on its note, else the reader's callout): its description
+// names both in the words the tile's hint row uses (the hint itself is drawn in showcase/ask-yo.test.ts).
+test("answer.fold's description says what f folds: the answer in the edit, else in the note", async () => {
+  const { ANSWER_ACTIONS, FOLD_WHERE } = await import("../src/desk/answer-tile");
+  const summary = ANSWER_ACTIONS.def("answer.fold")!.summary;
+  expect(summary).toContain(FOLD_WHERE.edit);
+  expect(summary).toContain(FOLD_WHERE.note);
+});

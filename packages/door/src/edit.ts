@@ -185,6 +185,7 @@ export class Draft {
   progress(ask: import("@ep0ch/outline-core/protocol").AskProgress) { this.asks.set(Draft.askKey(ask.line, ask.nth), ask); }
   onAskSelected: ((ask: string, fold?: string) => void) | null = null;
   private foldCache: { text: string; points: FoldPoint[] } | null = null;
+  /** The answers opened by hand (their fold row, the answer tile's `f`, fold.toggle): open until shut by hand (`answerOpen`). */
   private openedFolds = new Set<string>();
   /** The text the draft started from, to tell whether anything changed. */
   private original: string;
@@ -393,6 +394,7 @@ export class Draft {
         const after = to.slice(Math.min(this.offsetOf(f.end, 0), c.at + c.added), c.at + c.added).trim();
         return !after || was.slice(c.at, c.at + c.removed).trim().endsWith(after);
       };
+      // Opened by hand, not by where the cursor was: the lines just changed under the old cursor (`answerOpen` reads it).
       const fold = this.answerFolds().findLast(f => !this.openedFolds.has(f.key) && p.row >= f.line && askEnd(f) >= c.at && askEnd(f) <= c.at + c.added && onlyAnswer(f));
       if (fold) p = { row: fold.line - 1, col: this.endOf(fold.line - 1) };
       this.row = p.row; this.col = p.col;
@@ -1229,8 +1231,20 @@ export class Draft {
     }
   }
 
-  /** The cursor goes `to`; `extend` keeps or starts a selection from where it was. */
-  go(to: DraftGo, extend = false) { const p = this.landing(to); this.place(p.row, p.col, extend); }
+  /**
+   * The cursor goes `to`; `extend` keeps or starts a selection from where it was. ctrl+End under an answer that ends the
+   * note, shut, goes to a line of its own after it (PIE-1741: the callout's last line opened it raw), the line a reload
+   * lands on (`landAtEnd`): not a change until something is typed there. One the person opened by hand goes to its end.
+   */
+  go(to: DraftGo, extend = false) {
+    if (to === "doc-end" && !extend && this.endsInShutAnswer()) return this.landAtEnd();
+    const p = this.landing(to); this.place(p.row, p.col, extend);
+  }
+  /** The text's last line is in an answer nobody opened by hand. */
+  private endsInShutAnswer() {
+    const last = this.lines.length - 1;
+    return this.answerFolds().some(p => !this.openedFolds.has(p.key) && last >= p.line && last < p.end);
+  }
   /**
    * Where the draft opens, `to` on its line: a landing, not the person's move, so an answer under an ask it lands on stays
    * folded as the live edit draws it (PIE-1733: a reopened edit on an answered ask drew its callout's raw lines).
@@ -1397,7 +1411,7 @@ export class Draft {
   /**
    * The cursor came onto an ask's line: its answer is shown beside the note. Its fold under the ask stays as it was
    * (PIE-1738: a saved answer drew its callout's raw lines the moment the cursor reached its ask); entering the callout
-   * opens it (`hiddenAnswerLines`), and the answer tile's fold or fold.toggle opens and shuts it.
+   * opens it and leaving shuts it (`answerOpen`), and the answer tile's fold or fold.toggle opens and shuts it.
    */
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
@@ -1410,7 +1424,11 @@ export class Draft {
     const nth = row === undefined ? 0 : this.lines.slice(0, row).filter(l => l === line).length;
     // A saved answer has no progress of its own (the ask was answered before this draft opened): its fold row says what
     // its callout does, as a live one's progress would (PIE-1738), so a shut answer is never only missing lines.
-    const ask = this.asks.get(Draft.askKey(line, nth)) ?? (row === undefined ? undefined : this.savedAnswer(row));
+    // One wording for an ask that was answered when this draft opened (PIE-1741), whichever door reads it: `· answered`,
+    // never the progress one door kept from watching it land (`· found 1 note · beside ▸`) or the service replays at the
+    // first key. An answer landing while this draft is open says its own progress; asked again, under way, it does too.
+    const key = Draft.askKey(line, nth), live = this.asks.get(key), saved = row === undefined ? undefined : this.savedAnswer(row);
+    const ask = saved && (!live || (this.answeredAtOpen().has(key) && !STILL_ASKING.has(live.state))) ? saved : live ?? saved;
     if (!ask) return "";
     if (ask.warning) {
       // Beside its line while that fits, " · beside ▸" giving way first: a row of its own moves what's typed below it.
@@ -1421,6 +1439,21 @@ export class Draft {
     const full = ` · ${ask.state}${ask.blocks ? ` · ${ask.blocks} block${ask.blocks === 1 ? "" : "s"}` : ""}${ask.beside ? " · beside ▸" : ""}`;
     return width(full) <= room ? full : short;
   }
+
+  /** The asks (`askKey`) the text this draft opened on (or reloaded) already had an answer under. */
+  private answeredAtOpen(): Set<string> {
+    if (this.openAnswers?.text !== this.original) {
+      const lines = this.original.split("\n"), keys = new Set<string>();
+      for (const p of foldPoints(this.original)) {
+        const ask = lines[p.line - 1] ?? "", name = ask.trim().split(/\s+/, 1)[0] ?? "";
+        if (p.kind !== "callout" || !name.startsWith("@") || p.text !== `${name} answered`) continue;
+        keys.add(Draft.askKey(ask, lines.slice(0, p.line - 1).filter(l => l === ask).length));
+      }
+      this.openAnswers = { text: this.original, keys };
+    }
+    return this.openAnswers.keys;
+  }
+  private openAnswers: { text: string; keys: Set<string> } | null = null;
 
   /** The answer folded under the ask on line `row`, as an ask's progress reads: answered (how many blocks is the service's to count). */
   private savedAnswer(row: number): import("@ep0ch/outline-core/protocol").AskProgress | undefined {
@@ -1436,24 +1469,36 @@ export class Draft {
     });
   }
 
-  toggleAnswer(p: FoldPoint) {
-    if (this.openedFolds.has(p.key)) {
-      if (this.row >= p.line && this.row < p.end) this.place(p.line - 1, 0);
-      this.openedFolds.delete(p.key);
-    } else this.openedFolds.add(p.key);
-    return !this.openedFolds.has(p.key);
+  /**
+   * Whether the answer `p` is drawn open, the one answer to it (PIE-1741): opened by hand (`openedFolds`) until shut by
+   * hand, else while the cursor, or a selection's other end, is in it. The cursor leaving shuts what the cursor opened;
+   * the ask alone opens nothing.
+   */
+  answerOpen(p: FoldPoint): boolean {
+    if (this.openedFolds.has(p.key)) return true;
+    const inside = (row: number) => row >= p.line && row < p.end;
+    return inside(this.row) || (!!this.anchor && inside(this.anchor.row));
   }
 
+  /** Open or shut the answer `p` by hand; shut with the cursor in it, the cursor goes back to its ask. True when it is now shut. */
+  toggleAnswer(p: FoldPoint) {
+    if (this.answerOpen(p)) {
+      this.openedFolds.delete(p.key);
+      if (this.answerOpen(p)) this.place(p.line - 1, 0);
+    } else this.openedFolds.add(p.key);
+    return !this.answerOpen(p);
+  }
+
+  /** The lines of every answer drawn shut (`answerOpen`). */
   hiddenAnswerLines(): Set<number> {
     const hidden = new Set<number>();
-    for (const p of this.answerFolds()) {
-      // Entering the answer to edit it reveals it; selecting the ask alone does not.
-      if (this.row >= p.line && this.row < p.end) this.openedFolds.add(p.key);
-      if (!this.openedFolds.has(p.key)) for (let i = p.line; i < p.end; i++) hidden.add(i);
-    }
+    for (const p of this.answerFolds()) if (!this.answerOpen(p)) for (let i = p.line; i < p.end; i++) hidden.add(i);
     return hidden;
   }
 }
+
+/** An ask's progress that isn't an answer yet (agent-requests.ts's states): under way, held, or nobody to answer it. */
+const STILL_ASKING = new Set(["queued", "working", "waiting", "unanswered", "nothing"]);
 
 /** The keys that select with shift held (`Draft.key`). */
 const SELECTING = new Set<Key["kind"]>(["left", "right", "up", "down", "home", "end", "pgup", "pgdn"]);
@@ -1550,7 +1595,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ line, col, extend }, d, _actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   }),
   "draft.go": def({
-    summary: "move the draft's cursor: to the line's start or end, the text's beginning or end, or a word back or forward; extend=true selects from where it was. Word motions step over to the next line at a line's edge",
+    summary: "move the draft's cursor: to the line's start or end, the text's beginning or end, or a word back or forward; extend=true selects from where it was. Word motions step over to the next line at a line's edge; the end under a shut answer that ends the note is a line of its own after it",
     keys: rowKeys("draft.go"), touches: "draft", draft: "type", replay: "safe",
     args: { to: { type: "string", about: `one of: ${DRAFT_GOES.join(", ")}` }, extend: { type: "boolean", optional: true, about: "select from the cursor to there" } },
     examples: [

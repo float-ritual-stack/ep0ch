@@ -218,7 +218,7 @@ describe("the window running out", () => {
 
 // PIE-1738: the undo's second press has a window, and the line says how much of it is left, second by second.
 describe("ctrl+z at a save says its window as a countdown", () => {
-  test("5s, then 4s, then 1s; gone when it runs out, and a ctrl+z after that asks again from 5s", () => {
+  test("5s, then 4s, then 1s; gone when it runs out, and a ctrl+z after that asks again from 5s, saying it came too late (PIE-1741)", () => {
     setSystemTime(new Date(1_000_000));
     const d = new Draft("n1", 1, "Sowing");
     d.undos = [{ what: "typing", before: "Sow", after: "Sowing", at: 0, caret: 6, by: USER, open: false, saved: 3 } as never];
@@ -232,7 +232,7 @@ describe("ctrl+z at a save says its window as a countdown", () => {
     expect(d.note).toBe("");
     d.key(ctrl("z"));
     expect(d.text).toBe("Sowing");
-    expect(d.note).toBe("saved · ctrl+z again in 5s undoes typing");
+    expect(d.note).toBe("too late · ctrl+z again in 5s undoes typing");
   });
 
   test("what act answers stays the same while the line counts down: no seconds in it, and the revision it keeps", () => {
