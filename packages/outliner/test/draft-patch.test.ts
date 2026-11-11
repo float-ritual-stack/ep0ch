@@ -163,9 +163,9 @@ describe("the compare", () => {
     expect(locateSpan(text, span)).toEqual(span.range!);
     const moved = "Garden notes, spring\n" + text.slice("Garden notes\n".length);
     expect(locateSpan(moved, span)).toEqual({ start: span.range!.start + 8, end: span.range!.end + 8 });
-    expect(locateSpan(text.replace("beans", "peas"), span)).toEqual({ reason: "the observed text isn't there any more" });
-    expect(locateSpan("x".repeat(600) + text, span)).toEqual({ reason: "the observed text has moved away from its range" });
-    expect(locateSpan("ab ab", { observed: "ab", replacement: "c" })).toEqual({ reason: "the observed text is in the note more than once; give its range" });
+    expect(locateSpan(text.replace("beans", "peas"), span)).toMatchObject({ reason: "the observed text isn't there any more" });
+    expect(locateSpan("x".repeat(600) + text, span)).toMatchObject({ reason: "the observed text has moved away from its range" });
+    expect(locateSpan("ab ab", { observed: "ab", replacement: "c" })).toMatchObject({ reason: "the observed text is in the note more than once; give its range" });
   });
 
   test("reads a byte range as UTF-8 and refuses one inside a character", () => {
@@ -915,11 +915,15 @@ describe("a patch rebases onto a newer revision (PIE-687)", () => {
     expect(store.require(note.id).text).toBe(base.replace("Monday", "Tuesday").replace("cellar", "shed"));
   });
 
-  test("a span that is now ambiguous is refused", async () => {
+  test("a span now in the note twice lands where it was read by its range, and is refused without one (PIE-1737)", async () => {
     const { store, client } = await service();
     const note = store.create(base);
-    store.update(note.id, `${base}\nJars sit in the cellar.`, note.revision, { author: "user" });
-    await expect(patch(client, note.id, note.revision, [spanOf(base, "Jars sit in the cellar.", "Jars sit in the shed.")])).rejects.toThrow("not applied:");
+    const pasted = store.update(note.id, `${base}\nJars sit in the cellar.`, note.revision, { author: "user" });
+    const { range: _range, ...unplaced } = spanOf(base, "Jars sit in the cellar.", "Jars sit in the shed.");
+    await expect(patch(client, note.id, note.revision, [unplaced])).rejects.toThrow("not applied:");
+    expect(store.require(note.id).text).toBe(pasted.text);
+    await patch(client, note.id, note.revision, [spanOf(base, "Jars sit in the cellar.", "Jars sit in the shed.")]);
+    expect(store.require(note.id).text).toBe(`${base.replace("Jars sit in the cellar.", "Jars sit in the shed.")}\nJars sit in the cellar.`);
   });
 
   test("a span inside a section someone else just rewrote is refused", async () => {
@@ -949,5 +953,30 @@ describe("a patch rebases onto a newer revision (PIE-687)", () => {
     expect(placed.ok && applyLocated(current, placed.spans)).toBe("A\nb\nd\nE\nf\ng");
     expect(rebaseSpans(text, current, [{ observed: "c", replacement: "C" }]).ok).toBe(false);
     expect(rebaseSpans(text, current, [{ observed: "a", replacement: "x" }]).ok).toBe(false);
+  });
+
+  test("the compare: a passage said twice is rebased by its range, and refused only without one (PIE-1737)", () => {
+    const text = "Notes\nOak: okay.\nWren: beans.\nOak: okay.\n@tidy";
+    const current = `${text}\nWren: peas`;
+    const second = text.lastIndexOf("Oak: okay.");
+    const placed = rebaseSpans(text, current, [{ observed: "Oak: okay.", replacement: "Oak: OK.", range: { start: second, end: second + 10 } }]);
+    expect(placed.ok && applyLocated(current, placed.spans)).toBe("Notes\nOak: okay.\nWren: beans.\nOak: OK.\n@tidy\nWren: peas");
+    expect(rebaseSpans(text, current, [{ observed: "Oak: okay.", replacement: "x" }])).toMatchObject({ ok: false, reason: "the observed text is in the note more than once; give its range" });
+  });
+
+  test("a refusal says its own cause, stale or not, and its kind follows the cause (PIE-1737)", async () => {
+    const { store, client } = await service();
+    const note = store.create("Garden plan\nOak: okay.\nWren: beans.\nOak: okay.");
+    const twice = { observed: "Oak: okay.", replacement: "Oak: OK." };
+    const refusal = (revision: number) => client.request({ action: "draft.patch", blockId: note.id, revision, patches: [twice], mutation: TIDY }).then(() => null, (error: Error & { kind?: string }) => error);
+    const unread = await refusal(note.revision);
+    expect(unread?.message).toBe(`not applied: Garden plan ((${note.id})) could not accept the patch: the observed text is in the note more than once; give its range (revision ${note.revision}). Send the range where you read it.`);
+    expect(unread?.kind).toBe("ambiguous");
+    // Saved since: the cause is still said, not hidden behind "changed since you read it".
+    const saved = store.update(note.id, `${note.text}\nWren: peas`, note.revision, { author: "user" });
+    const since = await refusal(note.revision);
+    expect(since?.message).toContain("more than once");
+    expect(since?.message).toContain(`(revision ${note.revision}, now ${saved.revision})`);
+    expect(since?.kind).toBe("ambiguous");
   });
 });

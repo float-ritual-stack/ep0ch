@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { movedRequests } from "./request-identity";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
-import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { agentDeadlineMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
 import { cleanExtensionText, contextAncestors, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
@@ -134,6 +134,21 @@ const asked = (line: Pick<RequestLine, "text" | "nth">) => ({ line: line.text, .
 function wroteLinks(wrote: readonly { id: string; title: string }[]): string {
   const label = (title: string) => title.replace(/[|()[\]\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) || "a note";
   return `wrote ${wrote.length === 1 ? "a note" : `${wrote.length}${wrote.length === MAX_WROTE_LINKS ? "+" : ""} notes`}: ${wrote.map((w) => `((${w.id}|${label(w.title)}))`).join(", ")}`;
+}
+
+/**
+ * An answer's ranges, read in `read`, carried to where they are in `now` (CodeRabbit on #1437): a person who wrote above
+ * a passage said twice moves it, and the old range would name the nearest look-alike. A span whose passage someone
+ * changed meanwhile loses its range, so it is placed only when its text is there once, or refused.
+ */
+function carried(read: string, now: string, patches: readonly DraftPatchSpan[]): DraftPatchSpan[] {
+  if (read === now) return [...patches];
+  return patches.map((patch) => {
+    if (!patch.range) return patch;
+    const placed = rebaseSpans(read, now, [patch]);
+    const { range: _stale, unit: _unit, ...rest } = patch;
+    return placed.ok ? { ...rest, range: { start: placed.spans[0]!.start, end: placed.spans[0]!.end } } : rest;
+  });
 }
 
 /** How many words a note holds, as a person would count them. */
@@ -607,13 +622,15 @@ export class AgentRequests {
    * nothing, but the `@name` lines it holds now are what the next save is compared with: a line an
    * extension's write left is never taken for one the person's next save added.
    */
-  observe(blockId: string, actor?: MutationProvenance, created = false, requestedBy?: MutationProvenance): void {
+  observe(blockId: string, actor?: MutationProvenance, created = false, requestedBy?: MutationProvenance, demo = false): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
     if (!block) return;
     // Capture precedes the wake decision, including when a loop guard holds the ask.
     const before = created ? new Set<string>() : this.before(blockId, block.text);
-    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined, requestedBy);
+    // A demo's line for the extension's own agent is held for a person's r (PIE-1737: installing tidy would run its demo's
+    // ask through the model, and an agent's r would too).
+    const decided = this.holdWritten(blockId, block.text, actor, before, this.viaTrigger(block.text) ? actor : undefined, requestedBy, demo);
     this.wake(blockId, decided.wakes);
     this.remember(blockId, this.shapes(block));
     // Requests whose lines the write took out are withdrawn, as after any save.
@@ -669,7 +686,7 @@ export class AgentRequests {
   }
 
   /** Decide newly written requests once; saved text and live drafts share the same chain and limits. */
-  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
+  holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance, demo = false): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
     const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], recorded: [] as string[] };
     const block = this.store.get(blockId);
     if (!block || !this.asksInPlace(block)) return out;
@@ -687,7 +704,8 @@ export class AgentRequests {
       answered.add(line.requestKey);
       // A responder inherits who asked for it, not approval for new asks it invents.
       const personal = !parent && (personAsk(requestedBy) || requestedBy?.invocationRequests?.includes(line.requestKey));
-      const verdict = decide(grants, actor, line.agent, personal ? { ...newChain("user"), origin: "user" } : parent, this.today);
+      const verdict = demo && actor?.actorId === `ext:${bound.extension.id}` ? { wake: false as const, denied: false, why: `${bound.extension.id}'s demo · ask again to send` }
+        : decide(grants, actor, line.agent, personal ? { ...newChain("user"), origin: "user" } : parent, this.today);
       if (verdict.wake) { out.wakes.push({ requestKey: line.requestKey, by: personal || personAsk(actor) ? "user" : by, chain: verdict.chain, refund: verdict.refund }); continue; }
       out.recorded.push(line.requestKey);
       this.store.putAgentRequest({
@@ -919,12 +937,19 @@ export class AgentRequests {
       this.timers.delete(this.key(blockId, requestKey));
     }
     const by = requester(actor);
-    await Promise.all(asked.map((requestKey) => this.run(blockId, requestKey, by)));
+    // Each run goes on by itself (PIE-1737): this answers once every one is running (its row says so), never when it
+    // has answered, so the connection that pressed r keeps answering the door's opens, undos and reads meanwhile.
+    await Promise.all(asked.map((requestKey) => new Promise<void>((started) => {
+      void this.run(blockId, requestKey, by, undefined, started).catch(() => {}).finally(started);
+    })));
     return asked.length > 0;
   }
 
-  /** `askedBy`: who pressed `r` (absent when a save or a draft's quiet ran it). */
-  private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain): Promise<void> {
+  /**
+   * `askedBy`: who pressed `r` (absent when a save or a draft's quiet ran it). `onRunning` is called once its row says
+   * running (or it ends without running): what `refresh` answers on.
+   */
+  private async run(blockId: string, requestKey: string, askedBy?: string, chain?: InvocationChain, onRunning?: () => void): Promise<void> {
     const key = this.key(blockId, requestKey);
     if (this.stopped) return;
     if (this.running.has(key)) {
@@ -955,6 +980,7 @@ export class AgentRequests {
     this.live.set(key, { blockId, extensionId: extension.id, chain: chain ?? newChain(line.agent) });
     this.store.putAgentRequest({ ...base, status: "running" });
     this.deps.changed(blockId, { ...asked(line), state: "working" });
+    onRunning?.();
     let streamed = "", replySpan = line.text;
     const replyGroup = crypto.randomUUID();
     let blocks = 0;
@@ -983,8 +1009,15 @@ export class AgentRequests {
         const result = await this.deps.script!({ extension: extension.id, action: "run", blockId, clientId: draft.holder, background: true,
           args: req.args as Record<string, string>,
           requestedBy: by.startsWith("agent:") ? { author: "agent", actorId: by.slice(6) } : { author: "user" } });
-        const reply = result.written.length ? result.written.map(id => `((${id}|Script run))`).join("\n") : result.message ?? "Script finished";
-        answer = { status: result.error !== undefined ? "failed" : "replied", message: `${result.error ?? "Script finished"} · ${reply}`, reply };
+        const said = result.message ?? result.error ?? "Script finished";
+        // What it wrote is linked under the line; a run that wrote nothing says its words on the line alone (PIE-1737:
+        // `@beside` with nothing beside drew its sentence under the line and said it again beside it).
+        if (result.written.length) {
+          const reply = result.written.map(id => `((${id}|Script run))`).join("\n");
+          answer = { status: result.error !== undefined ? "failed" : "replied", message: `${said} · ${reply}`, reply };
+        } else {
+          answer = { status: result.error !== undefined ? "failed" : result.changed?.length ? "applied" : "nothing", message: said };
+        }
         return;
       }
       const context = this.store.blockContext(blockId);
@@ -1061,7 +1094,7 @@ export class AgentRequests {
         // doesn't make it a proposal; typing in that passage does.
         const outcome = await this.store.changes.run(
           this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
-          () => this.deps.patch({ blockId, revision: draft.revision, patches: respond.patches, mutation: actor, mark: { text: line.text, blockId }, current: true }),
+          async () => this.deps.patch({ blockId, revision: draft.revision, patches: carried(draft.text, (await this.deps.readDraft(blockId)).text, respond.patches), mutation: actor, mark: { text: line.text, blockId }, current: true }),
         );
         answer = outcome.outcome === "applied"
           ? { status: "applied", message: `${respond.message ?? `applied ${respond.patches.length === 1 ? "an edit" : `${respond.patches.length} edits`}`}${links ? ` · ${links}` : ""}`, reply: respond.reply ?? null }

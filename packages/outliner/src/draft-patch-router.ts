@@ -344,15 +344,23 @@ export class DraftPatchRouter {
     throw this.patchRefusal(edits, outcome.reason, outcome.kind);
   }
 
+  /**
+   * A patch the note won't take, worded by its cause (PIE-1737): a passage that changed since it was read says so; one
+   * that is there more than once says to send its range; anything else says what it was. Every one says the revision
+   * it was read at, and the revision now when that moved.
+   */
   private patchRefusal(edits: DraftPatchEdit[], reason: string, kind?: RefusalKind): DraftPatchRefusal {
+    const now = (edit: DraftPatchEdit) => this.holderOf(edit.blockId)?.revision ?? this.deps.store.requireActive(edit.blockId).revision;
+    const stale = edits.some(edit => now(edit) !== edit.revision);
     const notes = edits.map(edit => {
-      const block = this.deps.store.requireActive(edit.blockId);
-      const revision = this.holderOf(edit.blockId)?.revision ?? block.revision;
-      const changed = revision !== edit.revision ? "changed since you read it" : `could not accept the patch: ${reason}`;
-      return `${blockDisplayTitle(block)} ((${block.id})) ${changed} (revision ${edit.revision}, now ${revision})`;
+      const block = this.deps.store.requireActive(edit.blockId), revision = now(edit);
+      const at = `(revision ${edit.revision}${revision !== edit.revision ? `, now ${revision}` : ""})`;
+      const said = kind === "stale-revision" && revision !== edit.revision ? `changed since you read it ${at}`
+        : `could not accept the patch: ${reason}${reason.includes(`(revision ${edit.revision}`) ? "" : ` ${at}`}`;
+      return `${blockDisplayTitle(block)} ((${block.id})) ${said}`;
     });
-    const stale = edits.some(edit => (this.holderOf(edit.blockId)?.revision ?? this.deps.store.requireActive(edit.blockId).revision) !== edit.revision);
-    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`, kind ?? (stale ? "stale-revision" : "conflict"));
+    const fix = kind === "ambiguous" ? ". Send the range where you read it." : "; read it again and send the patch against the new text.";
+    return new DraftPatchRefusal(`${notes.join("; ")}${fix}`, kind ?? (stale ? "stale-revision" : "conflict"));
   }
 
   /**
@@ -712,7 +720,7 @@ export class DraftPatchRouter {
     for (const { edit, hold } of plan) {
       if (hold) continue;
       const failure = this.checkSaved(edit, options);
-      if (failure) return { ok: false, reason: failure };
+      if (failure) return { ok: false, ...failure };
       if (options.force) continue;
       const text = this.deps.store.requireActive(edit.blockId).text;
       const refusal = await this.policyFailure(edits, edit, text, options, this.savedLocator(edit, options));
@@ -731,7 +739,7 @@ export class DraftPatchRouter {
       }
       if (!("text" in answer) || typeof answer.text !== "string") return { ok: false, reason: "the door holding its draft didn't say what it holds" };
       const located = locateSpans(answer.text, edit.patches, options.force);
-      if (!located.ok) return { ok: false, reason: located.reason };
+      if (!located.ok) return { ok: false, reason: located.reason, ...(located.kind ? { kind: located.kind } : {}) };
       const past = this.pastMark(answer.text, located.spans, edit.blockId, options);
       if (past) return { ok: false, reason: past };
       const refusal = await this.policyFailure(edits, edit, answer.text, options);
@@ -787,11 +795,11 @@ export class DraftPatchRouter {
     try {
       const written = store.database.transaction(() => (alongside(options.alongside), saved).map(({ edit }) => {
         const failure = this.checkSaved(edit, options);
-        if (failure) throw new Error(failure);
+        if (failure) throw failure.kind ? new Refusal(failure.kind, failure.reason) : new Error(failure.reason);
         const block = store.requireActive(edit.blockId);
         if (!options.force && block.text !== checked.get(edit.blockId)) throw new Refusal("stale-revision", "the note changed while the patch was being checked");
         const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
-        if (!located.ok) throw new Error(located.reason);
+        if (!located.ok) throw located.kind ? new Refusal(located.kind, located.reason) : new Error(located.reason);
         const rebased = this.rebasedFrom(edit, block.revision, options);
         const after = applyLocated(block.text, located.spans);
         return { block: store.update(edit.blockId, after, block.revision, options.mutation, "text", movedListItems(store, edit.blockId, block.text, after, options)), rebased };
@@ -841,12 +849,13 @@ export class DraftPatchRouter {
   }
 
   /** Why a saved note's part can't apply now, or null. */
-  private checkSaved(edit: DraftPatchEdit, options: RunOptions): string | null {
+  private checkSaved(edit: DraftPatchEdit, options: RunOptions): { reason: string; kind?: RefusalKind } | null {
     const block = this.deps.store.get(edit.blockId);
-    if (!block || block.effectiveDeletedRootId) return "the note is gone or in the Trash";
+    if (!block || block.effectiveDeletedRootId) return { reason: "the note is gone or in the Trash", kind: "not-found" };
     const located = options.force ? locateSpans(block.text, edit.patches, true) : this.savedLocator(edit, options)(block.text, edit.patches);
-    if (!located.ok) return located.reason;
-    return this.pastMark(block.text, located.spans, edit.blockId, options);
+    if (!located.ok) return { reason: located.reason, ...(located.kind ? { kind: located.kind } : {}) };
+    const past = this.pastMark(block.text, located.spans, edit.blockId, options);
+    return past ? { reason: past } : null;
   }
 
   /**
@@ -870,7 +879,7 @@ export class DraftPatchRouter {
   private async policyFailure(edits: DraftPatchEdit[], edit: DraftPatchEdit, text: string, options: RunOptions, locate: Locator = locateSpans): Promise<Extract<Outcome, { ok: false }> | null> {
     if (options.force) return null;
     const located = locate(text, edit.patches);
-    if (!located.ok) return { ok: false, reason: located.reason };
+    if (!located.ok) return { ok: false, reason: located.reason, ...(located.kind ? { kind: located.kind } : {}) };
     const after = applyLocated(text, located.spans);
     const total = proposalChanges({ edits });
     if (options.policy === "prose") {

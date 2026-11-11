@@ -2258,13 +2258,13 @@ export type OutlinerRequestAction =
   /**
    * A built-in from the repo's extensions folder installed (as `ext add <name>`): into the user folder (every outline
    * the host serves) or `where: "outline"`, this one's own. Answers once its page and demo notes are written:
-   * `{ id, lines, page?, hub?, state?, error?, rulesEnabled? }`; rulesEnabled counts kept rules switched back on.
+   * `{ id, lines, page?, hub?, state?, error?, rulesEnabled?, settingsBack? }` (wire.ts says each).
    */
   | { id: string; action: "extensions.install"; extension: string; where?: "user" | "outline"; mutation?: MutationProvenance }
   /**
    * An installed extension removed (its folder deleted), and its demo notes kept or moved to Trash as `demo` says
-   * (no default: they never go silently). `{ id, lines, removed, rulesDisabled?, demo: { trashed, kept, left } }`.
-   * rulesDisabled counts kept rule notes switched off, including notes someone changed.
+   * (no default: they never go silently). `{ id, lines, removed, rulesDisabled?, settingsKept?, demo: { trashed, kept, left } }`.
+   * rulesDisabled counts kept rule notes switched off, including notes someone changed (wire.ts says the rest).
    */
   | { id: string; action: "extensions.uninstall"; extension: string; demo: "keep" | "remove"; mutation?: MutationProvenance }
   /** Capability `extensions.configure` (PIE-1343): config.json's settings and secret references, checked against the schema, written on this host. */

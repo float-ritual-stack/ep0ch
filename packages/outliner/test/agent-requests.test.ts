@@ -6,6 +6,7 @@ import { afterEach, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConnection } from "node:net";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -85,7 +86,7 @@ appendFileSync(${JSON.stringify(log)}, "run " + request.input.request + "\\n");
 process.stdout.write(JSON.stringify({ ok: true, value: { reply: "noted" } }));`);
     return () => existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
   };
-  return { store, client, create, agentOf, writeAgent, restart, counted };
+  return { store, client, create, agentOf, writeAgent, restart, counted, socket };
 }
 
 /**
@@ -153,8 +154,9 @@ test("@tidy: a person's request tidies the paragraph above as an attributed edit
   await client.request({ action: "update", blockId: note.id, text: `${current.text} and more`, expectedRevision: current.revision, mutation: PERSON });
   await Bun.sleep(250);
   expect(store.agentRequests(note.id).map((row) => row.status)).toEqual(["applied"]);
-  const again = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: note.id, line: 3 });
-  expect(again.projections.find((p) => p.kind === "agent")).toMatchObject({ summary: "nothing to tidy above" });
+  // r answers at once, saying it runs (PIE-1737); the answer lands on the line after.
+  await client.request<ResourceProjectionReadResult>({ action: "resources.projection.refresh", blockId: note.id, line: 3 });
+  expect(await agentOf(note.id, (p) => p.status === "ready" && p.agent?.status === "nothing")).toMatchObject({ summary: "nothing to tidy above" });
 });
 
 test("bare tidy fixes staggered nesting and counts actual changes (PIE-916)", async () => {
@@ -456,6 +458,7 @@ test("notes from before agent requests keep their @name lines old; restarts say 
   expect(store.agentRequests(crashed.id)[0]).toMatchObject({ status: "failed", message: "interrupted by a restart: ask again" });
   expect(store.agentRequests(waiting.id)[0]).toMatchObject({ status: "waiting", message: "the service stopped before @count answered: ask it again", requestedBy: "user" });
   await client.request({ action: "resources.projection.refresh", blockId: waiting.id, line: 1 });
+  await until("the asked one ran", () => calls().length === 1);
   expect(calls()).toEqual(["run please"]);
 });
 
@@ -627,6 +630,7 @@ test("yolo: an agent's r releases a line an agent wrote, as a person's r would (
   await connected.promise;
   await client.request({ action: "agents.yolo", clientId: "door-yolo", on: true });
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 1, mutation: byAgent });
+  await until("the released one ran", () => calls().length === 2);
   expect(calls()).toEqual(["run allowance", "run from an agent"]);
 });
 
@@ -650,13 +654,16 @@ test("r says who asked, an agent's r doesn't release a line an agent wrote, and 
   expect(calls()).toEqual(["run allowance"]);
   // Detail's r sends only the note: a person's asks the waiting request.
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id });
+  await until("the person's r answered", () => store.agentRequests(theirs.id)[0]?.status === "replied");
   expect(calls()).toEqual(["run allowance", "run from an agent"]);
   expect(store.agentRequests(theirs.id)[0]).toMatchObject({ status: "replied", requestedBy: "user" });
   // Released by a person, an agent may ask it again on its line, and is named as who asked.
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id, line: 1, mutation: { author: "agent", actorId: "loki" } });
+  await until("the agent's r answered", () => calls().length === 3 && store.agentRequests(theirs.id)[0]?.status === "replied");
   expect(store.agentRequests(theirs.id)[0]).toMatchObject({ status: "replied", requestedBy: "agent:loki" });
-  // r on the note doesn't ask an answered request again.
+  // r on the note doesn't ask an answered request again: a run it started would say running by now (PIE-1737).
   await client.request({ action: "resources.projection.refresh", blockId: theirs.id });
+  expect(store.agentRequests(theirs.id)[0]?.status).toBe("replied");
   expect(calls()).toHaveLength(3);
 });
 
@@ -1084,3 +1091,71 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "re " + request.
   await fresh.request({ action: "update", blockId: note.id, text: now.text.replace("@echo first item\n", ""), expectedRevision: now.revision, mutation: PERSON });
   await until("the first answer taken with its ask", async () => !(await read()).text.includes("re first item"));
 });
+
+// PIE-1737: R on a slow agent's line answers at once, saying it runs, and the connection that pressed it keeps answering
+// while the agent works: the door sends its next open, undo and read on that one connection.
+test("r on a slow agent answers at once with running, and the same connection keeps answering while it works (PIE-1737)", async () => {
+  const { store, create, agentOf, writeAgent, socket } = await setup();
+  await writeAgent("slow", `await Bun.sleep(2500);
+process.stdout.write(JSON.stringify({ ok: true, value: { reply: "took my time" } }));`);
+  const note = await create("Seed list\n@slow think it over", "agent");
+  await agentOf(note.id, (p) => p.agent?.status !== "running");
+  const other = await create("Another note");
+  // As a door does: one long-lived connection, the refresh and then a read on it.
+  const door = createConnection(socket);
+  door.setEncoding("utf8");
+  const answered = new Map<string, { at: number; response: { ok: boolean; result?: unknown } }>();
+  let buffer = "";
+  door.on("data", (chunk: string) => {
+    buffer += chunk;
+    for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
+      const response = JSON.parse(buffer.slice(0, at)) as { id: string; ok: boolean; result?: unknown };
+      buffer = buffer.slice(at + 1);
+      answered.set(response.id, { at: Date.now(), response });
+    }
+  });
+  cleanups.push(() => { door.destroy(); });
+  await new Promise<void>((resolve) => door.once("connect", () => resolve()));
+  const pressed = Date.now();
+  door.write(`${JSON.stringify({ id: "r", action: "resources.projection.refresh", blockId: note.id, line: 1 })}\n`);
+  door.write(`${JSON.stringify({ id: "open", action: "get", blockId: other.id })}\n`);
+  await until("both answers", () => answered.has("r") && answered.has("open"), 6_000);
+  expect(answered.get("r")!.at - pressed).toBeLessThan(1_500);
+  expect(answered.get("open")!.at - pressed).toBeLessThan(1_500);
+  const projections = (answered.get("r")!.response.result as ResourceProjectionReadResult).projections;
+  expect(projections.find((p) => p.kind === "agent")).toMatchObject({ fetching: true, agent: { status: "running" } });
+  expect(answered.get("open")!.response.result).toMatchObject({ id: other.id });
+  await until("the slow answer", () => store.agentRequests(note.id)[0]?.status === "replied");
+}, 20_000);
+
+// PIE-1737: a script that answers @name with a sentence and writes nothing (beside, with no note beside it) says the
+// sentence on the line, once, and leaves the note as the person wrote it.
+test("@beside with nothing beside answers on the line only, writing nothing into the note (PIE-1737)", async () => {
+  const { store, client, create, agentOf } = await setup();
+  const extensions = join(store.workspaceRoot!, "extensions");
+  cpSync(join(import.meta.dir, "..", "extensions", "beside"), join(extensions, "beside"), { recursive: true });
+  await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const note = await create("Seed list\n- beans\n@beside");
+  const answered = await agentOf(note.id, (p) => p.status === "ready" || p.status === "unavailable");
+  expect(store.require(note.id).text).toBe("Seed list\n- beans\n@beside");
+  expect(store.children(note.id)).toEqual([]);
+  expect(answered.output).toBeUndefined();
+  expect(answered).toMatchObject({ summary: "No note is beside this card.", agent: { status: "nothing" } });
+});
+
+// CodeRabbit on #1437: an agent's patch says where it read a passage said twice (its range). The person writes above
+// both copies while it works: the range is carried through their edit to the copy it read, never the nearest look-alike.
+test("a passage said twice is patched where the agent read it, though the person wrote above it meanwhile (PIE-1737)", async () => {
+  const { store, client, create, writeAgent } = await setup();
+  await writeAgent("twice", `const { input } = await Bun.stdin.json();
+const at = input.note.text.lastIndexOf("Oak: okay.");
+await Bun.sleep(1200);
+process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "Oak: okay.", replacement: "OAK: OKAY.", range: { start: at, end: at + 10 } }] } }));`);
+  const note = await create("Notes\nOak: okay.\nOak: okay.\n@twice");
+  await until("running", () => store.agentRequests(note.id)[0]?.status === "running");
+  const now = store.require(note.id);
+  await client.request({ action: "update", blockId: note.id, text: now.text.replace("Notes\n", "Notes\nWren: x\n"), expectedRevision: now.revision, mutation: PERSON });
+  await until("answered", () => !["running", "queued"].includes(store.agentRequests(note.id)[0]?.status ?? "running"));
+  expect(store.agentRequests(note.id)[0]?.status).toBe("applied");
+  expect(store.require(note.id).text).toBe("Notes\nWren: x\nOak: okay.\nOAK: OKAY.\n@twice");
+}, 20_000);

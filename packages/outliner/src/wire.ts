@@ -204,12 +204,14 @@ export interface WireAnswers {
   "extensions.args": { extension: string; action: string; args: ExtensionArgChoice[] };
   "extensions.bar": ExtensionBarResult;
   "extensions.configure": ExtensionsConfigured;
-  "extensions.install": { id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string; rulesEnabled?: number };
+  /** settingsBack: where a removed copy's settings were kept, when this install took them back (PIE-1737). */
+  "extensions.install": { id: string; lines: string[]; page?: string; hub?: string; state?: string; error?: string; rulesEnabled?: number; settingsBack?: string };
   "extensions.list": ExtensionsListed;
   "extensions.render": { results: ExtensionRenderResult[]; };
   "extensions.schedule.run": ScheduleRun;
   "extensions.undo": { undone: string; extension: string; action: string; written: string[] };
-  "extensions.uninstall": { id: string; lines: string[]; removed: boolean; rulesDisabled?: number; demo: { trashed: number; kept: readonly string[]; left: number } };
+  /** settingsKept: where its config.json waits for a reinstall (PIE-1737). */
+  "extensions.uninstall": { id: string; lines: string[]; removed: boolean; rulesDisabled?: number; settingsKept?: string; demo: { trashed: number; kept: readonly string[]; left: number } };
   "files.complete": ReferencedPathCandidate[];
   "files.read": FileContents;
   "fragments.at": PartAt;

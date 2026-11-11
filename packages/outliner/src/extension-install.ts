@@ -1,7 +1,7 @@
 import { refusalKindOf } from "@ep0ch/outline-core/refusal";
 import { keyLineWords } from "./secret-keys";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
-import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { cliActorId } from "./machine-name";
 import { checkServiceCompatibility } from "./service-compatibility";
 import type { OutlinerServiceStatus } from "./types";
@@ -31,7 +31,8 @@ import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse
  *   `resource-extensions.json` entry: references only, never a secret).
  * - `remove <name>` deletes the folder: the copy in the outline it's run in (--ws, EP0CH_WS, the nearest .ep0ch), else
  *   the user folder's; a copy in both is refused until a flag picks (namedCopyRoot). Its records stay as blocks; its
- *   lines say no extension handles them.
+ *   lines say no extension handles them. Its config.json waits in `extensions-settings/<id>.json` beside the folder,
+ *   and the next `add` takes it back (PIE-1737).
  * - `ls` asks the running service (`extensions.list`): each folder's state and
  *   its error; without a service it reads the folders itself.
  * - `act <name> <action> [--block <id>] [--line N] [--quote <words> [--near N]] [--arg k=v]…` runs an
@@ -90,7 +91,18 @@ function looksLikePath(value: string): boolean {
  * folder; the folder is checked first, so a broken one is refused with the
  * reason instead of installed.
  */
+/**
+ * Where a removed copy's settings wait for its reinstall (PIE-1737): `extensions-settings/<id>.json` beside the
+ * extensions folder, as a fork's files wait in `extensions-forks/`. Outside every folder the registry reads.
+ */
+export const keptSettingsPath = (root: string, id: string) => resolve(root, "..", "extensions-settings", `${id}.json`);
+
 export async function addExtension(nameOrPath: string, options: { from?: string; outlineFolder?: string; root?: string; builtIns?: string } = {}): Promise<string[]> {
+  return (await addExtensionCopy(nameOrPath, options)).lines;
+}
+
+/** `ext add`, answering its lines and, when a removed copy's settings were taken back, where they were kept. */
+export async function addExtensionCopy(nameOrPath: string, options: { from?: string; outlineFolder?: string; root?: string; builtIns?: string } = {}): Promise<{ lines: string[]; settingsBack?: string }> {
   const source = options.from ?? (looksLikePath(nameOrPath) ? resolve(nameOrPath.replace(/^~(?=\/)/, homedir())) : join(BUILT_INS, nameOrPath));
   if (!existsSync(join(source, "extension.json"))) {
     throw new Error(looksLikePath(nameOrPath) || options.from
@@ -141,9 +153,17 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
   else await rm(join(target, INSTALL_RECORD), { force: true });
   lines.push(`${updating ? "updated" : "installed"} ${id} in ${target}`);
   if (removed.length) lines.push(`removed what the new version no longer has: ${removed.join(", ")}`);
-  const configPath = join(target, "config.json");
+  const configPath = join(target, "config.json"), kept = keptSettingsPath(root, id);
+  let settingsBack: string | undefined;
   if (existsSync(configPath)) {
     lines.push(`kept ${configPath}`);
+  } else if (existsSync(kept)) {
+    // Removed before with its settings kept: they come back as they were.
+    await copyFile(kept, configPath);
+    await chmod(configPath, 0o600);
+    await rm(kept, { force: true });
+    settingsBack = kept;
+    lines.push(`took its settings back from ${kept}`);
   } else {
     const legacy = await legacyEntry(id);
     const example = existsSync(join(source, "config.example.json"))
@@ -159,7 +179,7 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
     }
   }
   lines.push("The service watches the folder: it loads now, with no restart; code changes apply on the next call.");
-  return lines;
+  return { lines, ...(settingsBack ? { settingsBack } : {}) };
 }
 
 /** Whether a built-in says it installs per outline (`installs: "outline"`, PIE-1509): the install row puts it in the outline's own folder. */
@@ -275,17 +295,31 @@ function removeRoot(id: string, pick: CopyPick, carry: readonly string[]): { roo
 }
 
 export async function removeExtension(id: string, options: CopyPick & { carry?: readonly string[] } = {}): Promise<string[]> {
+  return (await removeExtensionCopy(id, options)).lines;
+}
+
+/** `ext remove`, answering its lines and, when the copy had settings, where they are kept for a reinstall. */
+export async function removeExtensionCopy(id: string, options: CopyPick & { carry?: readonly string[] } = {}): Promise<{ lines: string[]; settingsKept?: string }> {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("ext remove expects an extension name such as horoscope");
   const { root, where } = removeRoot(id, options, options.carry ?? []);
   const target = join(root, id);
   if (existsSync(BUILT_INS) && realpathSync(target).startsWith(`${realpathSync(BUILT_INS)}/`)) throw new Error("That is the repo's built-in source, not an install");
+  // Its settings stay for a reinstall (PIE-1737): the folder goes, config.json waits beside it.
+  const config = join(target, "config.json"), kept = keptSettingsPath(root, id);
+  const settingsKept = existsSync(config) ? kept : undefined;
+  if (settingsKept) {
+    await mkdir(dirname(kept), { recursive: true });
+    await copyFile(config, kept);
+    await chmod(kept, 0o600);
+  }
   await rm(target, { recursive: true, force: true });
   // A default-on built-in taken out stays out: the host won't put it back at its next start (ext add does).
   if ((await defaultOnBuiltIns()).includes(id)) { await mkdir(join(root, ".off"), { recursive: true }); await writeFile(offMark(root, id), `${new Date().toISOString()}\n`); }
-  return [
+  return { lines: [
     `removed ${target}${where ? ` (${whereWords(where)})` : ""}`,
+    ...(settingsKept ? [`kept its settings in ${settingsKept}: installing it again takes them back`] : []),
     "The service drops its handlers, actions and tiles now. --demo remove also trashes unchanged demos and marked output; lines that used it say no extension handles them.",
-  ];
+  ], ...(settingsKept ? { settingsKept } : {}) };
 }
 
 export interface UpdateOptions {
@@ -526,7 +560,8 @@ const USAGE = `usage: outliner ext ls [--long] [--json]
   a copy in both is refused until --outline-folder or --user-folder picks. update --all takes every folder.
   Folders are watched: add and remove apply without a restart. Installing writes the extension's page under the
   outline's Extensions hub, with its demo notes once; install is another name for add. Remove keeps the demo notes
-  unless --demo remove, switches off their rule-on notes, and reinstalling switches them back on.
+  unless --demo remove, switches off their rule-on notes, and reinstalling switches them back on. Remove keeps its
+  config.json in extensions-settings/<name>.json beside the folder, and installing it again takes its settings back.
   Extensions are trusted code, not a sandbox: they run as the service user.`;
 
 export interface ExtClient { request<T>(input: Record<string, unknown>, timeoutMs?: number): Promise<T> }
