@@ -1127,3 +1127,18 @@ process.stdout.write(JSON.stringify({ ok: true, value: { reply: "took my time" }
   expect(answered.get("open")!.response.result).toMatchObject({ id: other.id });
   await until("the slow answer", () => store.agentRequests(note.id)[0]?.status === "replied");
 }, 20_000);
+
+// PIE-1737: a script that answers @name with a sentence and writes nothing (beside, with no note beside it) says the
+// sentence on the line, once, and leaves the note as the person wrote it.
+test("@beside with nothing beside answers on the line only, writing nothing into the note (PIE-1737)", async () => {
+  const { store, client, create, agentOf } = await setup();
+  const extensions = join(store.workspaceRoot!, "extensions");
+  cpSync(join(import.meta.dir, "..", "extensions", "beside"), join(extensions, "beside"), { recursive: true });
+  await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const note = await create("Seed list\n- beans\n@beside");
+  const answered = await agentOf(note.id, (p) => p.status === "ready" || p.status === "unavailable");
+  expect(store.require(note.id).text).toBe("Seed list\n- beans\n@beside");
+  expect(store.children(note.id)).toEqual([]);
+  expect(answered.output).toBeUndefined();
+  expect(answered).toMatchObject({ summary: "No note is beside this card.", agent: { status: "nothing" } });
+});

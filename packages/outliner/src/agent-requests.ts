@@ -991,8 +991,15 @@ export class AgentRequests {
         const result = await this.deps.script!({ extension: extension.id, action: "run", blockId, clientId: draft.holder, background: true,
           args: req.args as Record<string, string>,
           requestedBy: by.startsWith("agent:") ? { author: "agent", actorId: by.slice(6) } : { author: "user" } });
-        const reply = result.written.length ? result.written.map(id => `((${id}|Script run))`).join("\n") : result.message ?? "Script finished";
-        answer = { status: result.error !== undefined ? "failed" : "replied", message: `${result.error ?? "Script finished"} · ${reply}`, reply };
+        const said = result.message ?? result.error ?? "Script finished";
+        // What it wrote is linked under the line; a run that wrote nothing says its words on the line alone (PIE-1737:
+        // `@beside` with nothing beside drew its sentence under the line and said it again beside it).
+        if (result.written.length) {
+          const reply = result.written.map(id => `((${id}|Script run))`).join("\n");
+          answer = { status: result.error !== undefined ? "failed" : "replied", message: `${said} · ${reply}`, reply };
+        } else {
+          answer = { status: result.error !== undefined ? "failed" : result.changed?.length ? "applied" : "nothing", message: said };
+        }
         return;
       }
       const context = this.store.blockContext(blockId);
