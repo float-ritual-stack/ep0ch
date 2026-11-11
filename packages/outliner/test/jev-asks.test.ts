@@ -2,8 +2,7 @@
 // `jev-run` rewritten per ask, two writes per settled finding's stamp). Asks are lines of a day file now, the run is
 // written from it at most every 15 minutes, and a pass's stamps are one request. Fictional notes; a scratch service.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { JevAsks, TALLY_EVERY_MS, tallyOf } from "../src/jev-asks";
@@ -12,13 +11,13 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, ChangeFeedPage } from "../src/types";
-import { scratchOutline } from "./scratch-outline";
+import { scratchDir, scratchOutline } from "./scratch-outline";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
 async function setup() {
-  const root = mkdtempSync(join(tmpdir(), "outliner-jev-asks-"));
+  const root = scratchDir("outliner-jev-asks-");
   const { env: _env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
@@ -119,5 +118,6 @@ test("with no Extensions hub, Jev's Records page is at the top level, as before"
   const words = { id: "q2", input: "sent seed packets", base: "", where: "status=sent", clauses: [{ confidence: 0.9 }], text: [] } as never;
   await recordQueryWords(client, words, "suggested", "kitty/claude-code@float-box");
   const [records] = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "system-records=true", machinery: "show" } })).blocks;
-  expect(records?.parentId ?? null).toBeNull();
+  expect(records).toBeDefined();
+  expect(records!.parentId ?? null).toBeNull();
 });

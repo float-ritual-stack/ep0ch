@@ -269,6 +269,30 @@ describe("a save and the agents' writes after it (PIE-1733)", () => {
   });
 });
 
+// PIE-1738: an undo or redo that puts back an ask with its answer lands at the ask's end, the answer folded; one that also
+// puts back words after the answer (a paste's) lands after those, where typing goes on.
+describe("where an undo or redo of an answered ask lands (PIE-1738)", () => {
+  const answered = "@yo find the shed jobs\n> [!note]+ @yo answered\n> 1 note: Oil the hinges";
+  test("a paste of an ask and its answer, redone: at the ask's end, its answer folded", async () => {
+    const d = new Draft("n1", 1, "Shed\n");
+    d.place(1, 0);
+    await paste(d, answered);
+    await undo(d);
+    expect(d.text).toBe("Shed\n");
+    await redo(d);
+    expect([d.row, d.col]).toEqual([1, "@yo find the shed jobs".length]);
+    expect(d.hiddenAnswerLines().size).toBeGreaterThan(0);
+  });
+  test("a paste with words after the answer, redone: after those words", async () => {
+    const d = new Draft("n2", 1, "Shed\n");
+    d.place(1, 0);
+    await paste(d, `${answered}\nand then the gate`);
+    await undo(d);
+    await redo(d);
+    expect([d.row, d.col]).toEqual([4, "and then the gate".length]);
+  });
+});
+
 describe("selecting and copying by keys", () => {
   test("shift with an arrow, Home or End selects from the cursor; an arrow alone lets it go", () => {
     const d = new Draft("b1", 1, "[heading::waffle] for breakfast\nsecond");

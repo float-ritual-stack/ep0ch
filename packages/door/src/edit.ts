@@ -380,13 +380,20 @@ export class Draft {
   private jump(to: string, by: Actor, spans?: Edit[] | null) {
     if (by.kind === "agent") this.carry(to, spans);
     else {
-      const c = changeOf(this.text, to);
+      const was = this.text, c = changeOf(was, to);
       this.lines = to.split("\n");
       let p = this.placeOf(c.at + c.added);
       // An undo or redo that brought an ask back with its answer lands at the ask's end, the answer folded under it
       // (PIE-1738): landing inside the callout opened it raw. A change inside a shut answer alone still lands in it.
+      // Not when the change goes on past the answer with words of its own (a paste's text after it, put back by a redo):
+      // the cursor stays after those. What follows the answer there is only what was already in the text (a trailing line
+      // counted in the change because the newline after it differs) or blank.
       const askEnd = (f: FoldPoint) => this.offsetOf(f.line - 1, this.endOf(f.line - 1));
-      const fold = this.answerFolds().findLast(f => !this.openedFolds.has(f.key) && p.row >= f.line && askEnd(f) >= c.at && askEnd(f) <= c.at + c.added);
+      const onlyAnswer = (f: FoldPoint) => {
+        const after = to.slice(Math.min(this.offsetOf(f.end, 0), c.at + c.added), c.at + c.added).trim();
+        return !after || was.slice(c.at, c.at + c.removed).trim().endsWith(after);
+      };
+      const fold = this.answerFolds().findLast(f => !this.openedFolds.has(f.key) && p.row >= f.line && askEnd(f) >= c.at && askEnd(f) <= c.at + c.added && onlyAnswer(f));
       if (fold) p = { row: fold.line - 1, col: this.endOf(fold.line - 1) };
       this.row = p.row; this.col = p.col;
       this.anchor = null; this.goal = null; this.follow = true;
