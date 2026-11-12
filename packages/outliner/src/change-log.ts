@@ -26,20 +26,22 @@ export const LOG_TABLES: Readonly<Record<string, "replicated" | "local">> = {
   computed_resource_state: "replicated", create_requests: "replicated", edit_recovery: "replicated",
   extension_askers: "replicated", extension_outputs: "replicated", extension_records: "replicated",
   inbox_agent_results: "replicated", mark_removals: "replicated", marks: "replicated", media_copies: "replicated",
-  metadata: "replicated", navigation_history: "replicated", note_assistance_results: "replicated",
+  metadata: "replicated", note_assistance_results: "replicated",
   page_addresses: "replicated", pdf_representations: "replicated", pdf_resource_state: "replicated",
   pdf_source_snapshots: "replicated", quick_capture_draft: "replicated", read_marks: "replicated",
   remote_entity_representations: "replicated", remote_entity_resource_state: "replicated",
   remote_entity_source_snapshots: "replicated", reserved_work_ids: "replicated", resource_retention_events: "replicated",
   resource_retention_pins: "replicated", resource_retention_policy: "replicated", resource_retention_references: "replicated",
-  resource_sources: "replicated", resources: "replicated", selection: "replicated", virtual_occurrence_ranks: "replicated",
+  resource_sources: "replicated", resources: "replicated", virtual_occurrence_ranks: "replicated",
   web_representations: "replicated", web_resource_state: "replicated", web_source_snapshots: "replicated",
-  work_id_allocator: "replicated", working_selections: "replicated",
+  work_id_allocator: "replicated",
+  // Where this machine's clients are (a pane's selection, its history): each copy's own, never followed.
+  navigation_history: "local", selection: "local", working_selections: "local",
   change_log: "local", log_state: "local",
 };
 
-/** Metadata keys each open of a file rewrites for itself (outline-instance.ts): never logged, never applied. */
-export const LOCAL_METADATA_KEYS = ["outline_open_token"] as const;
+/** Metadata keys each open (outline-instance.ts) or a pane's history writes for itself: never logged, never applied. */
+export const LOCAL_METADATA_KEYS = ["outline_open_token", "navigation_cursor"] as const;
 
 export const CHANGE_LOG_SQL = `
   -- The change log (change-log.ts, ADR 0009).
@@ -148,15 +150,22 @@ export function writeGenesis(database: Database, schema: number): number {
   return database.transaction(() => {
     const { txn } = logState(database);
     const at = new Date().toISOString();
-    database.query("INSERT INTO change_log (txn, tbl, op, key, row, at) VALUES (?, '', 'g', NULL, ?, ?)").run(txn, JSON.stringify({ schema }), at);
+    const g = database.query("INSERT INTO change_log (txn, tbl, op, key, row, at) VALUES (?, '', 'g', NULL, ?, ?) RETURNING lsn").get(txn, JSON.stringify({ schema }), at) as { lsn: number };
     for (const t of replicatedTables(database)) {
       const where = t.name === "metadata" ? ` WHERE "key" NOT IN (${LOCAL_METADATA_KEYS.map(lit).join(", ")})` : "";
       database.query(`INSERT INTO change_log (txn, tbl, op, key, row, at) SELECT ?, ${lit(t.name)}, 'i', ${keyJson(t, "")}, ${rowJson(t, "")}, ? FROM ${q(t.name)}${where} ORDER BY ${t.key.map(q).join(", ")}`).run(txn, at);
     }
-    endLogTransaction(database);
-    return latestGenesis(database);
+    // In transactions of GENESIS_CHUNK rows, so a range of it stays a page (a follower builds one aside, never in place),
+    // and the `g` says how many rows follow it: compaction's measure of the outline.
+    const rows = logHead(database) - g.lsn;
+    database.query("UPDATE change_log SET txn = ? + (lsn - ?) / ? WHERE lsn >= ?").run(txn, g.lsn, GENESIS_CHUNK, g.lsn);
+    database.query("UPDATE change_log SET row = ? WHERE lsn = ?").run(JSON.stringify({ schema, rows }), g.lsn);
+    database.query("UPDATE log_state SET txn = ? WHERE id = 1").run(txn + Math.floor(rows / GENESIS_CHUNK) + 1);
+    return g.lsn;
   }).immediate();
 }
+/** Rows in each transaction of a genesis. */
+const GENESIS_CHUNK = 2_000;
 
 /**
  * Keeps the log's size in proportion (ADR 0009): when what was logged since the newest genesis outgrows `factor` times
@@ -167,10 +176,10 @@ export function compactLog(database: Database, schema: number, factor = 4): bool
   if (logState(database).role !== "home") return false;
   const genesis = latestGenesis(database);
   if (!genesis) return false;
-  // The genesis is one transaction: its rows are the outline's size; what came after it is the log's growth since.
-  const txn = (database.query("SELECT txn FROM change_log WHERE lsn = ?").get(genesis) as { txn: number }).txn;
-  const size = (where: string) => (database.query(`SELECT COALESCE(SUM(LENGTH(row)), 0) AS n FROM change_log WHERE lsn >= ? AND ${where}`).get(genesis, txn) as { n: number }).n;
-  if (size("txn <> ?") <= factor * Math.max(size("txn = ?"), 64 * 1024)) return false;
+  // The genesis's rows are the outline's size; what came after them is the log's growth since.
+  const rows = (JSON.parse((database.query("SELECT row FROM change_log WHERE lsn = ?").get(genesis) as { row: string }).row) as { rows?: number }).rows ?? 0;
+  const size = (where: string) => (database.query(`SELECT COALESCE(SUM(LENGTH(row)), 0) AS n FROM change_log WHERE ${where}`).get(genesis, genesis + rows) as { n: number }).n;
+  if (size("lsn > ?2") <= factor * Math.max(size("lsn >= ?1 AND lsn <= ?2"), 64 * 1024)) return false;
   writeGenesis(database, schema);
   database.transaction(() => { database.query("DELETE FROM change_log WHERE lsn < ?").run(genesis); }).immediate();
   return true;
@@ -375,7 +384,10 @@ export class OutlineLog {
   cursor(): Cursor { return this.db().transaction(() => cursorOf(this.db(), this.schema)).deferred(); }
   /** A range of the home's log applied to this follower's file (outline-follower.ts); refused unless it follows the cursor. */
   apply(range: LogRange): number {
-    if (logState(this.db()).role !== "follower") throw new Error("only a follower's copy takes another outline's log");
+    // A copy that isn't a follower's (one from before, a file put here) and a range holding a new genesis are each made
+    // again beside the served copy, never in place.
+    if (logState(this.db()).role !== "follower") throw new RangeRefused("this copy isn't a follower's (an earlier copy); it is made again from the home's log", true);
+    if (range.entries.some(e => e.op === "g")) throw new RangeRefused("the home wrote a new genesis (a compaction or a schema step); the copy is made again from it", true);
     try { return applyRange(this.db(), range, this.schema); } finally { this.applied(); }
   }
   /** Keeps the log in proportion (`compactLog`); the host asks on open and every hour. */

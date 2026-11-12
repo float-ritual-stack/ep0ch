@@ -33,7 +33,9 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
   (every column as JSON, a BLOB as hex beside a marker; null for a delete) and `at`.
 - **Every table is classified** in one list beside the schema (`change-log.ts` `LOG_TABLES`): *replicated* (the
   default: blocks, properties, revisions, the change feed, marks, resources, annotations, page addresses, metadata) or
-  *local* (`change_log` and `log_state` themselves; the metadata key `outline_open_token`, which each open rewrites).
+  *local* (`change_log` and `log_state` themselves; where this machine's clients are, `selection`,
+  `navigation_history` and `working_selections`; the metadata keys `outline_open_token`, which each open rewrites, and
+  `navigation_cursor`).
   A test fails on a table the list doesn't name, so a new table is classified when it is made.
 - **Whole transactions.** The store's transaction wrapper (`configureTransactions`, already the one place every write
   passes) advances `log_state.txn` at the end of each outermost write transaction that logged anything. A range never
@@ -47,13 +49,15 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
 
 ### 2. A genesis starts a log, and every schema step
 
-- **Genesis**: one `g` entry naming the schema version, then an `i` entry for every row of every replicated table,
-  all in one transaction. The migration to schema 12 writes it for an existing outline; a new outline's log starts with
-  its first rows.
+- **Genesis**: one `g` entry naming the schema version and how many rows follow it, then an `i` entry for every row
+  of every replicated table, written in one SQLite transaction but numbered in log transactions of 2,000 rows, so a
+  range of it is a page. A follower never applies a genesis in place: one that meets a `g` rebuilds beside its copy
+  (§3). The migration to schema 12 writes the first; a new outline's starts with its schema's rows.
 - **A schema step writes a new genesis.** A migration script runs with the log triggers dropped, then makes them again
   for the new columns and writes a genesis at N. Old entries before it are history, kept in the archive.
 - **Compaction keeps the file in proportion:** an edit logs about 12 rows and 3 KB (measured: 600 writes on a scratch
-  outline, 0.79 ms a write without the log and 0.94 ms with it). When what was logged since the newest genesis outgrows
+  outline, 0.79 ms a write without the log and 0.94 ms with it; on 11,000 notes a genesis of 76,000 rows took 0.3 s and
+  a rebuild from it 13 pages, 33 MB, 0.8 s). When what was logged since the newest genesis outgrows
   4 times that genesis, the host writes a new genesis and deletes the entries before the previous one (on open and
   hourly), so the file holds one generation back. A follower or an archive further behind than that rebuilds from the
   newest genesis; the archive keeps the history.
@@ -71,6 +75,8 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
     file and swaps it in;
   - **a `head` behind its cursor, or a `prev` that differs** (a file copied back by hand): the same rebuild, said in
     the log;
+  - **a range holding a `g`** (a compaction, a schema step), **or a copy that isn't a follower's** (an earlier copy in
+    the folder): the same rebuild;
   - **another schema**: it serves what it has, stale, saying which machine to update (`ep0ch install --apply`). A
     follower's file older than its own build is migrated in place by the follower (the migration scripts, as the
     mirror migrated its private copy), so a deploy on float-2 while the laptop sleeps keeps float-hub readable; the
@@ -108,6 +114,8 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
   laptop's name. A log that differs from the hub's archive is refused.
 - **The file keeps one generation of its log** (§2's compaction); the archive is the history, off the machine. An
   archive whose cursor was compacted away keeps that chain aside and starts a new one at the newest genesis.
+- **The archive here keeps** the segments from the one holding the newest genesis on, after each upload; the earlier
+  ones are in restic's earlier snapshots, and a restore to before that genesis reads one of them.
 - **Recovery point, before and after** (loki, Nov 11: pie stays in seconds):
   - pie: Litestream to the bucket within about a second becomes float-box's follower of pie (`ep0ch backup follow`,
     `EP0CH_MCP_MIRRORS=pie@float-2`), woken by pie's events: seconds, on another machine. The archive every 15 minutes
@@ -127,8 +135,9 @@ the resource catalog's hidden rows, metadata), so neither can rebuild a copy.
   this build's schema. The file gets a new `logId` (recorded as forked from the old one at that `lsn`), so followers
   of the old log rebuild instead of applying a diverging range. Swapping it in stays a person's step with the host
   stopped.
-- **The drill** (monthly, and `ep0ch backup drill`) replays each outline's archive and compares it with the live
-  outline by a canonical dump of the replicated tables up to the archived `lsn`.
+- **The drill** (monthly, and `ep0ch backup drill`) replays each outline's newest archive and checks it: integrity,
+  its blocks counted, and the replay ending at the entry the archive was taken at. That a replay equals the outline,
+  row for row (a canonical dump of the replicated tables), is the tests' to hold, over every mutation family.
 
 ### 7. Conflicts: one writer per outline
 

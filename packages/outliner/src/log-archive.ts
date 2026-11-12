@@ -10,13 +10,14 @@ import { join } from "node:path";
 import { applyEntries, endLogTransaction, entryDigest, rowCounts, type LogEntry, type LogRange } from "./change-log";
 import { openFollowerSchema, SCHEMA_VERSION } from "./schema";
 
-const SEGMENT = /^(\d{16})-(\d{16})\.jsonl$/;
+/** `<first>-<last>.jsonl`, or `<first>-<last>.g<lsn>.jsonl` when it holds a genesis (its newest one's lsn). */
+const SEGMENT = /^(\d{16})-(\d{16})(?:\.g(\d{16}))?\.jsonl$/;
 const pad = (n: number) => String(n).padStart(16, "0");
 
 /** One log's segments in an outline's archive folder, oldest first. */
-function segments(dir: string): { file: string; first: number; last: number }[] {
+function segments(dir: string): { file: string; first: number; last: number; genesis: number | null }[] {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).flatMap(f => { const m = SEGMENT.exec(f); return m ? [{ file: join(dir, f), first: Number(m[1]), last: Number(m[2]) }] : []; })
+  return readdirSync(dir).flatMap(f => { const m = SEGMENT.exec(f); return m ? [{ file: join(dir, f), first: Number(m[1]), last: Number(m[2]), genesis: m[3] ? Number(m[3]) : null }] : []; })
     .sort((a, b) => a.first - b.first);
 }
 
@@ -63,7 +64,8 @@ export function writeSegment(root: string, outline: string, ranges: readonly Log
     throw new Error(`these entries don't follow ${outline}'s archive of log ${logId} (it holds through ${have?.lsn ?? "nothing"}, they follow ${first.after})`);
   }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = join(dir, `${pad(entries[0]!.lsn)}-${pad(entries.at(-1)!.lsn)}.jsonl`);
+  const genesis = entries.filter(e => e.op === "g").at(-1);
+  const file = join(dir, `${pad(entries[0]!.lsn)}-${pad(entries.at(-1)!.lsn)}${genesis ? `.g${pad(genesis.lsn)}` : ""}.jsonl`);
   const temp = `${file}.${process.pid}.part`;
   writeFileSync(temp, ranges.map(r => JSON.stringify(r)).join("\n") + "\n", { mode: 0o600 });
   renameSync(temp, file);
@@ -140,4 +142,17 @@ export function appendToArchive(root: string, outline: string, ranges: readonly 
   const last = ranges.at(-1)!;
   const file = writeSegment(root, outline, [{ logId, schema: last.schema, after: have.lsn, head: last.head, prev: have.digest, entries: rest, complete: last.complete }]);
   return { lsn: rest.at(-1)!.lsn, file };
+}
+
+/**
+ * What this machine keeps of an outline's archive after an upload: the segments from the one holding the newest
+ * genesis on. The ones before it are in the repository's earlier snapshots (a restore to before that genesis reads
+ * one of them). Returns how many segments were let go.
+ */
+export function trimArchive(root: string, outline: string, logId: string): number {
+  const segs = segments(join(root, outline, logId));
+  const newest = segs.map((s, i) => ({ s, i })).filter(({ s }) => s.genesis !== null).at(-1);
+  if (!newest) return 0;
+  for (const s of segs.slice(0, newest.i)) rmSync(s.file);
+  return newest.i;
 }

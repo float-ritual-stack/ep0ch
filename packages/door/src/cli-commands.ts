@@ -304,7 +304,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
     synopsis: "install [--apply]", flags: [["--apply", "Back up outlines and apply the update"], ["--machine-name <name>", "Name this machine for links and EchoNet"], ["--dials-in", "Mark this machine as calling out only"], ["--no-dials-in", "Clear the calling-out-only setting"], ["--add-client <ssh-name>", "Add a client to update after this host"], ["--remove-client <ssh-name>", "Remove an update client"], ["--as-client", "Update this client without updating others"], json],
     examples: ["ep0ch install", "ep0ch install --apply"] },
   { name: "doctor", group: "Install and health", summary: "Check the stack and show repairs",
-    synopsis: "doctor [--backups] [--json]", flags: [["--backups", "Restore the newest backups and check integrity"], json],
+    synopsis: "doctor [--backups] [--json]", flags: [["--backups", "Check the machine itself too (failed units, the load)"], json],
     examples: ["ep0ch doctor", "ep0ch doctor --backups"] },
   { name: "status", group: "Install and health", summary: "Show the outline host and its outlines",
     synopsis: "status [--json]", flags: [json], examples: ["ep0ch status", "ep0ch status --json"] },

@@ -17,7 +17,7 @@ import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { LogRange } from "@ep0ch/outliner/change-log";
-import { archivedCursor, replayArchive, writeSegment } from "@ep0ch/outliner/log-archive";
+import { archivedCursor, replayArchive, trimArchive, writeSegment } from "@ep0ch/outliner/log-archive";
 import { alive } from "../state";
 import { hostRequest, hostSend } from "../socket";
 import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
@@ -170,6 +170,8 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
       if ("error" in r) { why = direct = r.error; note(`${x.name}: direct upload to ${repoHost(repo)} failed after ${((Date.now() - began) / 1000).toFixed(1)}s: ${r.error}`); }
       else {
         Object.assign(st, { seq: x.lsn, logId: x.logId, schema: x.schema, at: new Date(now()).toISOString(), snapshot: r.id });
+        // Uploaded: what came before the newest genesis is in the repository's earlier snapshots, and goes from here.
+        trimArchive(archiveRoot(c, c.machine), x.name, x.logId);
         delete st.pendingSince; delete st.error; delete st.relayed;
         uploaded.push(x.name);
         note(`${x.name}: sent direct to ${repoHost(repo)} in ${((Date.now() - began) / 1000).toFixed(1)}s`);

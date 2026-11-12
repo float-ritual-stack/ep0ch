@@ -58,7 +58,8 @@ export function mirrorsConfig(env: Env): MirrorsConfig | { error: string } {
     if (extra !== undefined || !outline || !isOutlineName(outline) || !machine || !isMachineName(machine)) {
       return { error: `EP0CH_MCP_MIRRORS: ${JSON.stringify(item)} isn't <outline>@<machine> (e.g. float-hub@laptop)` };
     }
-    if (mirrors.some(m => m.outline === outline && m.machine === machine)) return { error: `EP0CH_MCP_MIRRORS names ${outline}@${machine} twice` };
+    // A bare name reaches one copy (the gateway's `float-hub`), so an outline is followed from one machine.
+    if (mirrors.some(m => m.outline === outline)) return { error: `EP0CH_MCP_MIRRORS names ${outline} twice` };
     mirrors.push({ outline, machine });
   }
   return { folder, mirrors };
@@ -251,21 +252,25 @@ class FollowLoop {
     if (existsSync(this.file)) {
       try { opened = await host.open(this.outline); }
       catch (e) {
-        if (!(await this.takeUp(e))) return;
-        try { opened = await host.open(this.outline); }
-        catch (again) { this.stale(`the copy can't be opened: ${(again as Error).message}`); return; }
+        // One that can't be taken up is made again from the home's log, when the home answers (below).
+        if (await this.takeUp(e)) {
+          try { opened = await host.open(this.outline); }
+          catch (again) { this.stale(`the copy can't be opened: ${(again as Error).message}`); }
+        }
       }
-      if (!this.status.copiedAt) {
+      if (opened && !this.status.copiedAt) {
         const at = new Date(statSync(this.file).mtimeMs).toISOString();
         this.status = { ...this.status, cursor: opened.store.log.cursor().lsn, asOf: at, copiedAt: at, homeInstanceId: opened.store.outlineInstanceId };
         writeStatus(this.folder.dir, this.outline, this.status);
       }
     }
+    // Why the copy here can't be served, when it can't: said first, until the home answers and it is made again.
+    const copyWhy = existsSync(this.file) && !opened ? this.status.stale?.why : undefined;
     let home;
-    try { home = await this.client(); } catch (e) { this.stale(`${this.folder.machine} doesn't answer: ${(e as Error).message}`); return; }
+    try { home = await this.client(); } catch (e) { this.stale(`${copyWhy ? `${copyWhy}; and ` : ""}${this.folder.machine} doesn't answer: ${(e as Error).message}`); return; }
     const ask = (after: number) => home.request<LogRange>({ action: "log.range", after, limit: RANGE_LIMIT } as never);
     try {
-      if (!opened) { await this.rebuild(ask, "a first copy"); return; }
+      if (!opened) { await this.rebuild(ask, existsSync(this.file) ? "the copy here couldn't be taken up" : "a first copy"); return; }
       for (;;) {
         const at = opened.store.log.cursor();
         const range = await ask(at.lsn);

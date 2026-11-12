@@ -2,11 +2,11 @@
 // after a gap, refuses a range that doesn't follow its cursor, and a replay of the archived log gives the same outline.
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyRange, canonicalDump, LOG_TABLES, RangeRefused, type LogRange } from "../src/change-log";
-import { archivedCursor, replayArchive, writeSegment } from "../src/log-archive";
+import { applyRange, canonicalDump, LOG_TABLES, RangeRefused, readRange, type LogRange } from "../src/change-log";
+import { archivedCursor, replayArchive, trimArchive, writeSegment } from "../src/log-archive";
 import { openFollowerSchema, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 
@@ -200,4 +200,53 @@ test("a log kept in proportion: a follower within a generation catches up, one f
   const oldest = (home.database.query("SELECT MIN(lsn) AS lsn FROM change_log").get() as { lsn: number }).lsn;
   expect(oldest).toBeGreaterThan(farAt);
   home.close();
+});
+
+test("a BLOB column (a PDF's bytes) travels as itself", () => {
+  const dir = root();
+  const { home } = busyHome(dir);
+  const logId = home.log.cursor().logId;
+  home.close();
+  // A test's own connection on the home's file: the log's triggers are in the file, so its write is logged too.
+  const db = new Database(join(dir, "home.sqlite"));
+  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0, 1, 2, 255]);
+  db.query("INSERT INTO pdf_source_snapshots (id, resource_id, address_version, locator, content_hash, revision_json, bytes, captured_at) VALUES ('snap-1', 'res-1', 1, 'file:///fictional.pdf', 'h', '{}', ?, '2026-11-01')").run(bytes);
+  const copy = new Database(join(dir, "copy.sqlite"), { create: true });
+  openFollowerSchema(copy, logId);
+  for (let at = 0; ;) {
+    const range = readRange(db, at, 50, SCHEMA_VERSION);
+    applyRange(copy, range, SCHEMA_VERSION);
+    at = range.entries.at(-1)?.lsn ?? at;
+    if (range.complete) break;
+  }
+  expect((copy.query("SELECT bytes FROM pdf_source_snapshots WHERE id = 'snap-1'").get() as { bytes: Uint8Array }).bytes).toEqual(bytes);
+  expect(canonicalDump(copy)).toBe(canonicalDump(db));
+  db.close();
+});
+
+test("an archive keeps what follows its newest genesis here, and still replays to the outline", () => {
+  const dir = root();
+  const { home, shelf } = busyHome(dir);
+  const archive = join(dir, "archive");
+  const run = () => {
+    const ranges: LogRange[] = [];
+    let at = archivedCursor(archive, "home", home.log.cursor().logId)?.lsn ?? 0;
+    for (;;) { const range = home.log.range(at, 50); ranges.push(range); at = range.entries.at(-1)?.lsn ?? at; if (range.complete) break; }
+    writeSegment(archive, "home", ranges);
+  };
+  run();
+  const crate = home.create("Crate of pears", shelf.id);
+  for (let i = 0; i < 600 && !home.log.compact(1); i++) {
+    const now = home.get(crate.id)!;
+    home.update(crate.id, `Crate of pears [count::${i}]`, now.revision, { author: "user" });
+    if (i % 40 === 0) run();
+  }
+  run();
+  const logId = home.log.cursor().logId;
+  const before = readdirSync(join(archive, "home", logId)).length;
+  expect(trimArchive(archive, "home", logId)).toBeGreaterThan(0);
+  expect(readdirSync(join(archive, "home", logId)).length).toBeLessThan(before);
+  home.close();
+  replayArchive(archive, "home", join(dir, "restored.sqlite"));
+  expect(canonicalDump(new Database(join(dir, "restored.sqlite"), { readonly: true }))).toBe(dumpOf(join(dir, "home.sqlite")));
 });

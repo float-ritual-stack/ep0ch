@@ -35,8 +35,9 @@ answer means nothing is archived that run, said with the command that starts it.
    or an offline night leaves nothing to repair; the next run uploads what's archived. A repository that isn't there
    yet is made (`restic init`).
 3. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
-   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day. The newest snapshot holds the whole log; the older
-   ones are there for a segment damaged since.
+   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day. Here, the archive keeps the segments from the one
+   holding the newest genesis on (a compaction writes one when the log outgrows the outline 4 times), so it stays
+   about one outline and its recent changes in size; the earlier segments are in the repository's earlier snapshots.
 4. **Relay** (a machine with `EP0CH_MCP_HUB`, the laptop): when the repository can't be reached (a quick look at its host
    answers nothing within 8 seconds, or restic's upload fails: a work VPN that blocks Hetzner object storage), the
    outline's archived log goes to the hub instead. It travels on the stdin of an ssh command, the path the netmail pull
@@ -87,8 +88,8 @@ stale with why when the home doesn't answer or refused to be followed.
     ep0ch backup list float-hub --machine laptop
     ep0ch backup restore float-hub --machine laptop --at 3h --to /tmp/float-hub.sqlite
 
-The restore replays the newest archive up to `--at` (an entry's time; whole transactions) into a new,
-integrity-checked file, never over an outline a service has open. The file is an outline of its own: a new log id,
+The restore replays the newest archive up to `--at` (an entry's time; whole transactions), or an earlier snapshot
+when `--at` is before the newest one's genesis, into a new, integrity-checked file, never over an outline a service has open. The file is an outline of its own: a new log id,
 recorded as forked from the old one, so a follower of the old outline rebuilds rather than mixing the two. Look at it,
 then swap it in with the host stopped:
 

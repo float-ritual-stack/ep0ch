@@ -246,8 +246,8 @@ describe.skipIf(!outliner)("the gateway's read-only copies", () => {
     expect(mirrorsConfig({ HOME: "/fictional/home" })).toEqual({ folder: "/fictional/home/outline-mirrors", mirrors: [] });
     expect(mirrorsConfig({ EP0CH_MCP_MIRRORS: "garden-notes" })).toMatchObject({ error: expect.stringContaining("<outline>@<machine>") });
     expect(mirrorsConfig({ EP0CH_MCP_MIRRORS: "a@b,a@b" })).toMatchObject({ error: expect.stringContaining("twice") });
-    // One outline name on two machines is two outlines.
-    expect(mirrorsConfig({ HOME: "/fictional/home", EP0CH_MCP_MIRRORS: "a@b,a@c" })).toMatchObject({ mirrors: [{ outline: "a", machine: "b" }, { outline: "a", machine: "c" }] });
+    // A bare name reaches one copy, so one outline name is followed from one machine.
+    expect(mirrorsConfig({ HOME: "/fictional/home", EP0CH_MCP_MIRRORS: "a@b,a@c" })).toMatchObject({ error: expect.stringContaining("names a twice") });
     expect(mirrorsConfig({ EP0CH_OUTLINES: "/fictional/outlines", EP0CH_MCP_MIRROR_DIR: "/fictional/outlines" })).toMatchObject({ error: expect.stringContaining("is the outlines folder") });
   });
 });

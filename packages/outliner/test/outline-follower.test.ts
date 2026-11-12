@@ -138,3 +138,31 @@ test("a home whose log is another (the outline made again) is rebuilt from, neve
   expect(await textOf(kettle.id)).not.toContain("Kettle log");
   expect(logged.join("\n")).toContain("copy made from");
 }, 30_000);
+
+test("a copy here that isn't a follower's (one from before the log) is served, then made again from the home's log", async () => {
+  // The home has its own outline; the copy here is another file of that name (a restic copy, say), with other notes.
+  const home = new OutlinerStore(far().database("seed-notes"), { workspaceRoot: root });
+  const trays = home.create("Seed trays\nSow the beans on Friday.", null, "user");
+  home.close();
+  const aside = join(root, "aside");
+  mkdirSync(aside, { recursive: true });
+  const old = new OutlinerStore(join(aside, "seed-notes.sqlite"), { workspaceRoot: aside });
+  const stale = old.create("An old copy's note", null, "user");
+  old.close();
+  mkdirSync(join(root, "mirrors", FAR), { recursive: true });
+  renameSync(join(aside, "seed-notes.sqlite"), join(root, "mirrors", FAR, "seed-notes.sqlite"));
+  const seeds = new OutlineFollower<OutlinerClient>("seed-notes", FAR, join(root, "mirrors"), {
+    label: "test follow", log: line => logged.push(line), schema: () => SCHEMA_VERSION, everyMs: 600_000,
+    reach: async machine => (await forwardFor(machine, join(root, "outlines"), env)).socket,
+    attach: async (socket, name) => ({ board: new OutlinerClient(socket, 5_000, name), close() {} }),
+  });
+  try {
+    await seeds.pull();
+    const read = await seeds.read();
+    if ("error" in read) throw new Error(read.error);
+    const text = (id: string) => read.board.request<Block>({ action: "get", blockId: id } as never).then(b => b.text, (e: Error) => e.message);
+    expect(await text(trays.id)).toBe("Seed trays\nSow the beans on Friday.");
+    expect(await text(stale.id)).not.toBe("An old copy's note");
+    expect(logged.join("\n")).toContain("isn't a follower's");
+  } finally { await seeds.close(); }
+}, 30_000);

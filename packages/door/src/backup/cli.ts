@@ -206,25 +206,29 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const when = at === undefined ? null : parseAt(at);
       if (at !== undefined && when === null) { io.err(`ep0ch backup: --at ${at} isn't a time (2026-10-06T14:00, 3h, 2d)`); return 2; }
       const repo = c.repoOf(machine);
-      // The newest archive holds the whole log; --at replays it up to that moment (ADR 0009 §6).
-      const list = await snapshots(c, repo, { outline });
+      // The newest archive holds the log since its newest genesis; --at replays up to that moment, from an earlier
+      // snapshot when the moment is before it (ADR 0009 §6).
+      const list = await snapshots(c, repo, { all: true, outline });
       if ("error" in list) { io.err(`ep0ch backup: can't list ${repo}: ${list.error}`); return 1; }
-      const snap = list.at(-1);
-      if (!snap) { io.err(`ep0ch backup: no archive of ${outline} in ${repo}`); return 1; }
+      if (!list.length) { io.err(`ep0ch backup: no archive of ${outline} in ${repo}`); return 1; }
       mkdirSync(dirname(dest), { recursive: true });
       // Staged in a private folder beside it (the same file system), then linked in: link never replaces a file
       // that appeared meanwhile.
       const stage = mkdtempSync(join(dirname(dest), ".restore-"));
-      const tmp = join(stage, "restored.sqlite");
-      let replayed: Replayed;
+      let replayed: Replayed | null = null, snap = list.at(-1)!, why = "";
       try {
-        const got = await restoreArchive(c, repo, snap, join(stage, "archive"));
-        if ("error" in got) { io.err(`ep0ch backup: restoring ${snap.id.slice(0, 8)} failed: ${got.error}`); return 1; }
-        try { replayed = replayArchive(got.root, outline, tmp, when === null ? {} : { until: when }); }
-        catch (e) { io.err(`ep0ch backup: replaying ${snap.id.slice(0, 8)} failed: ${(e as Error).message}`); return 1; }
-        const verdict = integrity(tmp);
-        if (verdict !== "ok") { io.err(`ep0ch backup: the replay of ${snap.id.slice(0, 8)} failed its check: ${verdict}`); return 1; }
-        try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
+        for (const candidate of [...list].reverse()) {
+          const tmp = join(stage, `${candidate.id}.sqlite`);
+          const got = await restoreArchive(c, repo, candidate, join(stage, candidate.id));
+          if ("error" in got) { why = `restoring ${candidate.id.slice(0, 8)} failed: ${got.error}`; continue; }
+          try { replayed = replayArchive(got.root, outline, tmp, when === null ? {} : { until: when }); snap = candidate; }
+          catch (e) { why = `replaying ${candidate.id.slice(0, 8)} failed: ${(e as Error).message}`; continue; }
+          const verdict = integrity(tmp);
+          if (verdict !== "ok") { io.err(`ep0ch backup: the replay of ${candidate.id.slice(0, 8)} failed its check: ${verdict}`); return 1; }
+          try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
+          break;
+        }
+        if (!replayed) { io.err(`ep0ch backup: ${why}`); return 1; }
       } finally { rmSync(stage, { recursive: true, force: true }); }
       say(`✓ ${outline} from ${machine}'s archive ${snap.id.slice(0, 8)}, replayed to entry ${replayed.lsn}${replayed.at ? ` (${hhmm(replayed.at)})` : ""}, ${replayed.rows.blocks ?? "?"} blocks → ${dest}; integrity ok`);
       return 0;
