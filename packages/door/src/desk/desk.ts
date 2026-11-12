@@ -545,16 +545,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const side = id === undefined ? null : pairSide(this.root, id);
     return side === "tab" ? null : side;
   }
-  /**
-   * Where the answer tile beside `reader` is, of the pair they make (below, a tab behind it…): its edit's ask row says so
-   * (PIE-1757). Null with none open; undefined for a reader that takes none (a float, as `answerTile` refuses), PIE-1758.
-   */
-  answerSide(reader: ReaderPane): Dir | "tab" | null | undefined {
-    const at = this.idOf(reader);
-    if (at === undefined) return undefined;
-    const id = [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at))?.[0];
-    return id !== undefined ? pairSide(this.root, id) : this.isFloat(at) ? undefined : null;
-  }
+  /** Where the answer tile beside `reader` is (below, a tab behind it…: its ask row says so, PIE-1757); null with none, undefined for a float, which takes none (PIE-1758). */
+  answerSide(reader: ReaderPane): Dir | "tab" | null | undefined { const at = this.idOf(reader), id = at === undefined ? undefined : [...this.panes].find(([, p]) => p instanceof AnswerTile && p.source === this.nameOf(at))?.[0]; return id !== undefined ? pairSide(this.root, id) : at === undefined || this.isFloat(at) ? undefined : null; }
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
   /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */
