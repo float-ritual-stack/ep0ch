@@ -5,6 +5,7 @@
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, type CalloutRegistry } from "./callouts";
 import { noteCodeFences } from "./component-block";
 import { linkOccurrences, pageAddressReferences } from "./link-syntax";
+import type { SourceRange } from "./code-ranges";
 import type { ComponentKind } from "./component-at";
 import type { Primitive } from "./primitive";
 import { readContentSize, type Align, type ContentWidth, type Focus, type MediaSpec } from "./media-line";
@@ -60,6 +61,15 @@ export type PagePrimitive =
   | { type: "source"; text: string }
   | PagePart;
 
+/** The primitive types a page adds to the catalogue's, each with the fields it takes (a part's are `PagePart`'s). */
+export const PAGE_PRIMITIVE_FIELDS = {
+  markdown: ["text"],
+  picture: ["path", "svg", "alt", "width", "height", "align", "fit", "focus", "dim", "problems"],
+  source: ["text"],
+  part: ["kind", "block", "span", "line", "name", "figure", "title", "query", "status", "error", "truncated", "sequence", "view"],
+} as const satisfies { [T in Exclude<PagePrimitive["type"], Primitive["type"]>]: readonly string[] };
+export const PAGE_PRIMITIVE_TYPES = Object.keys(PAGE_PRIMITIVE_FIELDS) as (keyof typeof PAGE_PRIMITIVE_FIELDS)[];
+
 /** What a part was written as: `componentAt`'s kinds (component-at.ts), prose, and a picture. Said for a reader of the data; nothing draws by it. */
 export type PagePartKind = ComponentKind | "prose" | "picture";
 
@@ -73,7 +83,7 @@ export interface PagePart {
   /** The note it is written in. */
   block: string;
   /** Where its lines are in that note's text, in UTF-16 code units (`end` exclusive): `text.slice(start, end)` is it as written. */
-  span: { start: number; end: number };
+  span: SourceRange;
   /** The line of the note (from 0) it starts on: how a press names a button (`scripts.sequence`). */
   line: number;
   /** A component's name as written (`graph-stat`, `links`, `button`). */
@@ -92,13 +102,6 @@ export interface PagePart {
   /** A button whose press is the service's to run (several steps, or a script): `scripts.sequence` with `block` and `line`. */
   sequence?: true;
   view: PagePrimitive;
-}
-
-/** The UTF-16 offset each line of `lines` starts at, and one past the last line's end: a part's `span` is read from it. */
-export function lineOffsets(lines: readonly string[]): number[] {
-  const at = [0];
-  for (const line of lines) at.push(at[at.length - 1]! + line.length + 1);
-  return at;
 }
 
 /** A note in a list, as every list of a page names one: its id, its title as lists show it, and where it sits. */

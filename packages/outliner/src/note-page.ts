@@ -4,6 +4,7 @@
 // turns each answer into HTML, this hands it over as data, so a client that can't run outline-core draws any note
 // and re-implements none of it.
 import { BUTTON_NAME } from "@ep0ch/outline-core/button-call";
+import { sourceLines } from "@ep0ch/outline-core/code-ranges";
 import { componentAt, componentStarts, type ComponentAt } from "@ep0ch/outline-core/component-at";
 import { noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figurePrimitive } from "@ep0ch/outline-core/figure-primitive";
@@ -12,7 +13,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { ListGroup, ListRow } from "@ep0ch/outline-core/list-row";
 import { noteMediaLines, parsePictureFence } from "@ep0ch/outline-core/media-line";
-import { lineOffsets, pageAddresses, pagePicture, proseMarkdown, unlabelledReferences, type NotePage, type NoteRow, type PagePart, type PagePicture, type PagePrimitive } from "@ep0ch/outline-core/note-page";
+import { pageAddresses, pagePicture, proseMarkdown, unlabelledReferences, type NotePage, type NoteRow, type PagePart, type PagePicture, type PagePrimitive } from "@ep0ch/outline-core/note-page";
 import type { Tone } from "@ep0ch/outline-core/primitive";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
 import { USE_NAME, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -72,7 +73,7 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
   // The body is every line after the header line; a component is found where it stands in the whole note, as a page finds it.
   const first = header.line + 1;
   const structure = noteStructure(all);
-  const starts = componentStarts(all), offsets = lineOffsets(all);
+  const starts = componentStarts(all), offsets = sourceLines(note.text);
   const titles = new Map<string, string>();
   const written = all.slice(first).join("\n");
   const ids = unlabelledReferences(written);
@@ -91,7 +92,7 @@ async function noteParts(host: LiveHost, note: { id: string; text: string }, add
   const lines = (from: number, to: number) => all.slice(from, to + 1).join("\n");
   /** A part written on lines `from` to `to` (inclusive). */
   const part = (kind: PagePart["kind"], from: number, to: number, view: PagePrimitive, frame: Partial<PagePart> = {}): PagePart =>
-    ({ type: "part", kind, block: note.id, span: { start: offsets[from]!, end: offsets[to + 1]! - 1 }, line: from, ...frame, view });
+    ({ type: "part", kind, block: note.id, span: { start: offsets[from]?.start ?? note.text.length, end: offsets[to]?.contentEnd ?? note.text.length }, line: from, ...frame, view });
   const asWritten = (from: number, to: number): PagePrimitive => ({ type: "source", text: lines(from, to) });
 
   /** The component `found` at line `i`, answered. */
