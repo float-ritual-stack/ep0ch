@@ -146,8 +146,11 @@ ep0ch actions --door native                             # every action, as its r
 - **An act takes nothing of the person's.** Not their keys, not the bar they have open or its lit row, not the
   editor: `edit`, `edit.save`, `edit.close`, `bar.close` and `notice.dismiss` are refused to an agent with why,
   and an agent's `open` is refused while the person types in the reader.
+- **An agent's `bar.open` lists the actions** for its words and opens nothing. The notes and a query's matches
+  are the service's answers, which an act can't wait for: those scopes are refused with where to ask
+  (`ep0ch find`), never answered as an empty list.
 - **`peek` is state, not a frame:** a hidden window answers it. The element tree and a picture of a live window
-  are not served yet; `--snap` and `--tree` draw headless.
+  are not served yet; `--snap` and `--tree` draw headless, and a headless run serves no control socket.
 
 ## Check it
 
